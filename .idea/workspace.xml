@@ -4,23 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="0541dfd7-a7d3-4fbc-a932-bd27ef350d6c" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/.idea/Swing_Trader.iml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/inspectionProfiles/Project_Default.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/inspectionProfiles/profiles_settings.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/gui_components/dialogs/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/gui_components/dialogs/__init__.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/gui_components/dialogs/open_positions_dialog.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/gui_components/dialogs/option_chain_dialog.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/gui_components/dialogs/pending_orders_dialog.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/gui_components/dialogs/quick_order_dialog.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/gui_components/swing_trader_window.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/gui_components/swing_trader_window.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/gui_components/tables/chartink_scanner_table.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/gui_components/tables/chartink_scanner_table.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/gui_components/widgets/header_toolbar.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/gui_components/widgets/header_toolbar.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/utils/bs_greeks.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/utils/pricing_utils.py" beforeDir="false" />
-    </list>
+    <list default="true" id="0541dfd7-a7d3-4fbc-a932-bd27ef350d6c" name="Changes" comment="" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
