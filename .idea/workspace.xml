@@ -4,7 +4,23 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="0541dfd7-a7d3-4fbc-a932-bd27ef350d6c" name="Changes" comment="" />
+    <list default="true" id="0541dfd7-a7d3-4fbc-a932-bd27ef350d6c" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/.idea/Swing_Trader.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/inspectionProfiles/Project_Default.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/inspectionProfiles/profiles_settings.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/dialogs/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/gui_components/dialogs/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/dialogs/open_positions_dialog.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/dialogs/option_chain_dialog.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/dialogs/pending_orders_dialog.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/dialogs/quick_order_dialog.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/swing_trader_window.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/gui_components/swing_trader_window.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/tables/chartink_scanner_table.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/gui_components/tables/chartink_scanner_table.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/widgets/header_toolbar.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/gui_components/widgets/header_toolbar.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/utils/bs_greeks.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/utils/pricing_utils.py" beforeDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -20,18 +36,18 @@
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
-  <component name="GitHubPullRequestSearchHistory"><![CDATA[{
-  "lastFilter": {
-    "state": "OPEN",
-    "assignee": "KAVIARASU301"
+  <component name="GitHubPullRequestSearchHistory">{
+  &quot;lastFilter&quot;: {
+    &quot;state&quot;: &quot;OPEN&quot;,
+    &quot;assignee&quot;: &quot;KAVIARASU301&quot;
   }
-}]]></component>
-  <component name="GithubPullRequestsUISettings"><![CDATA[{
-  "selectedUrlAndAccountId": {
-    "url": "https://github.com/KAVIARASU301/swing_trader.git",
-    "accountId": "56c51f9d-795e-447d-820a-41ebbee30b25"
+}</component>
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;https://github.com/KAVIARASU301/swing_trader.git&quot;,
+    &quot;accountId&quot;: &quot;56c51f9d-795e-447d-820a-41ebbee30b25&quot;
   }
-}]]></component>
+}</component>
   <component name="ProjectColorInfo">{
   &quot;associatedIndex&quot;: 1
 }</component>
@@ -43,11 +59,19 @@
   <component name="PropertiesComponent"><![CDATA[{
   "keyToString": {
     "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "Python.ChartinkRequest.executor": "Run",
     "Python.__init__.executor": "Run",
+    "Python.candlestick_chart_widget.executor": "Run",
+    "Python.chartink_results.executor": "Run",
+    "Python.chartink_scanner_table.executor": "Run",
     "Python.header_toolbar.executor": "Run",
     "Python.main.executor": "Run",
+    "Python.stock_alert_dialog.executor": "Run",
+    "Python.swing_trader_window.executor": "Run",
     "Python.theme_manager.executor": "Run",
     "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "SHARE_PROJECT_CONFIGURATION_FILES": "true",
     "git-widget-placeholder": "main",
     "junie.onboarding.icon.badge.shown": "true",
     "last_opened_file_path": "/home/kavi/Desktop/Swing_Trader"

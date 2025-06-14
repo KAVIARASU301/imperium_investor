@@ -17,3 +17,8 @@ matplotlib~=3.10.1
 constants~=0.6.0
 setuptools~=80.7.1
 
+
+scipy~=1.15.3
+requests~=2.32.3
+beautifulsoup4~=4.11.0
+tvdatafeed~=2.1.0
