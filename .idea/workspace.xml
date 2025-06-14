@@ -6,11 +6,6 @@
   <component name="ChangeListManager">
     <list default="true" id="0541dfd7-a7d3-4fbc-a932-bd27ef350d6c" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/gui_components/dialogs/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/gui_components/dialogs/__init__.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/gui_components/positions_table.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/gui_components/positions_table.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/gui_components/swing_trader_window.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/gui_components/swing_trader_window.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/gui_components/widgets/candlestick_chart_widget.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/gui_components/widgets/candlestick_chart_widget.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/gui_components/widgets/header_toolbar.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/gui_components/widgets/header_toolbar.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -33,12 +28,12 @@
     &quot;assignee&quot;: &quot;KAVIARASU301&quot;
   }
 }</component>
-  <component name="GithubPullRequestsUISettings">{
-  &quot;selectedUrlAndAccountId&quot;: {
-    &quot;url&quot;: &quot;https://github.com/KAVIARASU301/swing_trader.git&quot;,
-    &quot;accountId&quot;: &quot;56c51f9d-795e-447d-820a-41ebbee30b25&quot;
+  <component name="GithubPullRequestsUISettings"><![CDATA[{
+  "selectedUrlAndAccountId": {
+    "url": "git@github.com:KAVIARASU301/swing_trader.git",
+    "accountId": "56c51f9d-795e-447d-820a-41ebbee30b25"
   }
-}</component>
+}]]></component>
   <component name="ProjectColorInfo">{
   &quot;associatedIndex&quot;: 1
 }</component>
