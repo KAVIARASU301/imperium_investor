@@ -20,32 +20,28 @@ class InstrumentLoader(QThread):
     def run(self):
         """Load instruments in background"""
         try:
-            instruments = self.kite.instruments("NFO")
+            # Fetch instruments from both NSE and BSE
+            nse_instruments = self.kite.instruments("NSE")
+            bse_instruments = self.kite.instruments("BSE")
+            
+            instruments = nse_instruments + bse_instruments
 
             # Process instruments
             symbol_data = {}
 
             for inst in instruments:
-                if inst['instrument_type'] in ['CE', 'PE']:
-                    symbol_name = inst['name']
+                if inst['instrument_type'] == 'EQ':
+                    symbol_name = inst['tradingsymbol']
 
                     if symbol_name not in symbol_data:
                         symbol_data[symbol_name] = {
-                            'lot_size': inst['lot_size'],
+                            'instrument_token': inst['instrument_token'],
+                            'exchange': inst['exchange'],
                             'tick_size': inst['tick_size'],
-                            'expiries': set(),
-                            'strikes': set(),
-                            'instruments': []
+                            'lot_size': inst['lot_size'],
+                            'instrument_type': inst['instrument_type'],
+                            'name': inst['name']
                         }
-
-                    symbol_data[symbol_name]['expiries'].add(inst['expiry'])
-                    symbol_data[symbol_name]['strikes'].add(inst['strike'])
-                    symbol_data[symbol_name]['instruments'].append(inst)
-
-            # Convert sets to sorted lists
-            for symbol in symbol_data:
-                symbol_data[symbol]['expiries'] = sorted(list(symbol_data[symbol]['expiries']))
-                symbol_data[symbol]['strikes'] = sorted(list(symbol_data[symbol]['strikes']))
 
             self.instruments_loaded.emit(symbol_data)
 

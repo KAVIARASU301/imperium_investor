@@ -2,7 +2,8 @@ import sys
 import logging
 from PySide6.QtWidgets import QApplication, QMessageBox
 from kiteconnect import KiteConnect
-from src import LoginManager, ScalperMainWindow, setup_logging, PaperTradingManager
+from src import LoginManager, setup_logging, PaperTradingManager
+from src.gui_components.swing_trader_window import SwingTraderWindow
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -11,7 +12,7 @@ logger = logging.getLogger(__name__)
 def main():
     """Main function to run the application."""
     app = QApplication(sys.argv)
-    logger.info("Options Scalper starting...")
+    logger.info("Swing Trader starting...")
 
     login_manager = LoginManager()
 
@@ -41,7 +42,7 @@ def main():
 
     try:
         # Pass both the trader and the real client to the main window.
-        window = ScalperMainWindow(
+        window = SwingTraderWindow(
             trader=trader,
             real_kite_client=real_kite_client,
             api_key=api_creds['api_key'],

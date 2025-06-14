@@ -6,7 +6,6 @@ for the trading application.
 """
 
 # Expose the main application window, which is the primary GUI entry point.
-from .gui_components.main_window import ScalperMainWindow
 
 # Expose the core manager classes that handle the application's logic.
 from .login_manager import LoginManager
