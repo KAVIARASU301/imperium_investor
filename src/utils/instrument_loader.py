@@ -1,3 +1,5 @@
+# src/utils/instrument_loader.py
+
 """Instrument loader for fetching trading instruments from Zerodha"""
 
 import logging
@@ -10,7 +12,7 @@ logger = logging.getLogger(__name__)
 class InstrumentLoader(QThread):
     """Background thread for loading instruments from Zerodha"""
 
-    instruments_loaded = Signal(dict)
+    instruments_loaded = Signal(list)  # Changed to emit a list
     error_occurred = Signal(str)
 
     def __init__(self, kite_client: KiteConnect):
@@ -26,24 +28,9 @@ class InstrumentLoader(QThread):
             
             instruments = nse_instruments + bse_instruments
 
-            # Process instruments
-            symbol_data = {}
-
-            for inst in instruments:
-                if inst['instrument_type'] == 'EQ':
-                    symbol_name = inst['tradingsymbol']
-
-                    if symbol_name not in symbol_data:
-                        symbol_data[symbol_name] = {
-                            'instrument_token': inst['instrument_token'],
-                            'exchange': inst['exchange'],
-                            'tick_size': inst['tick_size'],
-                            'lot_size': inst['lot_size'],
-                            'instrument_type': inst['instrument_type'],
-                            'name': inst['name']
-                        }
-
-            self.instruments_loaded.emit(symbol_data)
+            # FIX: Emit the raw list of instruments directly
+            self.instruments_loaded.emit(instruments)
+            logger.info(f"Successfully loaded {len(instruments)} instruments.")
 
         except Exception as e:
             logger.error(f"Failed to load instruments: {e}")

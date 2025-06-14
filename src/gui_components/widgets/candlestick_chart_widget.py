@@ -1,93 +1,155 @@
 import logging
-import pandas as pd
 from datetime import datetime, timedelta
+from typing import List, Dict, Optional
 
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLineEdit, QCompleter, QLabel
-from PySide6.QtCharts import QChart, QChartView, QCandlestickSeries, QBarSet, QBarSeries, QValueAxis, QBarCategoryAxis
-from PySide6.QtCore import Qt, Slot, QStringListModel
-from PySide6.QtGui import QColor, QPainter, QPen
+import pandas as pd
+from lightweight_charts import Chart
+from PySide6.QtCore import QObject, Signal, Slot, QThread
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QMessageBox
 
+from src.utils.data_fetcher import DataFetcher
+
+logger = logging.getLogger(__name__)
+
+
+class DataLoaderThread(QThread):
+    """A dedicated thread to fetch chart data without freezing the UI."""
+    data_loaded = Signal(pd.DataFrame)
+    load_error = Signal(str)
+
+    def __init__(self, data_fetcher: DataFetcher, instrument_token: int, symbol: str):
+        super().__init__()
+        self.data_fetcher = data_fetcher
+        self.instrument_token = instrument_token
+        self.symbol = symbol
+
+    def run(self):
+        """Fetches data in the background."""
+        try:
+            to_date = datetime.now().date()
+            from_date = to_date - timedelta(days=730)  # Approx. 2 years of data
+            historical_data = self.data_fetcher.fetch_historical_data(
+                self.instrument_token, from_date, to_date, "day"
+            )
+
+            if historical_data:
+                df = pd.DataFrame(historical_data)
+                # Ensure correct data types for the library
+                df['time'] = pd.to_datetime(df['date']).dt.strftime('%Y-%m-%d')
+                df['open'] = df['open'].astype(float)
+                df['high'] = df['high'].astype(float)
+                df['low'] = df['low'].astype(float)
+                df['close'] = df['close'].astype(float)
+                df['volume'] = df['volume'].astype(int)
+                df['symbol'] = self.symbol  # Tag the data with the symbol
+                self.data_loaded.emit(df)
+            else:
+                self.load_error.emit(f"No historical data returned for {self.symbol}.")
+        except Exception as e:
+            logger.error(f"Error in DataLoaderThread for {self.symbol}: {e}")
+            self.load_error.emit(str(e))
 
 
 class ChartWindow(QWidget):
-    # --- MODIFIED: Updated __init__ to accept kite_client ---
-    def __init__(self, kite_client, parent=None):
+    """A widget for displaying candlestick charts using lightweight-charts."""
+
+    def __init__(self, parent=None, kite_client=None):
         super().__init__(parent)
-        self.kite_client = kite_client  # Store the client
-        self.setWindowTitle("Candlestick Chart")
+        self.kite_client = kite_client
+        self.data_fetcher = DataFetcher(self.kite_client)
+
+        # --- FIX: Hold the full instrument list for efficient lookups ---
+        self.instrument_list: List[Dict] = []
+        self.instrument_map: Dict[str, int] = {}
+
+        # --- FIX: Chart object and the layout that contains it ---
+        self.chart: Optional[Chart] = None
+        self.chart_container_layout: Optional[QVBoxLayout] = None
+        self.data_loader_thread: Optional[DataLoaderThread] = None
+
         self._init_ui()
-        self.load_initial_data()
 
     def _init_ui(self):
-        layout = QVBoxLayout(self)
-        self.chart_view = QChartView()
-        self.chart_view.setRenderHint(QPainter.Antialiasing)
-        layout.addWidget(self.chart_view)
+        """Initializes the main layout of the chart widget."""
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
+        # The chart will be added dynamically to this layout.
 
-    def load_initial_data(self):
-        # You can now use the kite_client to load initial data
-        # For now, we'll keep the search functionality to load a chart
-        self.on_search(None, "RELIANCE")  # Load a default chart
+    def set_instrument_list(self, instruments: List[Dict]):
+        """Receives the full instrument list from the main window for fast lookups."""
+        self.instrument_list = instruments
+        self.instrument_map = {
+            instrument['tradingsymbol']: instrument['instrument_token']
+            for instrument in instruments
+            if 'tradingsymbol' in instrument and 'instrument_token' in instrument
+        }
+        logger.info("ChartWindow has received the instrument list.")
 
     @Slot(str)
-    @Slot(int, str)
-    def on_search(self, _, symbol):
-        """Fetches data and updates the chart for the given symbol."""
-        logging.info(f"Chart: Received symbol '{symbol}'")
-        try:
-            # --- REAL DATA INTEGRATION ---
-            # Here is where you replace simulated data with a real API call
-            # You'll need the instrument token for the symbol.
-            # For simplicity, I'm keeping the logic similar to your simulated data for now.
+    def on_search(self, symbol: Optional[str] = None):
+        """Handles the request to display a new chart by symbol."""
+        if not symbol:
+            logger.warning("Chart search triggered with no symbol.")
+            return
 
-            # Placeholder: You need to get the instrument token for the symbol.
-            # You would typically get this from the instrument list loaded in the main window.
-            # For now, we'll just log it. A proper implementation would look up the token.
-            logging.info(f"Fetching historical data for {symbol} using kite_client...")
+        logger.info(f"Chart: Received symbol '{symbol}'")
+        instrument_token = self.instrument_map.get(symbol)
 
-            # Example call (you will need to get the correct instrument_token):
-            # to_date = datetime.now()
-            # from_date = to_date - timedelta(days=365)
-            # records = self.kite_client.historical_data(instrument_token, from_date, to_date, "day")
-            # df = pd.DataFrame(records)
+        if not instrument_token:
+            self.on_load_error(f"Could not find instrument token for {symbol}. Instrument list might be out of date.")
+            return
 
+        # --- FIX: Use a dedicated thread to fetch data to prevent UI freezes ---
+        if self.data_loader_thread and self.data_loader_thread.isRunning():
+            self.data_loader_thread.terminate()
 
-        except Exception as e:
-            logging.error(f"Error fetching or displaying chart data for {symbol}: {e}")
+        self.data_loader_thread = DataLoaderThread(self.data_fetcher, instrument_token, symbol)
+        self.data_loader_thread.data_loaded.connect(self.on_data_loaded)
+        self.data_loader_thread.load_error.connect(self.on_load_error)
+        self.data_loader_thread.start()
 
-    def update_chart(self, df, symbol):
-        # (The rest of this file remains the same)
-        series = QCandlestickSeries()
-        series.setName(symbol)
-        series.setIncreasingColor(QColor("#29C7C9"))
-        series.setDecreasingColor(QColor("#F85149"))
+    @Slot(pd.DataFrame)
+    def on_data_loaded(self, df: pd.DataFrame):
+        """
+        --- FIX: Completely rebuilds the chart to ensure it renders correctly. ---
+        This is the most critical part of the fix.
+        """
+        if df.empty:
+            self.on_load_error("Received empty data frame.")
+            return
 
-        timestamps = []
-        for index, row in df.iterrows():
-            series.append(QBarSet(row['open'], row['high'], row['low'], row['close'], timestamp=index.timestamp()))
-            timestamps.append(index.strftime('%b %d'))
+        # 1. Clear the old chart and its container layout completely.
+        if self.chart_container_layout is not None:
+            while self.chart_container_layout.count():
+                item = self.chart_container_layout.takeAt(0)
+                widget = item.widget()
+                if widget is not None:
+                    widget.deleteLater()
+            self.main_layout.removeItem(self.chart_container_layout)
+            self.chart_container_layout.deleteLater()
+            self.chart = None
+            self.chart_container_layout = None
 
-        chart = QChart()
-        chart.addSeries(series)
-        chart.setTitle(f"{symbol} Candlestick Chart")
-        chart.setAnimationOptions(QChart.SeriesAnimations)
-        chart.setBackgroundVisible(False)
-        chart.legend().setVisible(False)
+        # 2. Create a new container layout and a new chart instance.
+        self.chart_container_layout = QVBoxLayout()
+        self.chart_container_layout.setContentsMargins(0, 0, 0, 0)
 
-        axis_x = QBarCategoryAxis()
-        axis_x.append(timestamps)
-        chart.addAxis(axis_x, Qt.AlignBottom)
-        series.attachAxis(axis_x)
+        self.chart = Chart(parent=self, toolbox=True)
+        self.chart.legend(visible=True)
+        self.chart.topbar.textbox('symbol', df['symbol'].iloc[0])
 
-        axis_y = QValueAxis()
-        axis_y.setLabelFormat("₹%.2f")
-        chart.addAxis(axis_y, Qt.AlignLeft)
-        series.attachAxis(axis_y)
+        # 3. Add the new chart to the new layout, and add that to the main layout.
+        self.chart_container_layout.addWidget(self.chart)
+        self.main_layout.addLayout(self.chart_container_layout)
 
-        pen = QPen(QColor("#A9B1C3"))
-        axis_x.setLabelsColor(QColor("#A9B1C3"))
-        axis_y.setLabelsColor(QColor("#A9B1C3"))
-        axis_x.setLinePen(pen)
-        axis_y.setLinePen(pen)
+        # 4. Set the data and render the chart.
+        self.chart.set(df)
+        self.chart.load()
 
-        self.chart_view.setChart(chart)
+        logger.info(f"Chart for {df['symbol'].iloc[0]} loaded successfully.")
+
+    @Slot(str)
+    def on_load_error(self, error_message: str):
+        """Displays an error message in a popup dialog."""
+        QMessageBox.warning(self, "Chart Error", error_message)
+        logger.error(f"Chart loading error: {error_message}")
