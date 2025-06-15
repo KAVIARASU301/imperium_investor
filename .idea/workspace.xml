@@ -6,10 +6,7 @@
   <component name="ChangeListManager">
     <list default="true" id="0541dfd7-a7d3-4fbc-a932-bd27ef350d6c" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/gui_components/positions_table.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/gui_components/positions_table.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/gui_components/swing_trader_window.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/gui_components/swing_trader_window.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/gui_components/widgets/candlestick_chart_widget.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/gui_components/widgets/candlestick_chart_widget.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/utils/instrument_loader.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/utils/instrument_loader.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />

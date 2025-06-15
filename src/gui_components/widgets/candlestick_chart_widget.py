@@ -4,8 +4,8 @@ from typing import List, Dict, Optional
 
 import pandas as pd
 from lightweight_charts import Chart
-from PySide6.QtCore import QObject, Signal, Slot, QThread
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QMessageBox
+from PySide6.QtCore import Signal, Slot, QThread, Qt
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QMessageBox, QStackedWidget, QLabel
 
 from src.utils.data_fetcher import DataFetcher
 
@@ -27,7 +27,7 @@ class DataLoaderThread(QThread):
         """Fetches data in the background."""
         try:
             to_date = datetime.now().date()
-            from_date = to_date - timedelta(days=730)  # Approx. 2 years of data
+            from_date = to_date - timedelta(days=730)  # Approx. 2 years
             historical_data = self.data_fetcher.fetch_historical_data(
                 self.instrument_token, from_date, to_date, "day"
             )
@@ -41,43 +41,49 @@ class DataLoaderThread(QThread):
                 df['low'] = df['low'].astype(float)
                 df['close'] = df['close'].astype(float)
                 df['volume'] = df['volume'].astype(int)
-                df['symbol'] = self.symbol  # Tag the data with the symbol
+                df['symbol'] = self.symbol
                 self.data_loaded.emit(df)
             else:
                 self.load_error.emit(f"No historical data returned for {self.symbol}.")
         except Exception as e:
             logger.error(f"Error in DataLoaderThread for {self.symbol}: {e}")
-            self.load_error.emit(str(e))
+            self.load_error.emit(f"API Error: {e}")
 
 
 class ChartWindow(QWidget):
-    """A widget for displaying candlestick charts using lightweight-charts."""
+    """A robust widget for displaying candlestick charts using a QStackedWidget."""
 
     def __init__(self, parent=None, kite_client=None):
         super().__init__(parent)
-        self.kite_client = kite_client
-        self.data_fetcher = DataFetcher(self.kite_client)
+        # --- Dependencies ---
+        self.data_fetcher = DataFetcher(kite_client)
 
-        # --- FIX: Hold the full instrument list for efficient lookups ---
-        self.instrument_list: List[Dict] = []
+        # --- State ---
         self.instrument_map: Dict[str, int] = {}
-
-        # --- FIX: Chart object and the layout that contains it ---
-        self.chart: Optional[Chart] = None
-        self.chart_container_layout: Optional[QVBoxLayout] = None
         self.data_loader_thread: Optional[DataLoaderThread] = None
+        self.current_chart_widget: Optional[QWidget] = None  # Hold reference to the current chart widget
 
-        self._init_ui()
+        # --- UI Components ---
+        self.stacked_widget = QStackedWidget()
+        self.message_label = QLabel("Select a symbol to display chart.")
+        self._setup_ui()
 
-    def _init_ui(self):
-        """Initializes the main layout of the chart widget."""
-        self.main_layout = QVBoxLayout(self)
-        self.main_layout.setContentsMargins(0, 0, 0, 0)
-        # The chart will be added dynamically to this layout.
+    def _setup_ui(self):
+        """Initializes the UI, including the stacked layout for different states."""
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.addWidget(self.stacked_widget)
+
+        # Configure the message label (this is the widget's default state)
+        self.message_label.setAlignment(Qt.AlignCenter)
+        self.message_label.setStyleSheet("color: #888; font-size: 16px;")
+
+        # Page 0: Initial message. This ensures the widget is never blank.
+        self.stacked_widget.addWidget(self.message_label)
+        self.stacked_widget.setCurrentWidget(self.message_label)
 
     def set_instrument_list(self, instruments: List[Dict]):
         """Receives the full instrument list from the main window for fast lookups."""
-        self.instrument_list = instruments
         self.instrument_map = {
             instrument['tradingsymbol']: instrument['instrument_token']
             for instrument in instruments
@@ -96,10 +102,13 @@ class ChartWindow(QWidget):
         instrument_token = self.instrument_map.get(symbol)
 
         if not instrument_token:
-            self.on_load_error(f"Could not find instrument token for {symbol}. Instrument list might be out of date.")
+            self.on_load_error(f"Could not find instrument token for '{symbol}'.")
             return
 
-        # --- FIX: Use a dedicated thread to fetch data to prevent UI freezes ---
+        # Show a "Loading..." message to the user
+        self.message_label.setText(f"Loading chart for {symbol}...")
+        self.stacked_widget.setCurrentWidget(self.message_label)
+
         if self.data_loader_thread and self.data_loader_thread.isRunning():
             self.data_loader_thread.terminate()
 
@@ -110,46 +119,43 @@ class ChartWindow(QWidget):
 
     @Slot(pd.DataFrame)
     def on_data_loaded(self, df: pd.DataFrame):
-        """
-        --- FIX: Completely rebuilds the chart to ensure it renders correctly. ---
-        This is the most critical part of the fix.
-        """
+        """Creates a new chart widget with the loaded data and displays it."""
         if df.empty:
             self.on_load_error("Received empty data frame.")
             return
 
-        # 1. Clear the old chart and its container layout completely.
-        if self.chart_container_layout is not None:
-            while self.chart_container_layout.count():
-                item = self.chart_container_layout.takeAt(0)
-                widget = item.widget()
-                if widget is not None:
-                    widget.deleteLater()
-            self.main_layout.removeItem(self.chart_container_layout)
-            self.chart_container_layout.deleteLater()
-            self.chart = None
-            self.chart_container_layout = None
+        # Create a new self-contained widget for the chart
+        new_chart_widget = QWidget()
+        chart_layout = QVBoxLayout(new_chart_widget)
+        chart_layout.setContentsMargins(0, 0, 0, 0)
 
-        # 2. Create a new container layout and a new chart instance.
-        self.chart_container_layout = QVBoxLayout()
-        self.chart_container_layout.setContentsMargins(0, 0, 0, 0)
+        chart = Chart(parent=new_chart_widget, toolbox=True, inner_width=0.99, inner_height=0.99)
+        chart_layout.addWidget(chart)
 
-        self.chart = Chart(parent=self, toolbox=True)
-        self.chart.legend(visible=True)
-        self.chart.topbar.textbox('symbol', df['symbol'].iloc[0])
+        chart.legend(visible=True)
+        chart.topbar.textbox('symbol', df['symbol'].iloc[0])
 
-        # 3. Add the new chart to the new layout, and add that to the main layout.
-        self.chart_container_layout.addWidget(self.chart)
-        self.main_layout.addLayout(self.chart_container_layout)
+        chart.set(df)
+        chart.load()
 
-        # 4. Set the data and render the chart.
-        self.chart.set(df)
-        self.chart.load()
+        # If an old chart widget exists, remove it from the stack and delete it
+        if self.current_chart_widget:
+            self.stacked_widget.removeWidget(self.current_chart_widget)
+            self.current_chart_widget.deleteLater()
+
+        # Add the new widget to the stack, make it the current one to show,
+        # and store a reference to it for the next cleanup.
+        self.stacked_widget.addWidget(new_chart_widget)
+        self.stacked_widget.setCurrentWidget(new_chart_widget)
+        self.current_chart_widget = new_chart_widget
 
         logger.info(f"Chart for {df['symbol'].iloc[0]} loaded successfully.")
 
     @Slot(str)
     def on_load_error(self, error_message: str):
-        """Displays an error message in a popup dialog."""
-        QMessageBox.warning(self, "Chart Error", error_message)
+        """Displays an error message on the message label and also in a popup."""
         logger.error(f"Chart loading error: {error_message}")
+        self.message_label.setText(f"Failed to load chart.\n{error_message}")
+        self.stacked_widget.setCurrentWidget(self.message_label)
+        QMessageBox.warning(self, "Chart Error", error_message)
+
