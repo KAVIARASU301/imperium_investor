@@ -1,11 +1,10 @@
-# src/gui_components/dialogs/pnl_history_dialog.py
 import logging
 from datetime import datetime, timedelta
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTableWidget, QWidget, QHeaderView
 )
-from PySide6.QtCore import Qt, QPoint
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 from src.utils.pnl_logger import PnlLogger
@@ -15,8 +14,8 @@ logger = logging.getLogger(__name__)
 
 class PnlHistoryDialog(QDialog):
     """
-    A premium dialog to display P&L history in a calendar view, styled
-    with the application's consistent rich and modern dark theme.
+    A modern, frameless dialog that displays historical Profit & Loss data
+    in a visually intuitive calendar format.
     """
 
     def __init__(self, mode: str = 'live', parent=None):
@@ -32,19 +31,24 @@ class PnlHistoryDialog(QDialog):
         self._populate_calendar()
 
     def _setup_window(self):
-        self.setWindowTitle("P&L History")
+        """Initializes window properties."""
+        self.setWindowTitle("P&L History Calendar")
         self.setMinimumSize(900, 650)
-        # --- Use FramelessWindowHint for custom styling ---
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.setAttribute(Qt.WA_TranslucentBackground)
 
     def _setup_ui(self):
-        # Main container for rounded corners and background
+        """Builds the main layout and widgets for the dialog."""
         container = QWidget(self)
         container.setObjectName("mainContainer")
 
+        # Enable window dragging
+        container.mousePressEvent = self.mousePressEvent
+        container.mouseMoveEvent = self.mouseMoveEvent
+        container.mouseReleaseEvent = self.mouseReleaseEvent
+
         container_layout = QVBoxLayout(container)
-        container_layout.setContentsMargins(20, 10, 20, 20)
+        container_layout.setContentsMargins(20, 15, 20, 20)
         container_layout.setSpacing(15)
 
         main_layout = QVBoxLayout(self)
@@ -53,53 +57,54 @@ class PnlHistoryDialog(QDialog):
 
         container_layout.addLayout(self._create_header())
         self.calendar_table = self._create_calendar_table()
-        container_layout.addWidget(self.calendar_table, 1)
+        container_layout.addWidget(self.calendar_table, stretch=1)
 
-    def _create_header(self):
+    def _create_header(self) -> QHBoxLayout:
+        """Creates the header with navigation, title, and total P&L."""
         header_layout = QHBoxLayout()
-        header_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.prev_month_btn = QPushButton("◀")
-        self.prev_month_btn.setObjectName("navButton")
-        self.prev_month_btn.clicked.connect(lambda: self._navigate_months(-1))
+        prev_month_btn = QPushButton("◀")
+        prev_month_btn.setObjectName("navButton")
+        prev_month_btn.clicked.connect(lambda: self._navigate_months(-1))
 
         self.month_year_label = QLabel("")
         self.month_year_label.setObjectName("monthYearLabel")
 
-        self.next_month_btn = QPushButton("▶")
-        self.next_month_btn.setObjectName("navButton")
-        self.next_month_btn.clicked.connect(lambda: self._navigate_months(1))
+        next_month_btn = QPushButton("▶")
+        next_month_btn.setObjectName("navButton")
+        next_month_btn.clicked.connect(lambda: self._navigate_months(1))
 
-        self.total_pnl_label = QLabel("Month P&L: ₹0.00")
+        self.total_pnl_label = QLabel("Month P&L: –")
         self.total_pnl_label.setObjectName("totalPnlLabel")
 
         close_btn = QPushButton("✕")
         close_btn.setObjectName("closeButton")
-        close_btn.setFixedSize(28, 28)
         close_btn.clicked.connect(self.close)
 
-        header_layout.addWidget(self.prev_month_btn)
-        header_layout.addWidget(self.month_year_label, 1, Qt.AlignCenter)
-        header_layout.addWidget(self.next_month_btn)
+        header_layout.addWidget(prev_month_btn)
+        header_layout.addWidget(self.month_year_label, 1, Qt.AlignmentFlag.AlignCenter)
+        header_layout.addWidget(next_month_btn)
         header_layout.addStretch(1)
         header_layout.addWidget(self.total_pnl_label)
         header_layout.addStretch(1)
-        header_layout.addWidget(close_btn)
+        header_layout.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignTop)
         return header_layout
 
-    def _create_calendar_table(self):
-        table = QTableWidget(6, 7)
+    def _create_calendar_table(self) -> QTableWidget:
+        """Creates and configures the table widget used as the calendar grid."""
+        table = QTableWidget(6, 7) # 6 weeks, 7 days
         table.setHorizontalHeaderLabels(["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"])
         table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         table.verticalHeader().setVisible(False)
-        table.setEditTriggers(QTableWidget.NoEditTriggers)
-        table.setFocusPolicy(Qt.NoFocus)
-        table.setSelectionMode(QTableWidget.NoSelection)
-        table.setShowGrid(False)  # Grid is handled by borders on cells
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        table.setShowGrid(False) # Grid is handled by cell borders in QSS
         return table
 
     def _navigate_months(self, offset: int):
+        """Changes the current month and repopulates the calendar."""
         month = self.current_date.month - 1 + offset
         year = self.current_date.year + month // 12
         month = month % 12 + 1
@@ -107,11 +112,13 @@ class PnlHistoryDialog(QDialog):
         self._populate_calendar()
 
     def _populate_calendar(self):
+        """Fills the calendar grid with days and their corresponding P&L data."""
         self.month_year_label.setText(self.current_date.strftime('%B %Y').upper())
         self.calendar_table.clearContents()
 
         year, month = self.current_date.year, self.current_date.month
         first_day_of_month = datetime(year, month, 1)
+        # Calculate the first Sunday to show on the calendar
         start_day_of_calendar = first_day_of_month - timedelta(days=(first_day_of_month.weekday() + 1) % 7)
 
         month_total_pnl = 0.0
@@ -128,12 +135,14 @@ class PnlHistoryDialog(QDialog):
                 if pnl is not None and day.month == month:
                     month_total_pnl += pnl
 
+        # Update the total P&L display for the current month
         self.total_pnl_label.setText(f"Month P&L: ₹{month_total_pnl:,.2f}")
-        color = "#29C7C9" if month_total_pnl >= 0 else "#F85149"
-        self.total_pnl_label.setStyleSheet(f"color: {color};")
+        profit_color, loss_color = "#00b894", "#d63031"
+        self.total_pnl_label.setStyleSheet(f"color: {profit_color if month_total_pnl >= 0 else loss_color};")
         self.calendar_table.viewport().update()
 
     def _create_calendar_cell(self, day: datetime, pnl: float, is_current_month: bool) -> QWidget:
+        """Creates a single cell widget for a day in the calendar."""
         widget = QWidget()
         widget.setObjectName("calendarCell")
         layout = QVBoxLayout(widget)
@@ -148,64 +157,66 @@ class PnlHistoryDialog(QDialog):
         if pnl is not None and is_current_month:
             pnl_label = QLabel(f"₹{pnl:,.0f}")
             pnl_label.setObjectName("pnlLabel")
-            color = "#29C7C9" if pnl >= 0 else "#F85149"
-            pnl_label.setStyleSheet(f"color: {color};")
+            profit_color, loss_color = "#00b894", "#d63031"
+            pnl_label.setStyleSheet(f"color: {profit_color if pnl >= 0 else loss_color};")
             layout.addWidget(pnl_label)
 
-        # Style based on cell state
-        if not is_current_month:
-            widget.setProperty("isCurrentMonth", "false")
-        elif pnl is not None:
-            widget.setProperty("tradeDay", "true")
-            widget.setProperty("isProfit", "true" if pnl >= 0 else "false")
+        # Use dynamic properties to control styling via QSS
+        widget.setProperty("isCurrentMonth", is_current_month)
+        if pnl is not None and is_current_month:
+            widget.setProperty("tradeDay", True)
+            widget.setProperty("isProfit", pnl >= 0)
 
-        # Re-polish to apply property changes
         widget.style().unpolish(widget)
         widget.style().polish(widget)
-
         return widget
 
     def _apply_styles(self):
-        """Applies a premium, modern dark theme."""
+        """Applies a consistent, modern dark theme stylesheet."""
         self.setStyleSheet("""
             #mainContainer {
-                background-color: #161A25;
-                border: 1px solid #3A4458;
+                background-color: #1c1c2e;
+                border: 1px solid #3a3a5a;
                 border-radius: 12px;
                 font-family: "Segoe UI", sans-serif;
             }
-            #monthYearLabel { color: #FFFFFF; font-size: 20px; font-weight: 300; }
+            #monthYearLabel { color: #e0e0e0; font-size: 22px; font-weight: 300; }
             #totalPnlLabel { font-size: 18px; font-weight: 600; }
             #closeButton, #navButton {
-                background-color: #212635; color: #A9B1C3; border: none;
+                background-color: #2a2a4a; color: #b2bec3; border: none;
                 font-family: "Segoe UI Symbol"; font-size: 16px;
-                border-radius: 6px; min-width: 36px; min-height: 36px;
+                border-radius: 6px; min-width: 38px; min-height: 38px;
             }
-            #closeButton:hover, #navButton:hover { background-color: #3A4458; color: #FFFFFF; }
+            #closeButton:hover, #navButton:hover { background-color: #3a3a5a; color: #ffffff; }
 
             QTableWidget { background-color: transparent; border: none; }
             QHeaderView::section {
-                background-color: transparent; color: #8A9BA8;
-                padding: 10px 0px; border: none;
-                border-bottom: 1px solid #2A3140;
+                background-color: #1c1c2e; color: #8a8a9e;
+                padding-bottom: 10px; border: none;
+                border-bottom: 1px solid #3a3a5a;
                 font-weight: bold; font-size: 11px; text-transform: uppercase;
             }
             #calendarCell {
                 background-color: transparent;
-                border: 1px solid #2A3140;
+                border: 1px solid #2a2a4a;
                 border-radius: 4px;
             }
-            #calendarCell[isCurrentMonth="false"] { border: 1px solid transparent; }
-            #calendarCell[tradeDay="true"] { background-color: #212635; }
-            #calendarCell[isProfit="true"]:hover { border-color: #29C7C9; }
-            #calendarCell[isProfit="false"]:hover { border-color: #F85149; }
+            #calendarCell[isCurrentMonth="false"] {
+                border-color: transparent;
+            }
+            #calendarCell[tradeDay="true"] {
+                background-color: #2a2a4a;
+            }
+            #calendarCell[isProfit="true"]:hover { border-color: #00b894; }
+            #calendarCell[isProfit="false"]:hover { border-color: #d63031; }
 
-            #dayLabel { font-size: 12px; font-weight: bold; color: #A9B1C3; }
-            #calendarCell[isCurrentMonth="false"] #dayLabel { color: #4A5568; }
+            #dayLabel { font-size: 12px; font-weight: 600; color: #b2bec3; }
+            #calendarCell[isCurrentMonth="false"] #dayLabel { color: #4a4a6a; }
 
             #pnlLabel { font-size: 16px; font-weight: 600; }
         """)
 
+    # --- Window Dragging Handlers ---
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()

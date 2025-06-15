@@ -1,7 +1,10 @@
 import logging
 import sys
+from typing import Dict, Any
 
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QApplication
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QApplication
+)
 from PySide6.QtCore import Qt, Signal, QPropertyAnimation, QEasingCurve, QByteArray, QTimer
 
 logger = logging.getLogger(__name__)
@@ -9,13 +12,14 @@ logger = logging.getLogger(__name__)
 
 class OrderStatusWidget(QWidget):
     """
-    Small, non-modal widgets that display the status of a single pending order.
-    It appears in the corner of the screen and provides modify/cancel actions.
+    A small, non-modal "toast" widget that displays the status of a single
+    pending order. It appears in the corner of the screen and provides
+    actions to modify or cancel the order.
     """
     cancel_requested = Signal(str)  # Emits order_id
-    modify_requested = Signal(dict)  # Emits order data
+    modify_requested = Signal(dict)  # Emits full order data for modification
 
-    def __init__(self, order_data: dict, parent=None):
+    def __init__(self, order_data: Dict[str, Any], parent=None):
         super().__init__(parent)
         self.order_data = order_data
         self.order_id = order_data.get("order_id")
@@ -27,10 +31,11 @@ class OrderStatusWidget(QWidget):
         self.animate_in()
 
     def _setup_ui(self):
-        self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setAttribute(Qt.WA_DeleteOnClose)
-        self.setFixedSize(280, 110)
+        """Initializes the UI components and layout."""
+        self.setWindowFlags(Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self.setFixedSize(300, 120)
 
         container = QFrame(self)
         container.setObjectName("mainContainer")
@@ -40,10 +45,10 @@ class OrderStatusWidget(QWidget):
         main_layout.addWidget(container)
 
         layout = QVBoxLayout(container)
-        layout.setContentsMargins(15, 10, 15, 10)
+        layout.setContentsMargins(15, 12, 15, 12)
         layout.setSpacing(5)
 
-        # Top row: Symbol and Status
+        # Top Row: Symbol and Status
         top_layout = QHBoxLayout()
         symbol = self.order_data.get('tradingsymbol', 'N/A')
         symbol_label = QLabel(symbol)
@@ -58,11 +63,17 @@ class OrderStatusWidget(QWidget):
         top_layout.addWidget(status_label)
         layout.addLayout(top_layout)
 
-        # Info row: Type, Qty, Price
+        # Separator Line
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setObjectName("divider")
+        layout.addWidget(line)
+
+        # Info Row: Type, Quantity, Price
         info_text = (
             f"{self.order_data.get('transaction_type', '')} "
             f"{self.order_data.get('quantity', 0)} @ "
-            f"₹{self.order_data.get('price', 0.0):.2f}"
+            f"₹{self.order_data.get('price', 0.0):,.2f}"
         )
         info_label = QLabel(info_text)
         info_label.setObjectName("infoLabel")
@@ -70,21 +81,23 @@ class OrderStatusWidget(QWidget):
 
         layout.addStretch()
 
-        # Action buttons
+        # Action Buttons
         button_layout = QHBoxLayout()
-        self.modify_btn = QPushButton("EDIT")
-        self.modify_btn.setObjectName("modifyButton")
+        self.modify_btn = QPushButton("MODIFY")
+        self.modify_btn.setObjectName("secondaryButton")
         self.modify_btn.clicked.connect(lambda: self.modify_requested.emit(self.order_data))
 
         self.cancel_btn = QPushButton("CANCEL")
-        self.cancel_btn.setObjectName("cancelButton")
+        self.cancel_btn.setObjectName("dangerButton")
         self.cancel_btn.clicked.connect(lambda: self.cancel_requested.emit(self.order_id))
 
+        button_layout.addStretch()
         button_layout.addWidget(self.modify_btn)
         button_layout.addWidget(self.cancel_btn)
         layout.addLayout(button_layout)
 
     def animate_in(self):
+        """Fades the widget in when it first appears."""
         self.animation = QPropertyAnimation(self, QByteArray(b"windowOpacity"))
         self.animation.setDuration(300)
         self.animation.setStartValue(0.0)
@@ -93,6 +106,7 @@ class OrderStatusWidget(QWidget):
         self.animation.start()
 
     def close_widget(self):
+        """Fades the widget out before closing it."""
         self.animation = QPropertyAnimation(self, QByteArray(b"windowOpacity"))
         self.animation.setDuration(300)
         self.animation.setStartValue(1.0)
@@ -102,65 +116,65 @@ class OrderStatusWidget(QWidget):
         self.animation.start()
 
     def _apply_styles(self):
+        """Applies a consistent, modern dark theme stylesheet."""
         self.setStyleSheet("""
             #mainContainer {
-                background-color: #1c1c1c;
-                border: 1px solid #333;
+                background-color: #2a2a4a;
+                border: 1px solid #3a3a5a;
                 border-radius: 8px;
             }
             #symbolLabel {
-                color: #e0e0e0; font-size: 13px; font-weight: bold;
+                color: #e0e0e0; font-size: 14px; font-weight: 600;
             }
             #statusLabel {
-                color: #ffb86c; font-size: 10px; font-weight: bold;
+                color: #fdcb6e; font-size: 11px; font-weight: bold;
                 text-transform: uppercase;
             }
-            #infoLabel { color: #a0a0a0; font-size: 11px; }
+            #infoLabel { color: #b2bec3; font-size: 12px; }
+            #divider { border: 1px solid #3a3a5a; }
 
             QPushButton {
-                font-family: "Segoe UI"; font-weight: bold; border-radius: 5px; 
-                padding: 6px 12px; font-size: 10px; border: none;
+                font-family: "Segoe UI"; font-weight: bold; border-radius: 6px; 
+                padding: 7px 14px; font-size: 11px; border: none;
             }
-            #modifyButton { background-color: #444; color: #e0e0e0; }
-            #modifyButton:hover { background-color: #555; }
-            #cancelButton { background-color: #ff3860; color: #1c1c1c; }
-            #cancelButton:hover { background-color: #ff5070; }
+            #secondaryButton { background-color: #4a4a6a; color: #e0e0e0; }
+            #secondaryButton:hover { background-color: #5a5a7a; }
+            #dangerButton { background-color: #d63031; color: #ffffff; }
+            #dangerButton:hover { background-color: #e17055; }
         """)
 
-#---------------------------------------
+
+# --- Example Usage ---
 def usage():
-    """
-    Usage function to test the OrderStatusWidget.
-    It creates a QApplication and displays a sample OrderStatusWidget.
-    """
+    """Demonstrates how to create and use the OrderStatusWidget."""
     app = QApplication(sys.argv)
 
-    # Sample order data
     sample_order = {
         "order_id": "ORD12345",
-        "tradingsymbol": "INFY",
-        "status": "pending_validation",
+        "tradingsymbol": "RELIANCE",
+        "status": "OPEN",
         "transaction_type": "BUY",
-        "quantity": 100,
-        "price": 1500.75,
+        "quantity": 50,
+        "price": 2850.50,
     }
 
     widget = OrderStatusWidget(sample_order)
 
-    # Connect signals to a simple print function for demonstration
-    widget.cancel_requested.connect(lambda order_id: print(f"Cancel requested for Order ID: {order_id}"))
-    widget.modify_requested.connect(lambda order_data: print(f"Modify requested for Order: {order_data}"))
+    # Example of connecting signals
+    widget.cancel_requested.connect(lambda oid: print(f"Cancel requested for Order ID: {oid}"))
+    widget.modify_requested.connect(lambda odata: print(f"Modify requested for Order: {odata}"))
 
-    # Position the widget in the bottom-right corner
+    # Position the widget in the bottom-right corner of the screen
     screen_geometry = app.primaryScreen().availableGeometry()
     x = screen_geometry.width() - widget.width() - 20
-    y = screen_geometry.height() - widget.height() - 20
+    y = screen_geometry.height() - widget.height() - 40  # Position above taskbar
     widget.move(x, y)
 
-    # Optional: Close the widget after some time for demonstration
+    # For demonstration, close the widget after 5 seconds
     QTimer.singleShot(5000, widget.close_widget)
 
     sys.exit(app.exec())
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)

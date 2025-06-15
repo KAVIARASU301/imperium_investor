@@ -5,8 +5,35 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="0541dfd7-a7d3-4fbc-a932-bd27ef350d6c" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/icons/bell.svg" beforeDir="false" afterPath="$PROJECT_DIR$/icons/bell.svg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/api_circuit_breaker.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/api_circuit_breaker.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/config.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/dialogs/order_confirmation_dialog.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/gui_components/dialogs/order_confirmation_dialog.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/dialogs/order_history_dialog.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/gui_components/dialogs/order_history_dialog.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/dialogs/performance_dialog.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/gui_components/dialogs/performance_dialog.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/dialogs/pnl_history_dialog.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/gui_components/dialogs/pnl_history_dialog.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/dialogs/settings_dialog.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/gui_components/dialogs/settings_dialog.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/menu_bar.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/gui_components/menu_bar.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/positions_table.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/gui_components/positions_table.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/swing_trader_window.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/gui_components/swing_trader_window.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/tables/chartink_scanner_table.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/gui_components/tables/chartink_scanner_table.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/tables/open_positions_table.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/gui_components/tables/open_positions_table.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/tables/watchlist_table.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/gui_components/tables/watchlist_table.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/gui_components/widgets/candlestick_chart_widget.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/gui_components/widgets/candlestick_chart_widget.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/widgets/header_toolbar.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/gui_components/widgets/header_toolbar.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/widgets/logs/api_health.log" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/widgets/order_status_widget.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/gui_components/widgets/order_status_widget.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/widgets/performance_widget.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/gui_components/widgets/performance_widget.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/login_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/login_manager.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/market_data_worker.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/market_data_worker.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/paper_trading_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/paper_trading_manager.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/position_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/position_manager.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/token_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/token_manager.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/utils/instrument_loader.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/utils/instrument_loader.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/utils/run_chartink_scan.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/utils/run_chartink_scan.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -84,6 +111,28 @@
       <option name="ADD_CONTENT_ROOTS" value="true" />
       <option name="ADD_SOURCE_ROOTS" value="true" />
       <option name="SCRIPT_NAME" value="" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
+    <configuration name="main" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
+      <module name="swing_trader" />
+      <option name="ENV_FILES" value="" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/main.py" />
       <option name="PARAMETERS" value="" />
       <option name="SHOW_COMMAND_LINE" value="false" />
       <option name="EMULATE_TERMINAL" value="false" />
@@ -172,6 +221,11 @@
       <option name="USE_PATTERN" value="false" />
       <method v="2" />
     </configuration>
+    <recent_temporary>
+      <list>
+        <item itemvalue="Python.main" />
+      </list>
+    </recent_temporary>
   </component>
   <component name="SharedIndexes">
     <attachedChunks>

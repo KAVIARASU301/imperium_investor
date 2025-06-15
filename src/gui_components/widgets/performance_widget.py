@@ -1,143 +1,147 @@
 import logging
+from typing import Dict, Any
+
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QGridLayout, QLabel, QGroupBox
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
-from PySide6.QtWidgets import (QVBoxLayout,QWidget, QGroupBox, QGridLayout, QLabel)
+from PySide6.QtGui import QColor
+
 logger = logging.getLogger(__name__)
 
-class PerformanceWidget(QGroupBox):
-    """Widget showing trading performance metrics"""
 
-    def __init__(self):
-        super().__init__()
-        self.setTitle("📊 Today's Performance")
-        self.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
+class PerformanceWidget(QWidget):
+    """
+    A compact dashboard widget that displays key performance metrics for the
+    current trading session, such as P&L, win rate, and trade counts.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.labels: Dict[str, QLabel] = {}
+        self._setup_ui()
+        self._apply_styles()
+        self.update_metrics({})  # Initialize with default values
+
+    def _setup_ui(self):
+        """Initializes the UI layout and sub-widgets."""
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+
+        group_box = QGroupBox("Today's Performance")
+        group_box.setObjectName("mainGroupBox")
+        main_layout.addWidget(group_box)
+
+        grid_layout = QGridLayout(group_box)
+        grid_layout.setSpacing(15)
+
+        # Define the layout and keys for each metric
+        metric_configs = [
+            ("Today's P&L", 'total_pnl', 0, 0, 1, 2),
+            ("Win Rate", 'win_rate', 0, 2),
+            ("Total Trades", 'total_trades', 0, 3),
+            ("Winning Trades", 'winning_trades', 1, 2),
+            ("Losing Trades", 'losing_trades', 1, 3),
+        ]
+
+        for title, key, row, col, rowspan, colspan in ((t, k, r, c, 1, 1) for t, k, r, c in metric_configs if
+                                                       len((t, k, r, c)) == 4):
+            if len((title, key, row, col, rowspan, colspan)) == 6:
+                self.labels[key] = self._create_metric_widget(title, grid_layout, row, col, rowspan, colspan)
+
+        # Manually add the larger P&L widget
+        pnl_title, pnl_key, pnl_row, pnl_col, pnl_rowspan, pnl_colspan = "Today's P&L", 'total_pnl', 0, 0, 1, 2
+        self.labels[pnl_key] = self._create_metric_widget(pnl_title, grid_layout, pnl_row, pnl_col, pnl_rowspan,
+                                                          pnl_colspan, is_large=True)
+
+    def _create_metric_widget(self, title: str, layout: QGridLayout, row: int, col: int, rowspan: int = 1,
+                              colspan: int = 1, is_large: bool = False) -> QLabel:
+        """Factory method to create a single metric display widget."""
+        container = QWidget(objectName="metricBox")
+        metric_layout = QVBoxLayout(container)
+        metric_layout.setContentsMargins(15, 10, 15, 10)
+
+        value_label = QLabel("–")
+        value_label.setObjectName("largeValueLabel" if is_large else "valueLabel")
+        value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        title_label = QLabel(title.upper())
+        title_label.setObjectName("titleLabel")
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        metric_layout.addWidget(value_label)
+        metric_layout.addWidget(title_label)
+
+        layout.addWidget(container, row, col, rowspan, colspan)
+        return value_label
+
+    def update_metrics(self, metrics: Dict[str, Any]):
+        """Updates all the metric labels with new data."""
+        profit_color, loss_color = "#00b894", "#d63031"
+
+        # Total P&L
+        total_pnl = metrics.get('total_pnl', 0.0)
+        pnl_label = self.labels.get('total_pnl')
+        if pnl_label:
+            pnl_label.setText(f"₹{total_pnl:,.2f}")
+            pnl_label.setStyleSheet(f"color: {profit_color if total_pnl >= 0 else loss_color};")
+
+        # Win Rate
+        win_rate = metrics.get('win_rate', 0.0)
+        win_rate_label = self.labels.get('win_rate')
+        if win_rate_label:
+            win_rate_label.setText(f"{win_rate:.1f}%")
+
+        # Other Metrics
+        self.labels.get('total_trades', QLabel()).setText(str(metrics.get('total_trades', 0)))
+
+        winning_trades_label = self.labels.get('winning_trades')
+        if winning_trades_label:
+            winning_trades_label.setText(str(metrics.get('winning_trades', 0)))
+            winning_trades_label.setStyleSheet(f"color: {profit_color};")
+
+        losing_trades_label = self.labels.get('losing_trades')
+        if losing_trades_label:
+            losing_trades_label.setText(str(metrics.get('losing_trades', 0)))
+            losing_trades_label.setStyleSheet(f"color: {loss_color};")
+
+    def _apply_styles(self):
+        """Applies a consistent, modern dark theme stylesheet."""
         self.setStyleSheet("""
-            QGroupBox {
-                color: #fff;
-                border: 2px solid #333;
+            #mainGroupBox {
+                background-color: transparent;
+                border: 1px solid #2a2a4a;
                 border-radius: 8px;
-                margin-top: 15px;
-                background-color: #1a1a1a;
+                margin-top: 10px;
                 padding-top: 15px;
+                color: #b2bec3;
+                font-family: "Segoe UI";
+                font-weight: bold;
+                font-size: 13px;
             }
-            QGroupBox::title {
+            #mainGroupBox::title {
                 subcontrol-origin: margin;
                 subcontrol-position: top left;
                 padding: 0 10px;
-                background-color: #1a1a1a;
+                left: 10px;
+                color: #e0e0e0;
+            }
+            #metricBox {
+                background-color: #1c1c2e;
+                border-radius: 6px;
+            }
+            #titleLabel {
+                color: #8a8a9e;
+                font-size: 11px;
+                font-weight: bold;
+                text-transform: uppercase;
+            }
+            #valueLabel {
+                color: #e0e0e0;
+                font-size: 22px;
+                font-weight: 300;
+            }
+            #largeValueLabel {
+                color: #e0e0e0;
+                font-size: 36px;
+                font-weight: 200;
             }
         """)
-        # Increased height to accommodate the content properly
-        self.setFixedHeight(180)
-
-        self._setup_ui()
-
-    def _setup_ui(self):
-        """Initialize the UI"""
-        layout = QGridLayout(self)
-        # Reduced margins and increased top margin for title space
-        layout.setContentsMargins(15, 15, 15, 15)
-        layout.setSpacing(10)
-
-        self.metrics = {
-            'total_trades': 0,
-            'winning_trades': 0,
-            'losing_trades': 0,
-            'total_pnl': 0.0,
-            'win_rate': 0.0,
-            'avg_profit': 0.0,
-            'avg_loss': 0.0,
-            'max_profit': 0.0
-        }
-
-        self.labels = {}
-
-        # Define metric layout
-        metric_configs = [
-            ('Total Trades', 'total_trades', 0, 0),
-            ('Winners', 'winning_trades', 0, 2),
-            ('Losers', 'losing_trades', 0, 4),
-            ('Today P&L', 'total_pnl', 1, 0),
-            ('Win Rate', 'win_rate', 1, 2),
-            ('Avg Win', 'avg_profit', 1, 4),
-            ('Avg Loss', 'avg_loss', 0, 6),
-            ('Best Trade', 'max_profit', 1, 6),
-        ]
-
-        for label_text, metric_key, row, col in metric_configs:
-            # Create metric container
-            container = QWidget()
-            container_layout = QVBoxLayout(container)
-            # Reduced margins to prevent clipping
-            container_layout.setContentsMargins(5, 8, 5, 8)
-            container_layout.setSpacing(3)
-
-            # Value label - reduced font size slightly to fit better
-            value_label = QLabel("0")
-            value_label.setAlignment(Qt.AlignCenter)
-            value_label.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
-            value_label.setObjectName("value")
-            # Set minimum height to ensure a text is not clipped
-            value_label.setMinimumHeight(20)
-
-            # Title label
-            title_label = QLabel(label_text)
-            title_label.setAlignment(Qt.AlignCenter)
-            title_label.setFont(QFont("Segoe UI", 8))
-            title_label.setStyleSheet("color: #888;")
-            title_label.setMinimumHeight(15)
-
-            container_layout.addWidget(value_label)
-            container_layout.addWidget(title_label)
-
-            container.setStyleSheet("""
-                QWidget {
-                    background-color: #2a2a2a;
-                    border: 1px solid #333;
-                    border-radius: 6px;
-                }
-                QLabel#value {
-                    color: #fff;
-                    padding: 2px;
-                }
-            """)
-
-            # Set minimum size for container to prevent clipping
-            container.setMinimumHeight(50)
-            container.setMinimumWidth(80)
-
-            layout.addWidget(container, row, col, 1, 2)
-            self.labels[metric_key] = value_label
-
-        self.update_metrics(self.metrics)
-
-    def update_metrics(self, metrics: dict):
-        """Update displayed metrics"""
-        self.metrics.update(metrics)
-
-        for key, value in self.metrics.items():
-            if key not in self.labels:
-                continue
-
-            label = self.labels[key]
-
-            if key == 'total_pnl':
-                color = "#4CAF50" if value >= 0 else "#F44336"
-                label.setText(f"₹{value:+,.0f}")
-                label.setStyleSheet(f"color: {color}; font-weight: bold; padding: 2px;")
-            elif key == 'win_rate':
-                color = "#4CAF50" if value >= 50 else "#F44336"
-                label.setText(f"{value:.1f}%")
-                label.setStyleSheet(f"color: {color}; font-weight: bold; padding: 2px;")
-            elif key in ['avg_profit', 'avg_loss', 'max_profit']:
-                label.setText(f"₹{value:,.0f}")
-                label.setStyleSheet("color: #fff; font-weight: bold; padding: 2px;")
-            elif key == 'winning_trades':
-                label.setText(str(int(value)))
-                label.setStyleSheet("color: #4CAF50; font-weight: bold; padding: 2px;")
-            elif key == 'losing_trades':
-                label.setText(str(int(value)))
-                label.setStyleSheet("color: #F44336; font-weight: bold; padding: 2px;")
-            else:
-                label.setText(str(int(value)))
-                label.setStyleSheet("color: #fff; font-weight: bold; padding: 2px;")

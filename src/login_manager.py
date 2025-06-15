@@ -15,7 +15,10 @@ logger = logging.getLogger(__name__)
 
 
 class LoginWorker(QThread):
-    """Background worker for API authentication."""
+    """
+    Background worker to handle the KiteConnect session generation process,
+    preventing the GUI from freezing during the API request.
+    """
     success = Signal(str)
     error = Signal(str)
 
@@ -26,16 +29,26 @@ class LoginWorker(QThread):
         self.request_token = request_token
 
     def run(self):
+        """Generates a new session using the provided credentials."""
         try:
             kite = KiteConnect(api_key=self.api_key)
             data = kite.generate_session(self.request_token, api_secret=self.api_secret)
-            self.success.emit(data.get('access_token'))
+            access_token = data.get('access_token')
+            if access_token:
+                self.success.emit(access_token)
+            else:
+                self.error.emit("Received an empty access token from the API.")
         except Exception as e:
+            logger.error(f"Error during session generation: {e}", exc_info=True)
             self.error.emit(str(e))
 
 
 class LoginManager(QDialog):
-    """A professional, self-contained, all-in-one login dialog with a premium UI."""
+    """
+    A self-contained, multi-page dialog for handling user authentication.
+    It supports automatic login with saved tokens, manual credential entry,
+    and selection between live and paper trading modes.
+    """
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -44,16 +57,17 @@ class LoginManager(QDialog):
         self.api_key = ""
         self.api_secret = ""
         self.access_token = None
-        self.trading_mode = 'live'
+        self.trading_mode = 'live'  # Default trading mode
 
-        self.setWindowTitle("Options Scalper Pro - Authentication")
+        self.setWindowTitle("Swing Trader - Authentication")
         self.setMinimumSize(420, 450)
         self.setModal(True)
-        # --- Make window frameless for custom styling ---
+        # Use a frameless window for a custom, modern look
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self._drag_pos = None
+        self._drag_pos = None  # For enabling window dragging
 
+        # Timer for the auto-login countdown
         self.countdown_timer = QTimer(self)
         self.countdown_timer.timeout.connect(self._update_countdown)
         self.countdown_value = 5
@@ -61,10 +75,12 @@ class LoginManager(QDialog):
         self._setup_ui()
         self._apply_styles()
 
+        # Attempt to log in automatically after the dialog is initialized
         QTimer.singleShot(100, self._try_auto_login)
 
     def _setup_ui(self):
-        # Main container for rounded corners and background
+        """Initializes the main UI components and layout."""
+        # Main container allows for custom styling like rounded corners
         container = QWidget(self)
         container.setObjectName("mainContainer")
 
@@ -72,22 +88,20 @@ class LoginManager(QDialog):
         self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.main_layout.addWidget(container)
 
-        # Main layout for the container widget
         container_layout = QVBoxLayout(container)
         container_layout.setContentsMargins(25, 20, 25, 25)
         container_layout.setSpacing(15)
 
-        # App Title
-        app_title = QLabel("Options Scalper Pro")
+        app_title = QLabel("Swing Trader")
         app_title.setObjectName("appTitle")
         container_layout.addWidget(app_title, 0, Qt.AlignmentFlag.AlignCenter)
 
-        # Separator Line
         divider = QFrame()
         divider.setFrameShape(QFrame.Shape.HLine)
         divider.setObjectName("divider")
         container_layout.addWidget(divider)
 
+        # Stacked widget to switch between login pages
         self.stacked_widget = QStackedWidget()
         container_layout.addWidget(self.stacked_widget)
 
@@ -96,6 +110,7 @@ class LoginManager(QDialog):
         self.stacked_widget.addWidget(self._create_token_input_page())
 
     def _create_auto_login_page(self) -> QWidget:
+        """Creates the page shown when a valid session token is found."""
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 10, 0, 0)
@@ -114,7 +129,7 @@ class LoginManager(QDialog):
         paper_button.setObjectName("secondaryButton")
         paper_button.clicked.connect(lambda: self._select_mode_and_accept('paper'))
 
-        cancel_button = QPushButton("Logout & Enter Credentials")
+        cancel_button = QPushButton("Logout & Enter New Credentials")
         cancel_button.setObjectName("linkButton")
         cancel_button.setCursor(Qt.PointingHandCursor)
         cancel_button.clicked.connect(self._cancel_auto_login)
@@ -129,12 +144,13 @@ class LoginManager(QDialog):
         return page
 
     def _create_credential_input_page(self) -> QWidget:
+        """Creates the page for users to input their API credentials."""
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setSpacing(10)
         layout.setContentsMargins(0, 10, 0, 0)
 
-        title = QLabel("Kite API Credentials")
+        title = QLabel("Broker API Credentials")
         title.setObjectName("dialogTitle")
         layout.addWidget(title, 0, Qt.AlignmentFlag.AlignCenter)
 
@@ -170,6 +186,7 @@ class LoginManager(QDialog):
         return page
 
     def _create_token_input_page(self) -> QWidget:
+        """Creates the page for pasting the request token from the browser."""
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 10, 0, 0)
@@ -194,7 +211,7 @@ class LoginManager(QDialog):
         layout.addWidget(self.generate_button)
         return page
 
-    # Add mouse events to make the frameless window draggable
+    # --- Window Dragging Functionality ---
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
@@ -209,8 +226,9 @@ class LoginManager(QDialog):
         self._drag_pos = None
         event.accept()
 
-    # --- Methods for logic (no changes needed) ---
+    # --- Core Logic Methods ---
     def _try_auto_login(self):
+        """Checks for saved credentials and tokens to log in automatically."""
         creds = self.token_manager.load_credentials()
         if creds:
             self.api_key = creds.get('api_key', '')
@@ -228,6 +246,7 @@ class LoginManager(QDialog):
             self.stacked_widget.setCurrentIndex(1)
 
     def _update_countdown(self):
+        """Handles the countdown timer for automatic login."""
         if self.countdown_value > 0:
             self.countdown_label.setText(f"Starting in {self.countdown_value} seconds...")
             self.countdown_value -= 1
@@ -236,12 +255,14 @@ class LoginManager(QDialog):
             self.accept()
 
     def _cancel_auto_login(self):
+        """Cancels the auto-login and switches to manual credential entry."""
         self.countdown_timer.stop()
         self.token_manager.clear_token_data()
         self.access_token = None
         self.stacked_widget.setCurrentIndex(1)
 
     def _on_mode_selected(self, mode: str):
+        """Initiates the login process after the user selects a trading mode."""
         self.trading_mode = mode
         self.api_key = self.api_key_input.text().strip()
         self.api_secret = self.api_secret_input.text().strip()
@@ -261,6 +282,7 @@ class LoginManager(QDialog):
             QMessageBox.critical(self, "Error", f"Could not initiate login: {e}")
 
     def _on_complete_login(self):
+        """Starts the LoginWorker to generate the session token."""
         request_token = self.request_token_input.text().strip()
         if not request_token:
             QMessageBox.warning(self, "Input Error", "Request token is empty.")
@@ -274,6 +296,7 @@ class LoginManager(QDialog):
         self.generate_button.setEnabled(False)
 
     def _on_login_success(self, access_token: str):
+        """Handles a successful login from the worker thread."""
         self.access_token = access_token
         self.token_manager.save_token_data({
             'access_token': access_token,
@@ -282,17 +305,20 @@ class LoginManager(QDialog):
         self.accept()
 
     def _on_login_error(self, error_msg: str):
+        """Handles a login failure from the worker thread."""
         QMessageBox.critical(self, "Login Failed", f"Failed to generate session:\n{error_msg}")
         self.stacked_widget.setCurrentIndex(1)
         self.generate_button.setText("Generate Session")
         self.generate_button.setEnabled(True)
 
     def _select_mode_and_accept(self, mode: str):
+        """Finalizes mode selection from the auto-login page."""
         self.countdown_timer.stop()
         self.trading_mode = mode
         logger.info(f"User selected {mode.upper()} mode during auto-login.")
         self.accept()
 
+    # --- Getter Methods ---
     def get_api_creds(self) -> Optional[Dict[str, str]]:
         if self.api_key and self.api_secret:
             return {"api_key": self.api_key, "api_secret": self.api_secret}
@@ -305,7 +331,7 @@ class LoginManager(QDialog):
         return self.trading_mode
 
     def _apply_styles(self):
-        """Applies a premium, modern dark theme."""
+        """Applies a modern, dark stylesheet to the dialog."""
         self.setStyleSheet("""
             #mainContainer {
                 background-color: #161A25;
@@ -315,18 +341,18 @@ class LoginManager(QDialog):
             }
             #appTitle {
                 font-size: 24px;
-                font-weight: 300; /* Lighter font weight */
+                font-weight: 300;
                 color: #E0E0E0;
                 padding-bottom: 5px;
             }
             #dialogTitle {
                 font-size: 18px;
-                font-weight: 600; /* Bolder */
+                font-weight: 600;
                 color: #FFFFFF;
                 padding-bottom: 15px;
             }
             #infoLabel {
-                color: #8A9BA8; /* Muted text color */
+                color: #8A9BA8;
                 font-size: 13px;
             }
             #divider {
@@ -334,7 +360,7 @@ class LoginManager(QDialog):
                 height: 1px;
             }
             QLabel {
-                color: #A9B1C3; /* Standard label color */
+                color: #A9B1C3;
                 font-size: 13px;
             }
             QLineEdit {
@@ -346,7 +372,7 @@ class LoginManager(QDialog):
                 padding: 10px;
             }
             QLineEdit:focus {
-                border: 1px solid #29C7C9; /* Highlight color */
+                border: 1px solid #29C7C9;
             }
             QCheckBox {
                 color: #A9B1C3;
@@ -361,7 +387,6 @@ class LoginManager(QDialog):
             }
             QCheckBox::indicator:checked {
                 background-color: #29C7C9;
-                image: url(check.png); /* You might need a checkmark icon */
             }
             QPushButton {
                 font-weight: bold;

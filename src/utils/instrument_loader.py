@@ -1,37 +1,231 @@
 # src/utils/instrument_loader.py
 
-"""Instrument loader for fetching trading instruments from Zerodha"""
+"""Robust instrument loader for fetching trading instruments from Zerodha with enhanced retry logic"""
 
 import logging
+import time
+import pickle
+import os
+from datetime import datetime, timedelta
+from typing import List, Dict, Any, Optional
 from PySide6.QtCore import QThread, Signal
 from kiteconnect import KiteConnect
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 logger = logging.getLogger(__name__)
 
 
 class InstrumentLoader(QThread):
-    """Background thread for loading instruments from Zerodha"""
+    """Background thread for loading instruments from Zerodha with robust retry logic and caching"""
 
-    instruments_loaded = Signal(list)  # Changed to emit a list
+    instruments_loaded = Signal(list)
     error_occurred = Signal(str)
+    progress_update = Signal(str)  # For status updates
 
-    def __init__(self, kite_client: KiteConnect):
+    def __init__(self, kite_client: KiteConnect, cache_dir: str = None):
         super().__init__()
         self.kite = kite_client
+        self.cache_dir = cache_dir or os.path.expanduser("~/.swing_trader/cache")
+        self.cache_file = os.path.join(self.cache_dir, "instruments_cache.pkl")
+        self.cache_info_file = os.path.join(self.cache_dir, "cache_info.pkl")
+        self._stop_requested = False
 
-    def run(self):
-        """Load instruments in background"""
+        # Create cache directory if it doesn't exist
+        os.makedirs(self.cache_dir, exist_ok=True)
+
+        # Configure requests session with retry strategy
+        self.session = requests.Session()
+        retry_strategy = Retry(
+            total=3,
+            status_forcelist=[429, 500, 502, 503, 504],
+            backoff_factor=1,
+            allowed_methods=["HEAD", "GET", "OPTIONS"]
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        self.session.mount("http://", adapter)
+        self.session.mount("https://", adapter)
+
+    def stop(self):
+        """Request the thread to stop"""
+        self._stop_requested = True
+        logger.info("Stop requested for InstrumentLoader")
+
+    def is_cache_valid(self) -> bool:
+        """Check if cached instruments are still valid (within 24 hours)"""
         try:
-            # Fetch instruments from both NSE and BSE
-            nse_instruments = self.kite.instruments("NSE")
-            bse_instruments = self.kite.instruments("BSE")
-            
-            instruments = nse_instruments + bse_instruments
+            if not os.path.exists(self.cache_file) or not os.path.exists(self.cache_info_file):
+                return False
 
-            # FIX: Emit the raw list of instruments directly
-            self.instruments_loaded.emit(instruments)
-            logger.info(f"Successfully loaded {len(instruments)} instruments.")
+            with open(self.cache_info_file, 'rb') as f:
+                cache_info = pickle.load(f)
+
+            cache_time = cache_info.get('timestamp')
+            if not cache_time:
+                return False
+
+            # Check if cache is less than 24 hours old
+            cache_age = datetime.now() - cache_time
+            is_valid = cache_age < timedelta(hours=24)
+
+            if is_valid:
+                logger.info(f"Using cached instruments (age: {cache_age})")
+            else:
+                logger.info(f"Cache expired (age: {cache_age})")
+
+            return is_valid
 
         except Exception as e:
-            logger.error(f"Failed to load instruments: {e}")
-            self.error_occurred.emit(str(e))
+            logger.error(f"Error checking cache validity: {e}")
+            return False
+
+    def load_cached_instruments(self) -> Optional[List[Dict[str, Any]]]:
+        """Load instruments from cache"""
+        try:
+            with open(self.cache_file, 'rb') as f:
+                instruments = pickle.load(f)
+            logger.info(f"Loaded {len(instruments)} instruments from cache")
+            return instruments
+        except Exception as e:
+            logger.error(f"Error loading cached instruments: {e}")
+            return None
+
+    def save_instruments_to_cache(self, instruments: List[Dict[str, Any]]):
+        """Save instruments to cache with timestamp"""
+        try:
+            # Save instruments
+            with open(self.cache_file, 'wb') as f:
+                pickle.dump(instruments, f)
+
+            # Save cache info
+            cache_info = {
+                'timestamp': datetime.now(),
+                'count': len(instruments)
+            }
+            with open(self.cache_info_file, 'wb') as f:
+                pickle.dump(cache_info, f)
+
+            logger.info(f"Cached {len(instruments)} instruments")
+
+        except Exception as e:
+            logger.error(f"Error saving instruments to cache: {e}")
+
+    def fetch_instruments_with_fallback(self) -> List[Dict[str, Any]]:
+        """Fetch instruments with multiple fallback strategies"""
+        max_retries = 5
+        base_delay = 2
+        exchanges = ["NSE", "BSE"]
+
+        for attempt in range(max_retries):
+            if self._stop_requested:
+                logger.info("Stop requested, aborting instrument fetch")
+                raise Exception("Operation cancelled by user")
+
+            try:
+                self.progress_update.emit(f"Attempt {attempt + 1}/{max_retries}: Fetching instruments...")
+                logger.info(f"Attempt {attempt + 1}: Loading instruments...")
+
+                # Try to fetch instruments with increased timeout
+                all_instruments = []
+
+                # Set a longer timeout for the KiteConnect client
+                original_timeout = getattr(self.kite, 'timeout', 7)
+                self.kite.timeout = min(30, original_timeout + (attempt * 5))  # Increase timeout with each retry
+
+                for exchange in exchanges:
+                    if self._stop_requested:
+                        raise Exception("Operation cancelled by user")
+
+                    try:
+                        logger.info(f"Fetching {exchange} instruments...")
+                        self.progress_update.emit(f"Fetching {exchange} instruments...")
+
+                        instruments = self.kite.instruments(exchange)
+                        all_instruments.extend(instruments)
+                        logger.info(f"Fetched {len(instruments)} instruments from {exchange}")
+
+                        # Small delay between exchanges
+                        time.sleep(0.5)
+
+                    except Exception as e:
+                        logger.warning(f"Failed to fetch {exchange} instruments: {e}")
+                        # Continue with next exchange instead of failing completely
+                        continue
+
+                if all_instruments:
+                    logger.info(f"Successfully loaded {len(all_instruments)} total instruments")
+                    self.save_instruments_to_cache(all_instruments)
+                    return all_instruments
+                else:
+                    raise Exception("No instruments fetched from any exchange")
+
+            except Exception as e:
+                error_msg = str(e)
+                logger.error(f"Attempt {attempt + 1} failed: {error_msg}")
+
+                if self._stop_requested:
+                    raise e
+
+                if attempt < max_retries - 1:
+                    # Exponential backoff with jitter
+                    delay = base_delay * (2 ** attempt) + (attempt * 2)
+                    delay = min(delay, 30)  # Cap at 30 seconds
+
+                    logger.info(f"Retrying in {delay} seconds...")
+                    self.progress_update.emit(f"Retry in {delay}s... ({error_msg})")
+
+                    for i in range(int(delay)):
+                        if self._stop_requested:
+                            raise Exception("Operation cancelled by user")
+                        time.sleep(1)
+                else:
+                    logger.error("All retries failed")
+                    raise Exception(f"Failed to load instruments after {max_retries} attempts. Last error: {error_msg}")
+
+    def run(self):
+        """Load instruments with caching and robust error handling"""
+        try:
+            # Check if we have valid cached instruments first
+            if self.is_cache_valid():
+                cached_instruments = self.load_cached_instruments()
+                if cached_instruments:
+                    self.progress_update.emit("Using cached instruments")
+                    self.instruments_loaded.emit(cached_instruments)
+                    return
+
+            # If no valid cache, fetch from API
+            self.progress_update.emit("Fetching fresh instruments from API...")
+            instruments = self.fetch_instruments_with_fallback()
+
+            if not self._stop_requested:
+                self.progress_update.emit(f"Loaded {len(instruments)} instruments successfully")
+                self.instruments_loaded.emit(instruments)
+
+        except Exception as e:
+            if not self._stop_requested:
+                error_msg = str(e)
+                logger.error(f"InstrumentLoader failed: {error_msg}")
+
+                # Try to fall back to cached instruments even if expired
+                if "cancelled" not in error_msg.lower():
+                    logger.info("Attempting to use expired cache as fallback...")
+                    cached_instruments = self.load_cached_instruments()
+                    if cached_instruments:
+                        logger.warning("Using expired cached instruments as fallback")
+                        self.progress_update.emit("Using cached instruments (fallback)")
+                        self.instruments_loaded.emit(cached_instruments)
+                        return
+
+                self.error_occurred.emit(error_msg)
+
+    def clear_cache(self):
+        """Clear the instrument cache"""
+        try:
+            if os.path.exists(self.cache_file):
+                os.remove(self.cache_file)
+            if os.path.exists(self.cache_info_file):
+                os.remove(self.cache_info_file)
+            logger.info("Instrument cache cleared")
+        except Exception as e:
+            logger.error(f"Error clearing cache: {e}")

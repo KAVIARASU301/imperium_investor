@@ -1,65 +1,56 @@
-# src/gui_components/dialogs/order_confirmation_dialog.py
 import logging
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget,
-    QScrollArea
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget, QFrame
 )
 from PySide6.QtCore import Qt, Signal
-# --- Add imports for QMouseEvent and QShowEvent ---
 from PySide6.QtGui import QMouseEvent, QShowEvent
-
-try:
-    from src.utils.data_models import OptionType
-except ImportError:
-    from enum import Enum
-
-
-    class OptionType(Enum):
-        CALL = "CE"
-        PUT = "PE"
+from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 
 
 class OrderConfirmationDialog(QDialog):
     """
-    A premium, compact dialog for order confirmation with price refresh capability,
-    styled with a modern, professional dark theme.
+    A sleek, modern dialog for confirming a stock trade.
+    It displays all relevant order details like symbol, quantity, price,
+    and estimated cost in a clear and concise manner.
     """
-    refresh_requested = Signal()
+    # Signal to request a refresh of the LTP before confirming
+    refresh_requested = Signal(str)
 
-    def __init__(self, parent, order_details: dict):
+    def __init__(self, parent: QWidget, order_details: Dict[str, Any]):
         super().__init__(parent)
         self.order_details = order_details
         self._drag_pos = None
-        self.strikes_scroll_area = None
+
         self._setup_dialog()
         self._setup_ui()
         self._apply_styles()
 
-    # --- ADD THIS METHOD ---
+    def _setup_dialog(self):
+        self.setWindowTitle("Confirm Order")
+        self.setModal(True)
+        self.setMinimumSize(360, 380)
+        # Use a frameless window for a custom UI
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+
     def showEvent(self, event: QShowEvent):
         """Overrides the show event to center the dialog on its parent."""
         super().showEvent(event)
         if self.parent():
-            # Center the dialog on the parent widget
             parent_geometry = self.parent().geometry()
             self.move(parent_geometry.center() - self.rect().center())
 
-    def _setup_dialog(self):
-        self.setWindowTitle("Confirm Order")
-        self.setModal(True)
-        self.setMinimumSize(380, 500)
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
-        self.setAttribute(Qt.WA_TranslucentBackground)
-
     def _setup_ui(self):
+        """Builds the main layout and components of the dialog."""
         container = QWidget(self)
         container.setObjectName("mainContainer")
         container_layout = QVBoxLayout(container)
-        container_layout.setContentsMargins(25, 15, 25, 20)
+        container_layout.setContentsMargins(20, 15, 20, 20)
         container_layout.setSpacing(15)
 
+        # Allow dragging the window
         container.mousePressEvent = self.mousePressEvent
         container.mouseMoveEvent = self.mouseMoveEvent
         container.mouseReleaseEvent = self.mouseReleaseEvent
@@ -68,168 +59,122 @@ class OrderConfirmationDialog(QDialog):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.addWidget(container)
 
+        # Add UI components
         container_layout.addLayout(self._create_title_bar())
-        container_layout.addSpacing(10)
-        container_layout.addLayout(self._create_instrument_details())
-        container_layout.addWidget(self._create_strikes_list_widget())
-        container_layout.addWidget(self._create_cost_summary())
+        container_layout.addWidget(self._create_instrument_details_widget())
+
+        container_layout.addWidget(QFrame(self, frameShape=QFrame.Shape.HLine, objectName="divider"))
+
+        container_layout.addLayout(self._create_order_summary_layout())
+
         container_layout.addStretch()
+
+        container_layout.addWidget(self._create_cost_summary_widget())
+
+        container_layout.addSpacing(10)
         container_layout.addLayout(self._create_action_buttons())
 
     def update_order_details(self, new_order_details: dict):
+        """Refreshes the dialog with updated price information."""
         self.order_details = new_order_details
-        self._repopulate_strikes_list()
-        self._update_cost_summary()
+        self._repopulate_ui()
         logger.info("Order confirmation dialog refreshed with latest prices.")
 
-    def _repopulate_strikes_list(self):
-        """Efficiently redraws the list of strikes in the scroll area."""
-        if not self.strikes_scroll_area:
-            return
+    def _repopulate_ui(self):
+        """Updates all labels with new data."""
+        self.symbol_label.setText(self.order_details.get('tradingsymbol', 'N/A'))
 
-        scroll_content = QWidget()
-        scroll_layout = QVBoxLayout(scroll_content)
-        scroll_layout.setContentsMargins(5, 5, 5, 5)
-        scroll_layout.setSpacing(4)  # Tighter spacing for list items
+        transaction_type = self.order_details.get("transaction_type", "BUY").upper()
+        self.transaction_type_label.setText(transaction_type)
+        self.transaction_type_label.setObjectName(f"{transaction_type.lower()}Tag")
 
-        for strike_info in self.order_details.get("strikes", []):
-            strike_widget = self._create_single_strike_widget(strike_info)
-            scroll_layout.addWidget(strike_widget)
+        order_type = self.order_details.get("order_type", "MARKET").upper()
+        price = self.order_details.get('price', 0.0)
+        ltp = self.order_details.get('ltp', 0.0)
 
-        self.strikes_scroll_area.setWidget(scroll_content)
+        self.price_value_label.setText(f"₹ {price if order_type == 'LIMIT' else ltp:,.2f}")
+        self.order_type_value_label.setText(order_type)
+        self.quantity_value_label.setText(str(self.order_details.get('quantity', 0)))
 
-    def _update_cost_summary(self):
-        cost_value = self.cost_summary_widget.findChild(QLabel, "costValue")
-        total_premium = self.order_details.get('total_premium_estimate', 0.0)
-        cost_value.setText(f"₹{total_premium:,.2f}")
+        estimated_cost = self.order_details.get('estimated_cost', 0.0)
+        self.cost_value_label.setText(f"₹ {estimated_cost:,.2f}")
+        self.cost_title_label.setText("ESTIMATED COST" if transaction_type == "BUY" else "ESTIMATED CREDIT")
 
-    def _create_strikes_list_widget(self):
-        container = QWidget()
-        container_layout = QVBoxLayout(container)
-        container_layout.setContentsMargins(0, 0, 0, 0)
-        container_layout.setSpacing(8)
-
-        header = QLabel(f"{len(self.order_details.get('strikes', []))} STRIKES SELECTED")
-        header.setObjectName("listHeader")
-        container_layout.addWidget(header)
-
-        self.strikes_scroll_area = QScrollArea()
-        self.strikes_scroll_area.setObjectName("strikeScrollArea")
-        self.strikes_scroll_area.setWidgetResizable(True)
-        self.strikes_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-
-        self._repopulate_strikes_list()
-
-        container_layout.addWidget(self.strikes_scroll_area)
-        return container
-
-    def _create_title_bar(self):
+    def _create_title_bar(self) -> QHBoxLayout:
+        """Creates the custom title bar with a close button."""
         layout = QHBoxLayout()
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        self.title_bar = QWidget()
-        self.title_bar.setObjectName("titleBar")
-        title_layout = QHBoxLayout(self.title_bar)
-        title_layout.setContentsMargins(0, 0, 0, 0)
-
         title = QLabel("Confirm Order")
         title.setObjectName("dialogTitle")
-
-        self.close_btn = QPushButton("✕")
-        self.close_btn.setObjectName("closeButton")
-        self.close_btn.setFixedSize(28, 28)
-        self.close_btn.clicked.connect(self.reject)
-
-        title_layout.addWidget(title)
-        title_layout.addStretch()
-        title_layout.addWidget(self.close_btn)
-
-        # Enable mouse tracking for the title bar
-        self.title_bar.mousePressEvent = self.mousePressEvent
-        self.title_bar.mouseMoveEvent = self.mouseMoveEvent
-        self.title_bar.mouseReleaseEvent = self.mouseReleaseEvent
-
-        layout.addWidget(self.title_bar)
-        return layout
-
-    def _create_instrument_details(self):
-        od = self.order_details
-        layout = QVBoxLayout()
-        layout.setSpacing(8)
-        symbol_label = QLabel(f"{od.get('symbol', 'N/A')} {od.get('expiry', '')}")
-        symbol_label.setObjectName("symbolLabel")
-        layout.addWidget(symbol_label)
-
-        tags_layout = QHBoxLayout()
-        tags_layout.setSpacing(8)
-        buy_tag = self._create_tag_label("BUY", "buyTag")
-        tags_layout.addWidget(buy_tag)
-
-        option_type_val = od.get("option_type")
-        option_name = option_type_val.name if hasattr(option_type_val, 'name') else str(option_type_val)
-        tag_object_name = "callTag" if "CALL" in option_name.upper() else "putTag"
-        option_tag = self._create_tag_label(option_name, tag_object_name)
-        tags_layout.addWidget(option_tag)
-
-        # This logic appears to be missing from the original file, it has been added for completeness
-        qty_per_strike = od.get('total_quantity_per_strike', od.get('lot_size', 1) * od.get('lot_quantity', 1))
-        num_lots = od.get('lot_size', 1)
-
-        qty_label = QLabel(f"QTY: {qty_per_strike} ({num_lots} LOTS)")
-        qty_label.setObjectName("infoLabel")
-        tags_layout.addStretch()
-        tags_layout.addWidget(qty_label)
-        layout.addLayout(tags_layout)
-        return layout
-
-    def _create_single_strike_widget(self, strike_info: dict) -> QWidget:
-        strike_widget = QWidget()
-        strike_widget.setObjectName("strikeRowWidget")
-        strike_layout = QHBoxLayout(strike_widget)
-        strike_layout.setContentsMargins(10, 8, 10, 8)
-
-        strike_price = strike_info.get("strike", 0)
-        option_type_val = self.order_details.get("option_type")
-        option_type_char = (
-            option_type_val.name[0] if hasattr(option_type_val, 'name') else str(option_type_val)[0]).upper()
-        strike_label = QLabel(f"{strike_price:.0f}{option_type_char}E")
-        strike_label.setObjectName("strikePriceLabel")
-
-        ltp_label = QLabel(f"₹{strike_info.get('ltp', 0.0):.2f}")
-        ltp_label.setObjectName("ltpLabel")
-
-        strike_layout.addWidget(strike_label)
-        strike_layout.addStretch()
-        strike_layout.addWidget(ltp_label)
-        return strike_widget
-
-    def _create_cost_summary(self):
-        od = self.order_details
-        self.cost_summary_widget = QWidget()
-        self.cost_summary_widget.setObjectName("summaryBox")
-        layout = QVBoxLayout(self.cost_summary_widget)
-        layout.setSpacing(0)
-        layout.setContentsMargins(15, 12, 15, 12)
-
-        cost_value = QLabel(f"₹{od.get('total_premium_estimate', 0.0):,.2f}")
-        cost_value.setObjectName("costValue")
-        cost_value.setAlignment(Qt.AlignCenter)
-
-        title = QLabel("TOTAL ESTIMATED PREMIUM")
-        title.setObjectName("summaryTitle")
-        title.setAlignment(Qt.AlignCenter)
-
-        layout.addWidget(cost_value)
+        close_btn = QPushButton("✕")
+        close_btn.setObjectName("closeButton")
+        close_btn.clicked.connect(self.reject)
         layout.addWidget(title)
-        return self.cost_summary_widget
+        layout.addStretch()
+        layout.addWidget(close_btn)
+        return layout
 
-    def _create_tag_label(self, text, object_name):
-        label = QLabel(text)
-        label.setObjectName(object_name)
-        label.setAlignment(Qt.AlignCenter)
-        return label
+    def _create_instrument_details_widget(self) -> QWidget:
+        """Creates the top section with the stock symbol and transaction type."""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(5)
 
-    def _create_action_buttons(self):
+        self.symbol_label = QLabel()
+        self.symbol_label.setObjectName("symbolLabel")
+
+        self.transaction_type_label = QLabel()
+
+        layout.addWidget(self.symbol_label)
+        layout.addWidget(self.transaction_type_label, alignment=Qt.AlignmentFlag.AlignLeft)
+        return widget
+
+    def _create_order_summary_layout(self) -> QHBoxLayout:
+        """Creates the section displaying Quantity, Price, and Order Type."""
+        layout = QHBoxLayout()
+        layout.setSpacing(20)
+
+        self.quantity_value_label = QLabel()
+        self.price_value_label = QLabel()
+        self.order_type_value_label = QLabel()
+
+        layout.addWidget(self._create_summary_item("QUANTITY", self.quantity_value_label))
+        layout.addWidget(self._create_summary_item("PRICE", self.price_value_label))
+        layout.addWidget(self._create_summary_item("ORDER TYPE", self.order_type_value_label))
+        return layout
+
+    def _create_summary_item(self, title: str, value_label: QLabel) -> QWidget:
+        """Helper to create a single item (e.g., Quantity) for the summary."""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
+
+        title_label = QLabel(title)
+        title_label.setObjectName("summaryTitle")
+
+        value_label.setObjectName("summaryValue")
+
+        layout.addWidget(title_label)
+        layout.addWidget(value_label)
+        layout.addStretch()
+        return widget
+
+    def _create_cost_summary_widget(self) -> QWidget:
+        """Creates the final estimated cost section."""
+        widget = QWidget(objectName="summaryBox")
+        layout = QVBoxLayout(widget)
+        layout.setSpacing(0)
+
+        self.cost_value_label = QLabel(objectName="costValue")
+        self.cost_title_label = QLabel(objectName="costTitle")
+
+        layout.addWidget(self.cost_value_label, alignment=Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.cost_title_label, alignment=Qt.AlignmentFlag.AlignCenter)
+        return widget
+
+    def _create_action_buttons(self) -> QHBoxLayout:
+        """Creates the Confirm, Cancel, and Refresh buttons."""
         layout = QHBoxLayout()
         layout.setSpacing(10)
 
@@ -237,74 +182,49 @@ class OrderConfirmationDialog(QDialog):
         cancel_btn.setObjectName("secondaryButton")
         cancel_btn.clicked.connect(self.reject)
 
-        self.refresh_btn = QPushButton("REFRESH LTPs")
-        self.refresh_btn.setObjectName("secondaryButton")
-        self.refresh_btn.clicked.connect(self.refresh_requested.emit)
+        refresh_btn = QPushButton("REFRESH")
+        refresh_btn.setObjectName("secondaryButton")
+        refresh_btn.clicked.connect(lambda: self.refresh_requested.emit(self.order_details.get('tradingsymbol')))
 
-        confirm_btn = QPushButton("CONFIRM ORDER")
-        confirm_btn.setObjectName("primaryButton")  # Changed for consistency
+        confirm_btn = QPushButton("CONFIRM")
+        confirm_btn.setObjectName("primaryButton")
         confirm_btn.clicked.connect(self.accept)
 
         layout.addWidget(cancel_btn)
-        layout.addWidget(self.refresh_btn)
+        layout.addWidget(refresh_btn)
         layout.addStretch()
         layout.addWidget(confirm_btn)
         return layout
 
     def _apply_styles(self):
-        """Applies a premium, modern dark theme."""
+        """Applies a modern, dark stylesheet to the dialog."""
         self.setStyleSheet("""
-            #mainContainer {
-                background-color: #161A25;
-                border: 1px solid #3A4458;
-                border-radius: 12px;
-                font-family: "Segoe UI", sans-serif;
-            }
-            #dialogTitle { color: #E0E0E0; font-size: 16px; font-weight: 600; }
-            #closeButton {
-                background: transparent; border: none; color: #8A9BA8;
-                font-size: 14px; font-weight: bold;
-            }
-            #closeButton:hover { color: #FFFFFF; }
-            #symbolLabel { color: #FFFFFF; font-size: 26px; font-weight: 300; }
-            #infoLabel { color: #A9B1C3; font-size: 11px; font-weight: bold; }
+            #mainContainer { background-color: #1c1c2e; border: 1px solid #3a3a5a; border-radius: 12px; }
+            #dialogTitle { color: #e0e0e0; font-size: 16px; font-weight: 600; }
+            #closeButton { background: transparent; border: none; color: #8a8a9e; font-size: 16px; font-weight: bold; }
+            #closeButton:hover { color: #ffffff; }
+            #divider { border: 1px solid #2a2a4a; }
 
-            #buyTag, #callTag, #putTag {
-                font-size: 10px; font-weight: bold; border-radius: 4px; padding: 4px 8px;
-            }
-            #buyTag { background-color: #29C7C9; color: #161A25; }
-            #callTag { background-color: rgba(41, 199, 201, 0.2); color: #29C7C9; }
-            #putTag { background-color: rgba(248, 81, 73, 0.2); color: #F85149; }
+            #symbolLabel { color: #ffffff; font-size: 28px; font-weight: 300; }
+            #buyTag, #sellTag { font-size: 10px; font-weight: bold; border-radius: 4px; padding: 4px 10px; }
+            #buyTag { background-color: #00b894; color: #ffffff; }
+            #sellTag { background-color: #d63031; color: #ffffff; }
 
-            #listHeader { color: #8A9BA8; font-size: 10px; font-weight: bold; text-transform: uppercase; }
-            #strikeScrollArea {
-                border: 1px solid #2A3140; border-radius: 6px; background-color: #212635;
-            }
-            #strikeRowWidget { border-bottom: 1px solid #2A3140; }
-            QScrollArea > QWidget > QWidget { background-color: #212635; } /* Scroll area content widget */
+            #summaryTitle { color: #8a8a9e; font-size: 11px; font-weight: bold; text-transform: uppercase; }
+            #summaryValue { color: #e0e0e0; font-size: 16px; font-weight: 500; }
 
-            #strikePriceLabel { color: #E0E0E0; font-size: 14px; font-weight: 600; }
-            #ltpLabel { color: #A9B1C3; font-size: 13px; }
+            #summaryBox { background-color: #2a2a4a; border-radius: 8px; padding: 12px; }
+            #costTitle { font-size: 11px; color: #8a8a9e; font-weight: bold; text-transform: uppercase; }
+            #costValue { font-size: 32px; font-weight: 300; color: #ffffff; padding-bottom: 2px; }
 
-            #summaryBox {
-                background-color: #212635; border-radius: 8px;
-            }
-            #summaryTitle { font-size: 11px; color: #8A9BA8; font-weight: bold; text-transform: uppercase;}
-            #costValue { font-size: 32px; font-weight: 300; color: #FFFFFF; padding-bottom: 2px; }
-
-            QPushButton {
-                font-weight: bold; border-radius: 6px; padding: 10px 16px; border: none; font-size: 12px;
-            }
-            #secondaryButton {
-                background-color: #3A4458; color: #E0E0E0;
-            }
-            #secondaryButton:hover { background-color: #4A5568; }
-            #primaryButton {
-                background-color: #29C7C9; color: #161A25;
-            }
-            #primaryButton:hover { background-color: #32E0E3; }
+            QPushButton { font-weight: bold; border-radius: 6px; padding: 11px 18px; border: none; font-size: 13px; }
+            #secondaryButton { background-color: #3a3a5a; color: #e0e0e0; }
+            #secondaryButton:hover { background-color: #4a4a6a; }
+            #primaryButton { background-color: #00b894; color: #ffffff; }
+            #primaryButton:hover { background-color: #00d2a2; }
         """)
 
+    # --- Window Dragging ---
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.LeftButton:
             self._drag_pos = event.globalPos() - self.frameGeometry().topLeft()
@@ -318,3 +238,4 @@ class OrderConfirmationDialog(QDialog):
     def mouseReleaseEvent(self, event: QMouseEvent):
         self._drag_pos = None
         event.accept()
+

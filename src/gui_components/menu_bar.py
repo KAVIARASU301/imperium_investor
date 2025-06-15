@@ -1,88 +1,76 @@
-# src/gui_components/menu_bar.py
-
 from PySide6.QtWidgets import QMenuBar
 from PySide6.QtGui import QAction
 from typing import Dict, Tuple
 
 
-def create_enhanced_menu_bar(parent) -> Tuple[QMenuBar, Dict[str, QAction]]:
-    """Create and return a styled, compact menu bar with the premium dark theme."""
+def create_main_menu(parent) -> Tuple[QMenuBar, Dict[str, QAction]]:
+    """
+    Creates and returns a styled, compact menu bar suitable for the
+    Swing Trader application, with a consistent dark theme.
+    """
     menubar = QMenuBar(parent)
-    # This stylesheet applies the new theme and reduces the height
     menubar.setStyleSheet("""
         QMenuBar {
-            background-color: #161A25; /* Match main background */
-            color: #A9B1C3;
-            border-bottom: 1px solid #2A3140;
-            padding: 2px 4px; /* Reduced padding for a shorter bar */
+            background-color: #1c1c2e;
+            color: #b2bec3;
+            border-bottom: 1px solid #3a3a5a;
+            padding: 2px 4px;
             font-family: "Segoe UI";
             font-size: 12px;
         }
         QMenuBar::item {
-            padding: 4px 10px; /* Reduced vertical padding */
+            padding: 5px 12px;
             margin: 0px 1px;
             border-radius: 4px;
         }
         QMenuBar::item:selected {
-            background-color: #212635;
-            color: #FFFFFF;
+            background-color: #2a2a4a;
+            color: #ffffff;
         }
         QMenu {
-            background-color: #212635;
-            color: #E0E0E0;
-            border: 1px solid #3A4458;
+            background-color: #2a2a4a;
+            color: #e0e0e0;
+            border: 1px solid #3a3a5a;
             padding: 5px;
         }
         QMenu::item {
-            padding: 8px 25px; /* Standard padding for dropdown items */
+            padding: 8px 25px;
             margin: 2px 3px;
             border-radius: 4px;
         }
         QMenu::item:selected {
-            background-color: #29C7C9;
-            color: #161A25;
+            background-color: #00b894;
+            color: #ffffff;
         }
         QMenu::separator {
             height: 1px;
-            background: #3A4458;
+            background: #3a3a5a;
             margin: 5px 10px;
         }
     """)
 
-    # --- Actions Dictionary (Backend Logic Preserved) ---
     menu_actions = {}
 
-    # --- File menu ---
+    # --- File Menu ---
     file_menu = menubar.addMenu("&File")
-    menu_actions['refresh'] = file_menu.addAction("Refresh Data")
+    menu_actions['refresh'] = file_menu.addAction("Refresh All Data")
     menu_actions['refresh'].setShortcut("F5")
-    menu_actions['refresh_positions'] = file_menu.addAction("Refresh Positions")
-    menu_actions['refresh_positions'].setShortcut("Ctrl+R")
     file_menu.addSeparator()
     menu_actions['exit'] = file_menu.addAction("Exit")
     menu_actions['exit'].setShortcut("Ctrl+Q")
 
-    # --- View menu ---
+    # --- View Menu ---
     view_menu = menubar.addMenu("&View")
-    menu_actions['positions'] = view_menu.addAction("Open Positions")
-    menu_actions['pending_orders'] = view_menu.addAction("Pending Orders")
-    menu_actions['orders'] = view_menu.addAction("Order History")
-    menu_actions['pnl_history'] = view_menu.addAction("P&L History")
-    menu_actions['performance'] = view_menu.addAction("Performance")
+    menu_actions['order_history'] = view_menu.addAction("Order History")
+    menu_actions['pnl_calendar'] = view_menu.addAction("P&L Calendar")
+    menu_actions['performance'] = view_menu.addAction("Lifetime Performance")
 
     # --- Tools Menu ---
     tools_menu = menubar.addMenu("&Tools")
-    menu_actions['market_monitor'] = tools_menu.addAction("Market Monitor")
-    menu_actions['market_monitor'].setShortcut("Ctrl+M")
-    tools_menu.addSeparator()
-    menu_actions['option_chain'] = QAction("Option Chain", parent)
-    menu_actions['option_chain'].setShortcut("Ctrl+O")
-    tools_menu.addAction(menu_actions['option_chain'])
-    tools_menu.addSeparator()
-    menu_actions['settings'] = tools_menu.addAction("Settings")
+    menu_actions['settings'] = tools_menu.addAction("Settings...")
     menu_actions['settings'].setShortcut("Ctrl+,")
 
-    # --- Help menu ---
+    # --- Help Menu ---
     help_menu = menubar.addMenu("&Help")
     menu_actions['about'] = help_menu.addAction("About")
 
