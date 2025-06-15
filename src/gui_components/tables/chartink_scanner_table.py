@@ -38,8 +38,8 @@ class AddScanDialog(QDialog):
         form_layout.addRow("Scan Name:", self.name_input)
 
         self.url_input = QLineEdit()
-        self.url_input.setPlaceholderText("https://chartink.com/screener/... or just the scan clause")
-        form_layout.addRow("Scan URL/Clause:", self.url_input)
+        self.url_input.setPlaceholderText("Paste scan clause (not the URL)")
+        form_layout.addRow("Scan Clause:", self.url_input)
 
         layout.addLayout(form_layout)
 
@@ -203,94 +203,43 @@ class ScanWorker(QThread):
         })
 
     def run(self):
-        """Executes the network request and processing for the scan."""
         try:
-            # Extract scan clause from URL - handle different URL formats
-            if 'screener/' in self.scan_url:
-                scan_clause = self.scan_url.split('screener/')[-1]
-            else:
-                # If it's already just the scan clause
-                scan_clause = self.scan_url
+            clause = self.scan_url.strip()
+            if not clause:
+                raise Exception("No scan clause provided")
 
-            logger.info(f"Extracted scan clause: {scan_clause}")
+            process_url = "https://chartink.com/screener/process"
 
-            # First, get the dashboard page to establish session and get CSRF token
-            dashboard_url = 'https://chartink.com/screener/dashboard'
-            logger.info("Getting dashboard page...")
-            r = self.session.get(dashboard_url, timeout=20)
-            r.raise_for_status()
+            with requests.session() as s:
+                # GET to establish session and get CSRF
+                r = s.get(process_url, timeout=20)
+                r.raise_for_status()
 
-            # Parse CSRF token
-            soup = bs(r.text, 'html.parser')
-            csrf_meta = soup.find('meta', {'name': 'csrf-token'})
+                soup = bs(r.content, "lxml")
+                csrf_meta = soup.find("meta", {"name": "csrf-token"})
+                if not csrf_meta or not csrf_meta.get("content"):
+                    raise Exception("Could not retrieve CSRF token")
+                csrf_token = csrf_meta["content"]
 
-            if not csrf_meta:
-                raise Exception("Could not find CSRF token in the page")
+                headers = {
+                    "x-csrf-token": csrf_token,
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                }
 
-            csrf_token = csrf_meta.get('content')
-            if not csrf_token:
-                raise Exception("CSRF token is empty")
+                payload = {"scan_clause": clause}
+                res = s.post(process_url, headers=headers, data=payload, timeout=20)
+                res.raise_for_status()
 
-            logger.info(f"Got CSRF token: {csrf_token[:10]}...")
+                data = res.json()
+                results = data.get("data", [])
+                symbols = [row["nsecode"] for row in results if "nsecode" in row]
 
-            # Update headers with CSRF token
-            self.session.headers.update({
-                'X-CSRF-TOKEN': csrf_token,
-                'Referer': dashboard_url
-            })
+                logger.info(f"Scan returned {len(symbols)} symbols")
+                self.scan_completed.emit(symbols)
 
-            # Prepare the payload
-            payload = {'scan_clause': scan_clause}
-            logger.info(f"Sending payload: {payload}")
-
-            # Post the scan request
-            process_url = 'https://chartink.com/screener/process'
-            res = self.session.post(process_url, data=payload, timeout=20)
-            res.raise_for_status()
-
-            logger.info(f"Response status: {res.status_code}")
-
-            # Parse response
-            try:
-                response_data = res.json()
-                logger.info(
-                    f"Response keys: {list(response_data.keys()) if isinstance(response_data, dict) else 'Not a dict'}")
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse JSON response: {e}")
-                logger.error(f"Response text (first 500 chars): {res.text[:500]}")
-                raise Exception(f"Invalid JSON response: {e}")
-
-            # Extract symbols
-            scan_results = response_data.get("data", [])
-            if not scan_results:
-                logger.warning("No data found in response or empty data array")
-
-            symbols = []
-            for item in scan_results:
-                if isinstance(item, dict) and 'nsecode' in item:
-                    symbols.append(item['nsecode'])
-                else:
-                    logger.warning(f"Item missing nsecode: {item}")
-
-            logger.info(f"Successfully extracted {len(symbols)} symbols")
-            self.scan_completed.emit(symbols)
-
-        except requests.exceptions.Timeout:
-            error_message = "Request timed out. Please try again."
-            logger.error(error_message)
-            self.scan_error.emit(error_message)
-        except requests.exceptions.ConnectionError:
-            error_message = "Connection error. Please check your internet connection."
-            logger.error(error_message)
-            self.scan_error.emit(error_message)
-        except requests.exceptions.HTTPError as e:
-            error_message = f"HTTP error {e.response.status_code}: {e.response.reason}"
-            logger.error(error_message)
-            self.scan_error.emit(error_message)
         except Exception as e:
-            error_message = f"Failed to run scan. Error: {str(e)}"
-            logger.error(error_message, exc_info=True)
-            self.scan_error.emit(error_message)
+            logger.error(f"ScanWorker failed: {e}", exc_info=True)
+            self.scan_error.emit(str(e))
 
 
 class ChartinkScannerTable(QWidget):
@@ -332,47 +281,56 @@ class ChartinkScannerTable(QWidget):
 
         # Scan dropdown
         self.scan_dropdown = QComboBox()
-        self._update_scan_dropdown()
-        self.scan_dropdown.currentIndexChanged.connect(self._run_current_scan)
+        self.scan_dropdown.currentIndexChanged.connect(self._run_current_scan)  # Auto-run on change
 
         # Refresh button
         self.refresh_btn = QPushButton("Refresh")
         self.refresh_btn.setObjectName("secondaryButton")
         self.refresh_btn.clicked.connect(self._run_current_scan)
 
-        # Manage scans button
-        self.manage_btn = QPushButton("Manage Scans")
-        self.manage_btn.setObjectName("secondaryButton")
+        # MODIFICATION: Changed "Manage Scans" to a settings icon button
+        self.manage_btn = QPushButton("⚙")  # Using a gear emoji as an icon
+        self.manage_btn.setObjectName("iconButton")
+        self.manage_btn.setToolTip("Manage Scans")
         self.manage_btn.clicked.connect(self._manage_scans)
 
-        # Add scan button (quick add)
-        self.add_btn = QPushButton("+ Add")
-        self.add_btn.setObjectName("primaryButton")
-        self.add_btn.clicked.connect(self._quick_add_scan)
-
+        # Add widgets to layout
         header_layout.addWidget(QLabel("Scan:"))
         header_layout.addWidget(self.scan_dropdown, 1)
+        header_layout.addStretch()  # Pushes subsequent widgets to the right
         header_layout.addWidget(self.refresh_btn)
         header_layout.addWidget(self.manage_btn)
-        header_layout.addWidget(self.add_btn)
+
+        # MODIFICATION: Removed the "+ Add" button from the header
+        # The quick add functionality is now only in the manage dialog
+
+        self._update_scan_dropdown()
+
         return header_layout
 
     def _update_scan_dropdown(self):
         """Update the scan dropdown with current scans."""
+        # Block signals to prevent auto-running scan while repopulating
+        self.scan_dropdown.blockSignals(True)
         self.scan_dropdown.clear()
 
         if self.scans:
             scan_names = [scan.get("name", f"Scan {i + 1}") for i, scan in enumerate(self.scans)]
             self.scan_dropdown.addItems(scan_names)
             self.refresh_btn.setEnabled(True)
+            self.manage_btn.setEnabled(True)
         else:
             self.scan_dropdown.addItem("No scans configured")
             self.refresh_btn.setEnabled(False)
+            self.manage_btn.setEnabled(True)  # Always allow managing/adding scans
+
+        self.scan_dropdown.blockSignals(False)
 
     def _configure_table(self):
         """Configures the properties and headers of the table."""
         self.table.setColumnCount(1)
-        self.table.setHorizontalHeaderLabels(["Scanned Symbols"])
+        # MODIFICATION: Hide the horizontal header
+        self.table.horizontalHeader().setVisible(False)
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -399,7 +357,6 @@ class ChartinkScannerTable(QWidget):
         self.refresh_btn.setEnabled(True)
         self.scan_dropdown.setEnabled(True)
         self.manage_btn.setEnabled(True)
-        self.add_btn.setEnabled(True)
 
     @Slot(str)
     def _on_scan_error(self, error_message: str):
@@ -416,20 +373,9 @@ class ChartinkScannerTable(QWidget):
         self.refresh_btn.setEnabled(True)
         self.scan_dropdown.setEnabled(True)
         self.manage_btn.setEnabled(True)
-        self.add_btn.setEnabled(True)
 
-    def _quick_add_scan(self):
-        """Quick add a new scan."""
-        dialog = AddScanDialog(self)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            scan_data = dialog.get_scan_data()
-            self.scans.append(scan_data)
-            self._save_scans()
-            self._update_scan_dropdown()
-
-            # Select the newly added scan
-            self.scan_dropdown.setCurrentIndex(len(self.scans) - 1)
-            QMessageBox.information(self, "Scan Added", f"'{scan_data['name']}' has been added successfully!")
+    # MODIFICATION: This method is no longer needed as the quick add button was removed.
+    # def _quick_add_scan(self): ...
 
     def _manage_scans(self):
         """Open the manage scans dialog."""
@@ -443,12 +389,19 @@ class ChartinkScannerTable(QWidget):
             if not self.scans:
                 self.table.setRowCount(0)
                 self.table.insertRow(0)
-                item = QTableWidgetItem("No scans configured. Click 'Add' to create your first scan.")
+                item = QTableWidgetItem("No scans configured. Click '⚙' to add a scan.")
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
                 self.table.setItem(0, 0, item)
+            else:
+                # Run the currently selected scan after managing
+                self._run_current_scan()
 
     def _run_current_scan(self):
         """Runs the currently selected Chartink scan in the background."""
+        # Do not run if the dropdown signal was blocked (e.g., during setup)
+        if self.scan_dropdown.signalsBlocked():
+            return
+
         if not self.scans:
             return
 
@@ -469,7 +422,6 @@ class ChartinkScannerTable(QWidget):
         self.refresh_btn.setEnabled(False)
         self.scan_dropdown.setEnabled(False)
         self.manage_btn.setEnabled(False)
-        self.add_btn.setEnabled(False)
 
         # Show loading state
         self.table.setRowCount(0)
@@ -581,15 +533,18 @@ class ChartinkScannerTable(QWidget):
             }
             #secondaryButton:hover { background-color: #4a4a6a; }
             #secondaryButton:disabled { background-color: #2a2a3a; color: #666; }
-            #primaryButton {
-                background-color: #007acc; color: white; font-size: 12px;
-                font-weight: bold; border-radius: 6px; padding: 6px 14px; border: none;
+            /* MODIFICATION: Style for the new icon button */
+            #iconButton {
+                background-color: #3a3a5a; color: #e0e0e0; font-size: 16px;
+                font-weight: bold; border-radius: 6px; padding: 4px; border: none;
+                min-width: 28px; min-height: 28px;
             }
-            #primaryButton:hover { background-color: #005a9e; }
-            #primaryButton:disabled { background-color: #2a2a3a; color: #666; }
+            #iconButton:hover { background-color: #4a4a6a; }
+            #iconButton:disabled { background-color: #2a2a3a; color: #666; }
             QTableWidget {
                 border: none; gridline-color: #2a2a4a; font-size: 13px;
             }
+            /* MODIFICATION: The header is now hidden, but styles are kept for consistency if re-enabled */
             QHeaderView::section {
                 background-color: #1c1c2e; color: #8a8a9e; padding: 8px;
                 border: none; border-bottom: 1px solid #3a3a5a;
