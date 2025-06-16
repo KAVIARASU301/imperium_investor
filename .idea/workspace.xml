@@ -4,7 +4,59 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="0541dfd7-a7d3-4fbc-a932-bd27ef350d6c" name="Changes" comment="" />
+    <list default="true" id="0541dfd7-a7d3-4fbc-a932-bd27ef350d6c" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/icons/checklist.svg" beforeDir="false" afterPath="$PROJECT_DIR$/icons/checklist.svg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/__init__.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/api_circuit_breaker.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils/api_circuit_breaker.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/assets/fail.wav" beforeDir="false" afterPath="$PROJECT_DIR$/assets/fail.wav" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/assets/success.wav" beforeDir="false" afterPath="$PROJECT_DIR$/assets/success.wav" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils/login_setup_config.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/assets/fail.wav" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/assets/success.wav" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/dialogs/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/dialogs/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/dialogs/add_chartink_scan_dialog.py" beforeDir="false" afterPath="$PROJECT_DIR$/dialogs/add_chartink_scan_dialog.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/dialogs/alert_logs_dialog.py" beforeDir="false" afterPath="$PROJECT_DIR$/dialogs/alert_logs_dialog.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/dialogs/order_confirmation_dialog.py" beforeDir="false" afterPath="$PROJECT_DIR$/dialogs/order_confirmation_dialog.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/dialogs/order_history_dialog.py" beforeDir="false" afterPath="$PROJECT_DIR$/dialogs/order_history_dialog.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/dialogs/performance_dialog.py" beforeDir="false" afterPath="$PROJECT_DIR$/dialogs/performance_dialog.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/dialogs/pnl_history_dialog.py" beforeDir="false" afterPath="$PROJECT_DIR$/dialogs/pnl_history_dialog.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/dialogs/settings_dialog.py" beforeDir="false" afterPath="$PROJECT_DIR$/dialogs/settings_dialog.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/dialogs/stock_alert_dialog.py" beforeDir="false" afterPath="$PROJECT_DIR$/dialogs/stock_alert_dialog.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/logs/api_health.log" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/menu_bar.py" beforeDir="false" afterPath="$PROJECT_DIR$/widgets/menu_bar.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/positions_table.py" beforeDir="false" afterPath="$PROJECT_DIR$/widgets/positions_table.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/swing_trader_window.py" beforeDir="false" afterPath="$PROJECT_DIR$/widgets/swing_trader_window.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/tables/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/tables/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/tables/chartink_scanner_table.py" beforeDir="false" afterPath="$PROJECT_DIR$/tables/chartink_scanner_table.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/tables/open_positions_table.py" beforeDir="false" afterPath="$PROJECT_DIR$/tables/open_positions_table.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/tables/watchlist_table.py" beforeDir="false" afterPath="$PROJECT_DIR$/tables/watchlist_table.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/widgets/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/widgets/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/widgets/alerts_log_widget.py" beforeDir="false" afterPath="$PROJECT_DIR$/widgets/alerts_log_widget.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/widgets/candlestick_chart_widget.py" beforeDir="false" afterPath="$PROJECT_DIR$/widgets/candlestick_chart_widget.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/widgets/header_toolbar.py" beforeDir="false" afterPath="$PROJECT_DIR$/widgets/header_toolbar.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/widgets/order_status_widget.py" beforeDir="false" afterPath="$PROJECT_DIR$/widgets/order_status_widget.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/widgets/performance_widget.py" beforeDir="false" afterPath="$PROJECT_DIR$/widgets/performance_widget.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/gui_components/widgets/theme_toggle_switch.py" beforeDir="false" afterPath="$PROJECT_DIR$/widgets/theme_toggle_switch.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/login_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils/login_manager.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/market_data_worker.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils/market_data_worker.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/paper_trading_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils/paper_trading_manager.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/position_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils/position_manager.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/token_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils/token_manager.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/utils/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/utils/config_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils/config_manager.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/utils/constants.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils/constants.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/utils/data_fetcher.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils/data_fetcher.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/utils/data_models.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils/data_models.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/utils/instrument_loader.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils/instrument_loader.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/utils/pnl_logger.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils/pnl_logger.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/utils/run_chartink_scan.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils/run_chartink_scan.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/utils/theme_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils/theme_manager.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/utils/trade_logger.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils/trade_logger.py" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -40,30 +92,33 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "Python.ChartinkRequest.executor": "Run",
-    "Python.__init__.executor": "Run",
-    "Python.candlestick_chart_widget.executor": "Run",
-    "Python.chartink_results.executor": "Run",
-    "Python.chartink_scanner_table.executor": "Run",
-    "Python.header_toolbar.executor": "Run",
-    "Python.main.executor": "Run",
-    "Python.stock_alert_dialog.executor": "Run",
-    "Python.swing_trader_window.executor": "Run",
-    "Python.theme_manager.executor": "Run",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "SHARE_PROJECT_CONFIGURATION_FILES": "true",
-    "git-widget-placeholder": "main",
-    "junie.onboarding.icon.badge.shown": "true",
-    "last_opened_file_path": "/home/kavi/Desktop/swing_trader"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;Python.ChartinkRequest.executor&quot;: &quot;Run&quot;,
+    &quot;Python.__init__.executor&quot;: &quot;Run&quot;,
+    &quot;Python.candlestick_chart_widget.executor&quot;: &quot;Run&quot;,
+    &quot;Python.chartink_results.executor&quot;: &quot;Run&quot;,
+    &quot;Python.chartink_scanner_table.executor&quot;: &quot;Run&quot;,
+    &quot;Python.header_toolbar.executor&quot;: &quot;Run&quot;,
+    &quot;Python.main.executor&quot;: &quot;Run&quot;,
+    &quot;Python.stock_alert_dialog.executor&quot;: &quot;Run&quot;,
+    &quot;Python.swing_trader_window.executor&quot;: &quot;Run&quot;,
+    &quot;Python.theme_manager.executor&quot;: &quot;Run&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;SHARE_PROJECT_CONFIGURATION_FILES&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;junie.onboarding.icon.badge.shown&quot;: &quot;true&quot;,
+    &quot;last_opened_file_path&quot;: &quot;/home/kavi/Desktop/swing_trader&quot;
   }
-}]]></component>
+}</component>
   <component name="RecentsManager">
     <key name="MoveFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$/widgets" />
+      <recent name="$PROJECT_DIR$/utils" />
+      <recent name="$PROJECT_DIR$" />
       <recent name="$PROJECT_DIR$/src/gui_components/widgets" />
     </key>
   </component>
