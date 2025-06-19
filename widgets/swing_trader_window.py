@@ -25,7 +25,7 @@ from dialogs.performance_dialog import PerformanceDialog
 from utils.market_data_worker import MarketDataWorker
 from utils.paper_trading_manager import PaperTradingManager
 from utils.position_manager import PositionManager
-from utils import ConfigManager
+from utils.config_manager import ConfigManager
 from utils.instrument_loader import InstrumentLoader
 from utils.theme_manager import ThemeManager
 from utils.trade_logger import TradeLogger
@@ -79,6 +79,7 @@ class SwingTraderWindow(QMainWindow):
 
         self.chartink_scanner = ChartinkScannerTable()
         self.positions_table = OpenPositionsTable()
+        # The candlestick_chart is now an instance of EnhancedChartWindow
         self.candlestick_chart = ChartWindow(self.real_kite_client)
         self.watchlist = WatchlistTable()
 
@@ -94,7 +95,6 @@ class SwingTraderWindow(QMainWindow):
 
     def _setup_menu_bar(self):
         """Creates the main menu bar and connects its actions."""
-        # FIXED: Correctly unpack the menubar and actions dictionary
         menubar, menu_actions = create_main_menu(self)
         self.setMenuBar(menubar)
 
@@ -107,7 +107,6 @@ class SwingTraderWindow(QMainWindow):
 
     def _connect_signals(self):
         """Central place to connect all signals and slots across the application."""
-        self.header_toolbar.theme_switched.connect(self.theme_manager.set_theme)
         self.header_toolbar.symbol_selected.connect(self.candlestick_chart.on_search)
         self.header_toolbar.add_to_watchlist_requested.connect(self.watchlist.add_symbol)
         self.header_toolbar.add_alert_requested.connect(self._show_add_alert_dialog)
@@ -122,7 +121,6 @@ class SwingTraderWindow(QMainWindow):
             lambda msg: self.statusBar().showMessage(f"API Error: {msg}", 5000)
         )
 
-        # FIXED: Corrected the signal name to match the one in OpenPositionsTable
         self.positions_table.exit_position_requested.connect(self._on_exit_position_requested)
         self.positions_table.subscribe_tokens_requested.connect(self._subscribe_to_tokens)
 
@@ -173,7 +171,7 @@ class SwingTraderWindow(QMainWindow):
             self.trader.set_instrument_data(instruments)
 
         self.statusBar().showMessage("Instruments loaded successfully.", 4000)
-        self._on_websocket_connect()  # Trigger subscription after instruments are loaded
+        self._on_websocket_connect()
 
     @Slot(list)
     def _on_market_data(self, ticks: List[Dict]):
@@ -194,7 +192,6 @@ class SwingTraderWindow(QMainWindow):
         if all_tokens:
             self.market_data_worker.set_instruments(all_tokens)
 
-    # FIXED: Added the missing _subscribe_to_tokens method
     @Slot(list)
     def _subscribe_to_tokens(self, tokens: List[int]):
         """Adds a list of instrument tokens to the WebSocket subscription."""
@@ -256,7 +253,7 @@ class SwingTraderWindow(QMainWindow):
         dialog.exec()
 
     def _show_order_history_dialog(self):
-        orders = self.trade_logger.get_trades()
+        orders = self.trade_logger.get_all_trades()
         dialog = OrderHistoryDialog(self)
         dialog.update_orders(orders)
         dialog.exec()
@@ -272,7 +269,7 @@ class SwingTraderWindow(QMainWindow):
         dialog.exec()
 
     def _show_add_alert_dialog(self):
-        dialog = StockAlertDialog(self, self.instrument_list)
+        dialog = StockAlertDialog(self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             alert_data = dialog.get_data()
             alert_data['triggered'] = False
@@ -301,7 +298,9 @@ class SwingTraderWindow(QMainWindow):
         an_alert_was_triggered = False
         for tick in ticks:
             token = tick['instrument_token']
-            ltp = tick['last_price']
+            ltp = tick.get('last_price')
+            if ltp is None: continue
+
             for alert in self.alerts:
                 if alert.get('triggered'): continue
 
@@ -311,8 +310,8 @@ class SwingTraderWindow(QMainWindow):
                     is_above = ltp >= price_threshold
                     is_below = ltp <= price_threshold
 
-                    if (alert['condition'] == "Crosses Above" and is_above) or \
-                            (alert['condition'] == "Crosses Below" and is_below):
+                    if (alert['condition'].startswith("Crosses Above") and is_above) or \
+                       (alert['condition'].startswith("Crosses Below") and is_below):
                         alert['triggered'] = True
                         self._trigger_alert_actions(alert, ltp)
                         an_alert_was_triggered = True

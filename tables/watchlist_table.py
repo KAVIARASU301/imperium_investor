@@ -2,6 +2,8 @@ import logging
 import json
 import os
 from typing import List, Dict
+from functools import partial
+
 from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QPushButton, QVBoxLayout, QWidget,
     QHeaderView, QAbstractItemView, QMenu
@@ -63,6 +65,7 @@ class WatchlistTable(QWidget):
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)  # Symbol
         for i in range(1, 4):
             header.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
+        # --- THIS IS THE FIX ---
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
         self.table.setColumnWidth(4, 25)
 
@@ -109,45 +112,32 @@ class WatchlistTable(QWidget):
             "change_pct": 0.0,
         }
 
-        # --- FIX: Efficiently insert row in sorted order ---
-        sorted_symbols = sorted(self._watchlist_data.keys())
-        insert_row_at = sorted_symbols.index(symbol)
-
-        self.table.insertRow(insert_row_at)
-        self._populate_row(insert_row_at, symbol)
-        self._remap_symbol_rows()  # Update row indices after insertion
-
+        self._populate_full_table()
         self._save_watchlist()
         self.subscribe_tokens_requested.emit([instrument.get('instrument_token')])
         self.watchlist_changed.emit()
-        logger.info(f"Added {symbol} to watchlist at row {insert_row_at}.")
+        logger.info(f"Added {symbol} to watchlist.")
 
     def _populate_row(self, row: int, symbol: str):
         """Populates a single row with data and widgets."""
         data = self._watchlist_data[symbol]
 
-        self.table.setItem(row, 0, QTableWidgetItem())
-        self.table.setItem(row, 1, QTableWidgetItem())
-        self.table.setItem(row, 2, QTableWidgetItem())
-        self.table.setItem(row, 3, QTableWidgetItem())
-        self.table.setCellWidget(row, 4, self._create_remove_button())
+        for i in range(4):
+            self.table.setItem(row, i, QTableWidgetItem())
+        self.table.setCellWidget(row, 4, self._create_remove_button(row))
 
         self._update_row_data(row, data)
 
     def _remove_symbol_at_row(self, row: int):
         """Removes a symbol from the watchlist efficiently."""
         if 0 <= row < self.table.rowCount():
-            symbol_to_remove = self.table.item(row, 0).text()
-            if symbol_to_remove in self._watchlist_data:
-                del self._watchlist_data[symbol_to_remove]
+            symbol_to_remove = list(self._watchlist_data.keys())[row]
+            del self._watchlist_data[symbol_to_remove]
+            self.table.removeRow(row)
+            self._save_watchlist()
+            self.watchlist_changed.emit()
+            logger.info(f"Removed {symbol_to_remove} from watchlist.")
 
-                # --- FIX: Remove only the specific row ---
-                self.table.removeRow(row)
-                self._remap_symbol_rows()  # Update all row indices after a removal
-
-                self._save_watchlist()
-                self.watchlist_changed.emit()
-                logger.info(f"Removed {symbol_to_remove} from watchlist.")
 
     def _populate_full_table(self):
         """Clears and repopulates the entire table. Used for initial load."""
@@ -155,11 +145,12 @@ class WatchlistTable(QWidget):
         self._symbol_to_row.clear()
 
         sorted_symbols = sorted(self._watchlist_data.keys())
-        for symbol in sorted_symbols:
-            # Pre-populate with instrument data if available
-            if symbol in self._instrument_map and not self._watchlist_data[symbol]:
-                instrument = self._instrument_map[symbol]
-                self._watchlist_data[symbol] = {
+        self.table.setRowCount(len(sorted_symbols))
+
+        for row, symbol in enumerate(sorted_symbols):
+            if symbol in self._instrument_map and 'instrument_token' not in self._watchlist_data[symbol]:
+                 instrument = self._instrument_map[symbol]
+                 self._watchlist_data[symbol] = {
                     "tradingsymbol": symbol,
                     "instrument_token": instrument.get('instrument_token'),
                     "close_price": instrument.get('ohlc', {}).get('close', 0.0),
@@ -167,22 +158,8 @@ class WatchlistTable(QWidget):
                     "change": 0.0,
                     "change_pct": 0.0,
                 }
-
-        self.table.setRowCount(len(sorted_symbols))
-        for row, symbol in enumerate(sorted_symbols):
             self._symbol_to_row[symbol] = row
             self._populate_row(row, symbol)
-
-    def _remap_symbol_rows(self):
-        """FIX: Rebuilds the symbol-to-row mapping after an add/remove operation."""
-        self._symbol_to_row.clear()
-        for row in range(self.table.rowCount()):
-            try:
-                symbol = self.table.item(row, 0).text()
-                if symbol:
-                    self._symbol_to_row[symbol] = row
-            except AttributeError:
-                continue  # Row might be empty during operations
 
     def _update_row_data(self, row: int, data: Dict):
         """Updates the text and color for a single row."""
@@ -202,24 +179,13 @@ class WatchlistTable(QWidget):
             self.table.item(row, col).setForeground(color)
             self.table.item(row, col).setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
-    def _create_remove_button(self) -> QPushButton:
+    def _create_remove_button(self, row) -> QPushButton:
         """Creates the 'x' button to remove a symbol."""
-        # FIX: Instantiate the button first, then set its objectName.
         remove_btn = QPushButton("✕")
         remove_btn.setObjectName("removeButton")
-
         remove_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        remove_btn.clicked.connect(self._on_remove_button_clicked)
+        remove_btn.clicked.connect(partial(self._remove_symbol_at_row, row))
         return remove_btn
-
-    @Slot()
-    def _on_remove_button_clicked(self):
-        """Slot to handle remove button clicks reliably."""
-        button = self.sender()
-        if button:
-            # Find the row corresponding to the button that was clicked
-            row = self.table.indexAt(button.pos()).row()
-            self._remove_symbol_at_row(row)
 
     def _on_cell_clicked(self, row, column):
         """Handles clicks on a cell to select the symbol for charting."""
@@ -298,7 +264,7 @@ class WatchlistTable(QWidget):
                 background-color: #1c1c2e;
                 color: #e0e0e0;
                 border: none;
-                gridline-style: none;
+                grid-style: none;
                 font-size: 14px;
             }
             QTableWidget::item {
