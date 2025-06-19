@@ -11,41 +11,51 @@ def create_main_menu(parent) -> Tuple[QMenuBar, Dict[str, QAction]]:
     menubar = QMenuBar(parent)
     menubar.setStyleSheet("""
         QMenuBar {
-            background-color: #1c1c2e;
-            color: #b2bec3;
-            border-bottom: 1px solid #3a3a5a;
-            padding: 2px 4px;
-            font-family: "Segoe UI";
+            background-color: #0a0a0a; /* Deep black background */
+            color: #e0e0e0; /* Light gray text */
+            border-bottom: 1px solid #202020; /* Subtle dark border */
+            padding: 0px 2px; /* Reduced vertical padding for compactness */
+            font-family: "Segoe UI", Arial, sans-serif; /* Professional font */
             font-size: 12px;
         }
         QMenuBar::item {
-            padding: 5px 12px;
-            margin: 0px 1px;
-            border-radius: 4px;
+            padding: 3px 10px; /* Reduced padding for compact height */
+            margin: 0px 1px; /* Minimal margin */
+            border-radius: 2px; /* Minimal rounding */
+            color: #a0c0ff; /* Light blue for menu items */
+            font-weight: 500;
         }
         QMenuBar::item:selected {
-            background-color: #2a2a4a;
+            background-color: rgba(74, 122, 191, 0.2); /* Softer blue selection with transparency */
             color: #ffffff;
+        }
+        QMenuBar::item:hover {
+            background-color: #1a1a1a; /* Darker hover for non-selected items */
         }
         QMenu {
-            background-color: #2a2a4a;
+            background-color: #1a1a1a; /* Darker background for dropdown menus */
             color: #e0e0e0;
-            border: 1px solid #3a3a5a;
-            padding: 5px;
+            border: 1px solid #303030; /* Darker border for menus */
+            padding: 3px; /* Reduced padding */
+            font-size: 11px; /* Slightly smaller font for menu items */
         }
         QMenu::item {
-            padding: 8px 25px;
-            margin: 2px 3px;
-            border-radius: 4px;
+            padding: 5px 20px; /* Reduced padding */
+            margin: 1px 2px; /* Reduced margin */
+            border-radius: 2px; /* Minimal rounding */
+            color: #e0e0e0; /* Default text color for menu items */
         }
         QMenu::item:selected {
-            background-color: #00b894;
+            background-color: rgba(74, 122, 191, 0.2); /* Softer blue selection with transparency */
             color: #ffffff;
+        }
+        QMenu::item:hover {
+            background-color: #2a2a2a; /* Darker hover for menu items */
         }
         QMenu::separator {
             height: 1px;
-            background: #3a3a5a;
-            margin: 5px 10px;
+            background: #202020; /* Very dark separator */
+            margin: 3px 8px; /* Reduced margin */
         }
     """)
 

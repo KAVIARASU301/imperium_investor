@@ -1,5 +1,3 @@
-# Fixed canvas_candlestick_chart.py
-
 import logging
 import json
 import os
@@ -165,7 +163,7 @@ class ChartDataLoaderThread(QThread):
             if not all(col in df.columns for col in required_columns):
                 raise ValueError("Missing required columns")
 
-            # Convert data types
+            # Convert data types - FIXED: was missing df[col]
             df['date'] = pd.to_datetime(df['date'])
             for col in ['open', 'high', 'low', 'close', 'volume']:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
@@ -253,12 +251,12 @@ class CandlestickChart(QWidget):
     def _create_toolbar(self) -> QWidget:
         """Create toolbar with controls"""
         toolbar = QFrame()
-        toolbar.setFrameStyle(QFrame.Shape.Box)
-        toolbar.setFixedHeight(45)
+        toolbar.setObjectName("chartToolbar")
+        toolbar.setFixedHeight(35)
 
         layout = QHBoxLayout(toolbar)
-        layout.setContentsMargins(10, 5, 10, 5)
-        layout.setSpacing(8)
+        layout.setContentsMargins(10, 2, 10, 2)
+        layout.setSpacing(6)
 
         # Symbol info
         self.symbol_info_label = QLabel("No Symbol Selected")
@@ -267,11 +265,6 @@ class CandlestickChart(QWidget):
         font.setBold(True)
         self.symbol_info_label.setFont(font)
         layout.addWidget(self.symbol_info_label)
-
-        # Status indicator
-        self.status_indicator = QLabel("●")
-        self.status_indicator.setObjectName("statusIndicator")
-        layout.addWidget(self.status_indicator)
 
         layout.addStretch()
 
@@ -282,16 +275,10 @@ class CandlestickChart(QWidget):
         self.auto_scale_btn.clicked.connect(self._auto_scale_chart)
         layout.addWidget(self.auto_scale_btn)
 
-        self.reset_zoom_btn = QPushButton("Reset")
-        self.reset_zoom_btn.setObjectName("controlButton")
-        self.reset_zoom_btn.setToolTip("Reset zoom and pan")
-        self.reset_zoom_btn.clicked.connect(self._reset_chart_view)
-        layout.addWidget(self.reset_zoom_btn)
-
         # Refresh button
-        self.refresh_button = QPushButton("⟳")
+        self.refresh_button = QPushButton("⟳ Refresh")
         self.refresh_button.setObjectName("refreshButton")
-        self.refresh_button.setFixedSize(30, 30)
+        self.refresh_button.setFixedSize(80, 28)
         self.refresh_button.setToolTip("Refresh Data")
         self.refresh_button.clicked.connect(self._force_refresh)
         layout.addWidget(self.refresh_button)
@@ -308,7 +295,7 @@ class CandlestickChart(QWidget):
             btn = QPushButton(display)
             btn.setObjectName("timeframeButton")
             btn.setCheckable(True)
-            btn.setFixedSize(40, 30)
+            btn.setFixedSize(40, 28)
             btn.setToolTip(tooltip)
             btn.clicked.connect(lambda checked, i=interval: self._change_timeframe(i))
             self.timeframe_buttons[interval] = btn
@@ -364,9 +351,6 @@ class CandlestickChart(QWidget):
         auto_scale_shortcut = QShortcut(QKeySequence("Ctrl+A"), self)
         auto_scale_shortcut.activated.connect(self._auto_scale_chart)
 
-        reset_shortcut = QShortcut(QKeySequence("Ctrl+R"), self)
-        reset_shortcut.activated.connect(self._reset_chart_view)
-
     def _initialize_chart(self):
         """Initialize chart after UI is ready"""
         self._create_chart_view()
@@ -393,36 +377,24 @@ class CandlestickChart(QWidget):
 
         state_configs = {
             ChartState.IDLE: {
-                'status_color': '#888888',
-                'status_text': 'Ready',
                 'widget_index': 2,
                 'buttons_enabled': True
             },
             ChartState.LOADING: {
-                'status_color': '#4a9eff',
-                'status_text': 'Loading',
                 'widget_index': 0,
                 'buttons_enabled': False
             },
             ChartState.ERROR: {
-                'status_color': '#ff4a4a',
-                'status_text': 'Error',
                 'widget_index': 1,
                 'buttons_enabled': True
             },
             ChartState.LOADED: {
-                'status_color': '#4aff4a',
-                'status_text': 'Live',
                 'widget_index': 2,
                 'buttons_enabled': True
             }
         }
 
         config = state_configs.get(state, state_configs[ChartState.IDLE])
-
-        # Update status indicator
-        self.status_indicator.setStyleSheet(f"color: {config['status_color']};")
-        self.status_indicator.setToolTip(config['status_text'])
 
         # Update widget visibility
         if self.stacked_widget.currentIndex() != config['widget_index']:
@@ -433,7 +405,6 @@ class CandlestickChart(QWidget):
             btn.setEnabled(config['buttons_enabled'])
         self.refresh_button.setEnabled(config['buttons_enabled'])
         self.auto_scale_btn.setEnabled(config['buttons_enabled'])
-        self.reset_zoom_btn.setEnabled(config['buttons_enabled'])
 
     def set_instrument_list(self, instruments: List[Dict[str, Any]]):
         """Set available instruments"""
@@ -594,7 +565,7 @@ class CandlestickChart(QWidget):
         body {{
             margin: 0;
             padding: 0;
-            background-color: #131722;
+            background-color: #0a0a0a;
             font-family: 'Arial', sans-serif;
             overflow: hidden;
         }}
@@ -604,30 +575,18 @@ class CandlestickChart(QWidget):
             position: relative;
         }}
         #mainCanvas {{
-            background-color: #131722;
+            background-color: #0a0a0a;
             cursor: crosshair;
         }}
         #info {{
             position: absolute;
-            top: 10px;
-            left: 10px;
-            color: #d1d4dc;
-            font-size: 14px;
-            background-color: rgba(0, 0, 0, 0.7);
-            padding: 12px;
-            border-radius: 6px;
-            pointer-events: none;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
-        }}
-        #controls {{
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            color: #d1d4dc;
-            font-size: 12px;
-            background-color: rgba(0, 0, 0, 0.7);
-            padding: 8px;
-            border-radius: 4px;
+            top: 5px;
+            left: 5px;
+            color: #e0e0e0;
+            font-size: 13px;
+            background-color: rgba(0, 0, 0, 0.0);
+            padding: 0px;
+            border-radius: 0px;
             pointer-events: none;
         }}
     </style>
@@ -636,12 +595,7 @@ class CandlestickChart(QWidget):
     <div id="chartContainer">
         <canvas id="mainCanvas"></canvas>
         <div id="info">
-            <div id="symbolName">{self.current_symbol} - {self._get_interval_display_name(self.current_interval)}</div>
             <div id="priceInfo">Loading...</div>
-        </div>
-        <div id="controls">
-            <div>Mouse: Pan | Wheel: Zoom | Shift+Wheel: Horizontal Zoom</div>
-            <div>Ctrl+A: Auto Scale | Ctrl+R: Reset View</div>
         </div>
     </div>
 
@@ -654,20 +608,20 @@ class CandlestickChart(QWidget):
                 this.volumeData = volumeData;
                 this.width = 0;
                 this.height = 0;
-                this.padding = {{ top: 50, right: 100, bottom: 50, left: 0 }}; // Removed left padding
+                this.padding = {{ top: 30, right: 70, bottom: 25, left: 5 }};
                 this.chartArea = {{}};
                 this.volumeArea = {{}};
 
-                // Chart state - simplified defaults with fixed candle dimensions
+                // Chart state
                 this.minPrice = 0;
                 this.maxPrice = 0;
                 this.minVolume = 0;
                 this.maxVolume = 0;
-                this.fixedCandleWidth = 4;  // Fixed candle width
-                this.fixedCandleSpacing = 2;  // Fixed spacing between candles
+                this.fixedCandleWidth = 4;
+                this.fixedCandleSpacing = 2;
                 this.candleWidth = this.fixedCandleWidth;
                 this.candleSpacing = this.fixedCandleSpacing;
-                this.visibleCandleCount = 100;  // Will be calculated based on available space
+                this.visibleCandleCount = 100;
 
                 // Interaction state
                 this.isDragging = false;
@@ -679,13 +633,13 @@ class CandlestickChart(QWidget):
                 this.colors = {{
                     upCandle: '#26a69a',
                     downCandle: '#ef5350',
-                    grid: '#2a2a3d',
-                    text: '#d1d4dc',
+                    grid: '#151515',
+                    text: '#e0e0e0',
                     volume: '#555',
-                    volumeUp: '#26a69a40',
-                    volumeDown: '#ef535040',
-                    background: '#131722',
-                    crosshair: '#ffffff40'
+                    volumeUp: 'rgba(38, 166, 154, 0.3)',
+                    volumeDown: 'rgba(239, 83, 80, 0.3)',
+                    background: '#0a0a0a',
+                    crosshair: 'rgba(160, 192, 255, 0.4)'
                 }};
 
                 this.setupCanvas();
@@ -711,7 +665,6 @@ class CandlestickChart(QWidget):
 
                 this.ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
 
-                // Better space allocation - 75% for main chart, 20% for volume, 5% for spacing
                 const totalChartHeight = this.height - this.padding.top - this.padding.bottom;
                 const volumeHeight = Math.floor(totalChartHeight * 0.2);
                 const spacing = Math.floor(totalChartHeight * 0.02);
@@ -738,18 +691,13 @@ class CandlestickChart(QWidget):
             calculateBounds() {{
                 if (this.data.length === 0) return;
 
-                // Calculate how many candles can fit in the available width with fixed dimensions
                 const totalCandleSpace = this.fixedCandleWidth + this.fixedCandleSpacing;
                 this.visibleCandleCount = Math.floor(this.chartArea.width / totalCandleSpace);
-
-                // Ensure we don't try to show more candles than available
                 this.visibleCandleCount = Math.min(this.visibleCandleCount, this.data.length);
 
-                // Set actual candle dimensions
                 this.candleWidth = this.fixedCandleWidth;
                 this.candleSpacing = this.fixedCandleSpacing;
 
-                // Calculate viewport to show latest candles
                 this.viewPortEnd = this.data.length - 1;
                 this.viewPortStart = Math.max(0, this.viewPortEnd - this.visibleCandleCount + 1);
 
@@ -781,18 +729,15 @@ class CandlestickChart(QWidget):
                         const deltaX = e.clientX - this.lastMouseX;
                         const deltaY = e.clientY - this.lastMouseY;
 
-                        // Horizontal panning - move viewport based on mouse movement
                         const totalCandleSpace = this.fixedCandleWidth + this.fixedCandleSpacing;
                         const candleDelta = Math.round(deltaX / totalCandleSpace);
 
                         if (candleDelta !== 0) {{
-                            // Calculate new viewport position
                             const newStart = Math.max(0, Math.min(this.data.length - this.visibleCandleCount, this.viewPortStart - candleDelta));
                             this.viewPortStart = newStart;
                             this.viewPortEnd = Math.min(this.data.length - 1, this.viewPortStart + this.visibleCandleCount - 1);
                         }}
 
-                        // Vertical panning (price axis) - only if not in auto scale mode
                         if (!this.isAutoScale) {{
                             const priceRange = this.maxPrice - this.minPrice;
                             const pricePerPixel = priceRange / this.chartArea.height;
@@ -820,18 +765,18 @@ class CandlestickChart(QWidget):
                 this.canvas.addEventListener('mouseleave', () => {{
                     this.isDragging = false;
                     this.canvas.style.cursor = 'crosshair';
+                    this.crosshairX = null;
+                    this.crosshairY = null;
+                    document.getElementById('priceInfo').textContent = 'Hover over candle for details';
+                    this.draw();
                 }});
 
                 this.canvas.addEventListener('wheel', (e) => {{
                     e.preventDefault();
 
                     if (e.shiftKey) {{
-                        // Horizontal zoom - not applicable with fixed candle width
-                        // Fixed candle width means we show as many as can fit
-                        return; // Disabled horizontal zoom to maintain fixed candle size
-
+                        return;
                     }} else {{
-                        // Vertical zoom
                         this.isAutoScale = false;
                         const zoomFactor = e.deltaY > 0 ? 1.1 : 0.9;
                         const mouseY = e.clientY - this.canvas.getBoundingClientRect().top;
@@ -849,14 +794,10 @@ class CandlestickChart(QWidget):
                     this.draw();
                 }});
 
-                // Keyboard shortcuts
                 document.addEventListener('keydown', (e) => {{
                     if (e.ctrlKey && e.key === 'a') {{
                         e.preventDefault();
                         this.autoScale();
-                    }} else if (e.ctrlKey && e.key === 'r') {{
-                        e.preventDefault();
-                        this.resetView();
                     }}
                 }});
             }}
@@ -866,7 +807,6 @@ class CandlestickChart(QWidget):
                 const x = e.clientX - rect.left;
                 const y = e.clientY - rect.top;
 
-                // Find nearest candle
                 const candleIndex = this.xToCandle(x);
 
                 if (candleIndex >= this.viewPortStart && candleIndex <= this.viewPortEnd && candleIndex < this.data.length) {{
@@ -877,11 +817,16 @@ class CandlestickChart(QWidget):
                     const changePercent = ((change / candle.open) * 100).toFixed(2);
                     const changeStr = change >= 0 ? `+₹${{change.toFixed(2)}} (+${{changePercent}}%)` : `₹${{change.toFixed(2)}} (${{changePercent}}%)`;
 
-                    const info = `${{dateStr}} | O: ₹${{candle.open.toFixed(2)}} H: ₹${{candle.high.toFixed(2)}} L: ₹${{candle.low.toFixed(2)}} C: ₹${{candle.close.toFixed(2)}} | ${{changeStr}}`;
+                    const info = `O: ₹${{candle.open.toFixed(2)}} H: ₹${{candle.high.toFixed(2)}} L: ₹${{candle.low.toFixed(2)}} C: ₹${{candle.close.toFixed(2)}} | Vol: ${{this.formatVolume(this.volumeData[candleIndex].value)}} | ${{changeStr}}`;
                     document.getElementById('priceInfo').textContent = info;
 
                     this.crosshairX = x;
                     this.crosshairY = y;
+                    this.draw();
+                }} else {{
+                    this.crosshairX = null;
+                    this.crosshairY = null;
+                    document.getElementById('priceInfo').textContent = 'Hover over candle for details';
                     this.draw();
                 }}
             }}
@@ -911,70 +856,14 @@ class CandlestickChart(QWidget):
                 this.draw();
             }}
 
-            resetView() {{
-                this.isAutoScale = true;
-                // Recalculate how many candles fit with current dimensions
-                const totalCandleSpace = this.fixedCandleWidth + this.fixedCandleSpacing;
-                this.visibleCandleCount = Math.floor(this.chartArea.width / totalCandleSpace);
-                this.visibleCandleCount = Math.min(this.visibleCandleCount, this.data.length);
-                this.viewPortStart = Math.max(0, this.data.length - this.visibleCandleCount);
-                this.viewPortEnd = this.data.length - 1;
-                this.calculateBounds();
-                this.draw();
-            }}
-
             draw() {{
-                // Clear canvas
                 this.ctx.fillStyle = this.colors.background;
                 this.ctx.fillRect(0, 0, this.width, this.height);
 
-                // Removed grid drawing for clean, solid black look
                 this.drawCandlesticks();
                 this.drawVolume();
                 this.drawAxes();
                 this.drawCrosshair();
-            }}
-
-            drawGrid() {{
-                this.ctx.strokeStyle = this.colors.grid;
-                this.ctx.lineWidth = 1;
-
-                // Main chart horizontal grid lines
-                const priceStep = (this.maxPrice - this.minPrice) / 8;
-                for (let i = 0; i <= 8; i++) {{
-                    const price = this.minPrice + (priceStep * i);
-                    const y = this.priceToY(price);
-
-                    this.ctx.beginPath();
-                    this.ctx.moveTo(this.chartArea.x, y);
-                    this.ctx.lineTo(this.chartArea.x + this.chartArea.width, y);
-                    this.ctx.stroke();
-                }}
-
-                // Volume area horizontal grid lines
-                const volumeStep = this.maxVolume / 4;
-                for (let i = 0; i <= 4; i++) {{
-                    const volume = volumeStep * i;
-                    const y = this.volumeToY(volume);
-
-                    this.ctx.beginPath();
-                    this.ctx.moveTo(this.volumeArea.x, y);
-                    this.ctx.lineTo(this.volumeArea.x + this.volumeArea.width, y);
-                    this.ctx.stroke();
-                }}
-
-                // Vertical grid lines
-                const visibleCandles = this.viewPortEnd - this.viewPortStart + 1;
-                const timeStep = Math.max(1, Math.floor(visibleCandles / 8));
-
-                for (let i = this.viewPortStart; i <= this.viewPortEnd; i += timeStep) {{
-                    const x = this.candleToX(i);
-
-                    this.ctx.beginPath();
-                    this.ctx.moveTo(x, this.chartArea.y);
-                    this.ctx.lineTo(x, this.volumeArea.y + this.volumeArea.height);
-                    this.ctx.stroke();
-                }}
             }}
 
             drawCandlesticks() {{
@@ -1005,7 +894,6 @@ class CandlestickChart(QWidget):
                     const bodyY = Math.min(openY, closeY);
 
                     if (bodyHeight < 1) {{
-                        // Doji - draw line
                         this.ctx.lineWidth = 1;
                         this.ctx.beginPath();
                         this.ctx.moveTo(x, openY);
@@ -1039,39 +927,30 @@ class CandlestickChart(QWidget):
                 this.ctx.textAlign = 'left';
 
                 // Price axis (right side)
-                const priceStep = (this.maxPrice - this.minPrice) / 8;
-                for (let i = 0; i <= 8; i++) {{
+                const priceStep = (this.maxPrice - this.minPrice) / 6;
+                for (let i = 0; i <= 6; i++) {{
                     const price = this.minPrice + (priceStep * i);
                     const y = this.priceToY(price);
                     const text = '₹' + price.toFixed(2);
-
-                    // Background for better readability
-                    const textWidth = this.ctx.measureText(text).width;
-                    this.ctx.fillStyle = 'rgba(19, 23, 34, 0.8)';
-                    this.ctx.fillRect(this.chartArea.x + this.chartArea.width + 2, y - 8, textWidth + 4, 16);
 
                     this.ctx.fillStyle = this.colors.text;
                     this.ctx.fillText(text, this.chartArea.x + this.chartArea.width + 4, y + 4);
                 }}
 
                 // Volume axis (right side of volume area)
-                const volumeStep = this.maxVolume / 4;
-                for (let i = 0; i <= 4; i++) {{
+                const volumeStep = this.maxVolume / 3;
+                for (let i = 0; i <= 3; i++) {{
                     const volume = volumeStep * i;
                     const y = this.volumeToY(volume);
                     const text = this.formatVolume(volume);
-
-                    const textWidth = this.ctx.measureText(text).width;
-                    this.ctx.fillStyle = 'rgba(19, 23, 34, 0.8)';
-                    this.ctx.fillRect(this.volumeArea.x + this.volumeArea.width + 2, y - 8, textWidth + 4, 16);
 
                     this.ctx.fillStyle = this.colors.text;
                     this.ctx.fillText(text, this.volumeArea.x + this.volumeArea.width + 4, y + 4);
                 }}
 
-                // Time axis (bottom) - horizontal labels
+                // Time axis (bottom)
                 const visibleCandles = this.viewPortEnd - this.viewPortStart + 1;
-                const timeStep = Math.max(1, Math.floor(visibleCandles / 6));
+                const timeStep = Math.max(1, Math.floor(visibleCandles / 5));
 
                 this.ctx.textAlign = 'center';
                 for (let i = this.viewPortStart; i <= this.viewPortEnd; i += timeStep) {{
@@ -1080,11 +959,6 @@ class CandlestickChart(QWidget):
                     const x = this.candleToX(i) + this.candleWidth / 2;
                     const date = new Date(this.data[i].time);
                     const text = this.getTimeAxisLabel(date, '{self.current_interval}');
-
-                    // Background for better readability
-                    const textWidth = this.ctx.measureText(text).width;
-                    this.ctx.fillStyle = 'rgba(19, 23, 34, 0.8)';
-                    this.ctx.fillRect(x - textWidth/2 - 2, this.volumeArea.y + this.volumeArea.height + 5, textWidth + 4, 16);
 
                     this.ctx.fillStyle = this.colors.text;
                     this.ctx.fillText(text, x, this.volumeArea.y + this.volumeArea.height + 17);
@@ -1187,10 +1061,7 @@ class CandlestickChart(QWidget):
 
         if (candlestickData.length > 0) {{
             const chart = new EnhancedCandlestickChart('mainCanvas', candlestickData, volumeData);
-
-            // Expose chart methods to parent window
             window.autoScale = () => chart.autoScale();
-            window.resetView = () => chart.resetView();
         }} else {{
             document.getElementById('priceInfo').textContent = 'No data available';
         }}
@@ -1206,11 +1077,6 @@ class CandlestickChart(QWidget):
         if self.chart_view:
             self.chart_view.page().runJavaScript("if (window.autoScale) window.autoScale();")
 
-    def _reset_chart_view(self):
-        """Reset chart view to default"""
-        if self.chart_view:
-            self.chart_view.page().runJavaScript("if (window.resetView) window.resetView();")
-
     def _update_symbol_info(self, df: pd.DataFrame):
         """Update symbol information display"""
         try:
@@ -1219,7 +1085,6 @@ class CandlestickChart(QWidget):
 
             latest = df.iloc[-1]
             symbol = self.current_symbol
-            interval_name = self._get_interval_display_name(self.current_interval)
 
             # Format price and change
             current_price = latest['close']
@@ -1232,22 +1097,12 @@ class CandlestickChart(QWidget):
                 change_str = "N/A"
 
             # Update labels
-            info_text = f"{symbol} • {interval_name} • ₹{current_price:.2f}"
+            info_text = f"{symbol} • ₹{current_price:.2f}"
             self.symbol_info_label.setText(info_text)
             self.symbol_info_label.setToolTip(f"Change: {change_str}")
 
         except Exception as e:
             logger.error(f"Error updating symbol info: {e}")
-
-    def _get_interval_display_name(self, interval: str) -> str:
-        """Convert interval to display name"""
-        interval_map = {
-            "day": "1D",
-            "60minute": "1H",
-            "15minute": "15m",
-            "5minute": "5m"
-        }
-        return interval_map.get(interval, interval.upper())
 
     def _change_timeframe(self, interval: str):
         """Change chart timeframe"""
@@ -1289,147 +1144,139 @@ class CandlestickChart(QWidget):
         self.setStyleSheet("""
             /* Main widget */
             CandlestickChart {
-                background-color: #0d1117;
-                color: #e6edf3;
+                background-color: #0a0a0a;
+                color: #e0e0e0;
+                font-family: "Segoe UI", Arial, sans-serif;
             }
 
             /* Toolbar */
-            QFrame {
-                background-color: #161b22;
-                border: 1px solid #30363d;
-                border-radius: 6px;
+            QFrame#chartToolbar {
+                background-color: #1a1a1a;
+                border: 1px solid #202020;
+                border-radius: 0px;
+                border-bottom: 1px solid #303030;
             }
 
             /* Symbol info label */
             #symbolInfoLabel {
-                color: #f0f6fc;
-                font-size: 14px;
-                font-weight: bold;
-                font-family: "Segoe UI", system-ui;
-                padding: 4px 8px;
-            }
-
-            /* Status indicator */
-            #statusIndicator {
-                font-size: 16px;
-                font-weight: bold;
+                color: #a0c0ff;
+                font-size: 13px;
+                font-weight: 600;
             }
 
             /* Control buttons */
             #controlButton {
-                background-color: #21262d;
-                color: #7d8590;
-                border: 1px solid #30363d;
-                border-radius: 6px;
+                background-color: #2a2a2a;
+                color: #e0e0e0;
+                border: 1px solid #303030;
+                border-radius: 3px;
                 font-size: 11px;
-                font-weight: 600;
-                padding: 6px 12px;
+                font-weight: 500;
+                padding: 4px 8px;
             }
 
             #controlButton:hover {
-                background-color: #30363d;
-                color: #f0f6fc;
-                border-color: #58a6ff;
+                background-color: #3a3a3a;
+                border-color: #505050;
             }
 
             #controlButton:pressed {
-                background-color: #0969da;
-                color: #ffffff;
-                border-color: #0969da;
+                background-color: #1a1a1a;
+                border-color: #404040;
             }
 
             /* Timeframe buttons */
             #timeframeButton {
-                background-color: #21262d;
-                color: #7d8590;
-                border: 1px solid #30363d;
-                border-radius: 6px;
+                background-color: #2a2a2a;
+                color: #e0e0e0;
+                border: 1px solid #303030;
+                border-radius: 3px;
                 font-size: 11px;
-                font-weight: 600;
-                padding: 2px 4px;
+                font-weight: 500;
+                padding: 4px 8px;
             }
 
             #timeframeButton:hover {
-                background-color: #30363d;
-                color: #f0f6fc;
-                border-color: #58a6ff;
+                background-color: #3a3a3a;
+                color: #ffffff;
+                border-color: #505050;
             }
 
             #timeframeButton:checked {
-                background-color: #0969da;
+                background-color: #6a9cff;
                 color: #ffffff;
-                border-color: #0969da;
+                border-color: #6a9cff;
             }
 
             #timeframeButton:disabled {
-                background-color: #161b22;
-                color: #484f58;
-                border-color: #21262d;
+                background-color: #050505;
+                color: #606060;
+                border-color: #202020;
             }
 
             #refreshButton {
-                background-color: #238636;
+                background-color: #2e8b57;
                 color: #ffffff;
-                border: 1px solid #238636;
-                border-radius: 6px;
-                font-size: 14px;
-                font-weight: bold;
+                border: 1px solid #2e8b57;
+                border-radius: 3px;
+                font-size: 11px;
+                font-weight: 600;
+                padding: 4px 10px;
             }
 
             #refreshButton:hover {
-                background-color: #2ea043;
+                background-color: #246b43;
             }
 
             #refreshButton:pressed {
-                background-color: #1a7f37;
+                background-color: #1e5a37;
             }
 
             #retryButton {
-                background-color: #da3633;
+                background-color: #cc4444;
                 color: #ffffff;
-                border: 1px solid #da3633;
-                border-radius: 6px;
-                font-size: 12px;
-                font-weight: bold;
+                border: 1px solid #cc4444;
+                border-radius: 3px;
+                font-size: 11px;
+                font-weight: 600;
                 padding: 8px 16px;
             }
 
             #retryButton:hover {
-                background-color: #f85149;
+                background-color: #e04f5e;
             }
 
             /* Labels */
-            #loadingLabel {
-                color: #58a6ff;
-                font-size: 16px;
+            #loadingLabel, #errorLabel {
+                color: #a0c0ff;
+                font-size: 14px;
                 font-weight: bold;
-                font-family: "Segoe UI", system-ui;
+                font-family: "Segoe UI", Arial, sans-serif;
             }
 
             #errorLabel {
                 color: #f85149;
-                font-size: 16px;
-                font-weight: bold;
-                font-family: "Segoe UI", system-ui;
             }
 
             /* Progress bar */
             QProgressBar {
-                background-color: #21262d;
+                background-color: #1a1a1a;
                 border: none;
-                border-radius: 2px;
+                border-radius: 1px;
+                text-align: center;
+                color: transparent;
             }
 
             QProgressBar::chunk {
-                background-color: #58a6ff;
-                border-radius: 2px;
+                background-color: #6a9cff;
+                border-radius: 1px;
             }
 
             /* Stacked widget */
             QStackedWidget {
-                background-color: #0d1117;
-                border: 1px solid #30363d;
-                border-radius: 6px;
+                background-color: #0a0a0a;
+                border: 1px solid #202020;
+                border-radius: 0px;
             }
         """)
 

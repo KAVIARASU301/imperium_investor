@@ -5,14 +5,16 @@ import shutil
 from datetime import datetime
 from typing import List, Dict, Union, Any
 
-from PySide6.QtCore import Qt, QUrl, QByteArray, QTimer, Slot
+from PySide6.QtCore import Qt, QUrl, QByteArray, QTimer, Slot, QPoint
 from PySide6.QtMultimedia import QSoundEffect
-from PySide6.QtWidgets import QMainWindow, QSplitter, QMessageBox, QDialog
+from PySide6.QtWidgets import QMainWindow, QSplitter, QMessageBox, QDialog, QWidget, QVBoxLayout, QHBoxLayout, \
+    QPushButton, QLabel
+from PySide6.QtGui import QMouseEvent
 
 from widgets.menu_bar import create_main_menu
 from tables.chartink_scanner_table import ChartinkScannerTable
 from tables.open_positions_table import OpenPositionsTable
-from tables.watchlist_table import TabbedWatchlistWidget  # Updated import
+from tables.watchlist_table import TabbedWatchlistWidget
 from widgets.canvas_candlestick_chart import CandlestickChart as ChartWindow
 from widgets.header_toolbar import HeaderToolbar
 from dialogs.order_confirmation_dialog import OrderConfirmationDialog
@@ -34,19 +36,16 @@ from kiteconnect import KiteConnect
 logger = logging.getLogger(__name__)
 
 
-class SwingTraderWindow(QMainWindow):
+class FramelessSwingTraderWindow(QMainWindow):
     """
-    The main window for the Swing Trader application. It orchestrates all UI
-    components, data managers, and background workers.
+    The main frameless window for the Swing Trader application with professional dark theme.
     """
 
     def __init__(self, trader: Union[KiteConnect, PaperTradingManager], real_kite_client: KiteConnect, api_key: str,
                  access_token: str):
         super().__init__()
-        self.setWindowTitle("Swing Trader Pro")
-        self.setMinimumSize(1200, 700)
 
-        # --- Core Application Components ---
+        # Core Application Components
         self.trader = trader
         self.real_kite_client = real_kite_client
         self.api_key = api_key
@@ -59,7 +58,14 @@ class SwingTraderWindow(QMainWindow):
         self.instrument_list: List[Dict] = []
         self.instrument_map: Dict[str, Dict] = {}
 
-        # --- UI Initialization ---
+        # Window dragging variables
+        self._drag_pos = None
+        self._is_maximized = False
+
+        # Setup frameless window
+        self._setup_frameless_window()
+
+        # UI Initialization
         self._setup_ui()
         self._setup_menu_bar()
         self._connect_signals()
@@ -68,43 +74,136 @@ class SwingTraderWindow(QMainWindow):
         self._apply_dark_theme()
 
         self.restore_window_state()
-        self.statusBar().showMessage("Initializing and loading instruments...")
+
+    def _setup_frameless_window(self):
+        """Setup frameless window with custom title bar."""
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+        self.setMinimumSize(1200, 700)
 
     def _setup_ui(self):
-        """Initializes and arranges all UI widgets with new layout."""
-        self.header_toolbar = HeaderToolbar(self)
-        self.addToolBar(self.header_toolbar)
+        """Initializes and arranges all UI widgets in frameless container."""
+        # Main container widget
+        main_container = QWidget()
+        main_container.setObjectName("mainContainer")
+        self.setCentralWidget(main_container)
 
+        # Main layout with zero margins
+        main_layout = QVBoxLayout(main_container)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        # Custom title bar
+        self.title_bar = self._create_custom_title_bar()
+        main_layout.addWidget(self.title_bar)
+
+        # Compact header toolbar
+        self.header_toolbar = HeaderToolbar(self, self)
+        main_layout.addWidget(self.header_toolbar)
+
+        # Main content splitter
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
-        self.setCentralWidget(self.main_splitter)
+        main_layout.addWidget(self.main_splitter)
 
         # Create widgets
         self.chartink_scanner = ChartinkScannerTable()
         self.candlestick_chart = ChartWindow(self.real_kite_client)
-        self.watchlist = TabbedWatchlistWidget()  # Updated to use tabbed version
+        self.watchlist = TabbedWatchlistWidget()
         self.positions_table = OpenPositionsTable()
 
-        # New Layout: Scanner (full height) | Chart | Watchlist + Positions (stacked)
-        # Left panel: Scanner takes full vertical space
+        # Layout: Scanner | Chart | Watchlist + Positions (stacked)
         self.main_splitter.addWidget(self.chartink_scanner)
-
-        # Center: Chart
         self.main_splitter.addWidget(self.candlestick_chart)
 
         # Right panel: Watchlist on top, Positions on bottom
         right_panel_splitter = QSplitter(Qt.Orientation.Vertical)
         right_panel_splitter.addWidget(self.watchlist)
         right_panel_splitter.addWidget(self.positions_table)
-        right_panel_splitter.setSizes([500, 200])  # Watchlist gets more space
+        right_panel_splitter.setSizes([500, 200])
 
         self.main_splitter.addWidget(right_panel_splitter)
-
-        # Set main splitter sizes: Scanner | Chart | Right Panel
         self.main_splitter.setSizes([350, 800, 300])
 
+    def _create_custom_title_bar(self) -> QWidget:
+        """Creates a custom title bar for the frameless window."""
+        title_bar = QWidget()
+        title_bar.setObjectName("customTitleBar")
+        title_bar.setFixedHeight(28)  # Compact title bar
+
+        layout = QHBoxLayout(title_bar)
+        layout.setContentsMargins(8, 0, 4, 0)
+        layout.setSpacing(4)
+
+        # App title
+        title_label = QLabel("Swing Trader Pro")
+        title_label.setObjectName("appTitle")
+        layout.addWidget(title_label)
+
+        # Trading mode indicator
+        mode_label = QLabel(f"[{self.trading_mode.upper()}]")
+        mode_label.setObjectName("tradingModeLabel")
+        layout.addWidget(mode_label)
+
+        layout.addStretch()
+
+        # Window controls
+        min_btn = QPushButton("−")
+        min_btn.setObjectName("titleBarButton")
+        min_btn.setFixedSize(24, 24)
+        min_btn.clicked.connect(self.showMinimized)
+        layout.addWidget(min_btn)
+
+        self.max_btn = QPushButton("□")
+        self.max_btn.setObjectName("titleBarButton")
+        self.max_btn.setFixedSize(24, 24)
+        self.max_btn.clicked.connect(self._toggle_maximize)
+        layout.addWidget(self.max_btn)
+
+        close_btn = QPushButton("✕")
+        close_btn.setObjectName("closeTitleBarButton")
+        close_btn.setFixedSize(24, 24)
+        close_btn.clicked.connect(self.close)
+        layout.addWidget(close_btn)
+
+        # Enable dragging on title bar
+        title_bar.mousePressEvent = self._title_bar_mouse_press
+        title_bar.mouseMoveEvent = self._title_bar_mouse_move
+        title_bar.mouseDoubleClickEvent = self._title_bar_double_click
+
+        return title_bar
+
+    def _title_bar_mouse_press(self, event: QMouseEvent):
+        """Handle title bar mouse press for window dragging."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+
+    def _title_bar_mouse_move(self, event: QMouseEvent):
+        """Handle title bar mouse move for window dragging."""
+        if event.buttons() == Qt.MouseButton.LeftButton and self._drag_pos:
+            if not self._is_maximized:
+                self.move(event.globalPosition().toPoint() - self._drag_pos)
+
+    def _title_bar_double_click(self, event: QMouseEvent):
+        """Handle title bar double click to maximize/restore."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._toggle_maximize()
+
+    def _toggle_maximize(self):
+        """Toggle between maximized and normal window state."""
+        if self._is_maximized:
+            self.showNormal()
+            self.max_btn.setText("□")
+            self._is_maximized = False
+        else:
+            self.showMaximized()
+            self.max_btn.setText("❐")
+            self._is_maximized = True
+
     def _setup_menu_bar(self):
-        """Creates the main menu bar and connects its actions."""
+        """Creates a hidden menu bar (accessible via shortcuts)."""
+        # We'll keep the menu functionality but hide the visual menu bar
         menubar, menu_actions = create_main_menu(self)
+        menubar.setVisible(False)  # Hide the menu bar
         self.setMenuBar(menubar)
 
         menu_actions["refresh"].triggered.connect(self.position_manager.fetch_positions_and_orders)
@@ -117,7 +216,6 @@ class SwingTraderWindow(QMainWindow):
     def _connect_signals(self):
         """Central place to connect all signals and slots across the application."""
         self.header_toolbar.symbol_selected.connect(self.candlestick_chart.on_search)
-        self.header_toolbar.add_to_watchlist_requested.connect(self.watchlist.add_symbol)
         self.header_toolbar.add_alert_requested.connect(self._show_add_alert_dialog)
         self.header_toolbar.alert_logs_requested.connect(self._show_alert_logs_dialog)
 
@@ -128,9 +226,6 @@ class SwingTraderWindow(QMainWindow):
 
         # Position manager connections
         self.position_manager.positions_updated.connect(self.positions_table.update_positions)
-        self.position_manager.api_error_occurred.connect(
-            lambda msg: self.statusBar().showMessage(f"API Error: {msg}", 5000)
-        )
 
         # Positions table connections
         self.positions_table.exit_position_requested.connect(self._on_exit_position_requested)
@@ -141,7 +236,7 @@ class SwingTraderWindow(QMainWindow):
         self.watchlist.place_order_requested.connect(self._show_order_dialog)
         self.watchlist.watchlist_changed.connect(self._on_websocket_connect)
 
-        # Chartink scanner connections - NEW
+        # Chartink scanner connections
         self.chartink_scanner.subscribe_tokens_requested.connect(self._subscribe_to_tokens)
 
     def _init_background_workers(self):
@@ -171,81 +266,170 @@ class SwingTraderWindow(QMainWindow):
             logger.warning(f"Alert sound file not found at {sound_file}")
 
     def _apply_dark_theme(self):
-        """Applies overall dark theme to the application."""
+        """Applies professional dark theme to the frameless application."""
         self.setStyleSheet("""
+            /* Main Container */
+            #mainContainer {
+                background-color: #0a0a0a;
+                border: 1px solid #1a1a1a;
+            }
+
+            /* Custom Title Bar */
+            #customTitleBar {
+                background-color: #0a0a0a;
+                border-bottom: 1px solid #202020;
+            }
+
+            #appTitle {
+                color: #a0c0ff;
+                font-size: 12px;
+                font-weight: 600;
+                font-family: "Segoe UI", Arial, sans-serif;
+            }
+
+            #tradingModeLabel {
+                color: #64ffda;
+                font-size: 10px;
+                font-weight: 500;
+                font-family: "Segoe UI", Arial, sans-serif;
+            }
+
+            /* Title Bar Buttons */
+            #titleBarButton {
+                background-color: transparent;
+                color: #b0b0b0;
+                border: none;
+                font-size: 14px;
+                font-weight: bold;
+                border-radius: 2px;
+            }
+
+            #titleBarButton:hover {
+                background-color: #2a2a2a;
+                color: #ffffff;
+            }
+
+            #closeTitleBarButton {
+                background-color: transparent;
+                color: #b0b0b0;
+                border: none;
+                font-size: 12px;
+                font-weight: bold;
+                border-radius: 2px;
+            }
+
+            #closeTitleBarButton:hover {
+                background-color: #e81123;
+                color: #ffffff;
+            }
+
+            /* Main Window */
             QMainWindow {
-                background-color: #000000;
+                background-color: #0a0a0a;
                 color: #e0e0e0;
             }
 
+            /* Splitters */
             QSplitter {
-                background-color: #000000;
+                background-color: #0a0a0a;
+                border: none;
             }
 
             QSplitter::handle {
-                background-color: #1a1a2e;
-                border: 1px solid #233554;
+                background-color: #1a1a1a;
+                border: none;
             }
 
             QSplitter::handle:horizontal {
-                width: 0px;
-                margin: 0px 0px;
+                width: 1px;
+                margin: 0px;
+                background-color: #202020;
             }
 
             QSplitter::handle:vertical {
-                height: 0px;
-                margin: 0px 0px;
+                height: 1px;
+                margin: 0px;
+                background-color: #202020;
             }
 
             QSplitter::handle:hover {
-                background-color: #64ffda;
+                background-color: #6a9cff;
             }
 
+            /* Remove status bar completely */
             QStatusBar {
-                background-color: #0f0f23;
-                color: #8892b0;
-                border-top: 1px solid #233554;
-                padding: 4px;
+                display: none;
             }
 
-            QMenuBar {
-                background-color: #16213e;
-                color: #ccd6f6;
-                border-bottom: 1px solid #233554;
+            /* Ensure all child widgets inherit the dark theme */
+            QWidget {
+                background-color: #0a0a0a;
+                color: #e0e0e0;
+                font-family: "Segoe UI", Arial, sans-serif;
             }
 
-            QMenuBar::item {
-                background: transparent;
+            /* Scrollbars */
+            QScrollBar:vertical {
+                background-color: #151515;
+                width: 12px;
+                border: none;
+            }
+
+            QScrollBar::handle:vertical {
+                background-color: #3a3a3a;
+                border-radius: 6px;
+                min-height: 20px;
+            }
+
+            QScrollBar::handle:vertical:hover {
+                background-color: #5a5a5a;
+            }
+
+            QScrollBar:horizontal {
+                background-color: #151515;
+                height: 12px;
+                border: none;
+            }
+
+            QScrollBar::handle:horizontal {
+                background-color: #3a3a3a;
+                border-radius: 6px;
+                min-width: 20px;
+            }
+
+            QScrollBar::handle:horizontal:hover {
+                background-color: #5a5a5a;
+            }
+
+            QScrollBar::add-line, QScrollBar::sub-line {
+                border: none;
+                background: none;
+            }
+
+            /* Dialog styling */
+            QDialog {
+                background-color: #0a0a0a;
+                color: #e0e0e0;
+                border: 1px solid #202020;
+            }
+
+            /* Message boxes */
+            QMessageBox {
+                background-color: #0a0a0a;
+                color: #e0e0e0;
+            }
+
+            QMessageBox QPushButton {
+                background-color: #2a2a2a;
+                color: #e0e0e0;
+                border: 1px solid #3a3a3a;
                 padding: 6px 12px;
+                border-radius: 3px;
+                min-width: 60px;
             }
 
-            QMenuBar::item:selected {
-                background-color: #233554;
-                border-radius: 4px;
-            }
-
-            QMenu {
-                background-color: #1a1a2e;
-                color: #e6e6e6;
-                border: 1px solid #233554;
-                padding: 4px;
-            }
-
-            QMenu::item {
-                padding: 8px 16px;
-                border-radius: 4px;
-            }
-
-            QMenu::item:selected {
-                background-color: #64ffda;
-                color: #0f0f23;
-            }
-
-            QToolBar {
-                background-color: #16213e;
-                border-bottom: 1px solid #233554;
-                spacing: 4px;
-                padding: 4px;
+            QMessageBox QPushButton:hover {
+                background-color: #3a3a3a;
             }
         """)
 
@@ -263,13 +447,12 @@ class SwingTraderWindow(QMainWindow):
         self.candlestick_chart.set_instrument_list(instruments)
         self.position_manager.set_instrument_data(instruments)
         self.watchlist.set_instrument_map(self.instrument_map)
-        self.chartink_scanner.set_instrument_map(self.instrument_map)  # NEW
-        self.chartink_scanner.set_kite_client(self.real_kite_client)  # NEW - Pass Kite client
+        self.chartink_scanner.set_instrument_map(self.instrument_map)
+        self.chartink_scanner.set_kite_client(self.real_kite_client)
 
         if isinstance(self.trader, PaperTradingManager):
             self.trader.set_instrument_data(instruments)
 
-        self.statusBar().showMessage("Instruments loaded successfully.", 4000)
         self._on_websocket_connect()
 
     @Slot(list)
@@ -277,7 +460,7 @@ class SwingTraderWindow(QMainWindow):
         """Distributes live market data ticks to all interested components."""
         self.position_manager.update_pnl_from_market_data(ticks)
         self.watchlist.update_data(ticks)
-        self.chartink_scanner.update_data(ticks)  # NEW - Update scanner with live data
+        self.chartink_scanner.update_data(ticks)
         self._check_alerts(ticks)
 
     @Slot()
@@ -287,19 +470,21 @@ class SwingTraderWindow(QMainWindow):
         all_tokens = set()
         all_tokens.update(self.positions_table.get_all_tokens())
         all_tokens.update(self.watchlist.get_all_tokens())
-        all_tokens.update(self.chartink_scanner.get_all_tokens())  # NEW - Include scanner tokens
+        all_tokens.update(self.chartink_scanner.get_all_tokens())
         all_tokens.update(self._get_alert_tokens())
 
         if all_tokens:
             self.market_data_worker.set_instruments(all_tokens)
+            logger.info(f"Subscribed to {len(all_tokens)} instrument tokens")
 
     @Slot(list)
     def _subscribe_to_tokens(self, tokens: List[int]):
         """Adds a list of instrument tokens to the WebSocket subscription."""
         if self.market_data_worker and tokens:
-            self.market_data_worker.set_instruments(
-                self.market_data_worker.subscribed_tokens.union(tokens)
-            )
+            current_tokens = getattr(self.market_data_worker, 'subscribed_tokens', set())
+            new_tokens = current_tokens.union(set(tokens))
+            self.market_data_worker.set_instruments(new_tokens)
+            logger.info(f"Added {len(tokens)} new tokens to subscription")
 
     @Slot(dict)
     def _on_exit_position_requested(self, position_data: Dict[str, Any]):
@@ -321,24 +506,35 @@ class SwingTraderWindow(QMainWindow):
         self._show_order_dialog(exit_order)
 
     def _show_order_dialog(self, order_details: Dict[str, Any]):
-        """Shows the order confirmation dialog."""
-        # Try to get LTP from watchlist first, then scanner
+        """Shows the order confirmation dialog with enhanced LTP fetching."""
         symbol = order_details['tradingsymbol']
         ltp = 0
 
-        # Check watchlist data
+        # Try multiple sources for LTP
         if hasattr(self.watchlist, '_watchlist_data'):
-            # For tabbed watchlist, we need to check all categories
-            for table in self.watchlist._tables.values():
-                watchlist_data = table.get_watchlist_data()
-                if symbol in watchlist_data:
-                    ltp = watchlist_data[symbol].get('ltp', 0)
-                    break
+            for table in getattr(self.watchlist, '_tables', {}).values():
+                if hasattr(table, 'get_watchlist_data'):
+                    watchlist_data = table.get_watchlist_data()
+                    if symbol in watchlist_data:
+                        ltp = watchlist_data[symbol].get('ltp', 0)
+                        break
 
-        # Check scanner data if not found in watchlist
         if not ltp and hasattr(self.chartink_scanner, '_symbol_data'):
             scanner_data = self.chartink_scanner._symbol_data.get(symbol, {})
             ltp = scanner_data.get('ltp', 0)
+
+        if not ltp and symbol in self.instrument_map:
+            ltp = self.instrument_map[symbol].get('last_price', 0)
+
+        if not ltp and self.real_kite_client:
+            try:
+                token = self.instrument_map.get(symbol, {}).get('instrument_token')
+                if token:
+                    quote = self.real_kite_client.quote([token])
+                    if str(token) in quote:
+                        ltp = quote[str(token)].get('last_price', 0)
+            except Exception as e:
+                logger.warning(f"Failed to fetch LTP for {symbol}: {e}")
 
         order_details['ltp'] = ltp
         order_details.setdefault('price', ltp)
@@ -360,12 +556,12 @@ class SwingTraderWindow(QMainWindow):
                     price=final_order.get('price')
                 )
                 logger.info(f"Order placed for {final_order['tradingsymbol']}")
-                self.statusBar().showMessage(f"Order for {final_order['tradingsymbol']} sent.", 3000)
                 QTimer.singleShot(2000, self.position_manager.fetch_positions_and_orders)
             except Exception as e:
                 logger.error(f"Failed to place order: {e}", exc_info=True)
                 QMessageBox.critical(self, "Order Placement Failed", str(e))
 
+    # Dialog methods
     def _show_settings_dialog(self):
         dialog = SettingsDialog(self)
         dialog.exec()
@@ -381,7 +577,10 @@ class SwingTraderWindow(QMainWindow):
         dialog.exec()
 
     def _show_performance_dialog(self):
-        metrics = self.trade_logger.calculate_performance_metrics()
+        if hasattr(self.trade_logger, 'calculate_performance_metrics'):
+            metrics = self.trade_logger.calculate_performance_metrics()
+        else:
+            metrics = {}
         dialog = PerformanceDialog(self)
         dialog.update_metrics(metrics)
         dialog.exec()
@@ -400,6 +599,7 @@ class SwingTraderWindow(QMainWindow):
         dialog = AlertLogsDialog(self.triggered_alerts, self)
         dialog.exec()
 
+    # Alert system methods
     def _get_alert_tokens(self) -> List[int]:
         """Returns a list of tokens for all active, untriggered alerts."""
         active_alerts = [a for a in self.alerts if not a.get('triggered')]
@@ -445,20 +645,18 @@ class SwingTraderWindow(QMainWindow):
         self.alert_sound.play()
         self.header_toolbar.set_alert_active(True)
 
-        past_condition = alert_data['condition'].replace("Crosses", "Crossed")
-        self.statusBar().showMessage(f"ALERT: {alert_data['symbol']} {past_condition} {trigger_price}", 10000)
-
         triggered_entry = {
             "symbol": alert_data['symbol'],
             "price": trigger_price,
             "note": alert_data.get('note', ''),
-            "condition": past_condition,
+            "condition": alert_data['condition'].replace("Crosses", "Crossed"),
             "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
         self.triggered_alerts.append(triggered_entry)
         self._save_json("user_data/alert_history.json", self.triggered_alerts, backup=True)
         logger.info(f"Alert Triggered: {triggered_entry}")
 
+    # Utility methods
     def _load_json(self, file_path, default=None):
         try:
             if os.path.exists(file_path):
@@ -480,10 +678,15 @@ class SwingTraderWindow(QMainWindow):
         except IOError as e:
             logger.error(f"Could not save JSON to {file_path}: {e}")
 
+    # Window state methods
     def closeEvent(self, event):
         """Saves window state and stops background workers before closing."""
         logger.info("Close event triggered. Saving state and stopping workers...")
         self.save_window_state()
+
+        if hasattr(self.chartink_scanner, '_update_timer'):
+            self.chartink_scanner._update_timer.stop()
+
         if self.market_data_worker:
             self.market_data_worker.stop()
         if self.instrument_loader and self.instrument_loader.isRunning():
@@ -498,7 +701,8 @@ class SwingTraderWindow(QMainWindow):
             state = {
                 'geometry': self.saveGeometry().toBase64().data().decode('utf-8'),
                 'state': self.saveState().toBase64().data().decode('utf-8'),
-                'splitter': self.main_splitter.saveState().toBase64().data().decode('utf-8')
+                'splitter': self.main_splitter.saveState().toBase64().data().decode('utf-8'),
+                'is_maximized': self._is_maximized
             }
             self.config_manager.save_window_state(state)
             logger.info("Window state saved.")
@@ -513,9 +717,22 @@ class SwingTraderWindow(QMainWindow):
                 self.restoreGeometry(QByteArray.fromBase64(state['geometry'].encode('utf-8')))
                 self.restoreState(QByteArray.fromBase64(state['state'].encode('utf-8')))
                 self.main_splitter.restoreState(QByteArray.fromBase64(state['splitter'].encode('utf-8')))
+
+                # Restore maximized state
+                if state.get('is_maximized', False):
+                    self._toggle_maximize()
+
                 logger.info("Window state restored.")
             else:
                 self.showMaximized()
+                self._is_maximized = True
+                self.max_btn.setText("❐")
         except Exception as e:
             logger.error(f"Failed to restore window state: {e}", exc_info=True)
             self.showMaximized()
+            self._is_maximized = True
+            self.max_btn.setText("❐")
+
+
+# Alias for backward compatibility
+SwingTraderWindow = FramelessSwingTraderWindow

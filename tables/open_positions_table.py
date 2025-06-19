@@ -47,24 +47,28 @@ class OpenPositionsTable(QWidget):
     def _configure_table(self):
         """Configures the table headers, columns, and behavior."""
         self.table.setColumnCount(6)
-        self.table.setHorizontalHeaderLabels(["Symbol", "Qty", "Avg. Price", "LTP", "P&L", ""])
+        self.table.setHorizontalHeaderLabels(["Symbol", "Qty", "Avg", "LTP", "P&L", ""]) # Renamed "Avg. Price" to "Avg"
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.setShowGrid(False) # Hide grid lines for cleaner look
+        self.table.setAlternatingRowColors(True) # Enable alternating row colors
 
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)  # Symbol
         for i in range(1, 5):
-            header.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(5, 40)
+            header.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents) # Resize Qty, Avg, LTP, P&L to contents
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)  # Exit button
+        self.table.setColumnWidth(5, 24) # Smaller width for exit button column
+
+        self.table.verticalHeader().setDefaultSectionSize(28) # Reduced row height for compactness
 
     def _create_footer(self) -> QFrame:
         """Creates the footer widget with the total P&L label."""
         footer_frame = QFrame(objectName="footerFrame")
         footer_layout = QHBoxLayout(footer_frame)
         footer_layout.setContentsMargins(12, 0, 12, 0)
-        footer_frame.setFixedHeight(35)
+        footer_frame.setFixedHeight(30) # Reduced height for footer
 
         footer_label = QLabel("TOTAL P&L")
         footer_label.setObjectName("footerLabel")
@@ -101,30 +105,45 @@ class OpenPositionsTable(QWidget):
 
     def _populate_row(self, row: int, pos: Position):
         """Fills a single table row with data from a Position object."""
-        symbol_item = QTableWidgetItem(pos.tradingsymbol)
-        qty_item = QTableWidgetItem(str(pos.quantity))
-        avg_item = QTableWidgetItem(f"{pos.average_price:.2f}")
-        ltp_item = QTableWidgetItem(f"{pos.ltp:.2f}")
-        pnl_item = QTableWidgetItem(f"{pos.pnl:,.2f}")
+        # Ensure items exist before setting text and alignment
+        for col_idx in range(self.columnCount()):
+            if not self.table.item(row, col_idx):
+                self.table.setItem(row, col_idx, QTableWidgetItem())
 
-        for item in [qty_item, avg_item, ltp_item, pnl_item]:
-            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.table.item(row, 0).setText(pos.tradingsymbol)
+        self.table.item(row, 1).setText(str(pos.quantity))
+        self.table.item(row, 2).setText(f"{pos.average_price:.2f}")
+        self.table.item(row, 3).setText(f"{pos.ltp:.2f}")
+        self.table.item(row, 4).setText(f"{pos.pnl:,.2f}")
 
-        profit_color = QColor("#00b894")
-        loss_color = QColor("#d63031")
+        # Center align numerical and P&L data for readability
+        self.table.item(row, 0).setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        for col_idx in range(1, 5): # Columns 1 (Qty) to 4 (P&L)
+            self.table.item(row, col_idx).setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
+
+        # Color-code the P&L value
+        profit_color = QColor(60, 179, 113)  # Medium Sea Green
+        loss_color = QColor(220, 20, 60)    # Crimson
+        neutral_color = QColor(169, 169, 169) # DarkGray
+
+        pnl_item = self.table.item(row, 4)
         pnl_item.setForeground(profit_color if pos.pnl >= 0 else loss_color)
 
-        self.table.setItem(row, 0, symbol_item)
-        self.table.setItem(row, 1, qty_item)
-        self.table.setItem(row, 2, avg_item)
-        self.table.setItem(row, 3, ltp_item)
-        self.table.setItem(row, 4, pnl_item)
+        # Apply color to LTP based on P&L (consistent with other tables and trading UIs)
+        ltp_item = self.table.item(row, 3)
+        ltp_item.setForeground(profit_color if pos.pnl >= 0 else loss_color)
+
+        # Qty and Avg Price can be neutral
+        self.table.item(row, 1).setForeground(neutral_color)
+        self.table.item(row, 2).setForeground(neutral_color)
+
         self.table.setCellWidget(row, 5, self._create_exit_button(row))
 
     def _create_exit_button(self, row: int) -> QPushButton:
         """Creates the 'X' button used to exit a position."""
         exit_btn = QPushButton("✕", objectName="exitButton")
         exit_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        exit_btn.setFixedSize(20, 20) # Smaller button
         exit_btn.clicked.connect(lambda: self._on_exit_clicked(row))
         return exit_btn
 
@@ -135,11 +154,14 @@ class OpenPositionsTable(QWidget):
             if symbol in self._positions_cache:
                 position_data = self._positions_cache[symbol].to_dict()
                 self.exit_position_requested.emit(position_data)
+            else:
+                logger.warning(f"Could not find position data for symbol {symbol} in cache.")
         except AttributeError:
             logger.error(f"Could not retrieve symbol from table at row {row}.")
 
     def _on_cell_clicked(self, row: int, column: int):
         """Emits the symbol of the clicked row to update the chart."""
+        # We don't want to trigger this if the exit button was clicked
         if column == 5:
             return
         try:
@@ -150,10 +172,11 @@ class OpenPositionsTable(QWidget):
 
     def _update_total_pnl(self, total_pnl: float):
         """Updates the total P&L label in the footer with appropriate color."""
-        profit_color, loss_color = "#00b894", "#d63031"
+        profit_color = "#00b388" # Slightly adjusted green
+        loss_color = "#e04f5e" # Slightly adjusted red
         color = profit_color if total_pnl >= 0 else loss_color
         self.total_pnl_label.setText(f"₹{total_pnl:,.2f}")
-        self.total_pnl_label.setStyleSheet(f"color: {color};")
+        self.total_pnl_label.setStyleSheet(f"color: {color}; font-weight: 600;") # Add font-weight for emphasis
 
     def get_all_tokens(self) -> List[int]:
         """Returns a list of all instrument tokens currently in the table."""
@@ -164,56 +187,110 @@ class OpenPositionsTable(QWidget):
         ]
 
     def _apply_styles(self):
-        """Applies a consistent, modern dark theme stylesheet."""
+        """Applies a consistent, minimal dark theme stylesheet."""
         self.setStyleSheet("""
-            QWidget { background-color: #1c1c2e; color: #e0e0e0; font-family: "Segoe UI"; }
-            QTableWidget {
-                border: none;
-                gridline-color: #2a2a4a;
+            QWidget {
+                background-color: #0a0a0a; /* Deep black background */
+                color: #e0e0e0; /* Light gray text */
+                font-family: "Segoe UI", Arial, sans-serif; /* Professional font */
                 font-size: 13px;
             }
+
+            QTableWidget {
+                border: 1px solid #202020; /* Subtle dark border for the table */
+                gridline-color: #151515; /* Almost invisible grid lines */
+                font-size: 12px;
+                background-color: #0d0d0d; /* Deep black table background */
+                selection-background-color: rgba(74, 122, 191, 0.2); /* Softer blue selection with transparency */
+                selection-color: #ffffff;
+                border-radius: 0px; /* No rounding */
+            }
             QHeaderView::section {
-                background-color: #1c1c2e;
-                color: #8a8a9e;
-                padding: 8px;
+                background-color: #1a1a1a; /* Header background */
+                color: #a0c0ff; /* Header text color */
+                padding: 4px 10px; /* Reduced header padding */
                 border: none;
-                border-bottom: 1px solid #3a3a5a;
-                font-weight: bold;
+                border-bottom: 1px solid #303030; /* Clear header bottom border */
+                border-right: 1px solid #101010; /* Dark vertical header separators */
+                font-weight: 600;
                 font-size: 11px;
-                text-transform: uppercase;
+            }
+            QHeaderView::section:last {
+                border-right: none;
+            }
+            QHeaderView::section:hover {
+                background-color: #2a2a2a; /* Subtle hover for headers */
             }
             QTableWidget::item {
-                padding: 10px 8px;
-                border-bottom: 1px solid #2a2a4a;
+                padding: 5px 8px; /* Consistent padding */
+                border-bottom: 1px solid #1a1a1a; /* Thin row separator */
+                background-color: transparent; /* Ensure item background is transparent */
+                color: #e0e0e0;
             }
             QTableWidget::item:selected {
-                background-color: #3a3a5a;
-            }
-            #exitButton {
-                background-color: #4a4a6a;
-                color: #e0e0e0;
-                border-radius: 12px;
-                font-weight: bold;
-                font-size: 14px;
-                max-width: 24px;
-                max-height: 24px;
-            }
-            #exitButton:hover {
-                background-color: #d63031;
+                background-color: rgba(74, 122, 191, 0.2); /* Softer blue selection with transparency */
                 color: #ffffff;
+                font-weight: 600;
             }
-            #footerFrame {
-                background-color: #2a2a4a;
-                border-top: 1px solid #3a3a5a;
+            QTableWidget::item:alternate {
+                background-color: #121212; /* Very dark alternate row */
             }
-            #footerLabel {
-                color: #8a8a9e;
-                font-size: 11px;
+
+            /* Exit Button Styling */
+            QPushButton#exitButton {
+                background-color: transparent;
+                color: #cc4444; /* Red color for 'X' */
+                border: none;
                 font-weight: bold;
+                font-size: 12px;
+                border-radius: 8px; /* Slight rounding for button */
+                padding: 0px; /* No internal padding */
+            }
+            QPushButton#exitButton:hover {
+                color: #ff6666; /* Lighter red on hover */
+                background-color: rgba(204, 68, 68, 0.2); /* Very subtle red background on hover */
+            }
+            QPushButton#exitButton:pressed {
+                color: #a33333;
+            }
+
+            /* Footer Styling */
+            QFrame#footerFrame {
+                background-color: #1a1a1a; /* Darker footer background */
+                border-top: 1px solid #303030; /* Clear separator */
+            }
+            QLabel#footerLabel {
+                background-color: transparent; /* Explicitly transparent */
+                color: #a0c0ff; /* Light blue label */
+                font-size: 11px;
+                font-weight: 600; /* Bolder */
                 text-transform: uppercase;
             }
-            #totalPnlValue {
-                font-size: 16px;
-                font-weight: 600;
+            QLabel#totalPnlValue {
+                background-color: transparent; /* Explicitly transparent */
+                font-size: 14px; /* Slightly smaller for balance */
+                font-weight: bold;
+            }
+
+            /* Scrollbars - Invisible */
+            QScrollBar:vertical {
+                width: 0px; /* Make invisible */
+            }
+            QScrollBar::handle:vertical {
+                width: 0px; /* Make invisible */
+            }
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {
+                height: 0px; /* Make invisible */
+            }
+            QScrollBar:horizontal {
+                height: 0px; /* Make invisible */
+            }
+            QScrollBar::handle:horizontal {
+                height: 0px; /* Make invisible */
+            }
+            QScrollBar::add-line:horizontal,
+            QScrollBar::sub-line:horizontal {
+                width: 0px; /* Make invisible */
             }
         """)

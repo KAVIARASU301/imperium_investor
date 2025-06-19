@@ -166,6 +166,11 @@ class TradingTable(QTableWidget):
 
     def _update_row_data(self, row: int, data: Dict):
         """Updates the text and color for a single row."""
+        # Ensure items exist before setting text and alignment
+        for col_idx in range(self.columnCount()):
+            if not self.item(row, col_idx):
+                self.setItem(row, col_idx, QTableWidgetItem())
+
         self.item(row, 0).setText(data['tradingsymbol'])
         self.item(row, 1).setText(f"{data.get('ltp', 0.0):.2f}")
 
@@ -182,22 +187,25 @@ class TradingTable(QTableWidget):
         self.item(row, 3).setText(f"{data.get('change_pct', 0.0):.2f}%")
 
         # TC2000-style colors
-        profit_color = QColor("#00d4aa")  # Bright teal
-        loss_color = QColor("#ff4757")  # Bright red
-        neutral_color = QColor("#747d8c")  # Grey
+        profit_color = QColor(60, 179, 113)  # Medium Sea Green
+        loss_color = QColor(220, 20, 60)    # Crimson
+        neutral_color = QColor(169, 169, 169) # DarkGray
 
         change_pct = data.get('change_pct', 0.0)
         color = profit_color if change_pct > 0 else (loss_color if change_pct < 0 else neutral_color)
 
         # Apply color to LTP and Change %
         self.item(row, 1).setForeground(color)
-        self.item(row, 3).setForeground(color)
+        self.item(row, 3).setForeground(color) # Color code %Chg
 
         # Volume stays neutral colored
         self.item(row, 2).setForeground(neutral_color)
 
-        for col in range(1, 4):
-            self.item(row, col).setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        # Alignments
+        self.item(row, 0).setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self.item(row, 1).setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter) # Center align LTP
+        self.item(row, 2).setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter) # Center align Volume
+        self.item(row, 3).setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter) # Center align Chg %
 
     def _create_remove_button(self, row) -> QPushButton:
         """Creates a minimal 'x' button to remove a symbol."""
@@ -348,7 +356,18 @@ class TabbedWatchlistWidget(QWidget):
     def _apply_styles(self):
         """Applies TC2000-inspired styling to the tabbed watchlist."""
         # Initial styling - will be overridden by _apply_tab_width_style
-        pass
+        # This method is called once during __init__ and then _apply_tab_width_style handles the full stylesheet.
+        # We need to ensure that the initial stylesheet applies the base dark background and default text colors.
+        self.setStyleSheet("""
+            TabbedWatchlistWidget {
+                background-color: #0a0a0a; /* Deep black background */
+                color: #e0e0e0; /* Light gray text */
+                font-family: "Segoe UI", Arial, sans-serif; /* Professional font */
+                font-size: 13px;
+                border: 1px solid #202020; /* Subtle border for the main widget */
+            }
+        """)
+
 
     def set_instrument_map(self, instrument_map: Dict[str, Dict]):
         """Receives the master instrument map for data lookups."""
@@ -446,27 +465,30 @@ class TabbedWatchlistWidget(QWidget):
         self._settings.setValue(SETTINGS_KEY_WIDTH, self.width())
 
     def _apply_tab_width_style(self, tab_width: int):
-        """Applies dynamic tab width to the stylesheet."""
+        """Applies dynamic tab width to the stylesheet, combining with table styles."""
         # Calculate exact positioning to eliminate any shifting
         tab_width_exact = f"{tab_width}px"
 
-        # Update the complete stylesheet with fixed tab dimensions
+        # Combined stylesheet
         self.setStyleSheet(f"""
             /* Main Widget */
             TabbedWatchlistWidget {{
-                background-color: #1a1a2e;
-                border: 1px solid #16213e;
+                background-color: #0a0a0a; /* Deep black background */
+                color: #e0e0e0; /* Light gray text */
+                font-family: "Segoe UI", Arial, sans-serif; /* Professional font */
+                font-size: 13px;
+                border: 1px solid #202020; /* Subtle border for the main widget */
             }}
 
-            /* Tab Widget Styling */
+            /* Tab Widget Styling - KEPT INTACT AS REQUESTED */
             QTabWidget#tradingTabs {{
-                background-color: #1a1a2e;
+                background-color: #0a0a0a; /* Match main background */
                 border: none;
             }}
 
             QTabWidget#tradingTabs::pane {{
-                border: 1px solid #16213e;
-                background-color: #1a1a2e;
+                border: 1px solid #202020; /* Darker border for pane */
+                background-color: #0a0a0a; /* Match main background */
                 border-radius: 0px;
             }}
 
@@ -496,13 +518,13 @@ class TabbedWatchlistWidget(QWidget):
 
             /* Fixed Tab Bar Styling - No movement */
             QTabBar::tab {{
-                background-color: #0f0f23;
+                background-color: #1a1a1a; /* Darker tab background */
                 color: #8892b0;
-                padding: 8px 0px;
+                padding: 6px 0px; /* Reduced vertical padding for tabs */
                 margin: 0px;
-                border: 1px solid #16213e;
+                border: 1px solid #202020; /* Darker border for tabs */
                 border-bottom: none;
-                border-right: 1px solid #16213e;
+                border-right: 1px solid #202020;
                 font-size: 10px;
                 font-weight: 600;
                 letter-spacing: 0.5px;
@@ -514,73 +536,73 @@ class TabbedWatchlistWidget(QWidget):
             }}
 
             QTabBar::tab:last {{
-                border-right: 1px solid #16213e;
+                border-right: 1px solid #202020;
             }}
 
             QTabBar::tab:selected {{
-                background-color: #1a1a2e;
-                color: #64ffda;
-                border-bottom: 2px solid #64ffda;
+                background-color: #0a0a0a; /* Match main background when selected */
+                color: #6a9cff; /* Professional blue for selected tab text */
+                border-bottom: 2px solid #6a9cff;
                 width: {tab_width_exact};
                 min-width: {tab_width_exact};
                 max-width: {tab_width_exact};
             }}
 
             QTabBar::tab:hover:!selected {{
-                background-color: #16213e;
+                background-color: #2a2a2a; /* Darker hover for non-selected tabs */
                 color: #ccd6f6;
                 width: {tab_width_exact};
                 min-width: {tab_width_exact};
                 max-width: {tab_width_exact};
             }}
 
-            /* Table Styling */
+            /* Table Styling - Applied from previous task */
             TradingTable {{
-                background-color: #1a1a2e;
-                color: #e6e6e6;
-                border: none;
-                gridline-color: #16213e;
-                font-family: 'Consolas', 'Monaco', monospace;
+                border: 1px solid #202020; /* Subtle dark border for the table */
+                gridline-color: #151515; /* Almost invisible grid lines */
                 font-size: 12px;
-                selection-background-color: #233554;
+                background-color: #0d0d0d; /* Deep black table background */
+                selection-background-color: rgba(74, 122, 191, 0.2); /* Softer blue selection with transparency */
+                selection-color: #ffffff;
+                border-radius: 0px; /* No rounding */
             }}
-
             TradingTable::item {{
-                padding: 4px 8px;
-                border-bottom: 1px solid #16213e;
+                padding: 5px 8px; /* Consistent padding */
+                border-bottom: 1px solid #1a1a1a; /* Thin row separator */
                 background-color: transparent;
+                color: #e0e0e0;
             }}
-
             TradingTable::item:selected {{
-                background-color: #233554;
-                color: #64ffda;
-            }}
-
-            TradingTable::item:alternate {{
-                background-color: #0f0f23;
-            }}
-
-            /* Header Styling */
-            QHeaderView::section {{
-                background-color: #0f0f23;
-                color: #8892b0;
-                border: none;
-                border-right: 1px solid #16213e;
-                border-bottom: 1px solid #16213e;
-                padding: 6px 8px;
+                background-color: rgba(74, 122, 191, 0.2); /* Softer blue selection with transparency */
+                color: #ffffff;
                 font-weight: 600;
-                font-size: 10px;
-                letter-spacing: 0.5px;
+            }}
+            TradingTable::item:alternate {{
+                background-color: #121212; /* Very dark alternate row */
             }}
 
+            /* Header Styling - Applied from previous task, further reduced padding */
+            QHeaderView::section {{
+                background-color: #1a1a1a; /* Header background */
+                color: #a0c0ff; /* Header text color */
+                padding: 3px 10px; /* Further reduced header padding */
+                border: none;
+                border-bottom: 1px solid #303030; /* Clear header bottom border */
+                border-right: 1px solid #101010; /* Dark vertical header separators */
+                font-weight: 600;
+                font-size: 11px;
+            }}
             QHeaderView::section:last {{
                 border-right: none;
+            }}
+            QHeaderView::section:hover {{
+                background-color: #2a2a2a; /* Subtle hover for headers */
             }}
 
             /* Remove Button Styling */
             QPushButton#removeButton {{
                 background-color: transparent;
-                color: #555568;
+                color: #cc4444; /* Red color for 'X' */
                 border: none;
                 font-weight: bold;
                 font-size: 12px;
@@ -589,50 +611,47 @@ class TabbedWatchlistWidget(QWidget):
             }}
 
             QPushButton#removeButton:hover {{
-                color: #ff4757;
+                color: #ff6666; /* Lighter red on hover */
                 background-color: #2a1f1f;
             }}
 
-            /* Context Menu */
+            /* Context Menu - Applied from previous task */
             QMenu {{
-                background-color: #16213e;
-                color: #e6e6e6;
-                border: 1px solid #233554;
-                padding: 4px 0px;
+                background-color: #1a1a1a;
+                color: #e0e0e0;
+                border: 1px solid #303030;
+                padding: 3px 0px; /* Reduced padding */
                 font-size: 11px;
             }}
-
             QMenu::item {{
-                padding: 6px 16px;
+                padding: 5px 15px; /* Reduced padding */
                 background-color: transparent;
             }}
-
             QMenu::item:selected {{
-                background-color: #64ffda;
-                color: #0f0f23;
+                background-color: rgba(74, 122, 191, 0.2); /* Softer blue for context menu selection */
+                color: #ffffff;
             }}
 
-            /* Scrollbar Styling */
+            /* Scrollbar Styling - Invisible */
             QScrollBar:vertical {{
-                background-color: #0f0f23;
-                width: 8px;
-                border: none;
+                width: 0px; /* Make invisible */
             }}
-
             QScrollBar::handle:vertical {{
-                background-color: #16213e;
-                border-radius: 4px;
-                min-height: 20px;
+                width: 0px; /* Make invisible */
             }}
-
-            QScrollBar::handle:vertical:hover {{
-                background-color: #233554;
-            }}
-
             QScrollBar::add-line:vertical,
             QScrollBar::sub-line:vertical {{
-                border: none;
-                background: none;
+                height: 0px; /* Make invisible */
+            }}
+            QScrollBar:horizontal {{
+                height: 0px; /* Make invisible */
+            }}
+            QScrollBar::handle:horizontal {{
+                height: 0px; /* Make invisible */
+            }}
+            QScrollBar::add-line:horizontal,
+            QScrollBar::sub-line:horizontal {{
+                width: 0px; /* Make invisible */
             }}
         """)
 
