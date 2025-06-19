@@ -6,15 +6,17 @@ import requests
 from bs4 import BeautifulSoup as bs
 from typing import List, Dict, Optional
 
-from PySide6.QtCore import Signal, Slot, Qt, QThread, QSize
+from PySide6.QtCore import Signal, Slot, Qt, QThread, QSize, QTimer
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem, QHeaderView,
     QAbstractItemView, QPushButton, QHBoxLayout, QLabel, QComboBox, QMessageBox,
     QDialog, QLineEdit, QDialogButtonBox, QFormLayout, QGroupBox, QScrollArea
 )
+from PySide6.QtGui import QColor
 
 logger = logging.getLogger(__name__)
 SCAN_URL_FILE = os.path.join(os.path.expanduser("~/.swing_trader"), "chartink_scans.json")
+SETTINGS_FILE = os.path.join(os.path.expanduser("~/.swing_trader"), "scanner_settings.json")
 
 
 class AddScanDialog(QDialog):
@@ -245,20 +247,36 @@ class ScanWorker(QThread):
 class ChartinkScannerTable(QWidget):
     """
     A widget that displays stock symbols retrieved from Chartink scans.
-    It allows users to run scans asynchronously and select symbols to view charts.
+    Enhanced with LTP and %Ch columns using Kite API data.
     """
     symbol_selected = Signal(str)
+    subscribe_tokens_requested = Signal(list)  # New signal for requesting subscriptions
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.scans = self._load_scans()
         self.scan_thread: ScanWorker = None
+        self._instrument_map: Dict[str, Dict] = {}  # Instrument data from Kite API
+        self._symbol_data: Dict[str, Dict] = {}  # Symbol data with LTP, change, etc.
+        self._symbol_to_row: Dict[str, int] = {}  # Symbol to row mapping for updates
+        self._kite_client = None  # Store the Kite client
+
         self._setup_ui()
         self._apply_styles()
 
-        # Only run scan if we have scans configured
+        # Restore last selected scan and run it if scans exist
         if self.scans:
+            last_selected = self._load_last_selected_scan()
+            if 0 <= last_selected < len(self.scans):
+                self.scan_dropdown.blockSignals(True)
+                self.scan_dropdown.setCurrentIndex(last_selected)
+                self.scan_dropdown.blockSignals(False)
             self._run_current_scan()
+
+    def set_kite_client(self, kite_client):
+        """Set the Kite client for the scanner."""
+        self._kite_client = kite_client
+        logger.info("Kite client set for ChartinkScannerTable")
 
     def _setup_ui(self):
         """Initializes the UI layout and components."""
@@ -266,7 +284,7 @@ class ChartinkScannerTable(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        main_layout.addLayout(self._create_header())
+        main_layout.addWidget(self._create_header())
 
         self.table = QTableWidget()
         self._configure_table()
@@ -274,33 +292,39 @@ class ChartinkScannerTable(QWidget):
 
         self.table.cellClicked.connect(self._on_cell_clicked)
 
-    def _create_header(self) -> QHBoxLayout:
-        """Creates the header with the scan dropdown and control buttons."""
-        header_layout = QHBoxLayout()
-        header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.setSpacing(4)
+    def _create_header(self) -> QWidget:
+        """Creates the header with the scan dropdown and control buttons in a styled container."""
+        # Create container widget for the header
+        header_container = QWidget()
+        header_container.setObjectName("headerContainer")
 
-        # Add label
+        header_layout = QHBoxLayout(header_container)
+        header_layout.setContentsMargins(12, 8, 12, 8)
+        header_layout.setSpacing(12)
+
+        # Scan label with consistent styling
         scan_label = QLabel("SCAN")
-        scan_label.setStyleSheet("font-weight: bold; font-size: 12px; padding-right: 4px;")
-        scan_label.setFixedHeight(28)
+        scan_label.setObjectName("scanLabel")
+        scan_label.setFixedWidth(40)
         header_layout.addWidget(scan_label)
 
+        # Dropdown with improved styling
         self.scan_dropdown = QComboBox()
-        self.scan_dropdown.setFixedHeight(28)
-        self.scan_dropdown.currentIndexChanged.connect(self._run_current_scan)
+        self.scan_dropdown.setObjectName("scanDropdown")
+        self.scan_dropdown.currentIndexChanged.connect(self._on_scan_selection_changed)
         header_layout.addWidget(self.scan_dropdown, 1)
 
+        # Settings button with improved styling
         self.manage_btn = QPushButton("⚙")
-        self.manage_btn.setObjectName("iconButton")
+        self.manage_btn.setObjectName("settingsButton")
         self.manage_btn.setToolTip("Manage Scans")
-        self.manage_btn.setFixedSize(28, 28)
+        self.manage_btn.setFixedSize(32, 32)
         self.manage_btn.clicked.connect(self._manage_scans)
         header_layout.addWidget(self.manage_btn)
 
         self._update_scan_dropdown()
 
-        return header_layout
+        return header_container
 
     def _update_scan_dropdown(self):
         """Update the scan dropdown with current scans."""
@@ -322,16 +346,141 @@ class ChartinkScannerTable(QWidget):
 
     def _configure_table(self):
         """Configures the properties and headers of the table."""
-        self.table.setColumnCount(1)
-        self.table.horizontalHeader().setVisible(False)
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.table.setColumnCount(4)
+        self.table.setHorizontalHeaderLabels(["Symbol", "LTP", "Vol", "%Ch"])
+
+        # Configure headers
+        self.table.horizontalHeader().setVisible(True)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)  # Symbol
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)  # LTP
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)  # Vol
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)  # %Ch
+
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.setShowGrid(False)
+        self.table.setAlternatingRowColors(True)
+
+    def set_instrument_map(self, instrument_map: Dict[str, Dict]):
+        """Receives the master instrument map for data lookups."""
+        self._instrument_map = instrument_map
+        self._update_existing_symbols()
+
+    def _update_existing_symbols(self):
+        if not self._instrument_map:
+            return
+
+        tokens_to_subscribe = []
+
+        for symbol in self._symbol_data.keys():
+            if symbol in self._instrument_map:
+                instrument = self._instrument_map[symbol]
+                token = instrument.get('instrument_token')
+                if token:
+                    self._symbol_data[symbol] = {
+                        "symbol": symbol,
+                        "instrument_token": token,
+                        "close_price": instrument.get('ohlc', {}).get('close', 0.0),
+                        "ltp": instrument.get('last_price', 0.0),
+                        "change_pct": 0.0
+                    }
+                    tokens_to_subscribe.append(token)
+
+        if tokens_to_subscribe:
+            self.subscribe_tokens_requested.emit(tokens_to_subscribe)
+
+        self._update_table_display()
+
+    @Slot(list)
+    def update_data(self, ticks: List[Dict]):
+        """Updates LTP and change% from WebSocket ticks."""
+        for tick in ticks:
+            token = tick.get('instrument_token')
+            ltp = tick.get('last_price')
+            volume = tick.get('volume', 0)
+
+            for symbol, data in self._symbol_data.items():
+                if data.get('instrument_token') == token and ltp is not None:
+                    old_ltp = data.get('ltp', 0.0)
+                    data['ltp'] = ltp
+
+                    if 'volume' in tick:
+                        data['volume'] = volume
+
+                    close_price = data.get('close_price', 0.0)
+
+                    if close_price <= 0:
+                        close_price = tick.get('ohlc', {}).get('close', 0.0)
+                        if close_price > 0:
+                            data['close_price'] = close_price
+
+                    if close_price > 0:
+                        change_pct = ((ltp - close_price) / close_price) * 100
+                        data['change_pct'] = change_pct
+
+                    if symbol in self._symbol_to_row:
+                        row = self._symbol_to_row[symbol]
+                        self._update_row_data(row, data)
+
+                        if old_ltp == 0.0:
+                            logger.debug(
+                                f"First update for {symbol}: LTP={ltp}, Vol={volume}, %Ch={data.get('change_pct', 0):.2f}%")
+
+                    logger.debug(
+                        f"Tick for {symbol} → LTP: {ltp}, Vol: {tick.get('volume')}, Close: {tick.get('ohlc', {}).get('close')}")
+
+                    break
+
+    def _update_row_data(self, row: int, data: Dict):
+        """Updates the text and color for a single row."""
+        if row >= self.table.rowCount():
+            return
+
+        # Update symbol
+        self.table.item(row, 0).setText(data['symbol'])
+
+        # Update LTP
+        ltp = data.get('ltp', 0.0)
+        self.table.item(row, 1).setText(f"{ltp:.2f}")
+
+        # Update Volume with K/M formatting
+        volume = data.get('volume', 0)
+        if volume >= 1000000:
+            volume_text = f"{volume / 1000000:.1f}M"
+        elif volume >= 1000:
+            volume_text = f"{volume / 1000:.0f}K"
+        else:
+            volume_text = str(volume)
+        self.table.item(row, 2).setText(volume_text)
+
+        # Update change %
+        change_pct = data.get('change_pct', 0.0)
+        self.table.item(row, 3).setText(f"{change_pct:.2f}%")
+
+        # Apply color coding
+        profit_color = QColor("#00d4aa")  # Bright teal
+        loss_color = QColor("#ff4757")  # Bright red
+        neutral_color = QColor("#747d8c")  # Grey
+
+        color = profit_color if change_pct > 0 else (loss_color if change_pct < 0 else neutral_color)
+
+        # Apply colors to LTP and %Ch columns
+        self.table.item(row, 1).setForeground(color)
+        self.table.item(row, 3).setForeground(color)
+
+        # Volume stays neutral colored
+        self.table.item(row, 2).setForeground(neutral_color)
+
+        # Right align numeric columns
+        for col in range(1, 4):
+            self.table.item(row, col).setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
     @Slot(list)
     def _on_scan_complete(self, symbols: List[str]):
-        """Populates the table with the results from a scan."""
+        self._symbol_data.clear()
+        self._symbol_to_row.clear()
         self.table.setRowCount(0)
 
         if not symbols:
@@ -339,16 +488,66 @@ class ChartinkScannerTable(QWidget):
             item = QTableWidgetItem("No symbols found")
             item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
             self.table.setItem(0, 0, item)
+            self.table.setItem(0, 1, QTableWidgetItem(""))
+            self.table.setItem(0, 2, QTableWidgetItem(""))
+            self.table.setItem(0, 3, QTableWidgetItem(""))
         else:
-            for symbol in sorted(symbols):
-                row = self.table.rowCount()
-                self.table.insertRow(row)
-                self.table.setItem(row, 0, QTableWidgetItem(symbol))
+            tokens_to_subscribe = []
+
+            for i, symbol in enumerate(sorted(symbols)):
+                self._symbol_to_row[symbol] = i
+
+                symbol_data = {
+                    "symbol": symbol,
+                    "instrument_token": None,
+                    "close_price": 0.0,
+                    "ltp": 0.0,
+                    "volume": 0,
+                    "change_pct": 0.0
+                }
+
+                if symbol in self._instrument_map:
+                    instrument = self._instrument_map[symbol]
+                    token = instrument.get('instrument_token')
+                    if token:
+                        symbol_data.update({
+                            "instrument_token": token,
+                            "close_price": instrument.get('ohlc', {}).get('close', 0.0),
+                            "ltp": instrument.get('last_price', 0.0),
+                        })
+                        tokens_to_subscribe.append(token)
+                    else:
+                        logger.warning(f"No instrument token found for symbol: {symbol}")
+                else:
+                    logger.warning(f"Symbol {symbol} not found in instrument map")
+
+                self._symbol_data[symbol] = symbol_data
+
+            self._update_table_display()
+
+            if tokens_to_subscribe:
+                self.subscribe_tokens_requested.emit(tokens_to_subscribe)
+                QTimer.singleShot(1000, self._request_fresh_subscriptions)
 
         logger.info(f"Scanner table updated with {len(symbols)} symbols.")
-        # MODIFICATION: Removed logic for the refresh button
         self.scan_dropdown.setEnabled(True)
         self.manage_btn.setEnabled(True)
+
+    def _update_table_display(self):
+        """Updates the table display with current symbol data."""
+        symbols = sorted(self._symbol_data.keys())
+        self.table.setRowCount(len(symbols))
+
+        for row, symbol in enumerate(symbols):
+            self._symbol_to_row[symbol] = row
+            data = self._symbol_data[symbol]
+
+            # Create table items
+            for col in range(4):
+                self.table.setItem(row, col, QTableWidgetItem())
+
+            # Update with data
+            self._update_row_data(row, data)
 
     @Slot(str)
     def _on_scan_error(self, error_message: str):
@@ -360,10 +559,70 @@ class ChartinkScannerTable(QWidget):
         item = QTableWidgetItem(f"Error: {error_message}")
         item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
         self.table.setItem(0, 0, item)
+        # Add empty cells for other columns
+        self.table.setItem(0, 1, QTableWidgetItem(""))
+        self.table.setItem(0, 2, QTableWidgetItem(""))
+        self.table.setItem(0, 3, QTableWidgetItem(""))
 
-        # MODIFICATION: Removed logic for the refresh button
         self.scan_dropdown.setEnabled(True)
         self.manage_btn.setEnabled(True)
+
+    def _on_scan_selection_changed(self):
+        """Handles scan selection changes and saves the selection."""
+        if self.scan_dropdown.signalsBlocked():
+            return
+
+        current_index = self.scan_dropdown.currentIndex()
+        self._save_last_selected_scan(current_index)
+        self._run_current_scan()
+
+    def _request_fresh_subscriptions(self):
+        if not self._symbol_data or not self._instrument_map:
+            return
+
+        tokens_to_subscribe = []
+
+        for symbol, data in self._symbol_data.items():
+            if symbol in self._instrument_map:
+                instrument = self._instrument_map[symbol]
+                token = instrument.get('instrument_token')
+                if token:
+                    data.update({
+                        "instrument_token": token,
+                        "close_price": instrument.get('ohlc', {}).get('close', 0.0),
+                        "ltp": instrument.get('last_price', 0.0),
+                    })
+                    tokens_to_subscribe.append(token)
+
+        if tokens_to_subscribe:
+            logger.info(f"Requesting subscriptions for {len(tokens_to_subscribe)} tokens after scan change")
+            self.subscribe_tokens_requested.emit(tokens_to_subscribe)
+
+        self._update_table_display()
+
+    def _save_last_selected_scan(self, index: int):
+        """Saves the last selected scan index to settings."""
+        try:
+            settings = {"last_selected_scan": index}
+            settings_dir = os.path.dirname(SETTINGS_FILE)
+            if not os.path.exists(settings_dir):
+                os.makedirs(settings_dir, exist_ok=True)
+
+            with open(SETTINGS_FILE, 'w') as f:
+                json.dump(settings, f, indent=2)
+        except Exception as e:
+            logger.warning(f"Failed to save scanner settings: {e}")
+
+    def _load_last_selected_scan(self) -> int:
+        """Loads the last selected scan index from settings."""
+        try:
+            if os.path.exists(SETTINGS_FILE):
+                with open(SETTINGS_FILE, 'r') as f:
+                    settings = json.load(f)
+                    return settings.get("last_selected_scan", 0)
+        except Exception as e:
+            logger.warning(f"Failed to load scanner settings: {e}")
+        return 0
 
     def _manage_scans(self):
         """Open the manage scans dialog."""
@@ -378,7 +637,7 @@ class ChartinkScannerTable(QWidget):
             self._update_scan_dropdown()
 
             # Restore index if possible, otherwise set to 0
-            if current_index < self.scan_dropdown.count():
+            if current_index < self.scan_dropdown.count() and current_index >= 0:
                 self.scan_dropdown.setCurrentIndex(current_index)
             else:
                 self.scan_dropdown.setCurrentIndex(0)
@@ -390,6 +649,10 @@ class ChartinkScannerTable(QWidget):
                 item = QTableWidgetItem("No scans configured. Click '⚙' to add a scan.")
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
                 self.table.setItem(0, 0, item)
+                # Add empty cells for other columns
+                self.table.setItem(0, 1, QTableWidgetItem(""))
+                self.table.setItem(0, 2, QTableWidgetItem(""))
+                self.table.setItem(0, 3, QTableWidgetItem(""))
             else:
                 self._run_current_scan()
 
@@ -415,6 +678,10 @@ class ChartinkScannerTable(QWidget):
             item = QTableWidgetItem("Invalid Scan URL.")
             item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
             self.table.setItem(0, 0, item)
+            # Add empty cells for other columns
+            self.table.setItem(0, 1, QTableWidgetItem(""))
+            self.table.setItem(0, 2, QTableWidgetItem(""))
+            self.table.setItem(0, 3, QTableWidgetItem(""))
             return
 
         logger.info(f"Running Chartink scan: {selected_scan.get('name', 'Unnamed')} - {selected_scan_url}")
@@ -429,6 +696,10 @@ class ChartinkScannerTable(QWidget):
         item = QTableWidgetItem("Loading...")
         item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
         self.table.setItem(0, 0, item)
+        # Add empty cells for other columns
+        self.table.setItem(0, 1, QTableWidgetItem(""))
+        self.table.setItem(0, 2, QTableWidgetItem(""))
+        self.table.setItem(0, 3, QTableWidgetItem(""))
 
         if self.scan_thread and self.scan_thread.isRunning():
             self.scan_thread.terminate()
@@ -449,6 +720,14 @@ class ChartinkScannerTable(QWidget):
                     self.symbol_selected.emit(symbol_text)
         except Exception as e:
             logger.warning(f"Could not get symbol from clicked row {row}: {e}")
+
+    def get_all_tokens(self) -> List[int]:
+        """Returns a list of all instrument tokens currently in the scanner."""
+        return [
+            data['instrument_token']
+            for data in self._symbol_data.values()
+            if data and data.get('instrument_token')
+        ]
 
     def _load_scans(self) -> List[Dict[str, str]]:
         """Loads scan URLs from the user's JSON configuration file."""
@@ -512,45 +791,231 @@ class ChartinkScannerTable(QWidget):
     def _apply_styles(self):
         """Applies a consistent, modern dark theme stylesheet."""
         self.setStyleSheet("""
-            QWidget { background-color: #1c1c2e; color: #e0e0e0; font-family: "Segoe UI"; }
-            QComboBox {
-        background-color: #2a2a4a; border: 1px solid #3a3a5a;
-        color: #e0e0e0; padding: 2px 6px; border-radius: 4px; font-size: 12px;
-        min-height: 0px;
-    }
-            QComboBox:disabled { background-color: #1a1a2a; color: #666; }
-            #iconButton {
-        background-color: #3a3a5a; color: #d0d0d0;
-        font-size: 14px; font-weight: bold;
-        border-radius: 4px; padding: 2px; border: none;
-        min-width: 0px; min-height: 0px;
-    }
-            #iconButton:hover { background-color: #4a4a6a; }
-            #iconButton:disabled { background-color: #2a2a3a; color: #666; }
+            QWidget { 
+                background-color: #1c1c2e; 
+                color: #e0e0e0; 
+                font-family: "Segoe UI"; 
+            }
+
+            /* Header Container - Professional styled background */
+            QWidget#headerContainer {
+                background-color: #16213e;
+                border: 1px solid #233554;
+                border-radius: 8px;
+                margin: 4px;
+            }
+
+            QWidget#headerContainer:hover {
+                border-color: #2a4565;
+            }
+
+            /* Header styling */
+            QLabel#scanLabel {
+                color: #ccd6f6;
+                font-weight: 700;
+                font-size: 11px;
+                letter-spacing: 1px;
+                padding: 0px;
+                background: transparent;
+            }
+
+            QComboBox#scanDropdown {
+                background-color: #1a1a2e; 
+                border: 1px solid #233554;
+                color: #e6e6e6; 
+                padding: 8px 14px; 
+                border-radius: 6px; 
+                font-size: 12px;
+                font-weight: 500;
+                min-height: 16px;
+            }
+
+            QComboBox#scanDropdown:hover {
+                border-color: #64ffda;
+                background-color: #1e1e32;
+            }
+
+            QComboBox#scanDropdown:focus {
+                border-color: #64ffda;
+                background-color: #1e1e32;
+            }
+
+            QComboBox#scanDropdown:disabled { 
+                background-color: #0f0f1a; 
+                color: #5a5a6e; 
+                border-color: #1a1a2e;
+            }
+
+            QComboBox#scanDropdown::drop-down {
+                border: none;
+                width: 24px;
+                padding-right: 2px;
+                background: transparent;
+            }
+
+            QComboBox#scanDropdown::down-arrow {
+                image: none;
+                border-left: 5px solid transparent;
+                border-right: 5px solid transparent;
+                border-top: 5px solid #8892b0;
+                margin-right: 8px;
+            }
+
+            QComboBox#scanDropdown::down-arrow:hover {
+                border-top-color: #64ffda;
+            }
+
+            /* Dropdown list styling */
+            QComboBox#scanDropdown QAbstractItemView {
+                background-color: #1a1a2e;
+                border: 1px solid #233554;
+                border-radius: 6px;
+                color: #e6e6e6;
+                selection-background-color: #64ffda;
+                selection-color: #0f0f23;
+                padding: 4px;
+            }
+
+            QComboBox#scanDropdown QAbstractItemView::item {
+                padding: 8px 12px;
+                border: none;
+                border-radius: 4px;
+                margin: 1px;
+            }
+
+            QComboBox#scanDropdown QAbstractItemView::item:hover {
+                background-color: #233554;
+            }
+
+            QComboBox#scanDropdown QAbstractItemView::item:selected {
+                background-color: #64ffda;
+                color: #0f0f23;
+            }
+
+            QPushButton#settingsButton {
+                background-color: #1a1a2e; 
+                color: #ccd6f6;
+                font-size: 16px; 
+                font-weight: bold;
+                border-radius: 6px; 
+                border: 1px solid #233554;
+                padding: 0px;
+            }
+
+            QPushButton#settingsButton:hover { 
+                background-color: #233554;
+                border-color: #64ffda;
+                color: #64ffda;
+                transform: scale(1.05);
+            }
+
+            QPushButton#settingsButton:pressed {
+                background-color: #16213e;
+                border-color: #64ffda;
+                color: #64ffda;
+            }
+
+            QPushButton#settingsButton:disabled { 
+                background-color: #0f0f1a; 
+                color: #5a5a6e;
+                border-color: #1a1a2e;
+            }
+
             QTableWidget {
-                border: none; gridline-color: #2a2a4a; font-size: 13px;
+                border: none; 
+                gridline-color: #2a2a4a; 
+                font-size: 13px;
+                background-color: #1c1c2e;
+                selection-background-color: #3a3a5a;
             }
-            QHeaderView::section {
-                background-color: #1c1c2e; color: #8a8a9e; padding: 8px;
-                border: none; border-bottom: 1px solid #3a3a5a;
-                font-weight: bold; font-size: 11px; text-transform: uppercase;
-            }
+
             QTableWidget::item {
-                padding-left: 10px; border-bottom: 1px solid #2a2a4a;
+                padding: 4px 8px; 
+                border-bottom: 1px solid #2a2a4a;
+                background-color: transparent;
             }
-            QTableWidget::item:selected { background-color: #3a3a5a; }
+
+            QTableWidget::item:selected { 
+                background-color: #3a3a5a; 
+                color: #64ffda;
+            }
+
+            QTableWidget::item:alternate {
+                background-color: #0f0f23;
+            }
+
+            QHeaderView::section {
+                background-color: #0f0f23; 
+                color: #8892b0; 
+                padding: 6px 8px;
+                border: none; 
+                border-bottom: 1px solid #3a3a5a;
+                border-right: 1px solid #2a2a4a;
+                font-weight: 600; 
+                font-size: 10px; 
+                letter-spacing: 0.5px;
+            }
+
+            QHeaderView::section:last {
+                border-right: none;
+            }
 
             /* Dialog styles */
-            QDialog { background-color: #1c1c2e; color: #e0e0e0; }
+            QDialog { 
+                background-color: #1c1c2e; 
+                color: #e0e0e0; 
+            }
+
             QLineEdit {
-                background-color: #2a2a4a; border: 1px solid #3a3a5a;
-                color: #e0e0e0; padding: 8px; border-radius: 4px; font-size: 13px;
+                background-color: #2a2a4a; 
+                border: 1px solid #3a3a5a;
+                color: #e0e0e0; 
+                padding: 8px; 
+                border-radius: 4px; 
+                font-size: 13px;
             }
-            QLineEdit:focus { border-color: #007acc; }
+
+            QLineEdit:focus { 
+                border-color: #007acc; 
+            }
+
             QPushButton {
-                background-color: #3a3a5a; color: #e0e0e0; font-size: 12px;
-                border-radius: 4px; padding: 8px 16px; border: none;
+                background-color: #3a3a5a; 
+                color: #e0e0e0; 
+                font-size: 12px;
+                border-radius: 4px; 
+                padding: 8px 16px; 
+                border: none;
             }
-            QPushButton:hover { background-color: #4a4a6a; }
-            QPushButton:pressed { background-color: #2a2a4a; }
+
+            QPushButton:hover { 
+                background-color: #4a4a6a; 
+            }
+
+            QPushButton:pressed { 
+                background-color: #2a2a4a; 
+            }
+
+            /* Scrollbar Styling */
+            QScrollBar:vertical {
+                background-color: #0f0f23;
+                width: 8px;
+                border: none;
+            }
+
+            QScrollBar::handle:vertical {
+                background-color: #2a2a4a;
+                border-radius: 4px;
+                min-height: 20px;
+            }
+
+            QScrollBar::handle:vertical:hover {
+                background-color: #3a3a5a;
+            }
+
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {
+                border: none;
+                background: none;
+            }
         """)

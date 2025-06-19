@@ -12,8 +12,8 @@ from PySide6.QtWidgets import QMainWindow, QSplitter, QMessageBox, QDialog
 from widgets.menu_bar import create_main_menu
 from tables.chartink_scanner_table import ChartinkScannerTable
 from tables.open_positions_table import OpenPositionsTable
-from tables.watchlist_table import WatchlistTable
-from widgets.candlestick_chart_widget import ChartWindow
+from tables.watchlist_table import TabbedWatchlistWidget  # Updated import
+from widgets.canvas_candlestick_chart import CandlestickChart as ChartWindow
 from widgets.header_toolbar import HeaderToolbar
 from dialogs.order_confirmation_dialog import OrderConfirmationDialog
 from dialogs.settings_dialog import SettingsDialog
@@ -65,33 +65,42 @@ class SwingTraderWindow(QMainWindow):
         self._connect_signals()
         self._init_alert_system()
         self._init_background_workers()
+        self._apply_dark_theme()
 
         self.restore_window_state()
         self.statusBar().showMessage("Initializing and loading instruments...")
 
     def _setup_ui(self):
-        """Initializes and arranges all UI widgets."""
+        """Initializes and arranges all UI widgets with new layout."""
         self.header_toolbar = HeaderToolbar(self)
         self.addToolBar(self.header_toolbar)
 
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
         self.setCentralWidget(self.main_splitter)
 
+        # Create widgets
         self.chartink_scanner = ChartinkScannerTable()
-        self.positions_table = OpenPositionsTable()
-        # The candlestick_chart is now an instance of EnhancedChartWindow
         self.candlestick_chart = ChartWindow(self.real_kite_client)
-        self.watchlist = WatchlistTable()
+        self.watchlist = TabbedWatchlistWidget()  # Updated to use tabbed version
+        self.positions_table = OpenPositionsTable()
 
-        left_panel_splitter = QSplitter(Qt.Orientation.Vertical)
-        left_panel_splitter.addWidget(self.chartink_scanner)
-        left_panel_splitter.addWidget(self.positions_table)
-        left_panel_splitter.setSizes([400, 300])
+        # New Layout: Scanner (full height) | Chart | Watchlist + Positions (stacked)
+        # Left panel: Scanner takes full vertical space
+        self.main_splitter.addWidget(self.chartink_scanner)
 
-        self.main_splitter.addWidget(left_panel_splitter)
+        # Center: Chart
         self.main_splitter.addWidget(self.candlestick_chart)
-        self.main_splitter.addWidget(self.watchlist)
-        self.main_splitter.setSizes([350, 800, 250])
+
+        # Right panel: Watchlist on top, Positions on bottom
+        right_panel_splitter = QSplitter(Qt.Orientation.Vertical)
+        right_panel_splitter.addWidget(self.watchlist)
+        right_panel_splitter.addWidget(self.positions_table)
+        right_panel_splitter.setSizes([500, 200])  # Watchlist gets more space
+
+        self.main_splitter.addWidget(right_panel_splitter)
+
+        # Set main splitter sizes: Scanner | Chart | Right Panel
+        self.main_splitter.setSizes([350, 800, 300])
 
     def _setup_menu_bar(self):
         """Creates the main menu bar and connects its actions."""
@@ -112,21 +121,28 @@ class SwingTraderWindow(QMainWindow):
         self.header_toolbar.add_alert_requested.connect(self._show_add_alert_dialog)
         self.header_toolbar.alert_logs_requested.connect(self._show_alert_logs_dialog)
 
+        # Symbol selection connections
         self.chartink_scanner.symbol_selected.connect(self.candlestick_chart.on_search)
         self.watchlist.symbol_selected.connect(self.candlestick_chart.on_search)
         self.positions_table.symbol_selected.connect(self.candlestick_chart.on_search)
 
+        # Position manager connections
         self.position_manager.positions_updated.connect(self.positions_table.update_positions)
         self.position_manager.api_error_occurred.connect(
             lambda msg: self.statusBar().showMessage(f"API Error: {msg}", 5000)
         )
 
+        # Positions table connections
         self.positions_table.exit_position_requested.connect(self._on_exit_position_requested)
         self.positions_table.subscribe_tokens_requested.connect(self._subscribe_to_tokens)
 
+        # Watchlist connections
         self.watchlist.subscribe_tokens_requested.connect(self._subscribe_to_tokens)
         self.watchlist.place_order_requested.connect(self._show_order_dialog)
         self.watchlist.watchlist_changed.connect(self._on_websocket_connect)
+
+        # Chartink scanner connections - NEW
+        self.chartink_scanner.subscribe_tokens_requested.connect(self._subscribe_to_tokens)
 
     def _init_background_workers(self):
         """Initializes and starts background threads for data fetching."""
@@ -154,6 +170,85 @@ class SwingTraderWindow(QMainWindow):
         else:
             logger.warning(f"Alert sound file not found at {sound_file}")
 
+    def _apply_dark_theme(self):
+        """Applies overall dark theme to the application."""
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #000000;
+                color: #e0e0e0;
+            }
+
+            QSplitter {
+                background-color: #000000;
+            }
+
+            QSplitter::handle {
+                background-color: #1a1a2e;
+                border: 1px solid #233554;
+            }
+
+            QSplitter::handle:horizontal {
+                width: 0px;
+                margin: 0px 0px;
+            }
+
+            QSplitter::handle:vertical {
+                height: 0px;
+                margin: 0px 0px;
+            }
+
+            QSplitter::handle:hover {
+                background-color: #64ffda;
+            }
+
+            QStatusBar {
+                background-color: #0f0f23;
+                color: #8892b0;
+                border-top: 1px solid #233554;
+                padding: 4px;
+            }
+
+            QMenuBar {
+                background-color: #16213e;
+                color: #ccd6f6;
+                border-bottom: 1px solid #233554;
+            }
+
+            QMenuBar::item {
+                background: transparent;
+                padding: 6px 12px;
+            }
+
+            QMenuBar::item:selected {
+                background-color: #233554;
+                border-radius: 4px;
+            }
+
+            QMenu {
+                background-color: #1a1a2e;
+                color: #e6e6e6;
+                border: 1px solid #233554;
+                padding: 4px;
+            }
+
+            QMenu::item {
+                padding: 8px 16px;
+                border-radius: 4px;
+            }
+
+            QMenu::item:selected {
+                background-color: #64ffda;
+                color: #0f0f23;
+            }
+
+            QToolBar {
+                background-color: #16213e;
+                border-bottom: 1px solid #233554;
+                spacing: 4px;
+                padding: 4px;
+            }
+        """)
+
     @Slot(list)
     def _on_instruments_loaded(self, instruments: List[Dict]):
         """Handles the fully loaded list of instruments."""
@@ -163,10 +258,14 @@ class SwingTraderWindow(QMainWindow):
             inst['tradingsymbol']: inst for inst in instruments if 'tradingsymbol' in inst
         }
 
+        # Distribute instrument data to all components
         self.header_toolbar.set_instrument_data(instruments)
         self.candlestick_chart.set_instrument_list(instruments)
         self.position_manager.set_instrument_data(instruments)
         self.watchlist.set_instrument_map(self.instrument_map)
+        self.chartink_scanner.set_instrument_map(self.instrument_map)  # NEW
+        self.chartink_scanner.set_kite_client(self.real_kite_client)  # NEW - Pass Kite client
+
         if isinstance(self.trader, PaperTradingManager):
             self.trader.set_instrument_data(instruments)
 
@@ -178,6 +277,7 @@ class SwingTraderWindow(QMainWindow):
         """Distributes live market data ticks to all interested components."""
         self.position_manager.update_pnl_from_market_data(ticks)
         self.watchlist.update_data(ticks)
+        self.chartink_scanner.update_data(ticks)  # NEW - Update scanner with live data
         self._check_alerts(ticks)
 
     @Slot()
@@ -187,6 +287,7 @@ class SwingTraderWindow(QMainWindow):
         all_tokens = set()
         all_tokens.update(self.positions_table.get_all_tokens())
         all_tokens.update(self.watchlist.get_all_tokens())
+        all_tokens.update(self.chartink_scanner.get_all_tokens())  # NEW - Include scanner tokens
         all_tokens.update(self._get_alert_tokens())
 
         if all_tokens:
@@ -221,7 +322,24 @@ class SwingTraderWindow(QMainWindow):
 
     def _show_order_dialog(self, order_details: Dict[str, Any]):
         """Shows the order confirmation dialog."""
-        ltp = self.watchlist._watchlist_data.get(order_details['tradingsymbol'], {}).get('ltp', 0)
+        # Try to get LTP from watchlist first, then scanner
+        symbol = order_details['tradingsymbol']
+        ltp = 0
+
+        # Check watchlist data
+        if hasattr(self.watchlist, '_watchlist_data'):
+            # For tabbed watchlist, we need to check all categories
+            for table in self.watchlist._tables.values():
+                watchlist_data = table.get_watchlist_data()
+                if symbol in watchlist_data:
+                    ltp = watchlist_data[symbol].get('ltp', 0)
+                    break
+
+        # Check scanner data if not found in watchlist
+        if not ltp and hasattr(self.chartink_scanner, '_symbol_data'):
+            scanner_data = self.chartink_scanner._symbol_data.get(symbol, {})
+            ltp = scanner_data.get('ltp', 0)
+
         order_details['ltp'] = ltp
         order_details.setdefault('price', ltp)
         order_details.setdefault('quantity', self.config_manager.load_settings().get('default_quantity', 1))
@@ -293,16 +411,19 @@ class SwingTraderWindow(QMainWindow):
 
     def _check_alerts(self, ticks: List[Dict]):
         """Checks incoming ticks against active alerts."""
-        if not self.instrument_map: return
+        if not self.instrument_map:
+            return
 
         an_alert_was_triggered = False
         for tick in ticks:
             token = tick['instrument_token']
             ltp = tick.get('last_price')
-            if ltp is None: continue
+            if ltp is None:
+                continue
 
             for alert in self.alerts:
-                if alert.get('triggered'): continue
+                if alert.get('triggered'):
+                    continue
 
                 alert_token = self.instrument_map.get(alert['symbol'], {}).get('instrument_token')
                 if alert_token == token:
@@ -311,7 +432,7 @@ class SwingTraderWindow(QMainWindow):
                     is_below = ltp <= price_threshold
 
                     if (alert['condition'].startswith("Crosses Above") and is_above) or \
-                       (alert['condition'].startswith("Crosses Below") and is_below):
+                            (alert['condition'].startswith("Crosses Below") and is_below):
                         alert['triggered'] = True
                         self._trigger_alert_actions(alert, ltp)
                         an_alert_was_triggered = True
@@ -328,8 +449,11 @@ class SwingTraderWindow(QMainWindow):
         self.statusBar().showMessage(f"ALERT: {alert_data['symbol']} {past_condition} {trigger_price}", 10000)
 
         triggered_entry = {
-            "symbol": alert_data['symbol'], "price": trigger_price, "note": alert_data.get('note', ''),
-            "condition": past_condition, "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            "symbol": alert_data['symbol'],
+            "price": trigger_price,
+            "note": alert_data.get('note', ''),
+            "condition": past_condition,
+            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
         self.triggered_alerts.append(triggered_entry)
         self._save_json("user_data/alert_history.json", self.triggered_alerts, backup=True)
@@ -360,7 +484,8 @@ class SwingTraderWindow(QMainWindow):
         """Saves window state and stops background workers before closing."""
         logger.info("Close event triggered. Saving state and stopping workers...")
         self.save_window_state()
-        if self.market_data_worker: self.market_data_worker.stop()
+        if self.market_data_worker:
+            self.market_data_worker.stop()
         if self.instrument_loader and self.instrument_loader.isRunning():
             self.instrument_loader.quit()
             self.instrument_loader.wait(2000)

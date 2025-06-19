@@ -12,9 +12,8 @@ class MarketDataWorker(QObject):
 
     This worker runs the KiteTicker in a separate thread to avoid blocking the
     main GUI thread. It handles connecting, subscribing to instruments, and
-    gracefully disconnecting. For a swing trading application, it's optimized
-    to primarily subscribe to the Last Traded Price (LTP) mode to conserve
-    resources, while still providing the necessary data for P&L updates and alerts.
+    gracefully disconnecting. For swing trading applications, it uses MODE_FULL
+    to receive complete tick data including volume, OHLC, and change percentages.
     """
     data_received = Signal(list)
     connection_established = Signal()
@@ -51,15 +50,22 @@ class MarketDataWorker(QObject):
 
     def _on_ticks(self, ws: KiteTicker, ticks: List[dict]):
         """Callback triggered when new market data (ticks) is received."""
+        # Log sample tick data for debugging (only first tick to avoid spam)
+        if ticks and logger.isEnabledFor(logging.DEBUG):
+            sample_tick = ticks[0]
+            logger.debug(f"Sample tick data: {sample_tick}")
+
         self.data_received.emit(ticks)
 
     def _on_connect(self, ws: KiteTicker, response: dict):
         """Callback triggered on a successful WebSocket connection."""
         logger.info("WebSocket connection established. Subscribing to instruments.")
         if self.subscribed_tokens:
-            self.kws.subscribe(list(self.subscribed_tokens))
-            # Set mode to LTP for swing trading; it's more efficient.
-            self.kws.set_mode(self.kws.MODE_LTP, list(self.subscribed_tokens))
+            token_list = list(self.subscribed_tokens)
+            self.kws.subscribe(token_list)
+            # Set to MODE_FULL to receive complete data including volume, OHLC, change%
+            self.kws.set_mode(self.kws.MODE_FULL, token_list)
+            logger.info(f"Subscribed to {len(token_list)} instruments in FULL mode for complete data.")
         self.connection_established.emit()
 
     def _on_reconnect(self, ws: KiteTicker, attempts_count: int):
@@ -96,14 +102,37 @@ class MarketDataWorker(QObject):
 
         if tokens_to_add:
             self.kws.subscribe(tokens_to_add)
-            self.kws.set_mode(self.kws.MODE_LTP, tokens_to_add)
-            logger.info(f"Subscribed to {len(tokens_to_add)} new instruments in LTP mode.")
+            # Set to MODE_FULL for complete tick data including volume and change%
+            self.kws.set_mode(self.kws.MODE_FULL, tokens_to_add)
+            logger.info(f"Subscribed to {len(tokens_to_add)} new instruments in FULL mode.")
 
         if tokens_to_remove:
             self.kws.unsubscribe(tokens_to_remove)
             logger.info(f"Unsubscribed from {len(tokens_to_remove)} old instruments.")
 
         self.subscribed_tokens = new_tokens
+
+        # Log current subscription status
+        logger.info(f"Total subscribed instruments: {len(self.subscribed_tokens)}")
+
+    def get_subscription_info(self):
+        """Returns current subscription information for debugging."""
+        return {
+            "is_running": self.is_running,
+            "is_connected": self.kws.is_connected() if self.kws else False,
+            "subscribed_count": len(self.subscribed_tokens),
+            "subscribed_tokens": list(self.subscribed_tokens)
+        }
+
+    def force_mode_update(self):
+        """
+        Force update all subscribed instruments to MODE_FULL.
+        Useful for ensuring all instruments are in the correct mode.
+        """
+        if self.is_running and self.kws and self.kws.is_connected() and self.subscribed_tokens:
+            token_list = list(self.subscribed_tokens)
+            self.kws.set_mode(self.kws.MODE_FULL, token_list)
+            logger.info(f"Force updated {len(token_list)} instruments to FULL mode.")
 
     def stop(self):
         """Stops the worker and gracefully closes the WebSocket connection."""

@@ -1,11 +1,14 @@
 # IDE files
 .idea/
+logging/
+logging
 
 # User data
 user_data/
-
+user_data
 # Byte-compiled / optimized / DLL files
 __pycache__/
+__pycache__
 *.py[cod]
 *.pyc
 

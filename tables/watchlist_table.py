@@ -6,89 +6,95 @@ from functools import partial
 
 from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QPushButton, QVBoxLayout, QWidget,
-    QHeaderView, QAbstractItemView, QMenu
+    QHeaderView, QAbstractItemView, QMenu, QTabWidget
 )
-from PySide6.QtCore import Qt, Signal, Slot, QPoint
-from PySide6.QtGui import QColor, QCursor, QAction
+from PySide6.QtCore import Qt, Signal, Slot, QPoint, QSettings
+from PySide6.QtGui import QColor, QCursor, QAction, QFont
 
 logger = logging.getLogger(__name__)
-WATCHLIST_FILE = "user_data/watchlist.json"
+
+# Separate files for each watchlist category
+WATCHLIST_FILES = {
+    "Breakouts": "user_data/watchlist_breakouts.json",
+    "EP": "user_data/watchlist_episodic.json",
+    "Parabolic": "user_data/watchlist_parabolic.json"
+}
+
+# Settings for remembering UI state
+SETTINGS_KEY_WIDTH = "watchlist/widget_width"
 
 
-class WatchlistTable(QWidget):
+class TradingTable(QTableWidget):
     """
-    A compact, real-time watchlist widget inspired by professional trading terminals.
-    It displays a persistent list of stocks with live price updates and allows
-    for quick actions like charting, trading, and list management.
+    Individual table widget for each trading strategy category.
+    Maintains the compact TC2000-like appearance.
     """
     symbol_selected = Signal(str)
-    subscribe_tokens_requested = Signal(list)
     place_order_requested = Signal(dict)
-    watchlist_changed = Signal()
 
-    def __init__(self, parent=None):
+    def __init__(self, category: str, parent=None):
         super().__init__(parent)
+        self.category = category
         self._instrument_map: Dict[str, Dict] = {}
-        self._watchlist_data: Dict[str, Dict] = {}  # Cache for symbol data (LTP, close, etc.)
+        self._watchlist_data: Dict[str, Dict] = {}
         self._symbol_to_row: Dict[str, int] = {}
 
-        self._setup_ui()
-        self._apply_styles()
-        self._load_watchlist()
-
-    def _setup_ui(self):
-        """Sets up the main UI layout and table."""
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        self.table = QTableWidget()
         self._configure_table()
-        layout.addWidget(self.table)
-
-        self.table.cellClicked.connect(self._on_cell_clicked)
-        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.table.customContextMenuRequested.connect(self._show_context_menu)
+        self._connect_signals()
 
     def _configure_table(self):
         """Configures the table to achieve a compact, TC2000-like appearance."""
-        self.table.setColumnCount(5)
-        self.table.setHorizontalHeaderLabels(["Symbol", "LTP", "Chg", "Chg %", ""])
+        self.setColumnCount(5)
+        self.setHorizontalHeaderLabels(["Symbol", "LTP", "Volume", "Chg %", ""])
 
-        self.table.verticalHeader().setVisible(False)
-        self.table.horizontalHeader().setVisible(False)
+        self.verticalHeader().setVisible(False)
+        self.horizontalHeader().setVisible(True)
 
-        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setShowGrid(False)
+        # Set header style for better visibility
+        header = self.horizontalHeader()
+        header.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        header = self.table.horizontalHeader()
+        self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.setShowGrid(False)
+        self.setAlternatingRowColors(True)
+
+        # Column sizing
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)  # Symbol
-        for i in range(1, 4):
-            header.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
-        # --- THIS IS THE FIX ---
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(4, 25)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)  # LTP
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)  # Volume
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)  # Chg %
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)  # Remove button
+        self.setColumnWidth(4, 24)  # Minimal width for X button
+
+        # Row height for compact appearance
+        self.verticalHeader().setDefaultSectionSize(28)
+
+    def _connect_signals(self):
+        """Connect table signals."""
+        self.cellClicked.connect(self._on_cell_clicked)
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._show_context_menu)
 
     def set_instrument_map(self, instrument_map: Dict[str, Dict]):
         """Receives the master instrument map for data lookups."""
         self._instrument_map = instrument_map
         self._populate_full_table()
 
-    @Slot(list)
     def update_data(self, ticks: List[Dict]):
-        """Public slot to update LTP and change from WebSocket ticks."""
+        """Updates LTP and change from WebSocket ticks."""
         for tick in ticks:
             token = tick.get('instrument_token')
             ltp = tick.get('last_price')
+            volume = tick.get('volume', 0)
 
             for symbol, data in self._watchlist_data.items():
                 if data.get('instrument_token') == token and ltp is not None:
                     data['ltp'] = ltp
+                    data['volume'] = volume
                     close_price = data.get('close_price', ltp)
-                    if close_price > 0:  # Avoid division by zero
-                        change = ltp - close_price
-                        change_pct = (change / close_price) * 100
-                        data['change'] = change
+                    if close_price > 0:
+                        change_pct = ((ltp - close_price) / close_price) * 100
                         data['change_pct'] = change_pct
 
                     if symbol in self._symbol_to_row:
@@ -97,10 +103,11 @@ class WatchlistTable(QWidget):
                     break
 
     def add_symbol(self, symbol: str):
-        """Adds a new symbol to the watchlist efficiently without rebuilding the table."""
+        """Adds a new symbol to this category's watchlist."""
         if not symbol or symbol in self._watchlist_data or symbol not in self._instrument_map:
-            logger.warning(f"Could not add '{symbol}'. It may already exist or is not a valid symbol.")
-            return
+            logger.warning(
+                f"Could not add '{symbol}' to {self.category}. It may already exist or is not a valid symbol.")
+            return False
 
         instrument = self._instrument_map[symbol]
         self._watchlist_data[symbol] = {
@@ -108,102 +115,124 @@ class WatchlistTable(QWidget):
             "instrument_token": instrument.get('instrument_token'),
             "close_price": instrument.get('ohlc', {}).get('close', 0.0),
             "ltp": instrument.get('last_price', 0.0),
-            "change": 0.0,
+            "volume": instrument.get('volume', 0),
             "change_pct": 0.0,
         }
 
         self._populate_full_table()
-        self._save_watchlist()
-        self.subscribe_tokens_requested.emit([instrument.get('instrument_token')])
-        self.watchlist_changed.emit()
-        logger.info(f"Added {symbol} to watchlist.")
+        logger.info(f"Added {symbol} to {self.category} watchlist.")
+        return True
+
+    def remove_symbol(self, symbol: str):
+        """Removes a symbol from this category's watchlist."""
+        if symbol in self._watchlist_data:
+            del self._watchlist_data[symbol]
+            self._populate_full_table()
+            logger.info(f"Removed {symbol} from {self.category} watchlist.")
+            return True
+        return False
+
+    def _populate_full_table(self):
+        """Clears and repopulates the entire table."""
+        self.setRowCount(0)
+        self._symbol_to_row.clear()
+
+        sorted_symbols = sorted(self._watchlist_data.keys())
+        self.setRowCount(len(sorted_symbols))
+
+        for row, symbol in enumerate(sorted_symbols):
+            if symbol in self._instrument_map and 'instrument_token' not in self._watchlist_data[symbol]:
+                instrument = self._instrument_map[symbol]
+                self._watchlist_data[symbol] = {
+                    "tradingsymbol": symbol,
+                    "instrument_token": instrument.get('instrument_token'),
+                    "close_price": instrument.get('ohlc', {}).get('close', 0.0),
+                    "ltp": instrument.get('last_price', 0.0),
+                    "volume": instrument.get('volume', 0),
+                    "change_pct": 0.0,
+                }
+            self._symbol_to_row[symbol] = row
+            self._populate_row(row, symbol)
 
     def _populate_row(self, row: int, symbol: str):
         """Populates a single row with data and widgets."""
         data = self._watchlist_data[symbol]
 
         for i in range(4):
-            self.table.setItem(row, i, QTableWidgetItem())
-        self.table.setCellWidget(row, 4, self._create_remove_button(row))
+            self.setItem(row, i, QTableWidgetItem())
+        self.setCellWidget(row, 4, self._create_remove_button(row))
 
         self._update_row_data(row, data)
 
-    def _remove_symbol_at_row(self, row: int):
-        """Removes a symbol from the watchlist efficiently."""
-        if 0 <= row < self.table.rowCount():
-            symbol_to_remove = list(self._watchlist_data.keys())[row]
-            del self._watchlist_data[symbol_to_remove]
-            self.table.removeRow(row)
-            self._save_watchlist()
-            self.watchlist_changed.emit()
-            logger.info(f"Removed {symbol_to_remove} from watchlist.")
-
-
-    def _populate_full_table(self):
-        """Clears and repopulates the entire table. Used for initial load."""
-        self.table.setRowCount(0)
-        self._symbol_to_row.clear()
-
-        sorted_symbols = sorted(self._watchlist_data.keys())
-        self.table.setRowCount(len(sorted_symbols))
-
-        for row, symbol in enumerate(sorted_symbols):
-            if symbol in self._instrument_map and 'instrument_token' not in self._watchlist_data[symbol]:
-                 instrument = self._instrument_map[symbol]
-                 self._watchlist_data[symbol] = {
-                    "tradingsymbol": symbol,
-                    "instrument_token": instrument.get('instrument_token'),
-                    "close_price": instrument.get('ohlc', {}).get('close', 0.0),
-                    "ltp": instrument.get('last_price', 0.0),
-                    "change": 0.0,
-                    "change_pct": 0.0,
-                }
-            self._symbol_to_row[symbol] = row
-            self._populate_row(row, symbol)
-
     def _update_row_data(self, row: int, data: Dict):
         """Updates the text and color for a single row."""
-        self.table.item(row, 0).setText(data['tradingsymbol'])
-        self.table.item(row, 1).setText(f"{data.get('ltp', 0.0):.2f}")
-        self.table.item(row, 2).setText(f"{data.get('change', 0.0):.2f}")
-        self.table.item(row, 3).setText(f"{data.get('change_pct', 0.0):.2f}%")
+        self.item(row, 0).setText(data['tradingsymbol'])
+        self.item(row, 1).setText(f"{data.get('ltp', 0.0):.2f}")
 
-        profit_color = QColor("#00b894")
-        loss_color = QColor("#d63031")
-        neutral_color = QColor("#b2bec3")
+        # Format volume in K/M format for readability
+        volume = data.get('volume', 0)
+        if volume >= 1000000:
+            volume_text = f"{volume / 1000000:.1f}M"
+        elif volume >= 1000:
+            volume_text = f"{volume / 1000:.0f}K"
+        else:
+            volume_text = str(volume)
+        self.item(row, 2).setText(volume_text)
 
-        change = data.get('change', 0.0)
-        color = profit_color if change > 0 else (loss_color if change < 0 else neutral_color)
+        self.item(row, 3).setText(f"{data.get('change_pct', 0.0):.2f}%")
+
+        # TC2000-style colors
+        profit_color = QColor("#00d4aa")  # Bright teal
+        loss_color = QColor("#ff4757")  # Bright red
+        neutral_color = QColor("#747d8c")  # Grey
+
+        change_pct = data.get('change_pct', 0.0)
+        color = profit_color if change_pct > 0 else (loss_color if change_pct < 0 else neutral_color)
+
+        # Apply color to LTP and Change %
+        self.item(row, 1).setForeground(color)
+        self.item(row, 3).setForeground(color)
+
+        # Volume stays neutral colored
+        self.item(row, 2).setForeground(neutral_color)
 
         for col in range(1, 4):
-            self.table.item(row, col).setForeground(color)
-            self.table.item(row, col).setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            self.item(row, col).setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
     def _create_remove_button(self, row) -> QPushButton:
-        """Creates the 'x' button to remove a symbol."""
-        remove_btn = QPushButton("✕")
+        """Creates a minimal 'x' button to remove a symbol."""
+        remove_btn = QPushButton("×")
         remove_btn.setObjectName("removeButton")
         remove_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        remove_btn.setFixedSize(16, 16)
         remove_btn.clicked.connect(partial(self._remove_symbol_at_row, row))
         return remove_btn
 
+    def _remove_symbol_at_row(self, row: int):
+        """Removes a symbol from the watchlist efficiently."""
+        if 0 <= row < self.rowCount():
+            symbol_to_remove = list(self._watchlist_data.keys())[row]
+            self.remove_symbol(symbol_to_remove)
+
     def _on_cell_clicked(self, row, column):
         """Handles clicks on a cell to select the symbol for charting."""
-        if column != 4:
+        if column != 4 and row < self.rowCount():
             try:
-                symbol = self.table.item(row, 0).text()
+                symbol = self.item(row, 0).text()
                 self.symbol_selected.emit(symbol)
             except AttributeError:
                 logger.warning(f"Could not get symbol from clicked row {row}.")
 
     def _show_context_menu(self, pos: QPoint):
         """Shows a right-click context menu for trading actions."""
-        row = self.table.rowAt(pos.y())
-        if row < 0: return
+        row = self.rowAt(pos.y())
+        if row < 0:
+            return
 
         try:
-            symbol = self.table.item(row, 0).text()
-            if not symbol: return
+            symbol = self.item(row, 0).text()
+            if not symbol:
+                return
         except AttributeError:
             return
 
@@ -216,7 +245,7 @@ class WatchlistTable(QWidget):
         sell_action.triggered.connect(lambda: self._request_trade(symbol, "SELL"))
         menu.addAction(sell_action)
 
-        menu.exec(self.table.viewport().mapToGlobal(pos))
+        menu.exec(self.viewport().mapToGlobal(pos))
 
     def _request_trade(self, symbol: str, transaction_type: str):
         """Emits a signal to open the order dialog."""
@@ -226,70 +255,405 @@ class WatchlistTable(QWidget):
         }
         self.place_order_requested.emit(order_details)
 
-    def _load_watchlist(self):
-        """Loads the list of symbols from the JSON file."""
-        if os.path.exists(WATCHLIST_FILE):
-            try:
-                with open(WATCHLIST_FILE, 'r') as f:
-                    symbols = json.load(f)
-                    for symbol in symbols:
-                        self._watchlist_data[symbol] = {}
-            except (json.JSONDecodeError, IOError) as e:
-                logger.error(f"Failed to load watchlist: {e}")
-        self._populate_full_table()
-
-    def _save_watchlist(self):
-        """Saves the current list of symbols to the JSON file."""
-        try:
-            dir_name = os.path.dirname(WATCHLIST_FILE)
-            if dir_name and not os.path.exists(dir_name):
-                os.makedirs(dir_name)
-            with open(WATCHLIST_FILE, 'w') as f:
-                json.dump(list(self._watchlist_data.keys()), f, indent=4)
-        except IOError as e:
-            logger.error(f"Failed to save watchlist: {e}")
-
     def get_all_tokens(self) -> List[int]:
-        """Returns a list of all instrument tokens currently in the watchlist."""
+        """Returns a list of all instrument tokens currently in this watchlist."""
         return [
             data['instrument_token']
             for data in self._watchlist_data.values()
             if data and data.get('instrument_token')
         ]
 
+    def get_watchlist_data(self) -> Dict[str, Dict]:
+        """Returns the current watchlist data for saving."""
+        return self._watchlist_data.copy()
+
+    def load_watchlist_data(self, data: Dict[str, Dict]):
+        """Loads watchlist data from saved state."""
+        self._watchlist_data = data
+        self._populate_full_table()
+
+
+class TabbedWatchlistWidget(QWidget):
+    """
+    Main tabbed watchlist widget that contains three trading strategy categories.
+    Maintains TC2000-style appearance with professional tabs.
+    """
+    symbol_selected = Signal(str)
+    subscribe_tokens_requested = Signal(list)
+    place_order_requested = Signal(dict)
+    watchlist_changed = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._instrument_map: Dict[str, Dict] = {}
+        self._tables: Dict[str, TradingTable] = {}
+        self._settings = QSettings("SwingTrader", "WatchlistWidget")
+
+        self._setup_ui()
+        self._apply_styles()
+        self._load_all_watchlists()
+        self._restore_geometry()
+
+    def _setup_ui(self):
+        """Sets up the main UI layout with tabs."""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        # Create tab widget directly without header
+        self.tab_widget = QTabWidget()
+        self.tab_widget.setObjectName("tradingTabs")
+
+        # Disable tab scrolling and ensure all tabs are always visible
+        tab_bar = self.tab_widget.tabBar()
+        tab_bar.setUsesScrollButtons(False)
+        tab_bar.setExpanding(True)
+
+        # Create tables for each category
+        categories = ["Breakouts", "EP", "Parabolic"]
+        for category in categories:
+            table = TradingTable(category)
+            self._tables[category] = table
+
+            # Connect signals
+            table.symbol_selected.connect(self.symbol_selected.emit)
+            table.place_order_requested.connect(self.place_order_requested.emit)
+
+            self.tab_widget.addTab(table, category.upper())
+
+        layout.addWidget(self.tab_widget)
+
+        # Set equal tab widths after the widget is shown
+        self.tab_widget.show()
+        self._set_equal_tab_widths()
+
+    def _set_equal_tab_widths(self):
+        """Sets equal width for all tabs based on the widget width."""
+        if hasattr(self, 'tab_widget'):
+            # Get the tab bar
+            tab_bar = self.tab_widget.tabBar()
+
+            # Calculate equal width for all tabs accounting for borders and margins
+            total_width = self.width()
+            tab_count = tab_bar.count()
+            if tab_count > 0:
+                # Account for tab margins (1px between tabs) and borders
+                margins_and_borders = (tab_count - 1) * 1 + 4  # 1px margin between tabs + 4px for widget borders
+                available_width = total_width - margins_and_borders
+                tab_width = available_width // tab_count
+
+                # Apply the calculated width via stylesheet
+                self._apply_tab_width_style(tab_width)
+
     def _apply_styles(self):
-        """Applies a minimalist, TC2000-inspired stylesheet."""
-        self.setStyleSheet("""
-            QTableWidget {
-                background-color: #1c1c2e;
-                color: #e0e0e0;
+        """Applies TC2000-inspired styling to the tabbed watchlist."""
+        # Initial styling - will be overridden by _apply_tab_width_style
+        pass
+
+    def set_instrument_map(self, instrument_map: Dict[str, Dict]):
+        """Receives the master instrument map for data lookups."""
+        self._instrument_map = instrument_map
+        for table in self._tables.values():
+            table.set_instrument_map(instrument_map)
+
+    @Slot(list)
+    def update_data(self, ticks: List[Dict]):
+        """Public slot to update LTP and change from WebSocket ticks."""
+        for table in self._tables.values():
+            table.update_data(ticks)
+
+    def add_symbol(self, symbol: str, category: str = None):
+        """Adds a new symbol to the specified category or current tab."""
+        if category is None:
+            current_index = self.tab_widget.currentIndex()
+            category = list(self._tables.keys())[current_index]
+
+        if category in self._tables:
+            success = self._tables[category].add_symbol(symbol)
+            if success:
+                self._save_watchlist(category)
+
+                # Get tokens for subscription
+                instrument = self._instrument_map.get(symbol, {})
+                token = instrument.get('instrument_token')
+                if token:
+                    self.subscribe_tokens_requested.emit([token])
+
+                self.watchlist_changed.emit()
+                return True
+        return False
+
+    def get_current_category(self) -> str:
+        """Returns the currently selected category."""
+        current_index = self.tab_widget.currentIndex()
+        return list(self._tables.keys())[current_index]
+
+    def get_all_tokens(self) -> List[int]:
+        """Returns a list of all instrument tokens from all watchlists."""
+        all_tokens = []
+        for table in self._tables.values():
+            all_tokens.extend(table.get_all_tokens())
+        return all_tokens
+
+    def _load_all_watchlists(self):
+        """Loads all watchlists from their respective JSON files."""
+        for category, filepath in WATCHLIST_FILES.items():
+            if os.path.exists(filepath):
+                try:
+                    with open(filepath, 'r') as f:
+                        symbols = json.load(f)
+
+                    # Convert list of symbols to dict format
+                    data = {}
+                    for symbol in symbols:
+                        data[symbol] = {}
+
+                    self._tables[category].load_watchlist_data(data)
+                    logger.info(f"Loaded {len(symbols)} symbols for {category} watchlist.")
+
+                except (json.JSONDecodeError, IOError) as e:
+                    logger.error(f"Failed to load {category} watchlist: {e}")
+
+    def _save_watchlist(self, category: str):
+        """Saves the specified watchlist to its JSON file."""
+        if category not in WATCHLIST_FILES:
+            return
+
+        filepath = WATCHLIST_FILES[category]
+        try:
+            dir_name = os.path.dirname(filepath)
+            if dir_name and not os.path.exists(dir_name):
+                os.makedirs(dir_name)
+
+            watchlist_data = self._tables[category].get_watchlist_data()
+            symbols = list(watchlist_data.keys())
+
+            with open(filepath, 'w') as f:
+                json.dump(symbols, f, indent=4)
+
+            logger.info(f"Saved {category} watchlist with {len(symbols)} symbols.")
+
+        except IOError as e:
+            logger.error(f"Failed to save {category} watchlist: {e}")
+
+    def _restore_geometry(self):
+        """Restores the widget width from saved settings."""
+        saved_width = self._settings.value(SETTINGS_KEY_WIDTH, 300, type=int)
+        self.setFixedWidth(saved_width)
+
+    def _save_geometry(self):
+        """Saves the current widget width to settings."""
+        self._settings.setValue(SETTINGS_KEY_WIDTH, self.width())
+
+    def _apply_tab_width_style(self, tab_width: int):
+        """Applies dynamic tab width to the stylesheet."""
+        # Calculate exact positioning to eliminate any shifting
+        tab_width_exact = f"{tab_width}px"
+
+        # Update the complete stylesheet with fixed tab dimensions
+        self.setStyleSheet(f"""
+            /* Main Widget */
+            TabbedWatchlistWidget {{
+                background-color: #1a1a2e;
+                border: 1px solid #16213e;
+            }}
+
+            /* Tab Widget Styling */
+            QTabWidget#tradingTabs {{
+                background-color: #1a1a2e;
                 border: none;
-                grid-style: none;
-                font-size: 14px;
-            }
-            QTableWidget::item {
-                padding: 6px 8px;
-                border-bottom: 1px solid #2a2a4a;
-            }
-            QTableWidget::item:selected {
-                background-color: #3a3a5a;
-            }
-            #removeButton {
+            }}
+
+            QTabWidget#tradingTabs::pane {{
+                border: 1px solid #16213e;
+                background-color: #1a1a2e;
+                border-radius: 0px;
+            }}
+
+            QTabWidget#tradingTabs::tab-bar {{
+                alignment: left;
+            }}
+
+            /* Hide tab scroll buttons completely */
+            QTabBar::scroller {{
+                width: 0px;
+                height: 0px;
+            }}
+
+            QTabBar QToolButton {{
+                width: 0px;
+                height: 0px;
+                border: none;
+                background: transparent;
+            }}
+
+            QTabBar QToolButton::right-arrow,
+            QTabBar QToolButton::left-arrow {{
+                width: 0px;
+                height: 0px;
+                background: transparent;
+            }}
+
+            /* Fixed Tab Bar Styling - No movement */
+            QTabBar::tab {{
+                background-color: #0f0f23;
+                color: #8892b0;
+                padding: 8px 0px;
+                margin: 0px;
+                border: 1px solid #16213e;
+                border-bottom: none;
+                border-right: 1px solid #16213e;
+                font-size: 10px;
+                font-weight: 600;
+                letter-spacing: 0.5px;
+                text-align: center;
+                width: {tab_width_exact};
+                min-width: {tab_width_exact};
+                max-width: {tab_width_exact};
+                position: fixed;
+            }}
+
+            QTabBar::tab:last {{
+                border-right: 1px solid #16213e;
+            }}
+
+            QTabBar::tab:selected {{
+                background-color: #1a1a2e;
+                color: #64ffda;
+                border-bottom: 2px solid #64ffda;
+                width: {tab_width_exact};
+                min-width: {tab_width_exact};
+                max-width: {tab_width_exact};
+            }}
+
+            QTabBar::tab:hover:!selected {{
+                background-color: #16213e;
+                color: #ccd6f6;
+                width: {tab_width_exact};
+                min-width: {tab_width_exact};
+                max-width: {tab_width_exact};
+            }}
+
+            /* Table Styling */
+            TradingTable {{
+                background-color: #1a1a2e;
+                color: #e6e6e6;
+                border: none;
+                gridline-color: #16213e;
+                font-family: 'Consolas', 'Monaco', monospace;
+                font-size: 12px;
+                selection-background-color: #233554;
+            }}
+
+            TradingTable::item {{
+                padding: 4px 8px;
+                border-bottom: 1px solid #16213e;
                 background-color: transparent;
-                color: #555;
+            }}
+
+            TradingTable::item:selected {{
+                background-color: #233554;
+                color: #64ffda;
+            }}
+
+            TradingTable::item:alternate {{
+                background-color: #0f0f23;
+            }}
+
+            /* Header Styling */
+            QHeaderView::section {{
+                background-color: #0f0f23;
+                color: #8892b0;
+                border: none;
+                border-right: 1px solid #16213e;
+                border-bottom: 1px solid #16213e;
+                padding: 6px 8px;
+                font-weight: 600;
+                font-size: 10px;
+                letter-spacing: 0.5px;
+            }}
+
+            QHeaderView::section:last {{
+                border-right: none;
+            }}
+
+            /* Remove Button Styling */
+            QPushButton#removeButton {{
+                background-color: transparent;
+                color: #555568;
                 border: none;
                 font-weight: bold;
-                font-size: 16px;
-            }
-            #removeButton:hover {
-                color: #d63031;
-            }
-            QMenu {
-                background-color: #2a2a4a;
-                color: #e0e0e0;
-                border: 1px solid #3a3a5a;
-            }
-            QMenu::item:selected {
-                background-color: #007acc;
-            }
+                font-size: 12px;
+                border-radius: 8px;
+                padding: 0px;
+            }}
+
+            QPushButton#removeButton:hover {{
+                color: #ff4757;
+                background-color: #2a1f1f;
+            }}
+
+            /* Context Menu */
+            QMenu {{
+                background-color: #16213e;
+                color: #e6e6e6;
+                border: 1px solid #233554;
+                padding: 4px 0px;
+                font-size: 11px;
+            }}
+
+            QMenu::item {{
+                padding: 6px 16px;
+                background-color: transparent;
+            }}
+
+            QMenu::item:selected {{
+                background-color: #64ffda;
+                color: #0f0f23;
+            }}
+
+            /* Scrollbar Styling */
+            QScrollBar:vertical {{
+                background-color: #0f0f23;
+                width: 8px;
+                border: none;
+            }}
+
+            QScrollBar::handle:vertical {{
+                background-color: #16213e;
+                border-radius: 4px;
+                min-height: 20px;
+            }}
+
+            QScrollBar::handle:vertical:hover {{
+                background-color: #233554;
+            }}
+
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {{
+                border: none;
+                background: none;
+            }}
         """)
+
+    def resizeEvent(self, event):
+        """Override to save geometry and update tab widths when widget is resized."""
+        super().resizeEvent(event)
+        self._save_geometry()
+        self._set_equal_tab_widths()
+
+    def showEvent(self, event):
+        """Override to set tab widths when widget is first shown."""
+        super().showEvent(event)
+        self._set_equal_tab_widths()
+
+    def closeEvent(self, event):
+        """Override to save geometry when widget is closed."""
+        self._save_geometry()
+        super().closeEvent(event)
+
+
+# For backward compatibility, create an alias
+class WatchlistTable(TabbedWatchlistWidget):
+    """Alias for backward compatibility with existing code."""
+    pass
