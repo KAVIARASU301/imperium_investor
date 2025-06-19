@@ -4,16 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="0541dfd7-a7d3-4fbc-a932-bd27ef350d6c" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/demo.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/tables/chartink_scanner_table.py" beforeDir="false" afterPath="$PROJECT_DIR$/tables/chartink_scanner_table.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tables/watchlist_table.py" beforeDir="false" afterPath="$PROJECT_DIR$/tables/watchlist_table.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/utils/market_data_worker.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils/market_data_worker.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/widgets/candlestick_chart_widget.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/widgets/swing_trader_window.py" beforeDir="false" afterPath="$PROJECT_DIR$/widgets/swing_trader_window.py" afterDir="false" />
-    </list>
+    <list default="true" id="0541dfd7-a7d3-4fbc-a932-bd27ef350d6c" name="Changes" comment="" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
