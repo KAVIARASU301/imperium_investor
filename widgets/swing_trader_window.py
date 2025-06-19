@@ -36,7 +36,7 @@ from kiteconnect import KiteConnect
 logger = logging.getLogger(__name__)
 
 
-class FramelessSwingTraderWindow(QMainWindow):
+class SwingTraderWindow(QMainWindow):
     """
     The main frameless window for the Swing Trader application with professional dark theme.
     """
@@ -734,5 +734,3 @@ class FramelessSwingTraderWindow(QMainWindow):
             self.max_btn.setText("❐")
 
 
-# Alias for backward compatibility
-SwingTraderWindow = FramelessSwingTraderWindow

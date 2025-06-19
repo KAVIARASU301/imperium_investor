@@ -1,9 +1,12 @@
 # IDE files
+.idea
 .idea/
 logging/
 logging
 
 # User data
+assets
+assets/
 user_data/
 user_data
 # Byte-compiled / optimized / DLL files
@@ -13,5 +16,6 @@ __pycache__
 *.pyc
 
 # Virtual environment
+.venv
 .venv/
 env/

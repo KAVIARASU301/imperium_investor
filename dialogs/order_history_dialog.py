@@ -2,10 +2,10 @@ import logging
 from typing import List, Dict, Any
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget,
-    QTableWidget, QTableWidgetItem, QHeaderView
+    QTableWidget, QTableWidgetItem, QHeaderView, QFrame
 )
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtCore import Qt, Signal, QPoint
+from PySide6.QtGui import QColor, QMouseEvent
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +13,8 @@ logger = logging.getLogger(__name__)
 class OrderHistoryTable(QTableWidget):
     """
     A styled table widget optimized for displaying a list of historical stock orders.
+    This class is now mainly responsible for table structure and data population,
+    with styling handled by the parent dialog.
     """
 
     def __init__(self):
@@ -22,15 +24,16 @@ class OrderHistoryTable(QTableWidget):
         self.setHorizontalHeaderLabels([
             "Timestamp", "Symbol", "Type", "Qty", "Avg. Price", "Status", "Order ID"
         ])
-        self._setup_table_styles()
+        self._setup_table_behavior()
 
-    def _setup_table_styles(self):
+    def _setup_table_behavior(self):
         """Configures the table's appearance and behavior."""
         self.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.setAlternatingRowColors(True)
         self.verticalHeader().setVisible(False)
+        self.setShowGrid(False) # Hide grid lines as per theme
 
         header = self.horizontalHeader()
         header.setStretchLastSection(False)
@@ -62,10 +65,8 @@ class OrderHistoryTable(QTableWidget):
         # Column 2: Transaction Type (BUY/SELL)
         trans_type = order.get("transaction_type", "N/A").upper()
         type_item = QTableWidgetItem(trans_type)
-        if "BUY" in trans_type:
-            type_item.setForeground(QColor("#00b894"))  # Green for BUY
-        elif "SELL" in trans_type:
-            type_item.setForeground(QColor("#d63031"))  # Red for SELL
+        # Set object name for styling based on type in CSS
+        type_item.setObjectName(f"{trans_type.lower()}Tag")
         self.setItem(row, 2, type_item)
 
         # Column 3: Quantity
@@ -78,12 +79,8 @@ class OrderHistoryTable(QTableWidget):
         # Column 5: Status
         status = order.get("status", "").upper()
         status_item = QTableWidgetItem(status)
-        if "COMPLETE" in status:
-            status_item.setForeground(QColor("#0984e3")) # Blue for COMPLETE
-        elif "CANCELLED" in status:
-            status_item.setForeground(QColor("#b2bec3")) # Grey for CANCELLED
-        else: # OPEN, PENDING, etc.
-            status_item.setForeground(QColor("#fdcb6e")) # Yellow for others
+        # Set object name for styling based on status in CSS
+        status_item.setObjectName(f"{status.lower()}Status")
         self.setItem(row, 5, status_item)
 
         # Column 6: Order ID
@@ -98,40 +95,42 @@ class OrderHistoryTable(QTableWidget):
 
 class OrderHistoryDialog(QDialog):
     """
-    A modern, frameless dialog to display historical order data for the session.
+    A modern, frameless dialog to display historical order data for the session,
+    matching the solid black theme of the swing trading app.
     """
     refresh_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._drag_pos = None
+        self._drag_pos = None  # For window dragging
         self._setup_window()
         self._setup_ui()
         self._apply_styles()
 
     def _setup_window(self):
-        """Initializes window properties."""
+        """Initializes window properties for a frameless, translucent dialog."""
         self.setWindowTitle("Order History")
         self.setMinimumSize(850, 600)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.setAttribute(Qt.WA_TranslucentBackground)
 
     def _setup_ui(self):
-        """Builds the main layout and widgets."""
+        """Builds the main layout and widgets of the dialog."""
         container = QWidget(self)
         container.setObjectName("mainContainer")
-        container_layout = QVBoxLayout(container)
-        container_layout.setContentsMargins(20, 10, 20, 20)
-        container_layout.setSpacing(15)
 
-        # Allow dragging the window
-        container.mousePressEvent = self.mousePressEvent
-        container.mouseMoveEvent = self.mouseMoveEvent
-        container.mouseReleaseEvent = self.mouseReleaseEvent
+        # Enable dragging the window from anywhere in the container
+        container.mousePressEvent = self._handle_mouse_press
+        container.mouseMoveEvent = self._handle_mouse_move
+        container.mouseReleaseEvent = self._handle_mouse_release
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.addWidget(container)
+
+        container_layout = QVBoxLayout(container)
+        container_layout.setContentsMargins(20, 15, 20, 20)
+        container_layout.setSpacing(15)
 
         container_layout.addLayout(self._create_header())
         self.orders_table = OrderHistoryTable()
@@ -139,7 +138,7 @@ class OrderHistoryDialog(QDialog):
         container_layout.addLayout(self._create_footer())
 
     def _create_header(self) -> QHBoxLayout:
-        """Creates the dialog's header with title and close button."""
+        """Creates the dialog's header with a title, a brief note, and a close button."""
         header_layout = QHBoxLayout()
         title_group_layout = QVBoxLayout()
         title_group_layout.setSpacing(2)
@@ -167,7 +166,7 @@ class OrderHistoryDialog(QDialog):
         footer_layout = QHBoxLayout()
         footer_layout.setContentsMargins(0, 5, 0, 0)
 
-        self.trade_count_label = QLabel("0 TRADES")
+        self.trade_count_label = QLabel("0 ORDERS RECORDED")
         self.trade_count_label.setObjectName("footerLabel")
 
         refresh_button = QPushButton("REFRESH")
@@ -186,68 +185,133 @@ class OrderHistoryDialog(QDialog):
         self.trade_count_label.setText(f"{count} ORDER{'S' if count != 1 else ''} RECORDED")
 
     def _apply_styles(self):
-        """Applies a modern, dark theme stylesheet to the dialog."""
+        """Applies a modern, dark theme stylesheet to the dialog and its components."""
         self.setStyleSheet("""
-            #mainContainer {
-                background-color: #1c1c2e;
-                border: 1px solid #3a3a5a;
-                border-radius: 12px;
+            QWidget#mainContainer {
+                background-color: #0a0a0a; /* Deep black background */
+                border: 1px solid #202020; /* Subtle dark border */
+                border-radius: 8px; /* Soft edges */
                 font-family: "Segoe UI", sans-serif;
             }
-            #dialogTitle { color: #e0e0e0; font-size: 18px; font-weight: 600; }
-            #noteLabel { color: #8a8a9e; font-size: 12px; }
-            #footerLabel { color: #8a8a9e; font-size: 11px; font-weight: bold; }
-            #closeButton {
-                background-color: transparent; border: none; color: #8a8a9e;
-                font-size: 16px; font-weight: bold;
+
+            QLabel#dialogTitle {
+                color: #ffffff;
+                font-size: 18px;
+                font-weight: 600;
             }
-            #closeButton:hover { color: #d63031; }
+
+            QLabel#noteLabel {
+                color: #8a8a9e;
+                font-size: 12px;
+            }
+
+            QLabel#footerLabel {
+                color: #8a8a9e;
+                font-size: 11px;
+                font-weight: bold;
+            }
+
+            QPushButton#closeButton {
+                background-color: transparent;
+                border: none;
+                color: #8a8a9e;
+                font-size: 16px;
+                font-weight: bold;
+            }
+            QPushButton#closeButton:hover {
+                color: #d63031; /* Red on hover for close button */
+            }
 
             QTableWidget {
-                background-color: transparent;
-                border: 1px solid #2a2a4a;
-                border-radius: 6px;
-                gridline-color: #2a2a4a;
-                color: #b2bec3;
+                background-color: #0d0d0d; /* Very dark table background */
+                border: 1px solid #202020; /* Subtle dark border for the table */
+                gridline-color: #151515; /* Almost invisible grid lines */
+                font-size: 12px;
+                color: #e0e0e0; /* Light text for table content */
+                selection-background-color: rgba(74, 122, 191, 0.2); /* Softer blue selection with transparency */
+                selection-color: #ffffff;
+                border-radius: 4px; /* Slight rounding for the table */
             }
+
             QTableWidget::item {
-                border-bottom: 1px solid #2a2a4a;
-                padding: 8px;
+                padding: 6px 8px; /* Consistent padding for table items */
+                border-bottom: 1px solid #1a1a1a; /* Thin row separator */
             }
             QTableWidget::item:selected {
-                background-color: #3a3a5a;
+                background-color: rgba(74, 122, 191, 0.2); /* Softer blue selection with transparency */
                 color: #ffffff;
+                font-weight: 600;
+            }
+            QTableWidget::item:alternate {
+                background-color: #121212; /* Very dark alternate row */
             }
 
             QHeaderView::section {
-                background-color: #1c1c2e;
-                color: #8a8a9e;
-                padding: 10px 5px;
+                background-color: #1a1a1a; /* Header background */
+                color: #a0c0ff; /* Header text color */
+                padding: 8px 10px; /* Padding for header sections */
                 border: none;
-                border-bottom: 1px solid #3a3a5a;
-                font-weight: bold;
+                border-bottom: 1px solid #303030; /* Clear header bottom border */
+                border-right: 1px solid #101010; /* Dark vertical header separators */
+                font-weight: 600;
                 font-size: 11px;
                 text-transform: uppercase;
             }
-            #secondaryButton {
-                background-color: #3a3a5a; color: #e0e0e0;
-                font-size: 12px; font-weight: bold;
-                border-radius: 6px; padding: 9px 18px; border: none;
+            QHeaderView::section:last {
+                border-right: none;
             }
-            #secondaryButton:hover { background-color: #4a4a6a; }
+            QHeaderView::section:hover {
+                background-color: #2a2a2a; /* Subtle hover for headers */
+            }
+
+            /* Transaction Type Tag Colors */
+            QTableWidgetItem[objectName="buyTag"] {
+                color: #00b894; /* Green for BUY */
+            }
+            QTableWidgetItem[objectName="sellTag"] {
+                color: #d63031; /* Red for SELL */
+            }
+
+            /* Status Colors */
+            QTableWidgetItem[objectName="completeStatus"] {
+                color: #0984e3; /* Blue for COMPLETE */
+            }
+            QTableWidgetItem[objectName="cancelledStatus"] {
+                color: #b2bec3; /* Grey for CANCELLED */
+            }
+            QTableWidgetItem[objectName="openStatus"],
+            QTableWidgetItem[objectName="pending_executionStatus"],
+            QTableWidgetItem[objectName="trigger pendingStatus"] {
+                color: #fdcb6e; /* Yellow for OPEN/PENDING */
+            }
+
+            QPushButton {
+                font-weight: bold;
+                border-radius: 6px;
+                padding: 9px 18px;
+                border: none;
+                font-size: 12px;
+            }
+            QPushButton#secondaryButton {
+                background-color: #3a3a5a;
+                color: #e0e0e0;
+            }
+            QPushButton#secondaryButton:hover {
+                background-color: #4a4a6a;
+            }
         """)
 
-    def mousePressEvent(self, event):
+    # --- Window Dragging Methods ---
+    def _handle_mouse_press(self, event: QMouseEvent):
         if event.button() == Qt.LeftButton:
             self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             event.accept()
 
-    def mouseMoveEvent(self, event):
-        if event.buttons() == Qt.LeftButton and self._drag_pos:
+    def _handle_mouse_move(self, event: QMouseEvent):
+        if event.buttons() & Qt.LeftButton and self._drag_pos is not None:
             self.move(event.globalPosition().toPoint() - self._drag_pos)
             event.accept()
 
-    def mouseReleaseEvent(self, event):
+    def _handle_mouse_release(self, event: QMouseEvent):
         self._drag_pos = None
         event.accept()
-
