@@ -5,10 +5,14 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="0541dfd7-a7d3-4fbc-a932-bd27ef350d6c" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/dialogs/order_dialog.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/dialogs/alert_logs_dialog.py" beforeDir="false" afterPath="$PROJECT_DIR$/dialogs/alert_logs_dialog.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/dialogs/order_history_dialog.py" beforeDir="false" afterPath="$PROJECT_DIR$/dialogs/order_history_dialog.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dialogs/order_confirmation_dialog.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tables/watchlist_table.py" beforeDir="false" afterPath="$PROJECT_DIR$/tables/watchlist_table.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/utils/paper_trading_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils/paper_trading_manager.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/utils/position_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils/position_manager.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/utils/trade_logger.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils/trade_logger.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/widgets/canvas_candlestick_chart.py" beforeDir="false" afterPath="$PROJECT_DIR$/widgets/canvas_candlestick_chart.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/widgets/swing_trader_window.py" beforeDir="false" afterPath="$PROJECT_DIR$/widgets/swing_trader_window.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />

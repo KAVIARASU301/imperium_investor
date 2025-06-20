@@ -49,21 +49,21 @@ class DataFetcher:
 class DataCache:
     """Thread-safe data cache with TTL"""
 
-    def __init__(self, maxsize: int = 100, ttl: int = 300):
-        self._cache = TTLCache(maxsize=maxsize, ttl=ttl)
-        self._lock = threading.RLock()
+    def __init__(self_self, maxsize: int = 100, ttl: int = 300):
+        self_self._cache = TTLCache(maxsize=maxsize, ttl=ttl)
+        self_self._lock = threading.RLock()
 
-    def get(self, key: str) -> Optional[pd.DataFrame]:
-        with self._lock:
-            return self._cache.get(key)
+    def get(self_self, key: str) -> Optional[pd.DataFrame]:
+        with self_self._lock:
+            return self_self._cache.get(key)
 
-    def set(self, key: str, value: pd.DataFrame) -> None:
-        with self._lock:
-            self._cache[key] = value.copy()
+    def set(self_self, key: str, value: pd.DataFrame) -> None:
+        with self_self._lock:
+            self_self._cache[key] = value.copy()
 
-    def clear(self) -> None:
-        with self._lock:
-            self._cache.clear()
+    def clear(self_self) -> None:
+        with self_self._lock:
+            self_self._cache.clear()
 
 
 class ChartDataLoaderThread(QThread):
@@ -184,6 +184,9 @@ class ChartDataLoaderThread(QThread):
 class CandlestickChart(QWidget):
     """Enhanced candlestick chart with simplified initialization"""
 
+    # Signal to emit when the Order button in the chart's toolbar is clicked
+    order_button_clicked = Signal(str, float)  # Emits symbol and LTP
+
     def __init__(self, kite_client: KiteConnect, parent=None):
         super().__init__(parent)
 
@@ -198,10 +201,13 @@ class CandlestickChart(QWidget):
         self.last_df: Optional[pd.DataFrame] = None
         self.current_symbol: str = ""
         self.current_interval: str = "day"
+        self.current_ltp: float = 0.0  # Store current LTP for order button
 
         # UI components
         self.chart_view: Optional[QWebEngineView] = None
         self.timeframe_buttons: Dict[str, QPushButton] = {}
+        self.order_btn: Optional[QPushButton] = None  # Reference to the new order button
+
 
         self._setup_ui()
         self._apply_styles()
@@ -267,6 +273,15 @@ class CandlestickChart(QWidget):
         layout.addWidget(self.symbol_info_label)
 
         layout.addStretch()
+
+        # Order button
+        self.order_btn = QPushButton("Order")
+        self.order_btn.setObjectName("orderButton")
+        self.order_btn.setToolTip("Place an order for the current symbol")
+        self.order_btn.setFixedSize(60, 28)
+        self.order_btn.clicked.connect(self._on_order_button_clicked) # Connect to new slot
+        layout.addWidget(self.order_btn)
+
 
         # Chart controls
         self.auto_scale_btn = QPushButton("Auto Scale")
@@ -405,6 +420,8 @@ class CandlestickChart(QWidget):
             btn.setEnabled(config['buttons_enabled'])
         self.refresh_button.setEnabled(config['buttons_enabled'])
         self.auto_scale_btn.setEnabled(config['buttons_enabled'])
+        if self.order_btn: # Enable/disable order button based on state
+            self.order_btn.setEnabled(config['buttons_enabled'] and self.current_symbol != "")
 
     def set_instrument_list(self, instruments: List[Dict[str, Any]]):
         """Set available instruments"""
@@ -432,6 +449,8 @@ class CandlestickChart(QWidget):
 
         # Update configuration
         self.current_symbol = symbol
+        self._set_state(ChartState.IDLE) # Reset state to ensure order button is updated
+
 
         # Load new data
         self._load_chart_data()
@@ -837,13 +856,13 @@ class CandlestickChart(QWidget):
                         return date.toLocaleDateString('en-GB', {{ day: '2-digit', month: 'short', year: 'numeric' }});
                     case '60minute':
                     case '30minute':
-                        return date.toLocaleDateString('en-GB', {{ day: '2-digit', month: 'short' }}) + ' ' + 
+                        return date.toLocaleDateString('en-GB', {{ day: '2-digit', month: 'short' }}) + ' ' +
                                date.toLocaleTimeString('en-GB', {{ hour: '2-digit', minute: '2-digit' }});
                     case '15minute':
                     case '5minute':
                     case '3minute':
                     case 'minute':
-                        return date.toLocaleDateString('en-GB', {{ day: '2-digit', month: 'short' }}) + ' ' + 
+                        return date.toLocaleDateString('en-GB', {{ day: '2-digit', month: 'short' }}) + ' ' +
                                date.toLocaleTimeString('en-GB', {{ hour: '2-digit', minute: '2-digit' }});
                     default:
                         return date.toLocaleDateString('en-GB');
@@ -982,7 +1001,7 @@ class CandlestickChart(QWidget):
                         }}
                     case '60minute':
                     case '30minute':
-                        return date.toLocaleDateString('en-GB', {{ day: '2-digit' }}) + '\\n' + 
+                        return date.toLocaleDateString('en-GB', {{ day: '2-digit' }}) + '\\n' +
                                date.toLocaleTimeString('en-GB', {{ hour: '2-digit', minute: '2-digit' }});
                     default:
                         return date.toLocaleDateString('en-GB', {{ day: '2-digit', month: 'short' }});
@@ -1086,8 +1105,11 @@ class CandlestickChart(QWidget):
             latest = df.iloc[-1]
             symbol = self.current_symbol
 
+            # Set current_ltp
+            self.current_ltp = float(latest['close']) if 'close' in latest else 0.0
+
             # Format price and change
-            current_price = latest['close']
+            current_price = self.current_ltp
             if len(df) > 1:
                 prev_price = df.iloc[-2]['close']
                 change = current_price - prev_price
@@ -1103,6 +1125,18 @@ class CandlestickChart(QWidget):
 
         except Exception as e:
             logger.error(f"Error updating symbol info: {e}")
+
+    @Slot() # New slot for the order button
+    def _on_order_button_clicked(self):
+        """Emits the current symbol and LTP for placing an order."""
+        if self.current_symbol and self.current_ltp > 0:
+            logger.info(f"Order button clicked for {self.current_symbol} with LTP {self.current_ltp}")
+            self.order_button_clicked.emit(self.current_symbol, self.current_ltp)
+        elif self.current_symbol:
+            QMessageBox.warning(self, "No LTP", f"LTP not available for {self.current_symbol}. Please try again later.")
+        else:
+            QMessageBox.warning(self, "No Symbol Selected", "Please select a symbol first to place an order.")
+
 
     def _change_timeframe(self, interval: str):
         """Change chart timeframe"""
@@ -1183,6 +1217,33 @@ class CandlestickChart(QWidget):
             #controlButton:pressed {
                 background-color: #1a1a1a;
                 border-color: #404040;
+            }
+
+            /* Order Button */
+            #orderButton {
+                background-color: #6a9cff; /* Blue for order */
+                color: #ffffff;
+                border: 1px solid #6a9cff;
+                border-radius: 3px;
+                font-size: 11px;
+                font-weight: 600;
+                padding: 4px 8px;
+            }
+
+            #orderButton:hover {
+                background-color: #5a8cef;
+                border-color: #5a8cef;
+            }
+
+            #orderButton:pressed {
+                background-color: #4a7cdf;
+                border-color: #4a7cdf;
+            }
+
+            #orderButton:disabled {
+                background-color: #050505;
+                color: #606060;
+                border-color: #202020;
             }
 
             /* Timeframe buttons */

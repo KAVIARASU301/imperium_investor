@@ -148,22 +148,39 @@ class PositionManager(QObject):
             pnl = exited_position.pnl
 
             logger.info(f"Position closed for {symbol}. Realized P&L: {pnl:.2f}")
-            self.realized_day_pnl += pnl
-            self.pnl_logger.log_pnl(datetime.today(), pnl)
 
-            # Log the closing trade
-            trade_details = {
+
+            # Log position closure with enhanced data
+            closure_data = {
                 "order_id": f"closed_{symbol}_{int(datetime.now().timestamp())}",
-                "timestamp": datetime.now().isoformat(),
                 "tradingsymbol": symbol,
                 "transaction_type": "SELL" if exited_position.quantity > 0 else "BUY",
                 "quantity": abs(exited_position.quantity),
                 "average_price": exited_position.average_price,
                 "status": "COMPLETE",
                 "product": exited_position.product,
-                "pnl": pnl
+                "exchange": exited_position.exchange,
+                "order_timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                "execution_timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                "filled_quantity": abs(exited_position.quantity)
             }
-            self.trade_logger.log_trade(trade_details)
+            # Log as completed order
+            self.trade_logger.log_order_update(closure_data)
+
+            # Update daily P&L
+            self.trade_logger.update_daily_pnl(datetime.now(), realized_pnl=pnl)
+
+        for symbol, position in new_positions.items():
+            position_data = {
+                'tradingsymbol': symbol,
+                'quantity': position.quantity,
+                'average_price': position.average_price,
+                'last_price': position.ltp,
+                'unrealised': position.pnl,
+                'product': position.product,
+                'exchange': position.exchange
+            }
+            self.trade_logger.log_position_update(position_data)
 
         self._positions = new_positions
 

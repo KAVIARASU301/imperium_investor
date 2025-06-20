@@ -27,10 +27,13 @@ SETTINGS_KEY_WIDTH = "watchlist/widget_width"
 class TradingTable(QTableWidget):
     """
     Individual table widget for each trading strategy category.
-    Maintains the compact TC2000-like appearance.
+    Maintains the compact TC2000-like appearance with enhanced context menus.
     """
     symbol_selected = Signal(str)
     place_order_requested = Signal(dict)
+    advanced_buy_order_requested = Signal(str)
+    advanced_sell_order_requested = Signal(str)
+    bracket_order_requested = Signal(str)
 
     def __init__(self, category: str, parent=None):
         super().__init__(parent)
@@ -74,7 +77,7 @@ class TradingTable(QTableWidget):
         """Connect table signals."""
         self.cellClicked.connect(self._on_cell_clicked)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.customContextMenuRequested.connect(self._show_context_menu)
+        self.customContextMenuRequested.connect(self._show_enhanced_context_menu)
 
     def set_instrument_map(self, instrument_map: Dict[str, Dict]):
         """Receives the master instrument map for data lookups."""
@@ -231,8 +234,8 @@ class TradingTable(QTableWidget):
             except AttributeError:
                 logger.warning(f"Could not get symbol from clicked row {row}.")
 
-    def _show_context_menu(self, pos: QPoint):
-        """Shows a right-click context menu for trading actions."""
+    def _show_enhanced_context_menu(self, pos: QPoint):
+        """Enhanced context menu with advanced order options."""
         row = self.rowAt(pos.y())
         if row < 0:
             return
@@ -245,18 +248,95 @@ class TradingTable(QTableWidget):
             return
 
         menu = QMenu(self)
-        buy_action = QAction("Buy", self)
-        buy_action.triggered.connect(lambda: self._request_trade(symbol, "BUY"))
-        menu.addAction(buy_action)
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: #1a1a1a;
+                color: #e0e0e0;
+                border: 1px solid #3a3a3a;
+                border-radius: 4px;
+                padding: 4px;
+                font-size: 12px;
+            }
+            QMenu::item {
+                padding: 8px 16px;
+                border-radius: 2px;
+                margin: 1px;
+            }
+            QMenu::item:selected {
+                background-color: #6a9cff;
+                color: #ffffff;
+            }
+            QMenu::separator {
+                height: 1px;
+                background-color: #3a3a3a;
+                margin: 4px 0px;
+            }
+        """)
 
-        sell_action = QAction("Sell", self)
-        sell_action.triggered.connect(lambda: self._request_trade(symbol, "SELL"))
-        menu.addAction(sell_action)
+        # Quick orders section
+        quick_label = QAction("Quick Orders", self)
+        quick_label.setEnabled(False)
+        menu.addAction(quick_label)
+
+        quick_buy = QAction("Quick Buy", self)
+        quick_buy.triggered.connect(lambda: self._request_trade(symbol, "BUY"))
+        menu.addAction(quick_buy)
+
+        quick_sell = QAction("Quick Sell", self)
+        quick_sell.triggered.connect(lambda: self._request_trade(symbol, "SELL"))
+        menu.addAction(quick_sell)
+
+        menu.addSeparator()
+
+        # Advanced orders section
+        advanced_label = QAction("Advanced Orders", self)
+        advanced_label.setEnabled(False)
+        menu.addAction(advanced_label)
+
+        advanced_buy = QAction("Advanced Buy Order", self)
+        advanced_buy.triggered.connect(lambda: self.advanced_buy_order_requested.emit(symbol))
+        menu.addAction(advanced_buy)
+
+        advanced_sell = QAction("Advanced Sell Order", self)
+        advanced_sell.triggered.connect(lambda: self.advanced_sell_order_requested.emit(symbol))
+        menu.addAction(advanced_sell)
+
+        # Bracket order
+        bracket_order = QAction("Bracket Order", self)
+        bracket_order.triggered.connect(lambda: self.bracket_order_requested.emit(symbol))
+        menu.addAction(bracket_order)
+
+        menu.addSeparator()
+
+        # Analysis section
+        analysis_label = QAction("Analysis", self)
+        analysis_label.setEnabled(False)
+        menu.addAction(analysis_label)
+
+        view_chart = QAction("View Chart", self)
+        view_chart.triggered.connect(lambda: self.symbol_selected.emit(symbol))
+        menu.addAction(view_chart)
+
+        # Add to other watchlists
+        menu.addSeparator()
+        watchlist_label = QAction("Add to Watchlist", self)
+        watchlist_label.setEnabled(False)
+        menu.addAction(watchlist_label)
+
+        # Get parent widget to access other watchlist categories
+        parent_widget = self.parent()
+        if hasattr(parent_widget, 'parent') and hasattr(parent_widget.parent(), '_tables'):
+            main_widget = parent_widget.parent()
+            for category, table in main_widget._tables.items():
+                if category != self.category:  # Don't show current category
+                    add_action = QAction(f"Add to {category}", self)
+                    add_action.triggered.connect(lambda checked, cat=category: main_widget.add_symbol(symbol, cat))
+                    menu.addAction(add_action)
 
         menu.exec(self.viewport().mapToGlobal(pos))
 
     def _request_trade(self, symbol: str, transaction_type: str):
-        """Emits a signal to open the order dialog."""
+        """Emits a signal to open the basic order dialog."""
         order_details = {
             "tradingsymbol": symbol,
             "transaction_type": transaction_type,
@@ -284,11 +364,14 @@ class TradingTable(QTableWidget):
 class TabbedWatchlistWidget(QWidget):
     """
     Main tabbed watchlist widget that contains three trading strategy categories.
-    Maintains TC2000-style appearance with professional tabs.
+    Maintains TC2000-style appearance with professional tabs and enhanced functionality.
     """
     symbol_selected = Signal(str)
     subscribe_tokens_requested = Signal(list)
     place_order_requested = Signal(dict)
+    advanced_buy_order_requested = Signal(str)
+    advanced_sell_order_requested = Signal(str)
+    bracket_order_requested = Signal(str)
     watchlist_changed = Signal()
 
     def __init__(self, parent=None):
@@ -323,9 +406,12 @@ class TabbedWatchlistWidget(QWidget):
             table = TradingTable(category)
             self._tables[category] = table
 
-            # Connect signals
+            # Connect signals - Enhanced with new advanced order signals
             table.symbol_selected.connect(self.symbol_selected.emit)
             table.place_order_requested.connect(self.place_order_requested.emit)
+            table.advanced_buy_order_requested.connect(self.advanced_buy_order_requested.emit)
+            table.advanced_sell_order_requested.connect(self.advanced_sell_order_requested.emit)
+            table.bracket_order_requested.connect(self.bracket_order_requested.emit)
 
             self.tab_widget.addTab(table, category.upper())
 
@@ -367,7 +453,6 @@ class TabbedWatchlistWidget(QWidget):
                 border: 1px solid #202020; /* Subtle border for the main widget */
             }
         """)
-
 
     def set_instrument_map(self, instrument_map: Dict[str, Dict]):
         """Receives the master instrument map for data lookups."""
