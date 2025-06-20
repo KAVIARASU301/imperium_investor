@@ -202,12 +202,12 @@ class CandlestickChart(QWidget):
         self.current_symbol: str = ""
         self.current_interval: str = "day"
         self.current_ltp: float = 0.0  # Store current LTP for order button
+        self.current_instrument_token: int = 0  # Added to easily compare with incoming ticks
 
         # UI components
         self.chart_view: Optional[QWebEngineView] = None
         self.timeframe_buttons: Dict[str, QPushButton] = {}
         self.order_btn: Optional[QPushButton] = None  # Reference to the new order button
-
 
         self._setup_ui()
         self._apply_styles()
@@ -279,9 +279,8 @@ class CandlestickChart(QWidget):
         self.order_btn.setObjectName("orderButton")
         self.order_btn.setToolTip("Place an order for the current symbol")
         self.order_btn.setFixedSize(60, 28)
-        self.order_btn.clicked.connect(self._on_order_button_clicked) # Connect to new slot
+        self.order_btn.clicked.connect(self._on_order_button_clicked)  # Connect to new slot
         layout.addWidget(self.order_btn)
-
 
         # Chart controls
         self.auto_scale_btn = QPushButton("Auto Scale")
@@ -420,7 +419,7 @@ class CandlestickChart(QWidget):
             btn.setEnabled(config['buttons_enabled'])
         self.refresh_button.setEnabled(config['buttons_enabled'])
         self.auto_scale_btn.setEnabled(config['buttons_enabled'])
-        if self.order_btn: # Enable/disable order button based on state
+        if self.order_btn:  # Enable/disable order button based on state
             self.order_btn.setEnabled(config['buttons_enabled'] and self.current_symbol != "")
 
     def set_instrument_list(self, instruments: List[Dict[str, Any]]):
@@ -449,8 +448,8 @@ class CandlestickChart(QWidget):
 
         # Update configuration
         self.current_symbol = symbol
-        self._set_state(ChartState.IDLE) # Reset state to ensure order button is updated
-
+        self.current_instrument_token = self.instrument_map[symbol]['instrument_token']  # Set instrument token
+        self._set_state(ChartState.IDLE)  # Reset state to ensure order button is updated
 
         # Load new data
         self._load_chart_data()
@@ -1072,14 +1071,82 @@ class CandlestickChart(QWidget):
                 const candleIndex = Math.floor(relativeX / totalCandleSpace);
                 return this.viewPortStart + candleIndex;
             }}
+
+            // NEW: Method to update chart with live tick data
+            updateLiveTick(tickData) {{
+                if (this.data.length === 0) return;
+
+                const lastCandle = this.data[this.data.length - 1];
+                const lastCandleTime = new Date(lastCandle.time);
+                const tickTime = new Date(tickData.time);
+
+                let updated = false;
+
+                // Simple logic for minute interval for demonstration
+                // For other intervals, this logic would need to be more complex
+                // based on the interval duration.
+                if (this.currentInterval === 'minute' || this.currentInterval === '5minute' || this.currentInterval === '15minute') {{
+                    // Check if tick falls within the current last candle's interval
+                    // This is a simplified check. A proper implementation would check if
+                    // tickTime is within the current candle's open-to-close interval.
+                    // For live data, if the current tick is for the same minute as the last candle, update it.
+                    // Otherwise, create a new candle.
+                    const lastCandleMinute = new Date(lastCandle.time).getMinutes();
+                    const tickMinute = new Date(tickData.time).getMinutes();
+                    const lastCandleHour = new Date(lastCandle.time).getHours();
+                    const tickHour = new Date(tickData.time).getHours();
+
+                    if (lastCandleMinute === tickMinute && lastCandleHour === tickHour) {{
+                        // Update existing last candle
+                        lastCandle.close = tickData.close;
+                        lastCandle.high = Math.max(lastCandle.high, tickData.close);
+                        lastCandle.low = Math.min(lastCandle.low, tickData.close);
+                        // For volume, you'd add to existing volume, not just set it
+                        this.volumeData[this.volumeData.length - 1].value += tickData.volume; // Assuming tickData has volume too
+                        updated = true;
+                    }} else {{
+                        // New candle, append it
+                        this.data.push(tickData);
+                        this.volumeData.push({{ time: tickData.time, value: tickData.volume }});
+                        updated = true;
+                    }}
+                }} else if (this.currentInterval === 'day') {{
+                    // For daily chart, typically you only update the current day's candle
+                    // and ticks come in much faster than a day interval.
+                    // So, you'd only update the last candle (today's candle)
+                    const lastCandleDate = new Date(lastCandle.time).toDateString();
+                    const tickDate = new Date(tickData.time).toDateString();
+
+                    if (lastCandleDate === tickDate) {{
+                        lastCandle.close = tickData.close;
+                        lastCandle.high = Math.max(lastCandle.high, tickData.close);
+                        lastCandle.low = Math.min(lastCandle.low, tickData.close);
+                        this.volumeData[this.volumeData.length - 1].value += tickData.volume;
+                        updated = true;
+                    }} else if (tickTime > lastCandleTime) {{
+                        // New day, append new candle
+                        this.data.push(tickData);
+                        this.volumeData.push({{ time: tickData.time, value: tickData.volume }});
+                        updated = true;
+                    }}
+                }}
+
+                if (updated) {{
+                    this.calculateBounds(); // Recalculate bounds to adjust for new high/low prices or new candles
+                    this.draw(); // Redraw the chart
+                }}
+            }}
         }}
 
         // Initialize chart
         const candlestickData = {candlestick_json};
         const volumeData = {volume_json};
+        const currentInterval = '{self.current_interval}'; // Pass current interval to JS
 
         if (candlestickData.length > 0) {{
             const chart = new EnhancedCandlestickChart('mainCanvas', candlestickData, volumeData);
+            chart.currentInterval = currentInterval; // Set the interval
+            window.chart = chart; // Make chart accessible globally for Python calls
             window.autoScale = () => chart.autoScale();
         }} else {{
             document.getElementById('priceInfo').textContent = 'No data available';
@@ -1126,7 +1193,76 @@ class CandlestickChart(QWidget):
         except Exception as e:
             logger.error(f"Error updating symbol info: {e}")
 
-    @Slot() # New slot for the order button
+    @Slot(list)
+    def update_live_data(self, ticks: List[Dict]):
+        """
+        Receives live market data ticks and updates the chart.
+        This method will be called from SwingTraderWindow's _on_market_data.
+        """
+        if not self.chart_view or self.current_state != ChartState.LOADED or self.last_df.empty:
+            return
+
+        for tick in ticks:
+            # Check if the tick is for the currently displayed symbol
+            if tick.get('instrument_token') == self.current_instrument_token:
+                # Update current_ltp for the order button
+                self.current_ltp = float(tick.get('last_price', 0.0))
+
+                # Prepare tick data for JavaScript
+                # Note: 'volume' might not be in every tick, especially for LTP-only ticks.
+                # You might need to derive it or handle its absence.
+                # For demonstration, we'll assume it exists or can be 0.
+                tick_time = datetime.fromtimestamp(
+                    tick.get('exchange_timestamp', datetime.now()).timestamp())  # Use exchange timestamp if available
+                tick_data_for_js = {
+                    'time': int(tick_time.timestamp() * 1000),
+                    'open': float(tick.get('last_price', 0.0)),  # Simplified: treat LTP as open for live update
+                    'high': float(tick.get('last_price', 0.0)),
+                    'low': float(tick.get('last_price', 0.0)),
+                    'close': float(tick.get('last_price', 0.0)),
+                    'volume': float(tick.get('volume', 0.0))  # Volume might require aggregation
+                }
+
+                # Update the last candle in DataFrame as well (for consistency with historical data)
+                # This is a simplified approach. A robust solution would involve
+                # recreating/updating the last candle based on the current interval.
+                if not self.last_df.empty:
+                    last_row = self.last_df.iloc[-1]
+                    # Check if the tick is for the same candle (based on interval)
+                    # This logic needs to be precise for each interval.
+                    # For a simple live price update, we just update the 'close' of the last candle.
+                    # For full candle updates, you'd need to compare timestamps based on interval.
+
+                    # Let's simplify and just pass the latest price to JS for instant update
+                    # and let JS handle the candle aggregation/drawing.
+                    # This assumes the JS chart has the logic to update its internal data structure.
+
+                    js_update_code = f"if (window.chart) window.chart.updateLiveTick({json.dumps(tick_data_for_js)});"
+                    self.chart_view.page().runJavaScript(js_update_code)
+
+                    # Update the current LTP and symbol info label
+                    self._update_symbol_info_from_tick(tick)
+
+    def _update_symbol_info_from_tick(self, tick: Dict):
+        """Update symbol information display based on a single tick."""
+        if 'last_price' in tick:
+            current_price = float(tick['last_price'])
+            self.current_ltp = current_price
+
+            # Get previous close for percentage change
+            change_str = "N/A"
+            if not self.last_df.empty and len(self.last_df) > 1:
+                prev_price = self.last_df.iloc[-2]['close']  # Or use today's open for daily change
+                if prev_price != 0:
+                    change = current_price - prev_price
+                    change_pct = (change / prev_price) * 100
+                    change_str = f"{change:+.2f} ({change_pct:+.2f}%)"
+
+            info_text = f"{self.current_symbol} • ₹{current_price:.2f}"
+            self.symbol_info_label.setText(info_text)
+            self.symbol_info_label.setToolTip(f"Change: {change_str}")
+
+    @Slot()  # New slot for the order button
     def _on_order_button_clicked(self):
         """Emits the current symbol and LTP for placing an order."""
         if self.current_symbol and self.current_ltp > 0:
@@ -1136,7 +1272,6 @@ class CandlestickChart(QWidget):
             QMessageBox.warning(self, "No LTP", f"LTP not available for {self.current_symbol}. Please try again later.")
         else:
             QMessageBox.warning(self, "No Symbol Selected", "Please select a symbol first to place an order.")
-
 
     def _change_timeframe(self, interval: str):
         """Change chart timeframe"""

@@ -4,8 +4,9 @@ from PySide6.QtWidgets import (
     QLineEdit, QComboBox, QCheckBox, QButtonGroup, QRadioButton, QGroupBox,
     QTabWidget, QSpinBox, QDoubleSpinBox, QGridLayout, QFormLayout, QScrollArea, QMessageBox
 )
-from PySide6.QtCore import Qt, Signal, QPropertyAnimation, QEasingCurve, QRect
-from PySide6.QtGui import QMouseEvent, QShowEvent, QPainter, QPainterPath, QFont
+from PySide6.QtCore import Qt, Signal, QPropertyAnimation, QEasingCurve, QRect, QPoint
+from PySide6.QtGui import QMouseEvent, QShowEvent, QPainter, QPainterPath, QFont, QPen, QLinearGradient, QColor, QBrush, \
+    QFontMetrics
 from typing import Dict, Any, Optional
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -13,41 +14,62 @@ logger = logging.getLogger(__name__)
 
 
 class ToggleSwitch(QWidget):
-    """Custom toggle switch for Buy/Sell selection with smooth animation."""
+    """Modern toggle switch for Buy/Sell selection with proper color scheme."""
     toggled = Signal(bool)  # True for Buy, False for Sell
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedSize(100, 36)
+        self.setFixedSize(120, 32)
         self._is_buy = True
-        self._animation = QPropertyAnimation(self, b"geometry")
-        self._animation.setDuration(200)
-        self._animation.setEasingCurve(QEasingCurve.Type.OutCubic)
 
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # Background
-        bg_color = "#0d3b0d" if self._is_buy else "#3b0d0d"
-        painter.fillRect(self.rect(), bg_color)
-
-        # Toggle circle
-        circle_x = 6 if self._is_buy else 54
-        circle_color = "#00b894" if self._is_buy else "#d63031"
-        painter.setBrush(circle_color)
+        # Background track with square edges
+        track_rect = self.rect()
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawEllipse(circle_x, 6, 24, 24)
+
+        if self._is_buy:
+            painter.setBrush(QColor("#0a3d0a"))  # Darker green background
+        else:
+            painter.setBrush(QColor("#3d0a0a"))  # Dark red background
+
+        painter.drawRect(track_rect)  # Square edges
+
+        # Sliding button with square edges
+        button_width = 56
+        button_height = 24
+        button_y = (self.height() - button_height) // 2
+
+        if self._is_buy:
+            button_x = 4
+            painter.setBrush(QColor("#00b894"))  # Professional green
+        else:
+            button_x = self.width() - button_width - 4
+            painter.setBrush(QColor("#d63031"))  # Professional red
+
+        painter.drawRect(button_x, button_y, button_width, button_height)  # Square edges
 
         # Text
-        painter.setPen("#ffffff")
-        font = QFont("Segoe UI", 10, QFont.Weight.Bold)
+        painter.setPen(QColor("#ffffff"))
+        font = QFont("Consolas", 10, QFont.Weight.Bold)
         painter.setFont(font)
 
         if self._is_buy:
-            painter.drawText(34, 22, "BUY")
+            text_rect = QRect(button_x, button_y, button_width, button_height)
+            painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, "BUY")
+            # SELL text on the right
+            painter.setPen(QColor("#666666"))
+            text_rect = QRect(button_x + button_width + 4, 0, self.width() - button_x - button_width - 8, self.height())
+            painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, "SELL")
         else:
-            painter.drawText(12, 22, "SELL")
+            text_rect = QRect(button_x, button_y, button_width, button_height)
+            painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, "SELL")
+            # BUY text on the left
+            painter.setPen(QColor("#666666"))
+            text_rect = QRect(4, 0, button_x - 4, self.height())
+            painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, "BUY")
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -65,18 +87,7 @@ class ToggleSwitch(QWidget):
 
 
 class OrderDialog(QDialog):
-    """
-    Professional-grade order window with comprehensive trading features:
-    - Buy/Sell toggle switch
-    - Market/Limit/SL/SL-M order types
-    - Stop Loss and Target (percentage, price, points)
-    - OCO (One-Cancels-Other) orders
-    - Bracket orders
-    - Product type selection (MIS/NRML)
-    - Validity options
-    - Risk calculation
-    - Advanced order management
-    """
+    """Enhanced order window with improved UI and proper color scheme."""
 
     order_placed = Signal(dict)
     bracket_order_placed = Signal(dict)
@@ -102,10 +113,9 @@ class OrderDialog(QDialog):
 
     def _setup_dialog(self):
         """Configure dialog properties."""
-        self.setWindowTitle(f"Order Entry - {self.symbol}")
+        self.setWindowTitle(f"{self.symbol}")
         self.setModal(True)
-        self.setMinimumSize(480, 750)
-        self.setMaximumSize(480, 900)
+        self.setFixedSize(420, 520)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
@@ -113,98 +123,83 @@ class OrderDialog(QDialog):
         """Center dialog on parent."""
         super().showEvent(event)
         if self.parent():
-            parent_geometry = self.parent().geometry()
-            self.move(parent_geometry.center() - self.rect().center())
+            parent_rect = self.parent().geometry()
+            x = parent_rect.center().x() - self.width() // 2
+            y = parent_rect.center().y() - self.height() // 2
+            self.move(x, y)
 
     def _setup_ui(self):
-        """Build the complete UI."""
-        # Main container with frosted black background
-        container = QWidget(self)
-        container.setObjectName("mainContainer")
-        container_layout = QVBoxLayout(container)
-        container_layout.setContentsMargins(20, 15, 20, 20)
-        container_layout.setSpacing(12)
+        """Build the enhanced UI."""
+        # Main container with gradient border
+        self.container = QWidget(self)
+        self.container.setObjectName("mainContainer")
+        self.container.setGeometry(0, 0, self.width(), self.height())
 
-        # Allow dragging
-        container.mousePressEvent = self.mousePressEvent
-        container.mouseMoveEvent = self.mouseMoveEvent
-        container.mouseReleaseEvent = self.mouseReleaseEvent
+        # Install event filter on container for dragging
+        self.container.installEventFilter(self)
+
+        container_layout = QVBoxLayout(self.container)
+        container_layout.setContentsMargins(12, 12, 12, 12)
+        container_layout.setSpacing(10)
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.addWidget(container)
+        main_layout.addWidget(self.container)
 
-        # Title bar with toggle
-        container_layout.addLayout(self._create_title_bar())
+        # Header with symbol, LTP and toggle
+        container_layout.addLayout(self._create_header())
 
-        # Symbol and LTP section
-        container_layout.addWidget(self._create_symbol_section())
-
-        # Separator
-        container_layout.addWidget(QFrame(frameShape=QFrame.Shape.HLine, objectName="divider"))
-
-        # Main order form in tabs
-        container_layout.addWidget(self._create_order_tabs())
-
-        # Risk summary
-        container_layout.addWidget(self._create_risk_summary())
+        # Order tabs
+        container_layout.addWidget(self. _create_order_tabs())
 
         # Action buttons
         container_layout.addLayout(self._create_action_buttons())
 
-    def _create_title_bar(self) -> QHBoxLayout:
-        """Create title bar with buy/sell toggle."""
+    def _create_header(self) -> QHBoxLayout:
+        """Create enhanced header."""
         layout = QHBoxLayout()
+        layout.setSpacing(12)
 
-        title = QLabel("Order Entry")
-        title.setObjectName("dialogTitle")
+        # Symbol and LTP
+        symbol_layout = QVBoxLayout()
+        symbol_layout.setSpacing(2)
 
-        # Buy/Sell toggle switch
+        self.symbol_label = QLabel(self.symbol)
+        self.symbol_label.setObjectName("symbolLabel")
+
+        self.ltp_label = QLabel(f"₹{self.ltp:,.2f}")
+        self.ltp_label.setObjectName("ltpLabel")
+
+        symbol_layout.addWidget(self.symbol_label)
+        symbol_layout.addWidget(self.ltp_label)
+
+        # Buy/Sell toggle
         self.toggle_switch = ToggleSwitch()
         self.toggle_switch.set_buy_mode(self._is_buy)
 
+        # Close button
         close_btn = QPushButton("✕")
         close_btn.setObjectName("closeButton")
+        close_btn.setFixedSize(24, 24)
         close_btn.clicked.connect(self.reject)
 
-        layout.addWidget(title)
+        layout.addLayout(symbol_layout)
         layout.addStretch()
         layout.addWidget(self.toggle_switch)
         layout.addWidget(close_btn)
 
         return layout
 
-    def _create_symbol_section(self) -> QWidget:
-        """Create symbol display with LTP."""
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
-
-        self.symbol_label = QLabel(self.symbol)
-        self.symbol_label.setObjectName("symbolLabel")
-
-        self.ltp_label = QLabel(f"LTP: ₹{self.ltp:,.2f}")
-        self.ltp_label.setObjectName("ltpLabel")
-
-        layout.addWidget(self.symbol_label)
-        layout.addWidget(self.ltp_label)
-
-        return widget
-
     def _create_order_tabs(self) -> QTabWidget:
-        """Create tabbed interface for different order types."""
+        """Create enhanced tabbed interface."""
         self.tab_widget = QTabWidget()
         self.tab_widget.setObjectName("orderTabs")
 
         # Regular Order Tab
-        self.tab_widget.addTab(self._create_regular_order_tab(), "Regular")
+        self.tab_widget.addTab(self._create_regular_order_tab(), "REGULAR")
 
         # Bracket Order Tab
-        self.tab_widget.addTab(self._create_bracket_order_tab(), "Bracket")
-
-        # OCO Order Tab
-        self.tab_widget.addTab(self._create_oco_order_tab(), "OCO")
+        self.tab_widget.addTab(self._create_bracket_order_tab(), "BRACKET")
 
         return self.tab_widget
 
@@ -212,11 +207,12 @@ class OrderDialog(QDialog):
         """Create regular order form."""
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        layout.setSpacing(15)
+        layout.setSpacing(12)
+        layout.setContentsMargins(8, 8, 8, 8)
 
-        # Order Type Selection
-        order_type_group = QGroupBox("Order Type")
-        order_type_layout = QHBoxLayout(order_type_group)
+        # Order Type - Horizontal layout
+        order_type_layout = QHBoxLayout()
+        order_type_layout.setSpacing(8)
 
         self.order_type_group = QButtonGroup()
         order_types = ["MARKET", "LIMIT", "SL", "SL-M"]
@@ -229,105 +225,133 @@ class OrderDialog(QDialog):
             self.order_type_group.addButton(radio, i)
             order_type_layout.addWidget(radio)
 
-        layout.addWidget(order_type_group)
+        layout.addLayout(order_type_layout)
 
-        # Price and Quantity Section
-        form_layout = QFormLayout()
+        # Main form grid
+        grid_layout = QGridLayout()
+        grid_layout.setVerticalSpacing(10)
+        grid_layout.setHorizontalSpacing(12)
 
-        # Quantity
+        # Row 0: Quantity and Product
+        grid_layout.addWidget(QLabel("QTY"), 0, 0)
         self.quantity_spinbox = QSpinBox()
         self.quantity_spinbox.setRange(1, 999999)
         self.quantity_spinbox.setValue(1)
         self.quantity_spinbox.setObjectName("quantityInput")
-        form_layout.addRow("Quantity:", self.quantity_spinbox)
+        grid_layout.addWidget(self.quantity_spinbox, 0, 1)
 
-        # Price (for limit orders)
+        grid_layout.addWidget(QLabel("PRODUCT"), 0, 2)
+        self.product_combo = QComboBox()
+        self.product_combo.addItems(["MIS", "NRML"])
+        self.product_combo.setObjectName("productCombo")
+        grid_layout.addWidget(self.product_combo, 0, 3)
+
+        # Row 1: Price and Validity
+        grid_layout.addWidget(QLabel("PRICE"), 1, 0)
         self.price_spinbox = QDoubleSpinBox()
         self.price_spinbox.setRange(0.01, 999999.99)
         self.price_spinbox.setDecimals(2)
         self.price_spinbox.setValue(self.ltp)
         self.price_spinbox.setEnabled(False)
         self.price_spinbox.setObjectName("priceInput")
-        form_layout.addRow("Price:", self.price_spinbox)
+        grid_layout.addWidget(self.price_spinbox, 1, 1)
 
-        # Trigger Price (for SL orders)
+        grid_layout.addWidget(QLabel("VALIDITY"), 1, 2)
+        self.validity_combo = QComboBox()
+        self.validity_combo.addItems(["DAY", "IOC"])
+        self.validity_combo.setObjectName("validityCombo")
+        grid_layout.addWidget(self.validity_combo, 1, 3)
+
+        # Row 2: Trigger Price
+        grid_layout.addWidget(QLabel("TRIGGER"), 2, 0)
         self.trigger_price_spinbox = QDoubleSpinBox()
         self.trigger_price_spinbox.setRange(0.01, 999999.99)
         self.trigger_price_spinbox.setDecimals(2)
         self.trigger_price_spinbox.setValue(self.ltp)
         self.trigger_price_spinbox.setEnabled(False)
         self.trigger_price_spinbox.setObjectName("triggerPriceInput")
-        form_layout.addRow("Trigger Price:", self.trigger_price_spinbox)
+        grid_layout.addWidget(self.trigger_price_spinbox, 2, 1, 1, 3)
 
-        # Product Type
-        self.product_combo = QComboBox()
-        self.product_combo.addItems(["MIS", "NRML"])
-        self.product_combo.setObjectName("productCombo")
-        form_layout.addRow("Product:", self.product_combo)
+        layout.addLayout(grid_layout)
 
-        # Validity
-        self.validity_combo = QComboBox()
-        self.validity_combo.addItems(["DAY", "IOC"])
-        self.validity_combo.setObjectName("validityCombo")
-        form_layout.addRow("Validity:", self.validity_combo)
+        # SL and Target section
+        sl_target_frame = QFrame()
+        sl_target_frame.setObjectName("slTargetFrame")
+        sl_target_layout = QVBoxLayout(sl_target_frame)
+        sl_target_layout.setSpacing(12)
 
-        layout.addLayout(form_layout)
+        # Use QFontMetrics to get uniform checkbox width
+        font_metrics = QFontMetrics(widget.font())
+        uniform_label_width = font_metrics.horizontalAdvance("STOP LOSS") + 20
 
-        # Advanced Options
-        advanced_group = QGroupBox("Advanced Options")
-        advanced_layout = QVBoxLayout(advanced_group)
+        # Stop Loss - using QGridLayout
+        sl_grid = QGridLayout()
+        sl_grid.setSpacing(8)
 
-        # Stop Loss Section
-        sl_frame = QFrame()
-        sl_layout = QVBoxLayout(sl_frame)
-
-        self.enable_sl_checkbox = QCheckBox("Enable Stop Loss")
+        self.enable_sl_checkbox = QCheckBox("STOP LOSS")
         self.enable_sl_checkbox.setObjectName("enableSLCheckbox")
-        sl_layout.addWidget(self.enable_sl_checkbox)
-
-        sl_options_layout = QHBoxLayout()
+        self.enable_sl_checkbox.setFixedWidth(uniform_label_width)
+        sl_grid.addWidget(self.enable_sl_checkbox, 0, 0)
 
         self.sl_type_combo = QComboBox()
-        self.sl_type_combo.addItems(["Percentage", "Price", "Points"])
+        self.sl_type_combo.addItems(["%", "₹", "PTS"])
         self.sl_type_combo.setEnabled(False)
-        sl_options_layout.addWidget(self.sl_type_combo)
+        self.sl_type_combo.setFixedWidth(60)
+        sl_grid.addWidget(self.sl_type_combo, 0, 1)
 
         self.sl_value_spinbox = QDoubleSpinBox()
         self.sl_value_spinbox.setRange(0.01, 9999.99)
         self.sl_value_spinbox.setDecimals(2)
         self.sl_value_spinbox.setValue(2.0)
         self.sl_value_spinbox.setEnabled(False)
-        sl_options_layout.addWidget(self.sl_value_spinbox)
+        self.sl_value_spinbox.setFixedWidth(80)
+        sl_grid.addWidget(self.sl_value_spinbox, 0, 2)
 
-        sl_layout.addLayout(sl_options_layout)
-        advanced_layout.addWidget(sl_frame)
+        self.sl_price_label = QLabel("₹0.00")
+        self.sl_price_label.setObjectName("calcPrice")
+        sl_grid.addWidget(self.sl_price_label, 0, 3)
 
-        # Target Section
-        target_frame = QFrame()
-        target_layout = QVBoxLayout(target_frame)
+        sl_grid.setColumnStretch(4, 1)
+        sl_target_layout.addLayout(sl_grid)
 
-        self.enable_target_checkbox = QCheckBox("Enable Target")
+        # Target - using same column layout
+        target_grid = QGridLayout()
+        target_grid.setSpacing(8)
+
+        self.enable_target_checkbox = QCheckBox("TARGET")
         self.enable_target_checkbox.setObjectName("enableTargetCheckbox")
-        target_layout.addWidget(self.enable_target_checkbox)
-
-        target_options_layout = QHBoxLayout()
+        self.enable_target_checkbox.setFixedWidth(uniform_label_width)
+        target_grid.addWidget(self.enable_target_checkbox, 0, 0)
 
         self.target_type_combo = QComboBox()
-        self.target_type_combo.addItems(["Percentage", "Price", "Points"])
+        self.target_type_combo.addItems(["%", "₹", "PTS"])
         self.target_type_combo.setEnabled(False)
-        target_options_layout.addWidget(self.target_type_combo)
+        self.target_type_combo.setFixedWidth(60)
+        target_grid.addWidget(self.target_type_combo, 0, 1)
 
         self.target_value_spinbox = QDoubleSpinBox()
         self.target_value_spinbox.setRange(0.01, 9999.99)
         self.target_value_spinbox.setDecimals(2)
         self.target_value_spinbox.setValue(3.0)
         self.target_value_spinbox.setEnabled(False)
-        target_options_layout.addWidget(self.target_value_spinbox)
+        self.target_value_spinbox.setFixedWidth(80)
+        target_grid.addWidget(self.target_value_spinbox, 0, 2)
 
-        target_layout.addLayout(target_options_layout)
-        advanced_layout.addWidget(target_frame)
+        self.target_price_label = QLabel("₹0.00")
+        self.target_price_label.setObjectName("calcPrice")
+        target_grid.addWidget(self.target_price_label, 0, 3)
 
-        layout.addWidget(advanced_group)
+        target_grid.setColumnStretch(4, 1)
+        sl_target_layout.addLayout(target_grid)
+
+        layout.addWidget(sl_target_frame)
+        layout.addStretch()
+
+        # Total Investment Label
+        self.total_investment_label = QLabel("Total Investment: ₹0.00")
+        self.total_investment_label.setObjectName("totalInvestmentLabel")
+        layout.addWidget(self.total_investment_label)
+
 
         return widget
 
@@ -335,179 +359,140 @@ class OrderDialog(QDialog):
         """Create bracket order form."""
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        layout.setSpacing(15)
+        layout.setSpacing(10)
+        layout.setContentsMargins(12, 6, 12, 6)
 
-        info_label = QLabel("Bracket orders combine entry, stop loss, and target in one order")
-        info_label.setObjectName("infoLabel")
-        info_label.setWordWrap(True)
-        layout.addWidget(info_label)
+        # Entry section
+        entry_frame = QFrame()
+        entry_frame.setObjectName("entryFrame")
+        entry_layout = QVBoxLayout(entry_frame)
+        entry_layout.setSpacing(8)
 
-        # Entry Order
-        entry_group = QGroupBox("Entry Order")
-        entry_layout = QFormLayout(entry_group)
+        entry_label = QLabel("ENTRY ORDER")
+        entry_label.setObjectName("sectionLabel")
+        entry_layout.addWidget(entry_label)
 
+        entry_grid = QGridLayout()
+        entry_grid.setSpacing(6)
+
+        entry_grid.addWidget(QLabel("QTY"), 0, 0)
         self.bracket_quantity_spinbox = QSpinBox()
         self.bracket_quantity_spinbox.setRange(1, 999999)
         self.bracket_quantity_spinbox.setValue(1)
-        entry_layout.addRow("Quantity:", self.bracket_quantity_spinbox)
+        entry_grid.addWidget(self.bracket_quantity_spinbox, 0, 1)
 
+        entry_grid.addWidget(QLabel("PRICE"), 0, 2)
         self.bracket_price_spinbox = QDoubleSpinBox()
         self.bracket_price_spinbox.setRange(0.01, 999999.99)
         self.bracket_price_spinbox.setDecimals(2)
         self.bracket_price_spinbox.setValue(self.ltp)
-        entry_layout.addRow("Entry Price:", self.bracket_price_spinbox)
+        entry_grid.addWidget(self.bracket_price_spinbox, 0, 3)
 
-        layout.addWidget(entry_group)
+        entry_layout.addLayout(entry_grid)
+        layout.addWidget(entry_frame)
 
-        # Stop Loss
-        sl_group = QGroupBox("Stop Loss")
-        sl_layout = QGridLayout(sl_group)
+        # SL section
+        sl_frame = QFrame()
+        sl_frame.setObjectName("slFrame")
+        sl_layout = QVBoxLayout(sl_frame)
+        sl_layout.setSpacing(8)
 
-        sl_layout.addWidget(QLabel("Type:"), 0, 0)
+        sl_label = QLabel("STOP LOSS")
+        sl_label.setObjectName("sectionLabel")
+        sl_layout.addWidget(sl_label)
+
+        sl_grid = QGridLayout()
+        sl_grid.setSpacing(6)
+
+        sl_grid.addWidget(QLabel("TYPE"), 0, 0)
         self.bracket_sl_type_combo = QComboBox()
-        self.bracket_sl_type_combo.addItems(["Percentage", "Price", "Points"])
-        sl_layout.addWidget(self.bracket_sl_type_combo, 0, 1)
+        self.bracket_sl_type_combo.addItems(["%", "₹", "PTS"])
+        self.bracket_sl_type_combo.setFixedWidth(80)
+        sl_grid.addWidget(self.bracket_sl_type_combo, 0, 1)
 
-        sl_layout.addWidget(QLabel("Value:"), 1, 0)
+        sl_grid.addWidget(QLabel("VALUE"), 0, 2)
         self.bracket_sl_value_spinbox = QDoubleSpinBox()
         self.bracket_sl_value_spinbox.setRange(0.01, 9999.99)
         self.bracket_sl_value_spinbox.setDecimals(2)
         self.bracket_sl_value_spinbox.setValue(2.0)
-        sl_layout.addWidget(self.bracket_sl_value_spinbox, 1, 1)
+        self.bracket_sl_value_spinbox.setFixedWidth(100)
+        sl_grid.addWidget(self.bracket_sl_value_spinbox, 0, 3)
 
-        self.bracket_sl_price_label = QLabel("SL Price: ₹0.00")
-        self.bracket_sl_price_label.setObjectName("calculatedPrice")
-        sl_layout.addWidget(self.bracket_sl_price_label, 2, 0, 1, 2)
+        self.bracket_sl_price_label = QLabel("₹0.00")
+        self.bracket_sl_price_label.setObjectName("calcPriceLarge")
+        sl_grid.addWidget(self.bracket_sl_price_label, 1, 0, 1, 4)
 
-        layout.addWidget(sl_group)
+        sl_layout.addLayout(sl_grid)
+        layout.addWidget(sl_frame)
 
-        # Target
-        target_group = QGroupBox("Target")
-        target_layout = QGridLayout(target_group)
+        # Target section
+        target_frame = QFrame()
+        target_frame.setObjectName("targetFrame")
+        target_layout = QVBoxLayout(target_frame)
+        target_layout.setSpacing(8)
 
-        target_layout.addWidget(QLabel("Type:"), 0, 0)
+        target_label = QLabel("TARGET")
+        target_label.setObjectName("sectionLabel")
+        target_layout.addWidget(target_label)
+
+        target_grid = QGridLayout()
+        target_grid.setSpacing(6)
+
+        target_grid.addWidget(QLabel("TYPE"), 0, 0)
         self.bracket_target_type_combo = QComboBox()
-        self.bracket_target_type_combo.addItems(["Percentage", "Price", "Points"])
-        target_layout.addWidget(self.bracket_target_type_combo, 0, 1)
+        self.bracket_target_type_combo.addItems(["%", "₹", "PTS"])
+        self.bracket_target_type_combo.setFixedWidth(80)
+        target_grid.addWidget(self.bracket_target_type_combo, 0, 1)
 
-        target_layout.addWidget(QLabel("Value:"), 1, 0)
+        target_grid.addWidget(QLabel("VALUE"), 0, 2)
         self.bracket_target_value_spinbox = QDoubleSpinBox()
         self.bracket_target_value_spinbox.setRange(0.01, 9999.99)
         self.bracket_target_value_spinbox.setDecimals(2)
         self.bracket_target_value_spinbox.setValue(3.0)
-        target_layout.addWidget(self.bracket_target_value_spinbox, 1, 1)
+        self.bracket_target_value_spinbox.setFixedWidth(100)
+        target_grid.addWidget(self.bracket_target_value_spinbox, 0, 3)
 
-        self.bracket_target_price_label = QLabel("Target Price: ₹0.00")
-        self.bracket_target_price_label.setObjectName("calculatedPrice")
-        target_layout.addWidget(self.bracket_target_price_label, 2, 0, 1, 2)
+        self.bracket_target_price_label = QLabel("₹0.00")
+        self.bracket_target_price_label.setObjectName("calcPriceLarge")
+        target_grid.addWidget(self.bracket_target_price_label, 1, 0, 1, 4)
 
-        layout.addWidget(target_group)
+        target_layout.addLayout(target_grid)
+        layout.addWidget(target_frame)
 
-        return widget
+        layout.addStretch()
 
-    def _create_oco_order_tab(self) -> QWidget:
-        """Create OCO (One-Cancels-Other) order form."""
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-        layout.setSpacing(15)
-
-        info_label = QLabel("OCO orders place two orders simultaneously - when one executes, the other is cancelled")
-        info_label.setObjectName("infoLabel")
-        info_label.setWordWrap(True)
-        layout.addWidget(info_label)
-
-        # Common settings
-        common_group = QGroupBox("Common Settings")
-        common_layout = QFormLayout(common_group)
-
-        self.oco_quantity_spinbox = QSpinBox()
-        self.oco_quantity_spinbox.setRange(1, 999999)
-        self.oco_quantity_spinbox.setValue(1)
-        common_layout.addRow("Quantity:", self.oco_quantity_spinbox)
-
-        layout.addWidget(common_group)
-
-        # Order 1 (Higher Price)
-        order1_group = QGroupBox("Order 1 (Buy Stop / Sell Limit)")
-        order1_layout = QFormLayout(order1_group)
-
-        self.oco_price1_spinbox = QDoubleSpinBox()
-        self.oco_price1_spinbox.setRange(0.01, 999999.99)
-        self.oco_price1_spinbox.setDecimals(2)
-        self.oco_price1_spinbox.setValue(self.ltp * 1.02)
-        order1_layout.addRow("Price 1:", self.oco_price1_spinbox)
-
-        layout.addWidget(order1_group)
-
-        # Order 2 (Lower Price)
-        order2_group = QGroupBox("Order 2 (Buy Limit / Sell Stop)")
-        order2_layout = QFormLayout(order2_group)
-
-        self.oco_price2_spinbox = QDoubleSpinBox()
-        self.oco_price2_spinbox.setRange(0.01, 999999.99)
-        self.oco_price2_spinbox.setDecimals(2)
-        self.oco_price2_spinbox.setValue(self.ltp * 0.98)
-        order2_layout.addRow("Price 2:", self.oco_price2_spinbox)
-
-        layout.addWidget(order2_group)
-
-        return widget
-
-    def _create_risk_summary(self) -> QWidget:
-        """Create risk calculation summary."""
-        widget = QWidget(objectName="riskSummary")
-        layout = QVBoxLayout(widget)
-        layout.setSpacing(8)
-
-        title = QLabel("Risk Summary")
-        title.setObjectName("riskTitle")
-        layout.addWidget(title)
-
-        # Risk metrics
-        metrics_layout = QGridLayout()
-
-        self.investment_label = QLabel("Investment: ₹0.00")
-        self.investment_label.setObjectName("riskValue")
-        metrics_layout.addWidget(self.investment_label, 0, 0)
-
-        self.max_loss_label = QLabel("Max Loss: ₹0.00")
-        self.max_loss_label.setObjectName("riskLoss")
-        metrics_layout.addWidget(self.max_loss_label, 0, 1)
-
-        self.max_profit_label = QLabel("Max Profit: ₹0.00")
-        self.max_profit_label.setObjectName("riskProfit")
-        metrics_layout.addWidget(self.max_profit_label, 1, 0)
-
-        self.risk_reward_label = QLabel("Risk:Reward = 1:0")
-        self.risk_reward_label.setObjectName("riskRatio")
-        metrics_layout.addWidget(self.risk_reward_label, 1, 1)
-
-        layout.addLayout(metrics_layout)
+        # Total Investment Label for Bracket Order
+        self.bracket_total_investment_label = QLabel("Total Investment: ₹0.00")
+        self.bracket_total_investment_label.setObjectName("totalInvestmentLabel")
+        layout.addWidget(self.bracket_total_investment_label)
 
         return widget
 
     def _create_action_buttons(self) -> QHBoxLayout:
-        """Create action buttons."""
+        """Create action buttons with proper colors."""
         layout = QHBoxLayout()
-        layout.setSpacing(10)
+        layout.setSpacing(8)
 
         # Cancel button
         cancel_btn = QPushButton("CANCEL")
         cancel_btn.setObjectName("secondaryButton")
+        cancel_btn.setFixedHeight(32)
         cancel_btn.clicked.connect(self.reject)
 
-        # Modify LTP button
-        modify_ltp_btn = QPushButton("UPDATE LTP")
-        modify_ltp_btn.setObjectName("secondaryButton")
-        modify_ltp_btn.clicked.connect(self._update_ltp)
+        # Update LTP button
+        update_ltp_btn = QPushButton("UPDATE LTP")
+        update_ltp_btn.setObjectName("secondaryButton")
+        update_ltp_btn.setFixedHeight(32)
+        update_ltp_btn.clicked.connect(self._update_ltp)
 
         # Place Order button
         self.place_order_btn = QPushButton("PLACE ORDER")
         self.place_order_btn.setObjectName("primaryButton")
+        self.place_order_btn.setFixedHeight(32)
         self.place_order_btn.clicked.connect(self._place_order)
 
         layout.addWidget(cancel_btn)
-        layout.addWidget(modify_ltp_btn)
+        layout.addWidget(update_ltp_btn)
         layout.addStretch()
         layout.addWidget(self.place_order_btn)
 
@@ -520,10 +505,6 @@ class OrderDialog(QDialog):
 
         # Order type radio buttons
         self.order_type_group.buttonToggled.connect(self._on_order_type_changed)
-
-        # Price and quantity changes
-        self.quantity_spinbox.valueChanged.connect(self._update_risk_summary)
-        self.price_spinbox.valueChanged.connect(self._update_risk_summary)
 
         # Stop loss and target checkboxes
         self.enable_sl_checkbox.toggled.connect(self._on_sl_enabled_changed)
@@ -542,6 +523,16 @@ class OrderDialog(QDialog):
         self.bracket_target_type_combo.currentTextChanged.connect(self._update_bracket_calculations)
         self.bracket_target_value_spinbox.valueChanged.connect(self._update_bracket_calculations)
 
+        # Total Investment calculations for Regular Order
+        self.quantity_spinbox.valueChanged.connect(self._update_regular_total_investment)
+        self.price_spinbox.valueChanged.connect(self._update_regular_total_investment)
+        self.order_type_group.buttonToggled.connect(self._update_regular_total_investment) # Re-evaluate on order type change
+
+        # Total Investment calculations for Bracket Order
+        self.bracket_quantity_spinbox.valueChanged.connect(self._update_bracket_total_investment)
+        self.bracket_price_spinbox.valueChanged.connect(self._update_bracket_total_investment)
+
+
     def _populate_initial_data(self):
         """Populate form with initial data."""
         if self.order_details:
@@ -555,59 +546,153 @@ class OrderDialog(QDialog):
 
         # Update UI state
         self._update_ui_state()
-        self._update_risk_summary()
+        self._update_bracket_calculations()
+        self._update_regular_total_investment()
+        self._update_bracket_total_investment()
 
     def _update_ui_state(self):
         """Update UI elements based on current selections."""
-        # Update button text based on buy/sell
+        # Update button text and color based on buy/sell
         action = "BUY" if self.toggle_switch.is_buy_mode() else "SELL"
-        self.place_order_btn.setText(f"PLACE {action} ORDER")
+        self.place_order_btn.setText(f"{action}")
 
-        # Update colors
-        if self.toggle_switch.is_buy_mode():
+        # Update button style based on transaction type
+        if self._is_buy:
             self.place_order_btn.setObjectName("primaryButtonBuy")
+            # Set the focus/border color for spinboxes and comboboxes to green
+            self.setStyleSheet(self.styleSheet() + """
+                QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
+                    border: 1px solid #00b894; /* Professional green */
+                }
+                #orderTypeRadio::indicator:checked, QCheckBox::indicator:checked {
+                    background: #00b894; /* Professional green */
+                    border: 2px solid #00b894; /* Professional green */
+                }
+                #calcPrice, #calcPriceLarge {
+                    color: #00b894; /* Professional green */
+                }
+                #totalInvestmentLabel {
+                    color: #00b894; /* Professional green */
+                }
+            """)
         else:
             self.place_order_btn.setObjectName("primaryButtonSell")
+            # Set the focus/border color for spinboxes and comboboxes to red
+            self.setStyleSheet(self.styleSheet() + """
+                QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
+                    border: 1px solid #d63031; /* Professional red */
+                }
+                #orderTypeRadio::indicator:checked, QCheckBox::indicator:checked {
+                    background: #d63031; /* Professional red */
+                    border: 2px solid #d63031; /* Professional red */
+                }
+                #calcPrice, #calcPriceLarge {
+                    color: #d63031; /* Professional red */
+                }
+                #totalInvestmentLabel {
+                    color: #d63031; /* Professional red */
+                }
+            """)
 
-        self.place_order_btn.style().unpolish(self.place_order_btn)
-        self.place_order_btn.style().polish(self.place_order_btn)
+        # Force style refresh for all relevant widgets
+        self.place_order_btn.setStyle(self.place_order_btn.style())
+        self.quantity_spinbox.setStyle(self.quantity_spinbox.style())
+        self.product_combo.setStyle(self.product_combo.style())
+        self.price_spinbox.setStyle(self.price_spinbox.style())
+        self.validity_combo.setStyle(self.validity_combo.style())
+        self.trigger_price_spinbox.setStyle(self.trigger_price_spinbox.style())
+        self.enable_sl_checkbox.setStyle(self.enable_sl_checkbox.style())
+        self.enable_target_checkbox.setStyle(self.enable_target_checkbox.style())
+        self.sl_type_combo.setStyle(self.sl_type_combo.style())
+        self.sl_value_spinbox.setStyle(self.sl_value_spinbox.style())
+        self.target_type_combo.setStyle(self.target_type_combo.style())
+        self.target_value_spinbox.setStyle(self.target_value_spinbox.style())
+        self.bracket_quantity_spinbox.setStyle(self.bracket_quantity_spinbox.style())
+        self.bracket_price_spinbox.setStyle(self.bracket_price_spinbox.style())
+        self.bracket_sl_type_combo.setStyle(self.bracket_sl_type_combo.style())
+        self.bracket_sl_value_spinbox.setStyle(self.bracket_sl_value_spinbox.style())
+        self.bracket_target_type_combo.setStyle(self.bracket_target_type_combo.style())
+        self.bracket_target_value_spinbox.setStyle(self.bracket_target_value_spinbox.style())
+
+        # Update border color
+        self._update_border_color()
+
+    def _update_border_color(self):
+        """Update window border with gradient effect."""
+        self.update()  # Trigger paintEvent
+
+    def paintEvent(self, event):
+        """Custom paint event for gradient border."""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Create rounded rectangle path
+        path = QPainterPath()
+        rect = self.rect()
+        path.addRoundedRect(rect, 8, 8)
+
+        # Create gradient for border
+        gradient = QLinearGradient(0, 0, rect.width(), rect.height())
+
+        if self._is_buy:
+            # Green gradient for buy
+            gradient.setColorAt(0, QColor("#00b894"))
+            gradient.setColorAt(0.5, QColor("#00a085"))
+            gradient.setColorAt(1, QColor("#009376"))
+        else:
+            # Red gradient for sell
+            gradient.setColorAt(0, QColor("#d63031"))
+            gradient.setColorAt(0.5, QColor("#c7282a"))
+            gradient.setColorAt(1, QColor("#b82023"))
+
+        # Draw gradient border
+        pen = QPen(QBrush(gradient), 2)
+        painter.setPen(pen)
+        painter.drawPath(path)
+
+        # Fill background
+        painter.fillPath(path, QColor("#0a0a0a"))
 
     def _on_transaction_type_changed(self, is_buy: bool):
         """Handle buy/sell toggle change."""
         self._is_buy = is_buy
         self._update_ui_state()
-        self._update_risk_summary()
+        self._update_sl_calculation()
+        self._update_target_calculation()
+        self._update_bracket_calculations()
+        self._update_regular_total_investment()
+        self._update_bracket_total_investment()
+
 
     def _on_order_type_changed(self, button, checked):
-        """Handle order type change with proper field enabling."""
+        """Handle order type change."""
         if not checked:
             return
 
         order_type = button.text()
         self._order_type = order_type
 
-        # Enable/disable price fields based on order type
+        # Enable/disable fields
         price_required = order_type in ["LIMIT", "SL"]
         trigger_required = order_type in ["SL", "SL-M"]
 
         self.price_spinbox.setEnabled(price_required)
         self.trigger_price_spinbox.setEnabled(trigger_required)
 
-        # Set default values
+        # Set defaults
         if price_required and self.price_spinbox.value() == 0:
             self.price_spinbox.setValue(self.ltp)
 
         if trigger_required and self.trigger_price_spinbox.value() == 0:
-            # Set reasonable default trigger prices
             if self.toggle_switch.is_buy_mode():
-                self.trigger_price_spinbox.setValue(self.ltp * 1.01)  # 1% above for buy SL
+                self.trigger_price_spinbox.setValue(self.ltp * 1.01)
             else:
-                self.trigger_price_spinbox.setValue(self.ltp * 0.99)  # 1% below for sell SL
+                self.trigger_price_spinbox.setValue(self.ltp * 0.99)
 
-        self._update_risk_summary()
+        self._update_regular_total_investment()
+
 
     def _on_sl_enabled_changed(self, enabled: bool):
-
         """Handle stop loss enable/disable."""
         self.sl_type_combo.setEnabled(enabled)
         self.sl_value_spinbox.setEnabled(enabled)
@@ -620,289 +705,203 @@ class OrderDialog(QDialog):
         self._update_target_calculation()
 
     def _update_sl_calculation(self):
-        """Calculate and display stop loss price with validation."""
-        try:
-            if not self.enable_sl_checkbox.isChecked():
-                self._sl_price = 0
-                return
+        """Calculate and display stop loss price."""
+        if not self.enable_sl_checkbox.isChecked():
+            self.sl_price_label.setText("₹0.00")
+            return
 
-            sl_type = self.sl_type_combo.currentText()
-            sl_value = self.sl_value_spinbox.value()
+        sl_type = self.sl_type_combo.currentText()
+        sl_value = self.sl_value_spinbox.value()
+        entry_price = self.price_spinbox.value() if self._order_type in ["LIMIT", "SL"] else self.ltp
 
-            # Get entry price
-            if self._order_type in ["LIMIT", "SL"]:
-                entry_price = self.price_spinbox.value()
-            else:
-                entry_price = self.ltp
-
-            if entry_price <= 0:
-                entry_price = self.ltp
-
-            # Calculate SL price based on type
-            if sl_type == "Percentage":
-                if self.toggle_switch.is_buy_mode():
-                    sl_price = entry_price * (1 - sl_value / 100)
-                else:
-                    sl_price = entry_price * (1 + sl_value / 100)
-            elif sl_type == "Price":
-                sl_price = sl_value
-            else:  # Points
-                if self.toggle_switch.is_buy_mode():
-                    sl_price = entry_price - sl_value
-                else:
-                    sl_price = entry_price + sl_value
-
-            # Validate SL price
-            if sl_price <= 0:
-                sl_price = entry_price * 0.95 if self.toggle_switch.is_buy_mode() else entry_price * 1.05
-
-            self._sl_price = sl_price
-            self._update_risk_summary()
-
-        except Exception as e:
-            logger.error(f"Error calculating SL price: {e}")
-            self._sl_price = 0
-
-    def _update_target_calculation(self):
-        """Calculate and display target price with validation."""
-        try:
-            if not self.enable_target_checkbox.isChecked():
-                self._target_price = 0
-                return
-
-            target_type = self.target_type_combo.currentText()
-            target_value = self.target_value_spinbox.value()
-
-            # Get entry price
-            if self._order_type in ["LIMIT", "SL"]:
-                entry_price = self.price_spinbox.value()
-            else:
-                entry_price = self.ltp
-
-            if entry_price <= 0:
-                entry_price = self.ltp
-
-            # Calculate target price based on type
-            if target_type == "Percentage":
-                if self.toggle_switch.is_buy_mode():
-                    target_price = entry_price * (1 + target_value / 100)
-                else:
-                    target_price = entry_price * (1 - target_value / 100)
-            elif target_type == "Price":
-                target_price = target_value
-            else:  # Points
-                if self.toggle_switch.is_buy_mode():
-                    target_price = entry_price + target_value
-                else:
-                    target_price = entry_price - target_value
-
-            # Validate target price
-            if target_price <= 0:
-                target_price = entry_price * 1.05 if self.toggle_switch.is_buy_mode() else entry_price * 0.95
-
-            self._target_price = target_price
-            self._update_risk_summary()
-
-        except Exception as e:
-            logger.error(f"Error calculating target price: {e}")
-            self._target_price = 0
-
-    def _update_bracket_calculations(self):
-        """Update bracket order SL and target price calculations."""
-        entry_price = self.bracket_price_spinbox.value()
-
-        # Calculate SL price
-        sl_type = self.bracket_sl_type_combo.currentText()
-        sl_value = self.bracket_sl_value_spinbox.value()
-
-        if sl_type == "Percentage":
+        if sl_type == "%":
             if self._is_buy:
                 sl_price = entry_price * (1 - sl_value / 100)
             else:
                 sl_price = entry_price * (1 + sl_value / 100)
-        elif sl_type == "Price":
+        elif sl_type == "₹":
             sl_price = sl_value
-        else:  # Points
+        else:  # PTS
             if self._is_buy:
                 sl_price = entry_price - sl_value
             else:
                 sl_price = entry_price + sl_value
 
-        self.bracket_sl_price_label.setText(f"SL Price: ₹{max(0.01, sl_price):,.2f}")
+        self.sl_price_label.setText(f"₹{sl_price:.2f}")
 
-        # Calculate target price
-        target_type = self.bracket_target_type_combo.currentText()
-        target_value = self.bracket_target_value_spinbox.value()
+    def _update_target_calculation(self):
+        """Calculate and display target price."""
+        if not self.enable_target_checkbox.isChecked():
+            self.target_price_label.setText("₹0.00")
+            return
 
-        if target_type == "Percentage":
+        target_type = self.target_type_combo.currentText()
+        target_value = self.target_value_spinbox.value()
+        entry_price = self.price_spinbox.value() if self._order_type in ["LIMIT", "SL"] else self.ltp
+
+        if target_type == "%":
             if self._is_buy:
                 target_price = entry_price * (1 + target_value / 100)
             else:
                 target_price = entry_price * (1 - target_value / 100)
-        elif target_type == "Price":
+        elif target_type == "₹":
             target_price = target_value
-        else:  # Points
+        else:  # PTS
             if self._is_buy:
                 target_price = entry_price + target_value
             else:
                 target_price = entry_price - target_value
 
-        self.bracket_target_price_label.setText(f"Target Price: ₹{max(0.01, target_price):,.2f}")
+        self.target_price_label.setText(f"₹{target_price:.2f}")
 
-    def _update_risk_summary(self):
-        """Update risk calculation display with better error handling."""
-        try:
-            quantity = self.quantity_spinbox.value()
+    def _update_bracket_calculations(self):
+        """Update bracket order calculations."""
+        entry_price = self.bracket_price_spinbox.value()
 
-            if self._order_type in ["LIMIT", "SL"]:
-                entry_price = self.price_spinbox.value()
+        # SL calculation
+        sl_type = self.bracket_sl_type_combo.currentText()
+        sl_value = self.bracket_sl_value_spinbox.value()
+
+        if sl_type == "%":
+            if self._is_buy:
+                sl_price = entry_price * (1 - sl_value / 100)
             else:
-                entry_price = self.ltp
-
-            if entry_price <= 0:
-                entry_price = self.ltp
-
-            investment = quantity * entry_price
-            self.investment_label.setText(f"Investment: ₹{investment:,.2f}")
-
-            max_loss = 0
-            max_profit = 0
-
-            # Calculate max loss (if SL is enabled)
-            if hasattr(self, '_sl_price') and self.enable_sl_checkbox.isChecked() and self._sl_price > 0:
-                if self.toggle_switch.is_buy_mode():
-                    max_loss = (entry_price - self._sl_price) * quantity
-                else:
-                    max_loss = (self._sl_price - entry_price) * quantity
-
-            # Calculate max profit (if Target is enabled)
-            if hasattr(self, '_target_price') and self.enable_target_checkbox.isChecked() and self._target_price > 0:
-                if self.toggle_switch.is_buy_mode():
-                    max_profit = (self._target_price - entry_price) * quantity
-                else:
-                    max_profit = (entry_price - self._target_price) * quantity
-
-            self.max_loss_label.setText(f"Max Loss: ₹{max_loss:,.2f}")
-            self.max_profit_label.setText(f"Max Profit: ₹{max_profit:,.2f}")
-
-            # Risk-Reward ratio
-            if max_loss > 0 and max_profit > 0:
-                ratio = max_profit / max_loss
-                self.risk_reward_label.setText(f"Risk:Reward = 1:{ratio:.2f}")
+                sl_price = entry_price * (1 + sl_value / 100)
+        elif sl_type == "₹":
+            sl_price = sl_value
+        else:  # PTS
+            if self._is_buy:
+                sl_price = entry_price - sl_value
             else:
-                self.risk_reward_label.setText("Risk:Reward = N/A")
+                sl_price = entry_price + sl_value
 
-        except Exception as e:
-            logger.error(f"Error updating risk summary: {e}")
-            # Set default values on error
-            self.investment_label.setText("Investment: ₹0.00")
-            self.max_loss_label.setText("Max Loss: ₹0.00")
-            self.max_profit_label.setText("Max Profit: ₹0.00")
-            self.risk_reward_label.setText("Risk:Reward = N/A")
+        self.bracket_sl_price_label.setText(f"₹{sl_price:.2f}")
+
+        # Target calculation
+        target_type = self.bracket_target_type_combo.currentText()
+        target_value = self.bracket_target_value_spinbox.value()
+
+        if target_type == "%":
+            if self._is_buy:
+                target_price = entry_price * (1 + target_value / 100)
+            else:
+                target_price = entry_price * (1 - target_value / 100)
+        elif target_type == "₹":
+            target_price = target_value
+        else:  # PTS
+            if self._is_buy:
+                target_price = entry_price + target_value
+            else:
+                target_price = entry_price - target_value
+
+        self.bracket_target_price_label.setText(f"₹{target_price:.2f}")
+        self._update_bracket_total_investment()
+
+
+    def _update_regular_total_investment(self):
+        """Calculate and update the total investment for the regular order tab."""
+        quantity = self.quantity_spinbox.value()
+        order_type = self._order_type
+
+        if order_type == "MARKET":
+            price = self.ltp
+        else: # LIMIT, SL, SL-M
+            price = self.price_spinbox.value()
+
+        total_investment = quantity * price
+        self.total_investment_label.setText(f"Total Investment: ₹{total_investment:,.2f}")
+
+
+    def _update_bracket_total_investment(self):
+        """Calculate and update the total investment for the bracket order tab."""
+        quantity = self.bracket_quantity_spinbox.value()
+        price = self.bracket_price_spinbox.value()
+        total_investment = quantity * price
+        self.bracket_total_investment_label.setText(f"Total Investment: ₹{total_investment:,.2f}")
+
 
     def _update_ltp(self):
         """Request LTP update from parent."""
-        # This would typically emit a signal to request fresh LTP
-        # For now, we'll just log the request
         logger.info(f"LTP update requested for {self.symbol}")
 
+        # Try to get fresh LTP from parent window
+        if hasattr(self.parent(), '_get_fresh_ltp'):
+            new_ltp = self.parent()._get_fresh_ltp(self.symbol)
+            if new_ltp > 0:
+                self.update_ltp(new_ltp)
+            else:
+                QMessageBox.warning(self, "Update Failed", "Could not fetch latest LTP")
+        else:
+            QMessageBox.warning(self, "Update Failed", "LTP update not available")
+
     def _place_order(self):
-        """Process order placement based on current tab."""
+        """Process order placement."""
         current_tab = self.tab_widget.currentIndex()
 
         if current_tab == 0:  # Regular Order
             self._place_regular_order()
         elif current_tab == 1:  # Bracket Order
             self._place_bracket_order()
-        elif current_tab == 2:  # OCO Order
-            self._place_oco_order()
 
     def _place_regular_order(self):
-        """Place a regular order with proper validation."""
+        """Place regular order."""
         try:
-            # Get selected order type
             selected_button = self.order_type_group.checkedButton()
             if not selected_button:
-                QMessageBox.warning(self, "Order Type Required", "Please select an order type.")
+                QMessageBox.warning(self, "Error", "Select order type")
                 return
 
             order_type = selected_button.text()
 
-            # Build base order data
             order_data = {
                 "tradingsymbol": self.symbol,
-                "transaction_type": "BUY" if self.toggle_switch.is_buy_mode() else "SELL",
+                "transaction_type": "BUY" if self._is_buy else "SELL",
                 "quantity": self.quantity_spinbox.value(),
                 "order_type": order_type,
                 "product": self.product_combo.currentText(),
                 "validity": self.validity_combo.currentText()
             }
 
-            # Add price for limit orders
             if order_type in ["LIMIT", "SL"]:
-                price = self.price_spinbox.value()
-                if price <= 0:
-                    QMessageBox.warning(self, "Invalid Price", "Please enter a valid price for limit orders.")
-                    return
-                order_data["price"] = price
+                order_data["price"] = self.price_spinbox.value()
 
-            # Add trigger price for SL orders
             if order_type in ["SL", "SL-M"]:
-                trigger_price = self.trigger_price_spinbox.value()
-                if trigger_price <= 0:
-                    QMessageBox.warning(self, "Invalid Trigger Price",
-                                        "Please enter a valid trigger price for SL orders.")
-                    return
-                order_data["trigger_price"] = trigger_price
-
-            # Validate price relationships for SL orders
-            if order_type in ["SL", "SL-M"]:
-                price = order_data.get("price", self.ltp)
-                trigger_price = order_data["trigger_price"]
-
-                if order_data["transaction_type"] == "BUY":
-                    # For buy SL: trigger should be above current LTP
-                    if trigger_price <= self.ltp:
-                        QMessageBox.warning(self, "Invalid SL Setup",
-                                            "For buy stop loss, trigger price should be above current LTP.")
-                        return
-                else:
-                    # For sell SL: trigger should be below current LTP
-                    if trigger_price >= self.ltp:
-                        QMessageBox.warning(self, "Invalid SL Setup",
-                                            "For sell stop loss, trigger price should be below current LTP.")
-                        return
+                order_data["trigger_price"] = self.trigger_price_spinbox.value()
 
             # Place the main order
             orders_to_place = [order_data]
 
             # Add stop loss order if enabled
-            if self.enable_sl_checkbox.isChecked() and hasattr(self, '_sl_price'):
-                sl_order = {
-                    "tradingsymbol": self.symbol,
-                    "transaction_type": "SELL" if order_data["transaction_type"] == "BUY" else "BUY",
-                    "quantity": order_data["quantity"],
-                    "order_type": "SL-M",
-                    "trigger_price": self._sl_price,
-                    "product": order_data["product"],
-                    "validity": order_data["validity"],
-                    "tag": "SL"
-                }
-                orders_to_place.append(sl_order)
+            if self.enable_sl_checkbox.isChecked():
+                sl_price = self._calculate_sl_price()
+                if sl_price > 0:
+                    sl_order = {
+                        "tradingsymbol": self.symbol,
+                        "transaction_type": "SELL" if self._is_buy else "BUY",
+                        "quantity": order_data["quantity"],
+                        "order_type": "SL-M",
+                        "trigger_price": sl_price,
+                        "product": order_data["product"],
+                        "validity": order_data["validity"],
+                        "tag": "SL"
+                    }
+                    orders_to_place.append(sl_order)
 
             # Add target order if enabled
-            if self.enable_target_checkbox.isChecked() and hasattr(self, '_target_price'):
-                target_order = {
-                    "tradingsymbol": self.symbol,
-                    "transaction_type": "SELL" if order_data["transaction_type"] == "BUY" else "BUY",
-                    "quantity": order_data["quantity"],
-                    "order_type": "LIMIT",
-                    "price": self._target_price,
-                    "product": order_data["product"],
-                    "validity": order_data["validity"],
-                    "tag": "TARGET"
-                }
-                orders_to_place.append(target_order)
+            if self.enable_target_checkbox.isChecked():
+                target_price = self._calculate_target_price()
+                if target_price > 0:
+                    target_order = {
+                        "tradingsymbol": self.symbol,
+                        "transaction_type": "SELL" if self._is_buy else "BUY",
+                        "quantity": order_data["quantity"],
+                        "order_type": "LIMIT",
+                        "price": target_price,
+                        "product": order_data["product"],
+                        "validity": order_data["validity"],
+                        "tag": "TARGET"
+                    }
+                    orders_to_place.append(target_order)
 
             # Emit all orders
             for order in orders_to_place:
@@ -912,571 +911,317 @@ class OrderDialog(QDialog):
             self.accept()
 
         except Exception as e:
-            logger.error(f"Error placing regular order: {e}")
-            QMessageBox.critical(self, "Order Error", f"Failed to place order: {str(e)}")
+            logger.error(f"Error placing order: {e}")
+            QMessageBox.critical(self, "Error", f"Failed: {str(e)}")
 
-    def _place_bracket_order(self):
-        """Place a bracket order with validation."""
-        try:
-            entry_price = self.bracket_price_spinbox.value()
-            quantity = self.bracket_quantity_spinbox.value()
+    def _calculate_sl_price(self):
+        """Calculate stop loss price based on current settings."""
+        sl_type = self.sl_type_combo.currentText()
+        sl_value = self.sl_value_spinbox.value()
+        entry_price = self.price_spinbox.value() if self._order_type in ["LIMIT", "SL"] else self.ltp
 
-            if entry_price <= 0 or quantity <= 0:
-                QMessageBox.warning(self, "Invalid Input", "Please enter valid price and quantity.")
-                return
-
-            # Calculate SL and Target prices
-            sl_type = self.bracket_sl_type_combo.currentText()
-            sl_value = self.bracket_sl_value_spinbox.value()
-            target_type = self.bracket_target_type_combo.currentText()
-            target_value = self.bracket_target_value_spinbox.value()
-
-            is_buy = self.toggle_switch.is_buy_mode()
-
-            # Calculate SL price
-            if sl_type == "Percentage":
-                sl_price = entry_price * (1 - sl_value / 100) if is_buy else entry_price * (1 + sl_value / 100)
-            elif sl_type == "Price":
-                sl_price = sl_value
-            else:  # Points
-                sl_price = entry_price - sl_value if is_buy else entry_price + sl_value
-
-            # Calculate target price
-            if target_type == "Percentage":
-                target_price = entry_price * (1 + target_value / 100) if is_buy else entry_price * (
-                            1 - target_value / 100)
-            elif target_type == "Price":
-                target_price = target_value
-            else:  # Points
-                target_price = entry_price + target_value if is_buy else entry_price - target_value
-
-            # Validate prices
-            if sl_price <= 0 or target_price <= 0:
-                QMessageBox.warning(self, "Invalid Prices", "Calculated SL or target price is invalid.")
-                return
-
-            # Validate price relationships
-            if is_buy:
-                if sl_price >= entry_price:
-                    QMessageBox.warning(self, "Invalid SL", "Stop loss should be below entry price for buy orders.")
-                    return
-                if target_price <= entry_price:
-                    QMessageBox.warning(self, "Invalid Target", "Target should be above entry price for buy orders.")
-                    return
+        if sl_type == "%":
+            if self._is_buy:
+                return entry_price * (1 - sl_value / 100)
             else:
-                if sl_price <= entry_price:
-                    QMessageBox.warning(self, "Invalid SL", "Stop loss should be above entry price for sell orders.")
-                    return
-                if target_price >= entry_price:
-                    QMessageBox.warning(self, "Invalid Target", "Target should be below entry price for sell orders.")
-                    return
+                return entry_price * (1 + sl_value / 100)
+        elif sl_type == "₹":
+            return sl_value
+        else:  # PTS
+            if self._is_buy:
+                return entry_price - sl_value
+            else:
+                return entry_price + sl_value
 
-            # Create bracket order data
-            bracket_order = {
-                "tradingsymbol": self.symbol,
-                "transaction_type": "BUY" if is_buy else "SELL",
-                "quantity": quantity,
-                "order_type": "LIMIT",
-                "price": entry_price,
-                "product": "MIS",  # Bracket orders are typically intraday
-                "validity": "DAY",
-                "squareoff": abs(target_price - entry_price),
-                "stoploss": abs(entry_price - sl_price),
-                "variety": "bo"  # Bracket Order
-            }
+    def _calculate_target_price(self):
+        """Calculate target price based on current settings."""
+        target_type = self.target_type_combo.currentText()
+        target_value = self.target_value_spinbox.value()
+        entry_price = self.price_spinbox.value() if self._order_type in ["LIMIT", "SL"] else self.ltp
 
-            logger.info(f"Placing bracket order: {bracket_order}")
-            self.bracket_order_placed.emit(bracket_order)
-            self.accept()
-
-        except Exception as e:
-            logger.error(f"Error placing bracket order: {e}")
-            QMessageBox.critical(self, "Bracket Order Error", f"Failed to place bracket order: {str(e)}")
-
-    def _place_oco_order(self):
-        """Place OCO (One-Cancels-Other) orders with validation."""
-        try:
-            quantity = self.oco_quantity_spinbox.value()
-            price1 = self.oco_price1_spinbox.value()
-            price2 = self.oco_price2_spinbox.value()
-
-            if quantity <= 0 or price1 <= 0 or price2 <= 0:
-                QMessageBox.warning(self, "Invalid Input", "Please enter valid quantity and prices.")
-                return
-
-            if price1 == price2:
-                QMessageBox.warning(self, "Invalid Prices", "OCO prices must be different.")
-                return
-
-            is_buy = self.toggle_switch.is_buy_mode()
-
-            # Determine order types based on current price and target prices
-            def get_order_type_and_trigger(target_price, is_buy_order):
-                if is_buy_order:
-                    if target_price > self.ltp:
-                        return "SL", target_price, target_price
-                    else:
-                        return "LIMIT", target_price, None
-                else:
-                    if target_price < self.ltp:
-                        return "SL", target_price, target_price
-                    else:
-                        return "LIMIT", target_price, None
-
-            # Create first order
-            order1_type, order1_price, order1_trigger = get_order_type_and_trigger(price1, is_buy)
-            order1 = {
-                "tradingsymbol": self.symbol,
-                "transaction_type": "BUY" if is_buy else "SELL",
-                "quantity": quantity,
-                "order_type": order1_type,
-                "price": order1_price,
-                "product": "MIS",
-                "validity": "DAY",
-                "tag": "OCO1"
-            }
-
-            if order1_trigger:
-                order1["trigger_price"] = order1_trigger
-
-            # Create second order
-            order2_type, order2_price, order2_trigger = get_order_type_and_trigger(price2, is_buy)
-            order2 = {
-                "tradingsymbol": self.symbol,
-                "transaction_type": "BUY" if is_buy else "SELL",
-                "quantity": quantity,
-                "order_type": order2_type,
-                "price": order2_price,
-                "product": "MIS",
-                "validity": "DAY",
-                "tag": "OCO2"
-            }
-
-            if order2_trigger:
-                order2["trigger_price"] = order2_trigger
-
-            # Emit both orders
-            logger.info(f"Placing OCO order 1: {order1}")
-            logger.info(f"Placing OCO order 2: {order2}")
-
-            self.order_placed.emit(order1)
-            self.order_placed.emit(order2)
-
-            self.accept()
-
-        except Exception as e:
-            logger.error(f"Error placing OCO orders: {e}")
-            QMessageBox.critical(self, "OCO Order Error", f"Failed to place OCO orders: {str(e)}")
-
-    def update_ltp(self, new_ltp: float):
-        """Update LTP and recalculate dependent values."""
-        self.ltp = new_ltp
-        self.ltp_label.setText(f"LTP: ₹{self.ltp:,.2f}")
-
-        # Update default prices
-        if self._order_type == "MARKET":
-            self.price_spinbox.setValue(new_ltp)
-            self.trigger_price_spinbox.setValue(new_ltp)
-
-        self.bracket_price_spinbox.setValue(new_ltp)
-        self.oco_price1_spinbox.setValue(new_ltp * 1.02)
-        self.oco_price2_spinbox.setValue(new_ltp * 0.98)
-
-        self._update_risk_summary()
-        self._update_bracket_calculations()
+        if target_type == "%":
+            if self._is_buy:
+                return entry_price * (1 + target_value / 100)
+            else:
+                return entry_price * (1 - target_value / 100)
+        elif target_type == "₹":
+            return target_value
+        else:  # PTS
+            if self._is_buy:
+                return entry_price + target_value
+            else:
+                return entry_price - target_value
 
     def _apply_styles(self):
-        """Apply professional dark theme styling."""
+        """Apply enhanced dark theme with proper color scheme."""
         self.setStyleSheet("""
-            /* Main Container */
-            #mainContainer {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #0d0d0d, stop:1 #050505);
-                border: 1px solid #1a1a1a;
-                border-radius: 12px;
-                font-family: "Segoe UI", sans-serif;
-            }
-
-            /* Title and Labels */
-            #dialogTitle {
-                color: #ffffff;
-                font-size: 16px;
-                font-weight: 600;
-                padding: 0px;
-            }
-
+            /* Labels */
             #symbolLabel {
                 color: #ffffff;
-                font-size: 24px;
-                font-weight: 300;
-                margin: 0px;
+                font-size: 18px;
+                font-weight: bold;
+                font-family: "Consolas", monospace;
             }
 
             #ltpLabel {
-                color: #8a8a9e;
+                color: #888888;
                 font-size: 14px;
-                font-weight: 500;
-                margin: 0px;
+                font-family: "Consolas", monospace;
             }
 
-            #infoLabel {
-                color: #6a9cff;
-                font-size: 12px;
-                font-style: italic;
-                padding: 8px;
-                background-color: rgba(106, 156, 255, 0.1);
-                border-radius: 4px;
-                border-left: 3px solid #6a9cff;
+            /* These colors will be dynamically set by _update_ui_state */
+            #calcPrice {
+                color: #00ff00; /* Default, will be overridden */
+                font-size: 11px;
+                font-weight: bold;
             }
 
-            #calculatedPrice {
-                color: #00b894;
-                font-size: 12px;
-                font-weight: 600;
-                margin-top: 4px;
+            #calcPriceLarge {
+                color: #00ff00; /* Default, will be overridden */
+                font-size: 14px;
+                font-weight: bold;
+                padding-top: 4px;
+            }
+
+            #totalInvestmentLabel {
+                color: #00ff00; /* Default, will be overridden */
+                font-size: 14px;
+                font-weight: bold;
+                padding-top: 8px;
+                qproperty-alignment: AlignRight; /* Align text to the right */
+            }
+
+            #sectionLabel {
+                color: #ffff00;
+                font-size: 11px;
+                margin-bottom: 2px;
+                font-weight: bold;
+                font-family: "Consolas", monospace;
+                letter-spacing: 1px;
             }
 
             /* Close Button */
             #closeButton {
                 background: transparent;
                 border: none;
-                color: #8a8a9e;
-                font-size: 16px;
-                font-weight: bold;
-                padding: 4px 8px;
-                border-radius: 4px;
+                color: #888888;
+                font-size: 18px;
+                font-weight: normal;
+                font-family: Arial, sans-serif;
             }
             #closeButton:hover {
-                color: #d63031;
-                background-color: rgba(214, 48, 49, 0.1);
+                color: #ffffff;
             }
 
-            /* Divider */
-            #divider {
-                border: none;
-                background-color: #1a1a1a;
-                height: 1px;
-                margin: 8px 0px;
+            /* Frames */
+            #slTargetFrame, #entryFrame, #slFrame, #targetFrame {
+                background: #0a0a0a;
+                border: 1px solid #222222;
+                padding: 4px;
+                margin: 2px 0px;
             }
 
             /* Tabs */
             QTabWidget::pane {
-                border: 1px solid #2a2a2a;
-                border-radius: 6px;
-                background-color: #0f0f0f;
-                padding: 8px;
+                border: 1px solid #222222;
+                background: #000000;
+                border-radius: 0px;
             }
 
             QTabBar::tab {
-                background-color: #1a1a1a;
-                color: #8a8a9e;
-                padding: 8px 16px;
+                background: #111111;
+                color: #666666;
+                padding: 6px 16px;
                 margin-right: 2px;
-                border-radius: 6px 6px 0px 0px;
-                font-weight: 500;
-                font-size: 12px;
+                border: 1px solid #222222;
+                border-bottom: none;
+                font-size: 11px;
+                font-weight: bold;
             }
 
             QTabBar::tab:selected {
-                background-color: #2a2a2a;
+                background: #000000;
                 color: #ffffff;
-            }
-
-            QTabBar::tab:hover:!selected {
-                background-color: #202020;
-                color: #e0e0e0;
-            }
-
-            /* Group Boxes */
-            QGroupBox {
-                color: #a0c0ff;
-                font-weight: 600;
-                font-size: 12px;
-                border: 1px solid #2a2a2a;
-                border-radius: 6px;
-                margin-top: 8px;
-                padding-top: 8px;
-            }
-
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 8px;
-                padding: 0px 4px;
+                border-color: #444444;
             }
 
             /* Radio Buttons */
             #orderTypeRadio {
-                color: #e0e0e0;
+                color: #ffffff;
                 font-size: 11px;
-                padding: 4px;
+                spacing: 5px;
             }
 
             #orderTypeRadio::indicator {
-                width: 14px;
-                height: 14px;
-                border-radius: 7px;
-                border: 2px solid #4a4a4a;
-                background-color: #1a1a1a;
+                width: 10px;
+                height: 10px;
+                border: 2px solid #444444;
+                background: #000000;
             }
 
+            /* This color will be dynamically set by _update_ui_state */
             #orderTypeRadio::indicator:checked {
-                background-color: #6a9cff;
-                border: 2px solid #6a9cff;
+                background: #00ff00; /* Default, will be overridden */
+                border: 2px solid #00ff00; /* Default, will be overridden */
             }
 
-            #orderTypeRadio::indicator:hover {
-                border: 2px solid #8ab4ff;
-            }
-
-            /* Input Fields */
-            QSpinBox, QDoubleSpinBox {
-                background-color: #1a1a1a;
-                border: 1px solid #3a3a3a;
-                border-radius: 4px;
-                padding: 6px 8px;
+            /* Input Fields - SpinBoxes and ComboBoxes */
+            QSpinBox, QDoubleSpinBox, QComboBox {
+                background: #111111;
+                border: 1px solid #333333;
                 color: #ffffff;
-                font-size: 12px;
-                selection-background-color: #6a9cff;
+                padding: 2px;
+                padding-left: 6px; /* Shift text a bit to the left */
+                font-size: 14px;
+                font-family: "Consolas", monospace;
+                min-height: 26px; /* Increased height for uniformity */
+                max-height: 26px; /* Increased height for uniformity */
+            }
+            /* This color will be dynamically set by _update_ui_state */
+            QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
+                border: 1px solid #00ff00; /* Default, will be overridden */
             }
 
-            QSpinBox:focus, QDoubleSpinBox:focus {
-                border: 1px solid #6a9cff;
-                background-color: #1f1f1f;
+            QSpinBox:disabled, QDoubleSpinBox:disabled, QComboBox:disabled {
+                background: #000000;
+                color: #444444;
+                border: 1px solid #222222;
             }
 
-            QSpinBox:disabled, QDoubleSpinBox:disabled {
-                background-color: #0f0f0f;
-                color: #4a4a4a;
-                border: 1px solid #2a2a2a;
-            }
-
-            QSpinBox::up-button, QDoubleSpinBox::up-button {
-                border: none;
-                border-radius: 2px;
-                background-color: #2a2a2a;
-                width: 16px;
-            }
-
-            QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover {
-                background-color: #3a3a3a;
-            }
-
+            QSpinBox::up-button, QDoubleSpinBox::up-button,
             QSpinBox::down-button, QDoubleSpinBox::down-button {
+                background: #222222;
                 border: none;
-                border-radius: 2px;
-                background-color: #2a2a2a;
-                width: 16px;
+                width: 16px; /* Slightly wider buttons for better click area */
             }
 
+            QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
             QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {
-                background-color: #3a3a3a;
-            }
-
-            /* Combo Boxes */
-            QComboBox {
-                background-color: #1a1a1a;
-                border: 1px solid #3a3a3a;
-                border-radius: 4px;
-                padding: 6px 8px;
-                color: #ffffff;
-                font-size: 12px;
-                min-width: 80px;
-            }
-
-            QComboBox:focus {
-                border: 1px solid #6a9cff;
-                background-color: #1f1f1f;
-            }
-
-            QComboBox:disabled {
-                background-color: #0f0f0f;
-                color: #4a4a4a;
-                border: 1px solid #2a2a2a;
+                background: #333333;
             }
 
             QComboBox::drop-down {
                 border: none;
-                width: 20px;
+                width: 20px; /* Adjusted for better appearance with increased height */
             }
 
             QComboBox::down-arrow {
                 image: none;
-                border-left: 4px solid transparent;
-                border-right: 4px solid transparent;
-                border-top: 6px solid #8a8a9e;
-                margin-right: 6px;
+                border-left: 5px solid transparent;
+                border-right: 5px solid transparent;
+                border-top: 5px solid #666666;
             }
 
             QComboBox QAbstractItemView {
-                background-color: #1a1a1a;
-                border: 1px solid #3a3a3a;
+                background: #111111;
+                border: 1px solid #333333;
                 color: #ffffff;
-                selection-background-color: #6a9cff;
-                selection-color: #ffffff;
+                selection-background-color: #222222;
             }
 
             /* Checkboxes */
             QCheckBox {
-                color: #e0e0e0;
-                font-size: 12px;
-                font-weight: 500;
+                color: #ffffff;
+                font-size: 11px;
+                font-weight: bold;
+                spacing: 5px;
             }
 
             QCheckBox::indicator {
-                width: 16px;
-                height: 16px;
-                border: 2px solid #4a4a4a;
-                border-radius: 3px;
-                background-color: #1a1a1a;
+                width: 14px;
+                height: 14px;
+                border: 2px solid #444444;
+                background: #000000;
             }
 
+            /* This color will be dynamically set by _update_ui_state */
             QCheckBox::indicator:checked {
-                background-color: #6a9cff;
-                border: 2px solid #6a9cff;
-                image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iMTIiIHZpZXdCb3g9IjAgMCAxMiAxMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEwIDNMNC41IDguNUwyIDYiIHN0cm9rZT0id2hpdGUiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+Cjwvc3ZnPgo=);
+                background: #00ff00; /* Default, will be overridden */
+                border: 2px solid #00ff00; /* Default, will be overridden */
             }
 
-            QCheckBox::indicator:hover {
-                border: 2px solid #8ab4ff;
+            QCheckBox:disabled {
+                color: #444444;
             }
 
-            /* Risk Summary */
-            #riskSummary {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #1a1a2e, stop:1 #16213e);
-                border: 1px solid #2a2a4a;
-                border-radius: 8px;
-                padding: 12px;
-                margin: 8px 0px;
-            }
-
-            #riskTitle {
-                color: #a0c0ff;
-                font-size: 14px;
-                font-weight: 600;
-                margin-bottom: 8px;
-            }
-
-            #riskValue {
-                color: #e0e0e0;
-                font-size: 12px;
-                font-weight: 500;
-            }
-
-            #riskLoss {
-                color: #ff6b6b;
-                font-size: 12px;
-                font-weight: 600;
-            }
-
-            #riskProfit {
-                color: #51cf66;
-                font-size: 12px;
-                font-weight: 600;
-            }
-
-            #riskRatio {
-                color: #ffd93d;
-                font-size: 12px;
-                font-weight: 600;
+            /* Labels */
+            QLabel {
+                color: #888888;
+                font-size: 11px;
+                font-family: "Consolas", monospace;
             }
 
             /* Buttons */
             QPushButton {
-                font-weight: 600;
-                border-radius: 6px;
-                padding: 10px 16px;
-                border: none;
-                font-size: 12px;
+                font-weight: bold;
+                border: 1px solid #333333;
+                padding: 8px 16px;
+                font-size: 11px;
+                font-family: "Consolas", monospace;
                 text-transform: uppercase;
             }
 
             #secondaryButton {
-                background-color: #2a2a2a;
-                color: #e0e0e0;
-                border: 1px solid #3a3a3a;
+                background: #111111;
+                color: #888888;
             }
 
             #secondaryButton:hover {
-                background-color: #3a3a3a;
+                background: #222222;
                 color: #ffffff;
+                border: 1px solid #444444;
             }
 
-            #secondaryButton:pressed {
-                background-color: #1a1a1a;
-            }
-
+            /* Primary Button (Place Order) - default styles are here, overridden by specific buy/sell below */
             #primaryButton {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #6a9cff, stop:1 #4a7cdf);
-                color: #ffffff;
-                font-weight: 700;
+                background: #111111;
+                color: #00ff00;
+                border: 1px solid #00ff00;
             }
 
             #primaryButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #7babff, stop:1 #5b8dff);
+                background: #00ff00;
+                color: #000000;
             }
 
-            #primaryButton:pressed {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #5a8cef, stop:1 #3a6ccf);
-            }
-
+            /* Specific styles for Buy button */
             #primaryButtonBuy {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #00b894, stop:1 #00a085);
-                color: #ffffff;
-                font-weight: 700;
+                background: #0a3d0a;
+                color: #00b894;
+                border: 1px solid #00b894;
             }
 
             #primaryButtonBuy:hover {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #00d2a2, stop:1 #00b894);
+                background: #00b894;
+                color: #000000;
             }
 
+            /* Specific styles for Sell button */
             #primaryButtonSell {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #d63031, stop:1 #c92a2a);
-                color: #ffffff;
-                font-weight: 700;
+                background: #3d0a0a;
+                color: #d63031;
+                border: 1px solid #d63031;
             }
 
             #primaryButtonSell:hover {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #e74c3c, stop:1 #d63031);
+                background: #d63031;
+                color: #ffffff;
             }
 
-            /* Enable/disable states for checkboxes */
-            #enableSLCheckbox, #enableTargetCheckbox {
-                color: #ffd93d;
-                font-weight: 600;
-            }
-
-            /* Form labels */
-            QLabel {
-                color: #a0a0a0;
-                font-size: 11px;
-                font-weight: 500;
-            }
-
-            /* Scrollbar styling for potential scroll areas */
+            /* Scrollbar */
             QScrollBar:vertical {
-                background-color: #1a1a1a;
-                width: 12px;
+                background: #000000;
+                width: 8px;
                 border: none;
-                border-radius: 6px;
             }
 
             QScrollBar::handle:vertical {
-                background-color: #3a3a3a;
-                border-radius: 6px;
+                background: #333333;
                 min-height: 20px;
-                margin: 2px;
             }
 
             QScrollBar::handle:vertical:hover {
-                background-color: #4a4a4a;
+                background: #444444;
             }
 
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
@@ -1486,19 +1231,144 @@ class OrderDialog(QDialog):
             }
         """)
 
-    # Window dragging functionality
+    # Window dragging - make entire dialog draggable
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.LeftButton:
-            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
-            event.accept()
+            # Check if click is not on any interactive widget
+            widget = self.childAt(event.position().toPoint())
+            if widget and not isinstance(widget,
+                                         (QPushButton, QComboBox, QSpinBox, QDoubleSpinBox, QCheckBox, QRadioButton,
+                                          ToggleSwitch)):
+                self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+                event.accept()
+            elif widget is None:  # Clicked on empty space
+                self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+                event.accept()
+            else:
+                super().mousePressEvent(event)
+        else:
+            super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent):
-        if event.buttons() & Qt.MouseButton.LeftButton and self._drag_pos:
+        if event.buttons() == Qt.MouseButton.LeftButton and self._drag_pos is not None:
             self.move(event.globalPosition().toPoint() - self._drag_pos)
             event.accept()
+        else:
+            super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent):
-        self._drag_pos = None
-        event.accept()
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_pos = None
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
 
-OrderConfirmationDialog = OrderDialog
+    def update_ltp(self, new_ltp: float):
+        """Update LTP and recalculate dependent values."""
+        self.ltp = new_ltp
+        self.ltp_label.setText(f"₹{self.ltp:,.2f}")
+
+        # Only update prices if market order or not manually edited
+        if self._order_type == "MARKET":
+            self.price_spinbox.setValue(new_ltp)
+            self.trigger_price_spinbox.setValue(new_ltp)
+
+        # Always update bracket entry price with new LTP
+        self.bracket_price_spinbox.setValue(new_ltp)
+
+        # Recalculate dependent values
+        self._update_sl_calculation()
+        self._update_target_calculation()
+        self._update_bracket_calculations()
+        self._update_regular_total_investment()
+        self._update_bracket_total_investment()
+
+
+    def eventFilter(self, obj, event):
+        """Event filter to handle dragging from container widget."""
+        if obj == self.container:
+            if event.type() == event.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+                # Check if click is not on any interactive widget
+                widget = self.childAt(event.globalPosition().toPoint() - self.pos())
+                if widget == self.container or (widget and not isinstance(widget, (QPushButton, QComboBox, QSpinBox,
+                                                                                   QDoubleSpinBox, QCheckBox,
+                                                                                   QRadioButton, ToggleSwitch,
+                                                                                   QTabWidget))):
+                    self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+                    return True
+            elif event.type() == event.Type.MouseMove and event.buttons() == Qt.MouseButton.LeftButton and self._drag_pos is not None:
+                self.move(event.globalPosition().toPoint() - self._drag_pos)
+                return True
+            elif event.type() == event.Type.MouseButtonRelease and event.button() == Qt.MouseButton.LeftButton:
+                self._drag_pos = None
+                return True
+        return super().eventFilter(obj, event)
+
+    def _place_bracket_order(self):
+        """Place bracket order."""
+        try:
+            entry_price = self.bracket_price_spinbox.value()
+            quantity = self.bracket_quantity_spinbox.value()
+
+            # Calculate SL and Target
+            sl_price = self._calculate_bracket_sl_price()
+            target_price = self._calculate_bracket_target_price()
+
+            bracket_order = {
+                "tradingsymbol": self.symbol,
+                "transaction_type": "BUY" if self._is_buy else "SELL",
+                "quantity": quantity,
+                "order_type": "LIMIT",
+                "price": entry_price,
+                "product": "MIS",
+                "validity": "DAY",
+                "squareoff": abs(target_price - entry_price),
+                "stoploss": abs(entry_price - sl_price),
+                "variety": "bo"
+            }
+
+            logger.info(f"Placing bracket order: {bracket_order}")
+            self.bracket_order_placed.emit(bracket_order)
+            self.accept()
+
+        except Exception as e:
+            logger.error(f"Error placing bracket order: {e}")
+            QMessageBox.critical(self, "Error", f"Failed: {str(e)}")
+
+    def _calculate_bracket_sl_price(self):
+        """Calculate bracket order stop loss price."""
+        entry_price = self.bracket_price_spinbox.value()
+        sl_type = self.bracket_sl_type_combo.currentText()
+        sl_value = self.bracket_sl_value_spinbox.value()
+
+        if sl_type == "%":
+            if self._is_buy:
+                return entry_price * (1 - sl_value / 100)
+            else:
+                return entry_price * (1 + sl_value / 100)
+        elif sl_type == "₹":
+            return sl_value
+        else:  # PTS
+            if self._is_buy:
+                return entry_price - sl_value
+            else:
+                return entry_price + sl_value
+
+    def _calculate_bracket_target_price(self):
+        """Calculate bracket order target price."""
+        entry_price = self.bracket_price_spinbox.value()
+        target_type = self.bracket_target_type_combo.currentText()
+        target_value = self.bracket_target_value_spinbox.value()
+
+        if target_type == "%":
+            if self._is_buy:
+                return entry_price * (1 + target_value / 100)
+            else:
+                return entry_price * (1 - target_value / 100)
+        elif target_type == "₹":
+            return target_value
+        else:  # PTS
+            if self._is_buy:
+                return entry_price + target_value
+            else:
+                return entry_price - target_value

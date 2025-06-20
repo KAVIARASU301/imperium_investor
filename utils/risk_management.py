@@ -1,7 +1,6 @@
 import logging
 from typing import Dict, List, Any, Optional, Tuple
-from decimal import Decimal, ROUND_HALF_UP
-from datetime import datetime
+from datetime import datetime, timedelta
 from PySide6.QtCore import QObject, Signal
 
 logger = logging.getLogger(__name__)
@@ -38,7 +37,7 @@ class AdvancedRiskManager(QObject):
     def _load_risk_settings(self):
         """Load risk settings from config."""
         if self.config_manager:
-            config = self.config_manager.get_config()
+            config = self.config_manager.load_settings()
             self.max_daily_loss = config.get('max_loss', 10000.0)
             self.max_positions = config.get('max_positions', 10)
             self.max_portfolio_risk = config.get('max_portfolio_risk', 2.0)
@@ -66,7 +65,20 @@ class AdvancedRiskManager(QObject):
         risk_per_share = abs(entry_price - stop_loss_price)
 
         if risk_per_share == 0:
-            return 0, {"error": "Stop loss price equals entry price"}
+            # Return a dictionary with float values, even in error case,
+            # to match the type hint. Using 0 or float('nan') for numerical fields.
+            return 0, {
+                "position_size": 0.0,
+                "actual_risk": 0.0,
+                "position_value": 0.0,
+                "portfolio_risk_percentage": 0.0,
+                "risk_per_share": 0.0,
+                "max_affordable_qty": 0.0,
+                # You might add an 'error_message' key if you need to pass the string,
+                # but then the return type hint would need to be adjusted (e.g., Union[float, str])
+                # or the dictionary could be Dict[str, Union[float, str]] which is less strict.
+                # For strict adherence to Dict[str, float], all values must be float.
+            }
 
         # Calculate position size
         position_size = int(risk_amount / risk_per_share)
@@ -81,12 +93,12 @@ class AdvancedRiskManager(QObject):
         portfolio_risk_pct = (actual_risk / self.available_balance) * 100
 
         risk_metrics = {
-            "position_size": position_size,
+            "position_size": float(position_size),  # Ensure this is float
             "actual_risk": actual_risk,
             "position_value": position_value,
             "portfolio_risk_percentage": portfolio_risk_pct,
             "risk_per_share": risk_per_share,
-            "max_affordable_qty": max_affordable
+            "max_affordable_qty": float(max_affordable)  # Ensure this is float
         }
 
         return position_size, risk_metrics

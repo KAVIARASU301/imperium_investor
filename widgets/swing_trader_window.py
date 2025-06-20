@@ -19,7 +19,7 @@ from widgets.canvas_candlestick_chart import CandlestickChart as ChartWindow
 from widgets.header_toolbar import HeaderToolbar
 
 # Import both order dialogs - keep the old one for compatibility, use new one by default
-from dialogs.order_dialog import OrderConfirmationDialog
+from dialogs.order_dialog import OrderDialog
 from dialogs.order_dialog import OrderDialog  # New advanced order dialog
 
 from dialogs.settings_dialog import SettingsDialog
@@ -307,6 +307,29 @@ class SwingTraderWindow(QMainWindow):
 
         # Chartink scanner connections
         self.chartink_scanner.subscribe_tokens_requested.connect(self._subscribe_to_tokens)
+
+    @Slot()
+    def _on_websocket_connect(self):
+        """Consolidates all subscription requests and sends them to the worker."""
+        logger.info("WebSocket connected/changed. Subscribing to all required tokens.")
+        all_tokens = set()
+        all_tokens.update(self.positions_table.get_all_tokens())
+        all_tokens.update(self.watchlist.get_all_tokens())
+        all_tokens.update(self.chartink_scanner.get_all_tokens())
+        all_tokens.update(self._get_alert_tokens())
+
+        if all_tokens:
+            self.market_data_worker.set_instruments(all_tokens)
+            logger.info(f"Subscribed to {len(all_tokens)} instrument tokens")
+
+    @Slot(list)
+    def _subscribe_to_tokens(self, tokens: List[int]):
+        """Adds a list of instrument tokens to the WebSocket subscription."""
+        if self.market_data_worker and tokens:
+            current_tokens = getattr(self.market_data_worker, 'subscribed_tokens', set())
+            new_tokens = current_tokens.union(set(tokens))
+            self.market_data_worker.set_instruments(new_tokens)
+            logger.info(f"Added {len(tokens)} new tokens to subscription")
 
     def _init_background_workers(self):
         """Initializes and starts background threads for data fetching."""
@@ -687,7 +710,7 @@ class SwingTraderWindow(QMainWindow):
         order_details.setdefault('quantity', self.config_manager.load_settings().get('default_quantity', 1))
         order_details['estimated_cost'] = order_details.get('price', ltp) * order_details['quantity']
 
-        dialog = OrderConfirmationDialog(self, order_details)
+        dialog = OrderDialog(self, order_details)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             try:
                 final_order = dialog.order_details
@@ -812,6 +835,10 @@ class SwingTraderWindow(QMainWindow):
         self.chartink_scanner.update_data(ticks)
         self._check_alerts(ticks)
 
+        # Pass ticks to the candlestick chart for live updates
+        if self.candlestick_chart and ticks:
+            self.candlestick_chart.update_live_data(ticks)
+
         # Update risk manager with latest market data
         if self.risk_manager:
             # Calculate daily P&L from positions
@@ -826,20 +853,6 @@ class SwingTraderWindow(QMainWindow):
 
             except Exception as e:
                 logger.debug(f"Could not update daily P&L: {e}")
-
-    @Slot()
-    def _on_websocket_connect(self):
-        """Consolidates all subscription requests and sends them to the worker."""
-        logger.info("WebSocket connected/changed. Subscribing to all required tokens.")
-        all_tokens = set()
-        all_tokens.update(self.positions_table.get_all_tokens())
-        all_tokens.update(self.watchlist.get_all_tokens())
-        all_tokens.update(self.chartink_scanner.get_all_tokens())
-        all_tokens.update(self._get_alert_tokens())
-
-        if all_tokens:
-            self.market_data_worker.set_instruments(all_tokens)
-            logger.info(f"Subscribed to {len(all_tokens)} instrument tokens")
 
     @Slot(list)
     def _subscribe_to_tokens(self, tokens: List[int]):
@@ -941,7 +954,7 @@ class SwingTraderWindow(QMainWindow):
             "transaction_type": "BUY",
             "quantity": 1
         }
-        self._show_advanced_order_dialog(order_details['tradingsymbol'], 0.0) # Pass 0.0 for LTP
+        self._show_advanced_order_dialog(order_details['tradingsymbol'], 0.0)  # Pass 0.0 for LTP
 
     def _show_advanced_sell_order(self, symbol: str):
         """Show advanced sell order dialog."""
@@ -950,7 +963,7 @@ class SwingTraderWindow(QMainWindow):
             "transaction_type": "SELL",
             "quantity": 1
         }
-        self._show_advanced_order_dialog(order_details['tradingsymbol'], 0.0) # Pass 0.0 for LTP
+        self._show_advanced_order_dialog(order_details['tradingsymbol'], 0.0)  # Pass 0.0 for LTP
 
     def _show_bracket_order(self, symbol: str):
         """Show bracket order dialog."""
@@ -1237,8 +1250,15 @@ class SwingTraderWindow(QMainWindow):
             self.chartink_scanner._update_timer.stop()
 
         if self.market_data_worker:
+            # Disconnect signals to prevent "Signal source has been deleted" errors during shutdown.
+            # This is crucial because MarketDataWorker is a QObject, not a QThread.
+            self.market_data_worker.data_received.disconnect(self._on_market_data)
+            self.market_data_worker.connection_established.disconnect(self._on_websocket_connect)
+            # Call the worker's stop method, which handles closing its internal KiteTicker connection.
             self.market_data_worker.stop()
+
         if self.instrument_loader and self.instrument_loader.isRunning():
+            # These calls are correct for QThread subclasses like InstrumentLoader.
             self.instrument_loader.quit()
             self.instrument_loader.wait(2000)
 
