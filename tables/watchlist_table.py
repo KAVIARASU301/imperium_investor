@@ -1,3 +1,4 @@
+# Refactored file: swing_trader/swing_trader-2a35ae38ebac01e2a2096f450e74f084a599031f/tables/watchlist_table.py
 import logging
 import json
 import os
@@ -95,10 +96,25 @@ class TradingTable(QTableWidget):
                 if data.get('instrument_token') == token and ltp is not None:
                     data['ltp'] = ltp
                     data['volume'] = volume
-                    close_price = data.get('close_price', ltp)
-                    if close_price > 0:
-                        change_pct = ((ltp - close_price) / close_price) * 100
+
+                    # Use 'ohlc.close' from instrument map as base for change_pct if available,
+                    # otherwise fallback to current ltp. This 'ohlc.close' is typically prev day's close.
+                    instrument_info = self._instrument_map.get(symbol, {})
+                    prev_close = instrument_info.get('ohlc', {}).get('close', ltp)
+
+                    if prev_close > 0:
+                        change_pct = ((ltp - prev_close) / prev_close) * 100
                         data['change_pct'] = change_pct
+                    else:
+                        data['change_pct'] = 0.0  # Handle division by zero or no prev_close
+
+                    # Update day high/low from tick if present
+                    if 'ohlc' in tick and isinstance(tick['ohlc'], dict):
+                        data['day_high'] = max(data.get('day_high', 0.0), tick['ohlc'].get('high', 0.0))
+                        data['day_low'] = min(data.get('day_low', float('inf')), tick['ohlc'].get('low', float('inf')))
+                        # Ensure inf is converted to 0 if no low is available initially
+                        if data['day_low'] == float('inf'):
+                            data['day_low'] = 0.0
 
                     if symbol in self._symbol_to_row:
                         row = self._symbol_to_row[symbol]
@@ -116,11 +132,20 @@ class TradingTable(QTableWidget):
         self._watchlist_data[symbol] = {
             "tradingsymbol": symbol,
             "instrument_token": instrument.get('instrument_token'),
-            "close_price": instrument.get('ohlc', {}).get('close', 0.0),
+            "close_price": instrument.get('ohlc', {}).get('close', 0.0),  # Prev day close
             "ltp": instrument.get('last_price', 0.0),
             "volume": instrument.get('volume', 0),
             "change_pct": 0.0,
+            "day_high": instrument.get('ohlc', {}).get('high', 0.0),
+            "day_low": instrument.get('ohlc', {}).get('low', 0.0),
         }
+        # Calculate initial change_pct
+        if self._watchlist_data[symbol]['close_price'] > 0 and self._watchlist_data[symbol]['ltp'] > 0:
+            self._watchlist_data[symbol]['change_pct'] = (
+                                                                 (self._watchlist_data[symbol]['ltp'] -
+                                                                  self._watchlist_data[symbol]['close_price']) /
+                                                                 self._watchlist_data[symbol]['close_price']
+                                                         ) * 100
 
         self._populate_full_table()
         logger.info(f"Added {symbol} to {self.category} watchlist.")
@@ -144,16 +169,34 @@ class TradingTable(QTableWidget):
         self.setRowCount(len(sorted_symbols))
 
         for row, symbol in enumerate(sorted_symbols):
-            if symbol in self._instrument_map and 'instrument_token' not in self._watchlist_data[symbol]:
+            # Always try to update/fill data from instrument_map if available
+            if symbol in self._instrument_map:
                 instrument = self._instrument_map[symbol]
-                self._watchlist_data[symbol] = {
-                    "tradingsymbol": symbol,
-                    "instrument_token": instrument.get('instrument_token'),
-                    "close_price": instrument.get('ohlc', {}).get('close', 0.0),
-                    "ltp": instrument.get('last_price', 0.0),
-                    "volume": instrument.get('volume', 0),
-                    "change_pct": 0.0,
-                }
+
+                # Retrieve existing data or create a new dict
+                current_data = self._watchlist_data.get(symbol, {"tradingsymbol": symbol})
+
+                # Update with details from instrument_map
+                current_data["instrument_token"] = instrument.get('instrument_token')
+                current_data["ltp"] = instrument.get('last_price', 0.0)
+                current_data["volume"] = instrument.get('volume', 0)
+
+                ohlc = instrument.get('ohlc', {})
+                current_data["close_price"] = ohlc.get('close', 0.0)  # Previous day's closing
+                current_data["day_high"] = ohlc.get('high', 0.0)
+                current_data["day_low"] = ohlc.get('low', 0.0)
+
+                # Calculate initial change_pct if possible
+                if current_data["close_price"] > 0:
+                    current_data["change_pct"] = (
+                                                         (current_data["ltp"] - current_data["close_price"]) /
+                                                         current_data["close_price"]
+                                                 ) * 100
+                else:
+                    current_data["change_pct"] = 0.0
+
+                self._watchlist_data[symbol] = current_data  # Update the master data
+
             self._symbol_to_row[symbol] = row
             self._populate_row(row, symbol)
 
@@ -174,11 +217,18 @@ class TradingTable(QTableWidget):
             if not self.item(row, col_idx):
                 self.setItem(row, col_idx, QTableWidgetItem())
 
-        self.item(row, 0).setText(data['tradingsymbol'])
-        self.item(row, 1).setText(f"{data.get('ltp', 0.0):.2f}")
+        # Safely get data, defaulting to 'N/A' or 0.0 if key is missing
+        tradingsymbol = data.get('tradingsymbol', 'N/A')
+        ltp = data.get('ltp', 0.0)
+        volume = data.get('volume', 0)
+        change_pct = data.get('change_pct', 0.0)
+        day_high = data.get('day_high', 0.0)
+        day_low = data.get('day_low', 0.0)
+
+        self.item(row, 0).setText(tradingsymbol)
+        self.item(row, 1).setText(f"{ltp:.2f}")
 
         # Format volume in K/M format for readability
-        volume = data.get('volume', 0)
         if volume >= 1000000:
             volume_text = f"{volume / 1000000:.1f}M"
         elif volume >= 1000:
@@ -187,28 +237,30 @@ class TradingTable(QTableWidget):
             volume_text = str(volume)
         self.item(row, 2).setText(volume_text)
 
-        self.item(row, 3).setText(f"{data.get('change_pct', 0.0):.2f}%")
+        self.item(row, 3).setText(f"{change_pct:+.2f}%")  # Changed to + sign for positive changes
 
         # TC2000-style colors
         profit_color = QColor(60, 179, 113)  # Medium Sea Green
-        loss_color = QColor(220, 20, 60)    # Crimson
-        neutral_color = QColor(169, 169, 169) # DarkGray
+        loss_color = QColor(220, 20, 60)  # Crimson
+        neutral_color = QColor(169, 169, 169)  # DarkGray
 
-        change_pct = data.get('change_pct', 0.0)
         color = profit_color if change_pct > 0 else (loss_color if change_pct < 0 else neutral_color)
 
         # Apply color to LTP and Change %
         self.item(row, 1).setForeground(color)
-        self.item(row, 3).setForeground(color) # Color code %Chg
+        self.item(row, 3).setForeground(color)  # Color code %Chg
 
         # Volume stays neutral colored
         self.item(row, 2).setForeground(neutral_color)
 
         # Alignments
         self.item(row, 0).setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        self.item(row, 1).setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter) # Center align LTP
-        self.item(row, 2).setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter) # Center align Volume
-        self.item(row, 3).setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter) # Center align Chg %
+        self.item(row, 1).setTextAlignment(
+            Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)  # Center align LTP
+        self.item(row, 2).setTextAlignment(
+            Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)  # Center align Volume
+        self.item(row, 3).setTextAlignment(
+            Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)  # Center align Chg %
 
     def _create_remove_button(self, row) -> QPushButton:
         """Creates a minimal 'x' button to remove a symbol."""
@@ -510,7 +562,7 @@ class TabbedWatchlistWidget(QWidget):
                     # Convert list of symbols to dict format
                     data = {}
                     for symbol in symbols:
-                        data[symbol] = {}
+                        data[symbol] = {}  # Initialize with empty dict
 
                     self._tables[category].load_watchlist_data(data)
                     logger.info(f"Loaded {len(symbols)} symbols for {category} watchlist.")
@@ -755,9 +807,3 @@ class TabbedWatchlistWidget(QWidget):
         """Override to save geometry when widget is closed."""
         self._save_geometry()
         super().closeEvent(event)
-
-
-# For backward compatibility, create an alias
-class WatchlistTable(TabbedWatchlistWidget):
-    """Alias for backward compatibility with existing code."""
-    pass

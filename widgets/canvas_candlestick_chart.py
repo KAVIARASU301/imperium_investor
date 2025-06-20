@@ -1,3 +1,4 @@
+# Refactored file: swing_trader/swing_trader-2a35ae38ebac01e2a2096f450e74f084a599031f/widgets/canvas_candlestick_chart.py
 import logging
 import json
 import os
@@ -744,6 +745,7 @@ class CandlestickChart(QWidget):
 
                 this.canvas.addEventListener('mousemove', (e) => {{
                     if (this.isDragging) {{
+                        this.isAutoScale = false; // Disable auto-scale on drag
                         const deltaX = e.clientX - this.lastMouseX;
                         const deltaY = e.clientY - this.lastMouseY;
 
@@ -756,14 +758,15 @@ class CandlestickChart(QWidget):
                             this.viewPortEnd = Math.min(this.data.length - 1, this.viewPortStart + this.visibleCandleCount - 1);
                         }}
 
-                        if (!this.isAutoScale) {{
-                            const priceRange = this.maxPrice - this.minPrice;
-                            const pricePerPixel = priceRange / this.chartArea.height;
-                            const priceDelta = deltaY * pricePerPixel;
+                        // This part already checks !this.isAutoScale, so it's fine.
+                        // However, setting it to false above ensures vertical panning when dragging too.
+                        const priceRange = this.maxPrice - this.minPrice;
+                        const pricePerPixel = priceRange / this.chartArea.height;
+                        const priceDelta = deltaY * pricePerPixel;
 
-                            this.minPrice += priceDelta;
-                            this.maxPrice += priceDelta;
-                        }}
+                        this.minPrice += priceDelta;
+                        this.maxPrice += priceDelta;
+
 
                         this.lastMouseX = e.clientX;
                         this.lastMouseY = e.clientY;

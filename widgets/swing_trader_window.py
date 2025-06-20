@@ -1,3 +1,4 @@
+
 import logging
 import os
 import json
@@ -9,19 +10,18 @@ from PySide6.QtCore import Qt, QUrl, QByteArray, QTimer, Slot, QPoint
 from PySide6.QtMultimedia import QSoundEffect
 from PySide6.QtWidgets import QMainWindow, QSplitter, QMessageBox, QDialog, QWidget, QVBoxLayout, QHBoxLayout, \
     QPushButton, QLabel, QMenu
-from PySide6.QtGui import QMouseEvent, QAction
+from PySide6.QtGui import QMouseEvent, QAction, QKeySequence, QShortcut # Added QKeySequence, QShortcut
 
 from widgets.menu_bar import create_main_menu
 from tables.chartink_scanner_table import ChartinkScannerTable
 from tables.open_positions_table import OpenPositionsTable
 from tables.watchlist_table import TabbedWatchlistWidget
 from widgets.canvas_candlestick_chart import CandlestickChart as ChartWindow
+
 from widgets.header_toolbar import HeaderToolbar
 
-# Import both order dialogs - keep the old one for compatibility, use new one by default
-from dialogs.order_dialog import OrderDialog
-from dialogs.order_dialog import OrderDialog  # New advanced order dialog
 
+from dialogs.order_dialog import OrderDialog
 from dialogs.settings_dialog import SettingsDialog
 from dialogs.stock_alert_dialog import StockAlertDialog
 from dialogs.alert_logs_dialog import AlertLogsDialog
@@ -29,7 +29,6 @@ from dialogs.order_history_dialog import OrderHistoryDialog
 from dialogs.pnl_history_dialog import PnlHistoryDialog
 from dialogs.performance_dialog import PerformanceDialog
 
-# Import advanced components
 from utils.advanced_order_manager import AdvancedOrderManager, setup_advanced_order_manager
 from utils.risk_management import (
     AdvancedRiskManager, PositionMonitor, TradeAnalyzer, TradingRules,
@@ -98,6 +97,7 @@ class SwingTraderWindow(QMainWindow):
 
         # Initialize advanced components
         self._init_advanced_components()
+        self._setup_watchlist_shortcuts() # Added this line for the new shortcuts
 
         self._apply_dark_theme()
         self.restore_window_state()
@@ -975,6 +975,50 @@ class SwingTraderWindow(QMainWindow):
 
         dialog.bracket_order_placed.connect(self._handle_bracket_order_placement)
         dialog.show()
+
+    # ======================
+    # WATCHLIST SHORTCUTS
+    # ======================
+
+    def _setup_watchlist_shortcuts(self):
+        """Sets up keyboard shortcuts for adding symbols to watchlists."""
+        shortcut_map = {
+            "Ctrl+Shift+1": "Breakouts",
+            "Ctrl+Shift+2": "EP",
+            "Ctrl+Shift+3": "Parabolic"
+        }
+
+        for key_sequence, category in shortcut_map.items():
+            shortcut = QShortcut(QKeySequence(key_sequence), self)
+            shortcut.activated.connect(lambda cat=category: self._add_symbol_to_watchlist_from_chart(cat))
+
+        logger.info("Watchlist shortcuts initialized.")
+
+    def _add_symbol_to_watchlist_from_chart(self, category: str):
+        """
+        Adds the currently charted symbol to the specified watchlist category.
+        """
+        current_symbol = self.candlestick_chart.current_symbol
+
+        if not current_symbol:
+            self._show_order_notification("No symbol is currently displayed on the chart.", "info")
+            return
+
+        # Check if the symbol is valid and exists in our instrument map
+        if current_symbol not in self.instrument_map:
+            self._show_order_notification(
+                f"Cannot add '{current_symbol}'. Not a valid or recognized trading symbol.", "error"
+            )
+            return
+
+        if self.watchlist.add_symbol(current_symbol, category):
+            self._show_order_notification(
+                f"Added '{current_symbol}' to '{category}' watchlist.", "success"
+            )
+        else:
+            self._show_order_notification(
+                f"Failed to add '{current_symbol}' to '{category}' watchlist (may already exist).", "info"
+            )
 
     # ======================
     # ALERT SYSTEM METHODS
