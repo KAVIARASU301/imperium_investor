@@ -788,7 +788,7 @@ class ChartinkScannerTable(QWidget):
         header_container.setObjectName("headerContainer")
 
         header_layout = QHBoxLayout(header_container)
-        header_layout.setContentsMargins(10, 6, 10, 6) # Further reduced margins
+        header_layout.setContentsMargins(6, 6, 6, 6) # Further reduced margins
         header_layout.setSpacing(8) # Further reduced spacing
 
         # Scan label with icon
@@ -835,7 +835,7 @@ class ChartinkScannerTable(QWidget):
     def _configure_table(self):
         """Configures the properties and headers of the table."""
         self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["Symbol", "LTP", "Volume", "%Chg"])
+        self.table.setHorizontalHeaderLabels(["Symbol", "Price", "Volume", "%Chg"])
 
         self.table.horizontalHeader().setVisible(True)
         header = self.table.horizontalHeader()

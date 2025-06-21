@@ -1,4 +1,3 @@
-
 import logging
 import os
 import json
@@ -10,7 +9,7 @@ from PySide6.QtCore import Qt, QUrl, QByteArray, QTimer, Slot, QPoint
 from PySide6.QtMultimedia import QSoundEffect
 from PySide6.QtWidgets import QMainWindow, QSplitter, QMessageBox, QDialog, QWidget, QVBoxLayout, QHBoxLayout, \
     QPushButton, QLabel, QMenu
-from PySide6.QtGui import QMouseEvent, QAction, QKeySequence, QShortcut # Added QKeySequence, QShortcut
+from PySide6.QtGui import QMouseEvent, QAction, QKeySequence, QShortcut  # Added QKeySequence, QShortcut
 
 from widgets.menu_bar import create_main_menu
 from tables.chartink_scanner_table import ChartinkScannerTable
@@ -19,7 +18,6 @@ from tables.watchlist_table import TabbedWatchlistWidget
 from widgets.canvas_candlestick_chart import CandlestickChart as ChartWindow
 
 from widgets.header_toolbar import HeaderToolbar
-
 
 from dialogs.order_dialog import OrderDialog
 from dialogs.settings_dialog import SettingsDialog
@@ -97,7 +95,7 @@ class SwingTraderWindow(QMainWindow):
 
         # Initialize advanced components
         self._init_advanced_components()
-        self._setup_watchlist_shortcuts() # Added this line for the new shortcuts
+        self._setup_watchlist_shortcuts()  # Added this line for the new shortcuts
 
         self._apply_dark_theme()
         self.restore_window_state()
@@ -181,14 +179,17 @@ class SwingTraderWindow(QMainWindow):
         self.main_splitter.addWidget(self.chartink_scanner)
         self.main_splitter.addWidget(self.candlestick_chart)
 
-        # Right panel: Watchlist on top, Positions on bottom
+        # Right panel: Watchlist on top (60%), Positions on bottom (40%)
         right_panel_splitter = QSplitter(Qt.Orientation.Vertical)
         right_panel_splitter.addWidget(self.watchlist)
         right_panel_splitter.addWidget(self.positions_table)
-        right_panel_splitter.setSizes([500, 200])
+
+        # Set stretch factors: 60 for watchlist, 40 for positions
+        right_panel_splitter.setStretchFactor(0, 3)  # index 0 -> watchlist
+        right_panel_splitter.setStretchFactor(1, 2)  # index 1 -> positions
 
         self.main_splitter.addWidget(right_panel_splitter)
-        self.main_splitter.setSizes([350, 800, 300])
+        self.main_splitter.setSizes([200, 800, 330])
 
     def _create_custom_title_bar(self) -> QWidget:
         """Creates a custom title bar for the frameless window."""
@@ -290,7 +291,6 @@ class SwingTraderWindow(QMainWindow):
 
         # Symbol selection connections
         self.chartink_scanner.symbol_selected.connect(self.candlestick_chart.on_search)
-        self.watchlist.symbol_selected.connect(self.candlestick_chart.on_search)
         self.positions_table.symbol_selected.connect(self.candlestick_chart.on_search)
 
         # Position manager connections
@@ -300,13 +300,70 @@ class SwingTraderWindow(QMainWindow):
         self.positions_table.exit_position_requested.connect(self._on_exit_position_requested)
         self.positions_table.subscribe_tokens_requested.connect(self._subscribe_to_tokens)
 
-        # Watchlist connections - Updated to use advanced order dialog
+        # Enhanced watchlist connections
+        self.watchlist.symbol_selected.connect(self.candlestick_chart.on_search)
         self.watchlist.subscribe_tokens_requested.connect(self._subscribe_to_tokens)
-        self.watchlist.place_order_requested.connect(self._show_advanced_order_dialog)
-        self.watchlist.watchlist_changed.connect(self._on_websocket_connect)
+        self.watchlist.place_order_requested.connect(self._show_advanced_order_dialog_from_dict)
 
+        # Connect advanced order signals from watchlist
+        self.watchlist.advanced_buy_order_requested.connect(self._show_advanced_buy_order)
+        self.watchlist.advanced_sell_order_requested.connect(self._show_advanced_sell_order)
+        self.watchlist.bracket_order_requested.connect(self._show_bracket_order)
+
+        # Enhanced watchlist change handling
+        self.watchlist.watchlist_changed.connect(self._on_watchlist_changed)
         # Chartink scanner connections
         self.chartink_scanner.subscribe_tokens_requested.connect(self._subscribe_to_tokens)
+
+    def _show_advanced_order_dialog_from_dict(self, order_data: Dict[str, Any]):
+        """Show advanced order dialog from watchlist context menu."""
+        symbol = order_data.get('tradingsymbol', '')
+        transaction_type = order_data.get('transaction_type', 'BUY')
+
+        if symbol:
+            # Get fresh LTP
+            ltp = self._get_fresh_ltp(symbol)
+
+            # Create enhanced order dialog with pre-filled data
+            dialog = OrderDialog(self, symbol, ltp, order_data)
+
+            # Set the transaction type in the dialog
+            if hasattr(dialog, 'toggle_switch'):
+                dialog.toggle_switch.set_buy_mode(transaction_type == 'BUY')
+
+            # Connect signals
+            dialog.order_placed.connect(self._handle_order_placement)
+            dialog.bracket_order_placed.connect(self._handle_bracket_order_placement)
+
+            dialog.show()
+
+    @Slot()
+    def _on_watchlist_changed(self):
+        """Enhanced watchlist change handler with better token management."""
+        logger.info("Watchlist changed - updating subscriptions")
+
+        # Get all tokens from all components
+        all_tokens = set()
+
+        # Add watchlist tokens
+        watchlist_tokens = self.watchlist.get_all_tokens()
+        all_tokens.update(watchlist_tokens)
+
+        # Add position tokens
+        if hasattr(self.positions_table, 'get_all_tokens'):
+            all_tokens.update(self.positions_table.get_all_tokens())
+
+        # Add scanner tokens
+        if hasattr(self.chartink_scanner, 'get_all_tokens'):
+            all_tokens.update(self.chartink_scanner.get_all_tokens())
+
+        # Add alert tokens
+        all_tokens.update(self._get_alert_tokens())
+
+        # Update market data worker subscription
+        if self.market_data_worker and all_tokens:
+            self.market_data_worker.set_instruments(list(all_tokens))
+            logger.info(f"Updated subscription to {len(all_tokens)} tokens")
 
     @Slot()
     def _on_websocket_connect(self):
@@ -319,17 +376,35 @@ class SwingTraderWindow(QMainWindow):
         all_tokens.update(self._get_alert_tokens())
 
         if all_tokens:
-            self.market_data_worker.set_instruments(all_tokens)
+            # Convert to list before passing to set_instruments
+            self.market_data_worker.set_instruments(list(all_tokens))
             logger.info(f"Subscribed to {len(all_tokens)} instrument tokens")
 
     @Slot(list)
     def _subscribe_to_tokens(self, tokens: List[int]):
-        """Adds a list of instrument tokens to the WebSocket subscription."""
-        if self.market_data_worker and tokens:
+        """Enhanced token subscription with better handling."""
+        if not self.market_data_worker or not tokens:
+            return
+
+        try:
+            # Get current subscribed tokens and ensure it's a set
             current_tokens = getattr(self.market_data_worker, 'subscribed_tokens', set())
+
+            # Ensure current_tokens is a set (handle case where it might be a list)
+            if isinstance(current_tokens, list):
+                current_tokens = set(current_tokens)
+            elif not isinstance(current_tokens, set):
+                current_tokens = set()
+
+            # Add new tokens
             new_tokens = current_tokens.union(set(tokens))
-            self.market_data_worker.set_instruments(new_tokens)
-            logger.info(f"Added {len(tokens)} new tokens to subscription")
+
+            # Update subscription - convert to list
+            self.market_data_worker.set_instruments(list(new_tokens))
+            logger.info(f"Added {len(tokens)} new tokens to subscription (total: {len(new_tokens)})")
+
+        except Exception as e:
+            logger.error(f"Failed to subscribe to tokens: {e}")
 
     def _init_background_workers(self):
         """Initializes and starts background threads for data fetching."""
@@ -396,34 +471,34 @@ class SwingTraderWindow(QMainWindow):
         dialog.show()
 
     def _get_fresh_ltp(self, symbol: str) -> float:
-        """Get the most recent LTP for a symbol from multiple sources."""
+        """Enhanced LTP fetching with better fallback logic."""
         ltp = 0.0
 
-        # Try watchlist data first
-        if hasattr(self, 'watchlist') and hasattr(self.watchlist, '_tables'):
+        # Try watchlist data first (most up-to-date)
+        if hasattr(self.watchlist, '_tables'):
             for table in self.watchlist._tables.values():
-                if hasattr(table, 'get_watchlist_data'):
-                    watchlist_data = table.get_watchlist_data()
-                    if symbol in watchlist_data:
-                        ltp = watchlist_data[symbol].get('ltp', 0)
-                        if ltp > 0:
-                            logger.debug(f"LTP for {symbol} from watchlist: {ltp}")
-                            break
+                if hasattr(table, '_watchlist_data') and symbol in table._watchlist_data:
+                    ltp = table._watchlist_data[symbol].get('ltp', 0.0)
+                    if ltp > 0:
+                        logger.debug(f"LTP for {symbol} from watchlist: {ltp}")
+                        return ltp
 
         # Try scanner data
-        if not ltp and hasattr(self, 'chartink_scanner') and hasattr(self.chartink_scanner, '_symbol_data'):
+        if hasattr(self.chartink_scanner, '_symbol_data'):
             scanner_data = self.chartink_scanner._symbol_data.get(symbol, {})
             ltp = scanner_data.get('ltp', 0)
             if ltp > 0:
                 logger.debug(f"LTP for {symbol} from scanner: {ltp}")
+                return ltp
 
         # Try instrument map
-        if not ltp and symbol in self.instrument_map:
+        if symbol in self.instrument_map:
             ltp = self.instrument_map[symbol].get('last_price', 0)
             if ltp > 0:
                 logger.debug(f"LTP for {symbol} from instrument map: {ltp}")
+                return ltp
 
-        # Fallback to API quote (only if we have permission)
+        # Fallback to API quote (only if we have permission and real client)
         if not ltp and self.real_kite_client:
             try:
                 instrument_info = self.instrument_map.get(symbol, {})
@@ -431,13 +506,13 @@ class SwingTraderWindow(QMainWindow):
                 exchange = instrument_info.get('exchange', 'NSE')
 
                 if token:
-                    # Use the correct quote method format
                     quote_key = f"{exchange}:{symbol}"
                     quote = self.real_kite_client.quote([quote_key])
                     if quote_key in quote:
                         ltp = quote[quote_key].get('last_price', 0)
                         if ltp > 0:
                             logger.debug(f"LTP for {symbol} from Kite API: {ltp}")
+                            return ltp
             except Exception as e:
                 logger.warning(f"Failed to fetch LTP for {symbol} via Kite API: {e}")
 
@@ -807,7 +882,7 @@ class SwingTraderWindow(QMainWindow):
 
     @Slot(list)
     def _on_instruments_loaded(self, instruments: List[Dict]):
-        """Handles the fully loaded list of instruments."""
+        """Enhanced instrument loading with better watchlist integration."""
         logger.info(f"Successfully loaded {len(instruments)} instruments.")
         self.instrument_list = instruments
         self.instrument_map = {
@@ -818,50 +893,60 @@ class SwingTraderWindow(QMainWindow):
         self.header_toolbar.set_instrument_data(instruments)
         self.candlestick_chart.set_instrument_list(instruments)
         self.position_manager.set_instrument_data(instruments)
+
+        # Enhanced watchlist instrument map setting
         self.watchlist.set_instrument_map(self.instrument_map)
+
+        # Set for other components
         self.chartink_scanner.set_instrument_map(self.instrument_map)
         self.chartink_scanner.set_kite_client(self.real_kite_client)
 
+        # Set for paper trading manager
         if isinstance(self.trader, PaperTradingManager):
             self.trader.set_instrument_data(instruments)
 
-        self._on_websocket_connect()
+        # Trigger initial subscription after everything is set up
+        self._on_watchlist_changed()
 
     @Slot(list)
     def _on_market_data(self, ticks: List[Dict]):
-        """Distributes live market data ticks to all interested components."""
-        self.position_manager.update_pnl_from_market_data(ticks)
-        self.watchlist.update_data(ticks)
-        self.chartink_scanner.update_data(ticks)
-        self._check_alerts(ticks)
+        """Enhanced market data distribution with better logging."""
+        if not ticks:
+            return
 
-        # Pass ticks to the candlestick chart for live updates
-        if self.candlestick_chart and ticks:
-            self.candlestick_chart.update_live_data(ticks)
+        try:
+            # Update position manager
+            self.position_manager.update_pnl_from_market_data(ticks)
 
-        # Update risk manager with latest market data
-        if self.risk_manager:
-            # Calculate daily P&L from positions
-            try:
-                if self.trading_mode == 'paper':
-                    positions = self.trader.positions()
-                else:
-                    positions = self.real_kite_client.positions()
+            # Update watchlist with enhanced logging
+            self.watchlist.update_data(ticks)
 
-                daily_pnl = sum(pos.get('pnl', 0) for pos in positions.get('day', []))
-                self.risk_manager.update_daily_pnl(daily_pnl)
+            # Update scanner
+            self.chartink_scanner.update_data(ticks)
 
-            except Exception as e:
-                logger.debug(f"Could not update daily P&L: {e}")
+            # Check alerts
+            self._check_alerts(ticks)
 
-    @Slot(list)
-    def _subscribe_to_tokens(self, tokens: List[int]):
-        """Adds a list of instrument tokens to the WebSocket subscription."""
-        if self.market_data_worker and tokens:
-            current_tokens = getattr(self.market_data_worker, 'subscribed_tokens', set())
-            new_tokens = current_tokens.union(set(tokens))
-            self.market_data_worker.set_instruments(new_tokens)
-            logger.info(f"Added {len(tokens)} new tokens to subscription")
+            # Pass ticks to the candlestick chart for live updates
+            if self.candlestick_chart and ticks:
+                self.candlestick_chart.update_live_data(ticks)
+
+            # Update risk manager with latest market data
+            if self.risk_manager:
+                try:
+                    if self.trading_mode == 'paper':
+                        positions = self.trader.positions()
+                    else:
+                        positions = self.real_kite_client.positions()
+
+                    daily_pnl = sum(pos.get('pnl', 0) for pos in positions.get('day', []))
+                    self.risk_manager.update_daily_pnl(daily_pnl)
+
+                except Exception as e:
+                    logger.debug(f"Could not update daily P&L: {e}")
+
+        except Exception as e:
+            logger.error(f"Error processing market data: {e}")
 
     @Slot(dict)
     def _on_exit_position_requested(self, position_data: Dict[str, Any]):
@@ -995,10 +1080,8 @@ class SwingTraderWindow(QMainWindow):
         logger.info("Watchlist shortcuts initialized.")
 
     def _add_symbol_to_watchlist_from_chart(self, category: str):
-        """
-        Adds the currently charted symbol to the specified watchlist category.
-        """
-        current_symbol = self.candlestick_chart.current_symbol
+        """Enhanced symbol addition from chart with better validation."""
+        current_symbol = getattr(self.candlestick_chart, 'current_symbol', None)
 
         if not current_symbol:
             self._show_order_notification("No symbol is currently displayed on the chart.", "info")
@@ -1011,7 +1094,10 @@ class SwingTraderWindow(QMainWindow):
             )
             return
 
-        if self.watchlist.add_symbol(current_symbol, category):
+        # Add to watchlist
+        success = self.watchlist.add_symbol(current_symbol, category)
+
+        if success:
             self._show_order_notification(
                 f"Added '{current_symbol}' to '{category}' watchlist.", "success"
             )
@@ -1346,3 +1432,57 @@ class SwingTraderWindow(QMainWindow):
             self.showMaximized()
             self._is_maximized = True
             self.max_btn.setText("❐")
+
+    # Additional helper methods for better integration:
+
+    def enhance_market_data_worker_integration(market_data_worker):
+        """
+        Enhance the market data worker to better track subscribed tokens
+        Add this to your market_data_worker.py file or modify accordingly
+        """
+        if not hasattr(market_data_worker, 'subscribed_tokens'):
+            market_data_worker.subscribed_tokens = set()
+
+        # Override or enhance the set_instruments method
+        original_set_instruments = getattr(market_data_worker, 'set_instruments', None)
+
+        def enhanced_set_instruments(tokens):
+            """Enhanced set_instruments with better token tracking"""
+            if isinstance(tokens, (list, set)):
+                market_data_worker.subscribed_tokens = set(tokens)
+                logger.info(f"Market data worker subscribed to {len(tokens)} tokens")
+
+                if original_set_instruments:
+                    return original_set_instruments(list(tokens))
+            else:
+                logger.warning("Invalid tokens provided to set_instruments")
+
+        market_data_worker.set_instruments = enhanced_set_instruments
+
+    # Data validation utilities
+    def validate_watchlist_data(data: Dict[str, Any]) -> bool:
+        """Validate watchlist data structure"""
+        required_fields = ['tradingsymbol', 'instrument_token']
+
+        for field in required_fields:
+            if field not in data:
+                logger.warning(f"Missing required field {field} in watchlist data")
+                return False
+
+        return True
+
+    def format_volume_display(volume: int) -> str:
+        """Format volume for consistent display across the application"""
+        if volume >= 1000000:
+            return f"{volume / 1000000:.1f}M"
+        elif volume >= 1000:
+            return f"{volume / 1000:.0f}K"
+        else:
+            return str(volume)
+
+    def calculate_change_percentage(current_price: float, previous_close: float) -> float:
+        """Calculate percentage change with proper error handling"""
+        if previous_close <= 0 or current_price <= 0:
+            return 0.0
+
+        return ((current_price - previous_close) / previous_close) * 100
