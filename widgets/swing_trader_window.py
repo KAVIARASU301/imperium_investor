@@ -9,23 +9,23 @@ from PySide6.QtCore import Qt, QUrl, QByteArray, QTimer, Slot, QPoint
 from PySide6.QtMultimedia import QSoundEffect
 from PySide6.QtWidgets import QMainWindow, QSplitter, QMessageBox, QDialog, QWidget, QVBoxLayout, QHBoxLayout, \
     QPushButton, QLabel, QMenu
-from PySide6.QtGui import QMouseEvent, QAction, QKeySequence, QShortcut  # Added QKeySequence, QShortcut
+from PySide6.QtGui import QMouseEvent, QAction, QKeySequence, QShortcut
 
 from widgets.menu_bar import create_main_menu
 from tables.chartink_scanner_table import ChartinkScannerTable
 from tables.open_positions_table import OpenPositionsTable
 from tables.watchlist_table import TabbedWatchlistWidget
 from widgets.canvas_candlestick_chart import CandlestickChart as ChartWindow
-
 from widgets.header_toolbar import HeaderToolbar
 
 from dialogs.order_dialog import OrderDialog
 from dialogs.settings_dialog import SettingsDialog
-from dialogs.stock_alert_dialog import StockAlertDialog
-from dialogs.alert_logs_dialog import AlertLogsDialog
 from dialogs.order_history_dialog import OrderHistoryDialog
 from dialogs.pnl_history_dialog import PnlHistoryDialog
 from dialogs.performance_dialog import PerformanceDialog
+
+# Import the new advanced alert system
+from dialogs.alert_management_system import AlertSystemManager
 
 from utils.advanced_order_manager import AdvancedOrderManager, setup_advanced_order_manager
 from utils.risk_management import (
@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 class SwingTraderWindow(QMainWindow):
     """
     The main frameless window for the Swing Trader application with professional dark theme.
-    Now includes advanced order management, risk management, and enhanced trading features.
+    Now includes advanced order management, risk management, and enhanced alert system.
     """
 
     def __init__(self, trader: Union[KiteConnect, PaperTradingManager], real_kite_client: KiteConnect, api_key: str,
@@ -83,22 +83,88 @@ class SwingTraderWindow(QMainWindow):
         self.trade_analyzer = None
         self.trading_rules = None
 
+        # Advanced Alert System - Initialize early
+        self.alert_system = None
+        self.alert_sound = None
+
         # Setup frameless window
         self._setup_frameless_window()
 
         # UI Initialization
         self._setup_ui()
         self._setup_menu_bar()
-        self._connect_signals()
+
+        # Initialize alert system before other components
         self._init_alert_system()
+
+        # Initialize background workers
         self._init_background_workers()
+
+        # Connect signals after alert system is ready
+        self._connect_signals()
 
         # Initialize advanced components
         self._init_advanced_components()
-        self._setup_watchlist_shortcuts()  # Added this line for the new shortcuts
+        self._setup_watchlist_shortcuts()
 
         self._apply_dark_theme()
         self.restore_window_state()
+        logger.info("Swing Trader Window Initialized Successfully with Advanced Alert System.")
+
+        # Call this method after initialization to debug:
+        # Add this to the end of __init__ method temporarily:
+        QTimer.singleShot(2000, self.debug_alert_buttons)  # Debug after 2 seconds
+
+    # Add this debugging method to test the alert buttons:
+    def debug_alert_buttons(self):
+        """Debug method to test alert button functionality."""
+        logger.info("=== ALERT BUTTON DEBUG ===")
+
+        # Test header toolbar
+        if hasattr(self, 'header_toolbar'):
+            logger.info("✅ Header toolbar exists")
+
+            # Test alert buttons
+            if hasattr(self.header_toolbar, 'quick_alert_button'):
+                logger.info("✅ Quick alert button exists")
+
+                # Test manual click
+                try:
+                    if self.alert_system:
+                        self.alert_system.show_quick_alert_dialog()
+                        logger.info("✅ Manual alert dialog call successful")
+                    else:
+                        logger.error("❌ Alert system is None")
+                except Exception as e:
+                    logger.error(f"❌ Error calling alert dialog: {e}")
+            else:
+                logger.error("❌ Quick alert button missing")
+
+            if hasattr(self.header_toolbar, 'alert_manager_button'):
+                logger.info("✅ Alert manager button exists")
+            else:
+                logger.error("❌ Alert manager button missing")
+        else:
+            logger.error("❌ Header toolbar missing")
+
+        # Test alert system
+        if self.alert_system:
+            logger.info("✅ Alert system exists")
+
+            # Test methods
+            if hasattr(self.alert_system, 'show_quick_alert_dialog'):
+                logger.info("✅ show_quick_alert_dialog method exists")
+            else:
+                logger.error("❌ show_quick_alert_dialog method missing")
+
+            if hasattr(self.alert_system, 'show_alert_manager'):
+                logger.info("✅ show_alert_manager method exists")
+            else:
+                logger.error("❌ show_alert_manager method missing")
+        else:
+            logger.error("❌ Alert system missing")
+
+        logger.info("=== END DEBUG ===")
 
     def _init_advanced_components(self):
         """Initialize advanced order management and risk management components."""
@@ -162,7 +228,7 @@ class SwingTraderWindow(QMainWindow):
         main_layout.addWidget(self.title_bar)
 
         # Compact header toolbar
-        self.header_toolbar = HeaderToolbar(self, self)
+        self.header_toolbar = HeaderToolbar(self.trader, self)
         main_layout.addWidget(self.header_toolbar)
 
         # Main content splitter
@@ -175,19 +241,16 @@ class SwingTraderWindow(QMainWindow):
         self.watchlist = TabbedWatchlistWidget()
         self.positions_table = OpenPositionsTable()
 
-        # Layout: Scanner | Chart | Watchlist + Positions (stacked)
-        self.main_splitter.addWidget(self.chartink_scanner)
-        self.main_splitter.addWidget(self.candlestick_chart)
-
         # Right panel: Watchlist on top (60%), Positions on bottom (40%)
         right_panel_splitter = QSplitter(Qt.Orientation.Vertical)
         right_panel_splitter.addWidget(self.watchlist)
         right_panel_splitter.addWidget(self.positions_table)
-
-        # Set stretch factors: 60 for watchlist, 40 for positions
         right_panel_splitter.setStretchFactor(0, 3)  # index 0 -> watchlist
         right_panel_splitter.setStretchFactor(1, 2)  # index 1 -> positions
 
+        # Layout: Scanner | Chart | Watchlist + Positions (stacked)
+        self.main_splitter.addWidget(self.chartink_scanner)
+        self.main_splitter.addWidget(self.candlestick_chart)
         self.main_splitter.addWidget(right_panel_splitter)
         self.main_splitter.setSizes([200, 800, 330])
 
@@ -280,11 +343,43 @@ class SwingTraderWindow(QMainWindow):
         menu_actions["performance"].triggered.connect(self._show_performance_dialog)
         menu_actions["exit"].triggered.connect(self.close)
 
+    # 7. Enhanced error handling in _init_alert_system:
+    def _init_alert_system(self):
+        """Initialize the advanced alert management system."""
+        try:
+            # Initialize the alert system manager
+            self.alert_system = AlertSystemManager(self)
+            logger.info("Alert system manager created successfully")
+
+            # Initialize alert sound
+            self.alert_sound = QSoundEffect(self)
+            sound_file = os.path.join("assets", "alert.mp3")
+            if os.path.exists(sound_file):
+                self.alert_sound.setSource(QUrl.fromLocalFile(sound_file))
+                self.alert_sound.setVolume(1.0)
+                logger.info("Alert sound loaded successfully")
+            else:
+                logger.warning(f"Alert sound file not found at {sound_file}")
+
+            # Connect alert system signals
+            if hasattr(self.alert_system, 'alert_sound_requested'):
+                self.alert_system.alert_sound_requested.connect(self._play_alert_sound)
+                logger.info("Alert sound signal connected")
+            else:
+                logger.warning("Alert system missing alert_sound_requested signal")
+
+            logger.info("Advanced alert system initialized successfully")
+
+        except Exception as e:
+            logger.error(f"Failed to initialize alert system: {e}")
+            self.alert_system = None
+            # Don't let this stop the app from loading
+            return
+
     def _connect_signals(self):
         """Central place to connect all signals and slots across the application."""
+        # Header toolbar connections
         self.header_toolbar.symbol_selected.connect(self.candlestick_chart.on_search)
-        self.header_toolbar.add_alert_requested.connect(self._show_add_alert_dialog)
-        self.header_toolbar.alert_logs_requested.connect(self._show_alert_logs_dialog)
 
         # Connect the order_button_clicked signal from candlestick_chart
         self.candlestick_chart.order_button_clicked.connect(self._show_advanced_order_dialog)
@@ -312,102 +407,98 @@ class SwingTraderWindow(QMainWindow):
 
         # Enhanced watchlist change handling
         self.watchlist.watchlist_changed.connect(self._on_watchlist_changed)
+
         # Chartink scanner connections
         self.chartink_scanner.subscribe_tokens_requested.connect(self._subscribe_to_tokens)
 
-    def _show_advanced_order_dialog_from_dict(self, order_data: Dict[str, Any]):
-        """Show advanced order dialog from watchlist context menu."""
-        symbol = order_data.get('tradingsymbol', '')
-        transaction_type = order_data.get('transaction_type', 'BUY')
-
-        if symbol:
-            # Get fresh LTP
-            ltp = self._get_fresh_ltp(symbol)
-
-            # Create enhanced order dialog with pre-filled data
-            dialog = OrderDialog(self, symbol, ltp, order_data)
-
-            # Set the transaction type in the dialog
-            if hasattr(dialog, 'toggle_switch'):
-                dialog.toggle_switch.set_buy_mode(transaction_type == 'BUY')
-
-            # Connect signals
-            dialog.order_placed.connect(self._handle_order_placement)
-            dialog.bracket_order_placed.connect(self._handle_bracket_order_placement)
-
-            dialog.show()
-
-    @Slot()
-    def _on_watchlist_changed(self):
-        """Enhanced watchlist change handler with better token management."""
-        logger.info("Watchlist changed - updating subscriptions")
-
-        # Get all tokens from all components
-        all_tokens = set()
-
-        # Add watchlist tokens
-        watchlist_tokens = self.watchlist.get_all_tokens()
-        all_tokens.update(watchlist_tokens)
-
-        # Add position tokens
-        if hasattr(self.positions_table, 'get_all_tokens'):
-            all_tokens.update(self.positions_table.get_all_tokens())
-
-        # Add scanner tokens
-        if hasattr(self.chartink_scanner, 'get_all_tokens'):
-            all_tokens.update(self.chartink_scanner.get_all_tokens())
-
-        # Add alert tokens
-        all_tokens.update(self._get_alert_tokens())
-
-        # Update market data worker subscription
-        if self.market_data_worker and all_tokens:
-            self.market_data_worker.set_instruments(list(all_tokens))
-            logger.info(f"Updated subscription to {len(all_tokens)} tokens")
-
-    @Slot()
-    def _on_websocket_connect(self):
-        """Consolidates all subscription requests and sends them to the worker."""
-        logger.info("WebSocket connected/changed. Subscribing to all required tokens.")
-        all_tokens = set()
-        all_tokens.update(self.positions_table.get_all_tokens())
-        all_tokens.update(self.watchlist.get_all_tokens())
-        all_tokens.update(self.chartink_scanner.get_all_tokens())
-        all_tokens.update(self._get_alert_tokens())
-
-        if all_tokens:
-            # Convert to list before passing to set_instruments
-            self.market_data_worker.set_instruments(list(all_tokens))
-            logger.info(f"Subscribed to {len(all_tokens)} instrument tokens")
-
-    @Slot(list)
-    def _subscribe_to_tokens(self, tokens: List[int]):
-        """Enhanced token subscription with better handling."""
-        if not self.market_data_worker or not tokens:
-            return
-
+        # Alert system connections - with better error handling
         try:
-            # Get current subscribed tokens and ensure it's a set
-            current_tokens = getattr(self.market_data_worker, 'subscribed_tokens', set())
+            if self.alert_system:
+                self.header_toolbar.add_alert_requested.connect(self.alert_system.show_quick_alert_dialog)
+                self.header_toolbar.alert_manager_requested.connect(self.alert_system.show_alert_manager)
 
-            # Ensure current_tokens is a set (handle case where it might be a list)
-            if isinstance(current_tokens, list):
-                current_tokens = set(current_tokens)
-            elif not isinstance(current_tokens, set):
-                current_tokens = set()
+                # Connect alert logs if the signal exists
+                if hasattr(self.header_toolbar, 'alert_logs_requested'):
+                    self.header_toolbar.alert_logs_requested.connect(self._show_alert_history)
 
-            # Add new tokens
-            new_tokens = current_tokens.union(set(tokens))
-
-            # Update subscription - convert to list
-            self.market_data_worker.set_instruments(list(new_tokens))
-            logger.info(f"Added {len(tokens)} new tokens to subscription (total: {len(new_tokens)})")
+                logger.info("Alert system signals connected successfully")
+            else:
+                # Provide fallback handlers for when alert system is not available
+                self.header_toolbar.add_alert_requested.connect(self._alert_system_unavailable)
+                self.header_toolbar.alert_manager_requested.connect(self._alert_system_unavailable)
+                logger.warning("Alert system not available - connected fallback handlers")
 
         except Exception as e:
-            logger.error(f"Failed to subscribe to tokens: {e}")
+            logger.error(f"Failed to connect alert signals: {e}")
+            # Connect fallback handlers
+            self.header_toolbar.add_alert_requested.connect(self._alert_system_unavailable)
+            self.header_toolbar.alert_manager_requested.connect(self._alert_system_unavailable)
+
+        # Chart alert connections
+        if self.alert_system and hasattr(self.candlestick_chart, 'alert_creation_requested'):
+            self.candlestick_chart.alert_creation_requested.connect(self.alert_system.create_alert_from_chart)
+
+        if self.alert_system and hasattr(self.candlestick_chart, 'order_dialog_requested'):
+            self.candlestick_chart.order_dialog_requested.connect(self._handle_chart_order_request)
+
+        # Update alert badges periodically
+        self.alert_update_timer = QTimer(self)
+        self.alert_update_timer.timeout.connect(self._update_alert_badges)
+        self.alert_update_timer.start(30000)  # Update every 30 seconds
+
+    def _alert_system_unavailable(self):
+        """Fallback handler when alert system is not available."""
+        from PySide6.QtWidgets import QMessageBox
+        QMessageBox.warning(
+            self,
+            "Alert System Unavailable",
+            "The alert system is currently unavailable. Please check the logs for initialization errors."
+        )
+
+    def _show_alert_history(self):
+        """Show alert history dialog."""
+        if self.alert_system:
+            try:
+                # Show the main alert manager with history tab selected
+                self.alert_system.show_alert_manager()
+                if hasattr(self.alert_system.alert_manager_dialog, 'tab_widget'):
+                    self.alert_system.alert_manager_dialog.tab_widget.setCurrentIndex(2)  # History tab
+            except Exception as e:
+                logger.error(f"Error showing alert history: {e}")
+                self._alert_system_unavailable()
+        else:
+            self._alert_system_unavailable()
+
+    #Enhanced debugging - add this method for testing:
+    def test_alert_connections(self):
+        """Test method to verify alert connections - call this after initialization."""
+        logger.info("Testing alert system connections...")
+
+        # Test if alert system exists
+        if not self.alert_system:
+            logger.error("❌ Alert system is None")
+            return False
+
+        # Test if header toolbar exists and has the right signals
+        if not hasattr(self.header_toolbar, 'add_alert_requested'):
+            logger.error("❌ Header toolbar missing add_alert_requested signal")
+            return False
+
+        # Test if alert system has the right methods
+        if not hasattr(self.alert_system, 'show_quick_alert_dialog'):
+            logger.error("❌ Alert system missing show_quick_alert_dialog method")
+            return False
+
+        if not hasattr(self.alert_system, 'show_alert_manager'):
+            logger.error("❌ Alert system missing show_alert_manager method")
+            return False
+
+        logger.info("✅ All alert system connections verified")
+        return True
 
     def _init_background_workers(self):
         """Initializes and starts background threads for data fetching."""
+        # Initialize instrument loader
         self.instrument_loader = InstrumentLoader(self.real_kite_client)
         self.instrument_loader.instruments_loaded.connect(self._on_instruments_loaded)
         self.instrument_loader.error_occurred.connect(
@@ -415,22 +506,58 @@ class SwingTraderWindow(QMainWindow):
         )
         self.instrument_loader.start()
 
+        # Initialize market data worker
         self.market_data_worker = MarketDataWorker(self.api_key, self.access_token)
         self.market_data_worker.data_received.connect(self._on_market_data)
         self.market_data_worker.connection_established.connect(self._on_websocket_connect)
         self.market_data_worker.start()
 
-    def _init_alert_system(self):
-        """Loads alerts from file and sets up the alert sound."""
-        self.alerts = self._load_json("user_data/alerts.json", [])
-        self.triggered_alerts = self._load_json("user_data/alert_history.json", [])
-        self.alert_sound = QSoundEffect(self)
-        sound_file = os.path.join("icons", "notify.wav")
-        if os.path.exists(sound_file):
-            self.alert_sound.setSource(QUrl.fromLocalFile(sound_file))
-            self.alert_sound.setVolume(0.7)
-        else:
-            logger.warning(f"Alert sound file not found at {sound_file}")
+    # ======================
+    # ALERT SYSTEM METHODS
+    # ======================
+
+    @Slot()
+    def _play_alert_sound(self):
+        """Play alert notification sound."""
+        if self.alert_sound:
+            self.alert_sound.play()
+
+    @Slot()
+    def _update_alert_badges(self):
+        """Update alert notification badges in header toolbar."""
+        if self.alert_system and hasattr(self.header_toolbar, 'update_alert_counts'):
+            try:
+                active_count, triggered_today = self.alert_system.get_notification_counts()
+                self.header_toolbar.update_alert_counts(active_count, triggered_today)
+            except Exception as e:
+                logger.debug(f"Error updating alert badges: {e}")
+
+    @Slot(str)
+    def _handle_chart_order_request(self, order_data_json: str):
+        """Handle order dialog request from chart."""
+        try:
+            order_data = json.loads(order_data_json)
+            symbol = order_data.get('symbol', '')
+            price = order_data.get('price', 0.0)
+
+            if symbol and price > 0:
+                self._show_advanced_order_dialog(symbol, price)
+            else:
+                logger.warning(f"Invalid order request data: {order_data}")
+
+        except (json.JSONDecodeError, Exception) as e:
+            logger.error(f"Error processing chart order request: {e}")
+
+    def _get_alert_tokens(self) -> List[int]:
+        """Get all instrument tokens needed for active alerts."""
+        if not self.alert_system:
+            return []
+
+        try:
+            return self.alert_system.get_active_alert_tokens()
+        except Exception as e:
+            logger.debug(f"Error getting alert tokens: {e}")
+            return []
 
     # ======================
     # ADVANCED ORDER MANAGEMENT
@@ -565,7 +692,7 @@ class SwingTraderWindow(QMainWindow):
                     self._refresh_positions_table()
             else:
                 # Fallback to direct trader with all required parameters
-                self._place_order_direct(complete_order_data)
+                order_id = self._place_order_direct(complete_order_data)
 
             if order_id:
                 # Log order placement immediately
@@ -630,8 +757,7 @@ class SwingTraderWindow(QMainWindow):
 
             if order_id:
                 self.trade_logger.log_order_placement(order_data, order_id)
-                self._show_order_notification(f"Order placed: {order_id}", "success")
-                self._refresh_positions_table()
+                return order_id
 
         except Exception as e:
             logger.error(f"Direct order placement failed: {e}")
@@ -873,16 +999,20 @@ class SwingTraderWindow(QMainWindow):
                 if self.risk_manager:
                     self.risk_manager.update_positions(positions)
 
+                # Update alert system with new positions
+                if self.alert_system:
+                    self.alert_system.update_positions(positions)
+
             except Exception as e:
                 logger.error(f"Failed to refresh positions: {e}")
 
     # ======================
-    # EXISTING METHODS (UNCHANGED)
+    # EXISTING METHODS (ENHANCED WITH ALERT INTEGRATION)
     # ======================
 
     @Slot(list)
     def _on_instruments_loaded(self, instruments: List[Dict]):
-        """Enhanced instrument loading with better watchlist integration."""
+        """Enhanced instrument loading with alert system integration."""
         logger.info(f"Successfully loaded {len(instruments)} instruments.")
         self.instrument_list = instruments
         self.instrument_map = {
@@ -905,12 +1035,16 @@ class SwingTraderWindow(QMainWindow):
         if isinstance(self.trader, PaperTradingManager):
             self.trader.set_instrument_data(instruments)
 
+        # Update alert system with instrument map
+        if self.alert_system:
+            self.alert_system.set_instrument_map(self.instrument_map)
+
         # Trigger initial subscription after everything is set up
         self._on_watchlist_changed()
 
     @Slot(list)
     def _on_market_data(self, ticks: List[Dict]):
-        """Enhanced market data distribution with better logging."""
+        """Enhanced market data distribution with alert system integration."""
         if not ticks:
             return
 
@@ -924,8 +1058,9 @@ class SwingTraderWindow(QMainWindow):
             # Update scanner
             self.chartink_scanner.update_data(ticks)
 
-            # Check alerts
-            self._check_alerts(ticks)
+            # Update alert system with live market data
+            if self.alert_system:
+                self.alert_system.update_market_data(ticks)
 
             # Pass ticks to the candlestick chart for live updates
             if self.candlestick_chart and ticks:
@@ -947,6 +1082,86 @@ class SwingTraderWindow(QMainWindow):
 
         except Exception as e:
             logger.error(f"Error processing market data: {e}")
+
+    @Slot()
+    def _on_watchlist_changed(self):
+        """Enhanced watchlist change handler with alert token management."""
+        logger.info("Watchlist changed - updating subscriptions")
+
+        # Get all tokens from all components
+        all_tokens = set()
+
+        # Add watchlist tokens
+        watchlist_tokens = self.watchlist.get_all_tokens()
+        all_tokens.update(watchlist_tokens)
+
+        # Add position tokens
+        if hasattr(self.positions_table, 'get_all_tokens'):
+            all_tokens.update(self.positions_table.get_all_tokens())
+
+        # Add scanner tokens
+        if hasattr(self.chartink_scanner, 'get_all_tokens'):
+            all_tokens.update(self.chartink_scanner.get_all_tokens())
+
+        # Add alert tokens
+        alert_tokens = self._get_alert_tokens()
+        all_tokens.update(alert_tokens)
+
+        # Update market data worker subscription
+        if self.market_data_worker and all_tokens:
+            self.market_data_worker.set_instruments(list(all_tokens))
+            logger.info(
+                f"Updated subscription to {len(all_tokens)} tokens (including {len(alert_tokens)} alert tokens)")
+
+    @Slot()
+    def _on_websocket_connect(self):
+        """Consolidates all subscription requests including alerts."""
+        logger.info("WebSocket connected/changed. Subscribing to all required tokens.")
+        all_tokens = set()
+
+        all_tokens.update(self.positions_table.get_all_tokens())
+        all_tokens.update(self.watchlist.get_all_tokens())
+        all_tokens.update(self.chartink_scanner.get_all_tokens())
+
+        # Include alert tokens
+        alert_tokens = self._get_alert_tokens()
+        all_tokens.update(alert_tokens)
+
+        if all_tokens:
+            # Convert to list before passing to set_instruments
+            self.market_data_worker.set_instruments(list(all_tokens))
+            logger.info(f"Subscribed to {len(all_tokens)} instrument tokens (including {len(alert_tokens)} for alerts)")
+
+    @Slot(list)
+    def _subscribe_to_tokens(self, tokens: List[int]):
+        """Enhanced token subscription with alert token integration."""
+        if not self.market_data_worker or not tokens:
+            return
+
+        try:
+            # Get current subscribed tokens and ensure it's a set
+            current_tokens = getattr(self.market_data_worker, 'subscribed_tokens', set())
+
+            # Ensure current_tokens is a set (handle case where it might be a list)
+            if isinstance(current_tokens, list):
+                current_tokens = set(current_tokens)
+            elif not isinstance(current_tokens, set):
+                current_tokens = set()
+
+            # Add new tokens
+            new_tokens = current_tokens.union(set(tokens))
+
+            # Also include alert tokens
+            alert_tokens = self._get_alert_tokens()
+            new_tokens.update(alert_tokens)
+
+            # Update subscription - convert to list
+            self.market_data_worker.set_instruments(list(new_tokens))
+            logger.info(
+                f"Added {len(tokens)} new tokens to subscription (total: {len(new_tokens)}, alerts: {len(alert_tokens)})")
+
+        except Exception as e:
+            logger.error(f"Failed to subscribe to tokens: {e}")
 
     @Slot(dict)
     def _on_exit_position_requested(self, position_data: Dict[str, Any]):
@@ -984,6 +1199,28 @@ class SwingTraderWindow(QMainWindow):
         dialog.order_placed.connect(self._handle_order_placement)
         dialog.show()
 
+    def _show_advanced_order_dialog_from_dict(self, order_data: Dict[str, Any]):
+        """Show advanced order dialog from watchlist context menu."""
+        symbol = order_data.get('tradingsymbol', '')
+        transaction_type = order_data.get('transaction_type', 'BUY')
+
+        if symbol:
+            # Get fresh LTP
+            ltp = self._get_fresh_ltp(symbol)
+
+            # Create enhanced order dialog with pre-filled data
+            dialog = OrderDialog(self, symbol, ltp, order_data)
+
+            # Set the transaction type in the dialog
+            if hasattr(dialog, 'toggle_switch'):
+                dialog.toggle_switch.set_buy_mode(transaction_type == 'BUY')
+
+            # Connect signals
+            dialog.order_placed.connect(self._handle_order_placement)
+            dialog.bracket_order_placed.connect(self._handle_bracket_order_placement)
+
+            dialog.show()
+
     # Dialog methods
     def _show_settings_dialog(self):
         dialog = SettingsDialog(self)
@@ -1012,20 +1249,6 @@ class SwingTraderWindow(QMainWindow):
 
         dialog = PerformanceDialog(self)
         dialog.update_metrics(metrics)
-        dialog.exec()
-
-    def _show_add_alert_dialog(self):
-        dialog = StockAlertDialog(self)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            alert_data = dialog.get_data()
-            alert_data['triggered'] = False
-            self.alerts.append(alert_data)
-            self._save_json("user_data/alerts.json", self.alerts)
-            self._subscribe_to_tokens(self._get_alert_tokens())
-
-    def _show_alert_logs_dialog(self):
-        self.header_toolbar.set_alert_active(False)
-        dialog = AlertLogsDialog(self.triggered_alerts, self)
         dialog.exec()
 
     # ======================
@@ -1105,66 +1328,6 @@ class SwingTraderWindow(QMainWindow):
             self._show_order_notification(
                 f"Failed to add '{current_symbol}' to '{category}' watchlist (may already exist).", "info"
             )
-
-    # ======================
-    # ALERT SYSTEM METHODS
-    # ======================
-
-    def _get_alert_tokens(self) -> List[int]:
-        """Returns a list of tokens for all active, untriggered alerts."""
-        active_alerts = [a for a in self.alerts if not a.get('triggered')]
-        return [
-            self.instrument_map[alert['symbol']]['instrument_token']
-            for alert in active_alerts
-            if alert.get('symbol') in self.instrument_map
-        ]
-
-    def _check_alerts(self, ticks: List[Dict]):
-        """Checks incoming ticks against active alerts."""
-        if not self.instrument_map:
-            return
-
-        an_alert_was_triggered = False
-        for tick in ticks:
-            token = tick['instrument_token']
-            ltp = tick.get('last_price')
-            if ltp is None:
-                continue
-
-            for alert in self.alerts:
-                if alert.get('triggered'):
-                    continue
-
-                alert_token = self.instrument_map.get(alert['symbol'], {}).get('instrument_token')
-                if alert_token == token:
-                    price_threshold = float(alert['price'])
-                    is_above = ltp >= price_threshold
-                    is_below = ltp <= price_threshold
-
-                    if (alert['condition'].startswith("Crosses Above") and is_above) or \
-                            (alert['condition'].startswith("Crosses Below") and is_below):
-                        alert['triggered'] = True
-                        self._trigger_alert_actions(alert, ltp)
-                        an_alert_was_triggered = True
-
-        if an_alert_was_triggered:
-            self._save_json("user_data/alerts.json", self.alerts)
-
-    def _trigger_alert_actions(self, alert_data: Dict, trigger_price: float):
-        """Handles all actions for a triggered alert."""
-        self.alert_sound.play()
-        self.header_toolbar.set_alert_active(True)
-
-        triggered_entry = {
-            "symbol": alert_data['symbol'],
-            "price": trigger_price,
-            "note": alert_data.get('note', ''),
-            "condition": alert_data['condition'].replace("Crosses", "Crossed"),
-            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        }
-        self.triggered_alerts.append(triggered_entry)
-        self._save_json("user_data/alert_history.json", self.triggered_alerts, backup=True)
-        logger.info(f"Alert Triggered: {triggered_entry}")
 
     # ======================
     # THEME APPLICATION
@@ -1378,6 +1541,17 @@ class SwingTraderWindow(QMainWindow):
 
         if hasattr(self.chartink_scanner, '_update_timer'):
             self.chartink_scanner._update_timer.stop()
+
+        # Stop alert system
+        if self.alert_system:
+            try:
+                self.alert_system.stop_engine()
+            except Exception as e:
+                logger.error(f"Error stopping alert system: {e}")
+
+        # Stop alert update timer
+        if hasattr(self, 'alert_update_timer'):
+            self.alert_update_timer.stop()
 
         if self.market_data_worker:
             # Disconnect signals to prevent "Signal source has been deleted" errors during shutdown.

@@ -221,3 +221,57 @@ class PositionManager(QObject):
     def get_realized_day_pnl(self) -> float:
         """Returns the total profit or loss from all closed trades today."""
         return self.realized_day_pnl
+
+    def get_positions_dict(self) -> Dict[str, Any]:
+        """
+        Returns positions in dictionary format for alert system integration.
+        Expected by AlertSystemManager for position-aware alert suggestions.
+        """
+        positions_dict = {}
+
+        for symbol, position in self._positions.items():
+            positions_dict[symbol] = {
+                'tradingsymbol': position.tradingsymbol,
+                'quantity': position.quantity,
+                'average_price': position.average_price,
+                'ltp': position.ltp,
+                'pnl': position.pnl,
+                'product': position.product,
+                'exchange': position.exchange,
+                'transaction_type': 'BUY' if position.quantity > 0 else 'SELL'
+            }
+
+        return positions_dict
+
+    # Also add this helper method for better integration
+    def has_position(self, symbol: str) -> bool:
+        """Check if a position exists for the given symbol."""
+        return symbol in self._positions
+
+    def get_position_by_symbol(self, symbol: str) -> Optional[Position]:
+        """Get position object for a specific symbol."""
+        return self._positions.get(symbol)
+
+    def get_position_summary(self) -> Dict[str, Any]:
+        """Get summary statistics about current positions."""
+        if not self._positions:
+            return {
+                'total_positions': 0,
+                'long_positions': 0,
+                'short_positions': 0,
+                'total_unrealized_pnl': 0.0,
+                'total_investment': 0.0
+            }
+
+        long_count = sum(1 for pos in self._positions.values() if pos.quantity > 0)
+        short_count = sum(1 for pos in self._positions.values() if pos.quantity < 0)
+        total_unrealized = sum(pos.pnl for pos in self._positions.values())
+        total_investment = sum(abs(pos.quantity * pos.average_price) for pos in self._positions.values())
+
+        return {
+            'total_positions': len(self._positions),
+            'long_positions': long_count,
+            'short_positions': short_count,
+            'total_unrealized_pnl': total_unrealized,
+            'total_investment': total_investment
+        }
