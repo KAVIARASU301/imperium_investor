@@ -2,14 +2,13 @@ import logging
 import os
 import json
 import shutil
-from datetime import datetime
 from typing import List, Dict, Union, Any
 
-from PySide6.QtCore import Qt, QUrl, QByteArray, QTimer, Slot, QPoint
+from PySide6.QtCore import Qt, QUrl, QByteArray, QTimer, Slot
 from PySide6.QtMultimedia import QSoundEffect
 from PySide6.QtWidgets import QMainWindow, QSplitter, QMessageBox, QDialog, QWidget, QVBoxLayout, QHBoxLayout, \
-    QPushButton, QLabel, QMenu
-from PySide6.QtGui import QMouseEvent, QAction, QKeySequence, QShortcut
+    QPushButton, QLabel
+from PySide6.QtGui import QMouseEvent, QKeySequence, QShortcut
 
 from widgets.menu_bar import create_main_menu
 from tables.chartink_scanner_table import ChartinkScannerTable
