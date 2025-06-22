@@ -13,7 +13,8 @@ from PySide6.QtWidgets import (
     QDialog, QLineEdit, QDialogButtonBox, QFormLayout, QGroupBox, QScrollArea,
     QFrame, QSpacerItem, QSizePolicy, QTextEdit
 )
-from PySide6.QtGui import QColor, QFont, QPalette, QIcon
+from PySide6.QtGui import QColor, QFont, QPalette, QIcon, QBrush
+from PySide6.QtCore import QItemSelectionModel
 
 logger = logging.getLogger(__name__)
 SCAN_URL_FILE = os.path.join(os.path.expanduser("~/.swing_trader"), "chartink_scans.json")
@@ -781,6 +782,8 @@ class ChartinkScannerTable(QWidget):
         main_layout.addWidget(self.table)
 
         self.table.cellClicked.connect(self._on_cell_clicked)
+        self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.table.setFocus()
 
     def _create_header(self) -> QWidget:
         """Creates the enhanced header with improved styling."""
@@ -846,6 +849,7 @@ class ChartinkScannerTable(QWidget):
 
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setShowGrid(False)
         self.table.setAlternatingRowColors(True)
@@ -975,7 +979,11 @@ class ChartinkScannerTable(QWidget):
         color = profit_color if change_pct > 0 else (loss_color if change_pct < 0 else neutral_color)
 
         ltp_item.setForeground(color)
-        change_pct_item.setForeground(color) # Apply color coding to %Chg
+        change_pct_item.setForeground(color)         # Force selection background color using QBrush
+        ltp_item.setBackground(QBrush(QColor(30, 30, 30)))
+        change_pct_item.setBackground(QBrush(QColor(30, 30, 30)))
+        volume_item.setBackground(QBrush(QColor(30, 30, 30)))
+        # Apply color coding to %Chg
         volume_item.setForeground(neutral_color) # Volume usually neutral
 
         # Alignments
@@ -1040,6 +1048,16 @@ class ChartinkScannerTable(QWidget):
                 if self._kite_client:
                     self._update_timer.start()
                     QTimer.singleShot(2000, self._fetch_quote_data) # Fetch initial data quicker
+
+
+                if self.table.rowCount() > 0:
+                    index = self.table.model().index(0, 0)
+                    self.table.selectionModel().select(
+                        index,
+                        QItemSelectionModel.Select | QItemSelectionModel.Rows
+                    )
+                    self.table.setCurrentCell(0, 0)
+                    self.table.setFocus()
 
         logger.info(f"Scanner table updated with {len(symbols)} symbols.")
         self.scan_dropdown.setEnabled(True)
@@ -1417,7 +1435,6 @@ class ChartinkScannerTable(QWidget):
             }
             QTableWidget::item:selected {
                 background-color: rgba(74, 122, 191, 0.2); /* Softer blue selection with transparency */
-                color: #ffffff;
                 font-weight: 600;
             }
             QTableWidget::item:alternate {

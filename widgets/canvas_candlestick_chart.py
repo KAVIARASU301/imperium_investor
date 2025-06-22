@@ -464,16 +464,18 @@ class ChartBridge(QObject):
     """
     drawings_changed = Signal(str)  # Emits JSON string of drawings
     visible_candle_count_changed = Signal(int)  # Emits updated visible candle count
+    chart_ready = Signal() # Signal emitted when JS chart is fully initialized and window.chart is set.
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.webChannelInitialized = False # <--- ADDED THIS LINE
 
     @Slot(str)
     def notify_drawings_changed(self, drawings_json: str):
         """Receives drawing data as a JSON string from JavaScript."""
         try:
             # Validate JSON before emitting
-            json.loads(drawings_json)  # This will raise exception if invalid
+            json.loads(drawings_json)
             self.drawings_changed.emit(drawings_json)
         except json.JSONDecodeError as e:
             logger.error(f"Invalid JSON received from JavaScript: {e}")
@@ -490,6 +492,13 @@ class ChartBridge(QObject):
                 logger.warning(f"Invalid candle count received: {count}")
         except Exception as e:
             logger.error(f"Error in notify_visible_candle_count_changed: {e}")
+
+    @Slot()
+    def set_web_channel_initialized(self):
+        """Called by JavaScript to confirm WebChannel is fully set up."""
+        self.webChannelInitialized = True
+        logger.debug("Python ChartBridge.webChannelInitialized set to True and chart_ready emitted.")
+        self.chart_ready.emit() # This emits the signal that CandlestickChart listens to
 
 
 class CandlestickChart(QWidget):
@@ -526,21 +535,33 @@ class CandlestickChart(QWidget):
         self._current_up_color: str = self.global_chart_settings["up_candle_color"]
         self._current_down_color: str = self.global_chart_settings["down_candle_color"]
 
+        # SMA data storage
+        self.sma_data = {
+            'sma10': [],
+            'sma20': [],
+            'sma50': []
+        }
+        self.current_adr: Dict[str, float] = {"value": 0.0, "percent": 0.0} # Changed to dict for value and percent
+        self.percentage_changes: Dict[str, float] = {} # Store percentage changes
+
         # Drawing state
         self.current_drawing_color = "#FFD700"
         self.current_line_width = 2
 
         # QtWebChannel setup
-        self.chart_bridge = ChartBridge()
+        # Important: Pass self as parent to ChartBridge so it can access _delete_selected_drawing
+        self.chart_bridge = ChartBridge(parent=self)
         self.chart_bridge.drawings_changed.connect(self._on_drawings_changed_from_js)
         self.chart_bridge.visible_candle_count_changed.connect(self._on_zoom_changed_from_js)
+        # We connect _apply_saved_drawings_and_zoom to chart_ready signal (emitted by set_web_channel_initialized)
+        self.chart_bridge.chart_ready.connect(self._on_js_chart_fully_ready)
+
 
         # UI components
         self.chart_view: Optional[QWebEngineView] = None
-        self.channel: Optional[QWebChannel] = None  # Declare channel here
+        self.channel: Optional[QWebChannel] = None
         self.timeframe_buttons: Dict[str, QPushButton] = {}
         self.drawing_buttons: Dict[str, QPushButton] = {}
-        # References for specific toolbar buttons, set in _setup_ui
         self.auto_scale_btn: Optional[QPushButton] = None
         self.refresh_button: Optional[QPushButton] = None
         self.settings_btn: Optional[QPushButton] = None
@@ -550,12 +571,21 @@ class CandlestickChart(QWidget):
         self.save_drawings_btn: Optional[QPushButton] = None
         self.clear_drawings_btn: Optional[QPushButton] = None
 
+
         self._setup_ui()
         self._apply_styles()
         self._setup_keyboard_shortcuts()
 
         # Initialize chart after UI is ready
         QTimer.singleShot(100, self._initialize_chart)
+
+    @Slot()
+    def _on_js_chart_fully_ready(self):
+        """This slot is now connected to chart_ready signal emitted by ChartBridge.set_web_channel_initialized."""
+        logger.info("JavaScript chart object reported ready via chart_ready signal.")
+        # Now it is safe to apply saved drawings and zoom
+        self._apply_saved_drawings_and_zoom()
+
 
     def _setup_ui(self):
         """Setup the main UI layout"""
@@ -565,8 +595,8 @@ class CandlestickChart(QWidget):
 
         # Combined toolbar (formerly main_toolbar + drawing_toolbar)
         self.combined_toolbar = QFrame()
-        self.combined_toolbar.setObjectName("chartToolbar")  # Reusing style object name
-        self.combined_toolbar.setFixedHeight(40)  # Fixed height for the single line
+        self.combined_toolbar.setObjectName("chartToolbar")
+        self.combined_toolbar.setFixedHeight(40)
 
         toolbar_layout = QHBoxLayout(self.combined_toolbar)
         toolbar_layout.setContentsMargins(10, 5, 10, 5)
@@ -580,7 +610,7 @@ class CandlestickChart(QWidget):
         self.symbol_info_label.setFont(font)
         toolbar_layout.addWidget(self.symbol_info_label)
 
-        toolbar_layout.addStretch()  # Pushes elements to the right
+        toolbar_layout.addStretch()
 
         # Order button
         self.order_btn = QPushButton("Order")
@@ -592,7 +622,7 @@ class CandlestickChart(QWidget):
         # Auto Scale button (now "A" and compact)
         self.auto_scale_btn = QPushButton("A")
         self.auto_scale_btn.setObjectName("controlButton")
-        self.auto_scale_btn.setFixedSize(30, 30)  # Very compact
+        self.auto_scale_btn.setFixedSize(30, 30)
         self.auto_scale_btn.setToolTip("Auto Scale (Ctrl+A)")
         self.auto_scale_btn.clicked.connect(self._auto_scale_chart)
         toolbar_layout.addWidget(self.auto_scale_btn)
@@ -600,7 +630,7 @@ class CandlestickChart(QWidget):
         # Refresh button
         self.refresh_button = QPushButton("⟳")
         self.refresh_button.setObjectName("refreshButton")
-        self.refresh_button.setFixedSize(30, 30)  # Very compact
+        self.refresh_button.setFixedSize(30, 30)
         self.refresh_button.setToolTip("Refresh Data (F5)")
         self.refresh_button.clicked.connect(self._force_refresh)
         toolbar_layout.addWidget(self.refresh_button)
@@ -608,7 +638,7 @@ class CandlestickChart(QWidget):
         # Settings button
         self.settings_btn = QPushButton("⚙️")
         self.settings_btn.setObjectName("controlButton")
-        self.settings_btn.setFixedSize(30, 30)  # Very compact
+        self.settings_btn.setFixedSize(30, 30)
         self.settings_btn.setToolTip("Chart Settings")
         self.settings_btn.clicked.connect(self._open_settings_dialog)
         toolbar_layout.addWidget(self.settings_btn)
@@ -625,7 +655,7 @@ class CandlestickChart(QWidget):
             btn = QPushButton(display)
             btn.setObjectName("timeframeButton")
             btn.setCheckable(True)
-            btn.setFixedSize(40, 30)  # Slightly larger for text
+            btn.setFixedSize(40, 30)
             btn.setToolTip(tooltip)
             btn.clicked.connect(lambda checked, i=interval: self._change_timeframe(i))
             self.timeframe_buttons[interval] = btn
@@ -657,16 +687,16 @@ class CandlestickChart(QWidget):
             btn = QPushButton(icon)
             btn.setObjectName("drawingToolButton")
             btn.setCheckable(True)
-            btn.setFixedSize(30, 28)  # Very compact button size
+            btn.setFixedSize(30, 28)
             btn.setToolTip(tooltip)
             if tool_id == "color_picker":
                 btn.clicked.connect(self._choose_drawing_color)
-                btn.setCheckable(False)  # Not a toggle tool
-                self.color_btn = btn  # Keep reference
+                btn.setCheckable(False)
+                self.color_btn = btn
             elif tool_id == "line_width":
                 btn.clicked.connect(self._toggle_line_width)
-                btn.setCheckable(False)  # Not a toggle tool
-                self.line_width_btn = btn  # Keep reference
+                btn.setCheckable(False)
+                self.line_width_btn = btn
             elif tool_id == "save_drawings":
                 btn.clicked.connect(self._save_drawings)
                 btn.setCheckable(False)
@@ -677,7 +707,7 @@ class CandlestickChart(QWidget):
                 self.clear_drawings_btn = btn
             else:
                 btn.clicked.connect(lambda checked, t=tool_id: self._toggle_drawing_tool(t, checked))
-                self.drawing_buttons[tool_id] = btn  # Only store actual drawing tools here
+                self.drawing_buttons[tool_id] = btn
             toolbar_layout.addWidget(btn)
 
         main_layout.addWidget(self.combined_toolbar)
@@ -710,18 +740,14 @@ class CandlestickChart(QWidget):
         # Set initial state
         self._set_state(ChartState.IDLE)
 
-    # Removed _create_toolbar and _create_drawing_toolbar as their content is now in _setup_ui
-
     def _toggle_drawing_tool(self, tool_id: str, checked: bool):
         """Toggle drawing tool mode"""
         if self.chart_view and self.current_state == ChartState.LOADED:
-            # Deactivate other tools when one is selected
             if checked:
                 for other_tool, btn in self.drawing_buttons.items():
                     if other_tool != tool_id:
                         btn.setChecked(False)
 
-            # Send command to JavaScript
             js_code = f"""
             if (window.chart) {{
                 window.chart.setDrawingTool('{tool_id}', {str(checked).lower()},
@@ -737,7 +763,6 @@ class CandlestickChart(QWidget):
             self.current_drawing_color = color.name()
             self.color_btn.setStyleSheet(f"background-color: {self.current_drawing_color};")
 
-            # Update active tool color
             if self.chart_view:
                 js_code = f"if (window.chart) window.chart.updateDrawingStyle('{self.current_drawing_color}', {self.current_line_width});"
                 self.chart_view.page().runJavaScript(js_code)
@@ -748,11 +773,9 @@ class CandlestickChart(QWidget):
         current_index = widths.index(self.current_line_width) if self.current_line_width in widths else 0
         self.current_line_width = widths[(current_index + 1) % len(widths)]
 
-        # Update button appearance
         width_symbols = {1: "─", 2: "━", 3: "▬", 4: "█"}
         self.line_width_btn.setText(width_symbols.get(self.current_line_width, "─"))
 
-        # Update active tool width
         if self.chart_view:
             js_code = f"if (window.chart) window.chart.updateDrawingStyle('{self.current_drawing_color}', {self.current_line_width});"
             self.chart_view.page().runJavaScript(js_code)
@@ -763,7 +786,6 @@ class CandlestickChart(QWidget):
             logger.warning("Attempted manual save without a chart view or current symbol.")
             return
 
-        # Request data from JS chart to ensure it's the latest
         js_code = """
         (function() {
             if (window.chart && window.chart.getAllDrawings && window.chart.getVisibleCandleCount) {
@@ -796,7 +818,6 @@ class CandlestickChart(QWidget):
                 drawings_data = json.loads(drawings_json)
                 current_state = self.drawing_storage.load_state(self.current_symbol, self.current_interval)
 
-                # Avoid saving if drawings haven't changed
                 if current_state.get("drawings") == drawings_data:
                     return
 
@@ -811,12 +832,11 @@ class CandlestickChart(QWidget):
     def _on_zoom_changed_from_js(self, visible_candle_count: int):
         """Slot to receive updated visible candle count from JavaScript via WebChannel and save it."""
         if self.current_symbol and self.current_state == ChartState.LOADED:
-            self.current_visible_candle_count = visible_candle_count  # Update Python's internal state
+            self.current_visible_candle_count = visible_candle_count
             try:
                 current_state = self.drawing_storage.load_state(self.current_symbol, self.current_interval)
                 current_state["visible_candle_count"] = visible_candle_count
                 self.drawing_storage.save_state(self.current_symbol, self.current_interval, current_state)
-                # logger.debug(f"Auto-saved zoom level for {self.current_symbol}: {visible_candle_count}") # Can be very chatty
             except Exception as e:
                 logger.error(f"Error saving zoom from JS callback: {e}")
 
@@ -825,8 +845,6 @@ class CandlestickChart(QWidget):
         if self.chart_view:
             js_code = "if (window.chart) window.chart.clearAllDrawings();"
             self.chart_view.page().runJavaScript(js_code)
-
-            # Auto-save will be triggered by JS clearAllDrawings calling notify_drawings_changed
 
     def _create_loading_widget(self) -> QWidget:
         """Create loading widget"""
@@ -887,16 +905,78 @@ class CandlestickChart(QWidget):
         save_shortcut = QShortcut(QKeySequence("Ctrl+S"), self)
         save_shortcut.activated.connect(self._save_drawings)
 
-        clear_shortcut = QShortcut(QKeySequence("Delete"), self)
-        clear_shortcut.activated.connect(self._clear_drawings)
+        # Delete selected drawing shortcut (NEW)
+        delete_shortcut = QShortcut(QKeySequence("Delete"), self)
+        delete_shortcut.activated.connect(self._delete_selected_drawing)
 
-    def _activate_drawing_tool_shortcut(self, tool_id: str):
-        """Activate drawing tool via keyboard shortcut"""
-        if tool_id in self.drawing_buttons:
-            btn = self.drawing_buttons[tool_id]
-            current_state = btn.isChecked()
-            btn.setChecked(not current_state)
-            self._toggle_drawing_tool(tool_id, not current_state)
+    def _activate_drawing_tool_shortcut(self, tool):
+        """Handle drawing tool shortcut activation"""
+        try:
+            if not hasattr(self, 'current_drawing_tool'):
+                self.current_drawing_tool = None
+
+            # Toggle the tool if it's already active, otherwise activate it
+            if self.current_drawing_tool == tool:
+                # Deactivate current tool
+                self.current_drawing_tool = None
+                self._deactivate_all_drawing_tools()
+            else:
+                # Activate the new tool
+                self.current_drawing_tool = tool
+                self._activate_drawing_tool(tool)
+
+        except Exception as e:
+            logger.error(f"Error activating drawing tool shortcut for {tool}: {e}")
+
+    def _activate_drawing_tool(self, tool):
+        """Activate a specific drawing tool"""
+        try:
+            # Default drawing settings
+            color = '#FFD700'  # Gold color
+            line_width = 2
+
+            # Deactivate all other tools first
+            self._deactivate_all_drawing_tools()
+
+            # Activate the selected tool
+            if hasattr(self, 'web_view') and self.web_view:
+                script = f"""
+                if (window.chart && window.chart.setDrawingTool) {{
+                    window.chart.setDrawingTool('{tool}', true, '{color}', {line_width});
+                    console.log('Activated drawing tool: {tool}');
+                }}
+                """
+                self.web_view.page().runJavaScript(script)
+
+            logger.info(f"Activated drawing tool: {tool}")
+
+        except Exception as e:
+            logger.error(f"Error activating drawing tool {tool}: {e}")
+
+    def _deactivate_all_drawing_tools(self):
+        """Deactivate all drawing tools"""
+        try:
+            if hasattr(self, 'web_view') and self.web_view:
+                script = """
+                if (window.chart && window.chart.setDrawingTool) {
+                    window.chart.setDrawingTool(null, false);
+                    console.log('Deactivated all drawing tools');
+                }
+                """
+                self.web_view.page().runJavaScript(script)
+
+        except Exception as e:
+            logger.error(f"Error deactivating drawing tools: {e}")
+
+    @Slot() # NEW SLOT
+    def _delete_selected_drawing(self):
+        """Requests JavaScript chart to delete the currently selected drawing."""
+        if self.chart_view and self.current_state == ChartState.LOADED:
+            js_code = "if (window.chart) window.chart.deleteSelectedDrawing();"
+            self.chart_view.page().runJavaScript(js_code)
+            logger.info("Requested deletion of selected drawing from JS.")
+        else:
+            logger.warning("Cannot delete drawing: chart not loaded.")
 
     def _initialize_chart(self):
         """Initialize chart after UI is ready"""
@@ -905,22 +985,18 @@ class CandlestickChart(QWidget):
     def _create_chart_view(self):
         """Create the web engine view for the chart with proper WebChannel setup"""
         try:
-            # Clear existing chart
             if self.chart_view:
                 self.chart_layout.removeWidget(self.chart_view)
                 self.chart_view.deleteLater()
                 self.chart_view = None
 
-            # Re-initialize channel explicitly to avoid issues on multiple calls if not careful
             if self.channel:
                 self.channel.deleteLater()
                 self.channel = None
 
-            # Create new chart view
             self.chart_view = QWebEngineView()
             self.chart_layout.addWidget(self.chart_view)
 
-            # Set up QWebChannel to allow JS to call Python methods
             self.channel = QWebChannel(self.chart_view.page())
             self.channel.registerObject("chartBridge", self.chart_bridge)
             self.chart_view.page().setWebChannel(self.channel)
@@ -944,11 +1020,9 @@ class CandlestickChart(QWidget):
 
         config = state_configs.get(state, state_configs[ChartState.IDLE])
 
-        # Update widget visibility
         if self.stacked_widget.currentIndex() != config['widget_index']:
             self.stacked_widget.setCurrentIndex(config['widget_index'])
 
-        # Update button states
         for btn in self.timeframe_buttons.values():
             btn.setEnabled(config['buttons_enabled'])
 
@@ -1012,6 +1086,7 @@ class CandlestickChart(QWidget):
 
         # Load saved state for the new symbol/interval
         saved_state = self.drawing_storage.load_state(self.current_symbol, self.current_interval)
+        # Use the loaded 'visible_candle_count' for the new symbol
         self.current_visible_candle_count = saved_state.get("visible_candle_count",
                                                             self.global_chart_settings["default_visible_candles"])
 
@@ -1053,7 +1128,6 @@ class CandlestickChart(QWidget):
             cache_key = f"{self.current_symbol}_{self.current_interval}"
             self.data_cache._cache.pop(cache_key, None)
 
-        # Stop existing thread
         self._stop_current_operations()
 
         # Update UI state
@@ -1088,14 +1162,12 @@ class CandlestickChart(QWidget):
                 return
 
             self.last_df = df.copy()
+            self._calculate_metrics(self.last_df) # Changed to _calculate_metrics
             self._render_chart(df)
 
             # Update UI
             self._update_symbol_info(df)
             self._set_state(ChartState.LOADED)
-
-            # Load saved drawings and set initial zoom level after chart is rendered
-            QTimer.singleShot(200, self._apply_saved_drawings_and_zoom)
 
             logger.info(f"Chart loaded: {self.current_symbol} ({len(df)} candles)")
 
@@ -1103,37 +1175,83 @@ class CandlestickChart(QWidget):
             logger.error(f"Error processing loaded data: {e}")
             self._show_error(f"Failed to render chart: {str(e)}")
 
+    def _calculate_metrics(self, df: pd.DataFrame):
+        """Calculates SMAs, ADR, and various percentage changes."""
+        if 'close' not in df.columns or df.empty:
+            self.sma_data = {'sma10': [], 'sma20': [], 'sma50': []}
+            self.current_adr = {"value": 0.0, "percent": 0.0}
+            self.percentage_changes = {} # Initialize percentage changes
+            return
+
+        df['time_ms'] = df['time'].apply(lambda x: int(x.timestamp() * 1000))
+
+        # Calculate SMAs
+        df['sma10'] = df['close'].rolling(window=10).mean()
+        df['sma20'] = df['close'].rolling(window=20).mean()
+        df['sma50'] = df['close'].rolling(window=50).mean()
+
+        # Calculate Daily Range (High - Low)
+        df['daily_range'] = df['high'] - df['low']
+
+        # Calculate Average Daily Range (ADR) over 14 periods, as typically used
+        adr_period = 14
+        if len(df) >= adr_period:
+            current_adr_value = df['daily_range'].iloc[-adr_period:].mean()
+            # Calculate ADR % based on the last close price
+            last_close = df['close'].iloc[-1] if not df.empty else 0
+            current_adr_percent = (current_adr_value / last_close) * 100 if last_close != 0 else 0
+            self.current_adr = {"value": float(current_adr_value), "percent": float(current_adr_percent)}
+        else:
+            self.current_adr = {"value": 0.0, "percent": 0.0}
+
+        # Calculate historical percentage changes
+        self.percentage_changes = {}
+        last_close_price = df['close'].iloc[-1] if not df.empty else 0
+
+        # Define lookback periods in days (approximate for daily data)
+        # Assuming df is daily data for simplicity in calculating 'days_ago'
+        # For intraday data, this would need adjustment based on candles.
+        periods = {
+            "Weekly": 5,   # Approx 5 trading days for a week
+            "Monthly": 22, # Approx 22 trading days for a month
+            "3M": 66,      # Approx 3 * 22 trading days
+            "6M": 132,     # Approx 6 * 22 trading days
+            "1Y": 252      # Approx 12 * 21 trading days
+        }
+
+        for label, days_back in periods.items():
+            if len(df) > days_back:
+                past_close_price = df['close'].iloc[-1 - days_back]
+                change_percent = ((last_close_price - past_close_price) / past_close_price) * 100 if past_close_price != 0 else 0
+                self.percentage_changes[label] = float(change_percent)
+            else:
+                self.percentage_changes[label] = 0.0
+
+        # Convert to list of dicts for JavaScript
+        self.sma_data['sma10'] = df[['time_ms', 'sma10']].dropna().rename(columns={'time_ms': 'time', 'sma10': 'value'}).to_dict(orient='records')
+        self.sma_data['sma20'] = df[['time_ms', 'sma20']].dropna().rename(columns={'time_ms': 'time', 'sma20': 'value'}).to_dict(orient='records')
+        self.sma_data['sma50'] = df[['time_ms', 'sma50']].dropna().rename(columns={'time_ms': 'time', 'sma50': 'value'}).to_dict(orient='records')
+
+        logger.debug(f"Calculated SMAs, ADR ({self.current_adr['value']:.2f}, {self.current_adr['percent']:.2f}%) and percentage changes.")
+
+
+    @Slot() # Mark as slot as it's connected to a signal
     def _apply_saved_drawings_and_zoom(self):
-        """Apply saved drawings and zoom after chart is fully loaded"""
+        """Apply saved drawings and zoom after chart is fully loaded and JS bridge is ready."""
         try:
             saved_state = self.drawing_storage.load_state(self.current_symbol, self.current_interval)
             drawings = saved_state.get("drawings", {"lines": [], "rectangles": [], "notes": []})
             initial_zoom = saved_state.get("visible_candle_count",
                                            self.global_chart_settings["default_visible_candles"])
 
-            if self.chart_view and self.current_symbol:
-                drawings_json = json.dumps(drawings)
-                js_code = f"""
-                if (window.chart) {{
-                    console.log("Applying saved state for {self.current_symbol}");
-                    window.chart.loadDrawings({drawings_json});
-                    window.chart.setVisibleCandleCount({initial_zoom});
-                    window.chart.setChartSettings({{
-                        candleWidth: {self._current_candle_width},
-                        candleSpacing: {self._current_candle_spacing},
-                        upCandleColor: '{self._current_up_color}',
-                        downCandleColor: '{self._current_down_color}'
-                    }});
-                    window.chart.autoScale();
-                    window.chart.displayLatestCandleDetails();
-                    console.log("Saved state applied successfully");
-                }} else {{
-                    console.error("Chart object not available for applying saved state.");
-                }}
-                """
-                self.chart_view.page().runJavaScript(js_code)
+            # Ensure we only apply if chart is loaded and symbol is active
+            if self.current_state == ChartState.LOADED and self.current_symbol and self.chart_view and self.chart_bridge.webChannelInitialized: # Corrected check
+                # Now, the initial drawings and zoom are passed directly in _create_fixed_chart_html
+                # This function is just for confirming and logging success
                 logger.info(
                     f"Applied {self.drawing_storage._count_drawings(drawings)} saved drawings and set zoom to {initial_zoom} for {self.current_symbol}")
+            else:
+                logger.warning(f"Skipping _apply_saved_drawings_and_zoom: Chart not fully ready or no symbol. State: {self.current_state}, Symbol: {self.current_symbol}, JS Bridge ready: {getattr(self.chart_bridge, 'webChannelInitialized', False)}")
         except Exception as e:
             logger.error(f"Error applying saved drawings and zoom: {e}")
 
@@ -1229,14 +1347,24 @@ class CandlestickChart(QWidget):
                     'value': float(row['volume'])
                 })
 
+            # Retrieve saved drawings and zoom for current symbol/interval
+            saved_state = self.drawing_storage.load_state(self.current_symbol, self.current_interval)
+            initial_drawings_json = json.dumps(saved_state.get("drawings", {"lines": [], "rectangles": [], "notes": []}))
+            initial_zoom = saved_state.get("visible_candle_count", self.global_chart_settings["default_visible_candles"])
+
             html_content = self._create_fixed_chart_html(
                 candlestick_data,
                 volume_data,
-                self.current_visible_candle_count,
+                initial_zoom, # Pass initial zoom directly to JS constructor
                 self._current_candle_width,
                 self._current_candle_spacing,
                 self._current_up_color,
-                self._current_down_color
+                self._current_down_color,
+                self.sma_data,
+                self.current_adr,
+                self.percentage_changes,
+                self.current_interval, # Pass current interval
+                initial_drawings_json # Pass initial drawings directly to JS constructor
             )
 
             self.chart_view.setHtml(html_content)
@@ -1244,15 +1372,39 @@ class CandlestickChart(QWidget):
 
         except Exception as e:
             logger.error(f"Chart rendering error: {e}")
-            self._show_error("Failed to render chart")
+            self._show_error(f"Failed to render chart: {str(e)}")
 
     def _create_fixed_chart_html(self, candlestick_data, volume_data,
                                  initial_visible_candle_count, initial_candle_width,
-                                 initial_candle_spacing, up_candle_color, down_candle_color):
+                                 initial_candle_spacing, up_candle_color, down_candle_color,
+                                 sma_data: Dict[str, List[Dict]],
+                                 current_adr: Dict[str, float],
+                                 percentage_changes: Dict[str, float],
+                                 current_interval: str,
+                                 initial_drawings_json: str):
         """Create HTML content with fixed drawing persistence and proper coordinate handling"""
 
         candlestick_json = json.dumps(candlestick_data)
         volume_json = json.dumps(volume_data)
+        sma_json = json.dumps(sma_data)
+        adr_json = json.dumps(current_adr)
+        percentage_changes_json = json.dumps(percentage_changes)
+        current_interval_js = json.dumps(current_interval)
+
+        # Ensure initial_drawings_json is properly formatted
+        if isinstance(initial_drawings_json, str):
+            # If it's already a JSON string, use it as is
+            safe_initial_drawings = initial_drawings_json
+        else:
+            # If it's an object, stringify it
+            safe_initial_drawings = json.dumps(initial_drawings_json)
+
+        # Validate the JSON string
+        try:
+            json.loads(safe_initial_drawings)
+        except (json.JSONDecodeError, TypeError):
+            # If invalid, provide a default empty structure
+            safe_initial_drawings = json.dumps({"lines": [], "rectangles": [], "notes": []})
 
         qwebchannel_script_src = "qrc:///qtwebchannel/qwebchannel.js"
 
@@ -1292,6 +1444,15 @@ class CandlestickChart(QWidget):
                 font-size: 12px;
                 pointer-events: none;
                 z-index: 5;
+            }}
+            #metricsInfo {{
+                font-weight: bold;
+                margin-bottom: 5px;
+                color: #e0e0e0;
+            }}
+            #priceInfo {{
+                color: #00bfff;
+                font-weight: bold;
             }}
             #timeSlider {{
                 position: absolute;
@@ -1337,6 +1498,7 @@ class CandlestickChart(QWidget):
         <div id="chartContainer">
             <canvas id="mainCanvas"></canvas>
             <div id="info">
+                <div id="metricsInfo"></div>
                 <div id="priceInfo"></div>
             </div>
             <div id="timeSlider">
@@ -1350,11 +1512,14 @@ class CandlestickChart(QWidget):
         <script>
             class FixedTradingChart {{
                 constructor(canvasId, data, volumeData, initialVisibleCandleCount,
-                            initialCandleWidth, initialCandleSpacing, upCandleColor, downCandleColor) {{
+                            initialCandleWidth, initialCandleSpacing, upCandleColor, downCandleColor,
+                            smaData, initialADR, percentageChanges, currentInterval, initialDrawingsJson) {{
+
+                    // Basic setup
                     this.canvas = document.getElementById(canvasId);
                     this.ctx = this.canvas.getContext('2d');
-                    this.data = data;
-                    this.volumeData = volumeData;
+                    this.data = data || [];
+                    this.volumeData = volumeData || [];
                     this.width = 0;
                     this.height = 0;
                     this.padding = {{ top: 30, right: 80, bottom: 30, left: 10 }};
@@ -1366,13 +1531,13 @@ class CandlestickChart(QWidget):
                     this.minVolume = 0;
                     this.maxVolume = 0;
 
-                    // Chart settings
+                    // Chart display settings
                     this.candleWidth = initialCandleWidth || 4;
                     this.candleSpacing = initialCandleSpacing || 2;
                     this.visibleCandleCount = initialVisibleCandleCount || 100;
 
-                    // Viewport
-                    this.viewPortEnd = this.data.length - 1 + this.rightBufferCandles;
+                    // Viewport settings
+                    this.viewPortEnd = Math.max(0, this.data.length - 1 + this.rightBufferCandles);
                     this.viewPortStart = Math.max(0, this.viewPortEnd - this.visibleCandleCount);
 
                     // Drawing tools
@@ -1383,11 +1548,9 @@ class CandlestickChart(QWidget):
                     this.drawingColor = '#FFD700';
                     this.lineWidth = 2;
 
-                    this.drawings = {{
-                        lines: [],
-                        rectangles: [],
-                        notes: []
-                    }};
+                    // Initialize drawings safely
+                    this.drawings = this.initializeDrawings(initialDrawingsJson);
+                    this.selectedDrawingId = null;
 
                     // Interaction state
                     this.isDragging = false;
@@ -1396,6 +1559,7 @@ class CandlestickChart(QWidget):
                     this.crosshairX = null;
                     this.crosshairY = null;
                     this.livePrice = null;
+                    this.isUserZooming = false; // Track user-initiated zoom changes
 
                     // Colors
                     this.colors = {{
@@ -1411,18 +1575,56 @@ class CandlestickChart(QWidget):
                         livePrice: '#00BFFF'
                     }};
 
+                    // Market data
+                    this.smaData = smaData || {{}};
+                    this.currentADR = initialADR || {{}};
+                    this.percentageChanges = percentageChanges || {{}};
+                    this.currentInterval = currentInterval || 'day';
+
                     // Slider state
                     this.isSliderDragging = false;
                     this.sliderLastX = 0;
 
-                    // WebChannel state - FIXED TO PREVENT RECURSION
+                    // WebChannel state
                     this.chartBridge = null;
                     this.webChannelInitialized = false;
-                    this.isLoadingState = false; // Prevent recursive state loading
-                    this.notificationQueue = []; // Queue notifications during state loading
-                    this.notificationTimer = null; // Debounce notifications
+                    this.isLoadingState = false;
+                    this.notificationQueue = [];
+                    this.notificationTimer = null;
 
                     this.init();
+                }}
+
+                initializeDrawings(initialDrawingsJson) {{
+                    const defaultDrawings = {{ lines: [], rectangles: [], notes: [] }};
+
+                    if (!initialDrawingsJson) {{
+                        console.log('No initial drawings provided, using default');
+                        return defaultDrawings;
+                    }}
+
+                    try {{
+                        let drawings;
+                        if (typeof initialDrawingsJson === 'string') {{
+                            drawings = JSON.parse(initialDrawingsJson);
+                        }} else {{
+                            drawings = initialDrawingsJson;
+                        }}
+
+                        // Validate structure
+                        if (drawings && typeof drawings === 'object') {{
+                            return {{
+                                lines: Array.isArray(drawings.lines) ? drawings.lines : [],
+                                rectangles: Array.isArray(drawings.rectangles) ? drawings.rectangles : [],
+                                notes: Array.isArray(drawings.notes) ? drawings.notes : []
+                            }};
+                        }}
+                    }} catch (error) {{
+                        console.error('Error parsing initial drawings:', error);
+                    }}
+
+                    console.log('Using default drawings structure');
+                    return defaultDrawings;
                 }}
 
                 async init() {{
@@ -1433,12 +1635,12 @@ class CandlestickChart(QWidget):
                         this.setupEventListeners();
                         this.setupWebChannel();
 
-                        // Initial render
                         this.draw();
                         this.updateSlider();
                         this.displayLatestCandleDetails();
+                        this.updateMetricsDisplay();
 
-                        console.log('Chart initialized successfully');
+                        console.log('Chart initialized successfully with', this.data.length, 'candles');
                     }} catch (error) {{
                         console.error('Error initializing chart:', error);
                     }}
@@ -1449,12 +1651,27 @@ class CandlestickChart(QWidget):
                         try {{
                             if (typeof QWebChannel !== 'undefined' && window.qt && window.qt.webChannelTransport) {{
                                 new QWebChannel(qt.webChannelTransport, (channel) => {{
-                                    this.chartBridge = channel.objects.chartBridge;
-                                    this.webChannelInitialized = true;
-                                    console.log("QWebChannel ChartBridge loaded successfully");
+                                    if (channel.objects && channel.objects.chartBridge) {{
+                                        this.chartBridge = channel.objects.chartBridge;
+                                        this.webChannelInitialized = true;
+                                        console.log("QWebChannel ChartBridge loaded successfully");
 
-                                    // Process queued notifications
-                                    this.processNotificationQueue();
+                                        // Use setTimeout to avoid callback timing issues
+                                        setTimeout(() => {{
+                                            try {{
+                                                if (this.chartBridge && typeof this.chartBridge.set_web_channel_initialized === 'function') {{
+                                                    this.chartBridge.set_web_channel_initialized();
+                                                }}
+                                            }} catch (callbackError) {{
+                                                console.warn("Error calling set_web_channel_initialized:", callbackError);
+                                            }}
+                                        }}, 100);
+
+                                        this.processNotificationQueue();
+                                    }} else {{
+                                        console.warn("ChartBridge not found in channel objects");
+                                        setTimeout(initWebChannel, 200);
+                                    }}
                                 }});
                             }} else {{
                                 setTimeout(initWebChannel, 100);
@@ -1468,10 +1685,11 @@ class CandlestickChart(QWidget):
                     initWebChannel();
                     if (document.readyState === 'loading') {{
                         document.addEventListener('DOMContentLoaded', initWebChannel);
+                    }} else {{
+                        initWebChannel();
                     }}
                 }}
 
-                // FIXED: Debounced notification system to prevent recursion
                 queueNotification(type, data) {{
                     this.notificationQueue.push({{ type, data, timestamp: Date.now() }});
 
@@ -1481,7 +1699,7 @@ class CandlestickChart(QWidget):
 
                     this.notificationTimer = setTimeout(() => {{
                         this.processNotificationQueue();
-                    }}, 100); // 100ms debounce
+                    }}, 100);
                 }}
 
                 processNotificationQueue() {{
@@ -1489,7 +1707,6 @@ class CandlestickChart(QWidget):
                         return;
                     }}
 
-                    // Process only the latest notification of each type
                     const latestNotifications = new Map();
                     this.notificationQueue.forEach(notification => {{
                         latestNotifications.set(notification.type, notification);
@@ -1497,10 +1714,31 @@ class CandlestickChart(QWidget):
 
                     latestNotifications.forEach((notification, type) => {{
                         try {{
-                            if (type === 'drawings' && this.chartBridge) {{
-                                this.chartBridge.notify_drawings_changed(JSON.stringify(notification.data));
-                            }} else if (type === 'zoom' && this.chartBridge) {{
-                                this.chartBridge.notify_visible_candle_count_changed(notification.data);
+                            if (type === 'drawings' && this.chartBridge && typeof this.chartBridge.notify_drawings_changed === 'function') {{
+                                // Add delay to prevent callback conflicts
+                                setTimeout(() => {{
+                                    try {{
+                                        this.chartBridge.notify_drawings_changed(JSON.stringify(notification.data));
+                                    }} catch (callbackError) {{
+                                        console.warn("Error in drawings callback:", callbackError);
+                                    }}
+                                }}, 50);
+                            }} else if (type === 'zoom' && this.chartBridge && typeof this.chartBridge.notify_visible_candle_count_changed === 'function') {{
+                                // Only notify zoom changes if they are significant (user-initiated)
+                                if (this.isUserZooming) {{
+                                    // Update global settings
+                                    if (this.updateGlobalSettings) {{
+                                        this.updateGlobalSettings(notification.data);
+                                    }}
+
+                                    setTimeout(() => {{
+                                        try {{
+                                            this.chartBridge.notify_visible_candle_count_changed(notification.data);
+                                        }} catch (callbackError) {{
+                                            console.warn("Error in zoom callback:", callbackError);
+                                        }}
+                                    }}, 50);
+                                }}
                             }}
                         }} catch (error) {{
                             console.error(`Error processing ${{type}} notification:`, error);
@@ -1517,12 +1755,12 @@ class CandlestickChart(QWidget):
                 }}
 
                 notifyZoomChange() {{
-                    if (!this.isLoadingState) {{
+                    // Only notify if this is a user-initiated change and we're not loading state
+                    if (!this.isLoadingState && this.isUserZooming) {{
                         this.queueNotification('zoom', this.visibleCandleCount);
                     }}
                 }}
 
-                // FIXED: Prevent recursive state loading
                 loadDrawings(drawingsData) {{
                     if (this.isLoadingState) {{
                         console.warn('Already loading state, skipping...');
@@ -1531,6 +1769,7 @@ class CandlestickChart(QWidget):
 
                     try {{
                         this.isLoadingState = true;
+                        this.isUserZooming = false; // Ensure no zoom notifications during load
 
                         if (drawingsData && typeof drawingsData === 'object') {{
                             this.drawings.lines = Array.isArray(drawingsData.lines) ? drawingsData.lines : [];
@@ -1545,227 +1784,11 @@ class CandlestickChart(QWidget):
                     }} catch (error) {{
                         console.error("Error loading drawings:", error);
                     }} finally {{
-                        this.isLoadingState = false;
+                        // Reset loading state after a delay to ensure all operations complete
+                        setTimeout(() => {{
+                            this.isLoadingState = false;
+                        }}, 100);
                     }}
-                }}
-
-                clearAllDrawings() {{
-                    this.drawings = {{ lines: [], rectangles: [], notes: [] }};
-                    this.draw();
-                    this.notifyDrawingsChange();
-                }}
-
-                // Chart interaction methods
-                setDrawingTool(toolId, enabled, color, lineWidth) {{
-                    this.isDragging = false;
-                    this.canvas.style.cursor = 'crosshair';
-
-                    if (enabled) {{
-                        this.currentTool = toolId;
-                        this.drawingColor = color || this.drawingColor;
-                        this.lineWidth = lineWidth || this.lineWidth;
-                    }} else {{
-                        this.currentTool = null;
-                        this.canvas.style.cursor = 'default';
-                        this.isDrawing = false;
-                        this.startPoint = null;
-                        this.endPoint = null;
-                    }}
-                    this.draw();
-                }}
-
-                updateDrawingStyle(color, lineWidth) {{
-                    this.drawingColor = color || this.drawingColor;
-                    this.lineWidth = lineWidth || this.lineWidth;
-                }}
-
-                setVisibleCandleCount(count) {{
-                    let newCount = Math.max(20, Math.min(this.data.length + this.rightBufferCandles, count));
-                    if (this.visibleCandleCount === newCount) return;
-
-                    this.visibleCandleCount = newCount;
-                    this.viewPortEnd = Math.min(this.data.length - 1 + this.rightBufferCandles, this.viewPortStart + this.visibleCandleCount - 1);
-                    this.viewPortStart = this.viewPortEnd - this.visibleCandleCount + 1;
-                    this.viewPortStart = Math.max(0, this.viewPortStart);
-                    this.viewPortEnd = this.viewPortStart + this.visibleCandleCount - 1;
-
-                    this.calculateBounds();
-                    this.draw();
-                    this.updateSlider();
-                    this.notifyZoomChange();
-                }}
-
-                setChartSettings(settings) {{
-                    if (settings) {{
-                        this.candleWidth = settings.candleWidth || this.candleWidth;
-                        this.candleSpacing = settings.candleSpacing || this.candleSpacing;
-                        this.colors.upCandle = settings.upCandleColor || this.colors.upCandle;
-                        this.colors.downCandle = settings.downCandleColor || this.colors.downCandle;
-                        this.calculateBounds();
-                        this.draw();
-                    }}
-                }}
-
-                updateLivePrice(newPrice) {{
-                    if (this.data.length === 0 || typeof newPrice !== 'number') return;
-
-                    this.livePrice = newPrice;
-                    const lastActualCandle = this.data[this.data.length - 1];
-                    if (lastActualCandle) {{
-                        lastActualCandle.close = newPrice;
-                        lastActualCandle.high = Math.max(lastActualCandle.high, newPrice);
-                        lastActualCandle.low = Math.min(lastActualCandle.low, newPrice);
-                    }}
-
-                    this.calculateBounds();
-                    this.draw();
-                }}
-
-                getVisibleCandleCount() {{
-                    return this.visibleCandleCount;
-                }}
-
-                getAllDrawings() {{
-                    return this.drawings;
-                }}
-
-                autoScale() {{
-                    this.calculateBounds();
-                    this.draw();
-                    this.updateSlider();
-                }}
-
-                // Slider setup and event handlers
-                setupSlider() {{
-                    const setupSliderElements = () => {{
-                        this.slider = document.getElementById('timeSlider');
-                        this.sliderTrack = document.getElementById('sliderTrack');
-                        this.sliderThumb = document.getElementById('sliderThumb');
-
-                        if (!this.slider || !this.sliderThumb || !this.sliderTrack) {{
-                            setTimeout(setupSliderElements, 100);
-                            return;
-                        }}
-
-                        // Event listeners
-                        this.sliderThumb.addEventListener('mousedown', (e) => this.handleSliderMouseDown(e));
-                        document.addEventListener('mousemove', (e) => this.handleSliderMouseMove(e));
-                        document.addEventListener('mouseup', (e) => this.handleSliderMouseUp(e));
-                        this.sliderTrack.addEventListener('click', (e) => this.handleSliderClick(e));
-                        this.slider.addEventListener('wheel', (e) => this.handleSliderWheel(e));
-
-                        console.log('Slider setup completed');
-                    }};
-
-                    setupSliderElements();
-                }}
-
-                handleSliderMouseDown(e) {{
-                    e.preventDefault();
-                    this.isSliderDragging = true;
-                    this.sliderLastX = e.clientX;
-                    this.sliderThumb.style.cursor = 'grabbing';
-                }}
-
-                handleSliderMouseMove(e) {{
-                    if (!this.isSliderDragging) return;
-
-                    e.preventDefault();
-                    const deltaX = e.clientX - this.sliderLastX;
-                    this.sliderLastX = e.clientX;
-
-                    const totalCandleSpots = this.data.length + this.rightBufferCandles;
-                    const totalMovableRange = totalCandleSpots - this.visibleCandleCount;
-                    if (totalMovableRange <= 0) return;
-
-                    const pixelsPerCandleSpot = (this.sliderTrack.clientWidth - this.sliderThumb.clientWidth) / totalMovableRange;
-                    const candleDelta = Math.round(deltaX / pixelsPerCandleSpot);
-
-                    let newViewPortStart = this.viewPortStart - candleDelta;
-                    newViewPortStart = Math.max(0, Math.min(newViewPortStart, totalCandleSpots - this.visibleCandleCount));
-
-                    if (this.viewPortStart !== newViewPortStart) {{
-                        this.viewPortStart = newViewPortStart;
-                        this.viewPortEnd = this.viewPortStart + this.visibleCandleCount - 1;
-                        this.calculateBounds();
-                        this.draw();
-                        this.updateSlider();
-                    }}
-                }}
-
-                handleSliderMouseUp(e) {{
-                    this.isSliderDragging = false;
-                    this.sliderThumb.style.cursor = 'grab';
-                }}
-
-                handleSliderClick(e) {{
-                    if (e.target === this.sliderThumb) return;
-
-                    const rect = this.sliderTrack.getBoundingClientRect();
-                    const clickX = e.clientX - rect.left;
-                    const trackWidth = this.sliderTrack.clientWidth;
-
-                    const totalCandleSpots = this.data.length + this.rightBufferCandles;
-                    const totalMovableRange = totalCandleSpots - this.visibleCandleCount;
-                    if (totalMovableRange <= 0) return;
-
-                    const proportion = clickX / trackWidth;
-                    const potentialStart = Math.round(proportion * totalMovableRange);
-                    let newViewPortStart = Math.max(0, Math.min(potentialStart, totalMovableRange));
-
-                    if (this.viewPortStart !== newViewPortStart) {{
-                        this.viewPortStart = newViewPortStart;
-                        this.viewPortEnd = this.viewPortStart + this.visibleCandleCount - 1;
-                        this.calculateBounds();
-                        this.draw();
-                        this.updateSlider();
-                    }}
-                }}
-
-                handleSliderWheel(e) {{
-                    e.preventDefault();
-                    const scrollAmount = e.deltaY > 0 ? 5 : -5;
-
-                    const totalCandleSpots = this.data.length + this.rightBufferCandles;
-                    const totalMovableRange = totalCandleSpots - this.visibleCandleCount;
-                    if (totalMovableRange <= 0) return;
-
-                    let newViewPortStart = Math.max(0, Math.min(this.viewPortStart + scrollAmount, totalMovableRange));
-
-                    if (this.viewPortStart !== newViewPortStart) {{
-                        this.viewPortStart = newViewPortStart;
-                        this.viewPortEnd = this.viewPortStart + this.visibleCandleCount - 1;
-                        this.calculateBounds();
-                        this.draw();
-                        this.updateSlider();
-                    }}
-                }}
-
-                updateSlider() {{
-                    if (!this.slider || !this.sliderThumb || !this.sliderTrack) {{
-                        setTimeout(() => this.updateSlider(), 50);
-                        return;
-                    }}
-
-                    const totalCandles = this.data.length;
-                    const totalCandleSpots = totalCandles + this.rightBufferCandles;
-
-                    if (totalCandleSpots <= this.visibleCandleCount) {{
-                        this.slider.style.display = 'none';
-                        return;
-                    }}
-
-                    this.slider.style.display = 'flex';
-
-                    const trackWidth = this.sliderTrack.clientWidth;
-                    const visiblePercentage = this.visibleCandleCount / totalCandleSpots;
-                    const newThumbWidth = Math.max(20, Math.round(visiblePercentage * trackWidth));
-                    const maxThumbPosition = trackWidth - newThumbWidth;
-                    const ratio = this.viewPortStart / (totalCandles + this.rightBufferCandles - this.visibleCandleCount);
-                    const thumbPosition = ratio * maxThumbPosition;
-
-                    this.sliderThumb.style.width = newThumbWidth + 'px';
-                    this.sliderThumb.style.left = Math.max(0, Math.min(maxThumbPosition, thumbPosition)) + 'px';
                 }}
 
                 // Canvas setup and event handlers
@@ -1825,26 +1848,37 @@ class CandlestickChart(QWidget):
                     if (this.currentTool) {{
                         this.startDrawing(mousePos);
                     }} else if (e.button === 0) {{
-                        this.isDragging = true;
-                        this.lastMouseX = e.clientX;
-                        this.lastMouseY = e.clientY;
-                        this.canvas.style.cursor = 'grabbing';
+                        const clickedDrawingId = this.getDrawingAtPoint(mousePos);
+                        if (clickedDrawingId) {{
+                            this.selectedDrawingId = clickedDrawingId;
+                            this.draw();
+                            console.log("Drawing selected:", clickedDrawingId);
+                        }} else {{
+                            this.selectedDrawingId = null;
+                            this.isDragging = true;
+                            this.lastMouseX = e.clientX;
+                            this.lastMouseY = e.clientY;
+                            this.canvas.style.cursor = 'grabbing';
+                        }}
+                        this.draw();
                     }}
                 }}
 
                 handleMouseMove(e) {{
-                    const mousePos = this.getMousePosition(e);
-
-                    if (this.isDrawing && this.startPoint) {{
-                        this.endPoint = mousePos;
-                        this.draw();
-                        this.drawTemporaryDrawing();
-                    }} else if (this.isDragging) {{
+                    if (this.isDragging && !this.currentTool) {{
                         this.handleChartDrag(e);
                         this.draw();
-                    }} else {{
-                        this.updateCrosshair(e);
+                        return;
                     }}
+
+                    if (this.isDrawing && this.startPoint) {{
+                        this.endPoint = this.getMousePosition(e);
+                        this.draw();
+                        this.drawTemporaryDrawing();
+                        return;
+                    }}
+
+                    this.updateCrosshair(e);
                 }}
 
                 handleMouseUp(e) {{
@@ -1863,70 +1897,9 @@ class CandlestickChart(QWidget):
                     this.crosshairX = null;
                     this.crosshairY = null;
                     this.displayLatestCandleDetails();
+                    this.updateMetricsDisplay();
                     this.canvas.style.cursor = this.currentTool ? 'crosshair' : 'default';
                     this.draw();
-                }}
-
-                handleDoubleClick(e) {{
-                    if (this.currentTool === 'note') {{
-                        const mousePos = this.getMousePosition(e);
-                        this.addTextNote(mousePos);
-                    }}
-                }}
-
-                handleWheel(e) {{
-                    e.preventDefault();
-
-                    const chartMouseY = e.clientY - this.canvas.getBoundingClientRect().top;
-                    const chartMouseX = e.clientX - this.canvas.getBoundingClientRect().left;
-                    let zoomChanged = false;
-
-                    if (e.ctrlKey || e.metaKey) {{
-                        // Price zoom
-                        const zoomFactor = e.deltaY > 0 ? 1.1 : 0.9;
-
-                        if (chartMouseY >= this.chartArea.y && chartMouseY <= this.chartArea.y + this.chartArea.height) {{
-                            const priceAtMouse = this.yToPrice(chartMouseY);
-                            const currentRange = this.maxPrice - this.minPrice;
-                            const newRange = currentRange * zoomFactor;
-
-                            this.minPrice = priceAtMouse - (newRange * ((priceAtMouse - this.minPrice) / currentRange));
-                            this.maxPrice = priceAtMouse + (newRange * ((this.maxPrice - priceAtMouse) / currentRange));
-                        }}
-                    }} else if (e.shiftKey) {{
-                        // Price pan
-                        const priceRange = this.maxPrice - this.minPrice;
-                        const panAmount = (e.deltaY > 0 ? 1 : -1) * priceRange * 0.05;
-                        this.minPrice += panAmount;
-                        this.maxPrice += panAmount;
-                    }} else {{
-                        // Time zoom
-                        const zoomFactor = e.deltaY > 0 ? 1.1 : 0.9;
-                        const currentVisibleCount = this.visibleCandleCount;
-                        const maxPossibleVisibleCount = this.data.length + this.rightBufferCandles;
-                        let newVisibleCandleCount = Math.round(currentVisibleCount * zoomFactor);
-
-                        newVisibleCandleCount = Math.max(20, Math.min(maxPossibleVisibleCount, newVisibleCandleCount));
-
-                        if (newVisibleCandleCount !== currentVisibleCount) {{
-                            const dataCandleIndex = this.xToCandle(chartMouseX);
-                            let newViewPortStart = Math.round(dataCandleIndex - (newVisibleCandleCount * ((chartMouseX - this.chartArea.x) / this.chartArea.width)));
-
-                            newViewPortStart = Math.max(0, Math.min(newViewPortStart, maxPossibleVisibleCount - newVisibleCandleCount));
-
-                            this.viewPortStart = newViewPortStart;
-                            this.viewPortEnd = this.viewPortStart + newVisibleCandleCount - 1;
-                            this.visibleCandleCount = newVisibleCandleCount;
-                            zoomChanged = true;
-                        }}
-                    }}
-
-                    this.calculateBounds();
-                    this.draw();
-                    this.updateSlider();
-                    if (zoomChanged) {{
-                        this.notifyZoomChange();
-                    }}
                 }}
 
                 // Drawing methods
@@ -1960,8 +1933,6 @@ class CandlestickChart(QWidget):
                         this.drawings.lines.push(drawing);
                     }} else if (this.currentTool === 'rectangle') {{
                         this.drawings.rectangles.push(drawing);
-                    }} else if (this.currentTool === 'note') {{
-                        this.drawings.notes.push(drawing);
                     }}
 
                     this.isDrawing = false;
@@ -1969,58 +1940,6 @@ class CandlestickChart(QWidget):
                     this.endPoint = null;
                     this.draw();
                     this.notifyDrawingsChange();
-                }}
-
-                addTextNote(mousePos) {{
-                    const text = prompt('Enter note text:');
-                    if (text) {{
-                        const note = {{
-                            id: Date.now() + Math.random(),
-                            type: 'note',
-                            time: this.xToTime(mousePos.x),
-                            price: this.yToPrice(mousePos.y),
-                            text: text,
-                            color: this.drawingColor,
-                            timestamp: Date.now()
-                        }};
-
-                        this.drawings.notes.push(note);
-                        this.draw();
-                        this.notifyDrawingsChange();
-                    }}
-                }}
-
-                // Chart drag handler
-                handleChartDrag(e) {{
-                    const deltaX = e.clientX - this.lastMouseX;
-                    const deltaY = e.clientY - this.lastMouseY;
-
-                    // Time pan
-                    const visibleCandles = this.viewPortEnd - this.viewPortStart + 1;
-                    const totalCandleSlots = this.data.length + this.rightBufferCandles;
-                    const pixelsPerCandleSlot = this.chartArea.width / visibleCandles;
-                    const candleShift = -Math.round(deltaX / pixelsPerCandleSlot);
-
-                    let newViewPortStart = Math.max(0, Math.min(this.viewPortStart + candleShift, totalCandleSlots - visibleCandles));
-
-                    if (this.viewPortStart !== newViewPortStart) {{
-                        this.viewPortStart = newViewPortStart;
-                        this.viewPortEnd = this.viewPortStart + visibleCandles - 1;
-                    }}
-
-                    // Price pan
-                    const priceRange = this.maxPrice - this.minPrice;
-                    const pricePerPixel = priceRange / this.chartArea.height;
-                    const priceDelta = -deltaY * pricePerPixel;
-
-                    this.minPrice += priceDelta;
-                    this.maxPrice += priceDelta;
-
-                    this.lastMouseX = e.clientX;
-                    this.lastMouseY = e.clientY;
-
-                    this.calculateBounds();
-                    this.updateSlider();
                 }}
 
                 // Utility methods
@@ -2048,6 +1967,21 @@ class CandlestickChart(QWidget):
                     this.minPrice = Math.min(...actualVisibleData.map(d => d.low));
                     this.maxPrice = Math.max(...actualVisibleData.map(d => d.high));
 
+                    // Include SMA data in bounds calculation
+                    Object.values(this.smaData).forEach(smaList => {{
+                        smaList.forEach(item => {{
+                            const itemTime = item.time;
+                            const firstVisibleTime = this.data[this.viewPortStart]?.time;
+                            const lastVisibleTime = this.data[Math.min(this.data.length - 1, this.viewPortEnd)]?.time;
+
+                            if (firstVisibleTime !== undefined && lastVisibleTime !== undefined &&
+                                itemTime >= firstVisibleTime && itemTime <= lastVisibleTime) {{
+                                this.minPrice = Math.min(this.minPrice, item.value);
+                                this.maxPrice = Math.max(this.maxPrice, item.value);
+                            }}
+                        }});
+                    }});
+
                     const priceRange = this.maxPrice - this.minPrice;
                     if (priceRange === 0) {{
                         this.minPrice -= this.minPrice * 0.1 || 1;
@@ -2067,15 +2001,23 @@ class CandlestickChart(QWidget):
                     if (this.maxVolume === 0) this.maxVolume = 1;
                 }}
 
-                // Main drawing method
                 draw() {{
                     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
                     this.ctx.fillStyle = this.colors.background;
                     this.ctx.fillRect(0, 0, this.width, this.height);
 
+                    if (this.data.length === 0) {{
+                        this.ctx.fillStyle = this.colors.text;
+                        this.ctx.font = '16px Arial';
+                        this.ctx.textAlign = 'center';
+                        this.ctx.fillText('No data available', this.width / 2, this.height / 2);
+                        return;
+                    }}
+
                     this.drawGrid();
-                    this.drawCandlesticks();
                     this.drawVolume();
+                    this.drawSMABands();
+                    this.drawCandlesticks();
                     this.drawAxes();
                     this.drawAllDrawings();
                     this.drawCrosshair();
@@ -2089,30 +2031,14 @@ class CandlestickChart(QWidget):
                     const priceRange = this.maxPrice - this.minPrice;
                     if (priceRange <= 0) return;
 
-                    // Horizontal grid lines (price)
-                    const priceStep = priceRange / 10;
-                    for (let i = 0; i <= 10; i++) {{
+                    const priceStep = priceRange / 8;
+                    for (let i = 0; i <= 8; i++) {{
                         const price = this.minPrice + (priceStep * i);
                         const y = this.priceToY(price);
 
                         this.ctx.beginPath();
                         this.ctx.moveTo(this.chartArea.x, y);
                         this.ctx.lineTo(this.chartArea.x + this.chartArea.width, y);
-                        this.ctx.stroke();
-                    }}
-
-                    // Vertical grid lines (time)
-                    const visibleCandlesIncludingBuffer = this.viewPortEnd - this.viewPortStart + 1;
-                    const timeStep = Math.max(1, Math.floor(visibleCandlesIncludingBuffer / 6));
-
-                    for (let i = this.viewPortStart; i < this.data.length; i += timeStep) {{
-                        if (i < 0) continue;
-
-                        const x = this.candleToX(i) + this.candleWidth / 2;
-
-                        this.ctx.beginPath();
-                        this.ctx.moveTo(x, this.chartArea.y);
-                        this.ctx.lineTo(x, this.chartArea.y + this.chartArea.height);
                         this.ctx.stroke();
                     }}
                 }}
@@ -2150,7 +2076,6 @@ class CandlestickChart(QWidget):
                         // Draw body
                         const bodyHeight = Math.abs(closeY - openY);
                         if (bodyHeight < 1) {{
-                            // Doji candle
                             this.ctx.beginPath();
                             this.ctx.moveTo(x, openY);
                             this.ctx.lineTo(x + this.candleWidth, openY);
@@ -2180,20 +2105,61 @@ class CandlestickChart(QWidget):
                     }}
                 }}
 
+                drawSMABands() {{
+                    this.ctx.setLineDash([]);
+
+                    const smaColors = {{
+                        'sma10': '#FFD700',
+                        'sma20': '#00BFFF',
+                        'sma50': '#FF00FF'
+                    }};
+
+                    const smaLineWidth = 1.5;
+
+                    for (const smaKey in this.smaData) {{
+                        const smaList = this.smaData[smaKey];
+                        if (smaList.length === 0) continue;
+
+                        this.ctx.strokeStyle = smaColors[smaKey] || '#FFFFFF';
+                        this.ctx.lineWidth = smaLineWidth;
+                        this.ctx.beginPath();
+
+                        let firstPoint = true;
+                        for (let i = 0; i < smaList.length; i++) {{
+                            const item = smaList[i];
+                            const x = this.timeToX(item.time);
+                            const y = this.priceToY(item.value);
+
+                            if (x >= this.chartArea.x && x <= (this.chartArea.x + this.chartArea.width) &&
+                                y >= this.chartArea.y && y <= (this.chartArea.y + this.chartArea.height)) {{
+                                if (firstPoint) {{
+                                    this.ctx.moveTo(x, y);
+                                    firstPoint = false;
+                                }} else {{
+                                    this.ctx.lineTo(x, y);
+                                }}
+                            }} else if (!firstPoint) {{
+                                break;
+                            }}
+                        }}
+                        this.ctx.stroke();
+                    }}
+                }}
+
                 drawAxes() {{
                     this.ctx.fillStyle = this.colors.text;
                     this.ctx.font = '11px monospace';
                     this.ctx.textAlign = 'left';
 
-                    // Price labels
                     const priceRange = this.maxPrice - this.minPrice;
-                    if (priceRange > 0) {{
-                        const priceStep = priceRange / 8;
-                        for (let i = 0; i <= 8; i++) {{
-                            const price = this.minPrice + (priceStep * i);
-                            const y = this.priceToY(price);
-                            this.ctx.fillText('₹' + price.toFixed(2), this.chartArea.x + this.chartArea.width + 4, y + 4);
-                        }}
+                    if (priceRange <= 0) return;
+
+                    // Price labels
+                    const priceStep = priceRange / 8;
+                    for (let i = 0; i <= 8; i++) {{
+                        const price = this.minPrice + (priceStep * i);
+                        const y = this.priceToY(price);
+                        this.ctx.fillText('₹' + price.toFixed(2), this.chartArea.x + this.chartArea.width + 4, y + 4);
                     }}
 
                     // Volume labels
@@ -2230,6 +2196,11 @@ class CandlestickChart(QWidget):
                             this.ctx.lineWidth = line.lineWidth;
                             this.ctx.setLineDash([]);
 
+                            if (this.selectedDrawingId === line.id) {{
+                                this.ctx.strokeStyle = '#FFFF00';
+                                this.ctx.lineWidth = line.lineWidth + 2;
+                            }}
+
                             this.ctx.beginPath();
                             this.ctx.moveTo(startX, startY);
                             this.ctx.lineTo(endX, endY);
@@ -2255,6 +2226,12 @@ class CandlestickChart(QWidget):
                             this.ctx.setLineDash([]);
 
                             this.ctx.fillStyle = rect.color + '20';
+                            if (this.selectedDrawingId === rect.id) {{
+                                this.ctx.strokeStyle = '#FFFF00';
+                                this.ctx.lineWidth = rect.lineWidth + 2;
+                                this.ctx.fillStyle = this.ctx.strokeStyle + '30';
+                            }}
+
                             this.ctx.fillRect(x, y, width, height);
                             this.ctx.strokeRect(x, y, width, height);
                         }}
@@ -2266,13 +2243,19 @@ class CandlestickChart(QWidget):
                         const y = this.priceToY(note.price);
 
                         if (this.isPointVisible(x, y)) {{
-                            this.ctx.font = '12px Arial';
+                            this.ctx.font = 'bold 12px Arial';
                             const textMetrics = this.ctx.measureText(note.text);
 
                             this.ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+                            if (this.selectedDrawingId === note.id) {{
+                                this.ctx.fillStyle = 'rgba(255, 255, 0, 0.8)';
+                            }}
                             this.ctx.fillRect(x - 2, y - 16, textMetrics.width + 4, 18);
 
                             this.ctx.fillStyle = note.color;
+                            if (this.selectedDrawingId === note.id) {{
+                                this.ctx.fillStyle = '#000000';
+                            }}
                             this.ctx.fillText(note.text, x, y);
                         }}
                     }});
@@ -2294,29 +2277,6 @@ class CandlestickChart(QWidget):
                         const width = this.endPoint.x - this.startPoint.x;
                         const height = this.endPoint.y - this.startPoint.y;
                         this.ctx.strokeRect(this.startPoint.x, this.startPoint.y, width, height);
-                    }} else if (this.currentTool === 'measure') {{
-                        // Draw L-shaped measurement tool
-                        this.ctx.beginPath();
-                        this.ctx.moveTo(this.startPoint.x, this.startPoint.y);
-                        this.ctx.lineTo(this.startPoint.x, this.endPoint.y);
-                        this.ctx.stroke();
-
-                        this.ctx.beginPath();
-                        this.ctx.moveTo(this.startPoint.x, this.endPoint.y);
-                        this.ctx.lineTo(this.endPoint.x, this.endPoint.y);
-                        this.ctx.stroke();
-
-                        // Display measurement info
-                        const priceDiff = this.yToPrice(this.startPoint.y) - this.yToPrice(this.endPoint.y);
-                        const startPrice = this.yToPrice(this.startPoint.y);
-                        const priceChangePercent = (startPrice !== 0) ? ((priceDiff / startPrice) * 100) : 0;
-                        const timeDiff = this.xToTime(this.endPoint.x) - this.xToTime(this.startPoint.x);
-                        const daysDiff = Math.round(Math.abs(timeDiff) / (24 * 60 * 60 * 1000));
-
-                        this.ctx.fillStyle = '#00BFFF';
-                        this.ctx.font = '12px Arial';
-                        const measureText = `₹${{Math.abs(priceDiff).toFixed(2)}} (${{priceChangePercent.toFixed(2)}}%) | ${{daysDiff}}d`;
-                        this.ctx.fillText(measureText, this.endPoint.x + 5, this.endPoint.y - 5);
                     }}
 
                     this.ctx.setLineDash([]);
@@ -2328,18 +2288,34 @@ class CandlestickChart(QWidget):
                         this.ctx.lineWidth = 1;
                         this.ctx.setLineDash([5, 5]);
 
-                        // Vertical line
                         this.ctx.beginPath();
                         this.ctx.moveTo(this.crosshairX, this.chartArea.y);
                         this.ctx.lineTo(this.crosshairX, this.volumeArea.y + this.volumeArea.height);
                         this.ctx.stroke();
 
-                        // Horizontal line
                         if (this.crosshairY >= this.chartArea.y && this.crosshairY <= this.chartArea.y + this.chartArea.height) {{
                             this.ctx.beginPath();
                             this.ctx.moveTo(this.chartArea.x, this.crosshairY);
                             this.ctx.lineTo(this.chartArea.x + this.chartArea.width, this.crosshairY);
                             this.ctx.stroke();
+
+                            const priceAtCrosshair = this.yToPrice(this.crosshairY);
+                            const priceText = '₹' + priceAtCrosshair.toFixed(2);
+                            this.ctx.font = 'bold 12px monospace';
+                            const textMetrics = this.ctx.measureText(priceText);
+                            const textWidth = textMetrics.width;
+                            const textHeight = 12;
+
+                            const rectX = this.chartArea.x + this.chartArea.width;
+                            const rectY = this.crosshairY - textHeight / 2 - 2;
+                            const rectWidth = textWidth + 10;
+                            const rectHeight = textHeight + 4;
+
+                            this.ctx.fillStyle = this.colors.crosshair;
+                            this.ctx.fillRect(rectX, rectY, rectWidth, rectHeight);
+
+                            this.ctx.fillStyle = 'white';
+                            this.ctx.fillText(priceText, rectX + 5, this.crosshairY + textHeight / 2 - 2);
                         }}
 
                         this.ctx.setLineDash([]);
@@ -2347,7 +2323,7 @@ class CandlestickChart(QWidget):
                 }}
 
                 drawCurrentPriceRay() {{
-                    if (this.livePrice !== null && this.currentTool === null && this.crosshairX === null) {{
+                    if (this.livePrice !== null && this.currentTool === null) {{
                         const y = this.priceToY(this.livePrice);
                         const lastCandleIndex = this.data.length - 1;
                         let rayStartX = this.chartArea.x;
@@ -2356,6 +2332,8 @@ class CandlestickChart(QWidget):
                             rayStartX = this.candleToX(lastCandleIndex) + this.candleWidth / 2;
                         }} else if (lastCandleIndex < this.viewPortStart) {{
                             rayStartX = this.chartArea.x;
+                        }} else {{
+                            rayStartX = this.chartArea.x + this.chartArea.width;
                         }}
 
                         this.ctx.strokeStyle = this.colors.livePrice;
@@ -2367,7 +2345,6 @@ class CandlestickChart(QWidget):
                         this.ctx.stroke();
                         this.ctx.setLineDash([]);
 
-                        // Price label
                         const priceText = '₹' + this.livePrice.toFixed(2);
                         this.ctx.font = 'bold 12px monospace';
                         const textMetrics = this.ctx.measureText(priceText);
@@ -2387,10 +2364,160 @@ class CandlestickChart(QWidget):
                     }}
                 }}
 
+                // Chart interaction methods
+                handleChartDrag(e) {{
+                    const deltaX = e.clientX - this.lastMouseX;
+                    const deltaY = e.clientY - this.lastMouseY;
+
+                    const visibleCandles = this.viewPortEnd - this.viewPortStart + 1;
+                    const totalCandleSlots = this.data.length + this.rightBufferCandles;
+                    const pixelsPerCandleSlot = this.chartArea.width / visibleCandles;
+                    const candleShift = -Math.round(deltaX / pixelsPerCandleSlot);
+
+                    let newViewPortStart = Math.max(0, Math.min(this.viewPortStart + candleShift, totalCandleSlots - visibleCandles));
+
+                    if (this.viewPortStart !== newViewPortStart) {{
+                        this.viewPortStart = newViewPortStart;
+                        this.viewPortEnd = this.viewPortStart + visibleCandles - 1;
+                    }}
+
+                    const priceRange = this.maxPrice - this.minPrice;
+                    const pricePerPixel = priceRange / this.chartArea.height;
+                    const priceDelta = -deltaY * pricePerPixel;
+
+                    this.minPrice += priceDelta;
+                    this.maxPrice += priceDelta;
+
+                    this.lastMouseX = e.clientX;
+                    this.lastMouseY = e.clientY;
+
+                    this.calculateBounds();
+                    this.updateSlider();
+                }}
+
+                handleWheel(e) {{
+                    e.preventDefault();
+
+                    const chartMouseY = e.clientY - this.canvas.getBoundingClientRect().top;
+                    const chartMouseX = e.clientX - this.canvas.getBoundingClientRect().left;
+                    let zoomChanged = false;
+
+                    // Mark as user-initiated zoom
+                    this.isUserZooming = true;
+
+                    if (e.ctrlKey || e.metaKey) {{
+                        const zoomFactor = e.deltaY > 0 ? 1.1 : 0.9;
+
+                        if (chartMouseY >= this.chartArea.y && chartMouseY <= this.chartArea.y + this.chartArea.height) {{
+                            const priceAtMouse = this.yToPrice(chartMouseY);
+                            const currentRange = this.maxPrice - this.minPrice;
+                            const newRange = currentRange * zoomFactor;
+
+                            this.minPrice = priceAtMouse - (newRange * ((priceAtMouse - this.minPrice) / currentRange));
+                            this.maxPrice = priceAtMouse + (newRange * ((this.maxPrice - priceAtMouse) / currentRange));
+                        }}
+                    }} else if (e.shiftKey) {{
+                        const priceRange = this.maxPrice - this.minPrice;
+                        const panAmount = (e.deltaY > 0 ? 1 : -1) * priceRange * 0.05;
+                        this.minPrice += panAmount;
+                        this.maxPrice += panAmount;
+                    }} else {{
+                        const zoomFactor = e.deltaY > 0 ? 1.1 : 0.9;
+                        const currentVisibleCount = this.visibleCandleCount;
+                        const maxPossibleVisibleCount = this.data.length + this.rightBufferCandles;
+                        let newVisibleCandleCount = Math.round(currentVisibleCount * zoomFactor);
+
+                        newVisibleCandleCount = Math.max(20, Math.min(maxPossibleVisibleCount, newVisibleCandleCount));
+
+                        if (newVisibleCandleCount !== currentVisibleCount) {{
+                            const dataCandleIndex = this.xToCandle(chartMouseX);
+                            let newViewPortStart = Math.round(dataCandleIndex - (newVisibleCandleCount * ((chartMouseX - this.chartArea.x) / this.chartArea.width)));
+
+                            newViewPortStart = Math.max(0, Math.min(newViewPortStart, maxPossibleVisibleCount - newVisibleCandleCount));
+
+                            this.viewPortStart = newViewPortStart;
+                            this.viewPortEnd = this.viewPortStart + newVisibleCandleCount - 1;
+                            this.visibleCandleCount = newVisibleCandleCount;
+                            zoomChanged = true;
+                        }}
+                    }}
+
+                    this.calculateBounds();
+                    this.draw();
+                    this.updateSlider();
+
+                    if (zoomChanged) {{
+                        // Delay the notification to allow zoom to settle
+                        setTimeout(() => {{
+                            this.notifyZoomChange();
+                            this.isUserZooming = false;
+                        }}, 200);
+                    }} else {{
+                        this.isUserZooming = false;
+                    }}
+                }}
+
+                handleDoubleClick(e) {{
+                    if (this.currentTool === 'note') {{
+                        const mousePos = this.getMousePosition(e);
+                        this.addTextNote(mousePos);
+                    }}
+                }}
+
+                addTextNote(mousePos) {{
+                    const text = prompt('Enter note text:');
+                    if (text) {{
+                        const note = {{
+                            id: Date.now() + Math.random(),
+                            type: 'note',
+                            time: this.xToTime(mousePos.x),
+                            price: this.yToPrice(mousePos.y),
+                            text: text,
+                            color: this.drawingColor,
+                            timestamp: Date.now()
+                        }};
+
+                        this.drawings.notes.push(note);
+                        this.draw();
+                        this.notifyDrawingsChange();
+                    }}
+                }}
+
                 // Display methods
+                updateMetricsDisplay() {{
+                    const metricsInfoEl = document.getElementById('metricsInfo');
+                    if (!metricsInfoEl) return;
+
+                    let adrText = '';
+                    if (this.currentADR && this.currentADR.value > 0) {{
+                        adrText = `ADR: ₹${{this.currentADR.value.toFixed(2)}} (${{this.currentADR.percent.toFixed(2)}}%)`;
+                    }} else {{
+                        adrText = 'ADR: N/A';
+                    }}
+
+                    let changesText = [];
+                    const periods = ["Weekly", "Monthly", "3M", "6M", "1Y"];
+
+                    periods.forEach(period => {{
+                        if (this.percentageChanges.hasOwnProperty(period)) {{
+                            const change = this.percentageChanges[period];
+                            const color = change >= 0 ? 'color: #00b894;' : 'color: #d63031;';
+                            changesText.push(`<span style="${{color}}">${{period}}: ${{change.toFixed(2)}}%</span>`);
+                        }} else {{
+                            changesText.push(`<span style="color: #e0e0e0;">${{period}}: N/A</span>`);
+                        }}
+                    }});
+
+                    metricsInfoEl.innerHTML = `${{adrText}} | ${{changesText.join(' | ')}}`;
+                }}
+
                 displayLatestCandleDetails() {{
                     const priceInfoEl = document.getElementById('priceInfo');
                     if (!priceInfoEl) return;
+
+                    if (this.crosshairX !== null) {{
+                        return;
+                    }}
 
                     if (this.data.length > 0) {{
                         const latestCandle = this.data[this.data.length - 1];
@@ -2417,6 +2544,8 @@ class CandlestickChart(QWidget):
                         this.crosshairX = null;
                         this.crosshairY = null;
                         this.displayLatestCandleDetails();
+                        this.updateMetricsDisplay();
+                        this.canvas.style.cursor = this.currentTool ? 'crosshair' : 'default';
                         this.draw();
                         return;
                     }}
@@ -2427,12 +2556,14 @@ class CandlestickChart(QWidget):
                     if (candleIndex >= 0 && candleIndex < this.data.length) {{
                         const candle = this.data[candleIndex];
                         const date = new Date(candle.time);
-                        const dateStr = date.toLocaleDateString('en-GB', {{ day: '2-digit', month: 'short', year: 'numeric' }});
+
                         const change = candle.close - candle.open;
                         const changePercent = (candle.open !== 0) ? ((change / candle.open) * 100).toFixed(2) : '0.00';
                         const changeStr = change >= 0 ? `+₹${{change.toFixed(2)}} (+${{changePercent}}%)` : `₹${{change.toFixed(2)}} (${{changePercent}}%)`;
 
-                        const info = `${{dateStr}} | O: ₹${{candle.open.toFixed(2)}} H: ₹${{candle.high.toFixed(2)}} L: ₹${{candle.low.toFixed(2)}} C: ₹${{candle.close.toFixed(2)}} | ${{changeStr}}`;
+                        const dateTimeFormatted = this.formatTimeLabel(date);
+
+                        const info = `${{dateTimeFormatted}} | O: ₹${{candle.open.toFixed(2)}} H: ₹${{candle.high.toFixed(2)}} L: ₹${{candle.low.toFixed(2)}} C: ₹${{candle.close.toFixed(2)}} | ${{changeStr}}`;
                         if (priceInfoEl) priceInfoEl.textContent = info;
 
                         this.crosshairX = x;
@@ -2442,6 +2573,7 @@ class CandlestickChart(QWidget):
                         this.crosshairX = null;
                         this.crosshairY = null;
                         this.displayLatestCandleDetails();
+                        this.updateMetricsDisplay();
                         this.draw();
                     }}
                 }}
@@ -2512,7 +2644,7 @@ class CandlestickChart(QWidget):
                     return this.viewPortStart + candleIndex;
                 }}
 
-                // Visibility checking methods
+                // Utility helper methods
                 isLineVisible(x1, y1, x2, y2) {{
                     const chartLeft = this.chartArea.x;
                     const chartRight = this.chartArea.x + this.chartArea.width;
@@ -2540,18 +2672,31 @@ class CandlestickChart(QWidget):
                            y >= this.chartArea.y && y <= this.chartArea.y + this.chartArea.height;
                 }}
 
-                // Formatting methods
                 formatTimeLabel(date) {{
                     const now = new Date();
                     const daysDiff = Math.floor((now - date) / (1000 * 60 * 60 * 24));
+                    const isSameDay = date.toDateString() === now.toDateString();
 
-                    if (daysDiff < 7) {{
-                        return date.toLocaleDateString('en-GB', {{ weekday: 'short' }});
-                    }} else if (daysDiff < 30) {{
-                        return date.toLocaleDateString('en-GB', {{ day: '2-digit', month: 'short' }});
-                    }} else {{
-                        return date.toLocaleDateString('en-GB', {{ month: 'short', year: '2-digit' }});
+                    if (this.currentInterval === 'minute' || this.currentInterval === '3minute' || 
+                        this.currentInterval === '5minute' || this.currentInterval === '10minute' || 
+                        this.currentInterval === '15minute' || this.currentInterval === '30minute' || 
+                        this.currentInterval === '60minute') {{
+                        const time = date.toLocaleTimeString('en-GB', {{ hour: '2-digit', minute: '2-digit' }});
+                        if (isSameDay) {{
+                            return time;
+                        }} else {{
+                            return date.toLocaleDateString('en-GB', {{ day: '2-digit', month: 'short' }}) + ' ' + time;
+                        }}
+                    }} else if (this.currentInterval === 'day') {{
+                        if (daysDiff < 7) {{
+                            return date.toLocaleDateString('en-GB', {{ weekday: 'short' }});
+                        }} else if (daysDiff < 365) {{
+                            return date.toLocaleDateString('en-GB', {{ day: '2-digit', month: 'short' }});
+                        }} else {{
+                            return date.toLocaleDateString('en-GB', {{ month: 'short', year: '2-digit' }});
+                        }}
                     }}
+                    return date.toLocaleDateString('en-GB', {{ day: '2-digit', month: 'short', year: '2-digit' }});
                 }}
 
                 formatVolume(volume) {{
@@ -2560,16 +2705,364 @@ class CandlestickChart(QWidget):
                     if (volume >= 1e3) return (volume / 1e3).toFixed(1) + 'K';
                     return volume.toFixed(0);
                 }}
+
+                getDrawingAtPoint(mousePos) {{
+                    // Check if any drawing is clicked for selection
+                    const tolerance = 5;
+
+                    // Check lines
+                    for (const line of this.drawings.lines) {{
+                        const startX = this.timeToX(line.startTime);
+                        const startY = this.priceToY(line.startPrice);
+                        const endX = this.timeToX(line.endTime);
+                        const endY = this.priceToY(line.endPrice);
+
+                        if (this.isPointNearLine(mousePos.x, mousePos.y, startX, startY, endX, endY, tolerance)) {{
+                            return line.id;
+                        }}
+                    }}
+
+                    // Check rectangles
+                    for (const rect of this.drawings.rectangles) {{
+                        const startX = this.timeToX(rect.startTime);
+                        const startY = this.priceToY(rect.startPrice);
+                        const endX = this.timeToX(rect.endTime);
+                        const endY = this.priceToY(rect.endPrice);
+
+                        const x = Math.min(startX, endX);
+                        const y = Math.min(startY, endY);
+                        const width = Math.abs(endX - startX);
+                        const height = Math.abs(endY - startY);
+
+                        if (mousePos.x >= x - tolerance && mousePos.x <= x + width + tolerance &&
+                            mousePos.y >= y - tolerance && mousePos.y <= y + height + tolerance) {{
+                            return rect.id;
+                        }}
+                    }}
+
+                    // Check notes
+                    for (const note of this.drawings.notes) {{
+                        const x = this.timeToX(note.time);
+                        const y = this.priceToY(note.price);
+
+                        if (Math.abs(mousePos.x - x) <= tolerance && Math.abs(mousePos.y - y) <= tolerance) {{
+                            return note.id;
+                        }}
+                    }}
+
+                    return null;
+                }}
+
+                isPointNearLine(px, py, x1, y1, x2, y2, tolerance) {{
+                    const A = px - x1;
+                    const B = py - y1;
+                    const C = x2 - x1;
+                    const D = y2 - y1;
+
+                    const dot = A * C + B * D;
+                    const lenSq = C * C + D * D;
+                    let param = -1;
+                    if (lenSq !== 0) {{
+                        param = dot / lenSq;
+                    }}
+
+                    let xx, yy;
+                    if (param < 0) {{
+                        xx = x1;
+                        yy = y1;
+                    }} else if (param > 1) {{
+                        xx = x2;
+                        yy = y2;
+                    }} else {{
+                        xx = x1 + param * C;
+                        yy = y1 + param * D;
+                    }}
+
+                    const dx = px - xx;
+                    const dy = py - yy;
+                    return Math.sqrt(dx * dx + dy * dy) <= tolerance;
+                }}
+
+                // Slider methods
+                setupSlider() {{
+                    const setupSliderElements = () => {{
+                        this.slider = document.getElementById('timeSlider');
+                        this.sliderTrack = document.getElementById('sliderTrack');
+                        this.sliderThumb = document.getElementById('sliderThumb');
+
+                        if (!this.slider || !this.sliderThumb || !this.sliderTrack) {{
+                            setTimeout(setupSliderElements, 100);
+                            return;
+                        }}
+
+                        this.sliderThumb.addEventListener('mousedown', (e) => this.handleSliderMouseDown(e));
+                        document.addEventListener('mousemove', (e) => this.handleSliderMouseMove(e));
+                        document.addEventListener('mouseup', (e) => this.handleSliderMouseUp(e));
+                        this.sliderTrack.addEventListener('click', (e) => this.handleSliderClick(e));
+                        this.slider.addEventListener('wheel', (e) => this.handleSliderWheel(e));
+
+                        console.log('Slider setup completed');
+                    }};
+
+                    setupSliderElements();
+                }}
+
+                handleSliderMouseDown(e) {{
+                    if (e.target === this.sliderThumb) {{
+                        e.preventDefault();
+                        this.isSliderDragging = true;
+                        this.sliderLastX = e.clientX;
+                        this.sliderThumb.style.cursor = 'grabbing';
+                    }}
+                }}
+
+                handleSliderMouseMove(e) {{
+                    if (!this.isSliderDragging) return;
+
+                    e.preventDefault();
+                    const deltaX = e.clientX - this.sliderLastX;
+                    this.sliderLastX = e.clientX;
+
+                    const totalCandleSpots = this.data.length + this.rightBufferCandles;
+                    const totalMovableRange = totalCandleSpots - this.visibleCandleCount;
+                    if (totalMovableRange <= 0) return;
+
+                    const pixelsPerCandleSpot = (this.sliderTrack.clientWidth - this.sliderThumb.clientWidth) / totalMovableRange;
+                    const candleDelta = Math.round(deltaX / pixelsPerCandleSpot);
+
+                    let newViewPortStart = this.viewPortStart - candleDelta;
+                    newViewPortStart = Math.max(0, Math.min(newViewPortStart, totalCandleSpots - this.visibleCandleCount));
+
+                    if (this.viewPortStart !== newViewPortStart) {{
+                        this.viewPortStart = newViewPortStart;
+                        this.viewPortEnd = this.viewPortStart + this.visibleCandleCount - 1;
+                        this.calculateBounds();
+                        this.draw();
+                        this.updateSlider();
+                    }}
+                }}
+
+                handleSliderMouseUp(e) {{
+                    this.isSliderDragging = false;
+                    this.sliderThumb.style.cursor = 'grab';
+                }}
+
+                handleSliderClick(e) {{
+                    if (e.target === this.sliderThumb) return;
+
+                    const rect = this.sliderTrack.getBoundingClientRect();
+                    const clickX = e.clientX - rect.left;
+                    const trackWidth = this.sliderTrack.clientWidth;
+
+                    const totalCandleSpots = this.data.length + this.rightBufferCandles;
+                    const totalMovableRange = totalCandleSpots - this.visibleCandleCount;
+                    if (totalMovableRange <= 0) return;
+
+                    const proportion = clickX / trackWidth;
+                    const potentialStart = Math.round(proportion * totalMovableRange);
+                    let newViewPortStart = Math.max(0, Math.min(potentialStart, totalMovableRange));
+
+                    if (this.viewPortStart !== newViewPortStart) {{
+                        this.viewPortStart = newViewPortStart;
+                        this.viewPortEnd = this.viewPortStart + this.visibleCandleCount - 1;
+                        this.calculateBounds();
+                        this.draw();
+                        this.updateSlider();
+                    }}
+                }}
+
+                handleSliderWheel(e) {{
+                    e.preventDefault();
+
+                    // Mark as user-initiated zoom
+                    this.isUserZooming = true;
+
+                    const scrollAmount = e.deltaY > 0 ? 5 : -5;
+
+                    const totalCandleSpots = this.data.length + this.rightBufferCandles;
+                    const totalMovableRange = totalCandleSpots - this.visibleCandleCount;
+                    if (totalMovableRange <= 0) {{
+                        this.isUserZooming = false;
+                        return;
+                    }}
+
+                    let newViewPortStart = Math.max(0, Math.min(this.viewPortStart + scrollAmount, totalMovableRange));
+
+                    if (this.viewPortStart !== newViewPortStart) {{
+                        this.viewPortStart = newViewPortStart;
+                        this.viewPortEnd = this.viewPortStart + this.visibleCandleCount - 1;
+                        this.calculateBounds();
+                        this.draw();
+                        this.updateSlider();
+                    }}
+
+                    // Reset user zooming flag after a delay
+                    setTimeout(() => {{
+                        this.isUserZooming = false;
+                    }}, 100);
+                }}
+
+                updateSlider() {{
+                    if (!this.slider || !this.sliderThumb || !this.sliderTrack) {{
+                        setTimeout(() => this.updateSlider(), 50);
+                        return;
+                    }}
+
+                    const totalCandles = this.data.length;
+                    const totalCandleSpots = totalCandles + this.rightBufferCandles;
+
+                    if (totalCandleSpots <= this.visibleCandleCount) {{
+                        this.slider.style.display = 'none';
+                        return;
+                    }}
+
+                    this.slider.style.display = 'flex';
+
+                    const trackWidth = this.sliderTrack.clientWidth;
+                    const visiblePercentage = this.visibleCandleCount / totalCandleSpots;
+                    const newThumbWidth = Math.max(20, Math.round(visiblePercentage * trackWidth));
+                    const maxThumbPosition = trackWidth - newThumbWidth;
+                    const ratio = this.viewPortStart / (totalCandles + this.rightBufferCandles - this.visibleCandleCount);
+                    const thumbPosition = ratio * maxThumbPosition;
+
+                    this.sliderThumb.style.width = newThumbWidth + 'px';
+                    this.sliderThumb.style.left = Math.max(0, Math.min(maxThumbPosition, thumbPosition)) + 'px';
+                }}
+
+                // Public API methods
+                setDrawingTool(toolId, enabled, color, lineWidth) {{
+                    this.isDragging = false;
+                    this.canvas.style.cursor = 'crosshair';
+
+                    if (enabled) {{
+                        this.currentTool = toolId;
+                        this.drawingColor = color || this.drawingColor;
+                        this.lineWidth = lineWidth || this.lineWidth;
+                    }} else {{
+                        this.currentTool = null;
+                        this.canvas.style.cursor = 'default';
+                        this.isDrawing = false;
+                        this.startPoint = null;
+                        this.endPoint = null;
+                    }}
+                    this.draw();
+                }}
+
+                updateDrawingStyle(color, lineWidth) {{
+                    this.drawingColor = color || this.drawingColor;
+                    this.lineWidth = lineWidth || this.lineWidth;
+                }}
+
+                setVisibleCandleCount(count) {{
+                    let newCount = Math.max(20, Math.min(this.data.length + this.rightBufferCandles, count));
+                    if (this.visibleCandleCount === newCount) return;
+
+                    // Don't mark as user zooming for programmatic changes
+                    this.isUserZooming = false;
+
+                    this.visibleCandleCount = newCount;
+                    this.viewPortEnd = Math.min(this.data.length - 1 + this.rightBufferCandles, this.viewPortStart + this.visibleCandleCount - 1);
+                    this.viewPortStart = this.viewPortEnd - this.visibleCandleCount + 1;
+                    this.viewPortStart = Math.max(0, this.viewPortStart);
+                    this.viewPortEnd = this.viewPortStart + this.visibleCandleCount - 1;
+
+                    this.calculateBounds();
+                    this.draw();
+                    this.updateSlider();
+
+                    // Don't notify for programmatic changes
+                    // this.notifyZoomChange();
+                }}
+
+                setChartSettings(settings) {{
+                    if (settings) {{
+                        this.candleWidth = settings.candleWidth || this.candleWidth;
+                        this.candleSpacing = settings.candleSpacing || this.candleSpacing;
+                        this.colors.upCandle = settings.upCandleColor || this.colors.upCandle;
+                        this.colors.downCandle = settings.downCandleColor || this.colors.downCandle;
+                        this.calculateBounds();
+                        this.draw();
+                    }}
+                }}
+
+                updateLivePrice(newPrice) {{
+                    if (this.data.length === 0 || typeof newPrice !== 'number') return;
+
+                    this.livePrice = newPrice;
+                    const lastActualCandle = this.data[this.data.length - 1];
+                    if (lastActualCandle) {{
+                        lastActualCandle.close = newPrice;
+                        lastActualCandle.high = Math.max(lastActualCandle.high, newPrice);
+                        lastActualCandle.low = Math.min(lastActualCandle.low, newPrice);
+                    }}
+
+                    this.calculateBounds();
+                    this.draw();
+                }}
+
+                clearAllDrawings() {{
+                    this.drawings = {{ lines: [], rectangles: [], notes: [] }};
+                    this.draw();
+                    this.notifyDrawingsChange();
+                }}
+
+                deleteSelectedDrawing() {{
+                    if (this.selectedDrawingId) {{
+                        let foundAndDeleted = false;
+                        for (const type in this.drawings) {{
+                            const initialLength = this.drawings[type].length;
+                            this.drawings[type] = this.drawings[type].filter(d => d.id !== this.selectedDrawingId);
+                            if (this.drawings[type].length < initialLength) {{
+                                foundAndDeleted = true;
+                                break;
+                            }}
+                        }}
+
+                        if (foundAndDeleted) {{
+                            this.selectedDrawingId = null;
+                            this.draw();
+                            this.notifyDrawingsChange();
+                            console.log("Deleted selected drawing.");
+                        }} else {{
+                            console.warn("Selected drawing not found for deletion.");
+                        }}
+                    }} else {{
+                        console.log("No drawing selected for deletion.");
+                    }}
+                }}
+
+                autoScale() {{
+                    this.calculateBounds();
+                    this.draw();
+                    this.updateSlider();
+                }}
+
+                getVisibleCandleCount() {{
+                    return this.visibleCandleCount;
+                }}
+
+                getAllDrawings() {{
+                    return this.drawings;
+                }}
             }}
 
-            // Initialize chart
+            // Global chart settings to maintain consistency across symbols
+            window.globalChartSettings = window.globalChartSettings || {{
+                visibleCandleCount: {initial_visible_candle_count},
+                candleWidth: {initial_candle_width},
+                candleSpacing: {initial_candle_spacing}
+            }};
+
+            // Initialize chart when DOM is ready
             const candlestickData = {candlestick_json};
             const volumeData = {volume_json};
-            const initialVisibleCandleCount = {initial_visible_candle_count};
-            const initialCandleWidth = {initial_candle_width};
-            const initialCandleSpacing = {initial_candle_spacing};
+            const smaData = {sma_json};
+            const initialADR = {adr_json};
+            const percentageChanges = {percentage_changes_json};
             const upCandleColor = '{up_candle_color}';
             const downCandleColor = '{down_candle_color}';
+            const currentInterval = {current_interval_js};
+            const initialDrawingsJson = `{safe_initial_drawings}`;
 
             let chartInitialized = false;
 
@@ -2577,30 +3070,41 @@ class CandlestickChart(QWidget):
                 if (chartInitialized) return;
                 chartInitialized = true;
 
-                if (candlestickData.length > 0) {{
+                try {{
                     const chart = new FixedTradingChart(
                         'mainCanvas',
                         candlestickData,
                         volumeData,
-                        initialVisibleCandleCount,
-                        initialCandleWidth,
-                        initialCandleSpacing,
+                        window.globalChartSettings.visibleCandleCount, // Use global setting
+                        window.globalChartSettings.candleWidth,
+                        window.globalChartSettings.candleSpacing,
                         upCandleColor,
-                        downCandleColor
+                        downCandleColor,
+                        smaData,
+                        initialADR,
+                        percentageChanges,
+                        currentInterval,
+                        initialDrawingsJson
                     );
 
-                    // Expose chart methods to global scope
                     window.chart = chart;
                     window.autoScale = () => chart.autoScale();
 
-                    console.log('Chart initialized successfully');
-                }} else {{
-                    document.getElementById('priceInfo').textContent = 'No data available';
-                    console.warn('No candlestick data to initialize chart.');
+                    // Update global settings when user zooms
+                    chart.updateGlobalSettings = function(visibleCount) {{
+                        window.globalChartSettings.visibleCandleCount = visibleCount;
+                        console.log('Updated global visible candle count to:', visibleCount);
+                    }};
+
+                    console.log('Chart initialized successfully with', candlestickData.length, 'candles');
+                }} catch (error) {{
+                    console.error('Error initializing chart:', error);
+                    document.getElementById('priceInfo').textContent = 'Error loading chart: ' + error.message;
+                    document.getElementById('metricsInfo').textContent = 'Chart initialization failed';
                 }}
             }}
 
-            // Multiple initialization strategies to ensure chart loads
+            // Multiple initialization attempts to ensure chart loads
             document.addEventListener('DOMContentLoaded', initChart);
             if (document.readyState === 'interactive' || document.readyState === 'complete') {{
                 initChart();
@@ -2865,8 +3369,8 @@ class CandlestickChart(QWidget):
                 color: #e0e0e0;
                 border: 1px solid #404040;
                 border-radius: 4px;
-                font-size: 16px; /* For better emoji visibility */
-                padding: 2px 5px; /* Compact padding */
+                font-size: 16px;
+                padding: 2px 5px;
             }
 
             #saveButton:hover {
@@ -2944,7 +3448,6 @@ class CandlestickChart(QWidget):
             self._stop_current_operations()
             self.data_cache.clear()
 
-            # Clean up WebChannel
             if self.channel:
                 self.channel.deleteLater()
                 self.channel = None
@@ -2966,7 +3469,6 @@ if __name__ == "__main__":
     from PySide6.QtCore import QTimer
 
 
-    # Mock KiteConnect for testing
     class MockKiteConnect:
         def historical_data(self, instrument_token, from_date, to_date, interval):
             import random
@@ -2976,7 +3478,7 @@ if __name__ == "__main__":
             num_candles = 500
             for i in range(num_candles):
                 current_date = from_date + timedelta(days=i)
-                if current_date.weekday() >= 5:
+                if current_date.weekday() >= 5: # Skip weekends for daily data simulation
                     continue
 
                 open_price = price + random.uniform(-5, 5)
@@ -2993,7 +3495,7 @@ if __name__ == "__main__":
                     'close': close,
                     'volume': volume
                 })
-                price = close
+                price = close + random.uniform(-2, 2) # Slight drift for price over time
 
             return data
 
@@ -3014,7 +3516,7 @@ if __name__ == "__main__":
     chart_widget = CandlestickChart(mock_kite)
 
     market_data_timer = QTimer()
-    market_data_timer.setInterval(100)
+    market_data_timer.setInterval(100) # Faster updates for testing
     mock_ltp = 0.0
 
 
@@ -3024,9 +3526,10 @@ if __name__ == "__main__":
             if mock_ltp == 0.0 and chart_widget.current_ltp != 0.0:
                 mock_ltp = chart_widget.current_ltp
             elif mock_ltp != 0.0:
-                change = random.uniform(-1.0, 1.0)
+                # Simulate price fluctuations around the last price
+                change = random.uniform(-0.5, 0.5) # Smaller changes for live data
                 mock_ltp += change
-                mock_ltp = max(1.0, mock_ltp)
+                mock_ltp = max(1.0, mock_ltp) # Ensure price doesn't go below 1
 
             if mock_ltp != 0.0:
                 live_updates_list = [{
