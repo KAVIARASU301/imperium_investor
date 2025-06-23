@@ -1131,8 +1131,7 @@ class CandlestickChart(QWidget):
             saved_state = self.drawing_storage.load_state(self.current_symbol, self.current_interval)
             initial_drawings_json = json.dumps(
                 saved_state.get("drawings", {"lines": [], "rectangles": [], "notes": []}))
-            initial_zoom = saved_state.get("visible_candle_count",
-                                           self.global_chart_settings["default_visible_candles"])
+            initial_zoom = self.global_chart_settings["default_visible_candles"]
             html_content = self._create_fixed_chart_html(candlestick_data, volume_data, initial_zoom,
                                                          self._current_candle_width, self._current_candle_spacing,
                                                          self._current_up_color, self._current_down_color,

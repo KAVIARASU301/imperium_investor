@@ -12,7 +12,7 @@ from PySide6.QtGui import QMouseEvent, QKeySequence, QShortcut
 
 from widgets.menu_bar import create_main_menu
 from tables.chartink_scanner_table import ChartinkScannerTable
-from tables.open_positions_table import OpenPositionsTable
+from tables.positions_table import PositionsTable
 from tables.watchlist_table import TabbedWatchlistWidget
 from widgets.canvas_candlestick_chart import CandlestickChart as ChartWindow
 from widgets.header_toolbar import HeaderToolbar
@@ -26,10 +26,9 @@ from dialogs.performance_dialog import PerformanceDialog
 # Import the new advanced alert system
 from dialogs.alert_management_system import AlertSystemManager
 
-from utils.advanced_order_manager import AdvancedOrderManager, setup_advanced_order_manager
+from utils.advanced_order_manager import AdvancedOrderManager
 from utils.risk_management import (
-    AdvancedRiskManager, PositionMonitor, TradeAnalyzer, TradingRules,
-    integrate_risk_management
+    AdvancedRiskManager, PositionMonitor, TradeAnalyzer, TradingRules
 )
 
 from utils.market_data_worker import MarketDataWorker
@@ -108,7 +107,7 @@ class SwingTraderWindow(QMainWindow):
 
         self._apply_dark_theme()
         self.restore_window_state()
-        logger.info("Swing Trader Window Initialized Successfully with Advanced Alert System.")
+        logger.info("Swing Trader Window Initialized Successfully.")
 
         # Call this method after initialization to debug:
         # Add this to the end of __init__ method temporarily:
@@ -238,7 +237,7 @@ class SwingTraderWindow(QMainWindow):
         self.chartink_scanner = ChartinkScannerTable()
         self.candlestick_chart = ChartWindow(self.real_kite_client)
         self.watchlist = TabbedWatchlistWidget()
-        self.positions_table = OpenPositionsTable()
+        self.positions_table = PositionsTable(parent=self)
 
         # Right panel: Watchlist on top (60%), Positions on bottom (40%)
         right_panel_splitter = QSplitter(Qt.Orientation.Vertical)
@@ -342,7 +341,7 @@ class SwingTraderWindow(QMainWindow):
         menu_actions["performance"].triggered.connect(self._show_performance_dialog)
         menu_actions["exit"].triggered.connect(self.close)
 
-    # 7. Enhanced error handling in _init_alert_system:
+    # Enhanced error handling in _init_alert_system:
     def _init_alert_system(self):
         """Initialize the advanced alert management system."""
         try:
@@ -376,39 +375,54 @@ class SwingTraderWindow(QMainWindow):
             return
 
     def _connect_signals(self):
-        """Central place to connect all signals and slots across the application."""
-        # Header toolbar connections
-        self.header_toolbar.symbol_selected.connect(self.candlestick_chart.on_search)
+        """Connect all signals for seamless integration between components - ENHANCED."""
+        logger.info("Connecting enhanced component signals...")
 
-        # Connect the order_button_clicked signal from candlestick_chart
-        self.candlestick_chart.order_button_clicked.connect(self._show_advanced_order_dialog)
-
-        # Symbol selection connections
-        self.chartink_scanner.symbol_selected.connect(self.candlestick_chart.on_search)
-        self.positions_table.symbol_selected.connect(self.candlestick_chart.on_search)
-
-        # Position manager connections
+        # === ENHANCED POSITION MANAGER CONNECTIONS ===
+        # Core position data flow: Enhanced PositionManager -> Enhanced PositionsTable
         self.position_manager.positions_updated.connect(self.positions_table.update_positions)
+        self.position_manager.refresh_completed.connect(self._on_positions_refresh_completed)
+        self.position_manager.api_error_occurred.connect(self._on_api_error)
 
-        # Positions table connections
-        self.positions_table.exit_position_requested.connect(self._on_exit_position_requested)
+        # ENHANCED: Connect new signals from enhanced position manager
+        self.position_manager.position_closed.connect(self._on_position_closed)
+        self.position_manager.position_opened.connect(self._on_position_opened)
+        self.position_manager.pnl_updated.connect(self._on_pnl_updated)
+        self.position_manager.risk_alert.connect(self._on_risk_alert)
+        self.position_manager.performance_update.connect(self._on_performance_update)
+
+        # === ENHANCED POSITIONS TABLE CONNECTIONS ===
+        # User interactions from enhanced positions table
+        self.positions_table.exit_position_requested.connect(self._handle_exit_position_request)
+        self.positions_table.symbol_selected.connect(self.candlestick_chart.on_search)
         self.positions_table.subscribe_tokens_requested.connect(self._subscribe_to_tokens)
 
-        # Enhanced watchlist connections
+        # ENHANCED: Connect new signals from enhanced positions table
+        self.positions_table.exit_all_positions_requested.connect(self._handle_exit_all_positions)
+        self.positions_table.position_details_requested.connect(self._show_position_details)
+        self.positions_table.add_alert_requested.connect(self._create_alert_from_position)
+
+        # === CHART CONNECTIONS ===
+        # Chart interactions and order placement
+        self.candlestick_chart.order_button_clicked.connect(self._show_advanced_order_dialog)
+
+        # === SCANNER AND WATCHLIST CONNECTIONS ===
+        # Symbol selection from various sources
+        self.chartink_scanner.symbol_selected.connect(self.candlestick_chart.on_search)
+        self.chartink_scanner.subscribe_tokens_requested.connect(self._subscribe_to_tokens)
+
         self.watchlist.symbol_selected.connect(self.candlestick_chart.on_search)
         self.watchlist.subscribe_tokens_requested.connect(self._subscribe_to_tokens)
         self.watchlist.place_order_requested.connect(self._show_advanced_order_dialog_from_dict)
+        self.watchlist.watchlist_changed.connect(self._on_watchlist_changed)
 
-        # Connect advanced order signals from watchlist
+        # Advanced order types from watchlist
         self.watchlist.advanced_buy_order_requested.connect(self._show_advanced_buy_order)
         self.watchlist.advanced_sell_order_requested.connect(self._show_advanced_sell_order)
         self.watchlist.bracket_order_requested.connect(self._show_bracket_order)
 
-        # Enhanced watchlist change handling
-        self.watchlist.watchlist_changed.connect(self._on_watchlist_changed)
-
-        # Chartink scanner connections
-        self.chartink_scanner.subscribe_tokens_requested.connect(self._subscribe_to_tokens)
+        # === HEADER TOOLBAR CONNECTIONS ===
+        self.header_toolbar.symbol_selected.connect(self.candlestick_chart.on_search)
 
         # Alert system connections - with better error handling
         try:
@@ -444,6 +458,178 @@ class SwingTraderWindow(QMainWindow):
         self.alert_update_timer = QTimer(self)
         self.alert_update_timer.timeout.connect(self._update_alert_badges)
         self.alert_update_timer.start(30000)  # Update every 30 seconds
+
+        logger.info("All enhanced component signals connected successfully.")
+
+    @Slot(dict)
+    def _on_position_closed(self, closure_data: dict):
+        """Handle position closure notification from enhanced position manager."""
+        try:
+            symbol = closure_data.get('tradingsymbol', '')
+            pnl = closure_data.get('pnl', 0.0)
+
+            # Show notification
+            message = f"Position closed: {symbol} | P&L: ₹{pnl:,.2f}"
+            notification_type = "success" if pnl >= 0 else "info"
+            self._show_order_notification(message, notification_type)
+
+            # Play sound for significant P&L
+            if abs(pnl) > 1000 and self.alert_sound:  # More than ₹1000
+                self.alert_sound.play()
+
+            logger.info(f"Position closed notification: {symbol}, P&L: ₹{pnl:,.2f}")
+
+        except Exception as e:
+            logger.error(f"Error handling position closure: {e}")
+
+    @Slot(dict)
+    def _on_position_opened(self, position_data: dict):
+        """Handle new position notification from enhanced position manager."""
+        try:
+            symbol = position_data.get('tradingsymbol', '')
+            quantity = position_data.get('quantity', 0)
+
+            message = f"New position: {symbol} | Qty: {quantity}"
+            self._show_order_notification(message, "info")
+
+            logger.info(f"New position notification: {symbol}, Qty: {quantity}")
+
+        except Exception as e:
+            logger.error(f"Error handling new position: {e}")
+
+    @Slot(float, float)
+    def _on_pnl_updated(self, unrealized_pnl: float, realized_pnl: float):
+        """Handle P&L updates from enhanced position manager."""
+        try:
+            # Update header toolbar with P&L if it has that functionality
+            if hasattr(self.header_toolbar, 'update_pnl_display'):
+                self.header_toolbar.update_pnl_display(unrealized_pnl, realized_pnl)
+
+            # Log significant P&L changes
+            total_pnl = unrealized_pnl + realized_pnl
+            if total_pnl != 0:
+                logger.debug(f"P&L Update - Unrealized: ₹{unrealized_pnl:,.2f}, Realized: ₹{realized_pnl:,.2f}")
+
+        except Exception as e:
+            logger.error(f"Error handling P&L update: {e}")
+
+    @Slot(str, float)
+    def _on_risk_alert(self, message: str, risk_value: float):
+        """Handle risk alerts from enhanced position manager."""
+        try:
+            # Show prominent risk alert
+            self._show_order_notification(f"RISK ALERT: {message}", "error")
+
+            # Play alert sound
+            if self.alert_sound:
+                self.alert_sound.play()
+
+            logger.warning(f"Risk Alert: {message} (Value: {risk_value})")
+
+        except Exception as e:
+            logger.error(f"Error handling risk alert: {e}")
+
+    @Slot(dict)
+    def _on_performance_update(self, performance_data: dict):
+        """Handle performance updates from enhanced position manager."""
+        try:
+            # Update any performance displays in the UI
+            if hasattr(self.header_toolbar, 'update_performance_metrics'):
+                self.header_toolbar.update_performance_metrics(performance_data)
+
+            # Log performance milestones
+            win_rate = performance_data.get('win_rate', 0)
+            total_trades = performance_data.get('total_trades', 0)
+
+            if total_trades > 0 and total_trades % 10 == 0:  # Every 10 trades
+                logger.info(f"Performance Update - Trades: {total_trades}, Win Rate: {win_rate:.1f}%")
+
+        except Exception as e:
+            logger.error(f"Error handling performance update: {e}")
+
+    @Slot()
+    def _handle_exit_all_positions(self):
+        """Handle exit all positions request from enhanced positions table."""
+        try:
+            # Show confirmation dialog
+            reply = QMessageBox.question(
+                self,
+                "Exit All Positions",
+                "Are you sure you want to exit ALL open positions?\n\nThis action cannot be undone.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+
+            if reply == QMessageBox.StandardButton.Yes:
+                positions = self.position_manager.get_all_positions()
+
+                for position in positions:
+                    try:
+                        # Create exit order for each position
+                        transaction_type = "SELL" if position.quantity > 0 else "BUY"
+                        exit_quantity = abs(position.quantity)
+
+                        exit_order = {
+                            "tradingsymbol": position.tradingsymbol,
+                            "transaction_type": transaction_type,
+                            "quantity": exit_quantity,
+                            "order_type": "MARKET",
+                            "product": position.product
+                        }
+
+                        # Place exit order
+                        self._handle_order_placement(exit_order)
+
+                    except Exception as e:
+                        logger.error(f"Error exiting position {position.tradingsymbol}: {e}")
+
+                self._show_order_notification(f"Exit orders placed for {len(positions)} positions", "info")
+                logger.info(f"Exit all positions requested for {len(positions)} positions")
+
+        except Exception as e:
+            logger.error(f"Error handling exit all positions: {e}")
+
+    @Slot(str)
+    def _show_position_details(self, symbol: str):
+        """Show detailed position information."""
+        try:
+            position = self.position_manager.get_position_by_symbol(symbol)
+            if not position:
+                self._show_order_notification(f"Position not found for {symbol}", "error")
+                return
+
+            # Create detailed position info dialog
+            details = f"""
+                        Position Details for {symbol}:
+                    
+                        Quantity: {position.quantity}
+                        Average Price: ₹{position.average_price:.2f}
+                        Current Price: ₹{position.ltp:.2f}
+                        P&L: ₹{position.pnl:,.2f}
+                        P&L %: {getattr(position, 'pnl_percent', 0):.2f}%
+                        Investment: ₹{getattr(position, 'investment', 0):,.2f}
+                        Market Value: ₹{getattr(position, 'market_value', 0):,.2f}
+                        Product: {position.product}
+                        Exchange: {position.exchange}
+                        Last Updated: {getattr(position, 'last_updated', 'Unknown')}
+                """
+
+            QMessageBox.information(self, f"Position Details - {symbol}", details.strip())
+
+        except Exception as e:
+            logger.error(f"Error showing position details for {symbol}: {e}")
+
+    @Slot(str, float)
+    def _create_alert_from_position(self, symbol: str, price: float):
+        """Create price alert from position context menu."""
+        try:
+            if self.alert_system:
+                self.alert_system.create_alert_from_chart(symbol, price)
+            else:
+                self._alert_system_unavailable()
+
+        except Exception as e:
+            logger.error(f"Error creating alert for {symbol}: {e}")
 
     def _alert_system_unavailable(self):
         """Fallback handler when alert system is not available."""
@@ -1005,6 +1191,68 @@ class SwingTraderWindow(QMainWindow):
             except Exception as e:
                 logger.error(f"Failed to refresh positions: {e}")
 
+    @Slot()
+    def _on_positions_refresh_completed(self):
+        """Handle completion of position refresh from API."""
+        logger.debug("Position refresh completed.")
+
+        # Update risk manager with latest positions
+        if self.risk_manager:
+            positions = self.position_manager.get_all_positions()
+            self.risk_manager.update_positions(positions)
+
+    @Slot(str)
+    def _on_api_error(self, error_message: str):
+        """Handle API errors from position manager."""
+        logger.error(f"Position Manager API Error: {error_message}")
+        self._show_order_notification(f"API Error: {error_message}", "error")
+
+    @Slot(dict)
+    def _handle_exit_position_request(self, position_data: dict):
+        """Handle exit position request with enhanced validation."""
+        try:
+            symbol = position_data.get('tradingsymbol', '')
+            quantity = position_data.get('quantity', 0)
+
+            if not symbol or quantity == 0:
+                logger.warning("Invalid position data for exit request.")
+                return
+
+            # Determine transaction type for exit
+            transaction_type = "SELL" if quantity > 0 else "BUY"
+            exit_quantity = abs(quantity)
+
+            # Show enhanced order dialog for position exit
+            self._show_exit_order_dialog(symbol, exit_quantity, transaction_type)
+
+        except Exception as e:
+            logger.error(f"Error handling exit position request: {e}")
+
+    def _show_exit_order_dialog(self, symbol: str, quantity: int, transaction_type: str):
+        """Show enhanced order dialog specifically for exiting positions."""
+        try:
+            ltp = self._get_fresh_ltp(symbol)
+            dialog = OrderDialog(self, symbol, ltp)
+
+            # Pre-fill with exit details
+            exit_order = {
+                "tradingsymbol": symbol,
+                "transaction_type": transaction_type,
+                "quantity": quantity,
+                "order_type": "MARKET",  # Default to market order for quick exit
+                "product": "NRML"  # Default product
+            }
+
+            # Set the order details in dialog if it has that method
+            if hasattr(dialog, 'set_order_details'):
+                dialog.set_order_details(**exit_order)
+
+            dialog.order_placed.connect(self._handle_order_placement)
+            dialog.show()
+
+        except Exception as e:
+            logger.error(f"Error showing exit order dialog: {e}")
+
     # ======================
     # EXISTING METHODS (ENHANCED WITH ALERT INTEGRATION)
     # ======================
@@ -1043,13 +1291,17 @@ class SwingTraderWindow(QMainWindow):
 
     @Slot(list)
     def _on_market_data(self, ticks: List[Dict]):
-        """Enhanced market data distribution with alert system integration."""
+        """Enhanced market data distribution with perfect integration."""
         if not ticks:
             return
 
         try:
-            # Update position manager
+            # Update enhanced position manager (this will automatically update the positions table)
             self.position_manager.update_pnl_from_market_data(ticks)
+
+            if isinstance(self.trader, PaperTradingManager):
+                self.trader.update_market_data(ticks)
+                logger.debug(f"Paper trading manager updated with {len(ticks)} ticks")
 
             # Update watchlist with enhanced logging
             self.watchlist.update_data(ticks)
@@ -1068,12 +1320,8 @@ class SwingTraderWindow(QMainWindow):
             # Update risk manager with latest market data
             if self.risk_manager:
                 try:
-                    if self.trading_mode == 'paper':
-                        positions = self.trader.positions()
-                    else:
-                        positions = self.real_kite_client.positions()
-
-                    daily_pnl = sum(pos.get('pnl', 0) for pos in positions.get('day', []))
+                    positions = self.position_manager.get_all_positions()
+                    daily_pnl = sum(pos.pnl for pos in positions)
                     self.risk_manager.update_daily_pnl(daily_pnl)
 
                 except Exception as e:
@@ -1220,6 +1468,10 @@ class SwingTraderWindow(QMainWindow):
 
             dialog.show()
 
+
+    def _on_order_placed_from_dialog(self, order_data: dict):
+        """Handle order placed from dialog."""
+        pass
     # Dialog methods
     def _show_settings_dialog(self):
         dialog = SettingsDialog(self)
@@ -1531,42 +1783,45 @@ class SwingTraderWindow(QMainWindow):
 
     def closeEvent(self, event):
         """Saves window state and stops background workers before closing."""
-        logger.info("Close event triggered. Saving state and stopping workers...")
-        self.save_window_state()
+        try:
+            logger.info("Close event triggered. Saving state and stopping workers...")
+            self.save_window_state()
 
-        # Stop advanced components
-        if self.order_manager:
-            self.order_manager.order_monitor_timer.stop()
+            # Stop advanced components
+            if self.order_manager:
+                self.order_manager.order_monitor_timer.stop()
 
-        if hasattr(self.chartink_scanner, '_update_timer'):
-            self.chartink_scanner._update_timer.stop()
+            if hasattr(self.chartink_scanner, '_update_timer'):
+                self.chartink_scanner._update_timer.stop()
 
-        # Stop alert system
-        if self.alert_system:
-            try:
-                self.alert_system.stop_engine()
-            except Exception as e:
-                logger.error(f"Error stopping alert system: {e}")
+            # Stop alert system
+            if self.alert_system:
+                try:
+                    self.alert_system.stop_engine()
+                except Exception as e:
+                    logger.error(f"Error stopping alert system: {e}")
 
-        # Stop alert update timer
-        if hasattr(self, 'alert_update_timer'):
-            self.alert_update_timer.stop()
+            # Stop alert update timer
+            if hasattr(self, 'alert_update_timer'):
+                self.alert_update_timer.stop()
 
-        if self.market_data_worker:
-            # Disconnect signals to prevent "Signal source has been deleted" errors during shutdown.
-            # This is crucial because MarketDataWorker is a QObject, not a QThread.
-            self.market_data_worker.data_received.disconnect(self._on_market_data)
-            self.market_data_worker.connection_established.disconnect(self._on_websocket_connect)
-            # Call the worker's stop method, which handles closing its internal KiteTicker connection.
-            self.market_data_worker.stop()
+            # Stop market data worker
+            if self.market_data_worker:
+                self.market_data_worker.data_received.disconnect()
+                self.market_data_worker.connection_established.disconnect()
+                self.market_data_worker.stop()
 
-        if self.instrument_loader and self.instrument_loader.isRunning():
-            # These calls are correct for QThread subclasses like InstrumentLoader.
-            self.instrument_loader.quit()
-            self.instrument_loader.wait(2000)
+            # Stop instrument loader
+            if self.instrument_loader and self.instrument_loader.isRunning():
+                self.instrument_loader.quit()
+                self.instrument_loader.wait(2000)
 
-        logger.info("Application shut down gracefully.")
-        event.accept()
+            logger.info("Application shut down gracefully.")
+            event.accept()
+
+        except Exception as e:
+            logger.error(f"Error during application shutdown: {e}")
+            event.accept()
 
     def save_window_state(self):
         """Saves window geometry and splitter states."""
@@ -1652,6 +1907,7 @@ class SwingTraderWindow(QMainWindow):
             return f"{volume / 1000:.0f}K"
         else:
             return str(volume)
+
 
     def calculate_change_percentage(current_price: float, previous_close: float) -> float:
         """Calculate percentage change with proper error handling"""
