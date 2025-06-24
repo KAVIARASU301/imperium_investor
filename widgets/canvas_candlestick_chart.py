@@ -1,9 +1,10 @@
+# swing_trader/widgets/canvas_candlestick_chart.py
+
 import logging
 import json
 import os
 from datetime import datetime, timedelta
 from enum import Enum
-from random import random
 from typing import List, Dict, Optional, Any
 
 import pandas as pd
@@ -11,8 +12,9 @@ from PySide6.QtCore import Signal, Slot, QThread, Qt, QTimer, QObject
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
                                QStackedWidget, QLabel, QPushButton, QProgressBar,
                                QFrame, QMessageBox, QColorDialog, QDialog,
-                               QFormLayout, QSpinBox)
-from PySide6.QtGui import QFont, QKeySequence, QShortcut, QColor
+                               QFormLayout, QSpinBox, QComboBox, QMenu,
+                               QTextEdit, QDialogButtonBox)
+from PySide6.QtGui import QFont, QKeySequence, QShortcut, QColor, QAction
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebChannel import QWebChannel
 from kiteconnect import KiteConnect
@@ -27,6 +29,79 @@ class ChartState(Enum):
     LOADING = "loading"
     ERROR = "error"
     LOADED = "loaded"
+
+
+class TextNoteDialog(QDialog):
+    """Custom dialog for entering text notes on the chart."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Add Text Note")
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
+        self.setMinimumSize(300, 150)
+
+        self.text = ""
+        self.color = "#FFFFFF"
+        self.size = 12
+
+        self._setup_ui()
+        self._apply_styles()
+
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+
+        self.text_edit = QTextEdit()
+        self.text_edit.setPlaceholderText("Enter your note...")
+        layout.addWidget(self.text_edit)
+
+        options_layout = QHBoxLayout()
+        self.color_button = QPushButton("Color")
+        self.color_button.clicked.connect(self._choose_color)
+        options_layout.addWidget(self.color_button)
+
+        self.size_spinbox = QSpinBox()
+        self.size_spinbox.setRange(8, 24)
+        self.size_spinbox.setValue(self.size)
+        self.size_spinbox.setSuffix("px")
+        options_layout.addWidget(self.size_spinbox)
+        layout.addLayout(options_layout)
+
+        buttons = QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        button_box = QDialogButtonBox(buttons)
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+
+    def _choose_color(self):
+        color = QColorDialog.getColor(QColor(self.color), self, "Choose Text Color")
+        if color.isValid():
+            self.color = color.name()
+            self.color_button.setStyleSheet(f"background-color: {self.color};")
+
+    def accept(self):
+        self.text = self.text_edit.toPlainText()
+        self.size = self.size_spinbox.value()
+        super().accept()
+
+    def _apply_styles(self):
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #2c2c2c;
+                border: 1px solid #444;
+            }
+            QTextEdit {
+                background-color: #333;
+                color: #f0f0f0;
+                border: 1px solid #555;
+            }
+            QPushButton, QSpinBox {
+                background-color: #383838;
+                color: #f0f0f0;
+                border: 1px solid #505050;
+                padding: 5px;
+            }
+        """)
 
 
 class DrawingStorage:
@@ -50,10 +125,10 @@ class DrawingStorage:
                 drawings = state["drawings"]
                 if not isinstance(drawings, dict):
                     logger.warning(f"Invalid drawings type for {symbol}: {type(drawings)}")
-                    state["drawings"] = {"lines": [], "rectangles": [], "notes": []}
+                    state["drawings"] = {"lines": [], "rectangles": [], "notes": [], "horizontal_lines": []}
                 else:
                     # Ensure all required drawing types exist
-                    for draw_type in ["lines", "rectangles", "notes"]:
+                    for draw_type in ["lines", "rectangles", "notes", "horizontal_lines"]:
                         if draw_type not in drawings:
                             drawings[draw_type] = []
                         elif not isinstance(drawings[draw_type], list):
@@ -85,14 +160,14 @@ class DrawingStorage:
                     logger.warning(f"Invalid state file for {symbol}, using defaults")
                     return self._get_default_state()
 
-                # Ensure drawings structure is valid
+                # Ensure drawing structure is valid
                 if "drawings" not in state:
-                    state["drawings"] = {"lines": [], "rectangles": [], "notes": []}
+                    state["drawings"] = {"lines": [], "rectangles": [], "notes": [], "horizontal_lines": []}
                 elif not isinstance(state["drawings"], dict):
-                    state["drawings"] = {"lines": [], "rectangles": [], "notes": []}
+                    state["drawings"] = {"lines": [], "rectangles": [], "notes": [], "horizontal_lines": []}
                 else:
                     # Ensure all required drawing types exist
-                    for draw_type in ["lines", "rectangles", "notes"]:
+                    for draw_type in ["lines", "rectangles", "notes", "horizontal_lines"]:
                         if draw_type not in state["drawings"]:
                             state["drawings"][draw_type] = []
                         elif not isinstance(state["drawings"][draw_type], list):
@@ -115,7 +190,7 @@ class DrawingStorage:
     def _get_default_state(self) -> Dict[str, Any]:
         """Get default empty state"""
         return {
-            "drawings": {"lines": [], "rectangles": [], "notes": []},
+            "drawings": {"lines": [], "rectangles": [], "notes": [], "horizontal_lines": []},
             "visible_candle_count": 100
         }
 
@@ -240,11 +315,16 @@ class ChartDataLoaderThread(QThread):
 
             # Calculate date range
             to_date = datetime.now().date()
-            date_ranges = {
-                "day": 730, "60minute": 120, "30minute": 60, "15minute": 30,
-                "10minute": 21, "5minute": 14, "3minute": 10, "minute": 5
-            }
-            days_back = date_ranges.get(self.interval, 365)
+            if self.interval == 'week':
+                days_back = 365 * 5  # 5 years for weekly
+            elif self.interval == 'month':
+                days_back = 365 * 20  # 20 years for monthly
+            else:
+                date_ranges = {
+                    "day": 730, "60minute": 120, "30minute": 60, "15minute": 30,
+                    "10minute": 21, "5minute": 14, "3minute": 10, "minute": 5
+                }
+                days_back = date_ranges.get(self.interval, 365)
             from_date = to_date - timedelta(days=days_back)
 
             if self._stop_requested:
@@ -467,6 +547,7 @@ class ChartBridge(QObject):
     webChannelInitialized = False
     alert_creation_requested = Signal(str)
     order_dialog_requested = Signal(str)
+    text_note_requested = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -512,10 +593,14 @@ class ChartBridge(QObject):
         logger.info(f"Received order dialog request from chart: {order_data_json}")
         self.order_dialog_requested.emit(order_data_json)
 
+    @Slot(str)
+    def request_text_note_dialog(self, mouse_pos_json):
+        self.text_note_requested.emit(mouse_pos_json)
+
 
 class CandlestickChart(QWidget):
     """Professional candlestick chart with fixed drawing persistence"""
-
+    symbol_loaded = Signal(str)  # Emits when a new symbol is loaded
     order_button_clicked = Signal(str, float)
     alert_creation_requested = Signal(str)
     order_dialog_requested = Signal(str)
@@ -564,12 +649,13 @@ class CandlestickChart(QWidget):
         self.chart_bridge.chart_ready.connect(self._on_js_chart_fully_ready)
         self.chart_bridge.alert_creation_requested.connect(self._on_alert_creation_requested)
         self.chart_bridge.order_dialog_requested.connect(self._on_order_dialog_requested)
+        self.chart_bridge.text_note_requested.connect(self._open_text_note_dialog)
 
         # UI components
         self.chart_view: Optional[QWebEngineView] = None
         self.channel: Optional[QWebChannel] = None
-        self.timeframe_buttons: Dict[str, QPushButton] = {}
-        self.drawing_buttons: Dict[str, QPushButton] = {}
+        self.timeframe_dropdown: Optional[QComboBox] = None
+        self.drawing_tools_button: Optional[QPushButton] = None
         self.auto_scale_btn: Optional[QPushButton] = None
         self.refresh_button: Optional[QPushButton] = None
         self.settings_btn: Optional[QPushButton] = None
@@ -605,12 +691,79 @@ class CandlestickChart(QWidget):
 
         self.symbol_info_label = QLabel("No Symbol Selected")
         self.symbol_info_label.setObjectName("symbolInfoLabel")
+
         font = QFont()
         font.setBold(True)
         self.symbol_info_label.setFont(font)
+
+        # Make background transparent
+        self.symbol_info_label.setStyleSheet("""
+            QLabel#symbolInfoLabel {
+                background-color: transparent;
+            }
+        """)
+
         toolbar_layout.addWidget(self.symbol_info_label)
         toolbar_layout.addStretch()
 
+        # Timeframe Dropdown
+        self.timeframe_dropdown = QComboBox()
+        self.timeframe_dropdown.setObjectName("timeframeDropdown")
+        self.timeframe_dropdown.setFixedWidth(50)
+        self.timeframe_dropdown.setStyleSheet("""
+            QComboBox::drop-down {
+                width: 0px;
+                border: none;
+            }
+            QComboBox {
+                padding-right: 0px; /* Removes space reserved for the drop-down */
+            }
+        """)
+        timeframes = [
+            ("1 Min", "minute"), ("3 Min", "3minute"), ("5 Min", "5minute"),
+            ("15 Min", "15minute"), ("30 Min", "30minute"), ("1 Hr", "60minute"),
+            ("1 Day", "day"), ("1 W", "week"), ("1 M", "month")
+        ]
+        self.timeframe_dropdown.view().setMinimumWidth(80)
+
+        for display, interval in timeframes:
+            self.timeframe_dropdown.addItem(display, interval)
+        self.timeframe_dropdown.setCurrentText("1 Day")
+        self.timeframe_dropdown.activated.connect(self._on_timeframe_selected)
+        toolbar_layout.addWidget(self.timeframe_dropdown)
+
+        # Drawing Tools Button
+        self.drawing_tools_button = QPushButton("✏️")
+        self.drawing_tools_button.setObjectName("drawingToolsButton")
+        self.drawing_tools_button.setFixedSize(40, 30)
+        self.drawing_tools_button.setToolTip("Drawing Tools")
+        drawing_menu = QMenu(self)
+        drawing_menu.setObjectName("drawingMenu")
+        drawing_tools = [
+            ("/", "line", "Trend Line"),
+            ("-", "horizontal_line", "Horizontal Line"),
+            ("T", "note", "Text Note"),
+            ("□", "rectangle", "Rectangle")
+        ]
+        for icon, tool_id, tooltip in drawing_tools:
+            action = QAction(icon, self)
+            action.setData(tool_id)
+            action.setToolTip(tooltip)
+            action.triggered.connect(lambda checked=False, t=tool_id: self._toggle_drawing_tool(t, True))
+            drawing_menu.addAction(action)
+
+        self.drawing_tools_button.setMenu(drawing_menu)
+        toolbar_layout.addWidget(self.drawing_tools_button)
+
+        # Color picker button
+        self.color_btn = QPushButton("🎨")
+        self.color_btn.setObjectName("controlButton")
+        self.color_btn.setFixedSize(30, 30)
+        self.color_btn.setToolTip("Change drawing color")
+        self.color_btn.clicked.connect(self._choose_drawing_color)
+        toolbar_layout.addWidget(self.color_btn)
+
+        # Other buttons
         self.order_btn = QPushButton("Order")
         self.order_btn.setObjectName("orderButton")
         self.order_btn.setFixedSize(70, 30)
@@ -638,56 +791,6 @@ class CandlestickChart(QWidget):
         self.settings_btn.clicked.connect(self._open_settings_dialog)
         toolbar_layout.addWidget(self.settings_btn)
 
-        timeframes = [("1D", "day", "Daily"), ("1H", "60minute", "1 Hour"),
-                      ("15m", "15minute", "15 Minutes"), ("5m", "5minute", "5 Minutes")]
-        for display, interval, tooltip in timeframes:
-            btn = QPushButton(display)
-            btn.setObjectName("timeframeButton")
-            btn.setCheckable(True)
-            btn.setFixedSize(40, 30)
-            btn.setToolTip(tooltip)
-            btn.clicked.connect(lambda checked, i=interval: self._change_timeframe(i))
-            self.timeframe_buttons[interval] = btn
-            toolbar_layout.addWidget(btn)
-        self.timeframe_buttons["day"].setChecked(True)
-
-        separator = QFrame()
-        separator.setFrameShape(QFrame.Shape.VLine)
-        separator.setFrameShadow(QFrame.Shadow.Sunken)
-        separator.setStyleSheet("color: #333333;")
-        toolbar_layout.addWidget(separator)
-
-        tools = [("\\", "line", "Trend Line"), ("📏", "measure", "Measuring Tool"),
-                 ("🔲", "rectangle", "Rectangle"), ("✍️", "note", "Text Note"),
-                 ("🎨", "color_picker", "Change drawing color"), ("━", "line_width", "Change line width"),
-                 ("💾", "save_drawings", "Save drawings (Ctrl+S)"),
-                 ("🗑", "clear_drawings", "Clear all drawings (Delete)")]
-        for icon, tool_id, tooltip in tools:
-            btn = QPushButton(icon)
-            btn.setObjectName("drawingToolButton")
-            btn.setCheckable(True)
-            btn.setFixedSize(30, 28)
-            btn.setToolTip(tooltip)
-            if tool_id == "color_picker":
-                btn.clicked.connect(self._choose_drawing_color)
-                btn.setCheckable(False)
-                self.color_btn = btn
-            elif tool_id == "line_width":
-                btn.clicked.connect(self._toggle_line_width)
-                btn.setCheckable(False)
-                self.line_width_btn = btn
-            elif tool_id == "save_drawings":
-                btn.clicked.connect(self._save_drawings)
-                btn.setCheckable(False)
-                self.save_drawings_btn = btn
-            elif tool_id == "clear_drawings":
-                btn.clicked.connect(self._clear_drawings)
-                btn.setCheckable(False)
-                self.clear_drawings_btn = btn
-            else:
-                btn.clicked.connect(lambda checked, t=tool_id: self._toggle_drawing_tool(t, checked))
-                self.drawing_buttons[tool_id] = btn
-            toolbar_layout.addWidget(btn)
         main_layout.addWidget(self.combined_toolbar)
 
         self.progress_bar = QProgressBar()
@@ -712,12 +815,12 @@ class CandlestickChart(QWidget):
 
         self._set_state(ChartState.IDLE)
 
+    def _on_timeframe_selected(self, index):
+        interval = self.timeframe_dropdown.itemData(index)
+        self._change_timeframe(interval)
+
     def _toggle_drawing_tool(self, tool_id: str, checked: bool):
         if self.chart_view and self.current_state == ChartState.LOADED:
-            if checked:
-                for other_tool, btn in self.drawing_buttons.items():
-                    if other_tool != tool_id:
-                        btn.setChecked(False)
             js_code = f"""
             if (window.chart) {{
                 window.chart.setDrawingTool('{tool_id}', {str(checked).lower()},
@@ -729,20 +832,10 @@ class CandlestickChart(QWidget):
         color = QColorDialog.getColor(QColor(self.current_drawing_color), self, "Choose Drawing Color")
         if color.isValid():
             self.current_drawing_color = color.name()
-            self.color_btn.setStyleSheet(f"background-color: {self.current_drawing_color};")
+            # The color button icon could be updated here if desired
             if self.chart_view:
                 js_code = f"if (window.chart) window.chart.updateDrawingStyle('{self.current_drawing_color}', {self.current_line_width});"
                 self.chart_view.page().runJavaScript(js_code)
-
-    def _toggle_line_width(self):
-        widths = [1, 2, 3, 4]
-        current_index = widths.index(self.current_line_width) if self.current_line_width in widths else 0
-        self.current_line_width = widths[(current_index + 1) % len(widths)]
-        width_symbols = {1: "─", 2: "━", 3: "▬", 4: "█"}
-        self.line_width_btn.setText(width_symbols.get(self.current_line_width, "─"))
-        if self.chart_view:
-            js_code = f"if (window.chart) window.chart.updateDrawingStyle('{self.current_drawing_color}', {self.current_line_width});"
-            self.chart_view.page().runJavaScript(js_code)
 
     def _save_drawings(self):
         if not self.chart_view or not self.current_symbol:
@@ -830,45 +923,11 @@ class CandlestickChart(QWidget):
         refresh_shortcut.activated.connect(self._force_refresh)
         auto_scale_shortcut = QShortcut(QKeySequence("Ctrl+A"), self)
         auto_scale_shortcut.activated.connect(self._auto_scale_chart)
-        shortcuts = {"L": "line", "M": "measure", "R": "rectangle", "T": "note"}
-        for key, tool in shortcuts.items():
-            shortcut = QShortcut(QKeySequence(key), self)
-            shortcut.activated.connect(lambda t=tool: self._activate_drawing_tool_shortcut(t))
+        # Escape key handling is now primarily in JavaScript
         save_shortcut = QShortcut(QKeySequence("Ctrl+S"), self)
         save_shortcut.activated.connect(self._save_drawings)
         delete_shortcut = QShortcut(QKeySequence("Delete"), self)
         delete_shortcut.activated.connect(self._delete_selected_drawing)
-
-    def _activate_drawing_tool_shortcut(self, tool):
-        try:
-            if not hasattr(self, 'current_drawing_tool'): self.current_drawing_tool = None
-            if self.current_drawing_tool == tool:
-                self.current_drawing_tool = None
-                self._deactivate_all_drawing_tools()
-            else:
-                self.current_drawing_tool = tool
-                self._activate_drawing_tool(tool)
-        except Exception as e:
-            logger.error(f"Error activating drawing tool shortcut for {tool}: {e}")
-
-    def _activate_drawing_tool(self, tool):
-        try:
-            color, line_width = '#FFD700', 2
-            self._deactivate_all_drawing_tools()
-            if hasattr(self, 'web_view') and self.web_view:
-                script = f"if (window.chart && window.chart.setDrawingTool) window.chart.setDrawingTool('{tool}', true, '{color}', {line_width});"
-                self.web_view.page().runJavaScript(script)
-            logger.info(f"Activated drawing tool: {tool}")
-        except Exception as e:
-            logger.error(f"Error activating drawing tool {tool}: {e}")
-
-    def _deactivate_all_drawing_tools(self):
-        try:
-            if hasattr(self, 'web_view') and self.web_view:
-                script = "if (window.chart && window.chart.setDrawingTool) window.chart.setDrawingTool(null, false);"
-                self.web_view.page().runJavaScript(script)
-        except Exception as e:
-            logger.error(f"Error deactivating drawing tools: {e}")
 
     @Slot()
     def _delete_selected_drawing(self):
@@ -912,16 +971,11 @@ class CandlestickChart(QWidget):
         config = configs.get(state, configs[ChartState.IDLE])
         if self.stacked_widget.currentIndex() != config['widget_index']:
             self.stacked_widget.setCurrentIndex(config['widget_index'])
-        for btn in self.timeframe_buttons.values(): btn.setEnabled(config['buttons_enabled'])
-        for btn in self.drawing_buttons.values():
-            btn.setEnabled(config['buttons_enabled'] and self.current_symbol != "")
-            if state != ChartState.LOADED: btn.setChecked(False)
+
+        self.timeframe_dropdown.setEnabled(config['buttons_enabled'])
+        self.drawing_tools_button.setEnabled(config['buttons_enabled'] and self.current_symbol != "")
+
         if self.color_btn: self.color_btn.setEnabled(config['buttons_enabled'] and self.current_symbol != "")
-        if self.line_width_btn: self.line_width_btn.setEnabled(config['buttons_enabled'] and self.current_symbol != "")
-        if self.save_drawings_btn: self.save_drawings_btn.setEnabled(
-            config['buttons_enabled'] and self.current_symbol != "")
-        if self.clear_drawings_btn: self.clear_drawings_btn.setEnabled(
-            config['buttons_enabled'] and self.current_symbol != "")
         if self.refresh_button: self.refresh_button.setEnabled(config['buttons_enabled'])
         if self.auto_scale_btn: self.auto_scale_btn.setEnabled(config['buttons_enabled'])
         if self.settings_btn: self.settings_btn.setEnabled(config['buttons_enabled'])
@@ -944,7 +998,7 @@ class CandlestickChart(QWidget):
         self._stop_current_operations()
         if self.chart_view:
             self.chart_view.page().runJavaScript("if (window.chart) window.chart.setDrawingTool(null, false);")
-            for btn in self.drawing_buttons.values(): btn.setChecked(False)
+
         self.current_symbol = symbol
         self.current_instrument_token = self.instrument_map[symbol]['instrument_token']
         saved_state = self.drawing_storage.load_state(self.current_symbol, self.current_interval)
@@ -952,6 +1006,7 @@ class CandlestickChart(QWidget):
             "default_visible_candles"])
         self._set_state(ChartState.IDLE)
         self._load_chart_data()
+        self.symbol_loaded.emit(symbol)
 
     def _save_current_state_sync(self):
         if not self.chart_view or not self.current_symbol: return
@@ -1034,7 +1089,7 @@ class CandlestickChart(QWidget):
             if len(df) > days_back:
                 past_close_price = df['close'].iloc[-1 - days_back]
                 change_percent = ((
-                                              last_close_price - past_close_price) / past_close_price) * 100 if past_close_price != 0 else 0
+                                          last_close_price - past_close_price) / past_close_price) * 100 if past_close_price != 0 else 0
                 self.percentage_changes[label] = float(change_percent)
             else:
                 self.percentage_changes[label] = 0.0
@@ -1054,7 +1109,7 @@ class CandlestickChart(QWidget):
     def _apply_saved_drawings_and_zoom(self):
         try:
             saved_state = self.drawing_storage.load_state(self.current_symbol, self.current_interval)
-            drawings = saved_state.get("drawings", {"lines": [], "rectangles": [], "notes": []})
+            drawings = saved_state.get("drawings", {"lines": [], "rectangles": [], "notes": [], "horizontal_lines": []})
             initial_zoom = saved_state.get("visible_candle_count",
                                            self.global_chart_settings["default_visible_candles"])
             if self.current_state == ChartState.LOADED and self.current_symbol and self.chart_view and self.chart_bridge.webChannelInitialized:
@@ -1088,34 +1143,77 @@ class CandlestickChart(QWidget):
 
     @Slot(object)
     def update_live_data(self, live_data: Any):
+        if self.current_state != ChartState.LOADED or not self.current_symbol:
+            return
+
         if isinstance(live_data, list):
             for item in live_data:
-                if isinstance(item, dict):
-                    self._process_single_live_data_item(item)
-                else:
-                    logger.warning(f"Skipping malformed live_data item (not a dict in list): {item}")
+                self._process_single_live_data_item(item)
         elif isinstance(live_data, dict):
             self._process_single_live_data_item(live_data)
         else:
             logger.error(f"Received malformed live_data (not a dict or list of dicts): {live_data}")
 
     def _process_single_live_data_item(self, data_item: Dict[str, Any]):
-        if self.current_state == ChartState.LOADED and self.current_symbol:
-            trading_symbol = data_item.get('tradingsymbol')
-            last_price = data_item.get('last_price')
-            instrument_token = data_item.get('instrument_token')
-            if trading_symbol and last_price is not None and instrument_token == self.current_instrument_token:
-                self.current_ltp = float(last_price)
-                self._update_symbol_info_live(self.current_ltp)
-                if self.chart_view:
+        trading_symbol = data_item.get('tradingsymbol')
+        last_price = data_item.get('last_price')
+        instrument_token = data_item.get('instrument_token')
+
+        if trading_symbol and last_price is not None and instrument_token == self.current_instrument_token:
+            self.current_ltp = float(last_price)
+            self._update_symbol_info_live(self.current_ltp)
+
+            if self.chart_view:
+                last_candle_time = self.last_df['time'].iloc[-1]
+                now = datetime.now()
+                new_candle = False
+
+                # This logic is simplified. A robust implementation would
+                # handle different time intervals correctly.
+                if self.current_interval == "minute":
+                    if now.minute != last_candle_time.minute:
+                        new_candle = True
+                elif self.current_interval == "day":
+                    if now.day != last_candle_time.day:
+                        new_candle = True
+                # Add more conditions for other intervals...
+
+                if new_candle:
+                    new_candle_data = {
+                        'time': now.timestamp() * 1000,
+                        'open': last_price,
+                        'high': last_price,
+                        'low': last_price,
+                        'close': last_price,
+                        'volume': 0  # We don't have volume from ticks
+                    }
+                    js_code = f"if (window.chart) window.chart.addNewCandle({json.dumps(new_candle_data, default=str)});"
+                else:
                     js_code = f"if (window.chart) window.chart.updateLivePrice({self.current_ltp});"
-                    self.chart_view.page().runJavaScript(js_code)
+
+                self.chart_view.page().runJavaScript(js_code)
 
     def _update_symbol_info_live(self, ltp: float):
         try:
             self.symbol_info_label.setText(f"{self.current_symbol} • ₹{ltp:.2f}")
         except Exception as e:
             logger.error(f"Error updating live symbol info: {e}")
+
+    @Slot(str)
+    def _open_text_note_dialog(self, mouse_pos_json: str):
+        mouse_pos = json.loads(mouse_pos_json)
+        dialog = TextNoteDialog(self)
+        if dialog.exec():
+            note = {
+                "text": dialog.text,
+                "color": dialog.color,
+                "size": dialog.size,
+                "x": mouse_pos['x'],
+                "y": mouse_pos['y']
+            }
+            if self.chart_view:
+                js_code = f"if (window.chart) window.chart.addTextNoteFromDialog({json.dumps(note)});"
+                self.chart_view.page().runJavaScript(js_code)
 
     def _render_chart(self, df: pd.DataFrame):
         try:
@@ -1130,7 +1228,7 @@ class CandlestickChart(QWidget):
                 volume_data.append({'time': timestamp, 'value': float(row['volume'])})
             saved_state = self.drawing_storage.load_state(self.current_symbol, self.current_interval)
             initial_drawings_json = json.dumps(
-                saved_state.get("drawings", {"lines": [], "rectangles": [], "notes": []}))
+                saved_state.get("drawings", {"lines": [], "rectangles": [], "notes": [], "horizontal_lines": []}))
             initial_zoom = self.global_chart_settings["default_visible_candles"]
             html_content = self._create_fixed_chart_html(candlestick_data, volume_data, initial_zoom,
                                                          self._current_candle_width, self._current_candle_spacing,
@@ -1166,7 +1264,7 @@ class CandlestickChart(QWidget):
         try:
             json.loads(safe_initial_drawings)
         except (json.JSONDecodeError, TypeError):
-            safe_initial_drawings = json.dumps({"lines": [], "rectangles": [], "notes": []})
+            safe_initial_drawings = json.dumps({"lines": [], "rectangles": [], "notes": [], "horizontal_lines": []})
         qwebchannel_script_src = "qrc:///qtwebchannel/qwebchannel.js"
 
         html = f"""
@@ -1243,7 +1341,7 @@ class CandlestickChart(QWidget):
                 }}
 
                 initializeDrawings(initialDrawingsJson) {{
-                    const defaultDrawings = {{ lines: [], rectangles: [], notes: [] }};
+                    const defaultDrawings = {{ lines: [], rectangles: [], notes: [], horizontal_lines: [] }};
                     if (!initialDrawingsJson) return defaultDrawings;
                     try {{
                         let drawings = (typeof initialDrawingsJson === 'string') ? JSON.parse(initialDrawingsJson) : initialDrawingsJson;
@@ -1251,7 +1349,8 @@ class CandlestickChart(QWidget):
                             return {{
                                 lines: Array.isArray(drawings.lines) ? drawings.lines : [],
                                 rectangles: Array.isArray(drawings.rectangles) ? drawings.rectangles : [],
-                                notes: Array.isArray(drawings.notes) ? drawings.notes : []
+                                notes: Array.isArray(drawings.notes) ? drawings.notes : [],
+                                horizontal_lines: Array.isArray(drawings.horizontal_lines) ? drawings.horizontal_lines : [],
                             }};
                         }}
                     }} catch (error) {{ console.error('Error parsing initial drawings:', error); }}
@@ -1337,6 +1436,7 @@ class CandlestickChart(QWidget):
                             this.drawings.lines = Array.isArray(drawingsData.lines) ? drawingsData.lines : [];
                             this.drawings.rectangles = Array.isArray(drawingsData.rectangles) ? drawingsData.rectangles : [];
                             this.drawings.notes = Array.isArray(drawingsData.notes) ? drawingsData.notes : [];
+                            this.drawings.horizontal_lines = Array.isArray(drawingsData.horizontal_lines) ? drawingsData.horizontal_lines : [];
                             this.draw(); console.log("Drawings loaded:", this.drawings);
                         }}
                     }} catch (error) {{ console.error("Error loading drawings:", error); }}
@@ -1367,15 +1467,20 @@ class CandlestickChart(QWidget):
                     this.canvas.addEventListener('dblclick', (e) => this.handleDoubleClick(e));
                     this.canvas.addEventListener('contextmenu', (e) => this.handleRightClick(e));
 
-                    document.addEventListener('keydown', (e) => {{
-                        if (e.target === document.body || e.target === this.canvas || this.canvas.contains(e.target)) {{
-                             switch(e.key) {{
-                                 case 'a': case 'A': if (e.ctrlKey || e.metaKey) {{ e.preventDefault(); this.showQuickAlertDialog(); }} break;
-                                 case 'h': case 'H': if (e.ctrlKey || e.metaKey) {{ e.preventDefault(); this.addHorizontalLineAtCenter(); }} break;
-                                 case 'Escape': this.removeExistingContextMenu(); break;
-                             }}
+                    document.addEventListener('keydown', (e) => this.handleKeyDown(e));
+                }}
+
+                handleKeyDown(e) {{
+                    if (e.key === 'Escape') {{
+                        if (this.isDrawing) {{
+                            this.isDrawing = false;
+                            this.startPoint = null;
+                            this.endPoint = null;
+                            this.draw();
+                        }} else if (this.currentTool) {{
+                            this.setDrawingTool(null, false);
                         }}
-                    }});
+                    }}
                 }}
 
                 handleMouseDown(e) {{
@@ -1413,16 +1518,28 @@ class CandlestickChart(QWidget):
                 }}
 
                 startDrawing(mousePos) {{
+                    if (this.currentTool === 'note') {{
+                        this.chartBridge.request_text_note_dialog(JSON.stringify(mousePos));
+                        return;
+                    }}
                     this.isDrawing = true;
                     this.startPoint = {{ x: mousePos.x, y: mousePos.y, time: this.xToTime(mousePos.x), price: this.yToPrice(mousePos.y) }};
-                    this.endPoint = null;
+                    this.endPoint = this.startPoint;
                 }}
 
                 finishDrawing() {{
                     if (!this.startPoint || !this.endPoint) return;
-                    const drawing = {{ id: Date.now() + Math.random(), type: this.currentTool, startTime: this.startPoint.time, startPrice: this.startPoint.price, endTime: this.xToTime(this.endPoint.x), endPrice: this.yToPrice(this.endPoint.y), color: this.drawingColor, lineWidth: this.lineWidth, timestamp: Date.now() }};
-                    if (this.currentTool === 'line') this.drawings.lines.push(drawing);
-                    else if (this.currentTool === 'rectangle') this.drawings.rectangles.push(drawing);
+
+                    let drawing;
+                    if(this.currentTool === 'horizontal_line') {{
+                        drawing = {{ id: Date.now() + Math.random(), type: 'horizontal_line', price: this.startPoint.price, color: this.drawingColor, lineWidth: this.lineWidth, timestamp: Date.now() }};
+                        this.drawings.horizontal_lines.push(drawing);
+                    }} else {{
+                       drawing = {{ id: Date.now() + Math.random(), type: this.currentTool, startTime: this.startPoint.time, startPrice: this.startPoint.price, endTime: this.xToTime(this.endPoint.x), endPrice: this.yToPrice(this.endPoint.y), color: this.drawingColor, lineWidth: this.lineWidth, timestamp: Date.now() }};
+                        if (this.currentTool === 'line') this.drawings.lines.push(drawing);
+                        else if (this.currentTool === 'rectangle') this.drawings.rectangles.push(drawing);
+                    }}
+
                     this.isDrawing = false; this.startPoint = null; this.endPoint = null;
                     this.draw(); this.notifyDrawingsChange();
                 }}
@@ -1461,7 +1578,7 @@ class CandlestickChart(QWidget):
                     }}
                     this.drawGrid(); this.drawVolume(); this.drawSMABands();
                     this.drawCandlesticks(); this.drawAxes(); this.drawAllDrawings();
-                    this.drawHorizontalLines(); this.drawPriceNotes();
+                    this.drawPriceNotes();
                     this.drawCrosshair(); this.drawCurrentPriceRay();
                 }}
 
@@ -1566,11 +1683,19 @@ class CandlestickChart(QWidget):
                         if (note.type !== 'note') return;
                         const x = this.timeToX(note.time), y = this.priceToY(note.price);
                         if (this.isPointVisible(x, y)) {{
-                            this.ctx.font = 'bold 12px Arial'; const textMetrics = this.ctx.measureText(note.text);
+                            this.ctx.font = `bold ${{note.size || 12}}px Arial`; const textMetrics = this.ctx.measureText(note.text);
                             this.ctx.fillStyle = 'rgba(0, 0, 0, 0.8)'; if (this.selectedDrawingId === note.id) this.ctx.fillStyle = 'rgba(255, 255, 0, 0.8)';
-                            this.ctx.fillRect(x - 2, y - 16, textMetrics.width + 4, 18);
-                            this.ctx.fillStyle = note.color; if (this.selectedDrawingId === note.id) this.ctx.fillStyle = '#000000';
+                            this.ctx.fillRect(x - 2, y - (note.size || 12) - 2, textMetrics.width + 4, (note.size || 12) + 4);
+                            this.ctx.fillStyle = note.color || '#FFFFFF'; if (this.selectedDrawingId === note.id) this.ctx.fillStyle = '#000000';
                             this.ctx.fillText(note.text, x, y);
+                        }}
+                    }});
+                    this.drawings.horizontal_lines.forEach(line => {{
+                        const y = this.priceToY(line.price);
+                        if (y >= this.chartArea.y && y <= this.chartArea.y + this.chartArea.height) {{
+                            this.ctx.strokeStyle = line.color; this.ctx.lineWidth = line.lineWidth; this.ctx.setLineDash([]);
+                             if (this.selectedDrawingId === line.id) {{ this.ctx.strokeStyle = '#FFFF00'; this.ctx.lineWidth = line.lineWidth + 2; }}
+                            this.ctx.beginPath(); this.ctx.moveTo(this.chartArea.x, y); this.ctx.lineTo(this.chartArea.x + this.chartArea.width, y); this.ctx.stroke();
                         }}
                     }});
                 }}
@@ -1580,6 +1705,7 @@ class CandlestickChart(QWidget):
                     this.ctx.strokeStyle = this.drawingColor; this.ctx.lineWidth = this.lineWidth; this.ctx.setLineDash([3, 3]);
                     if (this.currentTool === 'line') {{ this.ctx.beginPath(); this.ctx.moveTo(this.startPoint.x, this.startPoint.y); this.ctx.lineTo(this.endPoint.x, this.endPoint.y); this.ctx.stroke(); }}
                     else if (this.currentTool === 'rectangle') {{ const width = this.endPoint.x - this.startPoint.x, height = this.endPoint.y - this.startPoint.y; this.ctx.strokeRect(this.startPoint.x, this.startPoint.y, width, height); }}
+                    else if (this.currentTool === 'horizontal_line') {{ this.ctx.beginPath(); this.ctx.moveTo(this.chartArea.x, this.startPoint.y); this.ctx.lineTo(this.chartArea.x + this.chartArea.width, this.startPoint.y); this.ctx.stroke(); }}
                     this.ctx.setLineDash([]);
                 }}
 
@@ -1660,13 +1786,27 @@ class CandlestickChart(QWidget):
                     else this.isUserZooming = false;
                 }}
 
-                handleDoubleClick(e) {{ if (this.currentTool === 'note') this.addTextNote(this.getMousePosition(e)); }}
+                handleDoubleClick(e) {{
+                    if (this.currentTool === 'note') {{
+                        this.chartBridge.request_text_note_dialog(JSON.stringify(this.getMousePosition(e)));
+                    }}
+                }}
 
-                addTextNote(mousePos) {{
-                    const text = prompt('Enter note text:');
-                    if (text) {{
-                        const note = {{ id: Date.now() + Math.random(), type: 'note', time: this.xToTime(mousePos.x), price: this.yToPrice(mousePos.y), text: text, color: this.drawingColor, timestamp: Date.now() }};
-                        this.drawings.notes.push(note); this.draw(); this.notifyDrawingsChange();
+                addTextNoteFromDialog(noteData) {{
+                    if (noteData.text) {{
+                        const note = {{
+                            id: Date.now() + Math.random(),
+                            type: 'note',
+                            time: this.xToTime(noteData.x),
+                            price: this.yToPrice(noteData.y),
+                            text: noteData.text,
+                            color: noteData.color,
+                            size: noteData.size,
+                            timestamp: Date.now()
+                        }};
+                        this.drawings.notes.push(note);
+                        this.draw();
+                        this.notifyDrawingsChange();
                     }}
                 }}
 
@@ -1759,8 +1899,11 @@ class CandlestickChart(QWidget):
                 getDrawingAtPoint(mousePos) {{
                     const tol = 5;
                     for (const line of this.drawings.lines) {{
-                        if (line.type === 'horizontal') {{ if (Math.abs(mousePos.y - this.priceToY(line.price)) <= tol) return line.id; }}
-                        else {{ const sx = this.timeToX(line.startTime), sy = this.priceToY(line.startPrice), ex = this.timeToX(line.endTime), ey = this.priceToY(line.endPrice); if (this.isPointNearLine(mousePos.x, mousePos.y, sx, sy, ex, ey, tol)) return line.id; }}
+                        const sx = this.timeToX(line.startTime), sy = this.priceToY(line.startPrice), ex = this.timeToX(line.endTime), ey = this.priceToY(line.endPrice);
+                        if (this.isPointNearLine(mousePos.x, mousePos.y, sx, sy, ex, ey, tol)) return line.id;
+                    }}
+                    for (const line of this.drawings.horizontal_lines) {{
+                       if (Math.abs(mousePos.y - this.priceToY(line.price)) <= tol) return line.id;
                     }}
                     for (const rect of this.drawings.rectangles) {{
                         const sx = this.timeToX(rect.startTime), sy = this.priceToY(rect.startPrice), ex = this.timeToX(rect.endTime), ey = this.priceToY(rect.endPrice);
@@ -1921,26 +2064,12 @@ class CandlestickChart(QWidget):
                     if (this.chartBridge) this.chartBridge.show_order_dialog_from_chart(JSON.stringify(orderData));
                 }}
 
-                addHorizontalLine(priceLevel) {{ this.drawings.lines.push({{ id: Date.now() + Math.random(), type: 'horizontal', price: priceLevel, color: '#FFD700', lineWidth: 2, style: 'solid', label: `₹${{priceLevel.toFixed(2)}}` }}); this.draw(); this.notifyDrawingsChange(); }}
-                addSupportLine(priceLevel) {{ this.drawings.lines.push({{ id: Date.now() + Math.random(), type: 'horizontal', price: priceLevel, color: '#4CAF50', lineWidth: 2, style: 'solid', label: `Support: ₹${{priceLevel.toFixed(2)}}` }}); this.draw(); this.notifyDrawingsChange(); }}
-                addResistanceLine(priceLevel) {{ this.drawings.lines.push({{ id: Date.now() + Math.random(), type: 'horizontal', price: priceLevel, color: '#f44336', lineWidth: 2, style: 'solid', label: `Resistance: ₹${{priceLevel.toFixed(2)}}` }}); this.draw(); this.notifyDrawingsChange(); }}
+                addHorizontalLine(priceLevel) {{ this.drawings.horizontal_lines.push({{ id: Date.now() + Math.random(), type: 'horizontal_line', price: priceLevel, color: '#FFD700', lineWidth: 2, style: 'solid', label: `₹${{priceLevel.toFixed(2)}}` }}); this.draw(); this.notifyDrawingsChange(); }}
+                addSupportLine(priceLevel) {{ this.drawings.horizontal_lines.push({{ id: Date.now() + Math.random(), type: 'horizontal_line', price: priceLevel, color: '#4CAF50', lineWidth: 2, style: 'solid', label: `Support: ₹${{priceLevel.toFixed(2)}}` }}); this.draw(); this.notifyDrawingsChange(); }}
+                addResistanceLine(priceLevel) {{ this.drawings.horizontal_lines.push({{ id: Date.now() + Math.random(), type: 'horizontal_line', price: priceLevel, color: '#f44336', lineWidth: 2, style: 'solid', label: `Resistance: ₹${{priceLevel.toFixed(2)}}` }}); this.draw(); this.notifyDrawingsChange(); }}
                 addPriceNote(priceLevel) {{
                     const note = {{ id: Date.now() + Math.random(), type: 'price_note', time: this.xToTime(this.chartArea.width * 0.9), price: priceLevel, text: `₹${{priceLevel.toFixed(2)}}`, color: '#a0c0ff' }};
                     this.drawings.notes.push(note); this.draw(); this.notifyDrawingsChange();
-                }}
-
-                drawHorizontalLines() {{
-                    this.drawings.lines.forEach(line => {{
-                        if (line.type === 'horizontal' && line.price >= this.minPrice && line.price <= this.maxPrice) {{
-                            const y = this.priceToY(line.price);
-                            this.ctx.save(); this.ctx.strokeStyle = line.color; this.ctx.lineWidth = line.lineWidth;
-                            if (line.style === 'dashed') this.ctx.setLineDash([5, 5]);
-                            this.ctx.beginPath(); this.ctx.moveTo(this.chartArea.x, y); this.ctx.lineTo(this.chartArea.x + this.chartArea.width, y); this.ctx.stroke();
-                            if (line.label) {{ this.ctx.fillStyle = line.color; this.ctx.font = '11px sans-serif'; this.ctx.textAlign = 'left'; this.ctx.fillText(line.label, this.chartArea.x + 5, y - 5); }}
-                            if (this.selectedDrawingId === line.id) {{ this.ctx.fillStyle = '#FFFF00'; this.ctx.fillRect(this.chartArea.x, y - 2, 5, 5); }}
-                            this.ctx.restore();
-                        }}
-                    }});
                 }}
 
                 drawPriceNotes() {{
@@ -1967,7 +2096,8 @@ class CandlestickChart(QWidget):
                 setVisibleCandleCount(count) {{ let newCount = Math.max(20, Math.min(this.data.length + this.rightBufferCandles, count)); if (this.visibleCandleCount === newCount) return; this.isUserZooming = false; this.visibleCandleCount = newCount; this.viewPortEnd = Math.min(this.data.length - 1 + this.rightBufferCandles, this.viewPortStart + this.visibleCandleCount - 1); this.viewPortStart = Math.max(0, this.viewPortEnd - this.visibleCandleCount + 1); this.viewPortEnd = this.viewPortStart + this.visibleCandleCount - 1; this.calculateBounds(); this.draw(); this.updateSlider(); }}
                 setChartSettings(settings) {{ if (settings) {{ this.candleWidth = settings.candleWidth || this.candleWidth; this.candleSpacing = settings.candleSpacing || this.candleSpacing; this.colors.upCandle = settings.upCandleColor || this.colors.upCandle; this.colors.downCandle = settings.downCandleColor || this.colors.downCandle; this.calculateBounds(); this.draw(); }} }}
                 updateLivePrice(newPrice) {{ if (this.data.length === 0 || typeof newPrice !== 'number') return; this.livePrice = newPrice; const lastCandle = this.data[this.data.length - 1]; if (lastCandle) {{ lastCandle.close = newPrice; lastCandle.high = Math.max(lastCandle.high, newPrice); lastCandle.low = Math.min(lastCandle.low, newPrice); }} this.calculateBounds(); this.draw(); }}
-                clearAllDrawings() {{ this.drawings = {{ lines: [], rectangles: [], notes: [] }}; this.draw(); this.notifyDrawingsChange(); }}
+                addNewCandle(candle) {{ if(candle) {{ this.data.push(candle); this.calculateBounds(); this.draw(); }} }}
+                clearAllDrawings() {{ this.drawings = {{ lines: [], rectangles: [], notes: [], horizontal_lines: [] }}; this.draw(); this.notifyDrawingsChange(); }}
                 deleteSelectedDrawing() {{ if (this.selectedDrawingId) {{ let deleted = false; for (const type in this.drawings) {{ const len = this.drawings[type].length; this.drawings[type] = this.drawings[type].filter(d => d.id !== this.selectedDrawingId); if (this.drawings[type].length < len) {{ deleted = true; break; }} }} if (deleted) {{ this.selectedDrawingId = null; this.draw(); this.notifyDrawingsChange(); }} }} }}
                 autoScale() {{ this.calculateBounds(); this.draw(); this.updateSlider(); }}
                 getVisibleCandleCount() {{ return this.visibleCandleCount; }}
@@ -2058,36 +2188,29 @@ class CandlestickChart(QWidget):
 
     @Slot(str)
     def _on_alert_creation_requested(self, alert_json: str):
-        """Handles alert creation request from the chart."""
-        logger.info(f"CandlestickChart: Handling alert creation: {alert_json}")
+        """
+        Handles alert creation request from the chart.
+        This method NO LONGER shows a popup. It just forwards the signal.
+        """
+        logger.info(f"CandlestickChart: Relaying alert creation request: {alert_json}")
+        # Simply emit the signal for the main window's controller (AlertSystemManager) to handle.
         self.alert_creation_requested.emit(alert_json)
-        try:
-            alert_data = json.loads(alert_json)
-            QMessageBox.information(self, "Alert Creation Requested",
-                                    f"Symbol: {alert_data.get('symbol')}\n"
-                                    f"Price: {alert_data.get('price')}\n"
-                                    f"Condition: {alert_data.get('condition')}\n"
-                                    f"Note: {alert_data.get('note')}")
-        except Exception as e:
-            logger.error(f"Could not process alert creation request: {e}")
 
     @Slot(str)
     def _on_order_dialog_requested(self, order_data_json: str):
-        """Handles the request to show an order dialog from the chart."""
-        logger.info(f"CandlestickChart: Handling order dialog request: {order_data_json}")
+        """
+        Handles the request to show an order dialog from the chart.
+        This method NO LONGER shows a popup. It just forwards the signal.
+        """
+        logger.info(f"CandlestickChart: Relaying order dialog request: {order_data_json}")
+        # Simply emit the signal for the main window's controller to handle.
         self.order_dialog_requested.emit(order_data_json)
-        try:
-            order_data = json.loads(order_data_json)
-            QMessageBox.information(self, "Order Dialog Requested",
-                                    f"Request to open order dialog for {order_data.get('symbol')} at price {order_data.get('price')}.")
-        except Exception as e:
-            logger.error(f"Could not process order dialog request: {e}")
 
     def _change_timeframe(self, interval: str):
         if self.current_interval == interval or not self.current_symbol: return
-        for btn_interval, btn in self.timeframe_buttons.items(): btn.setChecked(btn_interval == interval)
+
         if self.current_symbol and self.chart_view: self._save_current_state_sync()
-        for btn in self.drawing_buttons.values(): btn.setChecked(False)
+
         self.current_interval = interval
         saved_state = self.drawing_storage.load_state(self.current_symbol, self.current_interval)
         self.current_visible_candle_count = saved_state.get("visible_candle_count",
@@ -2117,24 +2240,65 @@ class CandlestickChart(QWidget):
 
     def _apply_styles(self):
         self.setStyleSheet("""
-            CandlestickChart { background-color: #0a0a0a; color: #e0e0e0; font-family: "Segoe UI", "Consolas", monospace; }
-            QFrame#chartToolbar { background-color: #1a1a1a; border-bottom: 1px solid #333333; }
-            #symbolInfoLabel { color: #00bfff; font-size: 14px; font-weight: bold; }
-            #controlButton, #refreshButton, #timeframeButton, #drawingToolButton { background-color: #2a2a2a; color: #e0e0e0; border: 1px solid #404040; border-radius: 4px; font-size: 11px; padding: 6px; }
-            #controlButton:hover, #refreshButton:hover, #timeframeButton:hover, #drawingToolButton:hover { background-color: #3a3a3a; border-color: #555555; }
-            #orderButton { background-color: #0066cc; color: white; border: 1px solid #0066cc; border-radius: 4px; font-weight: bold; font-size: 11px; padding: 6px 12px; }
-            #orderButton:hover { background-color: #0080ff; }
-            #orderButton:disabled { background-color: #333; color: #666; }
-            #timeframeButton:checked { background-color: #0066cc; color: white; border-color: #0066cc; }
-            #drawingToolButton { font-size: 16px; padding: 2px 5px; }
-            #drawingToolButton:checked { background-color: #FFD700; color: #000; border-color: #FFD700; }
-            #loadingLabel, #errorLabel { color: #00bfff; font-size: 16px; font-weight: bold; }
+            CandlestickChart { background-color: #2E2E2E; color: #F0F0F0; font-family: "Segoe UI", "Consolas", monospace; }
+            QFrame#chartToolbar { 
+                background-color: rgba(40, 40, 40, 0.8); 
+                border-bottom: 1px solid #3c3c3c;
+            }
+            #symbolInfoLabel { color: #E0E0E0; font-size: 14px; font-weight: bold; }
+
+            QComboBox#timeframeDropdown {
+                background-color: #383838;
+                color: #F0F0F0;
+                border: 1px solid #505050;
+                border-radius: 4px;
+                padding: 5px;
+            }
+            QComboBox#timeframeDropdown::drop-down {
+                border: none;
+            }
+            QComboBox#timeframeDropdown::down-arrow {
+                image: url(down_arrow.png); /* You might need to provide a path to an arrow icon */
+                width: 12px;
+                height: 12px;
+            }
+             QComboBox QAbstractItemView {
+                background-color: #383838;
+                border: 1px solid #505050;
+                selection-background-color: #505050;
+            }
+
+            #controlButton, #refreshButton, #drawingToolsButton, #orderButton { 
+                background-color: #383838; 
+                color: #F0F0F0; 
+                border: 1px solid #505050; 
+                border-radius: 4px; 
+                font-size: 11px; 
+                padding: 6px; 
+            }
+            #controlButton:hover, #refreshButton:hover, #drawingToolsButton:hover, #orderButton:hover { 
+                background-color: #484848; 
+                border-color: #606060; 
+            }
+
+            QMenu#drawingMenu {
+                background-color: #383838;
+                border: 1px solid #505050;
+            }
+            QMenu#drawingMenu::item {
+                color: #F0F0F0;
+                padding: 8px 20px;
+            }
+            QMenu#drawingMenu::item:selected {
+                background-color: #505050;
+            }
+
+            #loadingLabel, #errorLabel { color: #E0E0E0; font-size: 16px; font-weight: bold; }
             #errorLabel { color: #ff6b6b; }
-            #retryButton { background-color: #cc4444; color: white; border: 1px solid #cc4444; border-radius: 4px; font-weight: bold; padding: 8px 16px; }
-            #retryButton:hover { background-color: #e55555; }
-            QProgressBar { background-color: #1a1a1a; border: none; border-radius: 1px; }
-            QProgressBar::chunk { background-color: #0066cc; border-radius: 1px; }
-            QStackedWidget { background-color: #0a0a0a; border: 1px solid #333333; }
+            #retryButton { background-color: #505050; color: white; border-radius: 4px; padding: 8px 16px; }
+            #retryButton:hover { background-color: #606060; }
+            QProgressBar { background-color: #2E2E2E; border: none; }
+            QProgressBar::chunk { background-color: #505050; }
         """)
 
     def closeEvent(self, event):
@@ -2147,71 +2311,3 @@ class CandlestickChart(QWidget):
         except Exception as e:
             logger.error(f"Error during close: {e}")
         super().closeEvent(event)
-
-
-ChartWindow = CandlestickChart
-
-if __name__ == "__main__":
-    import sys
-    from PySide6.QtWidgets import QApplication, QMainWindow
-    from PySide6.QtCore import QTimer
-
-
-    class MockKiteConnect:
-        def historical_data(self, instrument_token, from_date, to_date, interval):
-            data = []
-            price = 2800
-            current_date = from_date
-            while current_date <= to_date:
-                if current_date.weekday() < 5:
-                    open_price = price + random.uniform(-5, 5)
-                    high = open_price + random.uniform(0, 20)
-                    low = open_price - random.uniform(0, 20)
-                    close = low + random.uniform(0, high - low)
-                    volume = random.randint(100000, 1000000)
-                    data.append({'date': current_date, 'open': open_price, 'high': high, 'low': low, 'close': close,
-                                 'volume': volume})
-                    price = close + random.uniform(-2, 2)
-                current_date += timedelta(days=1)
-            return data
-
-
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-    app = QApplication(sys.argv)
-    main_window = QMainWindow()
-    main_window.setWindowTitle("Professional Swing Trading Terminal")
-    main_window.setGeometry(100, 100, 1400, 900)
-    main_window.setStyleSheet("QMainWindow { background-color: #0a0a0a; }")
-    mock_kite = MockKiteConnect()
-    chart_widget = CandlestickChart(mock_kite)
-    mock_ltp = 0.0
-
-
-    def simulate_live_data():
-        global mock_ltp
-        if chart_widget.current_symbol and chart_widget.current_instrument_token:
-            if mock_ltp == 0.0 and chart_widget.current_ltp != 0.0:
-                mock_ltp = chart_widget.current_ltp
-            elif mock_ltp != 0.0:
-                mock_ltp += random.uniform(-0.5, 0.5); mock_ltp = max(1.0, mock_ltp)
-            if mock_ltp != 0.0:
-                chart_widget.update_live_data([{'tradingsymbol': chart_widget.current_symbol,
-                                                'instrument_token': chart_widget.current_instrument_token,
-                                                'last_price': mock_ltp}])
-        else:
-            mock_ltp = 0.0
-
-
-    market_data_timer = QTimer()
-    market_data_timer.setInterval(100)
-    market_data_timer.timeout.connect(simulate_live_data)
-    market_data_timer.start()
-
-    instruments = [{'tradingsymbol': 'RELIANCE', 'instrument_token': 738561},
-                   {'tradingsymbol': 'TCS', 'instrument_token': 2953217},
-                   {'tradingsymbol': 'INFY', 'instrument_token': 408065}]
-    chart_widget.set_instrument_list(instruments)
-    main_window.setCentralWidget(chart_widget)
-    QTimer.singleShot(500, lambda: chart_widget.on_search('RELIANCE'))
-    main_window.show()
-    sys.exit(app.exec())

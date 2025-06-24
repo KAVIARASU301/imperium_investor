@@ -120,16 +120,31 @@ class PositionsTable(QWidget):
         self.table.setSortingEnabled(True)
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
 
-        # Column sizing
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)  # Symbol
+
+        # Symbol column — fixed but wider
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(0, 60)  # adjust width as needed
+
+        # Auto-size for data columns
         for i in range(1, 6):
-            header.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)  # Exit button
+            header.setSectionResizeMode(i, QHeaderView.ResizeToContents)
+
+        # Exit button column — fixed size
+        header.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)
         self.table.setColumnWidth(6, 28)
 
         # Row height
         self.table.verticalHeader().setDefaultSectionSize(24)
+        self.table.setStyleSheet("""
+            QTableView::item {
+                padding: 1px 2px;
+            }
+            QHeaderView::section {
+                padding: 2px;
+                margin: 0px;
+            }
+        """)
 
         # Header click for sorting
         header.sectionClicked.connect(self._on_header_clicked)

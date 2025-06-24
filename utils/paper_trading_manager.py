@@ -565,7 +565,7 @@ class PaperTradingManager(QObject):
     def profile(self) -> Dict[str, str]:
         """Return mock profile"""
         return {
-            "user_id": "PAPER_TRADER_FIXED",
+            "user_id": "PAPER_TRADER",
             "user_name": "Paper Trading User",
             "email": "paper.trader@example.com"
         }

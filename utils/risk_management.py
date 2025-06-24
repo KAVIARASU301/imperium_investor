@@ -1,7 +1,10 @@
 import logging
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional, Tuple, Union
 from datetime import datetime, timedelta
 from PySide6.QtCore import QObject, Signal
+
+# Import the Position dataclass
+from utils.data_models import Position
 
 logger = logging.getLogger(__name__)
 
@@ -10,6 +13,7 @@ class AdvancedRiskManager(QObject):
     """
     Advanced risk management system for the trading application.
     Provides position sizing, risk calculation, and order validation.
+    Updated to work with Position dataclass objects.
     """
 
     risk_limit_exceeded = Signal(str, float)  # message, current_risk
@@ -26,8 +30,8 @@ class AdvancedRiskManager(QObject):
         self.max_daily_loss = 10000.0
         self.max_correlation = 0.7  # Maximum correlation between positions
 
-        # Current state
-        self.current_positions: List[Dict] = []
+        # Current state - now handles Position objects
+        self.current_positions: List[Union[Position, Dict]] = []
         self.daily_pnl = 0.0
         self.used_margin = 0.0
         self.available_balance = 100000.0  # Default
@@ -42,6 +46,13 @@ class AdvancedRiskManager(QObject):
             self.max_positions = config.get('max_positions', 10)
             self.max_portfolio_risk = config.get('max_portfolio_risk', 2.0)
             self.max_position_risk = config.get('max_position_risk', 0.5)
+
+    def _get_position_value(self, position: Union[Position, Dict], field: str, default=0):
+        """Helper to get value from either Position object or dict."""
+        if isinstance(position, Position):
+            return getattr(position, field, default)
+        else:
+            return position.get(field, default)
 
     def calculate_position_size(self,
                                 entry_price: float,
@@ -65,8 +76,7 @@ class AdvancedRiskManager(QObject):
         risk_per_share = abs(entry_price - stop_loss_price)
 
         if risk_per_share == 0:
-            # Return a dictionary with float values, even in error case,
-            # to match the type hint. Using 0 or float('nan') for numerical fields.
+            # Return a dictionary with float values, even in error case
             return 0, {
                 "position_size": 0.0,
                 "actual_risk": 0.0,
@@ -74,10 +84,6 @@ class AdvancedRiskManager(QObject):
                 "portfolio_risk_percentage": 0.0,
                 "risk_per_share": 0.0,
                 "max_affordable_qty": 0.0,
-                # You might add an 'error_message' key if you need to pass the string,
-                # but then the return type hint would need to be adjusted (e.g., Union[float, str])
-                # or the dictionary could be Dict[str, Union[float, str]] which is less strict.
-                # For strict adherence to Dict[str, float], all values must be float.
             }
 
         # Calculate position size
@@ -93,12 +99,12 @@ class AdvancedRiskManager(QObject):
         portfolio_risk_pct = (actual_risk / self.available_balance) * 100
 
         risk_metrics = {
-            "position_size": float(position_size),  # Ensure this is float
+            "position_size": float(position_size),
             "actual_risk": actual_risk,
             "position_value": position_value,
             "portfolio_risk_percentage": portfolio_risk_pct,
             "risk_per_share": risk_per_share,
-            "max_affordable_qty": float(max_affordable)  # Ensure this is float
+            "max_affordable_qty": float(max_affordable)
         }
 
         return position_size, risk_metrics
@@ -197,7 +203,7 @@ class AdvancedRiskManager(QObject):
 
         if symbol_sector:
             for position in self.current_positions:
-                pos_symbol = position.get('tradingsymbol', '')
+                pos_symbol = self._get_position_value(position, 'tradingsymbol', '')
                 if pos_symbol in sector_symbols[symbol_sector]:
                     same_sector_count += 1
 
@@ -205,15 +211,16 @@ class AdvancedRiskManager(QObject):
         return same_sector_count >= 3
 
     def calculate_portfolio_risk(self) -> Dict[str, float]:
-        """Calculate current portfolio risk metrics."""
+        """Calculate current portfolio risk metrics with support for Position objects."""
         total_value = 0.0
         total_risk = 0.0
         unrealized_pnl = 0.0
 
         for position in self.current_positions:
-            quantity = position.get('quantity', 0)
-            avg_price = position.get('average_price', 0)
-            ltp = position.get('ltp', avg_price)
+            # Use helper method to get values from either Position object or dict
+            quantity = self._get_position_value(position, 'quantity', 0)
+            avg_price = self._get_position_value(position, 'average_price', 0)
+            ltp = self._get_position_value(position, 'ltp', avg_price)
 
             position_value = abs(quantity) * avg_price
             position_pnl = (ltp - avg_price) * quantity
@@ -222,8 +229,9 @@ class AdvancedRiskManager(QObject):
             unrealized_pnl += position_pnl
 
             # Calculate position risk (assume 2% stop loss if not provided)
-            if 'stop_loss_price' in position:
-                risk_per_share = abs(avg_price - position['stop_loss_price'])
+            stop_loss_price = self._get_position_value(position, 'stop_loss_price', None)
+            if stop_loss_price is not None:
+                risk_per_share = abs(avg_price - stop_loss_price)
             else:
                 risk_per_share = avg_price * 0.02  # Default 2% risk
 
@@ -295,7 +303,7 @@ class AdvancedRiskManager(QObject):
             }
         }
 
-    def update_positions(self, positions: List[Dict]):
+    def update_positions(self, positions: List[Union[Position, Dict]]):
         """Update current positions for risk calculations."""
         self.current_positions = positions
 
@@ -401,60 +409,10 @@ class TradingRules:
     """Advanced trading rules and filters."""
 
     def __init__(self):
-        self.rules = {
-            'max_gap_percentage': 5.0,  # Max gap up/down allowed
-            'min_volume_ratio': 1.5,  # Minimum volume compared to avg
-            'max_spread_percentage': 2.0,  # Max bid-ask spread
-            'avoid_earnings_days': True,
-            'market_hours_only': True,
-            'max_volatility': 15.0,  # Max daily volatility %
-        }
+        self.completed_trades: List[Dict] = []
 
-    def check_symbol_eligibility(self, symbol_data: Dict[str, Any]) -> Tuple[bool, List[str]]:
-        """Check if symbol meets trading criteria."""
-        violations = []
-
-        # Check gap percentage
-        open_price = symbol_data.get('open', 0)
-        prev_close = symbol_data.get('prev_close', 0)
-
-        if open_price > 0 and prev_close > 0:
-            gap_pct = abs((open_price - prev_close) / prev_close) * 100
-            if gap_pct > self.rules['max_gap_percentage']:
-                violations.append(f"Gap too large: {gap_pct:.1f}%")
-
-        # Check volume
-        volume = symbol_data.get('volume', 0)
-        avg_volume = symbol_data.get('avg_volume', 0)
-
-        if avg_volume > 0:
-            volume_ratio = volume / avg_volume
-            if volume_ratio < self.rules['min_volume_ratio']:
-                violations.append(f"Low volume: {volume_ratio:.1f}x average")
-
-        # Check spread
-        bid = symbol_data.get('bid', 0)
-        ask = symbol_data.get('ask', 0)
-        ltp = symbol_data.get('ltp', 0)
-
-        if bid > 0 and ask > 0 and ltp > 0:
-            spread_pct = ((ask - bid) / ltp) * 100
-            if spread_pct > self.rules['max_spread_percentage']:
-                violations.append(f"Spread too wide: {spread_pct:.1f}%")
-
-        # Check volatility
-        high = symbol_data.get('high', 0)
-        low = symbol_data.get('low', 0)
-
-        if high > 0 and low > 0:
-            volatility = ((high - low) / low) * 100
-            if volatility > self.rules['max_volatility']:
-                violations.append(f"High volatility: {volatility:.1f}%")
-
-        return len(violations) == 0, violations
-
-    def get_market_regime(self, market_data: Dict[str, Any]) -> str:
-        """Determine current market regime."""
+    def check_market_conditions(self, market_data: Dict[str, Any]) -> str:
+        """Check current market conditions for trading."""
         # Simplified market regime detection
         vix = market_data.get('vix', 0)
 
@@ -467,6 +425,39 @@ class TradingRules:
         else:
             return "EXTREME_VOLATILITY"
 
+    def analyze_symbol_performance(self) -> Dict[str, Dict]:
+        """Analyze performance by symbol."""
+        symbol_stats = {}
+
+        for trade in self.completed_trades:
+            symbol = trade.get('symbol', 'UNKNOWN')
+            pnl = trade.get('pnl', 0)
+
+            if symbol not in symbol_stats:
+                symbol_stats[symbol] = {
+                    'trades': 0,
+                    'total_pnl': 0,
+                    'wins': 0,
+                    'losses': 0
+                }
+
+            symbol_stats[symbol]['trades'] += 1
+            symbol_stats[symbol]['total_pnl'] += pnl
+
+            if pnl > 0:
+                symbol_stats[symbol]['wins'] += 1
+            elif pnl < 0:
+                symbol_stats[symbol]['losses'] += 1
+
+        # Calculate win rates
+        for symbol, stats in symbol_stats.items():
+            if stats['trades'] > 0:
+                stats['win_rate'] = (stats['wins'] / stats['trades']) * 100
+            else:
+                stats['win_rate'] = 0
+
+        return symbol_stats
+
 
 class PositionMonitor:
     """Monitor positions for risk management alerts."""
@@ -475,16 +466,17 @@ class PositionMonitor:
         self.risk_manager = risk_manager
         self.alerts_sent = set()  # Track sent alerts to avoid spam
 
-    def check_position_alerts(self, positions: List[Dict]) -> List[Dict[str, Any]]:
+    def check_position_alerts(self, positions: List[Union[Position, Dict]]) -> List[Dict[str, Any]]:
         """Check positions for various alert conditions."""
         alerts = []
 
         for position in positions:
-            symbol = position.get('tradingsymbol', '')
-            quantity = position.get('quantity', 0)
-            avg_price = position.get('average_price', 0)
-            ltp = position.get('ltp', avg_price)
-            pnl = position.get('pnl', 0)
+            # Use helper method to get values
+            symbol = self.risk_manager._get_position_value(position, 'tradingsymbol', '')
+            quantity = self.risk_manager._get_position_value(position, 'quantity', 0)
+            avg_price = self.risk_manager._get_position_value(position, 'average_price', 0)
+            ltp = self.risk_manager._get_position_value(position, 'ltp', avg_price)
+            pnl = self.risk_manager._get_position_value(position, 'pnl', 0)
 
             # Skip if no position
             if quantity == 0:
@@ -520,160 +512,84 @@ class PositionMonitor:
                 self.alerts_sent.add(f"{alert_key}_profit")
 
             # Stop loss breach
-            if 'stop_loss_price' in position:
-                sl_price = position['stop_loss_price']
+            stop_loss_price = self.risk_manager._get_position_value(position, 'stop_loss_price', None)
+            if stop_loss_price is not None:
                 is_long = quantity > 0
 
-                if is_long and ltp <= sl_price:
+                if is_long and ltp <= stop_loss_price:
                     alerts.append({
                         'type': 'STOP_LOSS_BREACH',
                         'symbol': symbol,
-                        'message': f"{symbol}: Stop loss breached! LTP: ₹{ltp:.2f}, SL: ₹{sl_price:.2f}",
+                        'message': f"{symbol}: Stop loss breached! Current: ₹{ltp}, SL: ₹{stop_loss_price}",
                         'severity': 'CRITICAL',
                         'current_price': ltp,
-                        'stop_loss_price': sl_price
+                        'stop_loss_price': stop_loss_price
                     })
-                elif not is_long and ltp >= sl_price:
+                elif not is_long and ltp >= stop_loss_price:
                     alerts.append({
                         'type': 'STOP_LOSS_BREACH',
                         'symbol': symbol,
-                        'message': f"{symbol}: Stop loss breached! LTP: ₹{ltp:.2f}, SL: ₹{sl_price:.2f}",
+                        'message': f"{symbol}: Stop loss breached! Current: ₹{ltp}, SL: ₹{stop_loss_price}",
                         'severity': 'CRITICAL',
                         'current_price': ltp,
-                        'stop_loss_price': sl_price
-                    })
-
-            # Target achievement
-            if 'target_price' in position:
-                target_price = position['target_price']
-                is_long = quantity > 0
-
-                if is_long and ltp >= target_price:
-                    alerts.append({
-                        'type': 'TARGET_ACHIEVED',
-                        'symbol': symbol,
-                        'message': f"{symbol}: Target achieved! LTP: ₹{ltp:.2f}, Target: ₹{target_price:.2f}",
-                        'severity': 'MEDIUM',
-                        'current_price': ltp,
-                        'target_price': target_price
-                    })
-                elif not is_long and ltp <= target_price:
-                    alerts.append({
-                        'type': 'TARGET_ACHIEVED',
-                        'symbol': symbol,
-                        'message': f"{symbol}: Target achieved! LTP: ₹{ltp:.2f}, Target: ₹{target_price:.2f}",
-                        'severity': 'MEDIUM',
-                        'current_price': ltp,
-                        'target_price': target_price
+                        'stop_loss_price': stop_loss_price
                     })
 
         return alerts
 
-    def clear_daily_alerts(self):
-        """Clear daily alerts at market open."""
-        self.alerts_sent.clear()
-
 
 class TradeAnalyzer:
-    """Analyze completed trades for performance insights."""
+    """Analyze trading performance and patterns."""
 
     def __init__(self):
-        self.completed_trades = []
+        self.completed_trades: List[Dict] = []
 
-    def add_completed_trade(self, trade_data: Dict[str, Any]):
+    def add_completed_trade(self, trade_data: Dict):
         """Add a completed trade for analysis."""
-        trade_data['completion_time'] = datetime.now()
         self.completed_trades.append(trade_data)
 
-    def get_performance_metrics(self, days: int = 30) -> Dict[str, Any]:
-        """Calculate performance metrics for recent trades."""
-        cutoff_date = datetime.now() - timedelta(days=days)
-        recent_trades = [
-            trade for trade in self.completed_trades
-            if trade.get('completion_time', datetime.min) >= cutoff_date
-        ]
+    def get_performance_summary(self) -> Dict[str, Any]:
+        """Get overall performance summary."""
+        if not self.completed_trades:
+            return {
+                'total_trades': 0,
+                'total_pnl': 0,
+                'win_rate': 0,
+                'avg_win': 0,
+                'avg_loss': 0,
+                'profit_factor': 0
+            }
 
-        if not recent_trades:
-            return {'message': 'No trades in the specified period'}
+        total_trades = len(self.completed_trades)
+        total_pnl = sum(trade.get('pnl', 0) for trade in self.completed_trades)
 
-        # Calculate metrics
-        total_trades = len(recent_trades)
-        winning_trades = [t for t in recent_trades if t.get('pnl', 0) > 0]
-        losing_trades = [t for t in recent_trades if t.get('pnl', 0) < 0]
+        winning_trades = [trade for trade in self.completed_trades if trade.get('pnl', 0) > 0]
+        losing_trades = [trade for trade in self.completed_trades if trade.get('pnl', 0) < 0]
 
-        win_rate = (len(winning_trades) / total_trades) * 100
+        win_rate = (len(winning_trades) / total_trades) * 100 if total_trades > 0 else 0
+        avg_win = sum(trade.get('pnl', 0) for trade in winning_trades) / len(winning_trades) if winning_trades else 0
+        avg_loss = sum(trade.get('pnl', 0) for trade in losing_trades) / len(losing_trades) if losing_trades else 0
 
-        total_pnl = sum(t.get('pnl', 0) for t in recent_trades)
-        avg_win = sum(t.get('pnl', 0) for t in winning_trades) / len(winning_trades) if winning_trades else 0
-        avg_loss = sum(t.get('pnl', 0) for t in losing_trades) / len(losing_trades) if losing_trades else 0
-
-        profit_factor = abs(avg_win / avg_loss) if avg_loss != 0 else float('inf')
-
-        # Calculate maximum drawdown
-        running_pnl = 0
-        peak = 0
-        max_drawdown = 0
-
-        for trade in recent_trades:
-            running_pnl += trade.get('pnl', 0)
-            if running_pnl > peak:
-                peak = running_pnl
-            drawdown = peak - running_pnl
-            if drawdown > max_drawdown:
-                max_drawdown = drawdown
+        total_wins = sum(trade.get('pnl', 0) for trade in winning_trades)
+        total_losses = abs(sum(trade.get('pnl', 0) for trade in losing_trades))
+        profit_factor = total_wins / total_losses if total_losses > 0 else 0
 
         return {
             'total_trades': total_trades,
-            'winning_trades': len(winning_trades),
-            'losing_trades': len(losing_trades),
-            'win_rate': win_rate,
             'total_pnl': total_pnl,
-            'average_win': avg_win,
-            'average_loss': avg_loss,
+            'win_rate': win_rate,
+            'avg_win': avg_win,
+            'avg_loss': avg_loss,
             'profit_factor': profit_factor,
-            'max_drawdown': max_drawdown,
-            'period_days': days
+            'winning_trades': len(winning_trades),
+            'losing_trades': len(losing_trades)
         }
-
-    def get_symbol_performance(self) -> Dict[str, Dict]:
-        """Get performance breakdown by symbol."""
-        symbol_stats = {}
-
-        for trade in self.completed_trades:
-            symbol = trade.get('symbol', 'UNKNOWN')
-            pnl = trade.get('pnl', 0)
-
-            if symbol not in symbol_stats:
-                symbol_stats[symbol] = {
-                    'trades': 0,
-                    'total_pnl': 0,
-                    'wins': 0,
-                    'losses': 0
-                }
-
-            symbol_stats[symbol]['trades'] += 1
-            symbol_stats[symbol]['total_pnl'] += pnl
-
-            if pnl > 0:
-                symbol_stats[symbol]['wins'] += 1
-            elif pnl < 0:
-                symbol_stats[symbol]['losses'] += 1
-
-        # Calculate win rates
-        for symbol, stats in symbol_stats.items():
-            if stats['trades'] > 0:
-                stats['win_rate'] = (stats['wins'] / stats['trades']) * 100
-            else:
-                stats['win_rate'] = 0
-
-        return symbol_stats
 
 
 # Integration helpers for the main application
 
 def integrate_risk_management(main_window):
     """Integrate risk management into the main window."""
-
     # Initialize risk manager
     main_window.risk_manager = AdvancedRiskManager(main_window.config_manager)
     main_window.position_monitor = PositionMonitor(main_window.risk_manager)

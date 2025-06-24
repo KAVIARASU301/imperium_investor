@@ -17,9 +17,9 @@ logger = logging.getLogger(__name__)
 
 class PositionManager(QObject):
     """
-    Enhanced position manager for swing trading with perfect integration.
+    Enhanced position manager for swing trading with stocks only.
     Features real-time P&L tracking, performance analytics, and robust error handling.
-    Removed options-specific code and properly calculates position metrics locally.
+    Optimized for equity trading without options complexity.
     """
 
     # Enhanced signals for better integration
@@ -93,7 +93,7 @@ class PositionManager(QObject):
         self._position_history: List[Dict] = []
         self._pnl_history: List[Dict] = []
 
-        logger.info(f"Enhanced Position Manager initialized in {mode} mode.")
+        logger.info(f"Enhanced Position Manager initialized in {mode} mode for stock swing trading.")
 
     def _setup_refresh_timers(self):
         """Setup multiple timers for different refresh frequencies."""
@@ -117,7 +117,7 @@ class PositionManager(QObject):
         self._timers_active = True
 
     def set_instrument_data(self, instruments: List[Dict[str, Any]]):
-        """Set instrument data with enhanced validation and mapping."""
+        """Set instrument data with enhanced validation and mapping for stocks only."""
         try:
             with QMutexLocker(self._mutex):
                 if not instruments:
@@ -138,7 +138,6 @@ class PositionManager(QObject):
                             'exchange': inst.get('exchange', 'NSE'),
                             'segment': inst.get('segment', 'EQ'),
                             'lot_size': inst.get('lot_size', 1),  # Always 1 for stocks
-                            'tick_size': inst.get('tick_size', 0.05),
                             'name': inst.get('name', symbol),
                             'instrument_type': inst.get('instrument_type', 'EQ')
                         }
@@ -235,7 +234,7 @@ class PositionManager(QObject):
                     if any(x in symbol for x in ['CE', 'PE', 'FUT']):
                         continue
 
-                    position = self._create_enhanced_position_object(pos_data)
+                    position = self._create_stock_position_object(pos_data)
                     if position:
                         current_positions[position.tradingsymbol] = position
 
@@ -255,8 +254,8 @@ class PositionManager(QObject):
         except Exception as e:
             logger.error(f"Error processing API data: {e}", exc_info=True)
 
-    def _create_enhanced_position_object(self, api_pos: dict) -> Optional[Position]:
-        """Create enhanced position object with locally calculated metrics."""
+    def _create_stock_position_object(self, api_pos: dict) -> Optional[Position]:
+        """Create position object for stocks (simplified, no options complexity)."""
         try:
             tradingsymbol = api_pos.get('tradingsymbol')
             if not tradingsymbol:
@@ -265,13 +264,12 @@ class PositionManager(QObject):
             # Get instrument details
             inst_details = self._instrument_map.get(tradingsymbol, {})
 
-            # Create contract for stocks (simplified, no options data)
+            # Create simplified contract for stocks
             contract = Contract(
-                symbol=tradingsymbol.split('-')[0],
+                symbol=tradingsymbol.split('-')[0],  # Base symbol
                 tradingsymbol=tradingsymbol,
                 instrument_token=inst_details.get('instrument_token', 0),
                 lot_size=inst_details.get('lot_size', 1),  # Always 1 for stocks
-                tick_size=inst_details.get('tick_size', 0.05),
                 strike=0,  # Not applicable for stocks
                 option_type="",  # Not applicable for stocks
                 expiry=None  # Not applicable for stocks
@@ -300,16 +298,15 @@ class PositionManager(QObject):
             return position
 
         except Exception as e:
-            logger.error(f"Error creating position object for {api_pos}: {e}")
+            logger.error(f"Error creating stock position object for {api_pos}: {e}")
             return None
 
     def _calculate_position_metrics(self, position: Position) -> Dict[str, float]:
-        """Calculate position metrics locally."""
+        """Calculate position metrics for stocks."""
         try:
             investment = abs(position.quantity * position.average_price)
             market_value = abs(position.quantity * position.ltp)
-            pnl_percent = ((
-                                       position.ltp - position.average_price) / position.average_price * 100) if position.average_price > 0 else 0
+            pnl_percent = ((position.ltp - position.average_price) / position.average_price * 100) if position.average_price > 0 else 0
 
             return {
                 'investment': investment,
@@ -459,7 +456,7 @@ class PositionManager(QObject):
             logger.error(f"Error updating trade statistics: {e}")
 
     def update_pnl_from_market_data(self, ticks: List[Dict]):
-        """Enhanced market data processing with price caching."""
+        """Enhanced market data processing with price caching for stocks."""
         try:
             if not ticks:
                 return
@@ -569,8 +566,7 @@ class PositionManager(QObject):
                 'realized_pnl': self.realized_day_pnl,
                 'peak_unrealized': self.peak_unrealized_pnl,
                 'current_drawdown': self.drawdown_from_peak,
-                'portfolio_return': ((
-                                                 total_market_value - total_investment) / total_investment * 100) if total_investment > 0 else 0
+                'portfolio_return': ((total_market_value - total_investment) / total_investment * 100) if total_investment > 0 else 0
             }
 
             if not self._cleanup_called:
@@ -716,8 +712,7 @@ class PositionManager(QObject):
             best_performer = max(positions, key=lambda p: p.pnl) if positions else None
             worst_performer = min(positions, key=lambda p: p.pnl) if positions else None
             largest_position = max(positions,
-                                   key=lambda p: self._calculate_position_metrics(p)[
-                                       'market_value']) if positions else None
+                                   key=lambda p: self._calculate_position_metrics(p)['market_value']) if positions else None
 
             return {
                 'total_positions': len(positions),
@@ -726,8 +721,7 @@ class PositionManager(QObject):
                 'total_unrealized_pnl': total_unrealized,
                 'total_investment': total_investment,
                 'total_market_value': total_market_value,
-                'portfolio_return_pct': ((
-                                                     total_market_value - total_investment) / total_investment * 100) if total_investment > 0 else 0,
+                'portfolio_return_pct': ((total_market_value - total_investment) / total_investment * 100) if total_investment > 0 else 0,
                 'largest_position': largest_position.tradingsymbol if largest_position else None,
                 'best_performer': {
                     'symbol': best_performer.tradingsymbol,

@@ -1,4 +1,4 @@
-# header_toolbar.py (Fixed)
+# header_toolbar.py (Refactored)
 
 import logging
 from datetime import datetime
@@ -54,17 +54,17 @@ class NotificationBadge(QLabel):
 
 class HeaderToolbar(QToolBar):
     """
-    Enhanced compact, modern toolbar with advanced alert management features.
+    Refactored compact, modern toolbar with alert management and trading features.
     """
     symbol_selected = Signal(str)
     add_alert_requested = Signal()
     alert_manager_requested = Signal()
-    alert_logs_requested = Signal()  # Add this if missing
-    watchlist_requested = Signal()
-    portfolio_requested = Signal()
-    orders_requested = Signal()
+    order_history_requested = Signal()
+    performance_dashboard_requested = Signal()
     market_depth_requested = Signal(str)
     timeframe_changed = Signal(str)
+    buy_order_requested = Signal(str)  # Signal for buy order with symbol
+    sell_order_requested = Signal(str)  # Signal for sell order with symbol
 
     def __init__(self, trader: Union[KiteConnect, Any], parent=None):
         super().__init__(parent)
@@ -83,14 +83,14 @@ class HeaderToolbar(QToolBar):
         self._create_symbol_search_section()
         self._create_center_spacer()
         self._create_market_status_section()
-        self._create_quick_actions_section()
-        self._create_account_section()
         self._create_alert_section()
+        self._create_trading_actions_section()
+        self._create_account_section()
 
     def _create_symbol_search_section(self):
-        """Creates an enhanced symbol search section."""
-        symbol_label = QLabel("Symbol:")
-        symbol_label.setObjectName("sectionLabel")
+        """Creates an enhanced symbol search section with buy/sell buttons."""
+        symbol_label = QLabel("SYMBOL:")
+        symbol_label.setObjectName("symbolLabel")
         self.addWidget(symbol_label)
 
         self.search_input = QLineEdit()
@@ -98,6 +98,21 @@ class HeaderToolbar(QToolBar):
         self.search_input.setObjectName("enhancedSymbolSearch")
         self.search_input.returnPressed.connect(self._on_search_enter)
         self.addWidget(self.search_input)
+
+        # Buy and Sell buttons
+        self.buy_button = QPushButton("BUY")
+        self.buy_button.setObjectName("buyButton")
+        self.buy_button.setToolTip("Place Buy Order for Current Symbol")
+        self.buy_button.setFixedSize(45, 24)
+        self.buy_button.clicked.connect(self._on_buy_clicked)
+        self.addWidget(self.buy_button)
+
+        self.sell_button = QPushButton("SELL")
+        self.sell_button.setObjectName("sellButton")
+        self.sell_button.setToolTip("Place Sell Order for Current Symbol")
+        self.sell_button.setFixedSize(45, 24)
+        self.sell_button.clicked.connect(self._on_sell_clicked)
+        self.addWidget(self.sell_button)
 
         self.completer = QCompleter(self)
         self.completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
@@ -107,6 +122,7 @@ class HeaderToolbar(QToolBar):
 
     def _create_center_spacer(self):
         spacer = QWidget()
+        spacer.setObjectName("centerSpacer")
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.addWidget(spacer)
 
@@ -127,34 +143,79 @@ class HeaderToolbar(QToolBar):
 
         self.addWidget(market_widget)
 
-    def _create_quick_actions_section(self):
+    def _create_alert_section(self):
+        """Creates an enhanced alert management section with consistent styling."""
         separator = QFrame()
         separator.setFrameShape(QFrame.Shape.VLine)
         separator.setObjectName("sectionSeparator")
         self.addWidget(separator)
 
+        # Alert container widget with consistent dark styling
+        alert_widget = QWidget()
+        alert_widget.setObjectName("alertActionWidget")
+
+        alert_layout = QHBoxLayout(alert_widget)
+        alert_layout.setContentsMargins(4, 2, 4, 2)
+        alert_layout.setSpacing(2)
+
+        # Quick Alert Button with badge
+        quick_alert_container = QWidget()
+        quick_alert_container.setFixedSize(60, 24)
+        self.quick_alert_button = QPushButton("Alert", quick_alert_container)
+        self.quick_alert_button.setObjectName("alertActionButton")
+        self.quick_alert_button.setToolTip("Quick Alert (Ctrl+A)")
+        self.quick_alert_button.clicked.connect(self.add_alert_requested.emit)
+        self.quick_alert_button.setGeometry(0, 0, 60, 24)
+        self.active_badge = NotificationBadge(quick_alert_container)
+        self.active_badge.move(46, -2)
+        alert_layout.addWidget(quick_alert_container)
+
+        # Alert Manager Button with badge (combines manager and history)
+        manager_container = QWidget()
+        manager_container.setFixedSize(85, 24)
+        self.alert_manager_button = QPushButton("Alert Manager", manager_container)
+        self.alert_manager_button.setObjectName("alertActionButton")
+        self.alert_manager_button.setToolTip("Alert Manager & History (Ctrl+Shift+A)")
+        self.alert_manager_button.clicked.connect(self.alert_manager_requested.emit)
+        self.alert_manager_button.setGeometry(0, 0, 85, 24)
+        self.triggered_badge = NotificationBadge(manager_container)
+        self.triggered_badge.move(71, -2)
+        alert_layout.addWidget(manager_container)
+
+        self.addWidget(alert_widget)
+
+    def _create_trading_actions_section(self):
+        """Creates trading actions section with Order History and Performance Dashboard."""
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.VLine)
+        separator.setObjectName("sectionSeparator")
+        self.addWidget(separator)
+
+        # Trading actions container widget
         actions_widget = QWidget()
+        actions_widget.setObjectName("tradingActionWidget")
+
         actions_layout = QHBoxLayout(actions_widget)
         actions_layout.setContentsMargins(4, 2, 4, 2)
         actions_layout.setSpacing(2)
 
-        self.watchlist_btn = self._create_action_button("📋", "Watchlist", self.watchlist_requested.emit)
-        actions_layout.addWidget(self.watchlist_btn)
-        self.portfolio_btn = self._create_action_button("💼", "Portfolio", self.portfolio_requested.emit)
-        actions_layout.addWidget(self.portfolio_btn)
-        self.orders_btn = self._create_action_button("📝", "Orders", self.orders_requested.emit)
-        actions_layout.addWidget(self.orders_btn)
+        # Order History Button
+        self.order_history_btn = QPushButton("Order History")
+        self.order_history_btn.setObjectName("tradingActionButton")
+        self.order_history_btn.setToolTip("View Order History")
+        self.order_history_btn.clicked.connect(self.order_history_requested.emit)
+        self.order_history_btn.setFixedSize(95, 24)
+        actions_layout.addWidget(self.order_history_btn)
+
+        # Performance Dashboard Button
+        self.performance_btn = QPushButton("Performance")
+        self.performance_btn.setObjectName("tradingActionButton")
+        self.performance_btn.setToolTip("Performance Dashboard")
+        self.performance_btn.clicked.connect(self.performance_dashboard_requested.emit)
+        self.performance_btn.setFixedSize(85, 24)
+        actions_layout.addWidget(self.performance_btn)
 
         self.addWidget(actions_widget)
-
-    @staticmethod
-    def _create_action_button(icon_text: str, tooltip: str, callback) -> QPushButton:
-        btn = QPushButton(icon_text)
-        btn.setObjectName("quickActionButton")
-        btn.setToolTip(tooltip)
-        btn.clicked.connect(callback)
-        btn.setFixedSize(28, 24)
-        return btn
 
     def _create_account_section(self):
         """Creates the account information display section."""
@@ -163,7 +224,6 @@ class HeaderToolbar(QToolBar):
         separator.setObjectName("sectionSeparator")
         self.addWidget(separator)
 
-        # Correctly assign the widget to an instance attribute
         self.account_info_widget = QWidget()
         self.account_info_widget.setObjectName("accountInfoWidget")
         account_layout = QHBoxLayout(self.account_info_widget)
@@ -178,17 +238,6 @@ class HeaderToolbar(QToolBar):
         self.balance_label = QLabel("₹0")
         self.balance_label.setObjectName("balanceLabel")
         account_layout.addWidget(self.balance_label)
-        account_layout.addWidget(self._create_separator_dot())
-
-        self.margin_label = QLabel("Used: ₹0")
-        self.margin_label.setObjectName("marginLabel")
-        account_layout.addWidget(self.margin_label)
-        account_layout.addWidget(self._create_separator_dot())
-
-        # Define the pnl_label which was previously missing
-        self.pnl_label = QLabel("P&L: ₹0")
-        self.pnl_label.setObjectName("pnlLabel")
-        account_layout.addWidget(self.pnl_label)
 
         self.addWidget(self.account_info_widget)
 
@@ -197,50 +246,6 @@ class HeaderToolbar(QToolBar):
         dot = QLabel("•")
         dot.setObjectName("separatorDot")
         return dot
-
-    def _create_alert_section(self):
-        """Creates an enhanced alert management section with badges."""
-        separator = QFrame()
-        separator.setFrameShape(QFrame.Shape.VLine)
-        separator.setObjectName("sectionSeparator")
-        self.addWidget(separator)
-
-        alert_widget = QWidget()
-        alert_layout = QHBoxLayout(alert_widget)
-        alert_layout.setContentsMargins(8, 0, 8, 0)
-        alert_layout.setSpacing(8)
-
-        quick_alert_container = QWidget()
-        quick_alert_container.setFixedSize(36, 28)
-        self.quick_alert_button = QPushButton("🔔", quick_alert_container)
-        self.quick_alert_button.setObjectName("quickAlertButton")
-        self.quick_alert_button.setToolTip("Quick Alert (Ctrl+A)")
-        self.quick_alert_button.clicked.connect(self.add_alert_requested.emit)
-        self.quick_alert_button.setGeometry(0, 2, 34, 24)
-        self.active_badge = NotificationBadge(quick_alert_container)
-        self.active_badge.move(20, 0)
-        alert_layout.addWidget(quick_alert_container)
-
-        self.alert_manager_button = self._create_action_button("⚙️", "Alert Manager (Ctrl+Shift+A)",
-                                                               self.alert_manager_requested.emit)
-        alert_layout.addWidget(self.alert_manager_button)
-
-        history_container = QWidget()
-        history_container.setFixedSize(36, 28)
-        self.alert_logs_button = QPushButton("📋", history_container)
-        self.alert_logs_button.setObjectName("alertHistoryButton")
-        self.alert_logs_button.setToolTip("Alert History")
-        self.alert_logs_button.clicked.connect(self.alert_logs_requested.emit)
-        self.alert_logs_button.setGeometry(0, 2, 34, 24)
-        self.triggered_badge = NotificationBadge(history_container)
-        self.triggered_badge.move(20, 0)
-        alert_layout.addWidget(history_container)
-
-        alert_label = QLabel("Alerts")
-        alert_label.setObjectName("sectionLabel")
-        alert_layout.addWidget(alert_label)
-
-        self.addWidget(alert_widget)
 
     def _setup_timers(self):
         QTimer.singleShot(1000, self._refresh_account_info)
@@ -254,7 +259,6 @@ class HeaderToolbar(QToolBar):
 
     def _update_market_status(self):
         """Updates market status indicator."""
-        # This implementation can be expanded based on actual market holiday data
         current_time = datetime.now().time()
         market_open = datetime.strptime("09:15", "%H:%M").time() <= current_time <= datetime.strptime("15:30",
                                                                                                       "%H:%M").time()
@@ -287,8 +291,6 @@ class HeaderToolbar(QToolBar):
         """Updates the UI labels for account information."""
         self.user_id_label.setText(self._account_info.get('user_id', 'N/A'))
         self._format_and_set_balance(self._account_info.get('available_balance', 0.0))
-        self._format_and_set_margin(self._account_info.get('used_margin', 0.0))
-        self._format_and_set_pnl(self._account_info.get('pnl', 0.0))
 
     def _get_actual_trader(self):
         """Gets the actual KiteConnect client."""
@@ -296,37 +298,48 @@ class HeaderToolbar(QToolBar):
             return self.trader
         return None
 
-    def _show_paper_trading_mode(self):
-        """Shows paper trading account information."""
-        self.user_id_label.setText("PAPER")
-        self._format_and_set_balance(getattr(self.trader, 'balance', 100000))
-        self._format_and_set_margin(0)
-        self._format_and_set_pnl(0)
-
     def _show_demo_mode(self):
         """Shows demo mode when no trading client is available."""
         self.user_id_label.setText("DEMO")
         self.balance_label.setText("₹--")
-        self.margin_label.setText("Used: ₹--")
-        self.pnl_label.setText("P&L: ₹--")
 
     def _show_error_state(self):
         """Shows error state briefly."""
         self.user_id_label.setText("ERROR")
         self.balance_label.setText("₹--")
-        self.margin_label.setText("Used: ₹--")
-        self.pnl_label.setText("P&L: ₹--")
+
+    def _format_indian_currency(self, amount: float) -> str:
+        """Format currency in Indian numbering system (lakhs, crores)."""
+        if amount == 0:
+            return "₹0"
+
+        # Convert to string and handle negative numbers
+        is_negative = amount < 0
+        amount = abs(amount)
+        amount_str = f"{amount:.0f}"
+
+        # Indian number formatting: first 3 digits, then groups of 2
+        if len(amount_str) <= 3:
+            formatted = amount_str
+        else:
+            # First 3 digits from right
+            last_three = amount_str[-3:]
+            remaining = amount_str[:-3]
+
+            # Add commas every 2 digits for the remaining part
+            formatted_remaining = ""
+            for i, digit in enumerate(reversed(remaining)):
+                if i > 0 and i % 2 == 0:
+                    formatted_remaining = "," + formatted_remaining
+                formatted_remaining = digit + formatted_remaining
+
+            formatted = formatted_remaining + "," + last_three
+
+        prefix = "-₹" if is_negative else "₹"
+        return prefix + formatted
 
     def _format_and_set_balance(self, balance: float):
-        self.balance_label.setText(f"₹{balance / 1e5:.1f}L" if balance >= 1e5 else f"₹{balance / 1e3:.1f}K")
-
-    def _format_and_set_margin(self, margin: float):
-        self.margin_label.setText(f"Used: ₹{margin / 1e5:.1f}L" if margin >= 1e5 else f"Used: ₹{margin / 1e3:.1f}K")
-
-    def _format_and_set_pnl(self, pnl: float):
-        color = "#4aff4a" if pnl >= 0 else "#ff4444"
-        self.pnl_label.setStyleSheet(f"color: {color};")
-        self.pnl_label.setText(f"P&L: ₹{pnl:,.0f}")
+        self.balance_label.setText(self._format_indian_currency(balance))
 
     def set_instrument_data(self, instruments: List[Dict[str, Any]]):
         symbols = [inst['tradingsymbol'] for inst in instruments if 'tradingsymbol' in inst]
@@ -339,7 +352,12 @@ class HeaderToolbar(QToolBar):
         self.triggered_badge.set_count(triggered_today)
 
     def set_current_symbol(self, symbol: str):
+        """Set the current symbol in the search input."""
         self.search_input.setText(symbol)
+
+    def get_current_symbol(self) -> str:
+        """Get the current symbol from the search input."""
+        return self.search_input.text().upper().strip()
 
     def _on_search_enter(self, text=""):
         symbol = (text or self.search_input.text()).upper().strip()
@@ -348,48 +366,170 @@ class HeaderToolbar(QToolBar):
         elif symbol:
             logger.warning(f"Invalid symbol entered: {symbol}")
 
+    def _on_buy_clicked(self):
+        """Handle buy button click."""
+        symbol = self.search_input.text().upper().strip()
+        if symbol and symbol in self._instrument_map:
+            self.buy_order_requested.emit(symbol)
+        else:
+            # Try to get current symbol from chart if input is empty
+            if not symbol:
+                logger.warning("No symbol entered. Please enter a symbol in the search field.")
+            else:
+                logger.warning(f"Invalid symbol '{symbol}' entered for buy order")
+
+    def _on_sell_clicked(self):
+        """Handle sell button click."""
+        symbol = self.search_input.text().upper().strip()
+        if symbol and symbol in self._instrument_map:
+            self.sell_order_requested.emit(symbol)
+        else:
+            # Try to get current symbol from chart if input is empty
+            if not symbol:
+                logger.warning("No symbol entered. Please enter a symbol in the search field.")
+            else:
+                logger.warning(f"Invalid symbol '{symbol}' entered for sell order")
+
     def _apply_styles(self):
         self.setStyleSheet("""
             QToolBar#enhancedHeaderToolbar {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #0e0e0e, stop:1 #1a1a1a);
-                border-bottom: 2px solid #2a2a2a; padding: 2px 8px; spacing: 8px; max-height: 40px;
+                background-color: #1a1a1a;
+                border-bottom: 3px solid #404040;
+                padding: 2px 8px;
+                spacing: 8px;
+                max-height: 40px;
             }
-            #sectionLabel, #actionLabel { color: #a0c0ff; font-size: 11px; font-weight: 500; }
+            #centerSpacer {
+                background-color: transparent;
+            }
+            #symbolLabel { 
+                background-color: #1a1a1a; 
+                color: #ffffff; 
+                font-size: 12px; 
+                font-weight: 900; 
+                text-transform: uppercase;
+                letter-spacing: 1px;
+                padding-right: 8px;
+            }
             #enhancedSymbolSearch {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1e1e1e, stop:1 #2a2a2a);
-                border: 1px solid #404040; color: #ffffff; padding: 6px 12px; border-radius: 6px;
-                font-size: 11px; min-width: 180px; max-width: 220px; max-height: 28px;
+                background-color: #000000;
+                border: 1px solid #333333; 
+                color: #ffffff; 
+                padding: 6px 12px; 
+                border-radius: 3px;
+                font-size: 10px; 
+                font-weight: 500;
+                min-width: 180px; 
+                max-width: 220px; 
+                max-height: 24px;
             }
-            #enhancedSymbolSearch:focus { border: 1px solid #6a9cff; }
-            #marketStatusWidget { background-color: rgba(30, 30, 30, 0.8); border-radius: 4px; border: 1px solid #333; }
-            #marketOpen { color: #00ff00; } #marketClosed { color: #ff4444; }
-            #marketStatusText { color: #cccccc; font-size: 10px; font-weight: 600; }
-            #quickActionButton, #quickAlertButton, #alertManagerButton, #alertHistoryButton {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #2a2a2a, stop:1 #1e1e1e);
-                border: 1px solid #404040; color: #ffffff; border-radius: 4px; font-size: 12px; padding: 2px;
+            #enhancedSymbolSearch:focus { 
+                border: 1px solid #00d4ff; 
+                color: #00d4ff;
             }
-            #quickActionButton:hover, #quickAlertButton:hover, #alertManagerButton:hover, #alertHistoryButton:hover {
+            #buyButton {
+                background-color: #000000;
+                color: white;
+                border: 1px solid #333333;
+                padding: 6px 8px;
+                border-radius: 3px;
+                font-size: 10px;
+                font-weight: 600;
+                text-transform: uppercase;
+            }
+            #buyButton:hover {
+                background-color: #1a5928;
+                border: 1px solid #4aff4a;
+                color: #4aff4a;
+            }
+            #sellButton {
+                background-color: #000000;
+                color: white;
+                border: 1px solid #333333;
+                padding: 6px 8px;
+                border-radius: 3px;
+                font-size: 10px;
+                font-weight: 600;
+                text-transform: uppercase;
+            }
+            #sellButton:hover {
+                background-color: #5a1a1a;
+                border: 1px solid #ff4444;
+                color: #ff4444;
+            }
+            #marketStatusWidget { 
+                background-color: #1a1a1a; 
+                border-radius: 4px; 
+                border: 1px solid #333; 
+            }
+            #marketOpen { 
+                background-color: #1a1a1a;
+                color: #00ff00; 
+            } 
+            #marketClosed { 
+                background-color: #1a1a1a;
+                color: #ff4444; 
+            }
+            #marketStatusText { 
+                background-color: #1a1a1a;
+                color: #cccccc; 
+                font-size: 10px; 
+                font-weight: 600; 
+            }
+            #alertActionWidget, #tradingActionWidget {
+                background-color: #1a1a1a;
+            }
+            #alertActionButton, #tradingActionButton {
+                background-color: #000000;
+                color: white;
+                border: 1px solid #333333;
+                padding: 6px 8px;
+                border-radius: 3px;
+                font-size: 10px;
+                font-weight: 500;
+            }
+            #alertActionButton:hover, #tradingActionButton:hover {
+                background-color: #1a1a1a;
                 border: 1px solid #00d4ff;
+                color: #00d4ff;
             }
             #accountInfoWidget {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1a1a1a, stop:1 #0e0e0e);
-                border: 1px solid #333333; border-radius: 6px; padding: 4px 8px;
+                background-color: #1a1a1a;
+                border: 1px solid #333333; 
+                border-radius: 6px; 
+                padding: 4px 8px;
             }
-            #userIdLabel { color: #00d4ff; font-size: 11px; font-weight: 700; }
-            #balanceLabel { color: #4aff4a; font-size: 11px; font-weight: 600; }
-            #marginLabel { color: #ffaa00; font-size: 10px; font-weight: 500; }
-            #pnlLabel { font-size: 10px; font-weight: 500; } /* Style is set dynamically */
-            #separatorDot { color: #666666; font-size: 8px; }
-            #sectionSeparator { background-color: #404040; max-width: 1px; margin: 4px 2px; }
+            #userIdLabel { 
+                background-color: #1a1a1a;
+                color: #00d4ff; 
+                font-size: 11px; 
+                font-weight: 700; 
+            }
+            #balanceLabel { 
+                background-color: #1a1a1a;
+                color: #4aff4a; 
+                font-size: 11px; 
+                font-weight: 600; 
+            }
+            #separatorDot { 
+                background-color: #1a1a1a;
+                color: #666666; 
+                font-size: 8px; 
+            }
+            #sectionSeparator { 
+                background-color: #404040; 
+                max-width: 1px; 
+                margin: 4px 2px; 
+            }
         """)
 
     def show_connection_status(self, connected: bool):
         """Shows connection status in the market status area."""
         if connected:
-            self.market_text_label.setText("Market Open")
+            self.market_text_label.setText("Connected")
             self.market_status_label.setObjectName("marketOpen")
         else:
-            self.market_text_label.setText("Market Closed")
+            self.market_text_label.setText("Disconnected")
             self.market_status_label.setObjectName("marketClosed")
 
         self.market_status_label.style().polish(self.market_status_label)
