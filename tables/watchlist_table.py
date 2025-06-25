@@ -1,4 +1,4 @@
-# Enhanced watchlist_table.py - TC2000 style dynamic watchlist
+# Enhanced watchlist_table.py - FIXED volume and change% issues
 import logging
 import json
 import os
@@ -27,7 +27,7 @@ SETTINGS_KEY_WIDTH = "watchlist/widget_width"
 
 class TradingTable(QTableWidget):
     """
-    Enhanced trading table with proper data persistence and real-time updates
+    Enhanced trading table with FIXED data persistence and real-time updates
     """
     symbol_selected = Signal(str)
     place_order_requested = Signal(dict)
@@ -62,27 +62,166 @@ class TradingTable(QTableWidget):
         header = self.horizontalHeader()
         header.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
 
+        # Table behavior (enhanced from positions table)
         self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.setShowGrid(False)
         self.setAlternatingRowColors(True)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)  # From positions table
 
-        # Column sizing
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)  # Symbol
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)  # LTP
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)  # Volume
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)  # Chg %
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)  # Remove button
-        self.setColumnWidth(4, 24)  # Minimal width for X button
+        # Enable sorting
+        self.setSortingEnabled(True)
+
+        # Connect header click for custom sorting
+        header.sectionClicked.connect(self._on_header_clicked)
+
+        # Set cursors properly using Qt methods instead of CSS
+        header.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+
+        # Column sizing - Optimized for better space utilization
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)  # Symbol - takes remaining space
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)  # LTP - fixed width
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)  # Volume - fixed width
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)  # Chg % - fixed width
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)  # Remove button - fixed width
+
+        # Set optimal fixed widths to minimize wasted space
+        self.setColumnWidth(1, 70)  # LTP - enough for "0000.00"
+        self.setColumnWidth(2, 50)  # Volume - enough for "999K" or "9.9L"
+        self.setColumnWidth(3, 60)  # Change % - enough for "+00.00%"
+        self.setColumnWidth(4, 24)  # Remove button - minimal
 
         # Row height for compact appearance
         self.verticalHeader().setDefaultSectionSize(28)
 
+        # Initialize sorting state
+        self._sort_column = -1
+        self._sort_order = Qt.SortOrder.AscendingOrder
+
     def _connect_signals(self):
         """Connect table signals."""
         self.cellClicked.connect(self._on_cell_clicked)
+        self.cellDoubleClicked.connect(self._on_cell_double_clicked)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_enhanced_context_menu)
+
+        # Connect focus events to clear selection (from positions table)
+        self.focusOutEvent = self._on_table_focus_out
+
+    def _on_cell_double_clicked(self, row: int, column: int):
+        """Handle cell double-click for symbol details."""
+        if column != 4 and row < self.rowCount():
+            try:
+                symbol = self.item(row, 0).text()
+                if symbol and symbol != 'N/A':
+                    # Emit signal for detailed view or advanced chart
+                    logger.info(f"Double-clicked on {symbol} - opening detailed view")
+                    self.symbol_selected.emit(symbol)  # Can be enhanced later for different action
+            except (AttributeError, TypeError):
+                logger.warning(f"Could not get symbol from double-clicked row {row}.")
+
+    def _on_table_focus_out(self, event):
+        """Clear selection when table loses focus (from positions table)."""
+        try:
+            self.clearSelection()
+            # Call the original focusOutEvent if it exists
+            if hasattr(QTableWidget, 'focusOutEvent'):
+                QTableWidget.focusOutEvent(self, event)
+        except Exception as e:
+            logger.debug(f"Error clearing selection on focus out: {e}")
+
+    def _on_header_clicked(self, logical_index: int):
+        """Handle header clicks for sorting."""
+        if logical_index == 4:  # Don't sort on remove button column
+            return
+
+        # Toggle sort order if clicking the same column
+        if self._sort_column == logical_index:
+            self._sort_order = (Qt.SortOrder.DescendingOrder
+                                if self._sort_order == Qt.SortOrder.AscendingOrder
+                                else Qt.SortOrder.AscendingOrder)
+        else:
+            self._sort_column = logical_index
+            # Default sort order based on column
+            if logical_index == 3:  # Change % column - default to descending (best performers first)
+                self._sort_order = Qt.SortOrder.DescendingOrder
+            else:
+                self._sort_order = Qt.SortOrder.AscendingOrder
+
+        self._sort_table_by_column(logical_index, self._sort_order)
+
+        # Update header visual indicator
+        self._update_header_sort_indicator()
+
+    def _sort_table_by_column(self, column: int, order: Qt.SortOrder):
+        """Sort table by specified column with proper data type handling."""
+        if not self._watchlist_symbols:
+            return
+
+        # Create list of (symbol, sort_value) tuples
+        sort_data = []
+
+        for symbol in self._watchlist_symbols:
+            if symbol not in self._watchlist_data:
+                continue
+
+            data = self._watchlist_data[symbol]
+
+            if column == 0:  # Symbol
+                sort_value = symbol
+            elif column == 1:  # LTP
+                sort_value = data.get('ltp', 0.0)
+            elif column == 2:  # Volume
+                sort_value = data.get('volume', 0)
+            elif column == 3:  # Change %
+                sort_value = data.get('change_pct', 0.0)
+            else:
+                sort_value = symbol
+
+            sort_data.append((symbol, sort_value))
+
+        # Sort the data
+        reverse = (order == Qt.SortOrder.DescendingOrder)
+
+        # Custom sorting for volume to handle different scales
+        if column == 2:  # Volume column
+            sort_data.sort(key=lambda x: x[1] if isinstance(x[1], (int, float)) else 0, reverse=reverse)
+        else:
+            sort_data.sort(key=lambda x: x[1] if x[1] is not None else (float('-inf') if reverse else float('inf')),
+                           reverse=reverse)
+
+        # Get sorted symbol list
+        sorted_symbols = [item[0] for item in sort_data]
+
+        # Temporarily disable sorting to prevent recursion
+        self.setSortingEnabled(False)
+
+        # Repopulate table with sorted data
+        self.setRowCount(len(sorted_symbols))
+        self._symbol_to_row.clear()
+
+        for row, symbol in enumerate(sorted_symbols):
+            self._symbol_to_row[symbol] = row
+            self._populate_row(row, symbol)
+
+        # Re-enable sorting
+        self.setSortingEnabled(True)
+
+        logger.debug(f"Sorted {self.category} watchlist by column {column} ({'DESC' if reverse else 'ASC'})")
+
+    def _update_header_sort_indicator(self):
+        """Update header to show sort indicator."""
+        header = self.horizontalHeader()
+
+        # Clear all sort indicators first
+        for i in range(self.columnCount() - 1):  # Exclude remove button column
+            header.setSortIndicator(i, Qt.SortOrder.AscendingOrder)
+            header.setSortIndicatorShown(False)
+
+        # Set sort indicator for current column
+        if self._sort_column >= 0:
+            header.setSortIndicator(self._sort_column, self._sort_order)
+            header.setSortIndicatorShown(True)
 
     def _setup_data_refresh(self):
         """Setup periodic data refresh for better responsiveness"""
@@ -104,6 +243,19 @@ class TradingTable(QTableWidget):
             if symbol in self._instrument_map:
                 instrument = self._instrument_map[symbol]
 
+                # Get OHLC data properly
+                ohlc_data = instrument.get('ohlc', {})
+                if isinstance(ohlc_data, dict):
+                    prev_close = ohlc_data.get('close', 0.0)
+                    day_high = ohlc_data.get('high', 0.0)
+                    day_low = ohlc_data.get('low', 0.0)
+                    day_open = ohlc_data.get('open', 0.0)
+                else:
+                    prev_close = 0.0
+                    day_high = 0.0
+                    day_low = 0.0
+                    day_open = 0.0
+
                 # Create comprehensive data structure
                 self._watchlist_data[symbol] = {
                     "tradingsymbol": symbol,
@@ -111,19 +263,24 @@ class TradingTable(QTableWidget):
                     "exchange": instrument.get('exchange', 'NSE'),
                     "segment": instrument.get('segment', 'NSE'),
                     "last_price": instrument.get('last_price', 0.0),
-                    "volume": instrument.get('volume', 0),
-                    "ohlc": instrument.get('ohlc', {}),
+                    "volume": instrument.get('volume', 0),  # This should be day volume
+                    "volume_traded": instrument.get('volume_traded', 0),  # Alternative field
+                    "ohlc": ohlc_data,
                     "ltp": instrument.get('last_price', 0.0),  # Current LTP
                     "change_pct": 0.0,
-                    "day_high": instrument.get('ohlc', {}).get('high', 0.0),
-                    "day_low": instrument.get('ohlc', {}).get('low', 0.0),
-                    "prev_close": instrument.get('ohlc', {}).get('close', 0.0),
+                    "change": 0.0,  # Absolute change
+                    "day_high": day_high,
+                    "day_low": day_low,
+                    "day_open": day_open,
+                    "prev_close": prev_close,
                 }
 
                 # Calculate initial change percentage
                 self._calculate_change_percentage(symbol)
 
-                logger.debug(f"Initialized data for {symbol}: LTP={self._watchlist_data[symbol]['ltp']}")
+                logger.debug(f"Initialized data for {symbol}: LTP={self._watchlist_data[symbol]['ltp']}, "
+                             f"Volume={self._watchlist_data[symbol]['volume']}, "
+                             f"PrevClose={prev_close}")
             else:
                 logger.warning(f"Symbol {symbol} not found in instrument map")
 
@@ -137,13 +294,19 @@ class TradingTable(QTableWidget):
         prev_close = data.get('prev_close', 0.0)
 
         if prev_close > 0 and ltp > 0:
-            change_pct = ((ltp - prev_close) / prev_close) * 100
+            change = ltp - prev_close
+            change_pct = (change / prev_close) * 100
             data['change_pct'] = change_pct
+            data['change'] = change
+            logger.debug(f"Calculated change for {symbol}: {change_pct:.2f}% (LTP: {ltp}, PrevClose: {prev_close})")
         else:
             data['change_pct'] = 0.0
+            data['change'] = 0.0
+            if prev_close <= 0:
+                logger.warning(f"Invalid prev_close for {symbol}: {prev_close}")
 
     def update_data(self, ticks: List[Dict]):
-        """Enhanced data update from WebSocket ticks"""
+        """FIXED data update from WebSocket ticks with proper field handling"""
         updated_symbols = set()
 
         for tick in ticks:
@@ -164,32 +327,80 @@ class TradingTable(QTableWidget):
             # Update data from tick
             data = self._watchlist_data[symbol_found]
 
-            # Update LTP and volume
+            # Debug: Log the full tick structure occasionally
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Processing tick for {symbol_found}: {tick}")
+
+            # Update LTP
             if 'last_price' in tick and tick['last_price'] is not None:
-                data['ltp'] = float(tick['last_price'])
-                data['last_price'] = float(tick['last_price'])
+                new_ltp = float(tick['last_price'])
+                data['ltp'] = new_ltp
+                data['last_price'] = new_ltp
 
-            if 'volume' in tick and tick['volume'] is not None:
-                data['volume'] = int(tick['volume'])
+            # FIXED: Update volume - try multiple possible field names
+            volume_updated = False
+            for vol_field in ['volume', 'volume_traded', 'day_volume']:
+                if vol_field in tick and tick[vol_field] is not None:
+                    try:
+                        new_volume = int(tick[vol_field])
+                        if new_volume > 0:  # Only update if we get a positive volume
+                            data['volume'] = new_volume
+                            volume_updated = True
+                            logger.debug(f"Updated volume for {symbol_found} from field '{vol_field}': {new_volume}")
+                            break
+                    except (ValueError, TypeError):
+                        logger.warning(f"Invalid volume value in field '{vol_field}': {tick[vol_field]}")
 
-            # Update OHLC if available
-            if 'ohlc' in tick and isinstance(tick['ohlc'], dict):
+            if not volume_updated and 'volume' in tick:
+                logger.debug(f"Volume not updated for {symbol_found}, tick volume field: {tick.get('volume')}")
+
+            # FIXED: Update OHLC if available - handle different data structures
+            if 'ohlc' in tick and tick['ohlc'] is not None:
                 tick_ohlc = tick['ohlc']
-                data['day_high'] = max(data.get('day_high', 0.0), tick_ohlc.get('high', 0.0))
+                if isinstance(tick_ohlc, dict):
+                    # Update high
+                    if 'high' in tick_ohlc and tick_ohlc['high'] is not None:
+                        new_high = float(tick_ohlc['high'])
+                        data['day_high'] = max(data.get('day_high', 0.0), new_high)
 
-                day_low = tick_ohlc.get('low', 0.0)
-                if day_low > 0:  # Only update if we have a valid low
-                    if data.get('day_low', 0.0) == 0.0:
-                        data['day_low'] = day_low
-                    else:
-                        data['day_low'] = min(data['day_low'], day_low)
+                    # Update low
+                    if 'low' in tick_ohlc and tick_ohlc['low'] is not None:
+                        new_low = float(tick_ohlc['low'])
+                        if new_low > 0:  # Only update if we have a valid low
+                            if data.get('day_low', 0.0) == 0.0:
+                                data['day_low'] = new_low
+                            else:
+                                data['day_low'] = min(data['day_low'], new_low)
 
-            # Recalculate change percentage
-            self._calculate_change_percentage(symbol_found)
+                    # Update open (usually doesn't change during the day)
+                    if 'open' in tick_ohlc and tick_ohlc['open'] is not None:
+                        data['day_open'] = float(tick_ohlc['open'])
+
+                    # CRITICAL: Update previous close for change calculation
+                    if 'close' in tick_ohlc and tick_ohlc['close'] is not None:
+                        data['prev_close'] = float(tick_ohlc['close'])
+
+            # Alternative: If change fields are directly in tick data
+            if 'change' in tick and tick['change'] is not None:
+                data['change'] = float(tick['change'])
+
+            if 'net_change' in tick and tick['net_change'] is not None:
+                data['change'] = float(tick['net_change'])
+
+            # Alternative: If change percentage is directly provided
+            if 'change_percent' in tick and tick['change_percent'] is not None:
+                data['change_pct'] = float(tick['change_percent'])
+            elif 'net_change_percent' in tick and tick['net_change_percent'] is not None:
+                data['change_pct'] = float(tick['net_change_percent'])
+            else:
+                # Recalculate change percentage
+                self._calculate_change_percentage(symbol_found)
+
             updated_symbols.add(symbol_found)
 
             logger.debug(
-                f"Updated {symbol_found}: LTP={data['ltp']}, Vol={data['volume']}, Chg={data['change_pct']:.2f}%")
+                f"Updated {symbol_found}: LTP={data['ltp']:.2f}, Vol={data['volume']}, "
+                f"Chg={data['change_pct']:.2f}%, PrevClose={data['prev_close']:.2f}")
 
         # Update display for changed symbols
         for symbol in updated_symbols:
@@ -212,6 +423,20 @@ class TradingTable(QTableWidget):
 
         # Initialize data
         instrument = self._instrument_map[symbol]
+
+        # Get OHLC data properly
+        ohlc_data = instrument.get('ohlc', {})
+        if isinstance(ohlc_data, dict):
+            prev_close = ohlc_data.get('close', 0.0)
+            day_high = ohlc_data.get('high', 0.0)
+            day_low = ohlc_data.get('low', 0.0)
+            day_open = ohlc_data.get('open', 0.0)
+        else:
+            prev_close = 0.0
+            day_high = 0.0
+            day_low = 0.0
+            day_open = 0.0
+
         self._watchlist_data[symbol] = {
             "tradingsymbol": symbol,
             "instrument_token": instrument.get('instrument_token'),
@@ -219,12 +444,15 @@ class TradingTable(QTableWidget):
             "segment": instrument.get('segment', 'NSE'),
             "last_price": instrument.get('last_price', 0.0),
             "volume": instrument.get('volume', 0),
-            "ohlc": instrument.get('ohlc', {}),
+            "volume_traded": instrument.get('volume_traded', 0),
+            "ohlc": ohlc_data,
             "ltp": instrument.get('last_price', 0.0),
             "change_pct": 0.0,
-            "day_high": instrument.get('ohlc', {}).get('high', 0.0),
-            "day_low": instrument.get('ohlc', {}).get('low', 0.0),
-            "prev_close": instrument.get('ohlc', {}).get('close', 0.0),
+            "change": 0.0,
+            "day_high": day_high,
+            "day_low": day_low,
+            "day_open": day_open,
+            "prev_close": prev_close,
         }
 
         # Calculate initial change percentage
@@ -233,7 +461,8 @@ class TradingTable(QTableWidget):
         # Repopulate table
         self._populate_full_table()
 
-        logger.info(f"Added {symbol} to {self.category} watchlist with LTP: {self._watchlist_data[symbol]['ltp']}")
+        logger.info(f"Added {symbol} to {self.category} watchlist with LTP: {self._watchlist_data[symbol]['ltp']}, "
+                    f"Volume: {self._watchlist_data[symbol]['volume']}")
         return True
 
     def remove_symbol(self, symbol: str) -> bool:
@@ -282,7 +511,7 @@ class TradingTable(QTableWidget):
             self.item(row, 3).setText("0.00%")
 
     def _update_row_data(self, row: int, data: Dict):
-        """Enhanced row data update with proper formatting"""
+        """FIXED row data update with proper formatting and sorting preservation"""
         if row >= self.rowCount():
             return
 
@@ -301,17 +530,31 @@ class TradingTable(QTableWidget):
         self.item(row, 0).setText(tradingsymbol)
         self.item(row, 1).setText(f"{ltp:.2f}" if ltp > 0 else "0.00")
 
-        # Format volume
-        if volume >= 1000000:
-            volume_text = f"{volume / 1000000:.1f}M"
-        elif volume >= 1000:
-            volume_text = f"{volume / 1000:.0f}K"
+        # FIXED: Format volume with shorter notation for space efficiency
+        if volume > 0:
+            if volume >= 10000000:  # 1 crore+
+                volume_text = f"{volume / 10000000:.1f}Cr"
+            elif volume >= 100000:  # 1 lakh+
+                volume_text = f"{volume / 100000:.0f}L"  # No decimal for lakhs to save space
+            elif volume >= 1000:
+                volume_text = f"{volume / 1000:.0f}K"  # No decimal for thousands
+            else:
+                volume_text = str(volume)
         else:
-            volume_text = str(volume)
+            volume_text = "0"
         self.item(row, 2).setText(volume_text)
 
-        # Format change percentage
-        self.item(row, 3).setText(f"{change_pct:+.2f}%" if change_pct != 0 else "0.00%")
+        # FIXED: Format change percentage with compact notation
+        if change_pct != 0:
+            self.item(row, 3).setText(f"{change_pct:+.1f}%")  # Only 1 decimal place to save space
+        else:
+            self.item(row, 3).setText("0.0%")
+
+        # Set data for proper sorting (store actual numeric values)
+        self.item(row, 0).setData(Qt.ItemDataRole.UserRole, tradingsymbol)
+        self.item(row, 1).setData(Qt.ItemDataRole.UserRole, ltp)
+        self.item(row, 2).setData(Qt.ItemDataRole.UserRole, volume)  # Store raw volume for sorting
+        self.item(row, 3).setData(Qt.ItemDataRole.UserRole, change_pct)  # Store raw percentage for sorting
 
         # Apply colors
         profit_color = QColor(60, 179, 113)  # Medium Sea Green
@@ -325,11 +568,14 @@ class TradingTable(QTableWidget):
         self.item(row, 3).setForeground(color)
         self.item(row, 2).setForeground(neutral_color)
 
-        # Set alignments
+        # Set alignments with improved text formatting
         self.item(row, 0).setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        self.item(row, 1).setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
-        self.item(row, 2).setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
-        self.item(row, 3).setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
+        self.item(row, 1).setTextAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)  # Right-align numbers
+        self.item(row, 2).setTextAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)  # Right-align numbers
+        self.item(row, 3).setTextAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)  # Right-align numbers
 
     def _refresh_display(self):
         """Periodic refresh of display data"""
@@ -341,6 +587,7 @@ class TradingTable(QTableWidget):
         """Creates a minimal 'x' button to remove a symbol."""
         remove_btn = QPushButton("×")
         remove_btn.setObjectName("removeButton")
+        # Use Qt method for cursor instead of CSS
         remove_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         remove_btn.setFixedSize(16, 16)
         remove_btn.clicked.connect(partial(self._remove_symbol_at_row, row))
@@ -446,13 +693,54 @@ class TradingTable(QTableWidget):
         view_chart.triggered.connect(lambda: self.symbol_selected.emit(symbol))
         menu.addAction(view_chart)
 
-        # Refresh data action
         menu.addSeparator()
+
+        # Sorting section
+        sorting_label = QAction("Sorting Options", self)
+        sorting_label.setEnabled(False)
+        menu.addAction(sorting_label)
+
+        sort_symbol = QAction("Sort by Symbol", self)
+        sort_symbol.triggered.connect(lambda: self._sort_table_by_column(0, Qt.SortOrder.AscendingOrder))
+        menu.addAction(sort_symbol)
+
+        sort_ltp = QAction("Sort by LTP", self)
+        sort_ltp.triggered.connect(lambda: self._sort_table_by_column(1, Qt.SortOrder.DescendingOrder))
+        menu.addAction(sort_ltp)
+
+        sort_volume = QAction("Sort by Volume", self)
+        sort_volume.triggered.connect(lambda: self._sort_table_by_column(2, Qt.SortOrder.DescendingOrder))
+        menu.addAction(sort_volume)
+
+        sort_change_desc = QAction("Sort by Change % ↓ (Best First)", self)
+        sort_change_desc.triggered.connect(lambda: self._sort_table_by_column(3, Qt.SortOrder.DescendingOrder))
+        menu.addAction(sort_change_desc)
+
+        sort_change_asc = QAction("Sort by Change % ↑ (Worst First)", self)
+        sort_change_asc.triggered.connect(lambda: self._sort_table_by_column(3, Qt.SortOrder.AscendingOrder))
+        menu.addAction(sort_change_asc)
+
+        # Debug action to show current data
+        menu.addSeparator()
+        debug_action = QAction("Debug: Show Data", self)
+        debug_action.triggered.connect(lambda: self._show_debug_data(symbol))
+        menu.addAction(debug_action)
+
+        # Refresh data action
         refresh_action = QAction("Refresh Data", self)
         refresh_action.triggered.connect(lambda: self._refresh_symbol_data(symbol))
         menu.addAction(refresh_action)
 
         menu.exec(self.viewport().mapToGlobal(pos))
+
+    def _show_debug_data(self, symbol: str):
+        """Debug function to show current data for a symbol"""
+        if symbol in self._watchlist_data:
+            data = self._watchlist_data[symbol]
+            logger.info(f"Debug data for {symbol}: {data}")
+            print(f"Debug data for {symbol}:")
+            for key, value in data.items():
+                print(f"  {key}: {value}")
 
     def _refresh_symbol_data(self, symbol: str):
         """Refresh data for a specific symbol"""
@@ -612,6 +900,10 @@ class TabbedWatchlistWidget(QWidget):
     def update_data(self, ticks: List[Dict]):
         """Enhanced data update with logging"""
         if ticks:
+            # Log first tick for debugging
+            if logger.isEnabledFor(logging.DEBUG) and len(ticks) > 0:
+                logger.debug(f"Received {len(ticks)} ticks. First tick structure: {ticks[0]}")
+
             # Distribute to all tables
             for table in self._tables.values():
                 table.update_data(ticks)
@@ -787,14 +1079,16 @@ class TabbedWatchlistWidget(QWidget):
                 max-width: {tab_width_exact};
             }}
 
-            /* Table Styling */
+            /* Table Styling - Enhanced from Positions Table */
             TradingTable {{
-                border: 1px solid #202020;
-                gridline-color: #151515;
+                background-color: #0a0a0a;
+                border: none;
+                gridline-color: #2a2a2a;
+                selection-background-color: #1e3a5f;
+                alternate-background-color: #0f0f0f;
+                outline: none;
+                show-decoration-selected: 0;
                 font-size: 12px;
-                background-color: #0d0d0d;
-                selection-background-color: rgba(74, 122, 191, 0.2);
-                selection-color: #ffffff;
                 border-radius: 0px;
             }}
 
@@ -803,19 +1097,38 @@ class TabbedWatchlistWidget(QWidget):
                 border-bottom: 1px solid #1a1a1a;
                 background-color: transparent;
                 color: #e0e0e0;
+                font-size: 12px;
             }}
 
             TradingTable::item:selected {{
-                background-color: rgba(74, 122, 191, 0.2);
+                background-color: #1e3a5f !important;
+                outline: none;
+                border: none;
                 color: #ffffff;
                 font-weight: 600;
             }}
 
-            TradingTable::item:alternate {{
-                background-color: #121212;
+            TradingTable::item:focus {{
+                background-color: #1e3a5f !important;
+                outline: none;
+                border: none;
             }}
 
-            /* Header Styling */
+            TradingTable::item:hover {{
+                background-color: transparent;
+            }}
+
+            TradingTable::item:alternate {{
+                background-color: #0f0f0f;
+            }}
+
+            TradingTable::item:alternate:selected {{
+                background-color: #1e3a5f !important;
+                color: #ffffff;
+                font-weight: 600;
+            }}
+
+            /* Header Styling with Sort Indicators - Enhanced from Positions Table */
             QHeaderView::section {{
                 background-color: #1a1a1a;
                 color: #a0c0ff;
@@ -833,9 +1146,28 @@ class TabbedWatchlistWidget(QWidget):
 
             QHeaderView::section:hover {{
                 background-color: #2a2a2a;
+                color: #ccd6f6;
             }}
 
-            /* Remove Button Styling */
+            QHeaderView::down-arrow {{
+                color: #6a9cff;
+                width: 8px;
+                height: 8px;
+                subcontrol-position: center right;
+                subcontrol-origin: margin;
+                margin-right: 2px;
+            }}
+
+            QHeaderView::up-arrow {{
+                color: #6a9cff;
+                width: 8px;
+                height: 8px;
+                subcontrol-position: center right;
+                subcontrol-origin: margin;
+                margin-right: 2px;
+            }}
+
+            /* Remove Button Styling - Matching Positions Table Exactly */
             QPushButton#removeButton {{
                 background-color: transparent;
                 color: #cc4444;
@@ -844,6 +1176,7 @@ class TabbedWatchlistWidget(QWidget):
                 font-size: 12px;
                 border-radius: 8px;
                 padding: 0px;
+                margin: 0px;
             }}
 
             QPushButton#removeButton:hover {{
@@ -851,26 +1184,49 @@ class TabbedWatchlistWidget(QWidget):
                 background-color: #2a1f1f;
             }}
 
-            /* Scrollbar Styling - Invisible */
+            /* Enhanced Scrollbars from Positions Table */
             QScrollBar:vertical {{
-                width: 0px;
+                background-color: #0a0a0a;
+                width: 8px;
+                border: none;
+                margin: 0px;
             }}
+
             QScrollBar::handle:vertical {{
-                width: 0px;
+                background-color: #424242;
+                border-radius: 4px;
+                min-height: 20px;
+                margin: 2px;
             }}
-            QScrollBar::add-line:vertical,
-            QScrollBar::sub-line:vertical {{
-                height: 0px;
+
+            QScrollBar::handle:vertical:hover {{
+                background-color: #616161;
             }}
+
             QScrollBar:horizontal {{
-                height: 0px;
+                background-color: #0a0a0a;
+                height: 8px;
+                border: none;
+                margin: 0px;
             }}
+
             QScrollBar::handle:horizontal {{
-                height: 0px;
+                background-color: #424242;
+                border-radius: 4px;
+                min-width: 20px;
+                margin: 2px;
             }}
-            QScrollBar::add-line:horizontal,
-            QScrollBar::sub-line:horizontal {{
+
+            QScrollBar::handle:horizontal:hover {{
+                background-color: #616161;
+            }}
+
+            QScrollBar::add-line, QScrollBar::sub-line {{
+                border: none;
+                background: none;
                 width: 0px;
+                height: 0px;
+                margin: 0px;
             }}
         """)
 

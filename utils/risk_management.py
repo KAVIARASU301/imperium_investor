@@ -13,7 +13,7 @@ class AdvancedRiskManager(QObject):
     """
     Advanced risk management system for the trading application.
     Provides position sizing, risk calculation, and order validation.
-    Updated to work with Position dataclass objects.
+    Updated to work with Position dataclass objects with cooldown alerts.
     """
 
     risk_limit_exceeded = Signal(str, float)  # message, current_risk
@@ -36,6 +36,10 @@ class AdvancedRiskManager(QObject):
         self.used_margin = 0.0
         self.available_balance = 100000.0  # Default
 
+        # Alert cooldown system - NEW
+        self.alert_cooldown_hours = 1  # Show alerts only once per hour
+        self.last_alert_times: Dict[str, datetime] = {}
+
         self._load_risk_settings()
 
     def _load_risk_settings(self):
@@ -46,6 +50,47 @@ class AdvancedRiskManager(QObject):
             self.max_positions = config.get('max_positions', 10)
             self.max_portfolio_risk = config.get('max_portfolio_risk', 2.0)
             self.max_position_risk = config.get('max_position_risk', 0.5)
+            # Allow configurable alert cooldown
+            self.alert_cooldown_hours = config.get('risk_alert_cooldown_hours', 1)
+
+    def _should_send_alert(self, alert_type: str) -> bool:
+        """Check if enough time has passed since last alert of this type."""
+        now = datetime.now()
+        last_alert_time = self.last_alert_times.get(alert_type)
+
+        if last_alert_time is None:
+            # First time sending this alert
+            self.last_alert_times[alert_type] = now
+            return True
+
+        time_since_last = now - last_alert_time
+        cooldown_duration = timedelta(hours=self.alert_cooldown_hours)
+
+        if time_since_last >= cooldown_duration:
+            # Enough time has passed, update timestamp
+            self.last_alert_times[alert_type] = now
+            return True
+
+        # Still in cooldown period
+        return False
+
+    def _emit_risk_alert(self, alert_type: str, message: str, value: float):
+        """Emit risk alert with cooldown check."""
+        if self._should_send_alert(alert_type):
+            self.risk_limit_exceeded.emit(message, value)
+            logger.warning(f"Risk Alert Sent ({alert_type}): {message}")
+        else:
+            # Log but don't emit signal
+            logger.debug(f"Risk Alert Suppressed ({alert_type}): {message} (cooldown active)")
+
+    def _emit_position_alert(self, alert_type: str, message: str, count: int):
+        """Emit position alert with cooldown check."""
+        if self._should_send_alert(alert_type):
+            self.position_limit_reached.emit(message, count)
+            logger.warning(f"Position Alert Sent ({alert_type}): {message}")
+        else:
+            # Log but don't emit signal
+            logger.debug(f"Position Alert Suppressed ({alert_type}): {message} (cooldown active)")
 
     def _get_position_value(self, position: Union[Position, Dict], field: str, default=0):
         """Helper to get value from either Position object or dict."""
@@ -304,21 +349,23 @@ class AdvancedRiskManager(QObject):
         }
 
     def update_positions(self, positions: List[Union[Position, Dict]]):
-        """Update current positions for risk calculations."""
+        """Update current positions for risk calculations with cooldown alerts."""
         self.current_positions = positions
 
         # Recalculate portfolio metrics
         portfolio_risk = self.calculate_portfolio_risk()
 
-        # Check for risk limit violations
+        # Check for risk limit violations with cooldown
         if portfolio_risk['portfolio_risk_percentage'] > self.max_portfolio_risk:
-            self.risk_limit_exceeded.emit(
-                f"Portfolio risk exceeded: {portfolio_risk['portfolio_risk_percentage']:.2f}%",
+            self._emit_risk_alert(
+                "portfolio_risk_exceeded",
+                f"Portfolio risk exceeded: {portfolio_risk['portfolio_risk_percentage']:.2f}% (Max: {self.max_portfolio_risk}%)",
                 portfolio_risk['portfolio_risk_percentage']
             )
 
         if len(positions) >= self.max_positions:
-            self.position_limit_reached.emit(
+            self._emit_position_alert(
+                "position_limit_reached",
                 f"Position limit reached: {len(positions)}/{self.max_positions}",
                 len(positions)
             )
@@ -329,15 +376,39 @@ class AdvancedRiskManager(QObject):
         self.used_margin = margin_used
 
     def update_daily_pnl(self, pnl: float):
-        """Update daily P&L."""
+        """Update daily P&L with cooldown alerts."""
         self.daily_pnl = pnl
 
-        # Check daily loss limit
+        # Check daily loss limit with cooldown
         if pnl <= -self.max_daily_loss:
-            self.risk_limit_exceeded.emit(
-                f"Daily loss limit exceeded: ₹{abs(pnl):,.2f}",
+            self._emit_risk_alert(
+                "daily_loss_exceeded",
+                f"Daily loss limit exceeded: ₹{abs(pnl):,.2f} (Max: ₹{self.max_daily_loss:,.2f})",
                 abs(pnl)
             )
+
+    def reset_alert_cooldowns(self):
+        """Reset all alert cooldowns (useful for testing or manual reset)."""
+        self.last_alert_times.clear()
+        logger.info("All risk alert cooldowns have been reset")
+
+    def get_alert_status(self) -> Dict[str, Any]:
+        """Get current status of alert cooldowns."""
+        now = datetime.now()
+        status = {}
+
+        for alert_type, last_time in self.last_alert_times.items():
+            time_since = now - last_time
+            cooldown_remaining = timedelta(hours=self.alert_cooldown_hours) - time_since
+
+            status[alert_type] = {
+                'last_triggered': last_time.strftime('%H:%M:%S'),
+                'time_since_minutes': int(time_since.total_seconds() / 60),
+                'cooldown_remaining_minutes': max(0, int(cooldown_remaining.total_seconds() / 60)),
+                'can_trigger': cooldown_remaining.total_seconds() <= 0
+            }
+
+        return status
 
     def get_risk_summary(self) -> str:
         """Get a formatted risk summary string."""
@@ -460,14 +531,36 @@ class TradingRules:
 
 
 class PositionMonitor:
-    """Monitor positions for risk management alerts."""
+    """Monitor positions for risk management alerts with cooldown."""
 
     def __init__(self, risk_manager: AdvancedRiskManager):
         self.risk_manager = risk_manager
         self.alerts_sent = set()  # Track sent alerts to avoid spam
 
+        # Enhanced cooldown for position-specific alerts
+        self.position_alert_cooldown_minutes = 30  # 30 minutes for position alerts
+        self.last_position_alerts: Dict[str, datetime] = {}
+
+    def _should_send_position_alert(self, alert_key: str) -> bool:
+        """Check if position alert should be sent based on cooldown."""
+        now = datetime.now()
+        last_alert_time = self.last_position_alerts.get(alert_key)
+
+        if last_alert_time is None:
+            self.last_position_alerts[alert_key] = now
+            return True
+
+        time_since_last = now - last_alert_time
+        cooldown_duration = timedelta(minutes=self.position_alert_cooldown_minutes)
+
+        if time_since_last >= cooldown_duration:
+            self.last_position_alerts[alert_key] = now
+            return True
+
+        return False
+
     def check_position_alerts(self, positions: List[Union[Position, Dict]]) -> List[Dict[str, Any]]:
-        """Check positions for various alert conditions."""
+        """Check positions for various alert conditions with cooldown."""
         alerts = []
 
         for position in positions:
@@ -485,10 +578,12 @@ class PositionMonitor:
             position_value = abs(quantity) * avg_price
             pnl_percentage = (pnl / position_value) * 100 if position_value > 0 else 0
 
-            alert_key = f"{symbol}_{datetime.now().strftime('%Y%m%d')}"
+            # Use timestamp for better uniqueness
+            today_str = datetime.now().strftime('%Y%m%d_%H')  # Include hour for more granular control
 
-            # Large loss alert
-            if pnl_percentage < -5.0 and f"{alert_key}_loss" not in self.alerts_sent:
+            # Large loss alert with cooldown
+            loss_alert_key = f"{symbol}_loss_{today_str}"
+            if pnl_percentage < -5.0 and self._should_send_position_alert(loss_alert_key):
                 alerts.append({
                     'type': 'LARGE_LOSS',
                     'symbol': symbol,
@@ -497,10 +592,10 @@ class PositionMonitor:
                     'pnl_percentage': pnl_percentage,
                     'position_value': position_value
                 })
-                self.alerts_sent.add(f"{alert_key}_loss")
 
-            # Large profit alert (consider taking profits)
-            if pnl_percentage > 10.0 and f"{alert_key}_profit" not in self.alerts_sent:
+            # Large profit alert with cooldown
+            profit_alert_key = f"{symbol}_profit_{today_str}"
+            if pnl_percentage > 10.0 and self._should_send_position_alert(profit_alert_key):
                 alerts.append({
                     'type': 'LARGE_PROFIT',
                     'symbol': symbol,
@@ -509,14 +604,14 @@ class PositionMonitor:
                     'pnl_percentage': pnl_percentage,
                     'position_value': position_value
                 })
-                self.alerts_sent.add(f"{alert_key}_profit")
 
-            # Stop loss breach
+            # Stop loss breach - these should be immediate, no cooldown
             stop_loss_price = self.risk_manager._get_position_value(position, 'stop_loss_price', None)
             if stop_loss_price is not None:
                 is_long = quantity > 0
+                sl_alert_key = f"{symbol}_sl_breach"
 
-                if is_long and ltp <= stop_loss_price:
+                if is_long and ltp <= stop_loss_price and sl_alert_key not in self.alerts_sent:
                     alerts.append({
                         'type': 'STOP_LOSS_BREACH',
                         'symbol': symbol,
@@ -525,7 +620,8 @@ class PositionMonitor:
                         'current_price': ltp,
                         'stop_loss_price': stop_loss_price
                     })
-                elif not is_long and ltp >= stop_loss_price:
+                    self.alerts_sent.add(sl_alert_key)
+                elif not is_long and ltp >= stop_loss_price and sl_alert_key not in self.alerts_sent:
                     alerts.append({
                         'type': 'STOP_LOSS_BREACH',
                         'symbol': symbol,
@@ -534,6 +630,7 @@ class PositionMonitor:
                         'current_price': ltp,
                         'stop_loss_price': stop_loss_price
                     })
+                    self.alerts_sent.add(sl_alert_key)
 
         return alerts
 
@@ -607,12 +704,173 @@ def integrate_risk_management(main_window):
 
 
 def _handle_risk_alert(main_window, message: str, risk_value: float):
-    """Handle risk limit exceeded alerts."""
-    logger.warning(f"Risk Alert: {message}")
-    main_window._show_order_notification(message, "error")
+    """Handle risk limit exceeded alerts with improved logging."""
+    # Show notification only when signal is emitted (already filtered by cooldown)
+    main_window._show_order_notification(f"RISK ALERT: {message}", "error", sound_type='alert')
+    logger.warning(f"Risk Alert Displayed: {message} (Value: {risk_value})")
 
 
 def _handle_position_limit_alert(main_window, message: str, position_count: int):
-    """Handle position limit alerts."""
-    logger.warning(f"Position Alert: {message}")
-    main_window._show_order_notification(message, "error")
+    """Handle position limit alerts with improved logging."""
+    # Show notification only when signal is emitted (already filtered by cooldown)
+    main_window._show_order_notification(f"POSITION ALERT: {message}", "error", sound_type='alert')
+    logger.warning(f"Position Alert Displayed: {message} (Count: {position_count})")
+
+
+# Optional utility functions for main window integration
+
+def get_risk_alert_status(main_window) -> str:
+    """Get formatted risk alert status for debugging."""
+    if not hasattr(main_window, 'risk_manager') or not main_window.risk_manager:
+        return "Risk manager not available"
+
+    status = main_window.risk_manager.get_alert_status()
+    if not status:
+        return "No alerts triggered yet today"
+
+    status_lines = ["Risk Alert Status:"]
+    for alert_type, info in status.items():
+        remaining = info['cooldown_remaining_minutes']
+        status_lines.append(f"  {alert_type}: Last at {info['last_triggered']}, "
+                            f"{'Available' if info['can_trigger'] else f'Cooldown: {remaining}m'}")
+
+    return "\n".join(status_lines)
+
+
+def reset_risk_alert_cooldowns(main_window):
+    """Reset all risk alert cooldowns manually (useful for testing)."""
+    if hasattr(main_window, 'risk_manager') and main_window.risk_manager:
+        main_window.risk_manager.reset_alert_cooldowns()
+        logger.info("Risk alert cooldowns manually reset")
+    else:
+        logger.warning("Risk manager not available for cooldown reset")
+
+
+def configure_risk_alert_settings(main_window, cooldown_hours: int = 1):
+    """Configure risk alert cooldown settings."""
+    if hasattr(main_window, 'risk_manager') and main_window.risk_manager:
+        main_window.risk_manager.alert_cooldown_hours = cooldown_hours
+        logger.info(f"Risk alert cooldown set to {cooldown_hours} hours")
+    else:
+        logger.warning("Risk manager not available for configuration")
+
+
+# Enhanced signal handlers for main window (replace the existing ones)
+
+def _handle_risk_alert_enhanced(main_window, message: str, risk_value: float):
+    """Enhanced risk alert handler with better user experience."""
+    try:
+        # Show notification (already filtered by cooldown in risk manager)
+        main_window._show_order_notification(f"⚠️ RISK ALERT: {message}", "error", sound_type='alert')
+
+        # Log with context
+        logger.warning(f"Risk Alert Displayed: {message} (Value: {risk_value})")
+
+        # Optional: Update header toolbar with risk status if available
+        if hasattr(main_window, 'header_toolbar') and hasattr(main_window.header_toolbar, 'update_risk_status'):
+            main_window.header_toolbar.update_risk_status(f"Risk: {risk_value:.1f}%", "warning")
+
+    except Exception as e:
+        logger.error(f"Error handling risk alert: {e}")
+
+
+def _handle_position_limit_alert_enhanced(main_window, message: str, position_count: int):
+    """Enhanced position limit alert handler."""
+    try:
+        # Show notification (already filtered by cooldown in risk manager)
+        main_window._show_order_notification(f"📊 POSITION ALERT: {message}", "error", sound_type='alert')
+
+        # Log with context
+        logger.warning(f"Position Alert Displayed: {message} (Count: {position_count})")
+
+        # Optional: Update header toolbar with position status if available
+        if hasattr(main_window, 'header_toolbar') and hasattr(main_window.header_toolbar, 'update_position_status'):
+            main_window.header_toolbar.update_position_status(f"Positions: {position_count}", "warning")
+
+    except Exception as e:
+        logger.error(f"Error handling position limit alert: {e}")
+
+
+# Configuration helper for settings integration
+
+class RiskAlertConfig:
+    """Configuration helper for risk alert settings."""
+
+    @staticmethod
+    def get_default_config() -> Dict[str, Any]:
+        """Get default risk alert configuration."""
+        return {
+            'risk_alert_cooldown_hours': 1,
+            'position_alert_cooldown_minutes': 30,
+            'max_portfolio_risk': 2.0,
+            'max_position_risk': 0.5,
+            'max_positions': 10,
+            'max_daily_loss': 10000.0,
+            'enable_sound_alerts': True,
+            'enable_visual_alerts': True,
+            'critical_alerts_bypass_cooldown': True
+        }
+
+    @staticmethod
+    def validate_config(config: Dict[str, Any]) -> Tuple[bool, str]:
+        """Validate risk alert configuration."""
+        try:
+            # Check required fields
+            required_fields = ['risk_alert_cooldown_hours', 'max_portfolio_risk', 'max_positions']
+            for field in required_fields:
+                if field not in config:
+                    return False, f"Missing required field: {field}"
+
+            # Validate ranges
+            if config['risk_alert_cooldown_hours'] < 0 or config['risk_alert_cooldown_hours'] > 24:
+                return False, "Alert cooldown must be between 0 and 24 hours"
+
+            if config['max_portfolio_risk'] <= 0 or config['max_portfolio_risk'] > 50:
+                return False, "Portfolio risk must be between 0 and 50%"
+
+            if config['max_positions'] <= 0 or config['max_positions'] > 100:
+                return False, "Max positions must be between 1 and 100"
+
+            return True, "Configuration valid"
+
+        except Exception as e:
+            return False, f"Configuration validation error: {str(e)}"
+
+
+# Usage example for integration in main window
+"""
+# In your swing_trader_window.py, you can now use:
+
+# 1. Initialize with enhanced handlers
+def _connect_advanced_signals(self):
+    if self.risk_manager:
+        # Use enhanced handlers for better UX
+        self.risk_manager.risk_limit_exceeded.connect(
+            lambda msg, val: _handle_risk_alert_enhanced(self, msg, val)
+        )
+        self.risk_manager.position_limit_reached.connect(
+            lambda msg, count: _handle_position_limit_alert_enhanced(self, msg, count)
+        )
+
+# 2. Add debug methods to your main window class
+def get_risk_status(self):
+    return get_risk_alert_status(self)
+
+def reset_risk_cooldowns(self):
+    reset_risk_alert_cooldowns(self)
+
+# 3. Configure in settings
+def apply_risk_settings(self, settings):
+    if 'risk_alert_cooldown_hours' in settings:
+        configure_risk_alert_settings(self, settings['risk_alert_cooldown_hours'])
+
+# 4. Add to your config file (config.json):
+{
+    "risk_alert_cooldown_hours": 1,
+    "position_alert_cooldown_minutes": 30,
+    "max_portfolio_risk": 2.0,
+    "max_position_risk": 0.5,
+    "max_positions": 10,
+    "max_daily_loss": 10000.0
+}
+"""

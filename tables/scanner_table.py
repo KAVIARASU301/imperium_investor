@@ -1,3 +1,4 @@
+# FIXED scanner_table.py with proper row selection and highlighting
 import logging
 import json
 import os
@@ -11,7 +12,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView, QPushButton, QHBoxLayout, QLabel, QComboBox, QMessageBox,
     QDialog, QLineEdit, QFormLayout, QGroupBox, QFrame, QTextEdit
 )
-from PySide6.QtGui import QColor, QFont, QBrush
+from PySide6.QtGui import QColor, QFont, QBrush, QCursor
 from PySide6.QtCore import QItemSelectionModel
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,10 @@ class ModernAddScanDialog(QDialog):
         self._drag_pos = None
         self._setup_ui()
         self._apply_styles()
+
+        # ADDED: Auto-focus to the Scan Name input field
+        self.name_input.setFocus()
+        self.name_input.selectAll()  # Optional: select all text if any exists
 
     def _setup_ui(self):
         # Main container for the "frosted" background effect
@@ -156,18 +161,40 @@ class ModernAddScanDialog(QDialog):
         }
 
     def mousePressEvent(self, event):
+        """Enhanced mouse press event for reliable dragging."""
         if event.button() == Qt.LeftButton:
+            # Calculate drag position relative to dialog
             self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             event.accept()
+        else:
+            super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
-        if event.buttons() == Qt.LeftButton and self._drag_pos:
-            self.move(event.globalPosition().toPoint() - self._drag_pos)
+        """Enhanced mouse move event for smooth dragging."""
+        if (event.buttons() == Qt.LeftButton and
+                self._drag_pos is not None and
+                hasattr(self, '_drag_pos')):
+            # Move dialog to new position
+            new_pos = event.globalPosition().toPoint() - self._drag_pos
+            self.move(new_pos)
             event.accept()
+        else:
+            super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        self._drag_pos = None
-        event.accept()
+        """Enhanced mouse release event to complete drag operation."""
+        if event.button() == Qt.LeftButton:
+            self._drag_pos = None
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
+
+    def showEvent(self, event):
+        """Override showEvent to ensure focus is set when dialog appears."""
+        super().showEvent(event)
+        # ADDED: Ensure focus is set when dialog becomes visible
+        self.name_input.setFocus()
+        self.name_input.selectAll()
 
     def _apply_styles(self):
         self.setStyleSheet("""
@@ -378,10 +405,15 @@ class ModernManageScansDialog(QDialog):
 
         container_layout.addLayout(button_layout)
 
-        # Enable dragging
+        # ENHANCED: Enable dragging on the main container and title area
         main_container.mousePressEvent = self.mousePressEvent
         main_container.mouseMoveEvent = self.mouseMoveEvent
         main_container.mouseReleaseEvent = self.mouseReleaseEvent
+
+        # ADDITIONAL: Make title label draggable too
+        title_label.mousePressEvent = self.mousePressEvent
+        title_label.mouseMoveEvent = self.mouseMoveEvent
+        title_label.mouseReleaseEvent = self.mouseReleaseEvent
 
     def _populate_scans(self):
         """Populate the table with current scans."""
@@ -401,8 +433,10 @@ class ModernManageScansDialog(QDialog):
             self.scans_table.setItem(row, 1, preview_item)
 
             # Actions button
-            delete_btn = QPushButton("🗑 Delete")
+            delete_btn = QPushButton("🗑")  # Just the delete icon, no text
             delete_btn.setObjectName("deleteMinimalButton")
+            delete_btn.setFixedSize(24, 24)  # Small square button
+            delete_btn.setToolTip("Delete this scan")  # Helpful tooltip
             delete_btn.clicked.connect(lambda checked, r=row: self._delete_scan(r))
             self.scans_table.setCellWidget(row, 2, delete_btn)
 
@@ -543,13 +577,19 @@ class ModernManageScansDialog(QDialog):
                 background-color: #cc4444;
                 color: #ffffff;
                 border: none;
-                border-radius: 3px;
-                font-size: 11px;
-                font-weight: 600;
-                padding: 4px 8px;
+                border-radius: 4px;
+                font-size: 14px;
+                font-weight: normal;
+                padding: 0px;
+                margin: 0px;
             }
             QPushButton#deleteMinimalButton:hover {
-                background-color: #a33333;
+                background-color: #ff6666;
+                border: 1px solid #ff8888;
+            }
+            QPushButton#deleteMinimalButton:pressed {
+                background-color: #aa3333;
+                border: 1px solid #883333;
             }
 
             QLabel#infoLabel {
@@ -680,7 +720,7 @@ class ScanWorker(QThread):
 
 
 class ChartinkScannerTable(QWidget):
-    """Simplified EOD scanner table using only Chartink data."""
+    """FIXED EOD scanner table with proper row selection and highlighting."""
     symbol_selected = Signal(str)
 
     def __init__(self, parent=None):
@@ -689,6 +729,7 @@ class ChartinkScannerTable(QWidget):
         self.scan_thread: ScanWorker = None
         self._symbol_data: Dict[str, Dict] = {}
         self._symbol_to_row: Dict[str, int] = {}
+        self._current_symbol_index = 0  # Track current symbol for spacebar navigation
 
         self._setup_ui()
         self._apply_enhanced_styles()
@@ -716,6 +757,66 @@ class ChartinkScannerTable(QWidget):
         self.table.cellClicked.connect(self._on_cell_clicked)
         self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.table.setFocus()
+
+        # Add focus out event to clear selection (from positions table pattern)
+        self.table.focusOutEvent = self._on_table_focus_out
+
+        # ADDED: Setup spacebar shortcut for symbol navigation
+        self._setup_keyboard_shortcuts()
+
+    def _setup_keyboard_shortcuts(self):
+        """Setup keyboard shortcuts for scanner table."""
+        # NOTE: Global spacebar shortcuts are now handled by the main window
+        # for context-aware navigation. This method is kept for potential
+        # future scanner-specific shortcuts.
+        logger.info("Scanner table ready for context-aware navigation")
+
+    def _next_symbol(self):
+        """Navigate to the next symbol in the scanner list."""
+        symbols = self.get_current_symbols()
+        if not symbols:
+            return
+
+        # Increment to next symbol (wrap around to beginning)
+        self._current_symbol_index = (self._current_symbol_index + 1) % len(symbols)
+        self._select_symbol_at_index(self._current_symbol_index)
+
+    def _previous_symbol(self):
+        """Navigate to the previous symbol in the scanner list."""
+        symbols = self.get_current_symbols()
+        if not symbols:
+            return
+
+        # Decrement to previous symbol (wrap around to end)
+        self._current_symbol_index = (self._current_symbol_index - 1) % len(symbols)
+        self._select_symbol_at_index(self._current_symbol_index)
+
+    def _select_symbol_at_index(self, index: int):
+        """Select symbol at given index and emit selection signal."""
+        symbols = self.get_current_symbols()
+        if 0 <= index < len(symbols) and index < self.table.rowCount():
+            # Update table selection
+            self.table.selectRow(index)
+            self.table.setCurrentCell(index, 0)
+
+            # Get symbol and emit selection
+            symbol = symbols[index]
+            self.symbol_selected.emit(symbol)
+
+            # Update current index
+            self._current_symbol_index = index
+
+            logger.debug(f"Scanner: Selected symbol {symbol} at index {index}")
+
+    def _on_table_focus_out(self, event):
+        """Clear selection when table loses focus (from positions table)."""
+        try:
+            self.table.clearSelection()
+            # Call the original focusOutEvent if it exists
+            if hasattr(QTableWidget, 'focusOutEvent'):
+                QTableWidget.focusOutEvent(self.table, event)
+        except Exception as e:
+            logger.debug(f"Error clearing selection on focus out: {e}")
 
     def _create_header(self) -> QWidget:
         """Creates the header with scan selection."""
@@ -769,7 +870,7 @@ class ChartinkScannerTable(QWidget):
         self.scan_dropdown.blockSignals(False)
 
     def _configure_table(self):
-        """Configures the table properties and headers."""
+        """FIXED table configuration with proper row selection."""
         self.table.setColumnCount(4)
         self.table.setHorizontalHeaderLabels(["Symbol", "Price", "Volume", "%Chg"])
 
@@ -781,11 +882,16 @@ class ChartinkScannerTable(QWidget):
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
 
         self.table.verticalHeader().setVisible(False)
+
+        # FIXED: Use proper selection behavior - SelectRows not individual cells
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setShowGrid(False)
         self.table.setAlternatingRowColors(True)
+
+        # FIXED: Add focus policy for better behavior (from positions table)
+        self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
     def _update_row_data(self, row: int, data: Dict):
         """Updates the display for a single row with EOD data."""
@@ -843,11 +949,6 @@ class ChartinkScannerTable(QWidget):
         # Color the price and change % columns
         price_item.setForeground(color)
         change_pct_item.setForeground(color)
-
-        # Set backgrounds
-        price_item.setBackground(QBrush(QColor(30, 30, 30)))
-        change_pct_item.setBackground(QBrush(QColor(30, 30, 30)))
-        volume_item.setBackground(QBrush(QColor(30, 30, 30)))
         volume_item.setForeground(neutral_color)
 
         # Set text alignments
@@ -901,6 +1002,9 @@ class ChartinkScannerTable(QWidget):
                 )
                 self.table.setCurrentCell(0, 0)
                 self.table.setFocus()
+
+                # Reset symbol index when new scan results arrive
+                self._current_symbol_index = 0
 
         logger.info(f"EOD Scanner table updated with {len(scan_results)} symbols.")
         self.scan_dropdown.setEnabled(True)
@@ -1040,6 +1144,8 @@ class ChartinkScannerTable(QWidget):
             if symbol_item and symbol_item.flags() & Qt.ItemFlag.ItemIsSelectable:
                 symbol_text = symbol_item.text()
                 if symbol_text and not symbol_text.startswith(("Error:", "🔄", "No symbols", "No scans")):
+                    # Update current index when manually clicking
+                    self._current_symbol_index = row
                     self.symbol_selected.emit(symbol_text)
         except Exception as e:
             logger.warning(f"Could not get symbol from clicked row {row}: {e}")
@@ -1119,7 +1225,7 @@ class ChartinkScannerTable(QWidget):
             QMessageBox.critical(self, "Save Error", f"Failed to save scans: {e}")
 
     def _apply_enhanced_styles(self):
-        """Apply dark theme styling."""
+        """FIXED dark theme styling with proper alternate row selection."""
         self.setStyleSheet("""
             QWidget {
                 background-color: #0a0a0a;
@@ -1228,30 +1334,56 @@ class ChartinkScannerTable(QWidget):
                 border-color: #202020;
             }
 
-            /* Table Styling */
+            /* FIXED Table Styling with Proper Alternate Row Selection */
             QTableWidget {
-                border: 1px solid #202020;
-                gridline-color: #151515;
+                background-color: #0a0a0a;
+                border: none;
+                gridline-color: #2a2a2a;
+                selection-background-color: #1e3a5f;
+                alternate-background-color: #0f0f0f;
+                outline: none;
+                show-decoration-selected: 0;
                 font-size: 12px;
-                background-color: #0d0d0d;
-                selection-background-color: rgba(74, 122, 191, 0.2);
-                selection-color: #ffffff;
                 border-radius: 0px;
             }
+
             QTableWidget::item {
                 padding: 5px 8px;
                 border-bottom: 1px solid #1a1a1a;
                 background-color: transparent;
                 color: #e0e0e0;
-            }
-            QTableWidget::item:selected {
-                background-color: rgba(74, 122, 191, 0.2);
-                font-weight: 600;
-            }
-            QTableWidget::item:alternate {
-                background-color: #121212;
+                font-size: 12px;
             }
 
+            QTableWidget::item:selected {
+                background-color: #1e3a5f !important;
+                outline: none;
+                border: none;
+                color: #ffffff;
+                font-weight: 600;
+            }
+
+            QTableWidget::item:focus {
+                background-color: #1e3a5f !important;
+                outline: none;
+                border: none;
+            }
+
+            QTableWidget::item:hover {
+                background-color: transparent;
+            }
+
+            QTableWidget::item:alternate {
+                background-color: #0f0f0f;
+            }
+
+            QTableWidget::item:alternate:selected {
+                background-color: #1e3a5f !important;
+                color: #ffffff;
+                font-weight: 600;
+            }
+
+            /* Header Styling */
             QHeaderView::section {
                 background-color: #1a1a1a;
                 color: #a0c0ff;
@@ -1269,9 +1401,48 @@ class ChartinkScannerTable(QWidget):
                 background-color: #2a2a2a;
             }
 
-            /* Hide Scrollbars */
-            QScrollBar:vertical, QScrollBar:horizontal {
+            /* Enhanced Scrollbars */
+            QScrollBar:vertical {
+                background-color: #0a0a0a;
+                width: 8px;
+                border: none;
+                margin: 0px;
+            }
+
+            QScrollBar::handle:vertical {
+                background-color: #424242;
+                border-radius: 4px;
+                min-height: 20px;
+                margin: 2px;
+            }
+
+            QScrollBar::handle:vertical:hover {
+                background-color: #616161;
+            }
+
+            QScrollBar:horizontal {
+                background-color: #0a0a0a;
+                height: 8px;
+                border: none;
+                margin: 0px;
+            }
+
+            QScrollBar::handle:horizontal {
+                background-color: #424242;
+                border-radius: 4px;
+                min-width: 20px;
+                margin: 2px;
+            }
+
+            QScrollBar::handle:horizontal:hover {
+                background-color: #616161;
+            }
+
+            QScrollBar::add-line, QScrollBar::sub-line {
+                border: none;
+                background: none;
                 width: 0px;
                 height: 0px;
+                margin: 0px;
             }
         """)

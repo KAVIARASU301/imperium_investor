@@ -1,12 +1,11 @@
 import logging
 import os
 import json
-import shutil
 from typing import List, Dict, Union, Any
 
 from PySide6.QtCore import Qt, QUrl, QByteArray, QTimer, Slot
 from PySide6.QtMultimedia import QSoundEffect
-from PySide6.QtWidgets import QMainWindow, QSplitter, QMessageBox, QDialog, QWidget, QVBoxLayout, QHBoxLayout, \
+from PySide6.QtWidgets import QMainWindow, QSplitter, QMessageBox, QWidget, QVBoxLayout, QHBoxLayout, \
     QPushButton, QLabel
 from PySide6.QtGui import QMouseEvent, QKeySequence, QShortcut
 
@@ -104,6 +103,9 @@ class SwingTraderWindow(QMainWindow):
         self.restore_window_state()
         logger.info("Swing Trader Window Initialized Successfully.")
 
+        self._startup_complete = False
+        QTimer.singleShot(20000, self._mark_startup_complete)  #
+
     def _setup_frameless_window(self):
         """Setup frameless window with custom title bar."""
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
@@ -143,7 +145,7 @@ class SwingTraderWindow(QMainWindow):
         self.main_splitter.addWidget(self.chartink_scanner)
         self.main_splitter.addWidget(self.candlestick_chart)
         self.main_splitter.addWidget(right_panel_splitter)
-        self.main_splitter.setSizes([250, 800, 350])
+        self.main_splitter.setSizes([250, 800, 250])
 
     def _create_custom_title_bar(self) -> QWidget:
         """Creates a custom title bar for the frameless window."""
@@ -231,6 +233,11 @@ class SwingTraderWindow(QMainWindow):
 
     def _init_background_workers(self):
         """Initializes and starts background threads for data fetching."""
+        # Create a QTimer to delay chart initialization until instruments are loaded
+        self.chart_init_timer = QTimer()
+        self.chart_init_timer.setSingleShot(True)
+        self.chart_init_timer.timeout.connect(self._initialize_chart_after_instruments)
+
         self.instrument_loader = InstrumentLoader(self.real_kite_client)
         self.instrument_loader.instruments_loaded.connect(self._on_instruments_loaded)
         self.instrument_loader.error_occurred.connect(lambda e: logger.error(f"Critical error loading instruments: {e}"))
@@ -267,8 +274,8 @@ class SwingTraderWindow(QMainWindow):
         self.position_manager.positions_updated.connect(self.positions_table.update_positions)
         self.position_manager.refresh_completed.connect(self._on_positions_refresh_completed)
         self.position_manager.api_error_occurred.connect(self._on_api_error)
-        self.position_manager.position_closed.connect(self._on_position_closed)
-        self.position_manager.position_opened.connect(self._on_position_opened)
+        # self.position_manager.position_closed.connect(self._on_position_closed)
+        # self.position_manager.position_opened.connect(self._on_position_opened)
         self.position_manager.pnl_updated.connect(self._on_pnl_updated)
         self.position_manager.risk_alert.connect(self._on_risk_alert)
         self.position_manager.performance_update.connect(self._on_performance_update)
@@ -277,7 +284,6 @@ class SwingTraderWindow(QMainWindow):
         self.positions_table.exit_position_requested.connect(self._handle_exit_position_request)
         self.positions_table.symbol_selected.connect(self.candlestick_chart.on_search)
         self.positions_table.subscribe_tokens_requested.connect(self._subscribe_to_tokens)
-        self.positions_table.exit_all_positions_requested.connect(self._handle_exit_all_positions)
         self.positions_table.position_details_requested.connect(self._show_position_details)
         if self.alert_system:
             self.positions_table.add_alert_requested.connect(self._create_alert_from_position)
@@ -333,9 +339,9 @@ class SwingTraderWindow(QMainWindow):
             self.order_manager.bracket_order_completed.connect(self._on_bracket_completed)
             self.order_manager.oco_triggered.connect(self._on_oco_triggered)
         if self.risk_manager:
-            self.risk_manager.risk_limit_exceeded.connect(self._handle_risk_alert)
-            self.risk_manager.position_limit_reached.connect(self._handle_position_limit_alert)
-
+            # self.risk_manager.risk_limit_exceeded.connect(self._handle_risk_alert)
+            # self.risk_manager.position_limit_reached.connect(self._handle_position_limit_alert)
+            pass
     # ==============================================================================
     # WINDOW MANAGEMENT & STATE
     # ==============================================================================
@@ -376,6 +382,9 @@ class SwingTraderWindow(QMainWindow):
         if self.instrument_loader and self.instrument_loader.isRunning():
             self.instrument_loader.quit()
             self.instrument_loader.wait(2000)
+        # Clean up timers
+        if hasattr(self, 'chart_init_timer'):
+            self.chart_init_timer.stop()
         logger.info("Application shut down gracefully.")
         event.accept()
 
@@ -429,6 +438,46 @@ class SwingTraderWindow(QMainWindow):
             self.alert_system.set_instrument_map(self.instrument_map)
 
         self._on_watchlist_changed()
+
+
+
+        # Set instruments in chart widget
+        if hasattr(self, 'chart_widget') and self.chart_widget:
+            self.chart_widget.set_instrument_list(instruments)
+
+        # Set instruments in watchlist
+        if hasattr(self, 'watchlist_widget') and self.watchlist_widget:
+            self.watchlist_widget.set_instrument_list(instruments)
+
+        # Delay chart initialization to ensure UI is ready
+        self.chart_init_timer.start(1000)  # 1 second delay
+
+        logger.info(f"Loaded {len(instruments)} instruments successfully.")
+
+    def _initialize_chart_after_instruments(self):
+        """Initialize chart auto-loading after instruments are ready."""
+        try:
+            if hasattr(self, 'chart_widget') and self.chart_widget:
+                # The chart widget will automatically attempt to load the last symbol
+                # since we already called set_instrument_list above
+                logger.info("Chart auto-loading initiated")
+            else:
+                logger.warning("Chart widget not available for auto-loading")
+        except Exception as e:
+            logger.error(f"Error in chart auto-loading: {e}")
+
+    # Add this method to handle cases where you want to manually load a symbol
+    def load_symbol_on_chart(self, symbol: str):
+        """Manually load a symbol on the chart (bypass auto-loading)."""
+        try:
+            if hasattr(self, 'chart_widget') and self.chart_widget:
+                self.chart_widget.disable_auto_load()  # Disable auto-loading
+                self.chart_widget.on_search(symbol)
+                self.chart_widget.enable_auto_load()  # Re-enable for future
+            else:
+                logger.warning("Chart widget not available")
+        except Exception as e:
+            logger.error(f"Error loading symbol on chart: {e}")
 
     @Slot(list)
     def _on_market_data(self, ticks: List[Dict]):
@@ -488,8 +537,30 @@ class SwingTraderWindow(QMainWindow):
 
     @Slot(str)
     def _on_api_error(self, error_message: str):
+        """Handle API errors from position manager - log only, no dialogs during startup."""
         logger.error(f"Position Manager API Error: {error_message}")
-        self._show_order_notification(f"API Error: {error_message}", "error")
+
+        if hasattr(self, '_startup_complete') and self._startup_complete:
+            critical_errors = ['Authentication failed', 'Network error', 'Invalid API key']
+            is_critical = any(critical in error_message for critical in critical_errors)
+
+            if is_critical:
+                self._show_order_notification(f"Critical API Error: {error_message}", "error")
+            else:
+                self._update_status_message(f"API Warning: {error_message}")
+        print(f"API Error: {error_message}")
+
+    def _mark_startup_complete(self):
+        """Mark that startup sequence is complete and enable notifications."""
+        self._startup_complete = True
+        self._connect_position_notifications()
+        logger.info("Application startup completed successfully. Position notifications enabled.")
+
+    def _connect_position_notifications(self):
+        """Connect position notification signals after startup is complete."""
+        logger.info("Connecting position notification signals...")
+        self.position_manager.position_closed.connect(self._on_position_closed)
+        self.position_manager.position_opened.connect(self._on_position_opened)
 
     # ==============================================================================
     # ADVANCED COMPONENT & POSITION EVENT HANDLERS (SLOTS)
@@ -540,6 +611,8 @@ class SwingTraderWindow(QMainWindow):
 
     @Slot(dict)
     def _on_position_closed(self, closure_data: dict):
+        if not getattr(self, '_startup_complete', False):
+            return
         symbol = closure_data.get('tradingsymbol', '')
         pnl = closure_data.get('pnl', 0.0)
         message = f"Position closed: {symbol} | P&L: ₹{pnl:,.2f}"
@@ -549,6 +622,8 @@ class SwingTraderWindow(QMainWindow):
 
     @Slot(dict)
     def _on_position_opened(self, position_data: dict):
+        if not getattr(self, '_startup_complete', False):
+            return
         symbol = position_data.get('tradingsymbol', '')
         quantity = position_data.get('quantity', 0)
         message = f"New position: {symbol} | Qty: {quantity}"
@@ -637,22 +712,6 @@ class SwingTraderWindow(QMainWindow):
         dialog.order_placed.connect(self._handle_order_placement)
         dialog.show()
 
-    @Slot()
-    def _handle_exit_all_positions(self):
-        reply = QMessageBox.question(self, "Exit All Positions", "Exit ALL open positions?",
-                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                     QMessageBox.StandardButton.No)
-        if reply == QMessageBox.StandardButton.Yes:
-            positions = self.position_manager.get_all_positions()
-            for pos in positions:
-                if pos.quantity != 0:
-                    exit_order = {
-                        "tradingsymbol": pos.tradingsymbol,
-                        "transaction_type": "SELL" if pos.quantity > 0 else "BUY",
-                        "quantity": abs(pos.quantity), "order_type": "MARKET", "product": pos.product
-                    }
-                    self._handle_order_placement(exit_order)
-            self._show_order_notification(f"Exit orders placed for {len(positions)} positions.", "info")
 
     @Slot(dict)
     def _handle_order_placement(self, order_data: Dict[str, Any]):
@@ -696,29 +755,52 @@ class SwingTraderWindow(QMainWindow):
     # ==============================================================================
 
     def _handle_risk_alert(self, message: str, risk_value: float):
-        logger.warning(f"Risk Alert: {message} | Value: {risk_value}")
-        self._show_order_notification(message, "error", sound_type='alert')
+        """Handle risk alerts with logging only - no annoying popups."""
+        logger.warning(f"RISK ALERT: {message} | Value: {risk_value}")
 
     def _handle_position_limit_alert(self, message: str, position_count: int):
-        logger.warning(f"Position Limit Alert: {message} | Count: {position_count}")
-        self._show_order_notification(message, "error", sound_type='alert')
+        """Handle position limit alerts with logging only - no annoying popups."""
+        logger.warning(f"POSITION ALERT: {message} | Count: {position_count}")
 
     # ==============================================================================
     # UI NOTIFICATION & REFRESH
     # ==============================================================================
 
-    def _show_order_notification(self, message: str, notification_type: str = "info", sound_type: str = None):
+    def _update_status_message(self, message: str):
+        """Update status without showing the dialog."""
+        if hasattr(self.header_toolbar, 'set_status_message'):
+            self.header_toolbar.set_status_message(message)
+        # Also log it
+        logger.info(f"Status: {message}")
+
+    # Alternative approach - modify _show_order_notification to be less intrusive during startup:
+    def _show_order_notification(self, message: str, notification_type: str = "info", sound_type: str = None,
+                                 silent_during_startup: bool = True):
+        """Show notification with option to suppress during startup."""
+
+        # Check if we should suppress during startup
+        if silent_during_startup and not getattr(self, '_startup_complete', True):
+            logger.info(f"Suppressed startup notification: {message}")
+            return
+
+        # Play sound regardless
         if sound_type is None:
             sound_type = notification_type
 
-        if sound_type == "success" and self.success_sound: self.success_sound.play()
-        elif sound_type == "error" and self.error_sound: self.error_sound.play()
-        elif sound_type == "placed" and self.order_placed_sound: self.order_placed_sound.play()
-        elif sound_type == "alert" and self.alert_sound: self.alert_sound.play()
+        if sound_type == "success" and self.success_sound:
+            self.success_sound.play()
+        elif sound_type == "error" and self.error_sound:
+            self.error_sound.play()
+        elif sound_type == "placed" and self.order_placed_sound:
+            self.order_placed_sound.play()
+        elif sound_type == "alert" and self.alert_sound:
+            self.alert_sound.play()
 
+        # Rest of the existing notification code...
         msg_box = QMessageBox(self)
         msg_box.setWindowTitle("Notification")
         msg_box.setText(message)
+
         if notification_type == "success":
             msg_box.setIcon(QMessageBox.Icon.Information)
             msg_box.setStyleSheet("QMessageBox { background-color: #0a0a0a; color: #00b894; }")
@@ -731,8 +813,8 @@ class SwingTraderWindow(QMainWindow):
 
         if notification_type != "error":
             QTimer.singleShot(4000, msg_box.accept)
-        msg_box.exec()
 
+        msg_box.exec()
     def _refresh_positions_table(self):
         logger.debug("Requesting position and order refresh...")
         self.position_manager.fetch_positions_and_orders()
@@ -886,12 +968,17 @@ class SwingTraderWindow(QMainWindow):
         return True
 
     def _setup_watchlist_shortcuts(self):
+        """Setup watchlist shortcuts and global navigation shortcuts."""
+        # Existing watchlist shortcuts
         shortcut_map = {"Ctrl+Shift+1": "Breakouts", "Ctrl+Shift+2": "EP", "Ctrl+Shift+3": "Parabolic"}
         for key, category in shortcut_map.items():
             shortcut = QShortcut(QKeySequence(key), self)
             shortcut.activated.connect(lambda cat=category: self._add_symbol_to_watchlist_from_chart(cat))
-        logger.info("Watchlist shortcuts initialized.")
 
+        #Global navigation shortcuts
+        self._setup_global_shortcuts()
+
+        logger.info("Watchlist shortcuts and global navigation initialized.")
     def _add_symbol_to_watchlist_from_chart(self, category: str):
         current_symbol = getattr(self.candlestick_chart, 'current_symbol', None)
         if not current_symbol:
@@ -928,3 +1015,200 @@ class SwingTraderWindow(QMainWindow):
             QMessageBox QPushButton { background-color: #2a2a2a; color: #e0e0e0; border: 1px solid #3a3a3a; padding: 6px 12px; border-radius: 3px; min-width: 60px; }
             QMessageBox QPushButton:hover { background-color: #3a3a3a; }
         """)
+
+    # Add this to swing_trader_window.py after the _setup_watchlist_shortcuts method
+
+    def _setup_global_shortcuts(self):
+        """Setup global shortcuts that work based on focused widget context."""
+        from PySide6.QtGui import QShortcut, QKeySequence
+
+        # Global spacebar shortcut for symbol navigation
+        self.spacebar_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Space), self)
+        self.spacebar_shortcut.activated.connect(self._handle_global_spacebar)
+
+        # Global Shift+Spacebar for reverse navigation
+        self.shift_spacebar_shortcut = QShortcut(QKeySequence("Shift+Space"), self)
+        self.shift_spacebar_shortcut.activated.connect(self._handle_global_shift_spacebar)
+
+        logger.info("Global navigation shortcuts initialized")
+
+    def _handle_global_spacebar(self):
+        """Handle spacebar press based on currently focused widget."""
+        focused_widget = self.focusWidget()
+
+        # Check if scanner table has focus
+        if self._is_scanner_focused(focused_widget):
+            if hasattr(self.chartink_scanner, '_next_symbol'):
+                self.chartink_scanner._next_symbol()
+                return
+
+        # Check if any watchlist table has focus
+        watchlist_table = self._get_focused_watchlist_table(focused_widget)
+        if watchlist_table:
+            self._navigate_watchlist_symbols(watchlist_table, direction='next')
+            return
+
+        # Check if positions table has focus
+        if self._is_positions_focused(focused_widget):
+            self._navigate_position_symbols(direction='next')
+            return
+
+        # Fallback to scanner if no specific table is focused
+        if hasattr(self.chartink_scanner, '_next_symbol'):
+            self.chartink_scanner._next_symbol()
+
+    def _handle_global_shift_spacebar(self):
+        """Handle Shift+spacebar press based on currently focused widget."""
+        focused_widget = self.focusWidget()
+
+        # Check if scanner table has focus
+        if self._is_scanner_focused(focused_widget):
+            if hasattr(self.chartink_scanner, '_previous_symbol'):
+                self.chartink_scanner._previous_symbol()
+                return
+
+        # Check if any watchlist table has focus
+        watchlist_table = self._get_focused_watchlist_table(focused_widget)
+        if watchlist_table:
+            self._navigate_watchlist_symbols(watchlist_table, direction='previous')
+            return
+
+        # Check if positions table has focus
+        if self._is_positions_focused(focused_widget):
+            self._navigate_position_symbols(direction='previous')
+            return
+
+        # Fallback to scanner if no specific table is focused
+        if hasattr(self.chartink_scanner, '_previous_symbol'):
+            self.chartink_scanner._previous_symbol()
+
+    def _is_scanner_focused(self, widget) -> bool:
+        """Check if scanner table or its children have focus."""
+        if not widget:
+            return False
+
+        # Walk up the parent hierarchy to check if we're in scanner
+        current = widget
+        while current:
+            if current == self.chartink_scanner:
+                return True
+            if hasattr(current, 'objectName') and 'scanner' in current.objectName().lower():
+                return True
+            current = current.parent()
+        return False
+
+    def _get_focused_watchlist_table(self, widget):
+        """Get the specific watchlist table that has focus."""
+        if not widget:
+            return None
+
+        # Walk up the parent hierarchy to check if we're in watchlist
+        current = widget
+        while current:
+            if current == self.watchlist:
+                # Now find which specific table has focus
+                for category, table in self.watchlist._tables.items():
+                    if table == widget or self._is_child_of_widget(widget, table):
+                        return table
+                return None
+            current = current.parent()
+        return None
+
+    def _is_positions_focused(self, widget) -> bool:
+        """Check if positions table or its children have focus."""
+        if not widget:
+            return False
+
+        # Walk up the parent hierarchy to check if we're in positions
+        current = widget
+        while current:
+            if current == self.positions_table:
+                return True
+            if hasattr(current, 'table') and current.table == widget:
+                return True
+            current = current.parent()
+        return False
+
+    def _is_child_of_widget(self, child, parent) -> bool:
+        """Check if child widget is a descendant of parent widget."""
+        if not child or not parent:
+            return False
+
+        current = child
+        while current:
+            if current == parent:
+                return True
+            current = current.parent()
+        return False
+
+    def _navigate_watchlist_symbols(self, table, direction='next'):
+        """Navigate symbols in a specific watchlist table."""
+        if not table or not hasattr(table, '_watchlist_symbols'):
+            return
+
+        symbols = list(table._watchlist_symbols)
+        if not symbols:
+            return
+
+        # Get current selection or start from beginning
+        current_row = table.currentRow()
+        if current_row == -1:
+            current_row = 0
+
+        # Calculate next row
+        if direction == 'next':
+            next_row = (current_row + 1) % len(symbols)
+        else:  # previous
+            next_row = (current_row - 1) % len(symbols)
+
+        # Select the row and emit symbol
+        table.selectRow(next_row)
+        table.setCurrentCell(next_row, 0)
+
+        # Get symbol and emit selection
+        try:
+            symbol_item = table.item(next_row, 0)
+            if symbol_item:
+                symbol = symbol_item.text()
+                if symbol and symbol != 'N/A':
+                    table.symbol_selected.emit(symbol)
+                    logger.debug(f"Watchlist navigation: Selected {symbol} at row {next_row}")
+        except Exception as e:
+            logger.warning(f"Error navigating watchlist symbols: {e}")
+
+    def _navigate_position_symbols(self, direction='next'):
+        """Navigate symbols in positions table."""
+        if not hasattr(self.positions_table, 'table'):
+            return
+
+        table = self.positions_table.table
+        row_count = table.rowCount()
+        if row_count == 0:
+            return
+
+        # Get current selection or start from beginning
+        current_row = table.currentRow()
+        if current_row == -1:
+            current_row = 0
+
+        # Calculate next row
+        if direction == 'next':
+            next_row = (current_row + 1) % row_count
+        else:  # previous
+            next_row = (current_row - 1) % row_count
+
+        # Select the row and emit symbol
+        table.selectRow(next_row)
+        table.setCurrentCell(next_row, 0)
+
+        # Get symbol and emit selection
+        try:
+            symbol_item = table.item(next_row, 0)
+            if symbol_item:
+                symbol = symbol_item.text()
+                if symbol and symbol != 'N/A':
+                    self.positions_table.symbol_selected.emit(symbol)
+                    logger.debug(f"Positions navigation: Selected {symbol} at row {next_row}")
+        except Exception as e:
+            logger.warning(f"Error navigating position symbols: {e}")
+
