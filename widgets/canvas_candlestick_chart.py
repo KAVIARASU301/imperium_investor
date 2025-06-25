@@ -899,7 +899,7 @@ class CandlestickChart(QWidget):
         dialog = TextNoteDialog(self, text=note_data.get('text'), color=note_data.get('color'),
                                 size=note_data.get('size'))
         if dialog.exec():
-            # Update the note data with new values but keep original ID and position
+            # Update the note data with new values but keep the original ID and position
             note_data['text'] = dialog.text
             note_data['color'] = dialog.color
             note_data['size'] = dialog.size
@@ -1093,13 +1093,13 @@ class CandlestickChart(QWidget):
         if self.order_btn: self.order_btn.setEnabled(config['buttons_enabled'] and self.current_symbol != "")
 
     def set_instrument_list(self, instruments: List[Dict[str, Any]]):
-        """Set instrument list and attempt to auto-load last viewed symbol"""
+        """Set the instrument list and attempt to autoload last viewed symbol"""
         try:
             self.instrument_map = {inst['tradingsymbol']: inst for inst in instruments if
                                    all(k in inst for k in ['tradingsymbol', 'instrument_token'])}
             logger.info(f"Loaded {len(self.instrument_map)} instruments")
 
-            # Attempt to auto-load last viewed symbol if enabled
+            # Attempt to autoload last viewed symbol if enabled
             if self.should_auto_load_last_symbol:
                 self._attempt_auto_load_last_symbol()
 
@@ -1165,7 +1165,7 @@ class CandlestickChart(QWidget):
             self.drawing_storage.save_last_viewed_symbol(self.current_symbol, self.current_interval)
 
     def disable_auto_load(self):
-        """Disable auto-loading of last symbol (useful for programmatic control)"""
+        """Disable autoloading of last symbol (useful for programmatic control)"""
         self.should_auto_load_last_symbol = False
 
     def enable_auto_load(self):
@@ -1231,9 +1231,9 @@ class CandlestickChart(QWidget):
             logger.error(f"Error updating symbol info: {e}")
 
     def _attempt_auto_load_last_symbol(self):
-        """Enhanced auto-load with status feedback"""
+        """Enhanced autoload with status feedback"""
         try:
-            # Only auto-load if no symbol is currently loaded
+            # Only autoload if no symbol is currently loaded
             if self.current_symbol:
                 logger.info("Symbol already loaded, skipping auto-load")
                 return
@@ -1392,39 +1392,90 @@ class CandlestickChart(QWidget):
         last_price = data_item.get('last_price')
         instrument_token = data_item.get('instrument_token')
 
-        if trading_symbol and last_price is not None and instrument_token == self.current_instrument_token:
+        logger.debug(f"TICK DEBUG: symbol={trading_symbol}, ltp={last_price}, token={instrument_token}")
+        logger.debug(
+            f"CHART STATE: current_symbol={self.current_symbol}, current_token={self.current_instrument_token}")
+        logger.debug(
+            f"CHART READY: state={self.current_state}, bridge_ready={getattr(self.chart_bridge, 'webChannelInitialized', False)}")
+
+        # Enhanced matching logic - check both symbol and token
+        symbol_matches = trading_symbol == self.current_symbol
+        token_matches = instrument_token == self.current_instrument_token
+
+        # Debug logging
+        logger.debug(
+            f"Tick: {trading_symbol}={last_price}, token={instrument_token}, current_token={self.current_instrument_token}")
+
+        if trading_symbol and last_price is not None and (symbol_matches or token_matches):
             self.current_ltp = float(last_price)
             self._update_symbol_info_live(self.current_ltp)
 
-            if self.chart_view:
-                last_candle_time = self.last_df['time'].iloc[-1]
-                now = datetime.now()
-                new_candle = False
+            # Enhanced chart readiness check
+            if (self.chart_view and
+                    self.current_state == ChartState.LOADED and
+                    self.last_df is not None and
+                    not self.last_df.empty and
+                    getattr(self.chart_bridge, 'webChannelInitialized', False)):
 
-                # This logic is simplified. A robust implementation would
-                # handle different time intervals correctly.
-                if self.current_interval == "minute":
-                    if now.minute != last_candle_time.minute:
-                        new_candle = True
-                elif self.current_interval == "day":
-                    if now.day != last_candle_time.day:
-                        new_candle = True
-                # Add more conditions for other intervals...
+                try:
+                    last_candle_time = self.last_df['time'].iloc[-1]
+                    now = datetime.now()
+                    new_candle = False
 
-                if new_candle:
-                    new_candle_data = {
-                        'time': now.timestamp() * 1000,
-                        'open': last_price,
-                        'high': last_price,
-                        'low': last_price,
-                        'close': last_price,
-                        'volume': 0  # We don't have volume from ticks
-                    }
-                    js_code = f"if (window.chart) window.chart.addNewCandle({json.dumps(new_candle_data, default=str)});"
-                else:
-                    js_code = f"if (window.chart) window.chart.updateLivePrice({self.current_ltp});"
+                    # More robust interval checking
+                    if self.current_interval == "minute":
+                        new_candle = now.minute != last_candle_time.minute
+                    elif self.current_interval == "3minute":
+                        new_candle = (now.hour * 60 + now.minute) // 3 != (
+                                    last_candle_time.hour * 60 + last_candle_time.minute) // 3
+                    elif self.current_interval == "5minute":
+                        new_candle = (now.hour * 60 + now.minute) // 5 != (
+                                    last_candle_time.hour * 60 + last_candle_time.minute) // 5
+                    elif self.current_interval == "15minute":
+                        new_candle = (now.hour * 60 + now.minute) // 15 != (
+                                    last_candle_time.hour * 60 + last_candle_time.minute) // 15
+                    elif self.current_interval == "30minute":
+                        new_candle = (now.hour * 60 + now.minute) // 30 != (
+                                    last_candle_time.hour * 60 + last_candle_time.minute) // 30
+                    elif self.current_interval == "60minute":
+                        new_candle = now.hour != last_candle_time.hour
+                    elif self.current_interval == "day":
+                        new_candle = now.date() != last_candle_time.date()
+                    elif self.current_interval == "week":
+                        new_candle = now.isocalendar()[1] != last_candle_time.isocalendar()[1]
+                    elif self.current_interval == "month":
+                        new_candle = now.month != last_candle_time.month or now.year != last_candle_time.year
 
-                self.chart_view.page().runJavaScript(js_code)
+                    if new_candle:
+                        new_candle_data = {
+                            'time': int(now.timestamp() * 1000),
+                            'open': last_price,
+                            'high': last_price,
+                            'low': last_price,
+                            'close': last_price,
+                            'volume': 0
+                        }
+                        js_code = f"if (window.chart && window.chart.addNewCandle) window.chart.addNewCandle({json.dumps(new_candle_data)});"
+                        logger.debug(f"Adding new candle for {trading_symbol}: {last_price}")
+                    else:
+                        js_code = f"if (window.chart && window.chart.updateLivePrice) window.chart.updateLivePrice({self.current_ltp});"
+                        logger.debug(f"Updating live price for {trading_symbol}: {last_price}")
+
+                    self.chart_view.page().runJavaScript(js_code)
+
+                except Exception as e:
+                    logger.error(f"Error processing live data for {trading_symbol}: {e}")
+                    # Fallback to simple price update
+                    js_code = f"if (window.chart && window.chart.updateLivePrice) window.chart.updateLivePrice({self.current_ltp});"
+                    self.chart_view.page().runJavaScript(js_code)
+            else:
+                logger.debug(f"Chart not ready for updates: view={bool(self.chart_view)}, state={self.current_state}, "
+                             f"bridge_ready={getattr(self.chart_bridge, 'webChannelInitialized', False)}, "
+                             f"has_data={self.last_df is not None and not self.last_df.empty if self.last_df is not None else False}")
+        else:
+            if trading_symbol == self.current_symbol:
+                logger.debug(
+                    f"Skipping tick for {trading_symbol}: last_price={last_price}, token_match={token_matches}")
 
     def _update_symbol_info_live(self, ltp: float):
         try:

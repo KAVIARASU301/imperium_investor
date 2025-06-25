@@ -1,6 +1,7 @@
 import logging
 import os
 import json
+from datetime import datetime
 from typing import List, Dict, Union, Any
 
 from PySide6.QtCore import Qt, QUrl, QByteArray, QTimer, Slot
@@ -16,7 +17,6 @@ from widgets.canvas_candlestick_chart import CandlestickChart as ChartWindow
 from widgets.header_toolbar import HeaderToolbar
 
 from dialogs.order_dialog import OrderDialog
-from dialogs.settings_dialog import SettingsDialog
 from dialogs.order_history_dialog import OrderHistoryDialog
 from dialogs.pnl_history_dialog import PnlHistoryDialog
 from dialogs.performance_dialog import PerformanceDialog
@@ -71,6 +71,8 @@ class SwingTraderWindow(QMainWindow):
         # --- Window Dragging Variables ---
         self._drag_pos = None
         self._is_maximized = False
+        self.order_history_dialog = None
+        self.performance_dialog = None
 
         # --- Advanced Components ---
         self.order_manager = None
@@ -293,6 +295,8 @@ class SwingTraderWindow(QMainWindow):
         self.header_toolbar.symbol_selected.connect(self.candlestick_chart.on_search)
         self.header_toolbar.buy_order_requested.connect(self._on_header_buy_order)
         self.header_toolbar.sell_order_requested.connect(self._on_header_sell_order)
+        self.header_toolbar.order_history_requested.connect(self._show_order_history_dialog)
+        self.header_toolbar.performance_dashboard_requested.connect(self._show_performance_dialog)
 
         # --- Alert System Connections ---
         if self.alert_system:
@@ -366,11 +370,17 @@ class SwingTraderWindow(QMainWindow):
         if self.instrument_loader and self.instrument_loader.isRunning():
             self.instrument_loader.quit()
             self.instrument_loader.wait(2000)
+        # Close order history dialog if open
+        if self.order_history_dialog and self.order_history_dialog.isVisible():
+            self.order_history_dialog.close()
         # Clean up timers
         if hasattr(self, 'chart_init_timer'):
             self.chart_init_timer.stop()
         logger.info("Application shut down gracefully.")
-        event.accept()
+        # Close performance dialog if open
+        if self.performance_dialog and self.performance_dialog.isVisible():
+            self.performance_dialog.close()
+        super().closeEvent(event)
 
     def save_window_state(self):
         try:
@@ -474,8 +484,21 @@ class SwingTraderWindow(QMainWindow):
             self.watchlist.update_data(ticks)
             if self.alert_system:
                 self.alert_system.update_market_data(ticks)
+
+            # Add this debug line to see what's coming in
+            current_chart_symbol = getattr(self.candlestick_chart, 'current_symbol', None)
+            current_chart_token = getattr(self.candlestick_chart, 'current_instrument_token', None)
+
+            relevant_ticks = [tick for tick in ticks
+                              if tick.get('tradingsymbol') == current_chart_symbol
+                              or tick.get('instrument_token') == current_chart_token]
+
+            logger.debug(
+                f"Market data: {len(ticks)} total ticks, {len(relevant_ticks)} relevant for {current_chart_symbol}")
+
             if self.candlestick_chart:
                 self.candlestick_chart.update_live_data(ticks)
+
             if self.risk_manager:
                 positions = self.position_manager.get_all_positions()
                 daily_pnl = sum(pos.pnl for pos in positions)
@@ -502,13 +525,25 @@ class SwingTraderWindow(QMainWindow):
 
     @Slot(list)
     def _subscribe_to_tokens(self, tokens: List[int]):
-        if not self.market_data_worker or not tokens:
+        """Subscribe to market data tokens with duplicate prevention."""
+        if not tokens:
             return
+
+        # Filter out already subscribed tokens
+        new_tokens = [token for token in tokens if token not in self._subscribe_to_tokens]
+
+        if not new_tokens:
+            return  # No new tokens to subscribe
+
         try:
-            current_tokens = set(getattr(self.market_data_worker, 'subscribed_tokens', []))
-            new_tokens = current_tokens.union(set(tokens))
-            self.market_data_worker.set_instruments(list(new_tokens))
-            logger.info(f"Added {len(tokens)} new tokens to subscription (total: {len(new_tokens)})")
+            if self.market_data_worker and hasattr(self.market_data_worker, 'subscribe_to_tokens'):
+                self.market_data_worker.subscribe_to_tokens(new_tokens)
+                # Update subscribed tokens set
+                self._subscribe_to_tokens.update(new_tokens)
+                logger.info(
+                    f"Added {len(new_tokens)} new tokens to subscription (total: {len(self._subscribe_to_tokens)})")
+            else:
+                logger.warning("Market data worker not available for subscription")
         except Exception as e:
             logger.error(f"Failed to subscribe to tokens: {e}")
 
@@ -558,16 +593,33 @@ class SwingTraderWindow(QMainWindow):
         self._show_order_notification(message, "info", sound_type='placed')
         logger.info(message)
         QTimer.singleShot(1500, self._refresh_positions_table)
+        QTimer.singleShot(2000, self._update_performance_metrics_in_header)
+        # Refresh dashboard if open
+        if self.performance_dialog and self.performance_dialog.isVisible():
+            QTimer.singleShot(1500, self.performance_dialog.refresh_data)
 
     @Slot(dict)
     def _on_order_executed(self, order_data):
-        symbol = order_data.get('tradingsymbol', '')
-        trans_type = order_data.get('transaction_type', '')
-        qty = order_data.get('quantity', 0)
-        message = f"EXECUTED: {trans_type} {qty} {symbol}"
-        self._show_order_notification(message, "success")
-        self.trade_logger.log_order_update(order_data)
-        self._refresh_positions_table()
+        try:
+            symbol = order_data.get('tradingsymbol', '')
+            trans_type = order_data.get('transaction_type', '')
+            qty = order_data.get('quantity', 0)
+            message = f"EXECUTED: {trans_type} {qty} {symbol}"
+            self._show_order_notification(message, "success")
+            self.trade_logger.log_order_update(order_data)
+            self._refresh_positions_table()
+            # Update performance metrics in header (non-blocking)
+            QTimer.singleShot(2000, self._update_performance_metrics_in_header)
+
+            # Refresh performance dialog if open
+            if (self.performance_dialog and
+                    self.performance_dialog.isVisible()):
+                QTimer.singleShot(1500, self.performance_dialog.refresh_data)
+
+            logger.info("Trade completion processed for performance tracking")
+
+        except Exception as e:
+            logger.error(f"Failed to process trade completion for performance: {e}")
 
     @Slot(dict)
     def _on_order_cancelled(self, order_data):
@@ -602,6 +654,7 @@ class SwingTraderWindow(QMainWindow):
         message = f"Position closed: {symbol} | P&L: ₹{pnl:,.2f}"
         notification_type = "success" if pnl >= 0 else "info"
         self._show_order_notification(message, notification_type)
+        self._refresh_positions_table()
         logger.info(f"Position closed notification: {symbol}, P&L: ₹{pnl:,.2f}")
 
     @Slot(dict)
@@ -610,9 +663,8 @@ class SwingTraderWindow(QMainWindow):
             return
         symbol = position_data.get('tradingsymbol', '')
         quantity = position_data.get('quantity', 0)
-        message = f"New position: {symbol} | Qty: {quantity}"
-        self._show_order_notification(message, "info")
-        logger.info(f"New position notification: {symbol}, Qty: {quantity}")
+        self._refresh_positions_table()
+        logger.info(f"Last Trade: {symbol}, Qty: {quantity}")
 
     @Slot(float, float)
     def _on_pnl_updated(self, unrealized_pnl: float, realized_pnl: float):
@@ -621,7 +673,7 @@ class SwingTraderWindow(QMainWindow):
 
     @Slot(str, float)
     def _on_risk_alert(self, message: str, risk_value: float):
-        self._show_order_notification(f"RISK ALERT: {message}", "error", sound_type='alert')
+        # self._show_order_notification(f"RISK ALERT: {message}", "error", sound_type='alert')
         logger.warning(f"Risk Alert: {message} (Value: {risk_value})")
 
     @Slot(dict)
@@ -716,10 +768,73 @@ class SwingTraderWindow(QMainWindow):
                 logger.warning("Order manager not available. Cannot place order.")
                 self._show_order_notification("Order placement system is offline.", "error")
 
+
+            order_id = order_data.get('order_id', '')
+
+
+            if order_id:
+                # Log order placement to trade logger
+                self.trade_logger.log_order_placement(order_data, order_id)
+
+                # Show success notification
+                symbol = order_data.get('tradingsymbol', '')
+                trans_type = order_data.get('transaction_type', '')
+                quantity = order_data.get('quantity', 0)
+
+                message = f"Order placed: {trans_type} {quantity} {symbol} (ID: {order_id})"
+                self._show_order_notification(message, "success")
+
+                # Refresh order history if dialog is open
+                if (self.order_history_dialog and
+                        self.order_history_dialog.isVisible()):
+                    QTimer.singleShot(1000, self.order_history_dialog.refresh_orders)
+
+                logger.info(f"Order placed and logged: {order_id}")
+
+            else:
+                self._show_order_notification("Order placement failed", "error")
+
         except Exception as e:
             error_msg = f"Order placement failed: {str(e)}"
             logger.error(error_msg, exc_info=True)
             self._show_order_notification(error_msg, "error")
+
+    def _handle_order_update(self, order_data: Dict[str, Any]):
+        """
+        Handle order status updates (execution, cancellation, etc.).
+        This method should be called when orders are executed or cancelled.
+        """
+        try:
+            # Log the order update
+            self.trade_logger.log_order_update(order_data)
+
+            # Update UI
+            order_id = order_data.get('order_id', '')
+            status = order_data.get('status', '')
+            symbol = order_data.get('tradingsymbol', '')
+
+            # Show notification for significant status changes
+            if status in ['COMPLETE', 'CANCELLED']:
+                if status == 'COMPLETE':
+                    avg_price = order_data.get('average_price', 0)
+                    quantity = order_data.get('filled_quantity', 0)
+                    message = f"Order executed: {quantity} {symbol} at ₹{avg_price:.2f}"
+                    notification_type = "success"
+                else:
+                    message = f"Order cancelled: {symbol} ({order_id})"
+                    notification_type = "info"
+
+                self._show_order_notification(message, notification_type)
+
+            # Refresh order history if dialog is open
+            if (self.order_history_dialog and
+                    self.order_history_dialog.isVisible()):
+                QTimer.singleShot(500, self.order_history_dialog.refresh_orders)
+
+            logger.info(f"Order update processed: {order_id} -> {status}")
+
+        except Exception as e:
+            logger.error(f"Failed to handle order update: {e}")
 
     @Slot(dict)
     def _handle_bracket_order_placement(self, bracket_order_data: Dict[str, Any]):
@@ -848,24 +963,275 @@ class SwingTraderWindow(QMainWindow):
     # DIALOG SHOW METHODS
     # ==============================================================================
 
-    def _show_settings_dialog(self):
-        dialog = SettingsDialog(self)
-        dialog.exec()
-
     def _show_order_history_dialog(self):
-        orders = self.order_manager.get_completed_orders() if self.order_manager else []
-        dialog = OrderHistoryDialog(self)
-        dialog.update_orders(orders)
-        dialog.exec()
+        """
+        Show the order history dialog with trade logger integration.
+        This method replaces or enhances your existing _show_order_history_dialog method.
+        """
+        try:
+            # Create dialog if it doesn't exist or was closed
+            if self.order_history_dialog is None or not self.order_history_dialog.isVisible():
+                self.order_history_dialog = OrderHistoryDialog(
+                    trade_logger=self.trade_logger,
+                    parent=self
+                )
+
+                # Connect dialog signals
+                self.order_history_dialog.refresh_requested.connect(self._refresh_order_history)
+                self.order_history_dialog.export_requested.connect(self._export_order_history)
+
+            # Show the dialog
+            self.order_history_dialog.show()
+            self.order_history_dialog.raise_()
+            self.order_history_dialog.activateWindow()
+
+            logger.info("Order history dialog opened")
+
+        except Exception as e:
+            logger.error(f"Failed to show order history dialog: {e}")
+            self._show_order_notification("Failed to open order history", "error")
+
+    def _show_performance_dialog(self):
+        """
+        Show the enhanced performance dashboard with trade logger integration.
+        This method replaces your existing _show_performance_dialog method.
+        """
+        try:
+            # Create dialog if it doesn't exist or was closed
+            if self.performance_dialog is None or not self.performance_dialog.isVisible():
+                self.performance_dialog = PerformanceDialog(
+                    trade_logger=self.trade_logger,
+                    parent=self
+                )
+
+
+            # Show the dialog
+            self.performance_dialog.show()
+            self.performance_dialog.raise_()
+            self.performance_dialog.activateWindow()
+
+            logger.info("Performance dashboard opened")
+
+        except Exception as e:
+            logger.error(f"Failed to show performance dashboard: {e}")
+            self._show_order_notification("Failed to open performance dashboard", "error")
+
+    def _refresh_performance_data(self):
+        """Handle performance data refresh request."""
+        try:
+            if self.performance_dialog and self.performance_dialog.isVisible():
+                self.performance_dialog.refresh_data()
+                self._show_order_notification("Performance data refreshed", "info", silent_during_startup=False)
+                logger.info("Performance data manually refreshed")
+        except Exception as e:
+            logger.error(f"Failed to refresh performance data: {e}")
+            self._show_order_notification("Failed to refresh performance data", "error")
+
+    def _export_performance_report(self, export_data: dict):
+        """
+        Handle performance report export request.
+
+        Args:
+            export_data: Dictionary containing performance metrics and analysis
+        """
+        try:
+            # Create exports directory
+            home = os.path.expanduser("~")
+            exports_dir = os.path.join(home, ".swing_trader", "exports")
+            os.makedirs(exports_dir, exist_ok=True)
+
+            # Generate filename with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"performance_report_{timestamp}.json"
+            filepath = os.path.join(exports_dir, filename)
+
+            # Add additional metadata
+            export_data.update({
+                'export_source': 'swing_trader_performance_dashboard',
+                'trading_mode': self.trading_mode,
+                'app_version': getattr(self, 'app_version', '1.0.0'),
+                'user_id': getattr(self.header_toolbar, 'user_id', 'unknown'),
+                'account_balance': getattr(self.header_toolbar, '_account_info', {}).get('available_balance', 0)
+            })
+
+            # Export to JSON file
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(export_data, f, indent=2, ensure_ascii=False, default=str)
+
+            # Also create CSV summary for easy analysis
+            csv_filename = f"performance_summary_{timestamp}.csv"
+            csv_filepath = os.path.join(exports_dir, csv_filename)
+            self._create_performance_csv(export_data, csv_filepath)
+
+            # Show success notification
+            self._show_order_notification(
+                f"Performance report exported to {filename}",
+                "success",
+                silent_during_startup=False
+            )
+
+            logger.info(f"Performance report exported to: {filepath}")
+
+            # Optionally open the exports folder
+            if hasattr(self, '_open_exports_folder'):
+                self._open_exports_folder(exports_dir)
+
+        except Exception as e:
+            logger.error(f"Failed to export performance report: {e}")
+            self._show_order_notification("Failed to export performance report", "error")
+
+    def _setup_performance_tracking(self):
+        """
+        Set up performance tracking and periodic updates.
+        Call this during application initialization.
+        """
+        try:
+            # Performance update timer (every 5 minutes when market is open)
+            self.performance_update_timer = QTimer(self)
+            self.performance_update_timer.timeout.connect(self._update_performance_metrics_in_header)
+            self.performance_update_timer.start(300000)  # 5 minutes
+
+            # Initial performance metrics load
+            QTimer.singleShot(5000, self._update_performance_metrics_in_header)
+
+            logger.info("Performance tracking initialized")
+
+        except Exception as e:
+            logger.error(f"Failed to setup performance tracking: {e}")
+    def _create_performance_csv(self, export_data: dict, filepath: str):
+        """Create a CSV summary of performance data for easy analysis."""
+        try:
+            import csv
+
+            metrics = export_data.get('metrics', {})
+
+            with open(filepath, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.writer(csvfile)
+
+                # Header
+                writer.writerow(['Performance Report Summary'])
+                writer.writerow(['Generated:', datetime.now().strftime('%Y-%m-%d %H:%M:%S')])
+                writer.writerow(['Period:', export_data.get('period', 'Unknown')])
+                writer.writerow(['Trading Mode:', export_data.get('trading_mode', 'Unknown')])
+                writer.writerow([])  # Empty row
+
+                # Key metrics
+                writer.writerow(['Metric', 'Value'])
+                writer.writerow(['Total P&L', f"₹{metrics.get('total_pnl', 0):,.2f}"])
+                writer.writerow(['Win Rate', f"{metrics.get('win_rate', 0):.1f}%"])
+                writer.writerow(['Total Trades', metrics.get('total_trades', 0)])
+                writer.writerow(['Winning Trades', metrics.get('winning_trades', 0)])
+                writer.writerow(['Losing Trades', metrics.get('losing_trades', 0)])
+                writer.writerow(['Average Win', f"₹{metrics.get('average_win', 0):,.2f}"])
+                writer.writerow(['Average Loss', f"₹{metrics.get('average_loss', 0):,.2f}"])
+                writer.writerow(['Profit Factor', f"{metrics.get('profit_factor', 0):.2f}"])
+                writer.writerow(['Largest Win', f"₹{metrics.get('largest_win', 0):,.2f}"])
+                writer.writerow(['Largest Loss', f"₹{metrics.get('largest_loss', 0):,.2f}"])
+                writer.writerow(['Max Consecutive Wins', metrics.get('max_consecutive_wins', 0)])
+                writer.writerow(['Max Consecutive Losses', metrics.get('max_consecutive_losses', 0)])
+
+            logger.info(f"Performance CSV summary created: {filepath}")
+
+        except Exception as e:
+            logger.error(f"Failed to create performance CSV: {e}")
+
+    def _update_performance_metrics_in_header(self):
+        """Update performance metrics display in header toolbar if available."""
+        try:
+            if hasattr(self.header_toolbar, 'update_performance_metrics'):
+                # Get latest metrics
+                metrics = self.trade_logger.calculate_performance_metrics(30)  # Last 30 days
+
+                # Create summary for header display
+                performance_summary = {
+                    'daily_pnl': metrics.get('total_pnl', 0),
+                    'win_rate': metrics.get('win_rate', 0),
+                    'total_trades': metrics.get('total_trades', 0),
+                    'profit_factor': metrics.get('profit_factor', 0)
+                }
+
+                self.header_toolbar.update_performance_metrics(performance_summary)
+
+        except Exception as e:
+            logger.error(f"Failed to update header performance metrics: {e}")
+
+    def _refresh_order_history(self):
+        """Handle order history refresh request."""
+        try:
+            if self.order_history_dialog and self.order_history_dialog.isVisible():
+                self.order_history_dialog.refresh_orders()
+                self._show_order_notification("Order history refreshed", "info", silent_during_startup=False)
+                logger.info("Order history manually refreshed")
+        except Exception as e:
+            logger.error(f"Failed to refresh order history: {e}")
+            self._show_order_notification("Failed to refresh order history", "error")
+
+    def _export_order_history(self, export_data: dict):
+        """
+        Handle order history export request.
+
+        Args:
+            export_data: Dictionary containing filters, statistics, orders, and metadata
+        """
+        try:
+            # Create exports directory
+            home = os.path.expanduser("~")
+            exports_dir = os.path.join(home, ".swing_trader", "exports")
+            os.makedirs(exports_dir, exist_ok=True)
+
+            # Generate filename with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"order_history_export_{timestamp}.json"
+            filepath = os.path.join(exports_dir, filename)
+
+            # Add additional metadata
+            export_data.update({
+                'export_source': 'swing_trader_order_history',
+                'trading_mode': self.trading_mode,
+                'app_version': getattr(self, 'app_version', '1.0.0'),
+                'user_id': getattr(self.header_toolbar, 'user_id', 'unknown')
+            })
+
+            # Export to JSON file
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(export_data, f, indent=2, ensure_ascii=False, default=str)
+
+            # Show success notification
+            self._show_order_notification(
+                f"Order history exported to {filename}",
+                "success",
+                silent_during_startup=False
+            )
+
+            logger.info(f"Order history exported to: {filepath}")
+
+            # Optionally open the exports folder
+            if hasattr(self, '_open_exports_folder'):
+                self._open_exports_folder(exports_dir)
+
+        except Exception as e:
+            logger.error(f"Failed to export order history: {e}")
+            self._show_order_notification("Failed to export order history", "error")
+
+    def _open_exports_folder(self, folder_path: str):
+        """Open the exports folder in the system file manager."""
+        try:
+            import subprocess
+            import platform
+
+            system = platform.system()
+            if system == "Windows":
+                subprocess.Popen(f'explorer "{folder_path}"')
+            elif system == "Darwin":  # macOS
+                subprocess.Popen(["open", folder_path])
+            else:  # Linux and others
+                subprocess.Popen(["xdg-open", folder_path])
+
+        except Exception as e:
+            logger.warning(f"Could not open exports folder: {e}")
 
     def _show_pnl_history_dialog(self):
         dialog = PnlHistoryDialog(self.trading_mode, self)
-        dialog.exec()
-
-    def _show_performance_dialog(self):
-        metrics = self.trade_logger.calculate_performance_metrics()
-        dialog = PerformanceDialog(self)
-        dialog.update_metrics(metrics)
         dialog.exec()
 
     def _show_alert_history(self):
@@ -958,6 +1324,18 @@ class SwingTraderWindow(QMainWindow):
         for key, category in shortcut_map.items():
             shortcut = QShortcut(QKeySequence(key), self)
             shortcut.activated.connect(lambda cat=category: self._add_symbol_to_watchlist_from_chart(cat))
+
+        # Order history shortcut (Ctrl+H)
+        order_history_shortcut = QShortcut(QKeySequence("Ctrl+H"), self)
+        order_history_shortcut.activated.connect(self._show_order_history_dialog)
+
+        logger.info("Order history keyboard shortcut (Ctrl+H) registered")
+
+        # Performance dashboard shortcut (Ctrl+P)
+        performance_shortcut = QShortcut(QKeySequence("Ctrl+P"), self)
+        performance_shortcut.activated.connect(self._show_performance_dialog)
+
+        logger.info("Performance dashboard keyboard shortcut (Ctrl+P) registered")
 
         #Global navigation shortcuts
         self._setup_global_shortcuts()

@@ -3,7 +3,7 @@ import sqlite3
 import logging
 import os
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional, Union
+from typing import List, Dict, Optional, Union, Any
 import json
 
 logger = logging.getLogger(__name__)
@@ -1084,7 +1084,96 @@ class TradeLogger:
             if order_id:
                 self.log_order_placement(order_data, order_id)
 
+    def get_performance_dashboard_data(self, days: int = 30) -> Dict[str, Any]:
+        """
+        Get comprehensive data for the performance dashboard.
 
+        Args:
+            days: Number of days to analyze
+
+        Returns:
+            Dictionary with all performance dashboard data
+        """
+        try:
+            # Get base metrics
+            metrics = self.calculate_performance_metrics(days)
+
+            # Get additional data
+            recent_trades = self.get_all_trades(limit=50)
+            daily_pnl = self.get_daily_pnl_history(days)
+            position_history = self.get_position_history(days=days)
+
+            # Calculate additional metrics
+            dashboard_data = {
+                'metrics': metrics,
+                'recent_trades': recent_trades,
+                'daily_pnl': daily_pnl,
+                'position_history': position_history,
+                'analysis': self._calculate_additional_analysis(metrics, daily_pnl),
+                'period_days': days,
+                'calculation_timestamp': datetime.now().isoformat()
+            }
+
+            return dashboard_data
+
+        except Exception as e:
+            logger.error(f"Failed to get performance dashboard data: {e}")
+            return {'metrics': self._empty_metrics(), 'recent_trades': [], 'daily_pnl': []}
+
+    def _calculate_additional_analysis(self, metrics: Dict, daily_pnl: List[Dict]) -> Dict:
+        """Calculate additional analysis metrics for the dashboard."""
+        try:
+            analysis = {}
+
+            # Trading frequency
+            trading_days = len([d for d in daily_pnl if d.get('trades_count', 0) > 0])
+            analysis['trading_frequency'] = trading_days
+            analysis['avg_trades_per_day'] = metrics.get('total_trades', 0) / max(trading_days, 1)
+
+            # Consistency metrics
+            profitable_days = len([d for d in daily_pnl if d.get('total_pnl', 0) > 0])
+            total_trading_days = max(trading_days, 1)
+            analysis['profitable_days_percent'] = (profitable_days / total_trading_days) * 100
+
+            # Risk metrics
+            if daily_pnl:
+                daily_returns = [d.get('total_pnl', 0) for d in daily_pnl]
+                analysis['volatility'] = self._calculate_volatility(daily_returns)
+                analysis['max_daily_loss'] = min(daily_returns) if daily_returns else 0
+                analysis['max_daily_gain'] = max(daily_returns) if daily_returns else 0
+
+            # Performance trends
+            if len(daily_pnl) >= 7:
+                recent_week = daily_pnl[-7:]
+                previous_week = daily_pnl[-14:-7] if len(daily_pnl) >= 14 else []
+
+                recent_pnl = sum(d.get('total_pnl', 0) for d in recent_week)
+                previous_pnl = sum(d.get('total_pnl', 0) for d in previous_week) if previous_week else 0
+
+                if previous_pnl != 0:
+                    analysis['weekly_trend'] = ((recent_pnl - previous_pnl) / abs(previous_pnl)) * 100
+                else:
+                    analysis['weekly_trend'] = 100 if recent_pnl > 0 else -100 if recent_pnl < 0 else 0
+
+            return analysis
+
+        except Exception as e:
+            logger.error(f"Failed to calculate additional analysis: {e}")
+            return {}
+
+    def _calculate_volatility(self, daily_returns: List[float]) -> float:
+        """Calculate volatility (standard deviation) of daily returns."""
+        try:
+            if len(daily_returns) < 2:
+                return 0.0
+
+            mean_return = sum(daily_returns) / len(daily_returns)
+            variance = sum((x - mean_return) ** 2 for x in daily_returns) / (len(daily_returns) - 1)
+            return variance ** 0.5
+
+        except Exception as e:
+            logger.error(f"Failed to calculate volatility: {e}")
+            return 0.0
 # =====================================================
 # INTEGRATION UPDATES FOR MAIN APPLICATION
 # =====================================================
@@ -1176,3 +1265,4 @@ def update_paper_trading_manager_integration():
             self.trade_logger.log_order_update(order)
     '''
     return integration_code
+

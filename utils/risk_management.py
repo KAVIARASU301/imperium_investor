@@ -24,8 +24,8 @@ class AdvancedRiskManager(QObject):
         self.config_manager = config_manager
 
         # Default risk parameters
-        self.max_portfolio_risk = 2.0  # 2% of portfolio
-        self.max_position_risk = 0.5  # 0.5% per position
+        self.max_portfolio_risk = 10 # 2% of portfolio
+        self.max_position_risk = 5  # 0.5% per position
         self.max_positions = 10
         self.max_daily_loss = 10000.0
         self.max_correlation = 0.7  # Maximum correlation between positions
@@ -46,10 +46,10 @@ class AdvancedRiskManager(QObject):
         """Load risk settings from config."""
         if self.config_manager:
             config = self.config_manager.load_settings()
-            self.max_daily_loss = config.get('max_loss', 10000.0)
-            self.max_positions = config.get('max_positions', 10)
-            self.max_portfolio_risk = config.get('max_portfolio_risk', 2.0)
-            self.max_position_risk = config.get('max_position_risk', 0.5)
+            self.max_daily_loss = config.get('max_loss', 100000.0)
+            self.max_positions = config.get('max_positions', 20)
+            self.max_portfolio_risk = config.get('max_portfolio_risk', 5)
+            self.max_position_risk = config.get('max_position_risk', 5)
             # Allow configurable alert cooldown
             self.alert_cooldown_hours = config.get('risk_alert_cooldown_hours', 1)
 
@@ -278,7 +278,7 @@ class AdvancedRiskManager(QObject):
             if stop_loss_price is not None:
                 risk_per_share = abs(avg_price - stop_loss_price)
             else:
-                risk_per_share = avg_price * 0.02  # Default 2% risk
+                risk_per_share = avg_price * 0.05  # Default 5% risk
 
             position_risk = abs(quantity) * risk_per_share
             total_risk += position_risk

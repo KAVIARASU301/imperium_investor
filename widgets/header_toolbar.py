@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout, QFrame
 )
 from PySide6.QtCore import Signal, QStringListModel, Qt, QTimer
-from PySide6.QtGui import QPainter, QColor, QFont, QPen
+from PySide6.QtGui import QPainter, QColor, QFont, QPen, QBrush
 from kiteconnect import KiteConnect
 
 logger = logging.getLogger(__name__)
@@ -21,10 +21,11 @@ class NotificationBadge(QLabel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.count = 0
-        self.setFixedSize(18, 18)
+        self.setFixedSize(15, 15)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setObjectName("notificationBadge")
         self.hide()
+        self.setContentsMargins(0, 0, 0, 0)
 
     def set_count(self, count: int):
         """Set badge count and visibility."""
@@ -44,11 +45,15 @@ class NotificationBadge(QLabel):
 
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setBrush(QColor("#ff4444"))
-        painter.setPen(QPen(QColor("#ffffff"), 1))
-        painter.drawEllipse(self.rect().adjusted(1, 1, -1, -1))
+
+        # Draw red circle
+        painter.setBrush(QBrush(QColor("#ff4444")))
+        painter.setPen(QPen(QColor("#ff4444"), 1))
+        painter.drawEllipse(0, 0, 16, 16)
+
+        # Draw white number
         painter.setPen(QColor("#ffffff"))
-        painter.setFont(QFont("Arial", 7, QFont.Weight.Bold))
+        painter.setFont(QFont("Arial", 8, QFont.Weight.Bold))
         painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.text())
 
 
@@ -533,6 +538,46 @@ class HeaderToolbar(QToolBar):
             self.market_status_label.setObjectName("marketClosed")
 
         self.market_status_label.style().polish(self.market_status_label)
+
+    def update_performance_metrics(self, performance_data: Dict[str, Any]):
+        """
+        Update the header with performance indicators.
+
+        Args:
+            performance_data: Dictionary with performance metrics
+        """
+        try:
+            # Update any performance indicators in the header
+            # This could be a small P&L indicator, win rate badge, etc.
+
+            daily_pnl = performance_data.get('daily_pnl', 0)
+            win_rate = performance_data.get('win_rate', 0)
+
+            # Update tooltip or small indicator if you have one
+            if hasattr(self, 'performance_btn'):
+                tooltip_text = f"Performance Dashboard\n"
+                tooltip_text += f"Daily P&L: ₹{daily_pnl:,.2f}\n"
+                tooltip_text += f"Win Rate: {win_rate:.1f}%\n"
+                tooltip_text += f"Total Trades: {performance_data.get('total_trades', 0)}"
+
+                self.performance_btn.setToolTip(tooltip_text)
+
+                # Optional: Change button color based on performance
+                if daily_pnl > 0:
+                    self.performance_btn.setStyleSheet(
+                        self.performance_btn.styleSheet() +
+                        "border-left: 3px solid #00b894;"
+                    )
+                elif daily_pnl < 0:
+                    self.performance_btn.setStyleSheet(
+                        self.performance_btn.styleSheet() +
+                        "border-left: 3px solid #d63031;"
+                    )
+
+            logger.debug(f"Header performance metrics updated: P&L ₹{daily_pnl:,.2f}")
+
+        except Exception as e:
+            logger.error(f"Failed to update header performance metrics: {e}")
 
     def closeEvent(self, event):
         """Clean up timers when closing."""

@@ -73,16 +73,12 @@ class PositionsTable(QWidget):
         self.table.focusOutEvent = self._on_table_focus_out
 
     def _create_header(self) -> QFrame:
+        """Create minimal header without status indicator."""
         header_frame = QFrame()
         header_frame.setObjectName("positionsHeader")
-        header_frame.setFixedHeight(24)  # Compact height
-
+        header_frame.setFixedHeight(0)  # Remove header completely
         header_layout = QHBoxLayout(header_frame)
-        header_layout.setContentsMargins(8, 2, 8, 2)  # Minimal margins
-
-        positions_label = QLabel("Positions")
-        positions_label.setObjectName("positionsTitle")
-        header_layout.addWidget(positions_label)
+        header_layout.setContentsMargins(0, 0, 0, 0)
 
         return header_frame
 
@@ -568,24 +564,6 @@ P&L%: {pnl_percent:+.2f}%"""
     def _apply_professional_styles(self):
         """Apply TC2000-style professional dark theme."""
         self.setStyleSheet("""
-        
-            /* Compact Header with complete dark background */
-            #positionsHeader {
-                background-color: #000000;
-                border: none;                    /* ← Added to remove unwanted borders */
-                border-bottom: 1px solid #2a2a2a;  /* Keep only bottom border */
-                margin: 0px;
-                padding: 0px;
-            }
-            
-            /* Positions Title Label */
-            #positionsTitle {
-                color: #a0c0ff;              /* Blue accent color */
-                font-size: 13px;
-                font-weight: 600;
-                background-color: transparent;
-                text-align: left;             /* Left aligned */
-            }
             /* Main Container with thick top border separator */
             QWidget {
                 background-color: #0a0a0a;

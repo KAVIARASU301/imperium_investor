@@ -6,12 +6,55 @@ from utils.login_manager import LoginManager
 from utils.paper_trading_manager import PaperTradingManager
 from utils.login_setup_config import setup_logging
 from widgets.swing_trader_window import SwingTraderWindow
-
 # Set up global logging for the application.
 # Note: The logger name inside setup_logging might need to be changed from 'Options Scalper'
 # We will address this when we refactor the logging setup file.
 setup_logging()
 logger = logging.getLogger(__name__)
+
+
+def initialize_performance_dashboard_integration(swing_trader_window):
+    """
+    Call this function during application startup to ensure proper integration.
+
+    Args:
+        swing_trader_window: Instance of SwingTraderWindow
+    """
+    try:
+        # Set up performance tracking
+        if hasattr(swing_trader_window, '_setup_performance_tracking'):
+            swing_trader_window._setup_performance_tracking()
+
+        # Set up keyboard shortcuts
+        if hasattr(swing_trader_window, '_setup_keyboard_shortcuts'):
+            swing_trader_window._setup_keyboard_shortcuts()
+
+        logger.info("Performance dashboard integration initialized successfully")
+
+    except Exception as e:
+        logger.error(f"Failed to initialize performance dashboard integration: {e}")
+
+def initialize_order_history_integration(swing_trader_window):
+    """
+    Call this function during application startup to ensure proper integration.
+
+    Args:
+        swing_trader_window: Instance of SwingTraderWindow
+    """
+    try:
+        # Set up trade logger reference in paper trading manager
+        if hasattr(swing_trader_window, 'paper_trader') and swing_trader_window.paper_trader:
+            swing_trader_window.paper_trader.set_trade_logger(swing_trader_window.trade_logger)
+            swing_trader_window.paper_trader.set_main_window(swing_trader_window)
+
+        # Set up keyboard shortcuts
+        if hasattr(swing_trader_window, '_setup_keyboard_shortcuts'):
+            swing_trader_window._setup_keyboard_shortcuts()
+
+        logger.info("Order history integration initialized successfully")
+
+    except Exception as e:
+        logger.error(f"Failed to initialize order history integration: {e}")
 
 
 def main():
@@ -65,12 +108,17 @@ def main():
             api_key=api_creds['api_key'],
             access_token=access_token
         )
+        # Initialize order history integration
+        initialize_order_history_integration(window)
+        # Initialize performance dashboard integration
+        initialize_performance_dashboard_integration(window)
         window.show()
         sys.exit(app.exec())
     except Exception as e:
         logger.critical(f"A critical error occurred while initializing the main window: {e}", exc_info=True)
         QMessageBox.critical(None, "Application Error", f"A critical error prevented the application from starting: {e}")
         sys.exit(1)
+
 
 
 if __name__ == "__main__":

@@ -73,6 +73,7 @@ class PaperTradingManager(QObject):
 
         # Components
         self.trade_logger = None
+        self.main_window = None
         self.execution_rules = self._setup_execution_rules()
         self._last_market_data_time = datetime.now()
         self._market_data_timeout = 30
@@ -110,18 +111,21 @@ class PaperTradingManager(QObject):
         }
 
     def set_trade_logger(self, trade_logger):
-        """Set the trade logger instance"""
+        """Set the trade logger instance."""
         self.trade_logger = trade_logger
-        logger.info("Trade logger set for Fixed Paper Trading Manager")
 
-    def place_order(self, variety, exchange, tradingsymbol, transaction_type, quantity,
+    def set_main_window(self, main_window):
+        """Set reference to main window for order updates."""
+        self.main_window = main_window
+
+    def place_order(self, tradingsymbol, transaction_type, quantity,
                     product, order_type, price=None, trigger_price=None, validity="DAY",
                     **kwargs) -> str:
         """Enhanced order placement with fixed validation"""
         try:
             # Validate parameters
             self._validate_order_parameters(
-                variety, exchange, tradingsymbol, transaction_type,
+                tradingsymbol, transaction_type,
                 quantity, product, order_type, price, trigger_price
             )
 
@@ -139,8 +143,8 @@ class PaperTradingManager(QObject):
             # Create order object
             order_data = {
                 "order_id": order_id,
-                "variety": variety,
-                "exchange": exchange,
+                "variety": "REGULAR",
+                "exchange": "NSE",
                 "tradingsymbol": tradingsymbol,
                 "transaction_type": transaction_type,
                 "quantity": int(quantity),  # Fix: ensure integer
@@ -350,6 +354,19 @@ class PaperTradingManager(QObject):
                 'charges': charges,
                 'net_value': net_trade_value
             })
+
+            # Log to trade logger
+            if self.trade_logger:
+                self.trade_logger.log_order_update(order)
+
+            # Notify main window of order update
+            if self.main_window and hasattr(self.main_window, '_handle_order_update'):
+                self.main_window._handle_order_update(order)
+
+            # Emit signal for UI updates
+            self.order_update.emit(order)
+
+            logger.info(f"Trade executed and logged: {order['order_id']}")
 
             # Record trade
             trade_record = {
@@ -699,6 +716,28 @@ class PaperTradingMixin:
         # Update paper trading manager with market data
         if isinstance(self.trader, PaperTradingManager):
             self.trader.update_market_data(ticks)
+
+    def initialize_order_history_integration(swing_trader_window):
+        """
+        Call this function during application startup to ensure proper integration.
+
+        Args:
+            swing_trader_window: Instance of SwingTraderWindow
+        """
+        try:
+            # Set up trade logger reference in paper trading manager
+            if hasattr(swing_trader_window, 'paper_trader') and swing_trader_window.paper_trader:
+                swing_trader_window.paper_trader.set_trade_logger(swing_trader_window.trade_logger)
+                swing_trader_window.paper_trader.set_main_window(swing_trader_window)
+
+            # Set up keyboard shortcuts
+            if hasattr(swing_trader_window, '_setup_keyboard_shortcuts'):
+                swing_trader_window._setup_keyboard_shortcuts()
+
+            logger.info("Order history integration initialized successfully")
+
+        except Exception as e:
+            logger.error(f"Failed to initialize order history integration: {e}")
 
 
 # Quick fix instructions
