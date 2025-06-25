@@ -9,7 +9,6 @@ from PySide6.QtWidgets import QMainWindow, QSplitter, QMessageBox, QWidget, QVBo
     QPushButton, QLabel
 from PySide6.QtGui import QMouseEvent, QKeySequence, QShortcut
 
-from widgets.menu_bar import create_main_menu
 from tables.scanner_table import ChartinkScannerTable
 from tables.positions_table import PositionsTable
 from tables.watchlist_table import TabbedWatchlistWidget
@@ -34,7 +33,6 @@ from utils.paper_trading_manager import PaperTradingManager
 from utils.position_manager import PositionManager
 from utils.config_manager import ConfigManager
 from utils.instrument_loader import InstrumentLoader
-from utils.theme_manager import ThemeManager
 from utils.trade_logger import TradeLogger
 from kiteconnect import KiteConnect
 
@@ -61,7 +59,6 @@ class SwingTraderWindow(QMainWindow):
         self.api_key = api_key
         self.access_token = access_token
         self.config_manager = ConfigManager()
-        self.theme_manager = ThemeManager(self)
         self.trading_mode = 'paper' if isinstance(trader, PaperTradingManager) else 'live'
         self.trade_logger = TradeLogger(mode=self.trading_mode)
         self.position_manager = PositionManager(self.trader, self.trade_logger)
@@ -92,7 +89,6 @@ class SwingTraderWindow(QMainWindow):
         # --- Setup Sequence ---
         self._setup_frameless_window()
         self._setup_ui()
-        self._setup_menu_bar()
         self._init_sounds()
         self._init_alert_system()
         self._init_background_workers()
@@ -190,18 +186,6 @@ class SwingTraderWindow(QMainWindow):
         title_bar.mouseDoubleClickEvent = self._title_bar_double_click
         return title_bar
 
-    def _setup_menu_bar(self):
-        """Creates a hidden menu bar accessible via shortcuts."""
-        menubar, menu_actions = create_main_menu(self)
-        menubar.setVisible(False)
-        self.setMenuBar(menubar)
-
-        menu_actions["refresh"].triggered.connect(self.position_manager.fetch_positions_and_orders)
-        menu_actions["settings"].triggered.connect(self._show_settings_dialog)
-        menu_actions["order_history"].triggered.connect(self._show_order_history_dialog)
-        menu_actions["pnl_calendar"].triggered.connect(self._show_pnl_history_dialog)
-        menu_actions["performance"].triggered.connect(self._show_performance_dialog)
-        menu_actions["exit"].triggered.connect(self.close)
 
     def _init_sounds(self):
         """Initializes all sound effects for the application."""
