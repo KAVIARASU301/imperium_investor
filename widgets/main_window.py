@@ -2,7 +2,7 @@ import logging
 import os
 import json
 from datetime import datetime
-from typing import List, Dict, Union, Any
+from typing import List, Dict, Union, Any, Optional
 
 from PySide6.QtCore import Qt, QUrl, QByteArray, QTimer, Slot, Signal
 from PySide6.QtMultimedia import QSoundEffect
@@ -19,7 +19,7 @@ from widgets.header_toolbar import HeaderToolbar
 from dialogs.order_dialog import OrderDialog
 from dialogs.order_history_dialog import OrderHistoryDialog
 from dialogs.performance_dialog import PerformanceDialog
-
+from dialogs.order_status_dialog import create_order_status_dialog
 from dialogs.alert_management_system import AlertSystemManager
 
 from utils.advanced_order_manager import AdvancedOrderManager
@@ -803,6 +803,12 @@ class SwingTraderWindow(QMainWindow):
 
 
             if order_id:
+
+                self._show_order_notification(f"Order placed: {order_id}", "success")
+
+                # Show order status dialog for monitoring
+                self.show_order_status_dialog(order_data)
+
                 # Log order placement to trade logger
                 self.trade_logger.log_order_placement(order_data, order_id)
 
@@ -828,43 +834,6 @@ class SwingTraderWindow(QMainWindow):
             error_msg = f"Order placement failed: {str(e)}"
             logger.error(error_msg, exc_info=True)
             self._show_order_notification(error_msg, "error")
-
-    def _handle_order_update(self, order_data: Dict[str, Any]):
-        """
-        Handle order status updates (execution, cancellation, etc.).
-        This method should be called when orders are executed or cancelled.
-        """
-        try:
-            # Log the order update
-            self.trade_logger.log_order_update(order_data)
-
-            # Update UI
-            order_id = order_data.get('order_id', '')
-            status = order_data.get('status', '')
-            symbol = order_data.get('tradingsymbol', '')
-
-            # Show notification for significant status changes
-            if status in ['COMPLETE', 'CANCELLED']:
-                if status == 'COMPLETE':
-                    avg_price = order_data.get('average_price', 0)
-                    quantity = order_data.get('filled_quantity', 0)
-                    message = f"Order executed: {quantity} {symbol} at ₹{avg_price:.2f}"
-                    notification_type = "success"
-                else:
-                    message = f"Order cancelled: {symbol} ({order_id})"
-                    notification_type = "info"
-
-                self._show_order_notification(message, notification_type)
-
-            # Refresh order history if dialog is open
-            if (self.order_history_dialog and
-                    self.order_history_dialog.isVisible()):
-                QTimer.singleShot(500, self.order_history_dialog.refresh_orders)
-
-            logger.info(f"Order update processed: {order_id} -> {status}")
-
-        except Exception as e:
-            logger.error(f"Failed to handle order update: {e}")
 
     @Slot(dict)
     def _handle_bracket_order_placement(self, bracket_order_data: Dict[str, Any]):
@@ -1594,3 +1563,431 @@ class SwingTraderWindow(QMainWindow):
         except Exception as e:
             logger.warning(f"Error navigating position symbols: {e}")
 
+
+
+    def _handle_order_modification(self, order_data: Dict[str, Any]):
+        """
+        Handle order modification - cancel existing order and open order dialog with pre-populated data.
+
+        Args:
+            order_data: Current order data to be modified
+        """
+        try:
+            order_id = order_data.get('order_id')
+            symbol = order_data.get('tradingsymbol')
+
+            logger.info(f"Starting modification workflow for order {order_id}")
+
+            # Step 1: Cancel the existing order
+            if self.order_manager and hasattr(self.order_manager, 'cancel_order'):
+                cancelled = self.order_manager.cancel_order(order_id)
+                if not cancelled:
+                    self._show_order_notification(f"Failed to cancel order {order_id}", "error")
+                    return
+            elif hasattr(self, 'trader') and hasattr(self.trader, 'cancel_order'):
+                # Direct trader cancellation for paper trading
+                try:
+                    self.trader.cancel_order("regular", order_id)
+                except Exception as e:
+                    self._show_order_notification(f"Failed to cancel order: {str(e)}", "error")
+                    return
+            else:
+                self._show_order_notification("Order cancellation not available", "error")
+                return
+
+            # Step 2: Close the status dialog
+            if hasattr(self, 'order_status_dialog') and self.order_status_dialog:
+                self.order_status_dialog._close_dialog()
+                self.order_status_dialog = None
+
+            # Step 3: Get fresh LTP for the symbol
+            ltp = self._get_fresh_ltp(symbol)
+            if ltp == 0.0:
+                ltp = order_data.get('price', 0.0)  # Fallback to original price
+
+            # Step 4: Prepare order details for pre-population
+            order_details = {
+                'tradingsymbol': symbol,
+                'transaction_type': order_data.get('transaction_type', 'BUY'),
+                'quantity': order_data.get('quantity', 1),
+                'order_type': order_data.get('order_type', 'LIMIT'),
+                'price': order_data.get('price', ltp),
+                'trigger_price': order_data.get('trigger_price', 0.0),
+                'product': order_data.get('product', 'MIS'),
+                'validity': order_data.get('validity', 'DAY'),
+                'ltp': ltp,
+                # Preserve any special order attributes
+                'stop_loss_price': order_data.get('stop_loss_price'),
+                'target_price': order_data.get('target_price'),
+                'tag': order_data.get('tag', ''),
+                # Mark as modification
+                'is_modification': True,
+                'original_order_id': order_id
+            }
+
+            # Step 5: Open the order dialog with pre-populated data
+            from dialogs.order_dialog import OrderDialog
+            dialog = OrderDialog(self, symbol, ltp, order_details)
+            dialog.order_placed.connect(self._handle_order_placement)
+            if hasattr(dialog, 'bracket_order_placed'):
+                dialog.bracket_order_placed.connect(self._handle_bracket_order_placement)
+            dialog.show()
+
+            # Step 6: Show confirmation
+            self._show_order_notification(
+                f"Order {order_id} cancelled. Modify and place new order.",
+                "info"
+            )
+
+            logger.info(f"Order modification dialog opened for {symbol}")
+
+        except Exception as e:
+            error_msg = f"Error during order modification: {str(e)}"
+            logger.error(error_msg, exc_info=True)
+            self._show_order_notification(error_msg, "error")
+
+    def _handle_order_cancellation(self, order_id: str):
+        """
+        Handle direct order cancellation from status dialog.
+
+        Args:
+            order_id: ID of the order to cancel
+        """
+        try:
+            logger.info(f"Cancelling order {order_id}")
+
+            # Cancel through order manager
+            if self.order_manager and hasattr(self.order_manager, 'cancel_order'):
+                cancelled = self.order_manager.cancel_order(order_id)
+                if cancelled:
+                    self._show_order_notification(f"Order {order_id} cancelled successfully", "success")
+                else:
+                    self._show_order_notification(f"Failed to cancel order {order_id}", "error")
+            elif hasattr(self, 'trader') and hasattr(self.trader, 'cancel_order'):
+                # Direct trader cancellation
+                self.trader.cancel_order("regular", order_id)
+                self._show_order_notification(f"Order {order_id} cancelled successfully", "success")
+            else:
+                self._show_order_notification("Order cancellation not available", "error")
+                return
+
+            # Close the status dialog
+            if hasattr(self, 'order_status_dialog') and self.order_status_dialog:
+                self.order_status_dialog._close_dialog()
+                self.order_status_dialog = None
+
+        except Exception as e:
+            error_msg = f"Error cancelling order {order_id}: {str(e)}"
+            logger.error(error_msg, exc_info=True)
+            self._show_order_notification(error_msg, "error")
+
+    def _on_order_completed(self, order_data: Dict[str, Any]):
+        """
+        Handle order completion from status dialog.
+
+        Args:
+            order_data: Completed order data
+        """
+        try:
+            symbol = order_data.get('tradingsymbol', '')
+            quantity = order_data.get('filled_quantity', 0)
+            price = order_data.get('average_price', 0.0)
+
+            logger.info(f"Order completed: {symbol} - {quantity} @ ₹{price}")
+
+            # Refresh positions table
+            self._refresh_positions_table()
+
+            # Update any relevant displays
+            if hasattr(self, 'header_toolbar') and hasattr(self.header_toolbar, 'refresh_data'):
+                self.header_toolbar.refresh_data()
+
+            # Show completion notification
+            trans_type = order_data.get('transaction_type', '')
+            message = f"✓ {trans_type} {quantity} {symbol} executed @ ₹{price:,.2f}"
+            self._show_order_notification(message, "success")
+
+        except Exception as e:
+            logger.error(f"Error handling order completion: {e}")
+
+    def show_order_status_dialog(self, order_data: Dict[str, Any]):
+        """
+        Show order status dialog for monitoring order execution.
+        Call this method after placing an order to monitor its status.
+
+        Args:
+            order_data: Order data with order_id and other details
+        """
+        try:
+            # Close any existing status dialog
+            if hasattr(self, 'order_status_dialog') and self.order_status_dialog:
+                self.order_status_dialog._close_dialog()
+
+            # Create new status dialog
+            self.order_status_dialog = create_order_status_dialog(self, order_data)
+
+            logger.info(f"Order status dialog shown for order {order_data.get('order_id')}")
+
+        except Exception as e:
+            logger.error(f"Error showing order status dialog: {e}")
+
+
+    def _handle_order_update(self, order_data: Dict[str, Any]):
+        """
+        Enhanced order status update handler that integrates with OrderStatusDialog.
+        This method should be called when orders are executed, cancelled, or status changes.
+        """
+        try:
+            # Log the order update
+            if hasattr(self, 'trade_logger') and self.trade_logger:
+                self.trade_logger.log_order_update(order_data)
+
+            # Extract order details
+            order_id = order_data.get('order_id', '')
+            status = order_data.get('status', '').upper()
+            symbol = order_data.get('tradingsymbol', '')
+            quantity = order_data.get('quantity', 0)
+            filled_quantity = order_data.get('filled_quantity', 0)
+            avg_price = order_data.get('average_price', 0)
+
+            logger.info(f"Processing order update: {order_id} -> {status}")
+
+            # === 1. UPDATE ORDER STATUS DIALOG ===
+            # This is the key integration - update the live status dialog if it exists
+            if hasattr(self, 'order_status_dialog') and self.order_status_dialog:
+                if self.order_status_dialog.order_id == order_id:
+                    self.order_status_dialog.update_from_external(order_data)
+
+            # === 2. HANDLE SPECIFIC STATUS CHANGES ===
+            if status == 'COMPLETE':
+                self._handle_order_completion(order_data)
+
+            elif status == 'CANCELLED':
+                self._handle_order_cancellation_update(order_data)
+
+            elif status == 'REJECTED':
+                self._handle_order_rejection_update(order_data)
+
+            elif status in ['PARTIAL', 'TRIGGER_PENDING']:
+                self._handle_partial_order_update(order_data)
+
+            elif status in ['OPEN', 'PENDING_EXECUTION']:
+                # Order is still pending - ensure dialog is shown if not already
+                if not hasattr(self, 'order_status_dialog') or not self.order_status_dialog:
+                    self._show_order_status_if_needed(order_data)
+
+            # === 3. REFRESH UI COMPONENTS ===
+            self._refresh_ui_after_order_update(order_data)
+
+            # === 4. EMIT SIGNALS FOR OTHER COMPONENTS ===
+            if hasattr(self, 'order_update_signal'):
+                self.order_update_signal.emit(order_data)
+
+            logger.info(f"Order update processed successfully: {order_id} -> {status}")
+
+        except Exception as e:
+            error_msg = f"Failed to handle order update for {order_data.get('order_id', 'unknown')}: {e}"
+            logger.error(error_msg, exc_info=True)
+            self._show_order_notification(error_msg, "error")
+
+    def _handle_order_completion(self, order_data: Dict[str, Any]):
+        """Handle completed order updates."""
+        try:
+            symbol = order_data.get('tradingsymbol', '')
+            filled_quantity = order_data.get('filled_quantity', 0)
+            avg_price = order_data.get('average_price', 0)
+            transaction_type = order_data.get('transaction_type', '')
+
+            # Show success notification
+            message = f"✓ Order completed: {transaction_type} {filled_quantity} {symbol} @ ₹{avg_price:.2f}"
+            self._show_order_notification(message, "success")
+
+            # Refresh positions table immediately
+            self._refresh_positions_table()
+
+            # Update P&L displays
+            if hasattr(self, 'header_toolbar') and hasattr(self.header_toolbar, 'refresh_pnl'):
+                QTimer.singleShot(1000, self.header_toolbar.refresh_pnl)
+
+            logger.info(f"Order completion handled: {symbol} - {filled_quantity} @ ₹{avg_price}")
+
+        except Exception as e:
+            logger.error(f"Error handling order completion: {e}")
+
+    def _handle_order_cancellation_update(self, order_data: Dict[str, Any]):
+        """Handle order cancellation updates."""
+        try:
+            symbol = order_data.get('tradingsymbol', '')
+            order_id = order_data.get('order_id', '')
+
+            # Show cancellation notification
+            message = f"Order cancelled: {symbol} ({order_id[:8]}...)"
+            self._show_order_notification(message, "info")
+
+            # Close status dialog if it's for this order
+            if (hasattr(self, 'order_status_dialog') and
+                    self.order_status_dialog and
+                    self.order_status_dialog.order_id == order_id):
+                # Let the dialog handle its own closure after showing cancellation status
+                pass
+
+            logger.info(f"Order cancellation handled: {order_id}")
+
+        except Exception as e:
+            logger.error(f"Error handling order cancellation: {e}")
+
+    def _handle_order_rejection_update(self, order_data: Dict[str, Any]):
+        """Handle order rejection updates."""
+        try:
+            symbol = order_data.get('tradingsymbol', '')
+            order_id = order_data.get('order_id', '')
+            reason = order_data.get('status_message', 'Unknown reason')
+
+            # Show rejection notification with reason
+            message = f"Order rejected: {symbol} - {reason}"
+            self._show_order_notification(message, "error")
+
+            logger.warning(f"Order rejection handled: {order_id} - {reason}")
+
+        except Exception as e:
+            logger.error(f"Error handling order rejection: {e}")
+
+    def _handle_partial_order_update(self, order_data: Dict[str, Any]):
+        """Handle partial fill updates."""
+        try:
+            symbol = order_data.get('tradingsymbol', '')
+            filled_quantity = order_data.get('filled_quantity', 0)
+            total_quantity = order_data.get('quantity', 0)
+
+            # Calculate fill percentage
+            fill_percentage = (filled_quantity / total_quantity * 100) if total_quantity > 0 else 0
+
+            # Show partial fill notification
+            message = f"Partial fill: {filled_quantity}/{total_quantity} {symbol} ({fill_percentage:.0f}%)"
+            self._show_order_notification(message, "info")
+
+            # Ensure status dialog is shown for partial fills
+            if not hasattr(self, 'order_status_dialog') or not self.order_status_dialog:
+                self.show_order_status_dialog(order_data)
+
+            # Refresh positions if there's any fill
+            if filled_quantity > 0:
+                self._refresh_positions_table()
+
+            logger.info(f"Partial order update handled: {symbol} - {filled_quantity}/{total_quantity}")
+
+        except Exception as e:
+            logger.error(f"Error handling partial order update: {e}")
+
+    def _show_order_status_if_needed(self, order_data: Dict[str, Any]):
+        """Show order status dialog if order is pending and dialog not already shown."""
+        try:
+            status = order_data.get('status', '').upper()
+
+            # Only show for pending orders that might need user action
+            if status in ['OPEN', 'PENDING_EXECUTION', 'TRIGGER_PENDING']:
+                # Check if dialog already exists for this order
+                if (not hasattr(self, 'order_status_dialog') or
+                        not self.order_status_dialog or
+                        self.order_status_dialog.order_id != order_data.get('order_id')):
+                    self.show_order_status_dialog(order_data)
+
+        except Exception as e:
+            logger.error(f"Error showing order status dialog: {e}")
+
+    def _refresh_ui_after_order_update(self, order_data: Dict[str, Any]):
+        """Refresh UI components after order update."""
+        try:
+            status = order_data.get('status', '').upper()
+
+            # Refresh order history if dialog is open
+            if (hasattr(self, 'order_history_dialog') and
+                    self.order_history_dialog and
+                    self.order_history_dialog.isVisible()):
+                QTimer.singleShot(500, self.order_history_dialog.refresh_orders)
+
+            # Refresh positions for executed orders
+            if status in ['COMPLETE', 'PARTIAL']:
+                QTimer.singleShot(1000, self._refresh_positions_table)
+
+            # Update watchlist if the symbol is being watched
+            symbol = order_data.get('tradingsymbol', '')
+            if (hasattr(self, 'watchlist') and
+                    symbol and
+                    hasattr(self.watchlist, 'update_symbol_data')):
+                QTimer.singleShot(500, lambda: self.watchlist.update_symbol_data(symbol))
+
+        except Exception as e:
+            logger.error(f"Error refreshing UI after order update: {e}")
+
+    def get_order_status(self, order_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Enhanced method to get current order status for real-time updates.
+        This method is called by OrderStatusDialog for live updates.
+        """
+        try:
+            # Method 1: Try advanced order manager
+            if (hasattr(self, 'order_manager') and
+                    self.order_manager and
+                    hasattr(self.order_manager, 'get_order_status')):
+                status = self.order_manager.get_order_status(order_id)
+                if status:
+                    return status
+
+            # Method 2: Try trader orders list
+            if hasattr(self, 'trader') and hasattr(self.trader, 'orders'):
+                try:
+                    orders = self.trader.orders()
+                    for order in orders:
+                        if order.get('order_id') == order_id:
+                            return order
+                except Exception as e:
+                    logger.debug(f"Could not get orders from trader: {e}")
+
+            # Method 3: Try trade logger
+            if (hasattr(self, 'trade_logger') and
+                    self.trade_logger and
+                    hasattr(self.trade_logger, 'get_order')):
+                try:
+                    return self.trade_logger.get_order(order_id)
+                except Exception as e:
+                    logger.debug(f"Could not get order from trade logger: {e}")
+
+            # Method 4: Try paper trading manager
+            if (hasattr(self, 'paper_trading_manager') and
+                    self.paper_trading_manager and
+                    hasattr(self.paper_trading_manager, 'get_order')):
+                try:
+                    return self.paper_trading_manager.get_order(order_id)
+                except Exception as e:
+                    logger.debug(f"Could not get order from paper trading: {e}")
+
+            logger.debug(f"Could not find order status for {order_id}")
+            return None
+
+        except Exception as e:
+            logger.error(f"Error getting order status for {order_id}: {e}")
+            return None
+
+    # Additional helper method for order placement integration
+    def _handle_order_placement_with_status_dialog(self, order_data: Dict[str, Any]):
+        """
+        Enhanced order placement handler that automatically shows status dialog.
+        Use this instead of or in addition to your existing _handle_order_placement.
+        """
+        try:
+            # Call existing order placement logic
+            self._handle_order_placement(order_data)
+
+            # Get the order ID from the placement result
+            order_id = order_data.get('order_id')
+
+            if order_id:
+                # Show status dialog for monitoring
+                # Add a small delay to ensure order is registered in the system
+                QTimer.singleShot(500, lambda: self.show_order_status_dialog(order_data))
+
+                logger.info(f"Order placed with status monitoring: {order_id}")
+
+        except Exception as e:
+            logger.error(f"Error in order placement with status dialog: {e}")
