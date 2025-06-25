@@ -210,14 +210,21 @@ class SwingTraderWindow(QMainWindow):
         self.order_placed_sound = create_sound("placed.mp3")
 
     def _init_alert_system(self):
-        """Initializes the advanced alert management system."""
         try:
             self.alert_system = AlertSystemManager(self)
             self.alert_system.alert_sound_requested.connect(self._play_alert_sound)
+            self.alert_system.engine_status_changed.connect(self._on_alert_engine_status)
             logger.info("Advanced alert system initialized successfully.")
         except Exception as e:
             logger.error(f"Failed to initialize alert system: {e}")
             self.alert_system = None
+
+    @Slot(str)
+    def _on_alert_engine_status(self, status: str):
+        if status == "error":
+            logger.warning("Alert engine encountered an error")
+        elif status == "running":
+            logger.info("Alert engine is running normally")
 
     def _init_background_workers(self):
         """Initializes and starts background threads for data fetching."""
@@ -366,22 +373,20 @@ class SwingTraderWindow(QMainWindow):
             self.order_manager.stop()
         if self.alert_system:
             self.alert_system.stop_engine()
-        self.alert_update_timer.stop()
-        if self.market_data_worker:
-            self.market_data_worker.stop()
+            self.alert_update_timer.stop()
         if self.instrument_loader and self.instrument_loader.isRunning():
             self.instrument_loader.quit()
             self.instrument_loader.wait(2000)
-        # Close order history dialog if open
         if self.order_history_dialog and self.order_history_dialog.isVisible():
             self.order_history_dialog.close()
-        # Clean up timers
         if hasattr(self, 'chart_init_timer'):
             self.chart_init_timer.stop()
-        logger.info("Application shut down gracefully.")
-        # Close performance dialog if open
         if self.performance_dialog and self.performance_dialog.isVisible():
             self.performance_dialog.close()
+        if self.market_data_worker:
+            self.market_data_worker.stop()
+
+        logger.info("Application shut down gracefully.")
         super().closeEvent(event)
 
     def save_window_state(self):
@@ -484,6 +489,7 @@ class SwingTraderWindow(QMainWindow):
             if isinstance(self.trader, PaperTradingManager):
                 self.trader.update_market_data(ticks)
             self.watchlist.update_data(ticks)
+
             if self.alert_system:
                 self.alert_system.update_market_data(ticks)
 

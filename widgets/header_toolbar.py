@@ -46,13 +46,13 @@ class NotificationBadge(QLabel):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # Draw red circle
-        painter.setBrush(QBrush(QColor("#ff4444")))
-        painter.setPen(QPen(QColor("#ff4444"), 1))
+        # Draw semi-transparent red circle
+        painter.setBrush(QBrush(QColor(255, 68, 68, 0)))  # Last parameter is alpha (0-255)
+        painter.setPen(QPen(QColor(255, 68, 68, 0), 1))
         painter.drawEllipse(0, 0, 16, 16)
 
         # Draw white number
-        painter.setPen(QColor("#ffffff"))
+        painter.setPen(QColor("#FF0000"))
         painter.setFont(QFont("Arial", 8, QFont.Weight.Bold))
         painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.text())
 

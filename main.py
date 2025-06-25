@@ -1,19 +1,16 @@
 import sys
 import logging
 
-from PySide6.QtGui import QPalette, QColor
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QApplication, QMessageBox, QWidget
 from kiteconnect import KiteConnect
 from utils.login_manager import LoginManager
 from utils.paper_trading_manager import PaperTradingManager
 from utils.login_setup_config import setup_logging
 from widgets.main_window import SwingTraderWindow
+
 # Set up global logging for the application.
-# Note: The logger name inside setup_logging might need to be changed from 'Options Scalper'
-# We will address this when we refactor the logging setup file.
 setup_logging()
 logger = logging.getLogger(__name__)
-
 
 
 def main():
@@ -36,7 +33,7 @@ def main():
     api_creds = login_manager.get_api_creds()
 
     if not all([access_token, trading_mode, api_creds]):
-        QMessageBox.critical(None, "Login Failed", "Could not retrieve valid session details. The application will now exit.")
+        QMessageBox.critical(QWidget(), "Login Failed", "Could not retrieve valid session details. The application will now exit.")
         sys.exit(1)
 
     # --- Trader and KiteClient Initialization ---
@@ -45,7 +42,7 @@ def main():
         real_kite_client = KiteConnect(api_key=api_creds['api_key'], access_token=access_token)
     except Exception as e:
         logger.critical(f"Failed to initialize KiteConnect client: {e}", exc_info=True)
-        QMessageBox.critical(None, "API Connection Error", f"Could not connect to the broker's API: {e}")
+        QMessageBox.critical(QWidget(), "API Connection Error", f"Could not connect to the broker's API: {e}")
         sys.exit(1)
 
     # The 'trader' object is used for all order placement and position management.
@@ -71,9 +68,8 @@ def main():
         sys.exit(app.exec())
     except Exception as e:
         logger.critical(f"A critical error occurred while initializing the main window: {e}", exc_info=True)
-        QMessageBox.critical(None, "Application Error", f"A critical error prevented the application from starting: {e}")
+        QMessageBox.critical(QWidget(), "Application Error", f"A critical error prevented the application from starting: {e}")
         sys.exit(1)
-
 
 
 if __name__ == "__main__":
