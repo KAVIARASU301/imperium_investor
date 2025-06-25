@@ -18,7 +18,6 @@ from widgets.header_toolbar import HeaderToolbar
 
 from dialogs.order_dialog import OrderDialog
 from dialogs.order_history_dialog import OrderHistoryDialog
-from dialogs.pnl_history_dialog import PnlHistoryDialog
 from dialogs.performance_dialog import PerformanceDialog
 
 from dialogs.alert_management_system import AlertSystemManager
@@ -1230,9 +1229,6 @@ class SwingTraderWindow(QMainWindow):
         except Exception as e:
             logger.warning(f"Could not open exports folder: {e}")
 
-    def _show_pnl_history_dialog(self):
-        dialog = PnlHistoryDialog(self.trading_mode, self)
-        dialog.exec()
 
     def _show_alert_history(self):
         if self.alert_system:
