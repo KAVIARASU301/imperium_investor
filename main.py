@@ -1,5 +1,7 @@
 import sys
 import logging
+
+from PySide6.QtGui import QPalette, QColor
 from PySide6.QtWidgets import QApplication, QMessageBox
 from kiteconnect import KiteConnect
 from utils.login_manager import LoginManager
@@ -13,49 +15,6 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
-def initialize_performance_dashboard_integration(swing_trader_window):
-    """
-    Call this function during application startup to ensure proper integration.
-
-    Args:
-        swing_trader_window: Instance of SwingTraderWindow
-    """
-    try:
-        # Set up performance tracking
-        if hasattr(swing_trader_window, '_setup_performance_tracking'):
-            swing_trader_window._setup_performance_tracking()
-
-        # Set up keyboard shortcuts
-        if hasattr(swing_trader_window, '_setup_keyboard_shortcuts'):
-            swing_trader_window._setup_keyboard_shortcuts()
-
-        logger.info("Performance dashboard integration initialized successfully")
-
-    except Exception as e:
-        logger.error(f"Failed to initialize performance dashboard integration: {e}")
-
-def initialize_order_history_integration(swing_trader_window):
-    """
-    Call this function during application startup to ensure proper integration.
-
-    Args:
-        swing_trader_window: Instance of SwingTraderWindow
-    """
-    try:
-        # Set up trade logger reference in paper trading manager
-        if hasattr(swing_trader_window, 'paper_trader') and swing_trader_window.paper_trader:
-            swing_trader_window.paper_trader.set_trade_logger(swing_trader_window.trade_logger)
-            swing_trader_window.paper_trader.set_main_window(swing_trader_window)
-
-        # Set up keyboard shortcuts
-        if hasattr(swing_trader_window, '_setup_keyboard_shortcuts'):
-            swing_trader_window._setup_keyboard_shortcuts()
-
-        logger.info("Order history integration initialized successfully")
-
-    except Exception as e:
-        logger.error(f"Failed to initialize order history integration: {e}")
-
 
 def main():
     """
@@ -65,7 +24,6 @@ def main():
     app = QApplication(sys.argv)
     logger.info("Swing Trader application starting...")
 
-    # --- Login Process ---
     # The LoginManager handles API credentials and user session.
     login_manager = LoginManager()
     if login_manager.exec() != QMessageBox.DialogCode.Accepted:
@@ -108,10 +66,7 @@ def main():
             api_key=api_creds['api_key'],
             access_token=access_token
         )
-        # Initialize order history integration
-        initialize_order_history_integration(window)
-        # Initialize performance dashboard integration
-        initialize_performance_dashboard_integration(window)
+
         window.show()
         sys.exit(app.exec())
     except Exception as e:

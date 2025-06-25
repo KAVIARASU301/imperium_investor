@@ -4,7 +4,8 @@ from datetime import datetime, timedelta
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget,
     QTableWidget, QTableWidgetItem, QHeaderView, QFrame, QComboBox,
-    QLineEdit, QDateEdit, QCheckBox, QSplitter, QGroupBox, QGridLayout
+    QLineEdit, QDateEdit, QCheckBox, QSplitter, QGroupBox, QGridLayout,
+    QFormLayout  # Import QFormLayout
 )
 from PySide6.QtCore import Qt, Signal, QDate, QTimer
 from PySide6.QtGui import QColor, QMouseEvent, QFont
@@ -13,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 class FilterWidget(QWidget):
-    """Widget for filtering order history."""
+    """Widget for filtering order history with a vertical, compact layout."""
 
     filter_changed = Signal()
 
@@ -23,55 +24,61 @@ class FilterWidget(QWidget):
         self._setup_ui()
 
     def _setup_ui(self):
+        """Setup UI with a QFormLayout for a clean vertical arrangement."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(15, 10, 15, 10)
         layout.setSpacing(10)
 
-        # Filter group
         filter_group = QGroupBox("Filters")
         filter_group.setObjectName("filterGroup")
-        filter_layout = QGridLayout(filter_group)
-        filter_layout.setSpacing(8)
+
+        # Use QFormLayout for a clean vertical, two-column layout
+        form_layout = QFormLayout(filter_group)
+        form_layout.setSpacing(10)
+        form_layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
 
         # Symbol filter
-        filter_layout.addWidget(QLabel("Symbol:"), 0, 0)
         self.symbol_filter = QLineEdit()
-        self.symbol_filter.setPlaceholderText("Enter symbol (e.g., RELIANCE)")
+        self.symbol_filter.setPlaceholderText("e.g., RELIANCE")
         self.symbol_filter.textChanged.connect(self.filter_changed.emit)
-        filter_layout.addWidget(self.symbol_filter, 0, 1)
+        form_layout.addRow(QLabel("Symbol:"), self.symbol_filter)
 
         # Status filter
-        filter_layout.addWidget(QLabel("Status:"), 0, 2)
         self.status_filter = QComboBox()
         self.status_filter.addItems(["All", "COMPLETE", "CANCELLED", "OPEN", "PENDING_EXECUTION"])
         self.status_filter.currentTextChanged.connect(self.filter_changed.emit)
-        filter_layout.addWidget(self.status_filter, 0, 3)
+        form_layout.addRow(QLabel("Status:"), self.status_filter)
 
         # Transaction type filter
-        filter_layout.addWidget(QLabel("Type:"), 1, 0)
         self.type_filter = QComboBox()
         self.type_filter.addItems(["All", "BUY", "SELL"])
         self.type_filter.currentTextChanged.connect(self.filter_changed.emit)
-        filter_layout.addWidget(self.type_filter, 1, 1)
+        form_layout.addRow(QLabel("Type:"), self.type_filter)
 
         # Date range
-        filter_layout.addWidget(QLabel("From:"), 1, 2)
         self.date_from = QDateEdit()
         self.date_from.setDate(QDate.currentDate().addDays(-30))
         self.date_from.setCalendarPopup(True)
         self.date_from.dateChanged.connect(self.filter_changed.emit)
-        filter_layout.addWidget(self.date_from, 1, 3)
+        form_layout.addRow(QLabel("From:"), self.date_from)
 
-        # Clear filters button
-        clear_btn = QPushButton("Clear Filters")
-        clear_btn.setObjectName("clearButton")
-        clear_btn.clicked.connect(self._clear_filters)
-        filter_layout.addWidget(clear_btn, 2, 0, 1, 2)
+        # Bottom row for checkbox and clear button
+        bottom_controls_layout = QHBoxLayout()
+        bottom_controls_layout.setSpacing(10)
+        bottom_controls_layout.setContentsMargins(0, 5, 0, 0)  # Add some top margin
 
-        # Show only today's orders
         self.today_only = QCheckBox("Today's Orders Only")
         self.today_only.stateChanged.connect(self.filter_changed.emit)
-        filter_layout.addWidget(self.today_only, 2, 2, 1, 2)
+
+        clear_btn = QPushButton("Clear")  # Shorter text
+        clear_btn.setObjectName("clearButton")
+        clear_btn.clicked.connect(self._clear_filters)
+
+        bottom_controls_layout.addWidget(self.today_only)
+        bottom_controls_layout.addStretch()
+        bottom_controls_layout.addWidget(clear_btn)
+
+        form_layout.addRow(bottom_controls_layout)
 
         layout.addWidget(filter_group)
 
@@ -201,7 +208,6 @@ class OrderHistoryTable(QTableWidget):
         # Column 2: Transaction Type
         trans_type = order.get("transaction_type", "N/A").upper()
         type_item = QTableWidgetItem(trans_type)
-        type_item.setObjectName(f"{trans_type.lower()}Tag")
         if trans_type == "BUY":
             type_item.setForeground(QColor("#00b894"))
         elif trans_type == "SELL":
@@ -230,7 +236,6 @@ class OrderHistoryTable(QTableWidget):
         # Column 6: Status
         status = order.get("status", "").upper()
         status_item = QTableWidgetItem(status)
-        status_item.setObjectName(f"{status.lower()}Status")
 
         # Set status colors
         if status == "COMPLETE":
@@ -401,8 +406,8 @@ class OrderHistoryDialog(QDialog):
     def _setup_window(self):
         """Initialize window properties."""
         self.setWindowTitle("Order History - Swing Trader")
-        self.setMinimumSize(1200, 700)
-        self.resize(1400, 800)
+        self.setMinimumSize(1100, 700)
+        # self.resize(1400, 800)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.setAttribute(Qt.WA_TranslucentBackground)
 
@@ -545,6 +550,16 @@ class OrderHistoryDialog(QDialog):
             # Update status
             total_count = len(self._orders_data)
             self.status_label.setText(f"Last updated: {datetime.now().strftime('%H:%M:%S')}")
+            self.status_label.setStyleSheet("""
+                color: #00FFAA;
+                font-size: 12px;
+                font-weight: bold;
+                font-style: italic;
+                padding: 4px 8px;
+                border: 1px solid #444;
+                border-radius: 6px;
+                background-color: #1e1e1e;
+            """)
 
             logger.info(f"Loaded {total_count} orders from trade logger")
 
@@ -597,7 +612,7 @@ class OrderHistoryDialog(QDialog):
         logger.info("Order data export requested")
 
     def _apply_styles(self):
-        """Apply comprehensive dark theme styles."""
+        """Apply comprehensive dark theme styles with sharp-edged inputs."""
         self.setStyleSheet("""
             QWidget#mainContainer {
                 background-color: #0a0a0a;
@@ -682,8 +697,8 @@ class OrderHistoryDialog(QDialog):
                 background-color: #dc3545;
                 color: white;
                 border: none;
-                padding: 6px 12px;
-                border-radius: 4px;
+                padding: 5px 10px;      /* Compact padding */
+                border-radius: 2px;     /* Sharp edges */
                 font-weight: 600;
                 font-size: 11px;
             }
@@ -727,30 +742,22 @@ class OrderHistoryDialog(QDialog):
                 background-color: #0f0f17;
             }
 
-            QLineEdit {
+            /* Sharp-edged and compact input fields */
+            QLineEdit, QComboBox, QDateEdit {
                 background-color: #1a1a2e;
                 border: 1px solid #3a3a4a;
                 color: #ffffff;
-                padding: 6px 8px;
-                border-radius: 4px;
+                padding: 4px 6px;      /* Compact padding */
+                border-radius: 2px;     /* Sharp edges */
                 font-size: 12px;
             }
-            QLineEdit:focus {
+            QLineEdit:focus, QComboBox:focus, QDateEdit:focus {
                 border-color: #00d4ff;
                 background-color: #1a1a2e;
             }
 
             QComboBox {
-                background-color: #1a1a2e;
-                border: 1px solid #3a3a4a;
-                color: #ffffff;
-                padding: 6px 8px;
-                border-radius: 4px;
-                font-size: 12px;
-                min-width: 100px;
-            }
-            QComboBox:focus {
-                border-color: #00d4ff;
+                min-width: 90px;
             }
             QComboBox::drop-down {
                 border: none;
@@ -768,18 +775,6 @@ class OrderHistoryDialog(QDialog):
                 border: 1px solid #3a3a4a;
                 selection-background-color: #2d3748;
                 color: #ffffff;
-            }
-
-            QDateEdit {
-                background-color: #1a1a2e;
-                border: 1px solid #3a3a4a;
-                color: #ffffff;
-                padding: 6px 8px;
-                border-radius: 4px;
-                font-size: 12px;
-            }
-            QDateEdit:focus {
-                border-color: #00d4ff;
             }
 
             QCheckBox {

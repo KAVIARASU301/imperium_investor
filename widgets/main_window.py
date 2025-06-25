@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 from typing import List, Dict, Union, Any
 
-from PySide6.QtCore import Qt, QUrl, QByteArray, QTimer, Slot
+from PySide6.QtCore import Qt, QUrl, QByteArray, QTimer, Slot, Signal
 from PySide6.QtMultimedia import QSoundEffect
 from PySide6.QtWidgets import QMainWindow, QSplitter, QMessageBox, QWidget, QVBoxLayout, QHBoxLayout, \
     QPushButton, QLabel
@@ -43,6 +43,7 @@ class SwingTraderWindow(QMainWindow):
     The main frameless window for the Swing Trader application with a professional dark theme.
     Includes advanced order management, risk management, and an enhanced alert system.
     """
+    trade_completed = Signal()
 
     # ==============================================================================
     # INITIALIZATION AND SETUP
@@ -102,7 +103,7 @@ class SwingTraderWindow(QMainWindow):
         logger.info("Swing Trader Window Initialized Successfully.")
 
         self._startup_complete = False
-        QTimer.singleShot(20000, self._mark_startup_complete)  #
+        QTimer.singleShot(20000, self._mark_startup_complete)
 
     def _setup_frameless_window(self):
         """Setup frameless window with custom title bar."""
@@ -611,6 +612,8 @@ class SwingTraderWindow(QMainWindow):
             self._show_order_notification(message, "success")
             self.trade_logger.log_order_update(order_data)
             self._refresh_positions_table()
+            self.trade_completed.emit()  # <--- ADD THIS LINE
+
             # Update performance metrics in header (non-blocking)
             QTimer.singleShot(2000, self._update_performance_metrics_in_header)
 
@@ -996,29 +999,22 @@ class SwingTraderWindow(QMainWindow):
             self._show_order_notification("Failed to open order history", "error")
 
     def _show_performance_dialog(self):
-        """
-        Show the enhanced performance dashboard with trade logger integration.
-        This method replaces your existing _show_performance_dialog method.
-        """
         try:
-            # Create dialog if it doesn't exist or was closed
             if self.performance_dialog is None or not self.performance_dialog.isVisible():
                 self.performance_dialog = PerformanceDialog(
                     trade_logger=self.trade_logger,
                     parent=self
                 )
+                # Connect the signal for automatic updates
+                self.trade_completed.connect(self.performance_dialog.refresh_data)  # <--- ADD THIS LINE
 
-
-            # Show the dialog
+            self.performance_dialog.refresh_data()  # Initial refresh
             self.performance_dialog.show()
             self.performance_dialog.raise_()
             self.performance_dialog.activateWindow()
-
             logger.info("Performance dashboard opened")
-
         except Exception as e:
-            logger.error(f"Failed to show performance dashboard: {e}")
-            self._show_order_notification("Failed to open performance dashboard", "error")
+            logger.error(f"Failed to show performance dashboard: {e}", exc_info=True)
 
     def _refresh_performance_data(self):
         """Handle performance data refresh request."""

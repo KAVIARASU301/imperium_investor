@@ -76,12 +76,16 @@ class AdvancedOrder:
     def to_dict(self) -> Dict[str, Any]:
         """Convert order to dictionary for API calls."""
         data = {
+            "order_id": self.order_id,
             "tradingsymbol": self.symbol,
             "transaction_type": self.transaction_type,
             "quantity": self.quantity,
             "order_type": self.order_type.value,
             "product": self.product,
-            "validity": self.validity
+            "validity": self.validity,
+            "status": self.status.value,
+            "price": self.price,
+            "trigger_price": self.trigger_price
         }
 
         if self.price > 0:
