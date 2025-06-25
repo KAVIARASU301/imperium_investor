@@ -118,17 +118,16 @@ class PaperTradingManager(QObject):
         """Set reference to main window for order updates."""
         self.main_window = main_window
 
-    def place_order(self, tradingsymbol, transaction_type, quantity,
+    def place_order(self, variety, exchange, tradingsymbol, transaction_type, quantity,
                     product, order_type, price=None, trigger_price=None, validity="DAY",
                     **kwargs) -> str:
         """Enhanced order placement with fixed validation"""
         try:
-            # Validate parameters
+            # Validate parameters with the new signature
             self._validate_order_parameters(
-                tradingsymbol, transaction_type,
+                variety, exchange, tradingsymbol, transaction_type,
                 quantity, product, order_type, price, trigger_price
             )
-
             # Generate unique order ID
             order_id = f"paper_{uuid.uuid4().hex[:12]}"
 

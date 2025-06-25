@@ -5,7 +5,7 @@ from kiteconnect import KiteConnect
 from utils.login_manager import LoginManager
 from utils.paper_trading_manager import PaperTradingManager
 from utils.login_setup_config import setup_logging
-from widgets.swing_trader_window import SwingTraderWindow
+from widgets.main_window import SwingTraderWindow
 # Set up global logging for the application.
 # Note: The logger name inside setup_logging might need to be changed from 'Options Scalper'
 # We will address this when we refactor the logging setup file.

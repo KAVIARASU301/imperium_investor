@@ -839,7 +839,7 @@ class RiskAlertConfig:
 
 # Usage example for integration in main window
 """
-# In your swing_trader_window.py, you can now use:
+# In your main_window.py, you can now use:
 
 # 1. Initialize with enhanced handlers
 def _connect_advanced_signals(self):

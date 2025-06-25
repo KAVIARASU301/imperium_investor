@@ -1,10 +1,10 @@
 import logging
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget, QFrame,
-    QLineEdit, QComboBox, QCheckBox, QButtonGroup, QRadioButton, QGroupBox,
-    QTabWidget, QSpinBox, QDoubleSpinBox, QGridLayout, QFormLayout, QScrollArea, QMessageBox
+    QComboBox, QCheckBox, QButtonGroup, QRadioButton,
+    QTabWidget, QSpinBox, QDoubleSpinBox, QGridLayout, QMessageBox
 )
-from PySide6.QtCore import Qt, Signal, QPropertyAnimation, QEasingCurve, QRect, QPoint
+from PySide6.QtCore import Qt, Signal, QRect
 from PySide6.QtGui import QMouseEvent, QShowEvent, QPainter, QPainterPath, QFont, QPen, QLinearGradient, QColor, QBrush, \
     QFontMetrics
 from typing import Dict, Any, Optional
@@ -88,7 +88,7 @@ class ToggleSwitch(QWidget):
 
 class OrderDialog(QDialog):
     """Enhanced order window with improved UI and proper color scheme."""
-
+    ltp_update_requested = Signal(str)
     order_placed = Signal(dict)
     bracket_order_placed = Signal(dict)
 
@@ -819,20 +819,45 @@ class OrderDialog(QDialog):
         total_investment = quantity * price
         self.bracket_total_investment_label.setText(f"Total Investment: ₹{total_investment:,.2f}")
 
-
     def _update_ltp(self):
-        """Request LTP update from parent."""
+        """
+        Request a fresh LTP update by directly calling the parent window's method.
+        This is the restored direct communication pattern.
+        """
         logger.info(f"LTP update requested for {self.symbol}")
 
-        # Try to get fresh LTP from parent window
         if hasattr(self.parent(), '_get_fresh_ltp'):
+            # The parent window has the method, so we can call it.
             new_ltp = self.parent()._get_fresh_ltp(self.symbol)
-            if new_ltp > 0:
-                self.update_ltp(new_ltp)
+
+            if new_ltp is not None and new_ltp > 0:
+                self.update_ltp(new_ltp)  # Call the dialog's own updater
             else:
-                QMessageBox.warning(self, "Update Failed", "Could not fetch latest LTP")
+                QMessageBox.warning(self, "Update Failed", "Could not fetch the latest price.")
         else:
-            QMessageBox.warning(self, "Update Failed", "LTP update not available")
+            # This is a fallback in case the parent doesn't have the method.
+            logger.error("Parent window does not have the '_get_fresh_ltp' method.")
+            QMessageBox.critical(self, "Error", "LTP update functionality is not available.")
+        # ---------------------------------------------------------------------
+
+    def update_ltp(self, new_ltp: float):
+        """Update LTP and recalculate dependent values."""
+        self.ltp = new_ltp
+        self.ltp_label.setText(f"₹{self.ltp:,.2f}")
+
+        # Only update prices if market order or not manually edited
+        if self._order_type == "MARKET":
+            self.price_spinbox.setValue(new_ltp)
+            self.trigger_price_spinbox.setValue(new_ltp)
+
+        self.bracket_price_spinbox.setValue(new_ltp)
+
+        # Recalculate all dependent values
+        self._update_sl_calculation()
+        self._update_target_calculation()
+        self._update_bracket_calculations()
+        self._update_regular_total_investment()
+        self._update_bracket_total_investment()
 
     def _place_order(self):
         """Process order placement."""
@@ -854,6 +879,8 @@ class OrderDialog(QDialog):
             order_type = selected_button.text()
 
             order_data = {
+                "variety": "regular",  # ADD THIS
+                "exchange": "NSE",  # ADD THIS
                 "tradingsymbol": self.symbol,
                 "transaction_type": "BUY" if self._is_buy else "SELL",
                 "quantity": self.quantity_spinbox.value(),
@@ -863,10 +890,14 @@ class OrderDialog(QDialog):
             }
 
             if order_type in ["LIMIT", "SL"]:
-                order_data["price"] = self.price_spinbox.value()
+                price_value = self.price_spinbox.value()
+                # Format to a string with exactly two decimal places
+                order_data["price"] = f"{price_value:.2f}"
 
             if order_type in ["SL", "SL-M"]:
-                order_data["trigger_price"] = self.trigger_price_spinbox.value()
+                trigger_price_value = self.trigger_price_spinbox.value()
+                # Format to a string with exactly two decimal places
+                order_data["trigger_price"] = f"{trigger_price_value:.2f}"
 
             # Place the main order
             orders_to_place = [order_data]
@@ -1262,26 +1293,6 @@ class OrderDialog(QDialog):
             event.accept()
         else:
             super().mouseReleaseEvent(event)
-
-    def update_ltp(self, new_ltp: float):
-        """Update LTP and recalculate dependent values."""
-        self.ltp = new_ltp
-        self.ltp_label.setText(f"₹{self.ltp:,.2f}")
-
-        # Only update prices if market order or not manually edited
-        if self._order_type == "MARKET":
-            self.price_spinbox.setValue(new_ltp)
-            self.trigger_price_spinbox.setValue(new_ltp)
-
-        # Always update bracket entry price with new LTP
-        self.bracket_price_spinbox.setValue(new_ltp)
-
-        # Recalculate dependent values
-        self._update_sl_calculation()
-        self._update_target_calculation()
-        self._update_bracket_calculations()
-        self._update_regular_total_investment()
-        self._update_bracket_total_investment()
 
 
     def eventFilter(self, obj, event):

@@ -63,6 +63,7 @@ class SwingTraderWindow(QMainWindow):
         self.position_manager = PositionManager(self.trader, self.trade_logger)
         self.instrument_list: List[Dict] = []
         self.instrument_map: Dict[str, Dict] = {}
+        self._subscribed_tokens = set()
 
         if isinstance(self.trader, PaperTradingManager):
             self.trader.set_trade_logger(self.trade_logger)
@@ -187,19 +188,20 @@ class SwingTraderWindow(QMainWindow):
         title_bar.mouseDoubleClickEvent = self._title_bar_double_click
         return title_bar
 
-
     def _init_sounds(self):
         """Initializes all sound effects for the application."""
+
         def create_sound(file_name):
-            sound_effect = QSoundEffect(self)
             sound_file = os.path.join("assets", file_name)
-            if os.path.exists(sound_file):
-                sound_effect.setSource(QUrl.fromLocalFile(sound_file))
-                sound_effect.setVolume(1.0)
-                logger.info(f"Sound loaded: {file_name}")
-                return sound_effect
-            logger.warning(f"Sound file not found: {sound_file}")
-            return None
+            if not os.path.exists(sound_file):
+                logger.warning(f"Sound file not found: {sound_file}. Please ensure the 'assets' directory is present.")
+                return None
+
+            sound_effect = QSoundEffect(self)
+            sound_effect.setSource(QUrl.fromLocalFile(sound_file))
+            sound_effect.setVolume(1.0)  # You can make this configurable
+            logger.info(f"Sound loaded: {sound_file}")
+            return sound_effect
 
         self.alert_sound = create_sound("alert.mp3")
         self.success_sound = create_sound("success.mp3")
@@ -522,25 +524,27 @@ class SwingTraderWindow(QMainWindow):
             self.market_data_worker.set_instruments(list(all_tokens))
             logger.info(f"Updated subscription to {len(all_tokens)} tokens.")
 
+
     @Slot(list)
     def _subscribe_to_tokens(self, tokens: List[int]):
         """Subscribe to market data tokens with duplicate prevention."""
         if not tokens:
             return
 
-        # Filter out already subscribed tokens
-        new_tokens = [token for token in tokens if token not in self._subscribe_to_tokens]
+        # Filter out already subscribed tokens - CORRECTED
+        new_tokens = [token for token in tokens if token not in self._subscribed_tokens]
 
         if not new_tokens:
             return  # No new tokens to subscribe
 
         try:
-            if self.market_data_worker and hasattr(self.market_data_worker, 'subscribe_to_tokens'):
-                self.market_data_worker.subscribe_to_tokens(new_tokens)
-                # Update subscribed tokens set
-                self._subscribe_to_tokens.update(new_tokens)
+            if self.market_data_worker and hasattr(self.market_data_worker, 'add_instruments'):
+                # Use the more robust add_instruments method from your worker
+                self.market_data_worker.add_instruments(new_tokens)
+                # Update the local set of subscribed tokens
+                self._subscribed_tokens.update(new_tokens)
                 logger.info(
-                    f"Added {len(new_tokens)} new tokens to subscription (total: {len(self._subscribe_to_tokens)})")
+                    f"Added {len(new_tokens)} new tokens to subscription (total: {len(self._subscribed_tokens)})")
             else:
                 logger.warning("Market data worker not available for subscription")
         except Exception as e:
@@ -710,6 +714,7 @@ class SwingTraderWindow(QMainWindow):
             dialog.order_placed.connect(self._handle_order_placement)
             dialog.bracket_order_placed.connect(self._handle_bracket_order_placement)
             dialog.show()
+
 
     def _on_header_buy_order(self, symbol: str):
         self._show_advanced_order_dialog(symbol)
@@ -1374,7 +1379,7 @@ class SwingTraderWindow(QMainWindow):
             QMessageBox QPushButton:hover { background-color: #3a3a3a; }
         """)
 
-    # Add this to swing_trader_window.py after the _setup_watchlist_shortcuts method
+    # Add this to main_window.py after the _setup_watchlist_shortcuts method
 
     def _setup_global_shortcuts(self):
         """Setup global shortcuts that work based on focused widget context."""
