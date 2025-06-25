@@ -6,7 +6,6 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 
-from utils.pnl_logger import PnlLogger
 
 logger = logging.getLogger(__name__)
 
