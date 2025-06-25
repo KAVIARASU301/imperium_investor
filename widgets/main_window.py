@@ -485,6 +485,25 @@ class SwingTraderWindow(QMainWindow):
         if not ticks:
             return
         try:
+            # chart update - ensure proper data structure
+            if self.candlestick_chart and hasattr(self.candlestick_chart, 'current_symbol'):
+                current_symbol = self.candlestick_chart.current_symbol
+                current_token = getattr(self.candlestick_chart, 'current_instrument_token', None)
+
+                # Filter ticks for current chart symbol
+                chart_ticks = []
+                for tick in ticks:
+                    tick_symbol = tick.get('tradingsymbol')
+                    tick_token = tick.get('instrument_token')
+
+                    if (tick_symbol == current_symbol or
+                            (current_token and tick_token == current_token)):
+                        chart_ticks.append(tick)
+
+                if chart_ticks:
+                    logger.debug(f"Sending {len(chart_ticks)} ticks to chart for {current_symbol}")
+                    self.candlestick_chart.update_live_data(chart_ticks)
+
             self.position_manager.update_pnl_from_market_data(ticks)
             if isinstance(self.trader, PaperTradingManager):
                 self.trader.update_market_data(ticks)
@@ -504,8 +523,6 @@ class SwingTraderWindow(QMainWindow):
             logger.debug(
                 f"Market data: {len(ticks)} total ticks, {len(relevant_ticks)} relevant for {current_chart_symbol}")
 
-            if self.candlestick_chart:
-                self.candlestick_chart.update_live_data(ticks)
 
             if self.risk_manager:
                 positions = self.position_manager.get_all_positions()

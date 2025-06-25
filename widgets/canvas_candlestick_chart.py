@@ -588,9 +588,7 @@ class ChartSettingsDialog(QDialog):
 
 
 class ChartBridge(QObject):
-    """
-    Bridge to allow JavaScript in QWebEngineView to communicate with Python.
-    """
+    """Bridge to allow JavaScript in QWebEngineView to communicate with Python."""
     drawings_changed = Signal(str)
     visible_candle_count_changed = Signal(int)
     chart_ready = Signal()
@@ -602,10 +600,14 @@ class ChartBridge(QObject):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._pending_calls = []  # Add queue for pending calls
 
     @Slot(str)
     def notify_drawings_changed(self, drawings_json: str):
         """Receives drawing data as a JSON string from JavaScript."""
+        if not self.webChannelInitialized:
+            self._pending_calls.append(('notify_drawings_changed', drawings_json))
+            return
         try:
             json.loads(drawings_json)
             self.drawings_changed.emit(drawings_json)
@@ -614,39 +616,22 @@ class ChartBridge(QObject):
         except Exception as e:
             logger.error(f"Error in notify_drawings_changed: {e}")
 
-    @Slot(int)
-    def notify_visible_candle_count_changed(self, count: int):
-        """Receives visible candle count from JavaScript."""
-        try:
-            if isinstance(count, (int, float)) and count > 0:
-                self.visible_candle_count_changed.emit(int(count))
-            else:
-                logger.warning(f"Invalid candle count received: {count}")
-        except Exception as e:
-            logger.error(f"Error in notify_visible_candle_count_changed: {e}")
-
     @Slot()
     def set_web_channel_initialized(self):
         """Called by JavaScript to confirm WebChannel is fully set up."""
         self.webChannelInitialized = True
-        logger.debug("Python ChartBridge.webChannelInitialized set to True and chart_ready emitted.")
+        logger.debug("Python ChartBridge.webChannelInitialized set to True")
+
+        # Process any pending calls
+        for method_name, args in self._pending_calls:
+            try:
+                method = getattr(self, method_name)
+                method(args)
+            except Exception as e:
+                logger.error(f"Error processing pending call {method_name}: {e}")
+        self._pending_calls.clear()
+
         self.chart_ready.emit()
-
-    @Slot(str)
-    def create_alert_from_chart(self, alert_json: str):
-        """Receives alert creation request as JSON from JS"""
-        logger.info(f"Received alert creation request from chart: {alert_json}")
-        self.alert_creation_requested.emit(alert_json)
-
-    @Slot(str)
-    def show_order_dialog_from_chart(self, order_data_json: str):
-        """Receives request to show order dialog from JS"""
-        logger.info(f"Received order dialog request from chart: {order_data_json}")
-        self.order_dialog_requested.emit(order_data_json)
-
-    @Slot(str)
-    def request_text_note_dialog(self, mouse_pos_json):
-        self.text_note_requested.emit(mouse_pos_json)
 
 
 class CandlestickChart(QWidget):
@@ -728,6 +713,20 @@ class CandlestickChart(QWidget):
         self._setup_keyboard_shortcuts()
 
         QTimer.singleShot(100, self._initialize_chart)
+
+    def debug_live_updates(self):
+        """Debug helper to check live update status"""
+        status = {
+            'current_symbol': self.current_symbol,
+            'current_token': self.current_instrument_token,
+            'chart_state': self.current_state.name,
+            'has_chart_view': bool(self.chart_view),
+            'bridge_initialized': self.chart_bridge.webChannelInitialized,
+            'has_data': self.last_df is not None and not self.last_df.empty if self.last_df is not None else False,
+            'subscribed_tokens': len(self._subscribed_tokens) if hasattr(self, '_subscribed_tokens') else 0
+        }
+        logger.info(f"Chart debug status: {status}")
+        return status
 
     @Slot()
     def _on_js_chart_fully_ready(self):
@@ -1388,94 +1387,130 @@ class CandlestickChart(QWidget):
             logger.error(f"Received malformed live_data (not a dict or list of dicts): {live_data}")
 
     def _process_single_live_data_item(self, data_item: Dict[str, Any]):
+        """Process a single live data tick for chart updates."""
         trading_symbol = data_item.get('tradingsymbol')
         last_price = data_item.get('last_price')
         instrument_token = data_item.get('instrument_token')
 
-        logger.debug(f"TICK DEBUG: symbol={trading_symbol}, ltp={last_price}, token={instrument_token}")
-        logger.debug(
-            f"CHART STATE: current_symbol={self.current_symbol}, current_token={self.current_instrument_token}")
-        logger.debug(
-            f"CHART READY: state={self.current_state}, bridge_ready={getattr(self.chart_bridge, 'webChannelInitialized', False)}")
+        # Skip if no valid data
+        if not trading_symbol or last_price is None:
+            return
 
-        # Enhanced matching logic - check both symbol and token
+        # Check if this tick is for current chart symbol
         symbol_matches = trading_symbol == self.current_symbol
-        token_matches = instrument_token == self.current_instrument_token
+        token_matches = (instrument_token == self.current_instrument_token
+                         if instrument_token and self.current_instrument_token else False)
 
-        # Debug logging
-        logger.debug(
-            f"Tick: {trading_symbol}={last_price}, token={instrument_token}, current_token={self.current_instrument_token}")
+        if not (symbol_matches or token_matches):
+            return
 
-        if trading_symbol and last_price is not None and (symbol_matches or token_matches):
-            self.current_ltp = float(last_price)
-            self._update_symbol_info_live(self.current_ltp)
+        # Update current LTP
+        self.current_ltp = float(last_price)
+        self._update_symbol_info_live(self.current_ltp)
 
-            # Enhanced chart readiness check
-            if (self.chart_view and
-                    self.current_state == ChartState.LOADED and
-                    self.last_df is not None and
-                    not self.last_df.empty and
-                    getattr(self.chart_bridge, 'webChannelInitialized', False)):
+        # Check if chart is ready for updates
+        chart_ready = all([
+            self.chart_view,
+            self.current_state == ChartState.LOADED,
+            self.last_df is not None and not self.last_df.empty,
+            getattr(self.chart_bridge, 'webChannelInitialized', False)
+        ])
 
-                try:
-                    last_candle_time = self.last_df['time'].iloc[-1]
-                    now = datetime.now()
-                    new_candle = False
+        if not chart_ready:
+            logger.debug(f"Chart not ready for {trading_symbol} updates")
+            return
 
-                    # More robust interval checking
-                    if self.current_interval == "minute":
-                        new_candle = now.minute != last_candle_time.minute
-                    elif self.current_interval == "3minute":
-                        new_candle = (now.hour * 60 + now.minute) // 3 != (
-                                    last_candle_time.hour * 60 + last_candle_time.minute) // 3
-                    elif self.current_interval == "5minute":
-                        new_candle = (now.hour * 60 + now.minute) // 5 != (
-                                    last_candle_time.hour * 60 + last_candle_time.minute) // 5
-                    elif self.current_interval == "15minute":
-                        new_candle = (now.hour * 60 + now.minute) // 15 != (
-                                    last_candle_time.hour * 60 + last_candle_time.minute) // 15
-                    elif self.current_interval == "30minute":
-                        new_candle = (now.hour * 60 + now.minute) // 30 != (
-                                    last_candle_time.hour * 60 + last_candle_time.minute) // 30
-                    elif self.current_interval == "60minute":
-                        new_candle = now.hour != last_candle_time.hour
-                    elif self.current_interval == "day":
-                        new_candle = now.date() != last_candle_time.date()
-                    elif self.current_interval == "week":
-                        new_candle = now.isocalendar()[1] != last_candle_time.isocalendar()[1]
-                    elif self.current_interval == "month":
-                        new_candle = now.month != last_candle_time.month or now.year != last_candle_time.year
-
-                    if new_candle:
-                        new_candle_data = {
-                            'time': int(now.timestamp() * 1000),
-                            'open': last_price,
-                            'high': last_price,
-                            'low': last_price,
-                            'close': last_price,
-                            'volume': 0
-                        }
-                        js_code = f"if (window.chart && window.chart.addNewCandle) window.chart.addNewCandle({json.dumps(new_candle_data)});"
-                        logger.debug(f"Adding new candle for {trading_symbol}: {last_price}")
-                    else:
-                        js_code = f"if (window.chart && window.chart.updateLivePrice) window.chart.updateLivePrice({self.current_ltp});"
-                        logger.debug(f"Updating live price for {trading_symbol}: {last_price}")
-
-                    self.chart_view.page().runJavaScript(js_code)
-
-                except Exception as e:
-                    logger.error(f"Error processing live data for {trading_symbol}: {e}")
-                    # Fallback to simple price update
-                    js_code = f"if (window.chart && window.chart.updateLivePrice) window.chart.updateLivePrice({self.current_ltp});"
-                    self.chart_view.page().runJavaScript(js_code)
+        try:
+            # Check if we need a new candle
+            if self._should_create_new_candle():
+                self._add_new_candle(last_price)
             else:
-                logger.debug(f"Chart not ready for updates: view={bool(self.chart_view)}, state={self.current_state}, "
-                             f"bridge_ready={getattr(self.chart_bridge, 'webChannelInitialized', False)}, "
-                             f"has_data={self.last_df is not None and not self.last_df.empty if self.last_df is not None else False}")
-        else:
-            if trading_symbol == self.current_symbol:
-                logger.debug(
-                    f"Skipping tick for {trading_symbol}: last_price={last_price}, token_match={token_matches}")
+                self._update_current_candle(last_price)
+
+        except Exception as e:
+            logger.error(f"Error processing live data for {trading_symbol}: {e}")
+            # Fallback - just update the price
+            self._send_price_update(last_price)
+
+    def _should_create_new_candle(self) -> bool:
+        """Check if current time requires a new candle based on interval."""
+        if self.last_df is None or self.last_df.empty:
+            return False
+
+        last_candle_time = self.last_df['time'].iloc[-1]
+        now = datetime.now()
+
+        interval_checks = {
+            "minute": lambda: now.minute != last_candle_time.minute,
+            "3minute": lambda: (now.hour * 60 + now.minute) // 3 != (
+                        last_candle_time.hour * 60 + last_candle_time.minute) // 3,
+            "5minute": lambda: (now.hour * 60 + now.minute) // 5 != (
+                        last_candle_time.hour * 60 + last_candle_time.minute) // 5,
+            "15minute": lambda: (now.hour * 60 + now.minute) // 15 != (
+                        last_candle_time.hour * 60 + last_candle_time.minute) // 15,
+            "30minute": lambda: (now.hour * 60 + now.minute) // 30 != (
+                        last_candle_time.hour * 60 + last_candle_time.minute) // 30,
+            "60minute": lambda: now.hour != last_candle_time.hour or now.date() != last_candle_time.date(),
+            "day": lambda: now.date() != last_candle_time.date(),
+            "week": lambda: now.isocalendar()[1] != last_candle_time.isocalendar()[
+                1] or now.year != last_candle_time.year,
+            "month": lambda: now.month != last_candle_time.month or now.year != last_candle_time.year
+        }
+
+        check_func = interval_checks.get(self.current_interval)
+        return check_func() if check_func else False
+
+    def _add_new_candle(self, price: float):
+        """Add a new candle to the chart."""
+        now = datetime.now()
+        new_candle_data = {
+            'time': int(now.timestamp() * 1000),
+            'open': price,
+            'high': price,
+            'low': price,
+            'close': price,
+            'volume': 0
+        }
+
+        # Update local dataframe
+        new_row = pd.DataFrame([{
+            'time': now,
+            'open': price,
+            'high': price,
+            'low': price,
+            'close': price,
+            'volume': 0,
+            'symbol': self.current_symbol
+        }])
+        self.last_df = pd.concat([self.last_df, new_row], ignore_index=True)
+
+        # Send to JavaScript
+        js_code = f"""
+        if (window.chart && typeof window.chart.addNewCandle === 'function') {{
+            window.chart.addNewCandle({json.dumps(new_candle_data)});
+        }}
+        """
+        self.chart_view.page().runJavaScript(js_code)
+        logger.debug(f"Added new candle for {self.current_symbol} at {price}")
+
+    def _update_current_candle(self, price: float):
+        """Update the current candle with new price."""
+        if self.last_df is not None and not self.last_df.empty:
+            # Update the last candle in dataframe
+            self.last_df.loc[self.last_df.index[-1], 'close'] = price
+            self.last_df.loc[self.last_df.index[-1], 'high'] = max(self.last_df.iloc[-1]['high'], price)
+            self.last_df.loc[self.last_df.index[-1], 'low'] = min(self.last_df.iloc[-1]['low'], price)
+
+        self._send_price_update(price)
+
+    def _send_price_update(self, price: float):
+        """Send price update to JavaScript chart."""
+        js_code = f"""
+        if (window.chart && typeof window.chart.updateLivePrice === 'function') {{
+            window.chart.updateLivePrice({price});
+        }}
+        """
+        self.chart_view.page().runJavaScript(js_code)
 
     def _update_symbol_info_live(self, ltp: float):
         try:
@@ -1564,8 +1599,8 @@ class CandlestickChart(QWidget):
             #info {{ position: absolute; top: 5px; left: 5px; color: #e0e0e0; font-size: 12px; pointer-events: none; z-index: 5; }}
             #metricsInfo {{ font-weight: bold; margin-bottom: 5px; color: #e0e0e0; }}
             #priceInfo {{ color: #00bfff; font-weight: bold; }}
-            #timeSlider {{ position: absolute; bottom: 0; left: 0; width: 100%; height: 15px; background-color: #1a1a1a; border-top: 1px solid #333; display: flex; align-items: center; justify-content: center; overflow: hidden; user-select: none; z-index: 10; }}
-            #sliderTrack {{ position: relative; height: 3px; background-color: #333; border-radius: 1.5px; width: calc(100% - 20px); margin: 0 10px; }}
+            #timeSlider {{ position: absolute; bottom: 0; left: 0; width: 100%; height: 10px; background-color: #1a1a1a; border-top: 1px solid #333; display: flex; align-items: center; justify-content: center; overflow: hidden; user-select: none; z-index: 10; }}
+            #sliderTrack {{ position: relative; height: 3px; background-color: #333; border-radius: 1.5px; width: calc(100% - 15px); margin: 0 10px; }}
             #sliderThumb {{ position: absolute; width: 50px; height: 10px; background-color: #0066cc; border: 1px solid #0080ff; border-radius: 2px; cursor: grab; display: flex; align-items: center; justify-content: center; color: transparent; font-size: 0; z-index: 12; }}
         </style>
     </head>
@@ -1611,7 +1646,21 @@ class CandlestickChart(QWidget):
                     this.isDragging = false; this.lastMouseX = 0; this.lastMouseY = 0;
                     this.crosshairX = null; this.crosshairY = null;
                     this.livePrice = null; this.isUserZooming = false;
-                    this.colors = {{ upCandle: upCandleColor || '#26a69a', downCandle: downCandleColor || '#ef5350', grid: '#1a1a1a', text: '#e0e0e0', volume: '#555', volumeUp: 'rgba(38, 166, 154, 0.3)', volumeDown: 'rgba(239, 83, 80, 0.3)', background: '#0a0a0a', crosshair: 'rgba(160, 192, 255, 0.4)', livePrice: '#00BFFF' }};
+                    this.previousLivePrice = null;
+                    this.priceChangeAnimation = null;
+                    this.animationStartTime = null;
+                    this.colors = {{ 
+                        upCandle: upCandleColor || '#26a69a', 
+                        downCandle: downCandleColor || '#ef5350', 
+                        grid: '#1a1a1a', 
+                        text: '#e0e0e0', 
+                        volume: '#555', 
+                        volumeUp: 'rgba(38, 166, 154, 0.5)',   // Increased from 0.3
+                        volumeDown: 'rgba(239, 83, 80, 0.5)',  // Increased from 0.3
+                        background: '#0a0a0a', 
+                        crosshair: 'rgba(160, 192, 255, 0.4)', 
+                        livePrice: '#00BFFF' 
+                    }};                    
                     this.emaData = emaData || {{}};
                     this.currentADR = initialADR || {{}};
                     this.percentageChanges = percentageChanges || {{}};
@@ -1656,30 +1705,44 @@ class CandlestickChart(QWidget):
                 }}
 
                 setupWebChannel() {{
-                    const initWebChannel = () => {{
-                        try {{
-                            if (typeof QWebChannel !== 'undefined' && window.qt && window.qt.webChannelTransport) {{
-                                new QWebChannel(qt.webChannelTransport, (channel) => {{
-                                    if (channel.objects && channel.objects.chartBridge) {{
-                                        this.chartBridge = channel.objects.chartBridge;
-                                        this.webChannelInitialized = true;
-                                        console.log("QWebChannel ChartBridge loaded.");
-                                        setTimeout(() => {{
-                                            try {{
-                                                if (this.chartBridge && typeof this.chartBridge.set_web_channel_initialized === 'function') {{
-                                                    this.chartBridge.set_web_channel_initialized();
+                        const initWebChannel = () => {{
+                            try {{
+                                if (typeof QWebChannel !== 'undefined' && window.qt && window.qt.webChannelTransport) {{
+                                    new QWebChannel(qt.webChannelTransport, (channel) => {{
+                                        if (channel.objects && channel.objects.chartBridge) {{
+                                            this.chartBridge = channel.objects.chartBridge;
+                                            this.webChannelInitialized = true;
+                                            console.log("QWebChannel ChartBridge loaded successfully.");
+                                            
+                                            // Delay the initialization call to ensure everything is ready
+                                            setTimeout(() => {{
+                                                try {{
+                                                    if (this.chartBridge && typeof this.chartBridge.set_web_channel_initialized === 'function') {{
+                                                        this.chartBridge.set_web_channel_initialized();
+                                                    }} else {{
+                                                        console.error("set_web_channel_initialized not available");
+                                                    }}
+                                                }} catch (e) {{ 
+                                                    console.error("Error calling set_web_channel_initialized:", e); 
                                                 }}
-                                            }} catch (e) {{ console.warn("Error calling set_web_channel_initialized:", e); }}
-                                        }}, 100);
-                                        this.processNotificationQueue();
-                                    }} else {{ setTimeout(initWebChannel, 200); }}
-                                }});
-                            }} else {{ setTimeout(initWebChannel, 100); }}
-                        }} catch (error) {{ console.error("Error setting up WebChannel:", error); setTimeout(initWebChannel, 500); }}
-                    }};
+                                            }}, 500); // Increased delay
+                                            
+                                            this.processNotificationQueue();
+                                        }} else {{ 
+                                            console.warn("chartBridge not found in channel.objects, retrying...");
+                                            setTimeout(initWebChannel, 500); 
+                                        }}
+                                    }});
+                                }} else {{ 
+                                    console.log("WebChannel not ready, retrying in 200ms...");
+                                    setTimeout(initWebChannel, 200); 
+                                }}
+                            }} catch (error) {{ 
+                                console.error("Error setting up WebChannel:", error); 
+                                setTimeout(initWebChannel, 1000); 
+                            }}
+                        }};
                     initWebChannel();
-                    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initWebChannel);
-                    else initWebChannel();
                 }}
 
                 queueNotification(type, data) {{
@@ -1909,6 +1972,7 @@ class CandlestickChart(QWidget):
                     this.drawCandlesticks(); this.drawAxes(); this.drawAllDrawings();
                     this.drawPriceNotes();
                     this.drawCrosshair(); this.drawCurrentPriceRay();
+                    if (this.priceChangeAnimation) {{this.animatePriceChange();}}
                 }}
 
                 drawGrid() {{
@@ -1939,16 +2003,106 @@ class CandlestickChart(QWidget):
                 }}
 
                 drawVolume() {{
-                    const visibleCandles = this.viewPortEnd - this.viewPortStart + 1; if (visibleCandles <= 0) return;
-                    for (let i = this.viewPortStart; i < this.volumeData.length && i <= this.viewPortEnd; i++) {{
-                        if (i < 0) continue;
-                        const volume = this.volumeData[i], candle = this.data[i], x = this.candleToX(i);
-                        const height = (this.maxVolume > 0) ? (volume.value / this.maxVolume) * this.volumeArea.height : 0;
-                        const isUp = candle.close >= candle.open;
-                        this.ctx.fillStyle = isUp ? this.colors.volumeUp : this.colors.volumeDown;
-                        this.ctx.fillRect(x, this.volumeArea.y + this.volumeArea.height - height, this.candleWidth, height);
+                        const visibleCandles = this.viewPortEnd - this.viewPortStart + 1;
+                        if (visibleCandles <= 0) return;
+                        
+                        // Get visible volume data and sort to find percentiles
+                        const visibleVolumes = [];
+                        for (let i = this.viewPortStart; i < this.volumeData.length && i <= this.viewPortEnd; i++) {{
+                            if (i >= 0 && this.volumeData[i]) {{
+                                visibleVolumes.push(this.volumeData[i].value);
+                            }}
+                        }}
+                        
+                        if (visibleVolumes.length === 0) return;
+                        
+                        // Calculate 90th percentile for better scaling
+                        visibleVolumes.sort((a, b) => a - b);
+                        const percentileIndex = Math.floor(visibleVolumes.length * 0.9);
+                        const volume90Percentile = visibleVolumes[percentileIndex];
+                        
+                        // Use 90th percentile as max, but ensure we can still see extreme values
+                        this.maxVolume = volume90Percentile * 1.1; // Add 10% headroom
+                        
+                        // Draw volume bars
+                        for (let i = this.viewPortStart; i < this.volumeData.length && i <= this.viewPortEnd; i++) {{
+                            if (i < 0) continue;
+                            const volume = this.volumeData[i];
+                            const candle = this.data[i];
+                            const x = this.candleToX(i);
+                            
+                            // Cap the height at 100% for extreme volumes
+                            const heightRatio = Math.min(1.0, volume.value / this.maxVolume);
+                            const height = heightRatio * this.volumeArea.height;
+                            
+                            const isUp = candle.close >= candle.open;
+                            // Increased opacity from 0.3 to 0.5 for better visibility
+                            this.ctx.fillStyle = isUp ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)';
+                            this.ctx.fillRect(x, this.volumeArea.y + this.volumeArea.height - height, this.candleWidth, height);
+                        }}
+                        
+                        // Draw volume scale
+                        this.drawVolumeScale();
                     }}
-                }}
+                    
+                    drawVolumeScale() {{
+                            this.ctx.strokeStyle = this.colors.grid;
+                            this.ctx.fillStyle = this.colors.text;
+                            this.ctx.font = '10px monospace';
+                            this.ctx.textAlign = 'left';
+                            
+                            // Always draw exactly 5 levels (0%, 25%, 50%, 75%, 100%)
+                            const levels = 5;
+                            
+                            for (let i = 0; i < levels; i++) {{
+                                const point = i / (levels - 1); // This gives us 0, 0.25, 0.5, 0.75, 1.0
+                                const y = this.volumeArea.y + this.volumeArea.height - (point * this.volumeArea.height);
+                                
+                                // Draw grid line (make bottom line slightly more visible)
+                                this.ctx.strokeStyle = i === 0 ? this.colors.grid : 'rgba(51, 51, 51, 0.5)';
+                                this.ctx.lineWidth = 0.5;
+                                this.ctx.beginPath();
+                                this.ctx.moveTo(this.chartArea.x, y);
+                                this.ctx.lineTo(this.chartArea.x + this.chartArea.width, y);
+                                this.ctx.stroke();
+                                
+                                // Draw label
+                                const volumeValue = this.maxVolume * point;
+                                const label = this.formatVolumeK(volumeValue);
+                                this.ctx.fillText(label, this.volumeArea.x + this.volumeArea.width + 4, y + 3);
+                            }}
+                            
+                            // Highlight current day's volume if visible
+                            if (this.data.length > 0) {{
+                                const lastIndex = this.data.length - 1;
+                                if (lastIndex >= this.viewPortStart && lastIndex <= this.viewPortEnd) {{
+                                    const currentVolume = this.volumeData[lastIndex].value;
+                                    const y = this.volumeArea.y + this.volumeArea.height - (Math.min(1.0, currentVolume / this.maxVolume) * this.volumeArea.height);
+                                    
+                                    
+                                    
+                                    // Draw current volume label with background
+                                    const currentLabel = this.formatVolumeK(currentVolume);
+                                    const textMetrics = this.ctx.measureText(currentLabel);
+                                    const labelX = this.volumeArea.x + this.volumeArea.width + 4;
+                                    const labelY = y + 3;
+                                    
+                                    // Background for current volume
+                                    this.ctx.fillStyle = '#FF0000';
+                                    this.ctx.fillRect(labelX - 2, labelY - 10, textMetrics.width + 4, 12);
+                                    
+                                    // Text for current volume
+                                    this.ctx.fillStyle = 'white';
+                                    this.ctx.fillText(currentLabel, labelX, labelY);
+                                }}
+                            }}
+                        }}
+                    
+                    formatVolumeK(vol) {{
+                        if (vol === 0) return '0K';
+                        if (vol >= 1e6) return (vol / 1e6).toFixed(1) + 'M';
+                        return (vol / 1e3).toFixed(0) + 'K';
+                    }}
 
                 drawEMABands() {{
                     this.ctx.setLineDash([]);
@@ -1969,20 +2123,29 @@ class CandlestickChart(QWidget):
                 }}
 
                 drawAxes() {{
-                    this.ctx.fillStyle = this.colors.text; this.ctx.font = '11px monospace'; this.ctx.textAlign = 'left';
-                    const priceRange = this.maxPrice - this.minPrice; if (priceRange <= 0) return;
+                    this.ctx.fillStyle = this.colors.text; 
+                    this.ctx.font = '11px monospace'; 
+                    this.ctx.textAlign = 'left';
+                    
+                    // Draw price scale
+                    const priceRange = this.maxPrice - this.minPrice; 
+                    if (priceRange <= 0) return;
                     const priceStep = priceRange / 8;
                     for (let i = 0; i <= 8; i++) {{
-                        const price = this.minPrice + (priceStep * i), y = this.priceToY(price);
+                        const price = this.minPrice + (priceStep * i);
+                        const y = this.priceToY(price);
                         this.ctx.fillText('₹' + price.toFixed(2), this.chartArea.x + this.chartArea.width + 4, y + 4);
                     }}
-                    this.ctx.fillText('Vol', this.volumeArea.x + this.volumeArea.width + 4, this.volumeArea.y + 12);
-                    this.ctx.fillText(this.formatVolume(this.maxVolume), this.volumeArea.x + this.volumeArea.width + 4, this.volumeArea.y + 24);
+                    
+                    
+                    // Draw time labels
                     const visibleCandles = this.viewPortEnd - this.viewPortStart + 1;
-                    const timeStep = Math.max(1, Math.floor(visibleCandles / 6)); this.ctx.textAlign = 'center';
+                    const timeStep = Math.max(1, Math.floor(visibleCandles / 6)); 
+                    this.ctx.textAlign = 'center';
                     for (let i = this.viewPortStart; i < this.data.length; i += timeStep) {{
                         if (i < 0) continue;
-                        const x = this.candleToX(i) + this.candleWidth / 2, date = new Date(this.data[i].time);
+                        const x = this.candleToX(i) + this.candleWidth / 2;
+                        const date = new Date(this.data[i].time);
                         this.ctx.fillText(this.formatTimeLabel(date), x, this.volumeArea.y + this.volumeArea.height + 20);
                     }}
                     this.ctx.textAlign = 'left';
@@ -2156,20 +2319,116 @@ class CandlestickChart(QWidget):
                 }}
 
                 drawCurrentPriceRay() {{
-                    if (this.livePrice !== null && this.currentTool === null) {{
-                        const y = this.priceToY(this.livePrice);
-                        const lastCandleIndex = this.data.length - 1; let rayStartX = this.chartArea.x;
-                        if (lastCandleIndex >= this.viewPortStart && lastCandleIndex <= this.viewPortEnd) rayStartX = this.candleToX(lastCandleIndex) + this.candleWidth / 2;
-                        else if (lastCandleIndex > this.viewPortEnd) rayStartX = this.chartArea.x + this.chartArea.width;
-                        this.ctx.strokeStyle = this.colors.livePrice; this.ctx.lineWidth = 2; this.ctx.setLineDash([2, 2]);
-                        this.ctx.beginPath(); this.ctx.moveTo(rayStartX, y); this.ctx.lineTo(this.chartArea.x + this.chartArea.width, y); this.ctx.stroke(); this.ctx.setLineDash([]);
-                        const priceText = '₹' + this.livePrice.toFixed(2); this.ctx.font = 'bold 12px monospace';
-                        const textMetrics = this.ctx.measureText(priceText);
-                        const rectX = this.chartArea.x + this.chartArea.width, rectY = y - 8, rectWidth = textMetrics.width + 10, rectHeight = 16;
-                        this.ctx.fillStyle = this.colors.livePrice; this.ctx.fillRect(rectX, rectY, rectWidth, rectHeight);
-                        this.ctx.fillStyle = 'white'; this.ctx.fillText(priceText, rectX + 5, y + 4);
+                        if (this.livePrice !== null && this.currentTool === null) {{
+                            const y = this.priceToY(this.livePrice);
+                            
+                            // Determine price direction and colors
+                            let lineColor = this.colors.livePrice;
+                            let bgColor = this.colors.livePrice;
+                            
+                            if (this.previousLivePrice !== null) {{
+                                if (this.livePrice > this.previousLivePrice) {{
+                                    lineColor = '#26a69a'; // Green for up
+                                    bgColor = '#1b5e20'; // Dark green background
+                                }} else if (this.livePrice < this.previousLivePrice) {{
+                                    lineColor = '#ef5350'; // Red for down
+                                    bgColor = '#b71c1c'; // Dark red background
+                                }}
+                            }}
+                            
+                            // Draw the price line across the entire chart
+                            this.ctx.strokeStyle = lineColor;
+                            this.ctx.lineWidth = 1;
+                            this.ctx.setLineDash([4, 2]); // Dashed line
+                            this.ctx.beginPath();
+                            this.ctx.moveTo(this.chartArea.x, y);
+                            this.ctx.lineTo(this.chartArea.x + this.chartArea.width, y);
+                            this.ctx.stroke();
+                            this.ctx.setLineDash([]);
+                            
+                            // Prepare price text
+                            const priceText = '₹' + this.livePrice.toFixed(2);
+                            this.ctx.font = 'bold 11px monospace';
+                            const textMetrics = this.ctx.measureText(priceText);
+                            
+                            // Draw price label on the right scale with dynamic background
+                            const rectX = this.chartArea.x + this.chartArea.width;
+                            const rectY = y - 10;
+                            const rectWidth = textMetrics.width + 12;
+                            const rectHeight = 20;
+                            
+                            // Draw background rectangle
+                            this.ctx.fillStyle = bgColor;
+                            this.ctx.fillRect(rectX, rectY, rectWidth, rectHeight);
+                            
+                            // Draw border
+                            this.ctx.strokeStyle = lineColor;
+                            this.ctx.lineWidth = 1;
+                            this.ctx.strokeRect(rectX, rectY, rectWidth, rectHeight);
+                            
+                            // Draw price text
+                            this.ctx.fillStyle = 'white';
+                            this.ctx.textAlign = 'left';
+                            this.ctx.fillText(priceText, rectX + 6, y + 4);
+                            
+                            // Draw small triangle indicator on the left side of the label
+                            this.ctx.beginPath();
+                            this.ctx.moveTo(rectX, y);
+                            this.ctx.lineTo(rectX - 5, y - 5);
+                            this.ctx.lineTo(rectX - 5, y + 5);
+                            this.ctx.closePath();
+                            this.ctx.fillStyle = bgColor;
+                            this.ctx.fill();
+                            this.ctx.strokeStyle = lineColor;
+                            this.ctx.lineWidth = 1;
+                            this.ctx.stroke();
+                            
+                            // Optionally, add a pulsing effect for the current price
+                            if (this.previousLivePrice !== null && this.livePrice !== this.previousLivePrice) {{
+                                // Draw a subtle glow effect
+                                const glowRadius = 20;
+                                const gradient = this.ctx.createRadialGradient(
+                                    rectX + rectWidth/2, y, 0,
+                                    rectX + rectWidth/2, y, glowRadius
+                                );
+                                gradient.addColorStop(0, lineColor + '40'); // 25% opacity
+                                gradient.addColorStop(1, lineColor + '00'); // 0% opacity
+                                
+                                this.ctx.fillStyle = gradient;
+                                this.ctx.fillRect(
+                                    rectX - glowRadius, 
+                                    y - glowRadius, 
+                                    rectWidth + glowRadius * 2, 
+                                    glowRadius * 2
+                                );
+                            }}
+                        }}
                     }}
-                }}
+                    
+                animatePriceChange() {{
+                        if (!this.priceChangeAnimation) return;
+                        
+                        const now = Date.now();
+                        const elapsed = now - this.animationStartTime;
+                        const duration = 300; // 300ms animation
+                        
+                        if (elapsed < duration) {{
+                            const progress = elapsed / duration;
+                            const opacity = 1 - progress;
+                            
+                            // Draw fading highlight
+                            const y = this.priceToY(this.livePrice);
+                            const rectX = this.chartArea.x + this.chartArea.width;
+                            
+                            this.ctx.fillStyle = this.priceChangeAnimation.color + Math.floor(opacity * 255).toString(16).padStart(2, '0');
+                            this.ctx.fillRect(rectX - 10, y - 15, 100, 30);
+                            
+                            // Continue animation
+                            requestAnimationFrame(() => this.draw());
+                        }} else {{
+                            this.priceChangeAnimation = null;
+                        }}
+                    }}
 
                 drawPriceNotes() {{
                     this.drawings.notes.forEach(note => {{
@@ -2651,17 +2910,29 @@ class CandlestickChart(QWidget):
                     }} 
                 }}
                 updateLivePrice(newPrice) {{ 
-                    if (this.data.length === 0 || typeof newPrice !== 'number') return; 
-                    this.livePrice = newPrice; 
-                    const lastCandle = this.data[this.data.length - 1]; 
-                    if (lastCandle) {{ 
-                        lastCandle.close = newPrice; 
-                        lastCandle.high = Math.max(lastCandle.high, newPrice); 
-                        lastCandle.low = Math.min(lastCandle.low, newPrice); 
-                    }} 
-                    this.calculateBounds(); 
-                    this.draw(); 
-                }}
+                        if (this.data.length === 0 || typeof newPrice !== 'number') return; 
+                        
+                        // Store previous price before updating
+                        this.previousLivePrice = this.livePrice;
+                        this.livePrice = newPrice; 
+                        
+                        // Trigger animation if price changed
+                        if (this.previousLivePrice !== null && this.livePrice !== this.previousLivePrice) {{
+                            this.priceChangeAnimation = {{
+                                color: this.livePrice > this.previousLivePrice ? '#26a69a' : '#ef5350'
+                            }};
+                            this.animationStartTime = Date.now();
+                        }}
+                        
+                        const lastCandle = this.data[this.data.length - 1]; 
+                        if (lastCandle) {{ 
+                            lastCandle.close = newPrice; 
+                            lastCandle.high = Math.max(lastCandle.high, newPrice); 
+                            lastCandle.low = Math.min(lastCandle.low, newPrice); 
+                        }} 
+                        this.calculateBounds(); 
+                        this.draw(); 
+                    }}
                 addNewCandle(candle) {{ if(candle) {{ this.data.push(candle); this.calculateBounds(); this.draw(); }} }}
                 clearAllDrawings() {{ this.drawings = {{ lines: [], rectangles: [], notes: [], horizontal_lines: [] }}; this.draw(); this.notifyDrawingsChange(); }}
                 deleteSelectedDrawing() {{ 
