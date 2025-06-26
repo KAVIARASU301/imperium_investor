@@ -1,6 +1,6 @@
 import logging
 import sys
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from datetime import datetime
 from enum import Enum
 
@@ -8,11 +8,8 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
     QApplication, QProgressBar, QGraphicsOpacityEffect
 )
-from PySide6.QtCore import (
-    Qt, Signal, QPropertyAnimation, QEasingCurve, QByteArray, QTimer,
-    QParallelAnimationGroup, QRect, QPoint
-)
-from PySide6.QtGui import QFont, QPainter, QPainterPath, QColor
+from PySide6.QtCore import ( Qt, Signal, QTimer,QPoint )
+from PySide6.QtCore import QPropertyAnimation, QParallelAnimationGroup, QEasingCurve, QByteArray
 
 logger = logging.getLogger(__name__)
 
@@ -269,14 +266,14 @@ class OrderStatusDialog(QWidget):
 
     def _animate_entrance(self):
         """Animate dialog sliding up from bottom."""
-        self.slide_animation = QPropertyAnimation(self, b"pos")
+        self.slide_animation = QPropertyAnimation(self, QByteArray(b"pos"))
         self.slide_animation.setDuration(400)
         self.slide_animation.setStartValue(self.pos())
         self.slide_animation.setEndValue(self.target_position)
         self.slide_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
 
         # Fade in animation
-        self.fade_animation = QPropertyAnimation(self, b"windowOpacity")
+        self.fade_animation = QPropertyAnimation(self, QByteArray(b"windowOpacity"))
         self.fade_animation.setDuration(400)
         self.fade_animation.setStartValue(0.0)
         self.fade_animation.setEndValue(1.0)
@@ -291,7 +288,7 @@ class OrderStatusDialog(QWidget):
     def _start_pulse_animation(self):
         """Start pulsing animation for status indicator."""
         if self.current_status in [OrderStatusType.PENDING, OrderStatusType.PARTIAL]:
-            self.pulse_animation = QPropertyAnimation(self.opacity_effect, b"opacity")
+            self.pulse_animation = QPropertyAnimation(self.opacity_effect, QByteArray(b"opacity"))
             self.pulse_animation.setDuration(1500)
             self.pulse_animation.setStartValue(1.0)
             self.pulse_animation.setEndValue(0.3)
@@ -350,6 +347,12 @@ class OrderStatusDialog(QWidget):
         """Handle order status changes."""
         logger.info(f"Order {self.order_id} status changed: {old_status.value[0]} -> {new_status.value[0]}")
 
+        # IMMEDIATE HIDE: If changing from PENDING to COMPLETE, hide widget immediately
+        if old_status == OrderStatusType.PENDING and new_status == OrderStatusType.COMPLETE:
+            logger.info(f"Order {self.order_id} completed - hiding status widget immediately for toast notification")
+            self._hide_immediately()
+            return
+
         # Update status label
         self.status_label.setText(new_status.value[0])
 
@@ -373,20 +376,82 @@ class OrderStatusDialog(QWidget):
             if self.pulse_animation:
                 self.pulse_animation.stop()
 
-            # Auto-close after 3 seconds for completed orders
-            if new_status == OrderStatusType.COMPLETE:
+            # For completed orders that weren't immediately hidden, use normal auto-close
+            if new_status == OrderStatusType.COMPLETE and not self.is_closing:
                 self.auto_close_timer.start(3000)
 
+    def _hide_immediately(self):
+        """Hide the dialog immediately without animation to allow toast notification."""
+        try:
+            logger.info(f"Immediately hiding order status dialog for order {self.order_id}")
+
+            # Stop all timers and animations
+            if hasattr(self, 'update_timer'):
+                self.update_timer.stop()
+            if hasattr(self, 'auto_close_timer'):
+                self.auto_close_timer.stop()
+            if hasattr(self, 'pulse_animation') and self.pulse_animation:
+                self.pulse_animation.stop()
+            if hasattr(self, 'slide_animation') and self.slide_animation:
+                self.slide_animation.stop()
+            if hasattr(self, 'fade_animation') and self.fade_animation:
+                self.fade_animation.stop()
+
+            # Mark as closing to prevent other operations
+            self.is_closing = True
+            self._is_closed = True
+
+            # Hide immediately without animation
+            self.hide()
+
+            # Emit completion signal for main window to show toast
+            if hasattr(self, 'order_completed'):
+                self.order_completed.emit(self.order_data)
+            if hasattr(self, 'refresh_positions_requested'):
+                self.refresh_positions_requested.emit()
+
+            # Clean up and close
+            self.close()
+
+            # Clear reference in parent if exists
+            if hasattr(self, 'parent_window') and self.parent_window:
+                if hasattr(self.parent_window, 'order_status_dialog'):
+                    self.parent_window.order_status_dialog = None
+
+            logger.info(f"Order status dialog hidden immediately for order {self.order_id}")
+
+        except Exception as e:
+            logger.error(f"Error hiding order status dialog immediately: {e}")
+
     def _handle_order_completion(self):
-        """Handle order completion."""
+        """Handle order completion - now only for non-immediate hiding cases."""
         logger.info(f"Order {self.order_id} completed successfully")
 
-        # Emit signals for main window integration
-        self.order_completed.emit(self.order_data)
-        self.refresh_positions_requested.emit()
+        # Only emit signals if not already hidden immediately
+        if not self.is_closing:
+            # Emit signals for main window integration
+            if hasattr(self, 'order_completed'):
+                self.order_completed.emit(self.order_data)
+            if hasattr(self, 'refresh_positions_requested'):
+                self.refresh_positions_requested.emit()
 
-        # Update UI for completion
-        self.progress_text.setText("✓ Order completed successfully!")
+            # Update UI for completion
+            self.progress_text.setText("✓ Order completed successfully!")
+
+    # Additional method to check if we should hide immediately
+    def should_hide_immediately(self, old_status: OrderStatusType, new_status: OrderStatusType) -> bool:
+        """
+        Determine if the dialog should hide immediately based on status change.
+        This allows for easy customization of which status changes trigger immediate hiding.
+        """
+        # Define status change combinations that should trigger immediate hide
+        immediate_hide_transitions = [
+            (OrderStatusType.PENDING, OrderStatusType.COMPLETE),
+            # Add more transitions here if needed, e.g.:
+            # (OrderStatusType.PARTIAL, OrderStatusType.COMPLETE),
+        ]
+
+        return (old_status, new_status) in immediate_hide_transitions
 
     def _handle_order_cancellation(self):
         """Handle order cancellation."""
@@ -461,35 +526,37 @@ class OrderStatusDialog(QWidget):
         """Auto-close dialog for completed orders."""
         self._close_dialog()
 
-    def update_from_external(self, order_data: Dict[str, Any]):
-        """Handle external order updates with duplicate prevention."""
-        if self._is_closed:
+    def update_from_external(self, new_data: Dict[str, Any]):
+        """Update dialog from external order data (WebSocket or API)."""
+        if self.is_closing or self._is_closed:
             return
 
         try:
-            new_status = order_data.get('status', '').upper()
-            source = order_data.get('update_source', 'unknown')
+            # Store old status before update
+            old_status = self.current_status
 
-            # Prevent duplicate status updates from same source
-            status_key = f"{new_status}_{source}"
-            if status_key in self._status_sources:
-                logger.debug(f"Ignoring duplicate status update: {status_key}")
+            # Update order data
+            self.order_data.update(new_data)
+            self.current_status = self._determine_status_type()
+
+            # Check if we should hide immediately before updating UI
+            if self.should_hide_immediately(old_status, self.current_status):
+                self._hide_immediately()
                 return
 
-            self._status_sources.add(status_key)
+            # Update progress
+            filled_qty = self.order_data.get("filled_quantity", 0)
+            total_qty = self.order_data.get("quantity", 1)
+            progress_value = int((filled_qty / total_qty) * 100) if total_qty > 0 else 0
 
-            # Only process if status actually changed
-            if new_status != self._last_status:
-                self._last_status = new_status
+            self.progress_bar.setValue(progress_value)
+            self.progress_text.setText(f"Filled: {filled_qty}/{total_qty} ({progress_value}%)")
 
-                logger.info(f"Order {self.order_id} status changed: {self._last_status} -> {new_status}")
+            # Update status if changed (and not hidden immediately)
+            if old_status != self.current_status:
+                self._handle_status_change(old_status, self.current_status)
 
-                # Update UI
-                self._update_status_display(order_data)
-
-                # Handle completion
-                if new_status == 'COMPLETE':
-                    self._handle_completion(order_data)
+            self.last_update_time = datetime.now()
 
         except Exception as e:
             logger.error(f"Error updating order status dialog: {e}")

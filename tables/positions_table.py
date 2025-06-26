@@ -122,7 +122,7 @@ class PositionsTable(QWidget):
         footer_layout.setSpacing(12)
 
         # Total P&L (main metric)
-        self.total_pnl_label = QLabel("Total P&L: ₹0.00")
+        self.total_pnl_label = QLabel("P&L: ₹0.00")
         self.total_pnl_label.setObjectName("footerPrimaryMetric")
         footer_layout.addWidget(self.total_pnl_label)
 
@@ -292,7 +292,7 @@ class PositionsTable(QWidget):
         color = profit_color if total_pnl >= 0 else loss_color
 
         # Update main P&L label with color
-        self.total_pnl_label.setText(f"Total P&L: ₹{total_pnl:,.2f}")
+        self.total_pnl_label.setText(f"P&L: ₹{total_pnl:,.2f}")
         self.total_pnl_label.setStyleSheet(f"color: {color}; background-color: transparent; border: none;")
 
         # Update other metrics
