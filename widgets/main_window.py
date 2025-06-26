@@ -2007,60 +2007,6 @@ class SwingTraderWindow(QMainWindow):
             logger.error(f"Error getting order status for {order_id}: {e}")
             return None
 
-    # Additional helper method for order placement integration
-    def _handle_order_placement(self, order_data: Dict[str, Any]):
-        """Handle order placement with immediate UI feedback and delayed logging."""
-        try:
-            logger.info(f"Received order request: {order_data}")
-            if not self._validate_order_data(order_data):
-                return
-
-            # Place order via order manager
-            if self.order_manager:
-                order_id = self.order_manager.place_order(order_data)
-            else:
-                # Direct placement if no order manager
-                if hasattr(self.trader, 'place_order'):
-                    order_id = self.trader.place_order(**order_data)
-                else:
-                    logger.error("No order placement method available")
-                    self._show_order_notification("Order placement system is offline.", "error")
-                    return
-
-            if order_id:
-                # Update order_data with the returned order_id
-                order_data['order_id'] = order_id
-                order_data['status'] = 'PLACED'  # Initial status
-
-                # ====== IMMEDIATE UI UPDATES (NO DELAYS) ======
-
-                # 1. IMMEDIATE: Show order status dialog for monitoring (NO TOAST)
-                self.show_order_status_dialog(order_data)
-
-                # 2. REMOVED: Order placed toast notification (was causing conflicts)
-                # The order status dialog will handle all status updates including completion
-
-                # ====== DELAYED OPERATIONS (AFTER UI) ======
-
-                # 3. DELAYED: Log order placement in background (non-blocking)
-                if hasattr(self, 'trade_logger'):
-                    QTimer.singleShot(100, lambda: self._log_order_placement_async(order_data, order_id))
-
-                # 4. DELAYED: Refresh order history if dialog is open
-                if (hasattr(self, 'order_history_dialog') and
-                        self.order_history_dialog and
-                        self.order_history_dialog.isVisible()):
-                    QTimer.singleShot(1000, self.order_history_dialog.refresh_orders)
-
-                logger.info(f"Order placed successfully with status dialog monitoring: {order_id}")
-            else:
-                # Only show failure if order_id is None/False
-                self._show_order_notification("Order placement failed - no order ID returned", "error")
-
-        except Exception as e:
-            error_msg = f"Order placement failed: {str(e)}"
-            logger.error(error_msg, exc_info=True)
-            self._show_order_notification(error_msg, "error")
 
     def _show_order_notification(self, message: str, notification_type: str = "info",
                                  sound_type: str = None, silent_during_startup: bool = True,

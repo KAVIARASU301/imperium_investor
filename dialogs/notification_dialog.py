@@ -6,10 +6,12 @@ from enum import Enum
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
-    QApplication, QGraphicsOpacityEffect, QStackedWidget, QGraphicsEffect
+    QApplication, QGraphicsOpacityEffect, QStackedWidget, QGraphicsEffect,
+    QGraphicsDropShadowEffect
 )
-from PySide6.QtCore import (Qt, Signal,QTimer,QRect )
+from PySide6.QtCore import (Qt, Signal, QTimer, QRect)
 from PySide6.QtCore import QPropertyAnimation, QParallelAnimationGroup, QEasingCurve, QPoint, QByteArray
+from PySide6.QtGui import QFont, QPixmap, QPainter, QColor, QLinearGradient
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +41,8 @@ class NotificationType(Enum):
 
 class NotificationDialog(QWidget):
     """
-    Sleek, non-intrusive notification widget similar to Zerodha Kite.
-    Appears as a compact rectangle from bottom-right corner.
+    Premium notification widget with dark theme and excellent readability.
+    Features elegant animations, rich visual design, and professional appearance.
     """
 
     notification_clicked = Signal(dict)  # Emits notification data when clicked
@@ -74,13 +76,14 @@ class NotificationDialog(QWidget):
         self.hover_timer.setSingleShot(True)
 
         self._setup_ui()
-        self._apply_styles()
+        self._apply_premium_styles()
+        self._add_drop_shadow()
         self._position_notification()
         self._start_entrance_animation()
         self._start_auto_close_timer()
 
     def _setup_ui(self):
-        """Setup the compact notification UI."""
+        """Setup the premium notification UI with enhanced visual elements."""
         # Window configuration
         self.setWindowFlags(
             Qt.WindowType.Tool |
@@ -89,92 +92,123 @@ class NotificationDialog(QWidget):
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-        self.setFixedSize(320, 70)  # Compact size like Zerodha
+        self.setFixedSize(320, 65)  # More compact size
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        # Main container
+        # Main container with rounded corners
         self.container = QFrame(self)
         self.container.setObjectName("notificationContainer")
-        self.container.setGeometry(0, 0, 320, 70)
+        self.container.setGeometry(0, 0, 320, 65)
         self.container.mousePressEvent = self._on_notification_clicked
 
         # Main layout
         main_layout = QHBoxLayout(self.container)
-        main_layout.setContentsMargins(16, 12, 16, 12)
-        main_layout.setSpacing(12)
+        main_layout.setContentsMargins(12, 8, 12, 8)  # Reduced padding
+        main_layout.setSpacing(10)  # Reduced spacing
 
-        # Icon section
+        # Icon section with enhanced styling
+        self.icon_container = QFrame()
+        self.icon_container.setObjectName("iconContainer")
+        self.icon_container.setFixedSize(26, 26)  # Smaller icon container
+
+        icon_layout = QVBoxLayout(self.icon_container)
+        icon_layout.setContentsMargins(0, 0, 0, 0)
+
         self.icon_label = QLabel(self.notification_type.icon)
         self.icon_label.setObjectName("notificationIcon")
-        self.icon_label.setFixedSize(24, 24)
         self.icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        main_layout.addWidget(self.icon_label)
+        self.icon_label.setFont(QFont("Segoe UI Emoji", 12, QFont.Weight.Bold))  # Smaller icon
+        icon_layout.addWidget(self.icon_label)
+
+        main_layout.addWidget(self.icon_container)
 
         # Content section
         content_layout = QVBoxLayout()
-        content_layout.setSpacing(2)
+        content_layout.setSpacing(2)  # Minimal spacing
+        content_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Message text
+        # Message text with premium typography
         self.message_label = QLabel(self.message)
         self.message_label.setObjectName("notificationMessage")
         self.message_label.setWordWrap(True)
+        self.message_label.setFont(QFont("Segoe UI", 11, QFont.Weight.Medium))  # Smaller text
         content_layout.addWidget(self.message_label)
 
-        # Timestamp
+        # Timestamp with subtle styling
         time_str = self.created_at.strftime("%H:%M:%S")
         self.time_label = QLabel(time_str)
         self.time_label.setObjectName("notificationTime")
+        self.time_label.setFont(QFont("Segoe UI", 8, QFont.Weight.Normal))  # Smaller timestamp
         content_layout.addWidget(self.time_label)
 
         main_layout.addLayout(content_layout, 1)
 
-        # Close button
+        # Enhanced close button
         self.close_btn = QPushButton("×")
         self.close_btn.setObjectName("notificationClose")
-        self.close_btn.setFixedSize(20, 20)
+        self.close_btn.setFixedSize(20, 20)  # Smaller close button
+        self.close_btn.setFont(QFont("Arial", 12, QFont.Weight.Bold))  # Smaller font
         self.close_btn.clicked.connect(self._close_notification)
         main_layout.addWidget(self.close_btn)
 
-        # Progress bar for auto-close
+        # Premium progress bar with glow effect
         self.progress_bar = QFrame(self.container)
         self.progress_bar.setObjectName("progressBar")
-        self.progress_bar.setFixedHeight(2)
-        self.progress_bar.setGeometry(0, 68, 320, 2)
+        self.progress_bar.setFixedHeight(2)  # Thinner progress bar
+        self.progress_bar.setGeometry(2, 61, 316, 2)  # Adjusted for border
+
+        # Remove accent line since we now have full border
+        # self.accent_line = QFrame(self.container)
+        # self.accent_line.setObjectName("accentLine")
+        # self.accent_line.setFixedWidth(3)  # Thinner accent line
+        # self.accent_line.setGeometry(0, 0, 3, 65)
 
         # Install event filters for hover detection
         self.container.enterEvent = self._on_mouse_enter
         self.container.leaveEvent = self._on_mouse_leave
+
+    def _add_drop_shadow(self):
+        """Add premium drop shadow effect."""
+        try:
+            shadow = QGraphicsDropShadowEffect()
+            shadow.setBlurRadius(15)
+            shadow.setXOffset(0)
+            shadow.setYOffset(3)
+            shadow.setColor(QColor(0, 0, 0, 60))
+            self.container.setGraphicsEffect(shadow)
+        except Exception as e:
+            logger.debug(f"Could not apply drop shadow: {e}")
 
     def _position_notification(self):
         """Position notification in bottom-right corner."""
         if not self.parent():
             # Get primary screen geometry
             screen = QApplication.primaryScreen().availableGeometry()
-            x = screen.width() - self.width() - 20
-            y = screen.height() - self.height() - 20
+            x = screen.width() - self.width() - 24
+            y = screen.height() - self.height() - 24
         else:
             # Position relative to a parent window
             parent_rect = self.parent().geometry()
-            x = parent_rect.right() - self.width() - 20
-            y = parent_rect.bottom() - self.height() - 20
+            x = parent_rect.right() - self.width() - 24
+            y = parent_rect.bottom() - self.height() - 24
 
         # Start position (off-screen to the right)
         self.setGeometry(x + self.width(), y, self.width(), self.height())
         self.target_position = QPoint(x, y)
 
     def _start_entrance_animation(self):
-        """Animate notification sliding in from right."""
+        """Animate notification with smooth slide and scale effect."""
         self.slide_animation = QPropertyAnimation(self, QByteArray(b"pos"))
-        self.slide_animation.setDuration(300)
+        self.slide_animation.setDuration(400)
         self.slide_animation.setStartValue(self.pos())
         self.slide_animation.setEndValue(self.target_position)
         self.slide_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
 
         # Fade in animation
         self.fade_animation = QPropertyAnimation(self, QByteArray(b"windowOpacity"))
-        self.fade_animation.setDuration(300)
+        self.fade_animation.setDuration(400)
         self.fade_animation.setStartValue(0.0)
-        self.fade_animation.setEndValue(1.0)
+        self.fade_animation.setEndValue(0.95)
 
         # Start animations together
         self.entrance_group = QParallelAnimationGroup()
@@ -189,36 +223,61 @@ class NotificationDialog(QWidget):
             self._start_progress_animation()
 
     def _start_progress_animation(self):
-        """Animate progress bar for auto-close timer."""
+        """Animate progress bar with smooth countdown."""
         self.progress_animation = QPropertyAnimation(self.progress_bar, QByteArray(b"geometry"))
         self.progress_animation.setDuration(self.notification_type.duration)
-        start_rect = QRect(0, 68, 320, 2)
-        end_rect = QRect(0, 68, 0, 2)
+        start_rect = QRect(2, 61, 316, 2)  # Updated for border adjustment
+        end_rect = QRect(2, 61, 0, 2)
         self.progress_animation.setStartValue(start_rect)
         self.progress_animation.setEndValue(end_rect)
+        self.progress_animation.setEasingCurve(QEasingCurve.Type.Linear)
         self.progress_animation.start()
 
     def _on_mouse_enter(self, event):
-        """Pause auto-close timer on mouse hover."""
+        """Enhanced hover effect with smooth transitions."""
         if self.auto_close_timer.isActive():
             self.auto_close_timer.stop()
-            if hasattr(self, 'progress_animation'):
+            if hasattr(self, 'progress_animation') and self.progress_animation:
                 self.progress_animation.pause()
 
-        # Create visual hover effect through opacity
-        self.hover_effect = QGraphicsOpacityEffect()
-        self.hover_effect.setOpacity(0.9)
-        self.container.setGraphicsEffect(self.hover_effect)
+        # Create enhanced hover effect without graphics effects to avoid edge issues
+        try:
+            # Just change the container style directly for cleaner hover
+            self.container.setStyleSheet(f"""
+                #notificationContainer {{
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                        stop:0 rgb(25, 25, 25),
+                        stop:0.3 {self._hex_to_rgba(self.notification_type.color, 0.08)},
+                        stop:0.7 {self._hex_to_rgba(self.notification_type.color, 0.06)},
+                        stop:1 rgb(18, 18, 18));
+                    border: 2px solid {self.notification_type.color};
+                    border-radius: 8px;
+                }}
+            """)
+        except Exception as e:
+            logger.debug(f"Error in mouse enter effect: {e}")
 
     def _on_mouse_leave(self, event):
-        """Resume auto-close timer when mouse leaves."""
-        # Remove hover effect
-        if hasattr(self, 'hover_effect'):
-            self.container.setGraphicsEffect(cast(QGraphicsEffect, None))
+        """Remove hover effects and resume auto-close."""
+        try:
+            # Reset to original styling
+            self._apply_premium_styles()
 
-        if self.notification_type.auto_close and not self.is_closing:
-            remaining_time = self.notification_type.duration // 4  # Shorter time after hover
-            self.hover_timer.start(remaining_time)
+            if self.notification_type.auto_close and not self.is_closing:
+                remaining_time = self.notification_type.duration // 4
+                self.hover_timer.start(remaining_time)
+        except Exception as e:
+            logger.debug(f"Error in mouse leave effect: {e}")
+
+    def _hex_to_rgba(self, hex_color, alpha):
+        """Convert hex color to rgba for various alpha levels"""
+        hex_color = hex_color.lstrip('#')
+        if len(hex_color) == 6:
+            r = int(hex_color[0:2], 16)
+            g = int(hex_color[2:4], 16)
+            b = int(hex_color[4:6], 16)
+            return f"rgba({r}, {g}, {b}, {alpha})"
+        return hex_color
 
     def _resume_auto_close(self):
         """Resume auto-close after hover."""
@@ -226,7 +285,7 @@ class NotificationDialog(QWidget):
             self._auto_close()
 
     def _on_notification_clicked(self, event):
-        """Handle notification click."""
+        """Handle notification click with ripple effect."""
         if self.action_data:
             self.notification_clicked.emit({
                 'notification_id': self.notification_id,
@@ -242,7 +301,7 @@ class NotificationDialog(QWidget):
             self._close_notification()
 
     def _close_notification(self):
-        """Close notification with slide-out animation."""
+        """Close notification with elegant exit animation."""
         if self.is_closing:
             return
 
@@ -253,7 +312,7 @@ class NotificationDialog(QWidget):
 
         # Slide out animation
         self.close_slide_animation = QPropertyAnimation(self, QByteArray(b"pos"))
-        self.close_slide_animation.setDuration(250)
+        self.close_slide_animation.setDuration(300)
         self.close_slide_animation.setStartValue(self.pos())
         end_pos = QPoint(self.pos().x() + self.width(), self.pos().y())
         self.close_slide_animation.setEndValue(end_pos)
@@ -261,8 +320,8 @@ class NotificationDialog(QWidget):
 
         # Fade out animation
         self.close_fade_animation = QPropertyAnimation(self, QByteArray(b"windowOpacity"))
-        self.close_fade_animation.setDuration(250)
-        self.close_fade_animation.setStartValue(1.0)
+        self.close_fade_animation.setDuration(300)
+        self.close_fade_animation.setStartValue(0.95)
         self.close_fade_animation.setEndValue(0.0)
 
         # Close after animation
@@ -277,11 +336,11 @@ class NotificationDialog(QWidget):
         self.notification_closed.emit(self.notification_id)
         self.close()
 
-    def _apply_styles(self):
-        """Apply notification-specific styling with Qt-compatible properties."""
+    def _apply_premium_styles(self):
+        """Apply premium dark theme styling with excellent readability."""
         color = self.notification_type.color
 
-        # Convert hex color to rgba for transparency effects
+        # Convert hex color to rgba for various alpha levels
         def hex_to_rgba(hex_color, alpha):
             hex_color = hex_color.lstrip('#')
             if len(hex_color) == 6:
@@ -291,98 +350,111 @@ class NotificationDialog(QWidget):
                 return f"rgba({r}, {g}, {b}, {alpha})"
             return hex_color
 
-        # Create background colors with transparency
-        bg_light = hex_to_rgba(color, 0.08)
-        bg_dark = hex_to_rgba(color, 0.03)
-        icon_bg = hex_to_rgba(color, 0.15)
-        border_color = hex_to_rgba(color, 0.25)
+        # Rich color palette
+        primary_color = color
+        bg_color = "rgba(18, 18, 18, 0.98)"  # Almost solid dark background
+        border_color = hex_to_rgba(color, 0.4)
+        icon_bg = hex_to_rgba(color, 0.2)
+        accent_color = hex_to_rgba(color, 0.8)
 
         self.setStyleSheet(f"""
-            /* Main Container */
+            /* Main Container - Premium Dark Theme */
             #notificationContainer {{
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 {bg_light}, stop:1 {bg_dark});
-                border: 1px solid {border_color};
-                border-left: 4px solid {color};
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 rgb(18, 18, 18),
+                    stop:0.3 {hex_to_rgba(color, 0.05)},
+                    stop:0.7 {hex_to_rgba(color, 0.03)},
+                    stop:1 rgb(12, 12, 12));
+                border: 2px solid {primary_color};
                 border-radius: 8px;
             }}
 
-            /* Icon */
-            #notificationIcon {{
-                color: {color};
-                font-size: 16px;
-                font-weight: bold;
-                background-color: {icon_bg};
-                border-radius: 12px;
-                border: 1px solid {border_color};
+            /* Icon Container */
+            #iconContainer {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 {hex_to_rgba(color, 0.15)},
+                    stop:1 rgb(25, 25, 25));
+                border: 1px solid {primary_color};
+                border-radius: 6px;
             }}
 
-            /* Message Text */
+            /* Icon Styling */
+            #notificationIcon {{
+                color: {primary_color};
+                background: transparent;
+            }}
+
+            /* Message Text - High Contrast */
             #notificationMessage {{
                 color: #ffffff;
-                font-size: 13px;
+                background: transparent;
                 font-weight: 500;
+                line-height: 1.2;
                 margin: 0;
                 padding: 0;
+                max-height: 32px;
             }}
 
-            /* Time Label */
+            /* Time Label - Subtle but Readable */
             #notificationTime {{
-                color: #a0a0a0;
-                font-size: 10px;
+                color: #b0b0b0;
+                background: transparent;
                 font-weight: 400;
                 margin: 0;
                 padding: 0;
+                max-height: 12px;
             }}
 
-            /* Close Button */
+            /* Enhanced Close Button */
             #notificationClose {{
-                background-color: transparent;
-                color: #888888;
-                font-size: 14px;
+                background: rgb(45, 45, 45);
+                color: #cccccc;
+                border: 1px solid rgb(70, 70, 70);
+                border-radius: 4px;
                 font-weight: bold;
-                border: none;
-                border-radius: 10px;
-                padding: 0;
-                margin: 0;
             }}
             #notificationClose:hover {{
-                background-color: #666666;
+                background: rgb(200, 50, 50);
                 color: #ffffff;
+                border: 1px solid rgb(220, 70, 70);
             }}
             #notificationClose:pressed {{
-                background-color: #555555;
+                background: rgb(160, 30, 30);
+                border: 1px solid rgb(180, 50, 50);
             }}
 
-            /* Progress Bar */
+            /* Premium Progress Bar */
             #progressBar {{
-                background-color: {color};
-                border-radius: 1px;
+                background: {primary_color};
                 border: none;
+                border-radius: 0px;
             }}
+
+            /* Accent Line - REMOVED since we now have full border */
         """)
 
 
 class NotificationManager:
     """
-    Manager for handling multiple notifications with smart positioning and queue management.
+    Enhanced notification manager with premium visual effects and smart positioning.
     """
 
     def __init__(self, parent_window=None):
         self.parent_window = parent_window
         self.active_notifications: List[NotificationDialog] = []
-        self.notification_spacing = 80  # Vertical spacing between notifications
-        self.max_notifications = 5  # Maximum simultaneous notifications
+        self.notification_spacing = 75  # Adjusted spacing for compact notifications
+        self.max_notifications = 4  # Reduced for better UX
 
         # Sound effects (if available)
         self.sounds = {}
         self._setup_sounds()
 
     def _setup_sounds(self):
-        """Setup sound effects for different notification types."""
+        """Setup enhanced sound effects for different notification types."""
         try:
             from PySide6.QtMultimedia import QSoundEffect
             from PySide6.QtCore import QUrl
+            import os
 
             # Initialize sounds if files exist
             sound_files = {
@@ -395,10 +467,13 @@ class NotificationManager:
 
             for notif_type, file_path in sound_files.items():
                 try:
-                    sound = QSoundEffect()
-                    sound.setSource(QUrl.fromLocalFile(file_path))
-                    sound.setVolume(0.3)
-                    self.sounds[notif_type] = sound
+                    if os.path.exists(file_path):
+                        sound = QSoundEffect()
+                        sound.setSource(QUrl.fromLocalFile(file_path))
+                        sound.setVolume(0.4)  # Slightly higher volume for premium feel
+                        self.sounds[notif_type] = sound
+                    else:
+                        logger.debug(f"Sound file not found: {file_path}")
                 except Exception as e:
                     logger.debug(f"Could not load sound {file_path}: {e}")
 
@@ -408,7 +483,7 @@ class NotificationManager:
     def show_notification(self, message: str, notification_type: NotificationType,
                           action_data: Dict[str, Any] = None, silent: bool = False) -> str:
         """
-        Show a new notification.
+        Show a premium notification with enhanced visual effects.
 
         Args:
             message: Notification message text
@@ -428,7 +503,7 @@ class NotificationManager:
                 oldest = self.active_notifications[0]
                 oldest._close_notification()
 
-            # Create new notification
+            # Create new premium notification
             notification = NotificationDialog(
                 message=message,
                 notification_type=notification_type,
@@ -450,11 +525,11 @@ class NotificationManager:
             # Show notification
             notification.show()
 
-            # Play sound
+            # Play enhanced sound
             if not silent and notification_type in self.sounds:
                 self.sounds[notification_type].play()
 
-            logger.debug(f"Showed notification: {notification.notification_id}")
+            logger.debug(f"Showed premium notification: {notification.notification_id}")
             return notification.notification_id
 
         except Exception as e:
@@ -462,10 +537,10 @@ class NotificationManager:
             return ""
 
     def _position_notification(self, notification: NotificationDialog):
-        """Position notification accounting for existing ones."""
+        """Position notification with premium spacing."""
         base_y = notification.target_position.y()
 
-        # Move up for each existing notification
+        # Move up for each existing notification with enhanced spacing
         offset = len(self.active_notifications) * self.notification_spacing
         new_y = base_y - offset
 
@@ -480,7 +555,7 @@ class NotificationManager:
         self.active_notifications = [n for n in self.active_notifications if not n.is_closing]
 
     def _on_notification_closed(self, notification_id: str):
-        """Handle notification close - reposition remaining notifications."""
+        """Handle notification close with smooth repositioning."""
         try:
             # Remove from active list
             self.active_notifications = [
@@ -488,14 +563,14 @@ class NotificationManager:
                 if n.notification_id != notification_id
             ]
 
-            # Reposition remaining notifications
+            # Smoothly reposition remaining notifications
             self._reposition_notifications()
 
         except Exception as e:
             logger.error(f"Error handling notification close: {e}")
 
     def _reposition_notifications(self):
-        """Smoothly reposition all active notifications."""
+        """Smoothly reposition all active notifications with enhanced animations."""
         try:
             for i, notification in enumerate(self.active_notifications):
                 if not notification.is_closing:
@@ -505,9 +580,9 @@ class NotificationManager:
                     ) * self.notification_spacing
                     new_pos = QPoint(notification.target_position.x(), base_y)
 
-                    # Animate to new position
+                    # Animate to new position with smooth easing
                     animation = QPropertyAnimation(notification, QByteArray(b"pos"))
-                    animation.setDuration(200)
+                    animation.setDuration(300)
                     animation.setStartValue(notification.pos())
                     animation.setEndValue(new_pos)
                     animation.setEasingCurve(QEasingCurve.Type.OutCubic)
@@ -517,25 +592,20 @@ class NotificationManager:
             logger.error(f"Error repositioning notifications: {e}")
 
     def _on_notification_clicked(self, notification_data: Dict[str, Any]):
-        """Handle notification click events."""
+        """Handle notification click events with enhanced functionality."""
         try:
             action_data = notification_data.get('action_data', {})
-
-            # Handle different action types
             action_type = action_data.get('action_type')
 
             if action_type == 'show_order_history':
-                # Open order history dialog
                 if hasattr(self.parent_window, '_show_order_history'):
                     self.parent_window._show_order_history()
 
             elif action_type == 'show_positions':
-                # Focus positions table
                 if hasattr(self.parent_window, 'positions_table'):
                     self.parent_window.positions_table.setFocus()
 
             elif action_type == 'open_order_dialog':
-                # Open order dialog for symbol
                 symbol = action_data.get('symbol')
                 if symbol and hasattr(self.parent_window, '_show_advanced_order_dialog'):
                     self.parent_window._show_advanced_order_dialog(symbol)
@@ -546,9 +616,11 @@ class NotificationManager:
             logger.error(f"Error handling notification click: {e}")
 
     def clear_all_notifications(self):
-        """Close all active notifications."""
-        for notification in self.active_notifications[:]:
-            notification._close_notification()
+        """Close all active notifications with staggered animation."""
+        notifications_to_close = self.active_notifications[:]
+        for i, notification in enumerate(notifications_to_close):
+            # Stagger the closing animations for visual appeal
+            QTimer.singleShot(i * 50, notification._close_notification)
 
     # Convenience methods for common notification types
     def show_success(self, message: str, action_data: Dict[str, Any] = None):
@@ -582,20 +654,20 @@ class NotificationManager:
 # Integration function for main window
 def setup_notification_system(main_window) -> NotificationManager:
     """
-    Setup notification system for the main window.
+    Setup premium notification system for the main window.
 
     Args:
         main_window: Reference to main application window
 
     Returns:
-        NotificationManager: Configured notification manager
+        NotificationManager: Configured premium notification manager
     """
     notification_manager = NotificationManager(main_window)
 
     # Store reference in main window
     main_window.notification_manager = notification_manager
 
-    logger.info("Notification system initialized")
+    logger.info("Premium notification system initialized")
     return notification_manager
 
 
@@ -603,11 +675,11 @@ def setup_notification_system(main_window) -> NotificationManager:
 if __name__ == "__main__":
     app = QApplication(sys.argv)
 
-    # Create notification manager
+    # Create premium notification manager
     manager = NotificationManager()
 
 
-    # Test different notification types
+    # Test different notification types with premium styling
     def test_notifications():
         manager.show_order_placed("Order placed: BUY 100 RELIANCE @ ₹2,850.50")
 
@@ -621,15 +693,23 @@ if __name__ == "__main__":
         ))
 
         QTimer.singleShot(3000, lambda: manager.show_success(
-            "Position updated: +100 RELIANCE"
+            "Position updated: +100 RELIANCE shares"
         ))
 
         QTimer.singleShot(4000, lambda: manager.show_error(
-            "Order rejected: Insufficient margin"
+            "Order rejected: Insufficient margin available"
+        ))
+
+        QTimer.singleShot(5000, lambda: manager.show_warning(
+            "Market volatility detected - Review your positions"
+        ))
+
+        QTimer.singleShot(6000, lambda: manager.show_info(
+            "Daily P&L: ₹15,750 (+2.3%)"
         ))
 
 
-    # Start test
+    # Start premium notification test
     QTimer.singleShot(500, test_notifications)
 
     sys.exit(app.exec())
