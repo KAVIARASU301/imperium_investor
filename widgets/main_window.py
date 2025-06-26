@@ -468,7 +468,6 @@ class SwingTraderWindow(QMainWindow):
         """Connects signals for advanced order management."""
         if self.order_manager:
             self.order_manager.order_placed.connect(self._on_order_placed)
-            self.order_manager.order_executed.connect(self._on_order_executed)
             self.order_manager.order_cancelled.connect(self._on_order_cancelled)
             self.order_manager.order_rejected.connect(self._on_order_rejected)
             self.order_manager.bracket_order_completed.connect(self._on_bracket_completed)
@@ -727,37 +726,22 @@ class SwingTraderWindow(QMainWindow):
     # ADVANCED COMPONENT & POSITION EVENT HANDLERS (SLOTS)
     # ==============================================================================
 
-    @Slot(dict)
     def _on_order_placed(self, order_data):
+        """Legacy order placed handler - now just logs without notifications."""
         symbol = order_data.get('tradingsymbol', '')
         order_id = order_data.get('order_id', '')
-        message = f"Order placed for {symbol}. ID: {order_id}"
-        self._show_order_notification(message, "info", sound_type='placed')
-        logger.info(message)
+
+        # NO TOAST NOTIFICATION - Let order status dialog handle it
+        logger.info(f"Order placed: {symbol} - {order_id}")
+
+        # Still refresh UI components
         QTimer.singleShot(1000, self._refresh_positions_table)
         QTimer.singleShot(2000, self._update_performance_metrics_in_header)
+
         # Refresh dashboard if open
         if self.performance_dialog and self.performance_dialog.isVisible():
             QTimer.singleShot(1500, self.performance_dialog.refresh_data)
 
-    @Slot(dict)
-    def _on_order_executed(self, order_data):
-        """Legacy order executed handler - now just logs."""
-        try:
-            order_id = order_data.get('order_id', '')
-            symbol = order_data.get('tradingsymbol', '')
-
-            # Check if this was already processed
-            if order_data.get('update_source') == 'status_dialog':
-                logger.debug(f"Order {order_id} already processed by status dialog, skipping")
-                return
-
-            # Mark source and delegate to completion handler
-            order_data['update_source'] = 'order_manager'
-            self._on_order_completed(order_data)
-
-        except Exception as e:
-            logger.error(f"Error in legacy order executed handler: {e}")
 
     @Slot(dict)
     def _on_order_cancelled(self, order_data):
@@ -912,11 +896,11 @@ class SwingTraderWindow(QMainWindow):
 
                 # ====== IMMEDIATE UI UPDATES (NO DELAYS) ======
 
-                # 1. IMMEDIATE: Show order status dialog for monitoring
+                # 1. IMMEDIATE: Show order status dialog for monitoring (NO TOAST)
                 self.show_order_status_dialog(order_data)
 
-                # 2. IMMEDIATE: Show order placed notification
-                self._show_order_placed_notification(order_data)
+                # 2. REMOVED: Order placed toast notification to prevent conflicts
+                # The order status dialog will handle all status updates including completion
 
                 # ====== DELAYED OPERATIONS (AFTER UI) ======
 
@@ -930,7 +914,7 @@ class SwingTraderWindow(QMainWindow):
                         self.order_history_dialog.isVisible()):
                     QTimer.singleShot(1000, self.order_history_dialog.refresh_orders)
 
-                logger.info(f"Order placed successfully with immediate UI feedback: {order_id}")
+                logger.info(f"Order placed successfully with status dialog monitoring: {order_id}")
             else:
                 # Only show failure if order_id is None/False
                 self._show_order_notification("Order placement failed - no order ID returned", "error")
@@ -1067,16 +1051,6 @@ class SwingTraderWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Failed to show performance dashboard: {e}", exc_info=True)
 
-    def _refresh_performance_data(self):
-        """Handle performance data refresh request."""
-        try:
-            if self.performance_dialog and self.performance_dialog.isVisible():
-                self.performance_dialog.refresh_data()
-                self._show_order_notification("Performance data refreshed", "info", silent_during_startup=False)
-                logger.info("Performance data manually refreshed")
-        except Exception as e:
-            logger.error(f"Failed to refresh performance data: {e}")
-            self._show_order_notification("Failed to refresh performance data", "error")
 
     def _export_performance_report(self, export_data: dict):
         """
@@ -1149,6 +1123,7 @@ class SwingTraderWindow(QMainWindow):
 
         except Exception as e:
             logger.error(f"Failed to setup performance tracking: {e}")
+
     def _create_performance_csv(self, export_data: dict, filepath: str):
         """Create a CSV summary of performance data for easy analysis."""
         try:
@@ -1681,9 +1656,7 @@ class SwingTraderWindow(QMainWindow):
     def _handle_order_cancellation(self, order_id: str):
         """
         Handle direct order cancellation from status dialog.
-
-        Args:
-            order_id: ID of the order to cancel
+        Show toast notification ONLY for cancellation.
         """
         try:
             logger.info(f"Cancelling order {order_id}")
@@ -1692,13 +1665,15 @@ class SwingTraderWindow(QMainWindow):
             if self.order_manager and hasattr(self.order_manager, 'cancel_order'):
                 cancelled = self.order_manager.cancel_order(order_id)
                 if cancelled:
-                    self._show_order_notification(f"Order {order_id} cancelled successfully", "success")
+                    # ONLY toast notification for cancellation - this is safe
+                    self._show_order_notification(f"Order {order_id} cancelled successfully", "order_cancelled")
                 else:
                     self._show_order_notification(f"Failed to cancel order {order_id}", "error")
             elif hasattr(self, 'trader') and hasattr(self.trader, 'cancel_order'):
                 # Direct trader cancellation
                 self.trader.cancel_order("regular", order_id)
-                self._show_order_notification(f"Order {order_id} cancelled successfully", "success")
+                # ONLY toast notification for cancellation - this is safe
+                self._show_order_notification(f"Order {order_id} cancelled successfully", "order_cancelled")
             else:
                 self._show_order_notification("Order cancellation not available", "error")
                 return
@@ -1726,9 +1701,9 @@ class SwingTraderWindow(QMainWindow):
 
             # ====== IMMEDIATE UI UPDATES ======
 
-            # 1. IMMEDIATE: Show success notification
+            # 1. IMMEDIATE: Show SUCCESS toast notification ONLY when order completes
             message = f"✓ Order completed: {transaction_type} {filled_quantity} {symbol} @ ₹{avg_price:.2f}"
-            self._show_order_notification(message, "success")
+            self._show_order_notification(message, "order_executed")
 
             # 2. IMMEDIATE: Force refresh positions from Kite
             self._force_refresh_positions_from_kite()
@@ -1756,11 +1731,6 @@ class SwingTraderWindow(QMainWindow):
     def _log_order_completion_async(self, order_data: Dict[str, Any]):
         """Log order completion asynchronously."""
         try:
-            # Mark as processed to prevent duplicate handling
-            order_data['update_source'] = 'status_dialog'
-            order_data['status'] = 'COMPLETE'
-
-            # Log order update (with source marking)
             if hasattr(self, 'trade_logger') and self.trade_logger:
                 self.trade_logger.log_order_update(order_data)
                 logger.info(f"Order completion logged successfully (async): {order_data.get('order_id')}")
@@ -2061,26 +2031,59 @@ class SwingTraderWindow(QMainWindow):
             return None
 
     # Additional helper method for order placement integration
-    def _handle_order_placement_with_status_dialog(self, order_data: Dict[str, Any]):
-        """
-        Enhanced order placement handler that automatically shows status dialog.
-        Use this instead of or in addition to your existing _handle_order_placement.
-        """
+    def _handle_order_placement(self, order_data: Dict[str, Any]):
+        """Handle order placement with immediate UI feedback and delayed logging."""
         try:
-            # Call existing order placement logic
-            self._handle_order_placement(order_data)
+            logger.info(f"Received order request: {order_data}")
+            if not self._validate_order_data(order_data):
+                return
 
-            # Get the order ID from the placement result
-            order_id = order_data.get('order_id')
+            # Place order via order manager
+            if self.order_manager:
+                order_id = self.order_manager.place_order(order_data)
+            else:
+                # Direct placement if no order manager
+                if hasattr(self.trader, 'place_order'):
+                    order_id = self.trader.place_order(**order_data)
+                else:
+                    logger.error("No order placement method available")
+                    self._show_order_notification("Order placement system is offline.", "error")
+                    return
 
             if order_id:
+                # Update order_data with the returned order_id
+                order_data['order_id'] = order_id
+                order_data['status'] = 'PLACED'  # Initial status
 
-                QTimer.singleShot(500, lambda: self.show_order_status_dialog(order_data))
+                # ====== IMMEDIATE UI UPDATES (NO DELAYS) ======
 
-                logger.info(f"Order placed with status monitoring: {order_id}")
+                # 1. IMMEDIATE: Show order status dialog for monitoring (NO TOAST)
+                self.show_order_status_dialog(order_data)
+
+                # 2. REMOVED: Order placed toast notification (was causing conflicts)
+                # The order status dialog will handle all status updates including completion
+
+                # ====== DELAYED OPERATIONS (AFTER UI) ======
+
+                # 3. DELAYED: Log order placement in background (non-blocking)
+                if hasattr(self, 'trade_logger'):
+                    QTimer.singleShot(100, lambda: self._log_order_placement_async(order_data, order_id))
+
+                # 4. DELAYED: Refresh order history if dialog is open
+                if (hasattr(self, 'order_history_dialog') and
+                        self.order_history_dialog and
+                        self.order_history_dialog.isVisible()):
+                    QTimer.singleShot(1000, self.order_history_dialog.refresh_orders)
+
+                logger.info(f"Order placed successfully with status dialog monitoring: {order_id}")
+            else:
+                # Only show failure if order_id is None/False
+                self._show_order_notification("Order placement failed - no order ID returned", "error")
 
         except Exception as e:
-            logger.error(f"Error in order placement with status dialog: {e}")
+            error_msg = f"Order placement failed: {str(e)}"
+            logger.error(error_msg, exc_info=True)
+            self._show_order_notification(error_msg, "error")
 
     def _show_order_notification(self, message: str, notification_type: str = "info",
                                  sound_type: str = None, silent_during_startup: bool = True,
@@ -2136,26 +2139,6 @@ class SwingTraderWindow(QMainWindow):
             # Fallback to console log if notification system fails
             print(f"NOTIFICATION: {message}")
 
-    # Enhanced notification methods for specific order events
-    def _show_order_placed_notification(self, order_data: Dict[str, Any]):
-        """Show order placed notification with action data."""
-        symbol = order_data.get('tradingsymbol', '')
-        transaction_type = order_data.get('transaction_type', '')
-        quantity = order_data.get('quantity', 0)
-        price = order_data.get('price', 0)
-        order_id = order_data.get('order_id', '')
-
-        # Ensure we show SUCCESS message for placed orders
-        message = f"✓ Order placed: {transaction_type} {quantity} {symbol} @ ₹{price:,.2f}"
-
-        action_data = {
-            'action_type': 'show_order_history',
-            'order_id': order_id,
-            'symbol': symbol
-        }
-
-        # Use "success" type for order placement
-        self._show_order_notification(message, "success", action_data=action_data)
 
     def _show_order_executed_notification(self, order_data: Dict[str, Any]):
         """Show order executed notification with position link."""

@@ -914,7 +914,6 @@ def setup_advanced_order_manager(main_window):
 
     # Connect signals
     main_window.order_manager.order_placed.connect(main_window._on_order_placed)
-    main_window.order_manager.order_executed.connect(main_window._on_order_executed)
     main_window.order_manager.order_cancelled.connect(main_window._on_order_cancelled)
     main_window.order_manager.order_rejected.connect(main_window._on_order_rejected)
     main_window.order_manager.bracket_order_completed.connect(main_window._on_bracket_completed)

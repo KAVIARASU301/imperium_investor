@@ -332,9 +332,18 @@ class TradeLogger:
         """Perform the actual order update in database."""
         order_id = order_data.get('order_id')
 
+        if not order_id:
+            logger.warning("Cannot perform order update - missing order_id")
+            return
+
         # Get current status from database
         old_status = self._get_order_status(order_id)
         new_status = order_data.get('status')
+
+        # Validate new_status is not None
+        if new_status is None:
+            logger.warning(f"Cannot update order {order_id} - missing status in order_data")
+            return
 
         # Skip if no status change
         if old_status == new_status:
@@ -365,24 +374,28 @@ class TradeLogger:
             order_id
         )
 
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(update_query, params)
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(update_query, params)
 
-            # Log the status change
-            self._log_order_update(order_id, old_status, new_status,
-                                   order_data.get('status_message', ''))
+                # Log the status change
+                self._log_order_update(order_id, old_status, new_status,
+                                       order_data.get('status_message', ''))
 
-            # If order is executed, log the trade
-            if new_status == 'COMPLETE' and order_data.get('filled_quantity', 0) > 0:
-                self._log_trade_execution(order_data)
+                # If order is executed, log the trade
+                if new_status == 'COMPLETE' and order_data.get('filled_quantity', 0) > 0:
+                    self._log_trade_execution(order_data)
 
-            conn.commit()
-            logger.info(f"Updated order {order_id}: {old_status} -> {new_status}")
+                conn.commit()
+                logger.info(f"Updated order {order_id}: {old_status} -> {new_status}")
 
+        except sqlite3.Error as e:
+            logger.error(f"Failed to perform order update for {order_id}: {e}")
+            raise
     def _log_order_update(self, order_id: str, old_status: Optional[str],
                           new_status: str, details: str = ""):
-        """Log order status changes in the updates table."""
+        """Log order status changes in the update table."""
         query = """
             INSERT INTO order_updates (order_id, old_status, new_status, update_timestamp, update_details)
             VALUES (?, ?, ?, ?, ?)

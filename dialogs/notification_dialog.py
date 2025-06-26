@@ -1,18 +1,15 @@
 import logging
 import sys
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, cast
 from datetime import datetime
 from enum import Enum
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
-    QApplication, QGraphicsOpacityEffect, QStackedWidget
+    QApplication, QGraphicsOpacityEffect, QStackedWidget, QGraphicsEffect
 )
-from PySide6.QtCore import (
-    Qt, Signal, QPropertyAnimation, QEasingCurve, QTimer,
-    QParallelAnimationGroup, QRect, QPoint
-)
-from PySide6.QtGui import QFont, QPainter, QPainterPath, QColor, QPixmap, QIcon
+from PySide6.QtCore import (Qt, Signal,QTimer,QRect )
+from PySide6.QtCore import QPropertyAnimation, QParallelAnimationGroup, QEasingCurve, QPoint, QByteArray
 
 logger = logging.getLogger(__name__)
 
@@ -156,7 +153,7 @@ class NotificationDialog(QWidget):
             x = screen.width() - self.width() - 20
             y = screen.height() - self.height() - 20
         else:
-            # Position relative to parent window
+            # Position relative to a parent window
             parent_rect = self.parent().geometry()
             x = parent_rect.right() - self.width() - 20
             y = parent_rect.bottom() - self.height() - 20
@@ -167,14 +164,14 @@ class NotificationDialog(QWidget):
 
     def _start_entrance_animation(self):
         """Animate notification sliding in from right."""
-        self.slide_animation = QPropertyAnimation(self, b"pos")
+        self.slide_animation = QPropertyAnimation(self, QByteArray(b"pos"))
         self.slide_animation.setDuration(300)
         self.slide_animation.setStartValue(self.pos())
         self.slide_animation.setEndValue(self.target_position)
         self.slide_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
 
         # Fade in animation
-        self.fade_animation = QPropertyAnimation(self, b"windowOpacity")
+        self.fade_animation = QPropertyAnimation(self, QByteArray(b"windowOpacity"))
         self.fade_animation.setDuration(300)
         self.fade_animation.setStartValue(0.0)
         self.fade_animation.setEndValue(1.0)
@@ -193,7 +190,7 @@ class NotificationDialog(QWidget):
 
     def _start_progress_animation(self):
         """Animate progress bar for auto-close timer."""
-        self.progress_animation = QPropertyAnimation(self.progress_bar, b"geometry")
+        self.progress_animation = QPropertyAnimation(self.progress_bar, QByteArray(b"geometry"))
         self.progress_animation.setDuration(self.notification_type.duration)
         start_rect = QRect(0, 68, 320, 2)
         end_rect = QRect(0, 68, 0, 2)
@@ -217,7 +214,7 @@ class NotificationDialog(QWidget):
         """Resume auto-close timer when mouse leaves."""
         # Remove hover effect
         if hasattr(self, 'hover_effect'):
-            self.container.setGraphicsEffect(None)
+            self.container.setGraphicsEffect(cast(QGraphicsEffect, None))
 
         if self.notification_type.auto_close and not self.is_closing:
             remaining_time = self.notification_type.duration // 4  # Shorter time after hover
@@ -255,7 +252,7 @@ class NotificationDialog(QWidget):
             self.progress_animation.stop()
 
         # Slide out animation
-        self.close_slide_animation = QPropertyAnimation(self, b"pos")
+        self.close_slide_animation = QPropertyAnimation(self, QByteArray(b"pos"))
         self.close_slide_animation.setDuration(250)
         self.close_slide_animation.setStartValue(self.pos())
         end_pos = QPoint(self.pos().x() + self.width(), self.pos().y())
@@ -263,7 +260,7 @@ class NotificationDialog(QWidget):
         self.close_slide_animation.setEasingCurve(QEasingCurve.Type.InCubic)
 
         # Fade out animation
-        self.close_fade_animation = QPropertyAnimation(self, b"windowOpacity")
+        self.close_fade_animation = QPropertyAnimation(self, QByteArray(b"windowOpacity"))
         self.close_fade_animation.setDuration(250)
         self.close_fade_animation.setStartValue(1.0)
         self.close_fade_animation.setEndValue(0.0)
@@ -504,11 +501,12 @@ class NotificationManager:
                 if not notification.is_closing:
                     # Calculate new position
                     base_y = notification.target_position.y() + (
-                                len(self.active_notifications) - 1 - i) * self.notification_spacing
+                            len(self.active_notifications) - 1 - i
+                    ) * self.notification_spacing
                     new_pos = QPoint(notification.target_position.x(), base_y)
 
                     # Animate to new position
-                    animation = QPropertyAnimation(notification, b"pos")
+                    animation = QPropertyAnimation(notification, QByteArray(b"pos"))
                     animation.setDuration(200)
                     animation.setStartValue(notification.pos())
                     animation.setEndValue(new_pos)

@@ -37,10 +37,10 @@ class OrderStatusDialog(QWidget):
     refresh_positions_requested = Signal()  # when order completes
     close_dialog = Signal()  # when dialog should be closed
 
-    def __init__(self, order_data: Dict[str, Any], parent=None):
+    def __init__(self, order_data: Dict[str, Any], parent=None, main_window=None):
         super().__init__(parent)
         self.order_id = order_data.get('order_id')
-        self.parent_window = parent
+        self.parent_window = main_window if main_window else parent
         self._last_status = None
         self._is_closed = False
         self._status_sources = set()
@@ -306,19 +306,54 @@ class OrderStatusDialog(QWidget):
     def _refresh_order_status(self):
         """Refresh order status from the main window's order manager."""
         try:
-            # Get updated order data from parent
-            if self.parent() and hasattr(self.parent(), 'get_order_status'):
-                updated_data = self.parent().get_order_status(self.order_id)
-                if updated_data:
-                    self._update_order_data(updated_data)
+            updated_data = None
 
-            # Update time elapsed
+            # Method 1: Try parent_window (explicitly stored reference)
+            if hasattr(self, 'parent_window') and self.parent_window and hasattr(self.parent_window, 'get_order_status'):
+                updated_data = self.parent_window.get_order_status(self.order_id)
+
+            # Method 2: Try Qt parent (might be different from parent_window)
+            elif self.parent() and hasattr(self.parent(), 'get_order_status'):
+                updated_data = self.parent().get_order_status(self.order_id)
+
+            # Method 3: Try to traverse up the Qt widget hierarchy to find main window
+            elif self.parent():
+                widget = self.parent()
+                while widget:
+                    if hasattr(widget, 'get_order_status'):
+                        updated_data = widget.get_order_status(self.order_id)
+                        break
+                    widget = widget.parent()
+
+            # Method 4: Try QApplication to find main window
+            if not updated_data:
+                try:
+                    app = QApplication.instance()
+                    if app and hasattr(app, 'topLevelWidgets'):
+                        # Look for main window in application's top-level widgets
+                        for widget in app.topLevelWidgets():
+                            if hasattr(widget, 'get_order_status'):
+                                updated_data = widget.get_order_status(self.order_id)
+                                if updated_data:
+                                    break
+                except Exception as e:
+                    logger.debug(f"Could not find main window via QApplication: {e}")
+
+            # Update UI with new data if found
+            if updated_data:
+                self._update_order_data(updated_data)
+            else:
+                logger.debug(f"Could not find get_order_status method for order {self.order_id}")
+
+            # Update time elapsed regardless
             elapsed = datetime.now() - self.last_update_time
             if elapsed.total_seconds() < 60:
                 time_text = f"{int(elapsed.total_seconds())}s ago"
             else:
                 time_text = f"{int(elapsed.total_seconds() // 60)}m ago"
-            self.time_label.setText(time_text)
+
+            if hasattr(self, 'time_label'):
+                self.time_label.setText(time_text)
 
         except Exception as e:
             logger.error(f"Error refreshing order status: {e}")
@@ -344,14 +379,8 @@ class OrderStatusDialog(QWidget):
         self.last_update_time = datetime.now()
 
     def _handle_status_change(self, old_status: OrderStatusType, new_status: OrderStatusType):
-        """Handle order status changes."""
+        """Handle order status changes - updated to prevent toast conflicts."""
         logger.info(f"Order {self.order_id} status changed: {old_status.value[0]} -> {new_status.value[0]}")
-
-        # IMMEDIATE HIDE: If changing from PENDING to COMPLETE, hide widget immediately
-        if old_status == OrderStatusType.PENDING and new_status == OrderStatusType.COMPLETE:
-            logger.info(f"Order {self.order_id} completed - hiding status widget immediately for toast notification")
-            self._hide_immediately()
-            return
 
         # Update status label
         self.status_label.setText(new_status.value[0])
@@ -361,7 +390,8 @@ class OrderStatusDialog(QWidget):
 
         # Handle specific status changes
         if new_status == OrderStatusType.COMPLETE:
-            self._handle_order_completion()
+            # For completion, hide immediately and let main window show toast
+            self._handle_order_completion_and_hide()
         elif new_status == OrderStatusType.CANCELLED:
             self._handle_order_cancellation()
         elif new_status == OrderStatusType.REJECTED:
@@ -376,39 +406,35 @@ class OrderStatusDialog(QWidget):
             if self.pulse_animation:
                 self.pulse_animation.stop()
 
-            # For completed orders that weren't immediately hidden, use normal auto-close
-            if new_status == OrderStatusType.COMPLETE and not self.is_closing:
+            # Auto-close for non-complete statuses
+            if new_status != OrderStatusType.COMPLETE and not self.is_closing:
                 self.auto_close_timer.start(3000)
 
-    def _hide_immediately(self):
-        """Hide the dialog immediately without animation to allow toast notification."""
-        try:
-            logger.info(f"Immediately hiding order status dialog for order {self.order_id}")
+    def _handle_order_completion_and_hide(self):
+        """Handle order completion with immediate hide to allow main window toast."""
+        logger.info(f"Order {self.order_id} completed - hiding dialog for main window toast")
 
-            # Stop all timers and animations
+        try:
+            # Stop all timers and animations immediately
             if hasattr(self, 'update_timer'):
                 self.update_timer.stop()
             if hasattr(self, 'auto_close_timer'):
                 self.auto_close_timer.stop()
             if hasattr(self, 'pulse_animation') and self.pulse_animation:
                 self.pulse_animation.stop()
-            if hasattr(self, 'slide_animation') and self.slide_animation:
-                self.slide_animation.stop()
-            if hasattr(self, 'fade_animation') and self.fade_animation:
-                self.fade_animation.stop()
 
             # Mark as closing to prevent other operations
             self.is_closing = True
             self._is_closed = True
 
-            # Hide immediately without animation
-            self.hide()
-
-            # Emit completion signal for main window to show toast
+            # Emit completion signal BEFORE hiding (important for main window)
             if hasattr(self, 'order_completed'):
                 self.order_completed.emit(self.order_data)
             if hasattr(self, 'refresh_positions_requested'):
                 self.refresh_positions_requested.emit()
+
+            # Hide immediately without animation
+            self.hide()
 
             # Clean up and close
             self.close()
@@ -418,40 +444,14 @@ class OrderStatusDialog(QWidget):
                 if hasattr(self.parent_window, 'order_status_dialog'):
                     self.parent_window.order_status_dialog = None
 
-            logger.info(f"Order status dialog hidden immediately for order {self.order_id}")
+            logger.info(f"Order status dialog hidden for completed order {self.order_id}")
 
         except Exception as e:
-            logger.error(f"Error hiding order status dialog immediately: {e}")
+            logger.error(f"Error hiding order status dialog for completion: {e}")
 
     def _handle_order_completion(self):
-        """Handle order completion - now only for non-immediate hiding cases."""
-        logger.info(f"Order {self.order_id} completed successfully")
-
-        # Only emit signals if not already hidden immediately
-        if not self.is_closing:
-            # Emit signals for main window integration
-            if hasattr(self, 'order_completed'):
-                self.order_completed.emit(self.order_data)
-            if hasattr(self, 'refresh_positions_requested'):
-                self.refresh_positions_requested.emit()
-
-            # Update UI for completion
-            self.progress_text.setText("✓ Order completed successfully!")
-
-    # Additional method to check if we should hide immediately
-    def should_hide_immediately(self, old_status: OrderStatusType, new_status: OrderStatusType) -> bool:
-        """
-        Determine if the dialog should hide immediately based on status change.
-        This allows for easy customization of which status changes trigger immediate hiding.
-        """
-        # Define status change combinations that should trigger immediate hide
-        immediate_hide_transitions = [
-            (OrderStatusType.PENDING, OrderStatusType.COMPLETE),
-            # Add more transitions here if needed, e.g.:
-            # (OrderStatusType.PARTIAL, OrderStatusType.COMPLETE),
-        ]
-
-        return (old_status, new_status) in immediate_hide_transitions
+        """Legacy method - now redirects to new completion handler."""
+        self._handle_order_completion_and_hide()
 
     def _handle_order_cancellation(self):
         """Handle order cancellation."""
@@ -521,7 +521,6 @@ class OrderStatusDialog(QWidget):
         self._is_closed = True
         self.close()
 
-
     def _auto_close(self):
         """Auto-close dialog for completed orders."""
         self._close_dialog()
@@ -537,14 +536,15 @@ class OrderStatusDialog(QWidget):
 
             # Update order data
             self.order_data.update(new_data)
-            self.current_status = self._determine_status_type()
+            new_status = self._determine_status_type()  # Fix: Define new_status properly
+            self.current_status = new_status
 
-            # Check if we should hide immediately before updating UI
-            if self.should_hide_immediately(old_status, self.current_status):
-                self._hide_immediately()
+            # Check if we should hide immediately for completion
+            if new_status == OrderStatusType.COMPLETE:
+                self._handle_order_completion_and_hide()
                 return
 
-            # Update progress
+            # Update progress for non-completion updates
             filled_qty = self.order_data.get("filled_quantity", 0)
             total_qty = self.order_data.get("quantity", 1)
             progress_value = int((filled_qty / total_qty) * 100) if total_qty > 0 else 0
@@ -552,7 +552,7 @@ class OrderStatusDialog(QWidget):
             self.progress_bar.setValue(progress_value)
             self.progress_text.setText(f"Filled: {filled_qty}/{total_qty} ({progress_value}%)")
 
-            # Update status if changed (and not hidden immediately)
+            # Update status if changed
             if old_status != self.current_status:
                 self._handle_status_change(old_status, self.current_status)
 
@@ -560,24 +560,6 @@ class OrderStatusDialog(QWidget):
 
         except Exception as e:
             logger.error(f"Error updating order status dialog: {e}")
-
-    def _handle_completion(self, order_data: Dict[str, Any]):
-        """Handle order completion with single notification."""
-        try:
-            if self._is_closed:
-                return
-
-            logger.info(f"Order {self.order_id} completed successfully")
-
-            # Notify parent window ONCE
-            if hasattr(self.parent_window, '_on_order_completed'):
-                self.parent_window._on_order_completed(order_data)
-
-            # Auto-close dialog after a delay
-            QTimer.singleShot(3000, self._close_dialog)
-
-        except Exception as e:
-            logger.error(f"Error handling order completion: {e}")
 
     def _apply_advanced_styles(self):
         """Apply modern, advanced styling to the dialog."""
@@ -695,18 +677,19 @@ class OrderStatusDialog(QWidget):
         """)
 
 
-def create_order_status_dialog(main_window, order_data: Dict[str, Any]) -> OrderStatusDialog:
+def create_order_status_dialog(main_window, order_data: Dict[str, Any]) -> 'OrderStatusDialog':
     """
-    Factory function to create and properly connect an order status dialog.
+    Enhanced factory function that ensures proper main window reference.
 
     Args:
         main_window: Reference to the main application window
         order_data: Order data dictionary with order details
 
     Returns:
-        OrderStatusDialog: Configured dialog instance
+        OrderStatusDialog: Configured dialog instance with proper main window reference
     """
-    dialog = OrderStatusDialog(order_data, main_window)
+    # Pass main_window explicitly to ensure proper reference
+    dialog = OrderStatusDialog(order_data, parent=main_window, main_window=main_window)
 
     # Connect signals to main window methods
     if hasattr(main_window, '_handle_order_cancellation'):
@@ -723,46 +706,3 @@ def create_order_status_dialog(main_window, order_data: Dict[str, Any]) -> Order
 
     logger.info(f"Created order status dialog for order {order_data.get('order_id', 'N/A')}")
     return dialog
-
-
-
-# Example usage and testing
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-
-    # Sample order data for testing
-    sample_order = {
-        "order_id": "ORD123456789",
-        "tradingsymbol": "RELIANCE",
-        "status": "PENDING",
-        "transaction_type": "BUY",
-        "quantity": 100,
-        "filled_quantity": 0,
-        "price": 2850.50,
-        "order_type": "LIMIT",
-        "product": "MIS"
-    }
-
-    dialog = OrderStatusDialog(sample_order)
-
-
-    # Simulate status updates for testing
-    def simulate_updates():
-        import random
-        filled = random.randint(0, 100)
-        status = "PARTIAL" if 0 < filled < 100 else "COMPLETE" if filled == 100 else "PENDING"
-
-        updated_data = sample_order.copy()
-        updated_data.update({
-            "filled_quantity": filled,
-            "status": status
-        })
-        dialog.update_from_external(updated_data)
-
-
-    # Test timer for simulating updates
-    test_timer = QTimer()
-    test_timer.timeout.connect(simulate_updates)
-    test_timer.start(2000)  # Update every 2 seconds
-
-    sys.exit(app.exec())
