@@ -886,9 +886,8 @@ class SwingTraderWindow(QMainWindow):
         dialog.order_placed.connect(self._handle_order_placement)
         dialog.show()
 
-    @Slot(dict)
     def _handle_order_placement(self, order_data: Dict[str, Any]):
-        """Enhanced order placement handler with fixed notification logic."""
+        """Handle order placement with immediate UI feedback and delayed logging."""
         try:
             logger.info(f"Received order request: {order_data}")
             if not self._validate_order_data(order_data):
@@ -911,28 +910,27 @@ class SwingTraderWindow(QMainWindow):
                 order_data['order_id'] = order_id
                 order_data['status'] = 'PLACED'  # Initial status
 
-                # Log order placement FIRST (before notifications)
-                if hasattr(self, 'trade_logger'):
-                    try:
-                        self.trade_logger.log_order_placement(order_data, order_id)
-                        logger.info(f"Order logged successfully: {order_id}")
-                    except Exception as log_error:
-                        logger.error(f"Failed to log order: {log_error}")
-                        # Continue despite logging error
+                # ====== IMMEDIATE UI UPDATES (NO DELAYS) ======
 
-                # Show SUCCESS notification (fix: was showing "failed" before)
+                # 1. IMMEDIATE: Show order status dialog for monitoring
+                self.show_order_status_dialog(order_data)
+
+                # 2. IMMEDIATE: Show order placed notification
                 self._show_order_placed_notification(order_data)
 
-                # Show order status dialog for monitoring
-                QTimer.singleShot(500, lambda: self.show_order_status_dialog(order_data))
+                # ====== DELAYED OPERATIONS (AFTER UI) ======
 
-                # Refresh order history if dialog is open
+                # 3. DELAYED: Log order placement in background (non-blocking)
+                if hasattr(self, 'trade_logger'):
+                    QTimer.singleShot(100, lambda: self._log_order_placement_async(order_data, order_id))
+
+                # 4. DELAYED: Refresh order history if dialog is open
                 if (hasattr(self, 'order_history_dialog') and
                         self.order_history_dialog and
                         self.order_history_dialog.isVisible()):
                     QTimer.singleShot(1000, self.order_history_dialog.refresh_orders)
 
-                logger.info(f"Order placed successfully: {order_id}")
+                logger.info(f"Order placed successfully with immediate UI feedback: {order_id}")
             else:
                 # Only show failure if order_id is None/False
                 self._show_order_notification("Order placement failed - no order ID returned", "error")
@@ -941,6 +939,16 @@ class SwingTraderWindow(QMainWindow):
             error_msg = f"Order placement failed: {str(e)}"
             logger.error(error_msg, exc_info=True)
             self._show_order_notification(error_msg, "error")
+
+    def _log_order_placement_async(self, order_data: Dict[str, Any], order_id: str):
+        """Log order placement asynchronously to avoid UI delays."""
+        try:
+            if hasattr(self, 'trade_logger') and self.trade_logger:
+                self.trade_logger.log_order_placement(order_data, order_id)
+                logger.info(f"Order logged successfully (async): {order_id}")
+        except Exception as log_error:
+            logger.error(f"Failed to log order (async): {log_error}")
+            # Don't show UI notification for logging errors - just log them
 
     @Slot(dict)
     def _handle_bracket_order_placement(self, bracket_order_data: Dict[str, Any]):
@@ -1705,9 +1713,8 @@ class SwingTraderWindow(QMainWindow):
             logger.error(error_msg, exc_info=True)
             self._show_order_notification(error_msg, "error")
 
-    @Slot(dict)
     def _on_order_completed(self, order_data: Dict[str, Any]):
-        """Single handler for order completion - called from status dialog."""
+        """Handle order completion with immediate UI feedback and delayed logging."""
         try:
             symbol = order_data.get('tradingsymbol', '')
             filled_quantity = order_data.get('filled_quantity', 0)
@@ -1717,37 +1724,48 @@ class SwingTraderWindow(QMainWindow):
 
             logger.info(f"Processing order completion: {order_id}")
 
+            # ====== IMMEDIATE UI UPDATES ======
+
+            # 1. IMMEDIATE: Show success notification
+            message = f"✓ Order completed: {transaction_type} {filled_quantity} {symbol} @ ₹{avg_price:.2f}"
+            self._show_order_notification(message, "success")
+
+            # 2. IMMEDIATE: Force refresh positions from Kite
+            self._force_refresh_positions_from_kite()
+
+            # 3. IMMEDIATE: Emit trade completion signal
+            self.trade_completed.emit()
+
+            # ====== DELAYED OPERATIONS ======
+
+            # 4. DELAYED: Log order completion (database write)
+            QTimer.singleShot(50, lambda: self._log_order_completion_async(order_data))
+
+            # 5. DELAYED: Update performance metrics
+            QTimer.singleShot(2000, self._update_performance_metrics_in_header)
+
+            # 6. DELAYED: Refresh performance dialog if open
+            if self.performance_dialog and self.performance_dialog.isVisible():
+                QTimer.singleShot(1500, self.performance_dialog.refresh_data)
+
+            logger.info(f"Order completion processed successfully (UI immediate): {order_id}")
+
+        except Exception as e:
+            logger.error(f"Error handling order completion: {e}")
+
+    def _log_order_completion_async(self, order_data: Dict[str, Any]):
+        """Log order completion asynchronously."""
+        try:
             # Mark as processed to prevent duplicate handling
             order_data['update_source'] = 'status_dialog'
             order_data['status'] = 'COMPLETE'
 
             # Log order update (with source marking)
-            try:
+            if hasattr(self, 'trade_logger') and self.trade_logger:
                 self.trade_logger.log_order_update(order_data)
-            except Exception as log_error:
-                logger.error(f"Failed to log order completion: {log_error}")
-
-            # Show success notification
-            message = f"✓ Order completed: {transaction_type} {filled_quantity} {symbol} @ ₹{avg_price:.2f}"
-            self._show_order_notification(message, "success")
-
-            # CRITICAL: Force fetch positions from Kite after order completion
-            self._force_refresh_positions_from_kite()
-
-            # Emit trade completion signal
-            self.trade_completed.emit()
-
-            # Update performance metrics
-            QTimer.singleShot(2000, self._update_performance_metrics_in_header)
-
-            # Refresh performance dialog if open
-            if self.performance_dialog and self.performance_dialog.isVisible():
-                QTimer.singleShot(1500, self.performance_dialog.refresh_data)
-
-            logger.info(f"Order completion processed successfully: {order_id}")
-
-        except Exception as e:
-            logger.error(f"Error handling order completion: {e}")
+                logger.info(f"Order completion logged successfully (async): {order_data.get('order_id')}")
+        except Exception as log_error:
+            logger.error(f"Failed to log order completion (async): {log_error}")
 
     def _force_refresh_positions_from_kite(self):
         """Force refresh positions from Kite API after order execution."""
@@ -1800,12 +1818,8 @@ class SwingTraderWindow(QMainWindow):
             logger.error(f"Error showing order status dialog: {e}")
 
     def _handle_order_update(self, order_data: Dict[str, Any]):
-        """Enhanced order update handler with new notifications."""
+        """Enhanced order update handler with immediate UI and delayed logging."""
         try:
-            # Log the order update
-            if hasattr(self, 'trade_logger') and self.trade_logger:
-                self.trade_logger.log_order_update(order_data)
-
             # Extract order details
             order_id = order_data.get('order_id', '')
             status = order_data.get('status', '').upper()
@@ -1813,12 +1827,14 @@ class SwingTraderWindow(QMainWindow):
 
             logger.info(f"Processing order update: {order_id} -> {status}")
 
-            # Update order status dialog if exists
+            # ====== IMMEDIATE UI UPDATES ======
+
+            # 1. IMMEDIATE: Update order status dialog if exists
             if hasattr(self, 'order_status_dialog') and self.order_status_dialog:
                 if self.order_status_dialog.order_id == order_id:
                     self.order_status_dialog.update_from_external(order_data)
 
-            # Handle specific status changes with enhanced notifications
+            # 2. IMMEDIATE: Handle specific status changes with notifications
             if status == 'COMPLETE':
                 self._show_order_executed_notification(order_data)
                 self._refresh_positions_table()
@@ -1841,15 +1857,29 @@ class SwingTraderWindow(QMainWindow):
                 if not hasattr(self, 'order_status_dialog') or not self.order_status_dialog:
                     self.show_order_status_dialog(order_data)
 
-            # Refresh UI components
+            # 3. IMMEDIATE: Refresh UI components
             self._refresh_ui_after_order_update(order_data)
 
-            logger.info(f"Order update processed successfully: {order_id} -> {status}")
+            # ====== DELAYED OPERATIONS ======
+
+            # 4. DELAYED: Log order update (database operations)
+            QTimer.singleShot(100, lambda: self._log_order_update_async(order_data))
+
+            logger.info(f"Order update processed successfully (UI immediate): {order_id} -> {status}")
 
         except Exception as e:
             error_msg = f"Failed to handle order update for {order_data.get('order_id', 'unknown')}: {e}"
             logger.error(error_msg, exc_info=True)
             self._show_order_notification(error_msg, "error")
+
+    def _log_order_update_async(self, order_data: Dict[str, Any]):
+        """Log order update asynchronously."""
+        try:
+            if hasattr(self, 'trade_logger') and self.trade_logger:
+                self.trade_logger.log_order_update(order_data)
+                logger.info(f"Order update logged successfully (async): {order_data.get('order_id')}")
+        except Exception as log_error:
+            logger.error(f"Failed to log order update (async): {log_error}")
 
     def _handle_order_completion(self, order_data: Dict[str, Any]):
         """Handle completed order updates."""
