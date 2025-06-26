@@ -667,59 +667,93 @@ class PositionManager(QObject):
             logger.error(f"Error updating trade statistics: {e}")
 
     def update_pnl_from_market_data(self, ticks: List[Dict]):
-        """Enhanced P&L update with debugging and better error handling."""
+        """FIXED: Enhanced P&L update with debugging and better error handling."""
         try:
             if not ticks or not self._positions:
+                logger.debug(f"No ticks ({len(ticks) if ticks else 0}) or positions ({len(self._positions)})")
                 return
 
             updated_count = 0
+            logger.debug(f"Processing {len(ticks)} ticks for {len(self._positions)} positions")
+
+            # Debug: Log all incoming ticks
+            for tick in ticks:
+                symbol = tick.get('tradingsymbol', '')
+                token = tick.get('instrument_token', '')
+                ltp = tick.get('last_price', 0.0)
+                logger.debug(f"Tick: {symbol} (token: {token}) LTP: {ltp}")
 
             for tick in ticks:
                 try:
                     symbol = tick.get('tradingsymbol', '')
+                    token = tick.get('instrument_token', 0)
                     ltp = tick.get('last_price', 0.0)
 
                     if not symbol or ltp <= 0:
                         continue
 
-                    # Check if we have a position for this symbol
+                    # ENHANCED: Check both symbol and token matching
+                    position = None
+
+                    # Method 1: Direct symbol match
                     if symbol in self._positions:
                         position = self._positions[symbol]
-                        old_ltp = getattr(position, 'ltp', 0.0)
-                        old_pnl = getattr(position, 'pnl', 0.0)
+                        logger.debug(f"✓ Found position by symbol: {symbol}")
 
-                        # Update LTP
-                        position.ltp = ltp
+                    # Method 2: Token-based matching (fallback)
+                    elif token:
+                        for pos_symbol, pos in self._positions.items():
+                            pos_token = getattr(pos, 'instrument_token', 0)
+                            if pos_token == token:
+                                position = pos
+                                symbol = pos_symbol  # Use position symbol
+                                logger.debug(f"✓ Found position by token: {token} -> {symbol}")
+                                break
 
-                        # Add timestamp for debugging
-                        setattr(position, '_last_ltp_update', datetime.now().strftime('%H:%M:%S'))
+                    if not position:
+                        continue
 
-                        # Recalculate P&L
-                        if position.quantity != 0 and position.average_price > 0:
-                            if position.quantity > 0:  # Long position
-                                new_pnl = (ltp - position.average_price) * abs(position.quantity)
-                            else:  # Short position
-                                new_pnl = (position.average_price - ltp) * abs(position.quantity)
+                    # Store old values for comparison
+                    old_ltp = getattr(position, 'ltp', 0.0)
+                    old_pnl = getattr(position, 'pnl', 0.0)
 
-                            # Update P&L fields
-                            position.pnl = new_pnl
+                    # Update LTP
+                    position.ltp = ltp
+                    position.last_price = ltp  # Also update last_price
 
-                            if hasattr(position, 'unrealised'):
-                                position.unrealised = new_pnl
+                    # Add timestamp for debugging
+                    setattr(position, '_last_ltp_update', datetime.now().strftime('%H:%M:%S'))
 
-                            # Log significant changes
-                            if abs(new_pnl - old_pnl) > 0.1:  # P&L change > 10 paise
-                                logger.info(
-                                    f"🔄 {symbol}: LTP {old_ltp:.2f} → {ltp:.2f}, P&L {old_pnl:.2f} → {new_pnl:.2f}")
-                                updated_count += 1
+                    # Recalculate P&L
+                    if position.quantity != 0 and position.average_price > 0:
+                        if position.quantity > 0:  # Long position
+                            new_pnl = (ltp - position.average_price) * abs(position.quantity)
+                        else:  # Short position
+                            new_pnl = (position.average_price - ltp) * abs(position.quantity)
+
+                        # Update P&L fields
+                        position.pnl = new_pnl
+
+                        # CRITICAL: Update all P&L related attributes
+                        if hasattr(position, 'unrealised'):
+                            position.unrealised = new_pnl
+                        if hasattr(position, 'unrealized'):  # Alternative spelling
+                            position.unrealized = new_pnl
+
+                        # Log significant changes
+                        if abs(new_pnl - old_pnl) > 0.1:  # P&L change > 10 paise
+                            logger.info(
+                                f"🔄 {symbol}: LTP {old_ltp:.2f} → {ltp:.2f}, P&L {old_pnl:.2f} → {new_pnl:.2f}")
+                            updated_count += 1
 
                 except Exception as tick_error:
                     logger.error(f"Error processing tick for {symbol}: {tick_error}")
                     continue
 
-            # Emit updates if any positions were updated
-            if updated_count > 0:
+            # CRITICAL: Always emit updates if we have positions, even if no changes
+            if self._positions:
                 all_positions = list(self._positions.values())
+                logger.debug(f"Emitting positions_updated with {len(all_positions)} positions")
                 self.positions_updated.emit(all_positions)
 
                 # Calculate total P&L
@@ -727,10 +761,46 @@ class PositionManager(QObject):
                 total_realized = sum(getattr(pos, 'realised', 0.0) for pos in self._positions.values())
 
                 self.pnl_updated.emit(total_unrealized, total_realized)
-                logger.debug(f"Updated P&L for {updated_count} positions")
+
+                if updated_count > 0:
+                    logger.info(f"✅ Updated P&L for {updated_count} positions")
+                else:
+                    logger.debug(f"📊 Emitted {len(all_positions)} positions (no P&L changes)")
 
         except Exception as e:
             logger.error(f"Error updating P&L from market data: {e}")
+
+    def debug_market_data_flow(self, ticks: List[Dict]):
+        """Add this method to debug market data flow"""
+        try:
+            logger.info("=== MARKET DATA FLOW DEBUG ===")
+            logger.info(f"Received {len(ticks)} ticks")
+            logger.info(f"Have {len(self._positions)} positions")
+
+            # Log position tokens
+            position_tokens = {}
+            for symbol, pos in self._positions.items():
+                token = getattr(pos, 'instrument_token', 0)
+                position_tokens[symbol] = token
+                logger.info(f"Position: {symbol} -> Token: {token}")
+
+            # Log tick details
+            for tick in ticks:
+                symbol = tick.get('tradingsymbol', 'Unknown')
+                token = tick.get('instrument_token', 0)
+                ltp = tick.get('last_price', 0)
+
+                # Check if this tick matches any position
+                matches_symbol = symbol in self._positions
+                matches_token = token in position_tokens.values()
+
+                logger.info(
+                    f"Tick: {symbol} (token: {token}) LTP: {ltp} | Matches: symbol={matches_symbol}, token={matches_token}")
+
+            logger.info("=== DEBUG END ===")
+
+        except Exception as e:
+            logger.error(f"Error in market data debug: {e}")
 
     def _update_pnl_metrics(self):
         """Update P&L tracking metrics."""
@@ -1194,6 +1264,87 @@ class PositionManager(QObject):
                 logger.error("Position manager not available")
         except Exception as e:
             logger.error(f"Error in manual position refresh: {e}")
+
+    def force_position_refresh_and_subscribe(self):
+        """CRITICAL: Force refresh and ensure token subscription"""
+        try:
+            logger.info("🔄 Force refreshing positions and ensuring subscription...")
+
+            # Fetch fresh positions
+            self.fetch_positions_and_orders(force_api_call=True)
+
+            # Force token subscription
+            QTimer.singleShot(1000, self._force_token_subscription_with_retry)
+
+        except Exception as e:
+            logger.error(f"Error in force refresh: {e}")
+
+    def _force_token_subscription_with_retry(self):
+        """Force token subscription with retry logic"""
+        try:
+            tokens = []
+
+            for symbol, position in self._positions.items():
+                token = None
+
+                # Get token from position
+                if hasattr(position, 'instrument_token') and position.instrument_token:
+                    token = position.instrument_token
+                elif symbol in self._instrument_map:
+                    token = self._instrument_map[symbol].get('instrument_token')
+
+                if token and token > 0:
+                    tokens.append(token)
+                    logger.info(f"📡 Position token: {symbol} -> {token}")
+
+            if tokens:
+                # Try multiple methods to subscribe
+                subscribed = False
+
+                # Method 1: Main window reference
+                if hasattr(self, '_main_window') and self._main_window:
+                    if hasattr(self._main_window, '_subscribe_to_tokens'):
+                        self._main_window._subscribe_to_tokens(tokens)
+                        logger.info(f"✅ Subscribed {len(tokens)} tokens via main window")
+                        subscribed = True
+
+                    # Also trigger watchlist update to include positions
+                    if hasattr(self._main_window, '_on_watchlist_changed'):
+                        self._main_window._on_watchlist_changed()
+                        logger.info("✅ Triggered watchlist update")
+
+                if not subscribed:
+                    logger.warning("❌ Failed to subscribe to position tokens")
+                    # Store tokens for later retry
+                    self._pending_subscription_tokens = tokens
+            else:
+                logger.warning("No valid tokens found for subscription")
+
+        except Exception as e:
+            logger.error(f"Error in force token subscription: {e}")
+
+    # Add this method to be called from main window for testing
+    def test_live_updates(self):
+        """Test method to verify live updates are working"""
+        try:
+            logger.info("🧪 Testing live updates...")
+
+            # Debug current state
+            logger.info(f"Positions count: {len(self._positions)}")
+            for symbol, pos in self._positions.items():
+                ltp = getattr(pos, 'ltp', 0)
+                pnl = getattr(pos, 'pnl', 0)
+                last_update = getattr(pos, '_last_ltp_update', 'Never')
+                logger.info(f"  {symbol}: LTP={ltp}, P&L={pnl}, Last Update={last_update}")
+
+            # Force a positions update emit
+            if self._positions:
+                positions_list = list(self._positions.values())
+                self.positions_updated.emit(positions_list)
+                logger.info("✅ Forced positions_updated signal emission")
+
+        except Exception as e:
+            logger.error(f"Error in test live updates: {e}")
 
     def get_positions_safely(self):
         """Safely get positions from trader, handling various return formats."""

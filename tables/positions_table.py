@@ -234,35 +234,7 @@ class PositionsTable(QWidget):
         except Exception as e:
             logger.error(f"Error updating positions: {e}", exc_info=True)
 
-    def _update_table_efficiently(self, sorted_positions: List[Position], new_cache: Dict[str, Position]):
-        """Update table efficiently by only modifying changed rows."""
-        current_rows = self.table.rowCount()
-        needed_rows = len(sorted_positions)
 
-        # Add or remove rows as needed
-        if needed_rows > current_rows:
-            for _ in range(needed_rows - current_rows):
-                self.table.insertRow(self.table.rowCount())
-        elif needed_rows < current_rows:
-            for _ in range(current_rows - needed_rows):
-                self.table.removeRow(self.table.rowCount() - 1)
-
-        # Update each row
-        for row, pos in enumerate(sorted_positions):
-            old_pos = self._positions_cache.get(pos.tradingsymbol)
-            self._update_row_if_needed(row, pos, old_pos)
-
-    def _update_row_if_needed(self, row: int, pos: Position, old_pos: Optional[Position]):
-        """Update a row only if the data has changed."""
-        needs_update = (
-                old_pos is None or
-                old_pos.quantity != pos.quantity or
-                abs(old_pos.average_price - pos.average_price) > 0.01 or
-                abs(old_pos.pnl - pos.pnl) > 0.01
-        )
-
-        if needs_update:
-            self._populate_row(row, pos, old_pos)
 
     def _restore_scroll_position(self, v_pos: int, h_pos: int):
         """Restore scroll position after table update."""
@@ -293,58 +265,6 @@ class PositionsTable(QWidget):
             logger.error(f"Error sorting positions: {e}")
             return positions
 
-    def _populate_row(self, row: int, pos: Position, old_pos: Optional[Position] = None):
-        """Populate a single row with position data and change indicators."""
-        try:
-            # Create items for 4 data columns (removed LTP and P&L%)
-            items = [
-                QTableWidgetItem(pos.tradingsymbol),
-                QTableWidgetItem(str(pos.quantity)),
-                QTableWidgetItem(f"{pos.average_price:.2f}"),
-                QTableWidgetItem(f"{pos.pnl:,.2f}")
-            ]
-
-            # Set alignments - symbol left, others center
-            items[0].setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            for i in range(1, 4):
-                items[i].setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
-
-            # Apply colors
-            self._apply_row_colors(items, pos, old_pos)
-
-            # Set items in table
-            for col, item in enumerate(items):
-                self.table.setItem(row, col, item)
-
-            # Add exit button
-            if not self.table.cellWidget(row, 4):  # Only create if doesn't exist
-                self.table.setCellWidget(row, 4, self._create_exit_button(row))
-
-            # Set tooltips
-            self._set_row_tooltips(row, pos)
-
-        except Exception as e:
-            logger.error(f"Error populating row {row}: {e}")
-
-    def _apply_row_colors(self, items: List[QTableWidgetItem], pos: Position, old_pos: Optional[Position]):
-        """Apply colors to row items based on P&L and changes."""
-        # Color scheme - matching watchlist colors
-        profit_color = QColor(60, 179, 113)  # Medium Sea Green
-        loss_color = QColor(220, 20, 60)  # Crimson
-        neutral_color = QColor(169, 169, 169)  # DarkGray
-        change_color = QColor("#ffeb3b")  # Yellow for changes
-
-        # P&L coloring - use same logic as watchlist
-        pnl_color = profit_color if pos.pnl > 0 else (loss_color if pos.pnl < 0 else neutral_color)
-        items[3].setForeground(pnl_color)  # P&L column
-
-        # Neutral colors for other columns
-        items[1].setForeground(neutral_color)  # Quantity
-        items[2].setForeground(neutral_color)  # Average Price
-
-        # Change indicators
-        if old_pos and abs(pos.pnl - old_pos.pnl) > 0.01:  # P&L changed
-            items[3].setBackground(change_color.lighter(180))
 
     def _set_row_tooltips(self, row: int, pos: Position):
         """Set informative tooltips for table cells."""
@@ -521,57 +441,8 @@ P&L%: {pnl_percent:+.2f}%"""
         except Exception as e:
             logger.error(f"Error showing context menu: {e}")
 
-    def _on_table_focus_out(self, event):
-        """Clear selection when table loses focus."""
-        try:
-            self.table.clearSelection()
-            # Call the original focusOutEvent if it exists
-            if hasattr(QTableWidget, 'focusOutEvent'):
-                QTableWidget.focusOutEvent(self.table, event)
-        except Exception as e:
-            logger.debug(f"Error clearing selection on focus out: {e}")
 
     # === UTILITY METHODS ===
-
-    def get_all_tokens(self) -> List[int]:
-        """Enhanced token retrieval for position subscriptions."""
-        try:
-            tokens = []
-            for pos in self._positions_cache.values():
-                token = None
-
-                # Method 1: Direct instrument token
-                if hasattr(pos, 'instrument_token') and pos.instrument_token:
-                    token = pos.instrument_token
-
-                # Method 2: Contract token
-                elif hasattr(pos, 'contract'):
-                    if isinstance(pos.contract, dict):
-                        token = pos.contract.get('instrument_token')
-                    elif hasattr(pos.contract, 'instrument_token'):
-                        token = pos.contract.instrument_token
-
-                # Method 3: Lookup from parent's instrument map
-                if not token and hasattr(pos, 'tradingsymbol'):
-                    main_window = self.parent()
-                    while main_window and not hasattr(main_window, 'instrument_map'):
-                        main_window = main_window.parent()
-
-                    if main_window and hasattr(main_window, 'instrument_map'):
-                        instrument_map = main_window.instrument_map
-                        if pos.tradingsymbol in instrument_map:
-                            instrument = instrument_map[pos.tradingsymbol]
-                            token = instrument.get('instrument_token')
-
-                if token and token > 0:
-                    tokens.append(token)
-                    logger.debug(f"Position token: {pos.tradingsymbol} -> {token}")
-
-            logger.info(f"Positions table returning {len(tokens)} tokens for subscription")
-            return tokens
-        except Exception as e:
-            logger.error(f"Error getting position tokens: {e}")
-            return []
 
     def get_position_by_symbol(self, symbol: str) -> Optional[Position]:
         """Get position object by symbol."""
@@ -736,3 +607,306 @@ P&L%: {pnl_percent:+.2f}%"""
         """)
 
         logger.info("Professional dark theme applied to positions table.")
+
+    @Slot(list)
+    def update_positions(self, positions: List[Position]):
+        """FIXED: Enhanced position update with better change detection and forced refresh"""
+        try:
+            if not hasattr(self, '_update_counter'):
+                self._update_counter = 0
+            self._update_counter += 1
+
+            start_time = datetime.now()
+            logger.debug(f"Position table update #{self._update_counter}: {len(positions)} positions")
+
+            # Store current scroll position
+            v_scrollbar = self.table.verticalScrollBar()
+            h_scrollbar = self.table.horizontalScrollBar()
+            v_scroll_pos = v_scrollbar.value()
+            h_scroll_pos = h_scrollbar.value()
+
+            # Create new cache for positions
+            new_cache = {pos.tradingsymbol: pos for pos in positions}
+
+            # Calculate totals
+            total_pnl = 0.0
+            total_investment = 0.0
+
+            # Sort positions by the current sort criteria
+            sorted_positions = self._sort_positions(positions)
+
+            # CRITICAL: Always update all rows if we haven't updated in a while
+            force_full_update = (
+                    self._update_counter % 10 == 0 or  # Every 10th update
+                    len(new_cache) != len(self._positions_cache) or  # Position count changed
+                    not hasattr(self, '_last_full_update') or
+                    (datetime.now() - getattr(self, '_last_full_update', datetime.min)).seconds > 30  # 30 seconds
+            )
+
+            if force_full_update:
+                logger.debug("Performing full table update")
+                self._last_full_update = datetime.now()
+
+            # Update table efficiently or fully
+            self._update_table_efficiently(sorted_positions, new_cache, force_full_update)
+
+            # Calculate totals from sorted positions
+            for pos in sorted_positions:
+                total_pnl += pos.pnl
+                total_investment += abs(pos.quantity * pos.average_price)
+
+            # Update cache
+            self._positions_cache = new_cache
+
+            # Update summary information
+            self._update_summary(total_pnl, total_investment, len(positions))
+
+            # Restore scroll position
+            QTimer.singleShot(0, lambda: self._restore_scroll_position(v_scroll_pos, h_scroll_pos))
+
+            # Update performance metrics
+            self._last_update_time = datetime.now()
+            update_time = (datetime.now() - start_time).total_seconds() * 1000
+
+            # Request token subscription for market data (critical for live updates)
+            if positions:
+                tokens = self.get_all_tokens()
+                if tokens:
+                    self.subscribe_tokens_requested.emit(tokens)
+                    logger.debug(f"Requested subscription for {len(tokens)} position tokens")
+
+            if self._update_counter % 5 == 0:  # Log every 5th update
+                logger.info(
+                    f"Position table update #{self._update_counter} completed in {update_time:.1f}ms for {len(positions)} positions")
+
+        except Exception as e:
+            logger.error(f"Error updating positions: {e}", exc_info=True)
+
+    def _update_table_efficiently(self, sorted_positions: List[Position], new_cache: Dict[str, Position],
+                                  force_full_update: bool = False):
+        """FIXED: Enhanced table update with forced refresh option"""
+        current_rows = self.table.rowCount()
+        needed_rows = len(sorted_positions)
+
+        # Add or remove rows as needed
+        if needed_rows > current_rows:
+            for _ in range(needed_rows - current_rows):
+                self.table.insertRow(self.table.rowCount())
+        elif needed_rows < current_rows:
+            for _ in range(current_rows - needed_rows):
+                self.table.removeRow(self.table.rowCount() - 1)
+
+        # Update each row
+        for row, pos in enumerate(sorted_positions):
+            old_pos = self._positions_cache.get(pos.tradingsymbol)
+
+            # Force update if requested or if this is a significant change
+            if force_full_update:
+                self._populate_row(row, pos, old_pos)
+            else:
+                self._update_row_if_needed(row, pos, old_pos)
+
+    def _update_row_if_needed(self, row: int, pos: Position, old_pos: Optional[Position]):
+        """FIXED: Enhanced change detection with more sensitive thresholds"""
+        try:
+            needs_update = (
+                    old_pos is None or
+                    old_pos.quantity != pos.quantity or
+                    abs(old_pos.average_price - pos.average_price) > 0.01 or
+                    abs(old_pos.pnl - pos.pnl) > 0.01 or  # Even 1 paisa change
+                    abs(getattr(old_pos, 'ltp', 0) - getattr(pos, 'ltp', 0)) > 0.01  # LTP change
+            )
+
+            if needs_update:
+                self._populate_row(row, pos, old_pos)
+                if old_pos and abs(old_pos.pnl - pos.pnl) > 0.01:
+                    logger.debug(f"Updated {pos.tradingsymbol}: P&L {old_pos.pnl:.2f} → {pos.pnl:.2f}")
+        except Exception as e:
+            logger.error(f"Error checking row update for row {row}: {e}")
+            # On error, force update the row
+            self._populate_row(row, pos, old_pos)
+
+    def _populate_row(self, row: int, pos: Position, old_pos: Optional[Position] = None):
+        """FIXED: Enhanced row population with better error handling"""
+        try:
+            # Ensure we have valid data
+            if not hasattr(pos, 'tradingsymbol') or not pos.tradingsymbol:
+                logger.warning(f"Invalid position data for row {row}")
+                return
+
+            # Create items for 4 data columns
+            items = [
+                QTableWidgetItem(str(pos.tradingsymbol)),
+                QTableWidgetItem(str(getattr(pos, 'quantity', 0))),
+                QTableWidgetItem(f"{getattr(pos, 'average_price', 0.0):.2f}"),
+                QTableWidgetItem(f"{getattr(pos, 'pnl', 0.0):,.2f}")
+            ]
+
+            # Set alignments
+            items[0].setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            for i in range(1, 4):
+                items[i].setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
+
+            # Apply colors
+            self._apply_row_colors(items, pos, old_pos)
+
+            # Set items in table (with error handling)
+            for col, item in enumerate(items):
+                try:
+                    self.table.setItem(row, col, item)
+                except Exception as item_error:
+                    logger.error(f"Error setting item at row {row}, col {col}: {item_error}")
+
+            # Add exit button (only if it doesn't exist)
+            if not self.table.cellWidget(row, 4):
+                try:
+                    self.table.setCellWidget(row, 4, self._create_exit_button(row))
+                except Exception as button_error:
+                    logger.error(f"Error creating exit button for row {row}: {button_error}")
+
+            # Set tooltips
+            self._set_row_tooltips(row, pos)
+
+        except Exception as e:
+            logger.error(f"Error populating row {row}: {e}")
+
+    def _apply_row_colors(self, items: List[QTableWidgetItem], pos: Position, old_pos: Optional[Position]):
+        """FIXED: Enhanced color application with change detection"""
+        try:
+            # Color scheme
+            profit_color = QColor(60, 179, 113)  # Medium Sea Green
+            loss_color = QColor(220, 20, 60)  # Crimson
+            neutral_color = QColor(169, 169, 169)  # DarkGray
+            change_color = QColor("#ffeb3b")  # Yellow for changes
+
+            # P&L coloring
+            pnl = getattr(pos, 'pnl', 0.0)
+            if pnl > 0:
+                pnl_color = profit_color
+            elif pnl < 0:
+                pnl_color = loss_color
+            else:
+                pnl_color = neutral_color
+
+            items[3].setForeground(pnl_color)  # P&L column
+
+            # Neutral colors for other columns
+            items[1].setForeground(neutral_color)  # Quantity
+            items[2].setForeground(neutral_color)  # Average Price
+
+            # Change indicators (highlight recent changes)
+            if old_pos and abs(getattr(pos, 'pnl', 0) - getattr(old_pos, 'pnl', 0)) > 0.01:
+                items[3].setBackground(change_color.lighter(180))
+                # Remove highlight after a delay
+                QTimer.singleShot(2000, lambda: self._remove_change_highlight(items[3]))
+
+        except Exception as e:
+            logger.error(f"Error applying row colors: {e}")
+
+    def _remove_change_highlight(self, item: QTableWidgetItem):
+        """Remove change highlight from table item"""
+        try:
+            if item:
+                item.setBackground(QColor())  # Reset to default background
+        except Exception as e:
+            logger.debug(f"Error removing highlight: {e}")
+
+    def get_all_tokens(self) -> List[int]:
+        """FIXED: Enhanced token retrieval for position subscriptions"""
+        try:
+            tokens = []
+            for pos in self._positions_cache.values():
+                token = None
+
+                # Method 1: Direct instrument token
+                if hasattr(pos, 'instrument_token') and pos.instrument_token:
+                    token = pos.instrument_token
+
+                # Method 2: Contract token
+                elif hasattr(pos, 'contract'):
+                    if isinstance(pos.contract, dict):
+                        token = pos.contract.get('instrument_token')
+                    elif hasattr(pos.contract, 'instrument_token'):
+                        token = pos.contract.instrument_token
+
+                # Method 3: Lookup from parent's instrument map
+                if not token and hasattr(pos, 'tradingsymbol'):
+                    main_window = self.parent()
+                    while main_window and not hasattr(main_window, 'instrument_map'):
+                        main_window = main_window.parent()
+
+                    if main_window and hasattr(main_window, 'instrument_map'):
+                        instrument_map = main_window.instrument_map
+                        if pos.tradingsymbol in instrument_map:
+                            instrument = instrument_map[pos.tradingsymbol]
+                            token = instrument.get('instrument_token')
+
+                if token and token > 0:
+                    tokens.append(token)
+                    logger.debug(f"Position token: {pos.tradingsymbol} -> {token}")
+
+            logger.info(f"Positions table returning {len(tokens)} tokens for subscription")
+            return tokens
+        except Exception as e:
+            logger.error(f"Error getting position tokens: {e}")
+            return []
+
+    def force_refresh_display(self):
+        """Force refresh the entire table display"""
+        try:
+            logger.info("🔄 Force refreshing positions table display")
+
+            # Get current positions from cache
+            if self._positions_cache:
+                positions_list = list(self._positions_cache.values())
+
+                # Mark for full update
+                self._last_full_update = datetime.min
+
+                # Trigger update
+                self.update_positions(positions_list)
+
+                logger.info(f"✅ Force refreshed {len(positions_list)} positions")
+            else:
+                logger.warning("No positions in cache to refresh")
+
+        except Exception as e:
+            logger.error(f"Error in force refresh: {e}")
+
+    def debug_table_state(self):
+        """Debug method to check table state"""
+        try:
+            logger.info("=== POSITIONS TABLE DEBUG ===")
+            logger.info(f"Cached positions: {len(self._positions_cache)}")
+            logger.info(f"Table rows: {self.table.rowCount()}")
+            logger.info(f"Update counter: {getattr(self, '_update_counter', 0)}")
+            logger.info(f"Last update: {getattr(self, '_last_update_time', 'Never')}")
+
+            # Check each cached position
+            for symbol, pos in self._positions_cache.items():
+                ltp = getattr(pos, 'ltp', 0)
+                pnl = getattr(pos, 'pnl', 0)
+                last_update = getattr(pos, '_last_ltp_update', 'Never')
+                logger.info(f"  {symbol}: LTP={ltp}, P&L={pnl}, Update={last_update}")
+
+            logger.info("=== DEBUG END ===")
+
+        except Exception as e:
+            logger.error(f"Error in table debug: {e}")
+
+    # Add this method to test table updates manually
+    def test_table_updates(self):
+        """Test method to verify table is updating correctly"""
+        try:
+            logger.info("🧪 Testing table updates...")
+
+            # Debug current state
+            self.debug_table_state()
+
+            # Force a refresh
+            self.force_refresh_display()
+
+            logger.info("✅ Table test complete")
+
+        except Exception as e:
+            logger.error(f"Error in table test: {e}")

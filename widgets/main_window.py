@@ -706,47 +706,50 @@ class SwingTraderWindow(QMainWindow):
 
     @Slot()
     def _on_watchlist_changed(self):
-        """Fixed watchlist change handler with position token subscription."""
-        logger.info("Watchlist changed - updating subscriptions")
+        """FIXED: Enhanced watchlist change handler with position token priority"""
+        logger.info("Watchlist changed - updating subscriptions with position priority")
         all_tokens = set()
 
-        # Get tokens from all sources
-        all_tokens.update(self.watchlist.get_all_tokens())
-        all_tokens.update(self.positions_table.get_all_tokens())
-        all_tokens.update(self._get_alert_tokens())
+        # PRIORITY 1: Position tokens (most critical)
+        if hasattr(self, 'position_manager') and self.position_manager and self.position_manager._positions:
+            position_tokens = []
+            for symbol, position in self.position_manager._positions.items():
+                token = None
 
-        # CRITICAL: Always include current chart symbol token
+                if hasattr(position, 'instrument_token') and position.instrument_token:
+                    token = position.instrument_token
+                elif symbol in self.instrument_map:
+                    token = self.instrument_map[symbol].get('instrument_token')
+
+                if token and token > 0:
+                    position_tokens.append(token)
+                    all_tokens.add(token)
+
+            if position_tokens:
+                logger.info(f"🎯 PRIORITY: Added {len(position_tokens)} position tokens")
+
+        # PRIORITY 2: Chart token (if available)
         if (hasattr(self, 'candlestick_chart') and
                 hasattr(self.candlestick_chart, 'current_instrument_token') and
                 self.candlestick_chart.current_instrument_token):
             all_tokens.add(self.candlestick_chart.current_instrument_token)
-            logger.info(f"Added chart token {self.candlestick_chart.current_instrument_token}")
+            logger.info(f"📊 Added chart token: {self.candlestick_chart.current_instrument_token}")
 
-        # CRITICAL: Add position tokens from position manager
-        if hasattr(self, 'position_manager') and self.position_manager:
-            try:
-                position_tokens = []
-                for symbol, position in self.position_manager._positions.items():
-                    token = None
+        # PRIORITY 3: Watchlist tokens
+        watchlist_tokens = self.watchlist.get_all_tokens()
+        all_tokens.update(watchlist_tokens)
+        logger.info(f"👁 Added {len(watchlist_tokens)} watchlist tokens")
 
-                    if hasattr(position, 'instrument_token') and position.instrument_token:
-                        token = position.instrument_token
-                    elif symbol in self.instrument_map:
-                        token = self.instrument_map[symbol].get('instrument_token')
+        # PRIORITY 4: Alert tokens
+        alert_tokens = self._get_alert_tokens()
+        all_tokens.update(alert_tokens)
 
-                    if token and token > 0:
-                        position_tokens.append(token)
-                        all_tokens.add(token)
-
-                if position_tokens:
-                    logger.info(f"Added {len(position_tokens)} position tokens to subscription")
-
-            except Exception as e:
-                logger.error(f"Error getting position tokens: {e}")
-
+        # Subscribe to all tokens
         if self.market_data_worker and all_tokens:
             self.market_data_worker.set_instruments(list(all_tokens))
-            logger.info(f"Updated subscription to {len(all_tokens)} tokens (including chart and positions).")
+            logger.info(
+                f"🚀 Updated subscription to {len(all_tokens)} tokens (positions: {len(position_tokens) if 'position_tokens' in locals() else 0})")
+
 
     @Slot(list)
     def _subscribe_to_tokens(self, tokens: List[int]):
@@ -2365,7 +2368,8 @@ class SwingTraderWindow(QMainWindow):
 
     def _on_market_data_disconnected(self):
         """Handle market data disconnection."""
-        self._show_system_notification("Market data disconnected - Reconnecting...")
+        self._show_system_notification("Market data disconnected - Reconnecting..."
+                                       "")
 
     def _on_api_error(self, error_msg: str):
         """Handle API errors."""
@@ -2394,23 +2398,111 @@ class SwingTraderWindow(QMainWindow):
 
         self._show_order_notification(message, "alert", action_data=action_data)
 
-    # Usage example and testing method
-    def test_chart_live_updates(main_window):
-        """Test method to verify chart live updates are working"""
-        try:
-            # Debug current state
-            debug_info = main_window.debug_chart_live_updates()
-            print("Chart Debug Info:", debug_info)
 
-            # Force an update if chart is loaded
-            if main_window.candlestick_chart and main_window.candlestick_chart.current_symbol:
-                main_window.candlestick_chart.force_live_update()
-                print(f"Forced update for {main_window.candlestick_chart.current_symbol}")
+
+    def debug_position_market_data_subscription(self):
+        """Debug method to check position token subscription status"""
+        try:
+            logger.info("=== POSITION SUBSCRIPTION DEBUG ===")
+
+            if not hasattr(self, 'position_manager') or not self.position_manager._positions:
+                logger.warning("No positions to debug")
+                return
+
+            # Check position tokens
+            position_tokens = []
+            for symbol, position in self.position_manager._positions.items():
+                token = getattr(position, 'instrument_token', 0)
+                position_tokens.append((symbol, token))
+                logger.info(f"Position: {symbol} -> Token: {token}")
 
             # Check subscription status
-            if main_window.market_data_worker:
-                worker_info = main_window.market_data_worker.get_subscription_info()
-                print("Worker Info:", worker_info)
+            if hasattr(self, 'market_data_worker') and self.market_data_worker:
+                worker_info = self.market_data_worker.get_subscription_info()
+                subscribed_tokens = worker_info.get('subscribed_tokens', [])
+
+                logger.info(f"Total subscribed tokens: {len(subscribed_tokens)}")
+
+                for symbol, token in position_tokens:
+                    is_subscribed = token in subscribed_tokens
+                    status = "✅ SUBSCRIBED" if is_subscribed else "❌ NOT SUBSCRIBED"
+                    logger.info(f"  {symbol} (token: {token}): {status}")
+
+            logger.info("=== DEBUG END ===")
 
         except Exception as e:
-            print(f"Test failed: {e}")
+            logger.error(f"Error in subscription debug: {e}")
+
+    def force_position_subscription_refresh(self):
+        """Force refresh of position token subscriptions"""
+        try:
+            logger.info("🔄 Force refreshing position subscriptions...")
+
+            # First refresh positions
+            if hasattr(self, 'position_manager') and self.position_manager:
+                self.position_manager.fetch_positions_and_orders(force_api_call=True)
+
+            # Wait a bit then refresh subscriptions
+            QTimer.singleShot(2000, self._force_subscription_update)
+
+        except Exception as e:
+            logger.error(f"Error in force subscription refresh: {e}")
+
+    def _force_subscription_update(self):
+        """Internal method to force subscription update"""
+        try:
+            # Trigger watchlist change to include all tokens
+            self._on_watchlist_changed()
+
+            # Debug subscription status
+            QTimer.singleShot(1000, self.debug_position_market_data_subscription)
+
+        except Exception as e:
+            logger.error(f"Error in force subscription update: {e}")
+
+    def test_position_live_updates(self):
+        """Test method to verify position live updates - call this manually"""
+        try:
+            logger.info("🧪 TESTING POSITION LIVE UPDATES")
+
+            # Step 1: Debug subscription
+            self.debug_position_market_data_subscription()
+
+            # Step 2: Test position manager
+            if hasattr(self, 'position_manager') and self.position_manager:
+                self.position_manager.test_live_updates()
+
+            # Step 3: Force a subscription refresh
+            self.force_position_subscription_refresh()
+
+            logger.info("✅ Test complete - check logs above for status")
+
+        except Exception as e:
+            logger.error(f"Error in test: {e}")
+
+        # Add this to your existing _refresh_positions_table method
+
+    def _refresh_positions_table(self):
+        """Enhanced position table refresh with subscription check"""
+        logger.debug("Requesting position and order refresh...")
+
+        # Force refresh positions
+        if hasattr(self, 'position_manager'):
+            self.position_manager.fetch_positions_and_orders()
+
+            # CRITICAL: Ensure tokens are subscribed after refresh
+            QTimer.singleShot(2000, self._ensure_position_tokens_subscribed)
+
+        # Also refresh the positions table data immediately
+        if hasattr(self, 'positions_table'):
+            QTimer.singleShot(100, self.positions_table.update)
+
+    def _ensure_position_tokens_subscribed(self):
+        """Ensure all position tokens are subscribed after position refresh"""
+        try:
+            if hasattr(self, 'position_manager') and self.position_manager._positions:
+                # Trigger a subscription update
+                self._on_watchlist_changed()
+                logger.info("✅ Ensured position tokens are subscribed after refresh")
+        except Exception as e:
+            logger.error(f"Error ensuring position token subscription: {e}")
