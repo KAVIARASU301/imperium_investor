@@ -644,10 +644,10 @@ class SwingTraderWindow(QMainWindow):
         """FIXED: Enhanced watchlist change handler with position token priority"""
         logger.info("Watchlist changed - updating subscriptions with position priority")
         all_tokens = set()
+        position_tokens = []
 
         # PRIORITY 1: Position tokens (most critical)
         if hasattr(self, 'position_manager') and self.position_manager and self.position_manager._positions:
-            position_tokens = []
             for symbol, position in self.position_manager._positions.items():
                 token = None
 
@@ -710,7 +710,6 @@ class SwingTraderWindow(QMainWindow):
                 logger.warning("Market data worker not available for subscription")
         except Exception as e:
             logger.error(f"Failed to subscribe to tokens: {e}")
-
 
     def _mark_startup_complete(self):
         """Mark that startup sequence is complete and enable notifications."""
@@ -815,8 +814,6 @@ class SwingTraderWindow(QMainWindow):
         if hasattr(self.header_toolbar, 'update_pnl_display'):
             self.header_toolbar.update_pnl_display(unrealized_pnl, realized_pnl)
 
-
-
     @Slot(dict)
     def _on_performance_update(self, performance_data: dict):
         if hasattr(self.header_toolbar, 'update_performance_metrics'):
@@ -852,7 +849,6 @@ class SwingTraderWindow(QMainWindow):
             dialog.order_placed.connect(self._handle_order_placement)
             dialog.bracket_order_placed.connect(self._handle_bracket_order_placement)
             dialog.show()
-
 
     def _on_header_buy_order(self, symbol: str):
         self._show_advanced_order_dialog(symbol)
