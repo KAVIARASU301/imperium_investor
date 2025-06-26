@@ -229,8 +229,11 @@ class PositionManager(QObject):
 
             # For paper trading
             if isinstance(self.trader, PaperTradingManager):
-                positions = self.trader.get_positions()
-                orders = self.trader.get_orders()
+                # CORRECTED LINE: Use .positions() which returns a dict
+                positions_response = self.trader.positions()
+                orders = self.trader.orders()
+                # Extract the 'net' positions from the dictionary
+                positions = positions_response.get('net', [])
             else:
                 # For live trading - handle Kite API dict response
                 try:
@@ -316,7 +319,6 @@ class PositionManager(QObject):
             logger.error(f"Fatal error in position fetch: {e}")
             # Emit empty list on error
             self.positions_updated.emit([])
-
     def _request_position_token_subscription(self):
         """Request market data subscription for all position tokens with enhanced parent finding."""
         try:
@@ -1414,7 +1416,8 @@ class PositionManager(QObject):
 
             # For paper trading
             if isinstance(self.trader, PaperTradingManager):
-                positions = self.trader.get_positions()
+                # CORRECTED LINE:
+                positions= self.trader.positions()
                 orders = self.trader.get_orders()
             else:
                 # For live trading - use safe position retrieval

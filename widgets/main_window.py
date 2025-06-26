@@ -21,13 +21,9 @@ from dialogs.order_history_dialog import OrderHistoryDialog
 from dialogs.performance_dialog import PerformanceDialog
 from dialogs.order_status_dialog import create_order_status_dialog
 from dialogs.alert_management_system import AlertSystemManager
-from dialogs.notification_dialog import NotificationManager, NotificationType, setup_notification_system
+from dialogs.notification_dialog import NotificationType, setup_notification_system
 
 from utils.advanced_order_manager import AdvancedOrderManager
-from utils.risk_management import (
-    AdvancedRiskManager, PositionMonitor, TradeAnalyzer, TradingRules
-)
-
 from utils.market_data_worker import MarketDataWorker
 from utils.paper_trading_manager import PaperTradingManager
 from utils.position_manager import PositionManager
@@ -42,7 +38,7 @@ logger = logging.getLogger(__name__)
 class SwingTraderWindow(QMainWindow):
     """
     The main frameless window for the Swing Trader application with a professional dark theme.
-    Includes advanced order management, risk management, and an enhanced alert system.
+    Includes advanced order management and an enhanced alert system.
     """
     trade_completed = Signal()
 
@@ -81,7 +77,6 @@ class SwingTraderWindow(QMainWindow):
 
         # --- Advanced Components ---
         self.order_manager = None
-        self.risk_manager = None
         self.position_monitor = None
         self.trade_analyzer = None
         self.trading_rules = None
@@ -314,60 +309,7 @@ class SwingTraderWindow(QMainWindow):
             except Exception as e:
                 logger.error(f"Failed to ensure chart subscription for {symbol}: {e}")
 
-        # Add debug method to main window
-        def debug_chart_live_updates(self):
-            """Debug method to check chart live update status"""
-            try:
-                if not self.candlestick_chart:
-                    return {"error": "No chart available"}
 
-                chart_debug = self.candlestick_chart.debug_live_updates()
-
-                # Add market data worker info
-                if self.market_data_worker:
-                    worker_info = self.market_data_worker.get_subscription_info()
-                    chart_debug.update({
-                        'worker_connected': worker_info.get('is_connected', False),
-                        'total_subscriptions': worker_info.get('subscribed_count', 0),
-                        'chart_token_subscribed': (
-                                self.candlestick_chart.current_instrument_token in
-                                worker_info.get('subscribed_tokens', [])
-                        ) if self.candlestick_chart.current_instrument_token else False
-                    })
-
-                logger.info(f"Chart live update debug: {chart_debug}")
-                return chart_debug
-
-            except Exception as e:
-                logger.error(f"Error in debug_chart_live_updates: {e}")
-                return {"error": str(e)}
-
-    @Slot(list)
-    def _on_market_data_enhanced(self, ticks: List[Dict]):
-        """Enhanced market data processing with immediate chart updates"""
-        if not ticks:
-            return
-
-        try:
-            # PRIORITY: Update chart immediately if symbol matches
-            self._update_chart_with_ticks(ticks)
-
-            # Then update other components
-            self.position_manager.update_pnl_from_market_data(ticks)
-            if isinstance(self.trader, PaperTradingManager):
-                self.trader.update_market_data(ticks)
-            self.watchlist.update_data(ticks)
-
-            if self.alert_system:
-                self.alert_system.update_market_data(ticks)
-
-            if self.risk_manager:
-                positions = self.position_manager.get_all_positions()
-                daily_pnl = sum(pos.pnl for pos in positions)
-                self.risk_manager.update_daily_pnl(daily_pnl)
-
-        except Exception as e:
-            logger.error(f"Error processing market data: {e}")
 
     def _update_chart_with_ticks(self, ticks: List[Dict]):
         """Dedicated method for chart tick processing"""
@@ -407,13 +349,9 @@ class SwingTraderWindow(QMainWindow):
                 logger.error(f"Error updating chart with ticks: {e}")
 
     def _init_advanced_components(self):
-        """Initializes advanced order and risk management components."""
+        """Initializes advanced order management components."""
         try:
             self.order_manager = AdvancedOrderManager(self.trader, self.config_manager)
-            self.risk_manager = AdvancedRiskManager(self.config_manager)
-            self.position_monitor = PositionMonitor(self.risk_manager)
-            self.trade_analyzer = TradeAnalyzer()
-            self.trading_rules = TradingRules()
 
             # CRITICAL: Set main window reference in position manager
             if hasattr(self, 'position_manager'):
@@ -424,7 +362,6 @@ class SwingTraderWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Failed to initialize advanced components: {e}")
             self.order_manager = None
-            self.risk_manager = None
 
     # ==============================================================================
     # SIGNAL CONNECTIONS
@@ -436,12 +373,10 @@ class SwingTraderWindow(QMainWindow):
 
         # --- Position Manager -> UI ---
         self.position_manager.positions_updated.connect(self.positions_table.update_positions)
-        self.position_manager.refresh_completed.connect(self._on_positions_refresh_completed)
         self.position_manager.api_error_occurred.connect(self._on_api_error)
-        # self.position_manager.position_closed.connect(self._on_position_closed)
-        # self.position_manager.position_opened.connect(self._on_position_opened)
+        self.position_manager.position_closed.connect(self._on_position_closed)
+        self.position_manager.position_opened.connect(self._on_position_opened)
         self.position_manager.pnl_updated.connect(self._on_pnl_updated)
-        self.position_manager.risk_alert.connect(self._on_risk_alert)
         self.position_manager.performance_update.connect(self._on_performance_update)
 
         # --- Positions Table -> Main Window ---
@@ -496,7 +431,7 @@ class SwingTraderWindow(QMainWindow):
         logger.info("All component signals connected successfully.")
 
     def _connect_advanced_signals(self):
-        """Connects signals for advanced order and risk management."""
+        """Connects signals for advanced order management."""
         if self.order_manager:
             self.order_manager.order_placed.connect(self._on_order_placed)
             self.order_manager.order_executed.connect(self._on_order_executed)
@@ -504,10 +439,7 @@ class SwingTraderWindow(QMainWindow):
             self.order_manager.order_rejected.connect(self._on_order_rejected)
             self.order_manager.bracket_order_completed.connect(self._on_bracket_completed)
             self.order_manager.oco_triggered.connect(self._on_oco_triggered)
-        if self.risk_manager:
-            # self.risk_manager.risk_limit_exceeded.connect(self._handle_risk_alert)
-            # self.risk_manager.position_limit_reached.connect(self._handle_position_limit_alert)
-            pass
+
     # ==============================================================================
     # WINDOW MANAGEMENT & STATE
     # ==============================================================================
@@ -697,10 +629,7 @@ class SwingTraderWindow(QMainWindow):
             if self.alert_system:
                 self.alert_system.update_market_data(ticks)
 
-            if self.risk_manager:
-                positions = self.position_manager.get_all_positions()
-                daily_pnl = sum(pos.pnl for pos in positions)
-                self.risk_manager.update_daily_pnl(daily_pnl)
+
         except Exception as e:
             logger.error(f"Error processing market data: {e}")
 
@@ -776,12 +705,6 @@ class SwingTraderWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Failed to subscribe to tokens: {e}")
 
-    @Slot()
-    def _on_positions_refresh_completed(self):
-        logger.debug("Position refresh completed.")
-        if self.risk_manager:
-            positions = self.position_manager.get_all_positions()
-            self.risk_manager.update_positions(positions)
 
     def _mark_startup_complete(self):
         """Mark that startup sequence is complete and enable notifications."""
@@ -806,7 +729,7 @@ class SwingTraderWindow(QMainWindow):
         message = f"Order placed for {symbol}. ID: {order_id}"
         self._show_order_notification(message, "info", sound_type='placed')
         logger.info(message)
-        QTimer.singleShot(1500, self._refresh_positions_table)
+        QTimer.singleShot(1000, self._refresh_positions_table)
         QTimer.singleShot(2000, self._update_performance_metrics_in_header)
         # Refresh dashboard if open
         if self.performance_dialog and self.performance_dialog.isVisible():
@@ -886,11 +809,7 @@ class SwingTraderWindow(QMainWindow):
         if hasattr(self.header_toolbar, 'update_pnl_display'):
             self.header_toolbar.update_pnl_display(unrealized_pnl, realized_pnl)
 
-    @Slot(str, float)
-    def _on_risk_alert(self, message: str, risk_value: float):
-        """Enhanced risk alert handler."""
-        self._show_risk_alert_notification(message, risk_value)
-        logger.warning(f"Risk Alert: {message} (Value: {risk_value})")
+
 
     @Slot(dict)
     def _on_performance_update(self, performance_data: dict):
@@ -973,13 +892,6 @@ class SwingTraderWindow(QMainWindow):
             if not self._validate_order_data(order_data):
                 return
 
-            # Risk validation
-            if self.risk_manager:
-                is_valid, msg = self.risk_manager.validate_order(order_data)
-                if not is_valid:
-                    self._show_order_rejected_notification(order_data, msg)
-                    return
-
             # Place order via order manager
             if self.order_manager:
                 order_id = self.order_manager.place_order(order_data)
@@ -1041,17 +953,6 @@ class SwingTraderWindow(QMainWindow):
             logger.error(error_msg, exc_info=True)
             self._show_order_notification(error_msg, "error")
 
-    # ==============================================================================
-    # RISK MANAGEMENT HANDLERS
-    # ==============================================================================
-
-    def _handle_risk_alert(self, message: str, risk_value: float):
-        """Handle risk alerts with logging only - no annoying popups."""
-        logger.warning(f"RISK ALERT: {message} | Value: {risk_value}")
-
-    def _handle_position_limit_alert(self, message: str, position_count: int):
-        """Handle position limit alerts with logging only - no annoying popups."""
-        logger.warning(f"POSITION ALERT: {message} | Count: {position_count}")
 
     # ==============================================================================
     # UI NOTIFICATION & REFRESH
@@ -1064,18 +965,6 @@ class SwingTraderWindow(QMainWindow):
         # Also log it
         logger.info(f"Status: {message}")
 
-    def _refresh_positions_table(self):
-        """Enhanced position table refresh."""
-        logger.debug("Requesting position and order refresh...")
-
-        # Force refresh positions
-        if hasattr(self, 'position_manager'):
-            self.position_manager.fetch_positions_and_orders()
-
-        # Also refresh the positions table data immediately
-        if hasattr(self, 'positions_table'):
-            # Force an immediate UI update
-            QTimer.singleShot(100, self.positions_table.update)
 
     # ==============================================================================
     # ALERT SYSTEM METHODS
@@ -2344,18 +2233,6 @@ class SwingTraderWindow(QMainWindow):
 
         self._show_order_notification(message, "position_update", action_data=action_data)
 
-    def _show_risk_alert_notification(self, message: str, risk_value: float = 0):
-        """Show risk management alert."""
-        alert_message = f"⚠ RISK ALERT: {message}"
-        if risk_value > 0:
-            alert_message += f" (₹{risk_value:,.2f})"
-
-        action_data = {
-            'action_type': 'show_positions',
-            'risk_alert': True
-        }
-
-        self._show_order_notification(alert_message, "alert", action_data=action_data)
 
     def _show_system_notification(self, message: str):
         """Show system status notification."""

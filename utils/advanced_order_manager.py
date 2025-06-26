@@ -165,7 +165,7 @@ class AdvancedOrderManager(QObject):
             Order ID if successful, None if failed
         """
         try:
-            # Create advanced order object
+            # Create an advanced order object
             advanced_order = self._create_advanced_order(order_data)
 
             # Place order via trader
@@ -646,7 +646,7 @@ class AdvancedOrderManager(QObject):
         self._move_to_completed(order.order_id)
 
     def _move_to_completed(self, order_id: str):
-        """Move order from active to completed."""
+        """Move order from active to complete."""
         if order_id in self.active_orders:
             order = self.active_orders.pop(order_id)
             self.completed_orders.append(order)
@@ -789,7 +789,7 @@ class AdvancedOrderManager(QObject):
                 },
                 'completed_orders': [
                     self._serialize_order(order)
-                    for order in self.completed_orders[-100:]  # Keep last 100
+                    for order in self.completed_orders[-100:]  # Keep the last 100
                 ],
                 'bracket_groups': self.bracket_groups,
                 'oco_pairs': self.oco_pairs
@@ -803,7 +803,7 @@ class AdvancedOrderManager(QObject):
             logger.error(f"Failed to save orders: {e}")
 
     def _load_orders(self):
-        """Load orders from file."""
+        """Load orders from a file."""
         try:
             if os.path.exists("user_data/advanced_orders.json"):
                 with open("user_data/advanced_orders.json", "r") as f:
@@ -904,7 +904,6 @@ class AdvancedOrderManager(QObject):
         return order
 
 
-# Utility functions for integration
 
 def setup_advanced_order_manager(main_window):
     """Setup advanced order manager in the main window."""
@@ -921,6 +920,10 @@ def setup_advanced_order_manager(main_window):
     main_window.order_manager.bracket_order_completed.connect(main_window._on_bracket_completed)
     main_window.order_manager.oco_triggered.connect(main_window._on_oco_triggered)
 
+
+
+
+#utils
 
 def _on_order_placed(main_window, order_data):
     """Handle order placed event."""
