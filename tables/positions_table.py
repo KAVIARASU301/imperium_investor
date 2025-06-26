@@ -70,8 +70,7 @@ class PositionsTable(QWidget):
         self.table.focusOutEvent = self._on_table_focus_out
 
     def _configure_table(self):
-        """Configure table with layout matching watchlist table exactly."""
-        # FIXED: 5 columns to match watchlist layout
+        """FIXED table configuration with proper column sizing matching scanner."""
         self.table.setColumnCount(5)
         self.table.setHorizontalHeaderLabels([
             "Symbol", "Qty", "Avg", "P&L", ""
@@ -81,28 +80,25 @@ class PositionsTable(QWidget):
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setVisible(True)
 
-        # EXACT match to watchlist behavior
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setShowGrid(False)  # CRITICAL: No grid lines like watchlist
+        self.table.setShowGrid(False)
         self.table.setAlternatingRowColors(True)
         self.table.setSortingEnabled(True)
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
         header = self.table.horizontalHeader()
-
-        # Set header properties matching watchlist
         header.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # Column sizing EXACTLY matching watchlist table layout
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)  # Symbol - takes remaining space
+        # FIXED: Column sizing EXACTLY matching scanner table - Symbol stretches, others fixed
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)  # Symbol - takes remaining space like scanner
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)  # Qty - fixed width
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)  # Avg - fixed width
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)  # P&L - fixed width
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)  # Exit button - fixed width
 
-        # Set optimal fixed widths matching watchlist pattern
+        # FIXED: Set compact fixed widths for right-side columns
         self.table.setColumnWidth(1, 50)  # Qty - compact
         self.table.setColumnWidth(2, 70)  # Avg - enough for "0000.00"
         self.table.setColumnWidth(3, 80)  # P&L - enough for "+00,000.00"
@@ -113,8 +109,6 @@ class PositionsTable(QWidget):
 
         # Header click for sorting
         header.sectionClicked.connect(self._on_header_clicked)
-
-        # Set cursor for header (matching watchlist)
         header.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
     def _create_minimal_footer(self) -> QFrame:

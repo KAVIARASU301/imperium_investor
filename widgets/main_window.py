@@ -113,7 +113,7 @@ class SwingTraderWindow(QMainWindow):
         self.setMinimumSize(1200, 700)
 
     def _setup_ui(self):
-        """Initializes and arranges all UI widgets in a frameless container."""
+        """Initializes and arranges all UI widgets in a frameless container with FIXED splitter behavior."""
         main_container = QWidget()
         main_container.setObjectName("mainContainer")
         self.setCentralWidget(main_container)
@@ -128,49 +128,58 @@ class SwingTraderWindow(QMainWindow):
         self.header_toolbar = HeaderToolbar(self.trader, self)
         main_layout.addWidget(self.header_toolbar)
 
+        # FIXED: Create main splitter with proper configuration
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
-        main_layout.addWidget(self.main_splitter, 1)  # Add a stretch factor
+        main_layout.addWidget(self.main_splitter, 1)
 
+        # Create components
         self.chartink_scanner = ChartinkScannerTable()
         self.candlestick_chart = ChartWindow(self.real_kite_client)
         self.watchlist = TabbedWatchlistWidget()
         self.positions_table = PositionsTable(parent=self)
 
-        # FIXED: Create right panel splitter with proper resizing behavior
+        # FIXED: Create right panel splitter with stable configuration
         right_panel_splitter = QSplitter(Qt.Orientation.Vertical)
+        right_panel_splitter.setObjectName("rightPanelSplitter")
+
+        # CRITICAL: Add widgets in correct order
         right_panel_splitter.addWidget(self.watchlist)
         right_panel_splitter.addWidget(self.positions_table)
 
-        # CRITICAL: Set stretch factors for proper resizing
-        # Watchlist gets more space (factor 3), positions get less (factor 2)
-        right_panel_splitter.setStretchFactor(0, 3)
-        right_panel_splitter.setStretchFactor(1, 2)
+        # FIXED: Configure right panel splitter behavior
+        right_panel_splitter.setStretchFactor(0, 3)  # Watchlist gets 60%
+        right_panel_splitter.setStretchFactor(1, 2)  # Positions gets 40%
+        right_panel_splitter.setChildrenCollapsible(False)
+        right_panel_splitter.setHandleWidth(4)
 
-        # FIXED: Enable free resizing by setting resize mode
-        right_panel_splitter.setChildrenCollapsible(False)  # Prevent complete collapse
-        right_panel_splitter.setHandleWidth(3)  # Slightly thicker handle for easier dragging
+        # CRITICAL: Set minimum sizes to prevent unwanted resizing
+        self.watchlist.setMinimumHeight(150)
+        self.positions_table.setMinimumHeight(100)
 
-        # Add widgets to main splitter
+        # Add all widgets to main splitter
         self.main_splitter.addWidget(self.chartink_scanner)
         self.main_splitter.addWidget(self.candlestick_chart)
         self.main_splitter.addWidget(right_panel_splitter)
 
-        # Set initial sizes: Scanner=250, Chart=700, Right Panel=300
-        self.main_splitter.setSizes([250, 700, 300])
+        # FIXED: Configure main splitter behavior
+        self.main_splitter.setChildrenCollapsible(False)
+        self.main_splitter.setHandleWidth(4)
 
-        # FIXED: Enable proper stretching and resizing
-        self.main_splitter.setChildrenCollapsible(False)  # Prevent panels from collapsing completely
-        self.main_splitter.setHandleWidth(3)  # Slightly thicker handles
+        # CRITICAL: Set minimum sizes for main panels
+        self.chartink_scanner.setMinimumWidth(200)
+        self.candlestick_chart.setMinimumWidth(400)
+        right_panel_splitter.setMinimumWidth(250)
 
-        # CRITICAL: Set stretch factors for main splitter
-        # Scanner: minimal stretch (0), Chart: maximum stretch (1), Right panel: medium stretch (0)
-        self.main_splitter.setStretchFactor(0, 0)  # Scanner - fixed size preference
-        self.main_splitter.setStretchFactor(1, 1)  # Chart - gets most extra space
-        self.main_splitter.setStretchFactor(2, 0)  # Right panel - fixed size preference
+        # FIXED: Set proper stretch factors for main splitter
+        self.main_splitter.setStretchFactor(0, 0)  # Scanner: fixed size
+        self.main_splitter.setStretchFactor(1, 1)  # Chart: stretches with window
+        self.main_splitter.setStretchFactor(2, 0)  # Right panel: fixed size
 
-        # Store splitter reference for saving/restoring state
+        # Set initial sizes AFTER configuration
+        self.main_splitter.setSizes([250, 600, 300])
+
+        # Store reference for state saving
         self.right_panel_splitter = right_panel_splitter
-
 
     def _create_custom_title_bar(self) -> QWidget:
         """Creates a custom title bar for the frameless window."""
@@ -378,7 +387,7 @@ class SwingTraderWindow(QMainWindow):
         try:
             self.order_manager = AdvancedOrderManager(self.trader, self.config_manager)
 
-            # CRITICAL: Set main window reference in position manager
+            # CRITICAL: Set the main window reference in position manager
             if hasattr(self, 'position_manager'):
                 self.position_manager.set_main_window_reference(self)
                 logger.info("Set main window reference in position manager")
@@ -1174,7 +1183,7 @@ class SwingTraderWindow(QMainWindow):
             logger.error(f"Failed to create performance CSV: {e}")
 
     def _update_performance_metrics_in_header(self):
-        """Update performance metrics display in header toolbar if available."""
+        """Update performance metrics display in the header toolbar if available."""
         try:
             if hasattr(self.header_toolbar, 'update_performance_metrics'):
                 # Get latest metrics
@@ -2307,27 +2316,6 @@ class SwingTraderWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Error in force subscription update: {e}")
 
-    def test_position_live_updates(self):
-        """Test method to verify position live updates - call this manually"""
-        try:
-            logger.info("🧪 TESTING POSITION LIVE UPDATES")
-
-            # Step 1: Debug subscription
-            self.debug_position_market_data_subscription()
-
-            # Step 2: Test position manager
-            if hasattr(self, 'position_manager') and self.position_manager:
-                self.position_manager.test_live_updates()
-
-            # Step 3: Force a subscription refresh
-            self.force_position_subscription_refresh()
-
-            logger.info("✅ Test complete - check logs above for status")
-
-        except Exception as e:
-            logger.error(f"Error in test: {e}")
-
-        # Add this to your existing _refresh_positions_table method
 
     def _refresh_positions_table(self):
         """Enhanced position table refresh with subscription check"""
@@ -2363,64 +2351,68 @@ class SwingTraderWindow(QMainWindow):
                 'is_maximized': self.isMaximized()
             }
 
-            # ADDED: Save right panel splitter state separately
+            # Save right panel splitter state
             if hasattr(self, 'right_panel_splitter'):
                 state['right_panel_splitter'] = self.right_panel_splitter.saveState().toBase64().data().decode('utf-8')
 
             self.config_manager.save_window_state(state)
-            logger.info("Window state saved with both splitters.")
+            logger.info("Window state saved with stable splitter configuration.")
         except Exception as e:
             logger.error(f"Failed to save window state: {e}", exc_info=True)
 
     def restore_window_state(self):
-        """Enhanced window state restoration with both splitters."""
+        """Enhanced window state restoration with stable splitter behavior."""
         try:
             state = self.config_manager.load_window_state()
             if state and state.get('geometry'):
                 self.restoreGeometry(QByteArray.fromBase64(state['geometry'].encode('utf-8')))
 
-                # Restore main splitter
+                # Restore main splitter with validation
                 if 'main_splitter' in state:
-                    self.main_splitter.restoreState(QByteArray.fromBase64(state['main_splitter'].encode('utf-8')))
+                    try:
+                        self.main_splitter.restoreState(QByteArray.fromBase64(state['main_splitter'].encode('utf-8')))
+                    except Exception as e:
+                        logger.warning(f"Failed to restore main splitter state: {e}")
+                        self.main_splitter.setSizes([250, 600, 300])
                 else:
-                    # Fallback to default sizes if no saved state
-                    self.main_splitter.setSizes([250, 700, 300])
+                    self.main_splitter.setSizes([250, 600, 300])
 
-                # ADDED: Restore right panel splitter state
+                # Restore right panel splitter with validation
                 if hasattr(self, 'right_panel_splitter') and 'right_panel_splitter' in state:
-                    self.right_panel_splitter.restoreState(
-                        QByteArray.fromBase64(state['right_panel_splitter'].encode('utf-8')))
+                    try:
+                        self.right_panel_splitter.restoreState(
+                            QByteArray.fromBase64(state['right_panel_splitter'].encode('utf-8')))
+                    except Exception as e:
+                        logger.warning(f"Failed to restore right panel splitter state: {e}")
+                        # Use proportional default sizes
+                        total_height = 500  # Safe default
+                        self.right_panel_splitter.setSizes([300, 200])
                 elif hasattr(self, 'right_panel_splitter'):
-                    # Fallback to default proportions for right panel
-                    # Calculate based on right panel total size
-                    total_height = self.height() - 100  # Account for header/footer
-                    watchlist_height = int(total_height * 0.6)  # 60% for watchlist
-                    positions_height = int(total_height * 0.4)  # 40% for positions
-                    self.right_panel_splitter.setSizes([watchlist_height, positions_height])
+                    self.right_panel_splitter.setSizes([300, 200])
 
                 if state.get('is_maximized', False):
                     self.showMaximized()
                     self.max_btn.setText("❐")
-                logger.info("Window state restored with both splitters.")
+
+                logger.info("Window state restored with stable splitter behavior.")
             else:
-                # Default state
+                # Default state with safe sizes
                 self.showMaximized()
                 self.max_btn.setText("❐")
-                # Set default splitter sizes
-                self.main_splitter.setSizes([250, 700, 300])
+                self.main_splitter.setSizes([250, 600, 300])
                 if hasattr(self, 'right_panel_splitter'):
-                    # Default right panel split: 60% watchlist, 40% positions
                     self.right_panel_splitter.setSizes([300, 200])
+
         except Exception as e:
             logger.error(f"Failed to restore window state: {e}", exc_info=True)
+            # Safe fallback
             self.showMaximized()
-            # Set safe defaults on error
-            self.main_splitter.setSizes([250, 700, 300])
+            self.main_splitter.setSizes([250, 600, 300])
             if hasattr(self, 'right_panel_splitter'):
                 self.right_panel_splitter.setSizes([300, 200])
 
     def _apply_dark_theme(self):
-        """Enhanced dark theme with consistent splitter styling."""
+        """Enhanced dark theme with FIXED splitter styling for proper resizing."""
         self.setStyleSheet("""
             #mainContainer { 
                 background-color: #0a0a0a; 
@@ -2478,22 +2470,29 @@ class SwingTraderWindow(QMainWindow):
                 font-family: "Segoe UI", Arial, sans-serif; 
             }
 
-            /* ENHANCED: Consistent Splitter Styling */
+            /* FIXED: Properly styled splitter handles for easy dragging */
+            QSplitter { 
+                background-color: #0a0a0a;
+            }
+
             QSplitter::handle { 
-                background-color: #2a2a2a;
-                border: 1px solid #1a1a1a;
+                background-color: #1a1a1a;
+                border: none;
+                margin: 0px;
             }
 
             QSplitter::handle:horizontal { 
-                width: 3px; 
-                border-left: 1px solid #1a1a1a;
-                border-right: 1px solid #1a1a1a;
+                width: 4px; 
+                background-color: #1a1a1a;
+                border-left: 1px solid #0a0a0a;
+                border-right: 1px solid #0a0a0a;
             }
 
             QSplitter::handle:vertical { 
-                height: 3px; 
-                border-top: 1px solid #1a1a1a;
-                border-bottom: 1px solid #1a1a1a;
+                height: 4px; 
+                background-color: #1a1a1a;
+                border-top: 1px solid #0a0a0a;
+                border-bottom: 1px solid #0a0a0a;
             }
 
             QSplitter::handle:hover { 
@@ -2502,6 +2501,16 @@ class SwingTraderWindow(QMainWindow):
 
             QSplitter::handle:pressed {
                 background-color: #5a8be0;
+            }
+
+            /* FIXED: Special styling for right panel splitter */
+            QSplitter#rightPanelSplitter::handle:vertical {
+                background-color: #2a2a2a;
+                height: 4px;
+            }
+
+            QSplitter#rightPanelSplitter::handle:vertical:hover {
+                background-color: #6a9cff;
             }
 
             /* Enhanced Scrollbars */

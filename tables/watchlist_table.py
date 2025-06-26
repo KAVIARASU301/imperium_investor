@@ -52,7 +52,7 @@ class TradingTable(QTableWidget):
         self._setup_data_refresh()
 
     def _configure_table(self):
-        """Configures the table to achieve a compact, TC2000-like appearance."""
+        """FIXED table configuration with proper column sizing matching scanner."""
         self.setColumnCount(5)
         self.setHorizontalHeaderLabels(["Symbol", "LTP", "Vol", "Chg %", ""])
 
@@ -63,30 +63,26 @@ class TradingTable(QTableWidget):
         header = self.horizontalHeader()
         header.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # Table behavior (enhanced from positions table)
+        # Table behavior
         self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.setShowGrid(False)
         self.setAlternatingRowColors(True)
-        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)  # From positions table
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
         # Enable sorting
         self.setSortingEnabled(True)
-
-        # Connect header click for custom sorting
         header.sectionClicked.connect(self._on_header_clicked)
-
-        # Set cursors properly using Qt methods instead of CSS
         header.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
-        # Column sizing - Optimized for better space utilization
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)  # Symbol - takes remaining space
+        # FIXED: Column sizing EXACTLY matching scanner table - Symbol stretches, others fixed
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)  # Symbol - takes remaining space like scanner
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)  # LTP - fixed width
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)  # Volume - fixed width
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)  # Chg % - fixed width
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)  # Remove button - fixed width
 
-        # Set optimal fixed widths to minimize wasted space
+        # FIXED: Set compact fixed widths for right-side columns
         self.setColumnWidth(1, 70)  # LTP - enough for "0000.00"
         self.setColumnWidth(2, 50)  # Volume - enough for "999K" or "9.9L"
         self.setColumnWidth(3, 60)  # Change % - enough for "+00.00%"
@@ -813,12 +809,32 @@ class TabbedWatchlistWidget(QWidget):
         super().__init__(parent)
         self._instrument_map: Dict[str, Dict] = {}
         self._tables: Dict[str, TradingTable] = {}
-        # REMOVED: QSettings and fixed width - now stretches to match positions table
 
+        # FIXED: Remove automatic resizing that interferes with splitter
+        self._last_tab_width_update = 0
         self._setup_ui()
         self._apply_styles()
         self._load_all_watchlists()
-        # REMOVED: _restore_geometry() - no longer needed
+
+    def _set_equal_tab_widths(self):
+        """FIXED: More stable tab width calculation."""
+        if not hasattr(self, 'tab_widget'):
+            return
+
+        tab_bar = self.tab_widget.tabBar()
+        total_width = self.width()
+        tab_count = tab_bar.count()
+
+        # FIXED: Only update if width change is significant
+        if abs(total_width - self._last_tab_width_update) < 30:
+            return
+
+        if tab_count > 0 and total_width > 100:  # Minimum width check
+            self._last_tab_width_update = total_width
+            margins_and_borders = (tab_count - 1) * 1 + 4
+            available_width = max(total_width - margins_and_borders, 200)  # Minimum available width
+            tab_width = available_width // tab_count
+            self._apply_tab_width_style(tab_width)
 
     def _setup_ui(self):
         """Sets up the main UI layout with tabs."""
@@ -988,12 +1004,38 @@ class TabbedWatchlistWidget(QWidget):
         except IOError as e:
             logger.error(f"Failed to save {category} watchlist: {e}")
 
+    def _set_equal_tab_widths(self):
+        """FIXED: Responsive tab width calculation that matches table width."""
+        if not hasattr(self, 'tab_widget'):
+            return
+
+        tab_bar = self.tab_widget.tabBar()
+        tab_count = tab_bar.count()
+
+        if tab_count == 0:
+            return
+
+        # FIXED: Get the actual widget width, not the window width
+        widget_width = self.width()
+
+        # FIXED: Account for tab borders and margins more accurately
+        tab_bar_margins = 6  # Left and right margins
+        tab_borders = (tab_count - 1) * 1  # 1px border between tabs
+        available_width = max(widget_width - tab_bar_margins - tab_borders, tab_count * 50)  # Minimum 50px per tab
+
+        tab_width = available_width // tab_count
+
+        # FIXED: Only update if change is significant (prevents constant updates)
+        if abs(tab_width - self._last_tab_width_update) > 5:
+            self._last_tab_width_update = tab_width
+            self._apply_tab_width_style(tab_width)
+
     def _apply_tab_width_style(self, tab_width: int):
-        """Enhanced styling with proper tab width and CONSISTENT SIZING"""
+        """FIXED: Enhanced styling with proper tab width that matches table columns."""
         tab_width_exact = f"{tab_width}px"
 
         self.setStyleSheet(f"""
-            /* Main Widget - REMOVED border to match positions table */
+            /* Main Widget */
             TabbedWatchlistWidget {{
                 background-color: #0a0a0a;
                 color: #e0e0e0;
@@ -1011,13 +1053,14 @@ class TabbedWatchlistWidget(QWidget):
                 border: 1px solid #202020;
                 background-color: #0a0a0a;
                 border-radius: 0px;
+                border-top: none;  /* FIXED: Remove top border to align with tabs */
             }}
 
             QTabWidget#tradingTabs::tab-bar {{
                 alignment: left;
             }}
 
-            /* Hide tab scroll buttons */
+            /* Hide tab scroll buttons completely */
             QTabBar::scroller {{
                 width: 0px;
                 height: 0px;
@@ -1030,11 +1073,11 @@ class TabbedWatchlistWidget(QWidget):
                 background: transparent;
             }}
 
-            /* Fixed Tab Bar Styling */
+            /* FIXED: Tab Bar Styling with precise width control */
             QTabBar::tab {{
                 background-color: #1a1a1a;
                 color: #8892b0;
-                padding: 6px 0px;
+                padding: 6px 4px;  /* FIXED: Reduced horizontal padding */
                 margin: 0px;
                 border: 1px solid #202020;
                 border-bottom: none;
@@ -1069,7 +1112,7 @@ class TabbedWatchlistWidget(QWidget):
                 max-width: {tab_width_exact};
             }}
 
-            /* Table Styling - EXACT match to positions table */
+            /* Table Styling - EXACT match to scanner table */
             TradingTable {{
                 background-color: #0a0a0a;
                 border: none;
@@ -1118,7 +1161,7 @@ class TabbedWatchlistWidget(QWidget):
                 font-weight: 600;
             }}
 
-            /* Header Styling - EXACT match to positions table */
+            /* Header Styling - EXACT match to scanner table */
             QHeaderView::section {{
                 background-color: #1a1a1a;
                 color: #a0c0ff;
@@ -1157,7 +1200,7 @@ class TabbedWatchlistWidget(QWidget):
                 margin-right: 2px;
             }}
 
-            /* Remove Button Styling - EXACT match to positions table */
+            /* Remove Button Styling */
             QPushButton#removeButton {{
                 background-color: transparent;
                 color: #cc4444;
@@ -1174,7 +1217,7 @@ class TabbedWatchlistWidget(QWidget):
                 background-color: #2a1f1f;
             }}
 
-            /* Enhanced Scrollbars - EXACT match to positions table */
+            /* Enhanced Scrollbars */
             QScrollBar:vertical {{
                 background-color: #0a0a0a;
                 width: 8px;
@@ -1221,14 +1264,23 @@ class TabbedWatchlistWidget(QWidget):
         """)
 
     def resizeEvent(self, event):
-        """Override to update tab widths when widget is resized - REMOVED geometry saving."""
+        """FIXED: Responsive resize handling for tab widths."""
         super().resizeEvent(event)
-        self._set_equal_tab_widths()
+        # FIXED: Add small delay to prevent too frequent updates during resizing
+        if hasattr(self, '_resize_timer'):
+            self._resize_timer.stop()
+
+        self._resize_timer = QTimer()
+        self._resize_timer.setSingleShot(True)
+        self._resize_timer.timeout.connect(self._set_equal_tab_widths)
+        self._resize_timer.start(50)  # 50ms delay
 
     def showEvent(self, event):
-        """Override to set tab widths when widget is first shown."""
+        """FIXED: Set initial tab widths when widget is shown."""
         super().showEvent(event)
-        self._set_equal_tab_widths()
+        # FIXED: Use single shot timer to ensure proper sizing after widget is fully shown
+        QTimer.singleShot(10, self._set_equal_tab_widths)
+
 
     def closeEvent(self, event):
         """Enhanced close event with proper cleanup - REMOVED geometry saving"""
