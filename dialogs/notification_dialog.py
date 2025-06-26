@@ -1,13 +1,13 @@
 import logging
 import sys
-from typing import Dict, Any, Optional, List, cast
+from typing import Dict, Any, Optional, List
 from datetime import datetime
 from enum import Enum
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
     QApplication, QGraphicsOpacityEffect, QStackedWidget, QGraphicsEffect,
-    QGraphicsDropShadowEffect
+    QGraphicsDropShadowEffect, QProgressBar
 )
 from PySide6.QtCore import (Qt, Signal, QTimer, QRect)
 from PySide6.QtCore import QPropertyAnimation, QParallelAnimationGroup, QEasingCurve, QPoint, QByteArray
@@ -19,14 +19,18 @@ logger = logging.getLogger(__name__)
 class NotificationType(Enum):
     """Notification types with corresponding styles and behavior."""
     SUCCESS = ("success", "#00b894", "✓", 4000, True)
-    ERROR = ("error", "#d63031", "✗", 8000, False)  # Stay longer for errors
+    ERROR = ("error", "#d63031", "✗", 8000, False)
     INFO = ("info", "#74b9ff", "ℹ", 4000, True)
     WARNING = ("warning", "#fdcb6e", "⚠", 5000, True)
     ORDER_PLACED = ("order_placed", "#6c5ce7", "📝", 4000, True)
     ORDER_EXECUTED = ("order_executed", "#00b894", "✅", 4000, True)
     ORDER_CANCELLED = ("order_cancelled", "#636e72", "❌", 3000, True)
     ORDER_REJECTED = ("order_rejected", "#d63031", "🚫", 6000, False)
-    PARTIAL_FILL = ("partial_fill", "#e17055", "📊", 5000, True)
+    # NEW: Enhanced order status types
+    ORDER_PENDING = ("order_pending", "#fdcb6e", "⏳", 0, False)  # No auto-close for pending
+    ORDER_MODIFY = ("order_modify", "#a29bfe", "✏️", 5000, True)
+    ORDER_TRIGGERED = ("order_triggered", "#00cec9", "🎯", 4000, True)
+    PARTIAL_FILL = ("partial_fill", "#e17055", "📊", 0, False)  # No auto-close, show progress
     POSITION_UPDATE = ("position_update", "#00cec9", "💰", 3000, True)
     ALERT = ("alert", "#fd79a8", "🔔", 6000, False)
     SYSTEM = ("system", "#a29bfe", "⚙", 4000, True)
@@ -650,6 +654,173 @@ class NotificationManager:
     def show_partial_fill(self, message: str, action_data: Dict[str, Any] = None):
         return self.show_notification(message, NotificationType.PARTIAL_FILL, action_data)
 
+class EnhancedOrderNotification(NotificationDialog):
+    """Enhanced notification with order-specific features."""
+
+    order_modify_requested = Signal(dict)
+    order_cancel_requested = Signal(str)
+
+    def __init__(self, message: str, notification_type: NotificationType,
+                 order_data: Dict[str, Any] = None, **kwargs):
+        self.order_data = order_data or {}
+        super().__init__(message, notification_type, **kwargs)
+
+        # Add order-specific features if this is an order notification
+        if self.order_data and self._is_order_notification():
+            self._add_order_features()
+
+    def _is_order_notification(self) -> bool:
+        """Check if this is an order-related notification."""
+        order_types = [
+            NotificationType.ORDER_PENDING,
+            NotificationType.PARTIAL_FILL,
+            NotificationType.ORDER_MODIFY
+        ]
+        return self.notification_type in order_types
+
+    def _add_order_features(self):
+        """Add order-specific UI elements."""
+        # Add progress bar for partial fills
+        if self.notification_type == NotificationType.PARTIAL_FILL:
+            self._add_progress_bar()
+
+        # Add action buttons for pending orders
+        if self.notification_type == NotificationType.ORDER_PENDING:
+            self._add_action_buttons()
+
+    def _add_progress_bar(self):
+        """Add progress bar for partial fills."""
+        filled_qty = self.order_data.get('filled_quantity', 0)
+        total_qty = self.order_data.get('quantity', 1)
+        progress = int((filled_qty / total_qty) * 100) if total_qty > 0 else 0
+
+        # Add progress bar to main layout
+        progress_frame = QFrame()
+        progress_layout = QVBoxLayout(progress_frame)
+        progress_layout.setContentsMargins(0, 4, 0, 0)
+
+        progress_bar = QProgressBar()
+        progress_bar.setMaximum(100)
+        progress_bar.setValue(progress)
+        progress_bar.setTextVisible(False)
+        progress_bar.setFixedHeight(4)
+        progress_bar.setStyleSheet(f"""
+            QProgressBar {{
+                border: none;
+                background-color: rgba(255, 255, 255, 0.1);
+                border-radius: 2px;
+            }}
+            QProgressBar::chunk {{
+                background-color: {self.notification_type.color};
+                border-radius: 2px;
+            }}
+        """)
+
+        progress_label = QLabel(f"{filled_qty}/{total_qty} ({progress}%)")
+        progress_label.setStyleSheet("color: #b0b0b0; font-size: 9px;")
+
+        progress_layout.addWidget(progress_bar)
+        progress_layout.addWidget(progress_label)
+
+        # Insert progress frame into main layout
+        main_layout = self.container.layout()
+        main_layout.insertWidget(main_layout.count() - 1, progress_frame)
+
+        # Store for updates
+        self.progress_bar = progress_bar
+        self.progress_label = progress_label
+
+    def _add_action_buttons(self):
+        """Add modify/cancel buttons for pending orders."""
+        buttons_frame = QFrame()
+        buttons_layout = QHBoxLayout(buttons_frame)
+        buttons_layout.setContentsMargins(0, 4, 0, 0)
+        buttons_layout.setSpacing(4)
+
+        # Modify button
+        modify_btn = QPushButton("MODIFY")
+        modify_btn.setFixedSize(50, 18)
+        modify_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4a4a6a;
+                color: #e0e0e0;
+                border: none;
+                border-radius: 3px;
+                font-size: 8px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background-color: #5a5a7a;
+            }
+        """)
+        modify_btn.clicked.connect(self._on_modify_clicked)
+
+        # Cancel button
+        cancel_btn = QPushButton("CANCEL")
+        cancel_btn.setFixedSize(50, 18)
+        cancel_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #d63031;
+                color: #ffffff;
+                border: none;
+                border-radius: 3px;
+                font-size: 8px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background-color: #e17055;
+            }
+        """)
+        cancel_btn.clicked.connect(self._on_cancel_clicked)
+
+        buttons_layout.addStretch()
+        buttons_layout.addWidget(modify_btn)
+        buttons_layout.addWidget(cancel_btn)
+
+        # Insert buttons into main layout
+        main_layout = self.container.layout()
+        main_layout.insertWidget(main_layout.count() - 1, buttons_frame)
+
+    def _on_modify_clicked(self):
+        """Handle modify button click."""
+        self.order_modify_requested.emit(self.order_data)
+        self._close_notification()
+
+    def _on_cancel_clicked(self):
+        """Handle cancel button click."""
+        order_id = self.order_data.get('order_id', '')
+        if order_id:
+            self.order_cancel_requested.emit(order_id)
+        self._close_notification()
+
+    def update_progress(self, filled_qty: int, total_qty: int):
+        """Update progress bar for partial fills."""
+        if hasattr(self, 'progress_bar'):
+            progress = int((filled_qty / total_qty) * 100) if total_qty > 0 else 0
+            self.progress_bar.setValue(progress)
+            self.progress_label.setText(f"{filled_qty}/{total_qty} ({progress}%)")
+
+
+# Factory function for enhanced order notifications
+def create_enhanced_order_notification(main_window, message: str,
+                                       notification_type: NotificationType,
+                                       order_data: Dict[str, Any] = None) -> EnhancedOrderNotification:
+    """Create enhanced order notification with actions."""
+    notification = EnhancedOrderNotification(
+        message=message,
+        notification_type=notification_type,
+        order_data=order_data,
+        parent=main_window
+    )
+
+    # Connect signals to main window
+    if hasattr(main_window, '_handle_order_modification'):
+        notification.order_modify_requested.connect(main_window._handle_order_modification)
+
+    if hasattr(main_window, '_handle_order_cancellation'):
+        notification.order_cancel_requested.connect(main_window._handle_order_cancellation)
+
+    return notification
 
 # Integration function for main window
 def setup_notification_system(main_window) -> NotificationManager:

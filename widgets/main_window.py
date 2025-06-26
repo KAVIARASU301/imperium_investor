@@ -19,9 +19,8 @@ from widgets.header_toolbar import HeaderToolbar
 from dialogs.order_dialog import OrderDialog
 from dialogs.order_history_dialog import OrderHistoryDialog
 from dialogs.performance_dialog import PerformanceDialog
-from dialogs.order_status_dialog import create_order_status_dialog
 from dialogs.alert_management_system import AlertSystemManager
-from dialogs.notification_dialog import NotificationType, setup_notification_system
+from dialogs.notification_dialog import NotificationManager, NotificationType, create_enhanced_order_notification
 
 from utils.advanced_order_manager import AdvancedOrderManager
 from utils.market_data_worker import MarketDataWorker
@@ -30,6 +29,7 @@ from utils.position_manager import PositionManager
 from utils.config_manager import ConfigManager
 from utils.instrument_loader import InstrumentLoader
 from utils.trade_logger import TradeLogger
+from utils.simple_order_tracker import setup_simple_order_tracker
 from kiteconnect import KiteConnect
 
 logger = logging.getLogger(__name__)
@@ -64,7 +64,18 @@ class SwingTraderWindow(QMainWindow):
         self.instrument_list: List[Dict] = []
         self.instrument_map: Dict[str, Dict] = {}
         self._subscribed_tokens = set()
-        self.notification_manager = setup_notification_system(self)
+
+        # REPLACE order status dialog with order tracker
+        self.notification_manager = NotificationManager(self)
+
+        self.active_order_notifications = {}  # Track active order notifications
+        self.order_tracker = None
+        self.order_update_timer = QTimer()
+        self.order_update_timer.timeout.connect(self._update_tracked_orders)
+        self.order_update_timer.start(2000)
+
+        self.active_order_notifications = {}
+        self.order_tracker = setup_simple_order_tracker(self)
 
         if isinstance(self.trader, PaperTradingManager):
             self.trader.set_trade_logger(self.trade_logger)
@@ -105,6 +116,16 @@ class SwingTraderWindow(QMainWindow):
 
         self._startup_complete = False
         QTimer.singleShot(1000, self._mark_startup_complete)
+        QTimer.singleShot(2000, self._initialize_order_tracker)
+
+    def _initialize_order_tracker(self):
+        """Initialize order tracker after main components are ready."""
+        try:
+            from utils.simple_order_tracker import setup_simple_order_tracker
+            self.order_tracker = setup_simple_order_tracker(self)
+            logger.info("Order tracker initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize order tracker: {e}")
 
     def _setup_frameless_window(self):
         """Setup frameless window with custom title bar."""
@@ -402,10 +423,10 @@ class SwingTraderWindow(QMainWindow):
     # ==============================================================================
 
     def _connect_signals(self):
-        """Connects all signals for seamless integration between components."""
+        """Connect signals with dialog references removed."""
         logger.info("Connecting component signals...")
 
-        # --- Position Manager -> UI ---
+        # Position Manager -> UI (keep these)
         self.position_manager.positions_updated.connect(self.positions_table.update_positions)
         self.position_manager.api_error_occurred.connect(self._on_api_error)
         self.position_manager.position_closed.connect(self._on_position_closed)
@@ -413,7 +434,7 @@ class SwingTraderWindow(QMainWindow):
         self.position_manager.pnl_updated.connect(self._on_pnl_updated)
         self.position_manager.performance_update.connect(self._on_performance_update)
 
-        # --- Positions Table -> Main Window ---
+        # Positions Table -> Main Window (keep these)
         self.positions_table.exit_position_requested.connect(self._handle_exit_position_request)
         self.positions_table.symbol_selected.connect(self.candlestick_chart.on_search)
         self.positions_table.subscribe_tokens_requested.connect(self._subscribe_to_tokens)
@@ -421,14 +442,14 @@ class SwingTraderWindow(QMainWindow):
         if self.alert_system:
             self.positions_table.add_alert_requested.connect(self._create_alert_from_position)
 
-        # --- Chart -> Main Window & Header ---
+        # Chart -> Main Window & Header (keep these)
         self.candlestick_chart.order_button_clicked.connect(self._show_advanced_order_dialog)
         self.candlestick_chart.symbol_loaded.connect(self.header_toolbar.set_current_symbol)
         if self.alert_system:
             self.candlestick_chart.alert_creation_requested.connect(self.alert_system.create_alert_from_chart)
             self.candlestick_chart.order_dialog_requested.connect(self._handle_chart_order_request)
 
-        # --- Scanner & Watchlist -> Chart & Main Window ---
+        # Scanner & Watchlist -> Chart & Main Window (keep these)
         self.chartink_scanner.symbol_selected.connect(self.candlestick_chart.on_search)
         self.watchlist.symbol_selected.connect(self.candlestick_chart.on_search)
         self.watchlist.subscribe_tokens_requested.connect(self._subscribe_to_tokens)
@@ -438,14 +459,14 @@ class SwingTraderWindow(QMainWindow):
         self.watchlist.advanced_sell_order_requested.connect(self._show_advanced_sell_order)
         self.watchlist.bracket_order_requested.connect(self._show_bracket_order)
 
-        # --- Header Toolbar -> Main Window & Components ---
+        # Header Toolbar -> Main Window & Components (keep these)
         self.header_toolbar.symbol_selected.connect(self.candlestick_chart.on_search)
         self.header_toolbar.buy_order_requested.connect(self._on_header_buy_order)
         self.header_toolbar.sell_order_requested.connect(self._on_header_sell_order)
         self.header_toolbar.order_history_requested.connect(self._show_order_history_dialog)
         self.header_toolbar.performance_dashboard_requested.connect(self._show_performance_dialog)
 
-        # --- Alert System Connections ---
+        # Alert System Connections (keep these)
         if self.alert_system:
             self.header_toolbar.add_alert_requested.connect(self.alert_system.show_quick_alert_dialog)
             self.header_toolbar.alert_manager_requested.connect(self.alert_system.show_alert_manager)
@@ -456,13 +477,15 @@ class SwingTraderWindow(QMainWindow):
             self.header_toolbar.alert_manager_requested.connect(self._alert_system_unavailable)
             logger.warning("Alert system unavailable; connected fallback handlers.")
 
-        # --- Alert Update Timer ---
+        # Alert Update Timer (keep this)
         self.alert_update_timer = QTimer(self)
         self.alert_update_timer.timeout.connect(self._update_alert_badges)
         self.alert_update_timer.start(30000)
 
+        # Advanced order manager connections (keep these)
         self._connect_advanced_signals()
-        logger.info("All component signals connected successfully.")
+
+        logger.info("All component signals connected successfully (dialog references removed).")
 
     def _connect_advanced_signals(self):
         """Connects signals for advanced order management."""
@@ -501,28 +524,67 @@ class SwingTraderWindow(QMainWindow):
             self._is_maximized = True
 
     def closeEvent(self, event):
+        """Enhanced close event with proper cleanup."""
         logger.info("Close event triggered. Saving state and stopping workers...")
-        self.save_window_state()
-        if self.order_manager and hasattr(self.order_manager, 'stop'):
-            self.order_manager.stop()
-        if self.alert_system:
-            self.alert_system.stop_engine()
-            self.alert_update_timer.stop()
-        if self.instrument_loader and self.instrument_loader.isRunning():
-            self.instrument_loader.quit()
-            self.instrument_loader.wait(2000)
-        if self.order_history_dialog and self.order_history_dialog.isVisible():
-            self.order_history_dialog.close()
-        if hasattr(self, 'chart_init_timer'):
-            self.chart_init_timer.stop()
-        if self.performance_dialog and self.performance_dialog.isVisible():
-            self.performance_dialog.close()
-        if self.market_data_worker:
-            self.market_data_worker.stop()
 
-        logger.info("Application shut down gracefully.")
+        try:
+            # Save window state
+            self.save_window_state()
+
+            # Stop order tracking
+            if hasattr(self, 'order_tracker') and self.order_tracker:
+                self.order_tracker.stop()
+
+            # Close all active order notifications
+            if hasattr(self, 'active_order_notifications'):
+                for notification in self.active_order_notifications.values():
+                    try:
+                        if hasattr(notification, '_close_notification'):
+                            notification._close_notification()
+                    except Exception as e:
+                        logger.debug(f"Error closing notification: {e}")
+                self.active_order_notifications.clear()
+
+            # Clear all notifications
+            if hasattr(self, 'notification_manager'):
+                self.notification_manager.clear_all_notifications()
+
+            # Stop other managers and workers
+            if self.order_manager and hasattr(self.order_manager, 'stop'):
+                self.order_manager.stop()
+
+            if self.alert_system:
+                self.alert_system.stop_engine()
+                if hasattr(self, 'alert_update_timer'):
+                    self.alert_update_timer.stop()
+
+            # Stop background workers
+            if hasattr(self, 'instrument_loader') and self.instrument_loader and self.instrument_loader.isRunning():
+                self.instrument_loader.quit()
+                self.instrument_loader.wait(2000)
+
+            # Close other dialogs
+            if hasattr(self,
+                       'order_history_dialog') and self.order_history_dialog and self.order_history_dialog.isVisible():
+                self.order_history_dialog.close()
+
+            if hasattr(self, 'performance_dialog') and self.performance_dialog and self.performance_dialog.isVisible():
+                self.performance_dialog.close()
+
+            # Stop timers
+            if hasattr(self, 'chart_init_timer'):
+                self.chart_init_timer.stop()
+
+            # Stop market data worker last
+            if hasattr(self, 'market_data_worker') and self.market_data_worker:
+                self.market_data_worker.stop()
+
+            logger.info("Application shut down gracefully with enhanced cleanup.")
+
+        except Exception as e:
+            logger.error(f"Error during application shutdown: {e}")
+
         super().closeEvent(event)
-
 
     # ==============================================================================
     # CORE EVENT HANDLERS (SLOTS)
@@ -871,7 +933,7 @@ class SwingTraderWindow(QMainWindow):
         dialog.show()
 
     def _handle_order_placement(self, order_data: Dict[str, Any]):
-        """Handle order placement with immediate UI feedback and delayed logging."""
+        """Handle order placement with immediate notification feedback."""
         try:
             logger.info(f"Received order request: {order_data}")
             if not self._validate_order_data(order_data):
@@ -892,31 +954,23 @@ class SwingTraderWindow(QMainWindow):
             if order_id:
                 # Update order_data with the returned order_id
                 order_data['order_id'] = order_id
-                order_data['status'] = 'PLACED'  # Initial status
+                order_data['status'] = 'PENDING'
 
-                # ====== IMMEDIATE UI UPDATES (NO DELAYS) ======
+                # IMMEDIATE: Show pending notification with actions (NO DIALOG)
+                self._show_order_pending_notification(order_data)
+                self.order_tracker.track_order(order_data)
 
-                # 1. IMMEDIATE: Show order status dialog for monitoring (NO TOAST)
-                self.show_order_status_dialog(order_data)
+                # DELAYED: Log order placement in background
+                QTimer.singleShot(100, lambda: self._log_order_placement_async(order_data, order_id))
 
-                # 2. REMOVED: Order placed toast notification to prevent conflicts
-                # The order status dialog will handle all status updates including completion
-
-                # ====== DELAYED OPERATIONS (AFTER UI) ======
-
-                # 3. DELAYED: Log order placement in background (non-blocking)
-                if hasattr(self, 'trade_logger'):
-                    QTimer.singleShot(100, lambda: self._log_order_placement_async(order_data, order_id))
-
-                # 4. DELAYED: Refresh order history if dialog is open
+                # DELAYED: Refresh order history if dialog is open
                 if (hasattr(self, 'order_history_dialog') and
                         self.order_history_dialog and
                         self.order_history_dialog.isVisible()):
                     QTimer.singleShot(1000, self.order_history_dialog.refresh_orders)
 
-                logger.info(f"Order placed successfully with status dialog monitoring: {order_id}")
+                logger.info(f"Order placed with pending notification: {order_id}")
             else:
-                # Only show failure if order_id is None/False
                 self._show_order_notification("Order placement failed - no order ID returned", "error")
 
         except Exception as e:
@@ -1570,15 +1624,8 @@ class SwingTraderWindow(QMainWindow):
         except Exception as e:
             logger.warning(f"Error navigating position symbols: {e}")
 
-
-
     def _handle_order_modification(self, order_data: Dict[str, Any]):
-        """
-        Handle order modification - cancel existing order and open order dialog with pre-populated data.
-
-        Args:
-            order_data: Current order data to be modified
-        """
+        """Simplified order modification with enhanced notifications."""
         try:
             order_id = order_data.get('order_id')
             symbol = order_data.get('tradingsymbol')
@@ -1586,33 +1633,39 @@ class SwingTraderWindow(QMainWindow):
             logger.info(f"Starting modification workflow for order {order_id}")
 
             # Step 1: Cancel the existing order
+            cancellation_success = False
+
             if self.order_manager and hasattr(self.order_manager, 'cancel_order'):
-                cancelled = self.order_manager.cancel_order(order_id)
-                if not cancelled:
-                    self._show_order_notification(f"Failed to cancel order {order_id}", "error")
-                    return
+                cancellation_success = self.order_manager.cancel_order(order_id)
             elif hasattr(self, 'trader') and hasattr(self.trader, 'cancel_order'):
-                # Direct trader cancellation for paper trading
                 try:
                     self.trader.cancel_order("regular", order_id)
+                    cancellation_success = True
                 except Exception as e:
-                    self._show_order_notification(f"Failed to cancel order: {str(e)}", "error")
-                    return
-            else:
-                self._show_order_notification("Order cancellation not available", "error")
+                    logger.error(f"Failed to cancel order via trader: {e}")
+
+            if not cancellation_success:
+                self._show_order_notification(f"Failed to cancel order for modification", "error")
                 return
 
-            # Step 2: Close the status dialog
-            if hasattr(self, 'order_status_dialog') and self.order_status_dialog:
-                self.order_status_dialog._close_dialog()
-                self.order_status_dialog = None
+            # Step 2: Clean up tracking and notifications
+            if order_id in self.active_order_notifications:
+                try:
+                    notification = self.active_order_notifications[order_id]
+                    if hasattr(notification, '_close_notification'):
+                        notification._close_notification()
+                    del self.active_order_notifications[order_id]
+                except Exception as e:
+                    logger.warning(f"Error cleaning up notification: {e}")
 
-            # Step 3: Get fresh LTP for the symbol
+            if self.order_tracker:
+                self.order_tracker.stop_tracking(order_id)
+
+            # Step 3: Prepare order dialog with pre-populated data
             ltp = self._get_fresh_ltp(symbol)
             if ltp == 0.0:
-                ltp = order_data.get('price', 0.0)  # Fallback to original price
+                ltp = order_data.get('price', 0.0)
 
-            # Step 4: Prepare order details for pre-population
             order_details = {
                 'tradingsymbol': symbol,
                 'transaction_type': order_data.get('transaction_type', 'BUY'),
@@ -1623,16 +1676,14 @@ class SwingTraderWindow(QMainWindow):
                 'product': order_data.get('product', 'MIS'),
                 'validity': order_data.get('validity', 'DAY'),
                 'ltp': ltp,
-                # Preserve any special order attributes
                 'stop_loss_price': order_data.get('stop_loss_price'),
                 'target_price': order_data.get('target_price'),
                 'tag': order_data.get('tag', ''),
-                # Mark as modification
                 'is_modification': True,
                 'original_order_id': order_id
             }
 
-            # Step 5: Open the order dialog with pre-populated data
+            # Step 4: Open order dialog
             from dialogs.order_dialog import OrderDialog
             dialog = OrderDialog(self, symbol, ltp, order_details)
             dialog.order_placed.connect(self._handle_order_placement)
@@ -1640,10 +1691,11 @@ class SwingTraderWindow(QMainWindow):
                 dialog.bracket_order_placed.connect(self._handle_bracket_order_placement)
             dialog.show()
 
-            # Step 6: Show confirmation
+            # Step 5: Show modification confirmation
+            short_order_id = order_id[:8] + "..." if len(order_id) > 8 else order_id
             self._show_order_notification(
-                f"Order {order_id} cancelled. Modify and place new order.",
-                "info"
+                f"✏️ Order {short_order_id} cancelled. Modify and place new order.",
+                "order_modify"
             )
 
             logger.info(f"Order modification dialog opened for {symbol}")
@@ -1654,34 +1706,43 @@ class SwingTraderWindow(QMainWindow):
             self._show_order_notification(error_msg, "error")
 
     def _handle_order_cancellation(self, order_id: str):
-        """
-        Handle direct order cancellation from status dialog.
-        Show toast notification ONLY for cancellation.
-        """
+        """Simplified order cancellation with enhanced notifications."""
         try:
             logger.info(f"Cancelling order {order_id}")
 
-            # Cancel through order manager
-            if self.order_manager and hasattr(self.order_manager, 'cancel_order'):
-                cancelled = self.order_manager.cancel_order(order_id)
-                if cancelled:
-                    # ONLY toast notification for cancellation - this is safe
-                    self._show_order_notification(f"Order {order_id} cancelled successfully", "order_cancelled")
-                else:
-                    self._show_order_notification(f"Failed to cancel order {order_id}", "error")
-            elif hasattr(self, 'trader') and hasattr(self.trader, 'cancel_order'):
-                # Direct trader cancellation
-                self.trader.cancel_order("regular", order_id)
-                # ONLY toast notification for cancellation - this is safe
-                self._show_order_notification(f"Order {order_id} cancelled successfully", "order_cancelled")
-            else:
-                self._show_order_notification("Order cancellation not available", "error")
-                return
+            cancellation_success = False
 
-            # Close the status dialog
-            if hasattr(self, 'order_status_dialog') and self.order_status_dialog:
-                self.order_status_dialog._close_dialog()
-                self.order_status_dialog = None
+            # Attempt cancellation through available methods
+            if self.order_manager and hasattr(self.order_manager, 'cancel_order'):
+                cancellation_success = self.order_manager.cancel_order(order_id)
+            elif hasattr(self, 'trader') and hasattr(self.trader, 'cancel_order'):
+                try:
+                    self.trader.cancel_order("regular", order_id)
+                    cancellation_success = True
+                except Exception as e:
+                    logger.error(f"Failed to cancel order via trader: {e}")
+
+            if cancellation_success:
+                # Clean up tracking and notifications
+                if order_id in self.active_order_notifications:
+                    try:
+                        notification = self.active_order_notifications[order_id]
+                        if hasattr(notification, '_close_notification'):
+                            notification._close_notification()
+                        del self.active_order_notifications[order_id]
+                    except Exception as e:
+                        logger.warning(f"Error cleaning up notification: {e}")
+
+                if self.order_tracker:
+                    self.order_tracker.stop_tracking(order_id)
+
+                # Show success notification
+                short_order_id = order_id[:8] + "..." if len(order_id) > 8 else order_id
+                self._show_order_notification(f"❌ Order {short_order_id} cancelled", "order_cancelled")
+            else:
+                # Show failure notification
+                short_order_id = order_id[:8] + "..." if len(order_id) > 8 else order_id
+                self._show_order_notification(f"Failed to cancel order {short_order_id}", "error")
 
         except Exception as e:
             error_msg = f"Error cancelling order {order_id}: {str(e)}"
@@ -1743,76 +1804,141 @@ class SwingTraderWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Error refreshing positions from API: {e}")
 
-    def show_order_status_dialog(self, order_data: Dict[str, Any]):
-        """
-        Show order status dialog for monitoring order execution.
-        Call this method after placing an order to monitor its status.
-
-        Args:
-            order_data: Order data with order_id and other details
-        """
+    def _show_order_pending_notification(self, order_data: Dict[str, Any]):
+        """Show enhanced pending order notification with actions."""
         try:
-            # Close any existing status dialog
-            if hasattr(self, 'order_status_dialog') and self.order_status_dialog:
-                self.order_status_dialog._close_dialog()
+            symbol = order_data.get('tradingsymbol', '')
+            quantity = order_data.get('quantity', 0)
+            price = order_data.get('price', 0)
+            transaction_type = order_data.get('transaction_type', '')
+            order_id = order_data.get('order_id', '')
+            order_type = order_data.get('order_type', 'MARKET')
 
-            # Create new status dialog
-            self.order_status_dialog = create_order_status_dialog(self, order_data)
+            # Create appropriate message based on order type
+            if order_type == 'MARKET':
+                message = f"⏳ {transaction_type} {quantity} {symbol} @ MARKET"
+            else:
+                message = f"⏳ {transaction_type} {quantity} {symbol} @ ₹{price:,.2f}"
 
-            logger.info(f"Order status dialog shown for order {order_data.get('order_id')}")
+            # Close any existing notification for this order
+            if order_id in self.active_order_notifications:
+                try:
+                    existing_notification = self.active_order_notifications[order_id]
+                    existing_notification._close_notification()
+                    del self.active_order_notifications[order_id]
+                except Exception as e:
+                    logger.debug(f"Error closing existing notification: {e}")
+
+            # Create enhanced notification with actions
+            notification = create_enhanced_order_notification(
+                main_window=self,
+                message=message,
+                notification_type=NotificationType.ORDER_PENDING,
+                order_data=order_data
+            )
+
+            # Track this notification for updates
+            self.active_order_notifications[order_id] = notification
+
+            # Show the notification
+            notification.show()
+
+            # Start tracking the order
+            if self.order_tracker:
+                self.order_tracker.track_order(order_data)
+
+            logger.info(f"Pending order notification shown: {order_id}")
 
         except Exception as e:
-            logger.error(f"Error showing order status dialog: {e}")
+            logger.error(f"Error showing pending order notification: {e}")
+            # Fallback to simple notification
+            self._show_order_notification("Order placed - monitoring status...", "order_placed")
+
+    def _show_enhanced_partial_fill_notification(self, order_data: Dict[str, Any]):
+        """Show enhanced partial fill notification with progress."""
+        try:
+            symbol = order_data.get('tradingsymbol', '')
+            filled_qty = order_data.get('filled_quantity', 0)
+            total_qty = order_data.get('quantity', 0)
+            order_id = order_data.get('order_id', '')
+
+            fill_percentage = (filled_qty / total_qty * 100) if total_qty > 0 else 0
+            message = f"📊 Partial Fill: {symbol} ({fill_percentage:.0f}%)"
+
+            # Check if we already have a notification for this order
+            if order_id in self.active_order_notifications:
+                # Update existing notification
+                try:
+                    notification = self.active_order_notifications[order_id]
+                    if hasattr(notification, 'update_progress'):
+                        notification.update_progress(filled_qty, total_qty)
+                        # Update message text
+                        if hasattr(notification, 'message_label'):
+                            notification.message_label.setText(message)
+                    logger.debug(f"Updated existing partial fill notification: {order_id}")
+                    return
+                except Exception as e:
+                    logger.warning(f"Error updating existing notification: {e}")
+                    # Fall through to create new notification
+
+            # Create new enhanced notification with progress
+            notification = create_enhanced_order_notification(
+                main_window=self,
+                message=message,
+                notification_type=NotificationType.PARTIAL_FILL,
+                order_data=order_data
+            )
+
+            # Track this notification
+            self.active_order_notifications[order_id] = notification
+            notification.show()
+
+            logger.info(f"Partial fill notification shown: {order_id} ({fill_percentage:.0f}%)")
+
+        except Exception as e:
+            logger.error(f"Error showing partial fill notification: {e}")
+            # Fallback to simple notification
+            symbol = order_data.get('tradingsymbol', '')
+            self._show_order_notification(f"Partial fill: {symbol}", "partial_fill")
 
     def _handle_order_update(self, order_data: Dict[str, Any]):
-        """Enhanced order update handler with immediate UI and delayed logging."""
+        """Simplified order update handler with notifications only."""
         try:
-            # Extract order details
             order_id = order_data.get('order_id', '')
             status = order_data.get('status', '').upper()
             symbol = order_data.get('tradingsymbol', '')
 
             logger.info(f"Processing order update: {order_id} -> {status}")
 
-            # ====== IMMEDIATE UI UPDATES ======
+            if hasattr(self, 'order_tracker'):
+                self.order_tracker._process_order_update(order_id, order_data)
 
-            # 1. IMMEDIATE: Update order status dialog if exists
-            if hasattr(self, 'order_status_dialog') and self.order_status_dialog:
-                if self.order_status_dialog.order_id == order_id:
-                    self.order_status_dialog.update_from_external(order_data)
-
-            # 2. IMMEDIATE: Handle specific status changes with notifications
+            # Handle specific status changes with notifications
             if status == 'COMPLETE':
-                self._show_order_executed_notification(order_data)
-                self._refresh_positions_table()
+                self._handle_order_completion_notification(order_data)
 
             elif status == 'CANCELLED':
-                self._show_order_cancelled_notification(order_data)
+                self._handle_order_cancellation_notification(order_data)
 
             elif status == 'REJECTED':
                 reason = order_data.get('status_message', 'Unknown reason')
-                self._show_order_rejected_notification(order_data, reason)
+                self._handle_order_rejection_notification(order_data, reason)
 
             elif status in ['PARTIAL']:
-                self._show_partial_fill_notification(order_data)
-                # Ensure status dialog is shown for partial fills
-                if not hasattr(self, 'order_status_dialog') or not self.order_status_dialog:
-                    self.show_order_status_dialog(order_data)
+                self._show_enhanced_partial_fill_notification(order_data)
 
             elif status in ['OPEN', 'PENDING_EXECUTION']:
-                # Ensure status dialog is shown for pending orders
-                if not hasattr(self, 'order_status_dialog') or not self.order_status_dialog:
-                    self.show_order_status_dialog(order_data)
+                # Show pending notification if not already shown
+                if order_id not in self.active_order_notifications:
+                    self._show_order_pending_notification(order_data)
 
-            # 3. IMMEDIATE: Refresh UI components
+            # Refresh UI components
             self._refresh_ui_after_order_update(order_data)
 
-            # ====== DELAYED OPERATIONS ======
-
-            # 4. DELAYED: Log order update (database operations)
+            # Log order update
             QTimer.singleShot(100, lambda: self._log_order_update_async(order_data))
 
-            logger.info(f"Order update processed successfully (UI immediate): {order_id} -> {status}")
+            logger.info(f"Order update processed with notifications: {order_id} -> {status}")
 
         except Exception as e:
             error_msg = f"Failed to handle order update for {order_data.get('order_id', 'unknown')}: {e}"
@@ -1827,6 +1953,184 @@ class SwingTraderWindow(QMainWindow):
                 logger.info(f"Order update logged successfully (async): {order_data.get('order_id')}")
         except Exception as log_error:
             logger.error(f"Failed to log order update (async): {log_error}")
+
+    def _handle_order_completion_notification(self, order_data: Dict[str, Any]):
+        """Handle order completion with enhanced notification and cleanup."""
+        try:
+            symbol = order_data.get('tradingsymbol', '')
+            filled_quantity = order_data.get('filled_quantity', 0)
+            avg_price = order_data.get('average_price', 0)
+            transaction_type = order_data.get('transaction_type', '')
+            order_id = order_data.get('order_id', '')
+
+            # Close and remove any pending/partial notification for this order
+            if order_id in self.active_order_notifications:
+                try:
+                    notification = self.active_order_notifications[order_id]
+                    if hasattr(notification, '_close_notification'):
+                        notification._close_notification()
+                    del self.active_order_notifications[order_id]
+                    logger.debug(f"Closed pending notification for completed order: {order_id}")
+                except Exception as e:
+                    logger.warning(f"Error closing pending notification: {e}")
+
+            # Stop tracking this order
+            if self.order_tracker:
+                self.order_tracker.stop_tracking(order_id)
+
+            # Show completion notification with enhanced details
+            if avg_price > 0:
+                message = f"✅ Executed: {transaction_type} {filled_quantity} {symbol} @ ₹{avg_price:,.2f}"
+            else:
+                message = f"✅ Executed: {transaction_type} {filled_quantity} {symbol}"
+
+            # Add action data for navigation to positions
+            action_data = {
+                'action_type': 'show_positions',
+                'symbol': symbol,
+                'highlight_symbol': True
+            }
+
+            self._show_order_notification(message, "order_executed", action_data=action_data)
+
+            # Emit completion signal for other components
+            self.trade_completed.emit()
+
+            # Force refresh positions with delay to ensure API consistency
+            QTimer.singleShot(1500, self._force_refresh_positions_from_kite)
+
+            # Update header metrics
+            if hasattr(self, 'header_toolbar') and hasattr(self.header_toolbar, 'refresh_pnl'):
+                QTimer.singleShot(2000, self.header_toolbar.refresh_pnl)
+
+            logger.info(f"Order completion handled: {symbol} - {filled_quantity} @ ₹{avg_price}")
+
+        except Exception as e:
+            logger.error(f"Error handling order completion notification: {e}")
+            # Fallback notification
+            symbol = order_data.get('tradingsymbol', 'Unknown')
+            self._show_order_notification(f"Order executed: {symbol}", "order_executed")
+
+    def _handle_order_cancellation_notification(self, order_data: Dict[str, Any]):
+        """Handle order cancellation with enhanced notification and cleanup."""
+        try:
+            symbol = order_data.get('tradingsymbol', '')
+            order_id = order_data.get('order_id', '')
+
+            # Close and remove any pending notification for this order
+            if order_id in self.active_order_notifications:
+                try:
+                    notification = self.active_order_notifications[order_id]
+                    if hasattr(notification, '_close_notification'):
+                        notification._close_notification()
+                    del self.active_order_notifications[order_id]
+                    logger.debug(f"Closed pending notification for cancelled order: {order_id}")
+                except Exception as e:
+                    logger.warning(f"Error closing pending notification: {e}")
+
+            # Stop tracking this order
+            if self.order_tracker:
+                self.order_tracker.stop_tracking(order_id)
+
+            # Show cancellation notification
+            short_order_id = order_id[:8] + "..." if len(order_id) > 8 else order_id
+            message = f"❌ Cancelled: {symbol} ({short_order_id})"
+
+            self._show_order_notification(message, "order_cancelled")
+
+            logger.info(f"Order cancellation handled: {order_id}")
+
+        except Exception as e:
+            logger.error(f"Error handling order cancellation notification: {e}")
+            # Fallback notification
+            symbol = order_data.get('tradingsymbol', 'Unknown')
+            self._show_order_notification(f"Order cancelled: {symbol}", "order_cancelled")
+
+    def _handle_order_rejection_notification(self, order_data: Dict[str, Any], reason: str = ""):
+        """Handle order rejection with enhanced notification and cleanup."""
+        try:
+            symbol = order_data.get('tradingsymbol', '')
+            order_id = order_data.get('order_id', '')
+
+            # Close and remove any pending notification for this order
+            if order_id in self.active_order_notifications:
+                try:
+                    notification = self.active_order_notifications[order_id]
+                    if hasattr(notification, '_close_notification'):
+                        notification._close_notification()
+                    del self.active_order_notifications[order_id]
+                    logger.debug(f"Closed pending notification for rejected order: {order_id}")
+                except Exception as e:
+                    logger.warning(f"Error closing pending notification: {e}")
+
+            # Stop tracking this order
+            if self.order_tracker:
+                self.order_tracker.stop_tracking(order_id)
+
+            # Show rejection notification with retry action
+            if reason:
+                message = f"🚫 Rejected: {symbol} - {reason}"
+            else:
+                short_order_id = order_id[:8] + "..." if len(order_id) > 8 else order_id
+                message = f"🚫 Rejected: {symbol} ({short_order_id})"
+
+            # Add action data for retry
+            action_data = {
+                'action_type': 'retry_order',
+                'symbol': symbol,
+                'original_order_data': order_data,
+                'rejection_reason': reason
+            }
+
+            self._show_order_notification(message, "order_rejected", action_data=action_data)
+
+            logger.warning(f"Order rejection handled: {order_id} - {reason}")
+
+        except Exception as e:
+            logger.error(f"Error handling order rejection notification: {e}")
+            # Fallback notification
+            symbol = order_data.get('tradingsymbol', 'Unknown')
+            self._show_order_notification(f"Order rejected: {symbol}", "order_rejected")
+
+    def _update_tracked_orders(self):
+        """Update tracked order notifications with latest status."""
+        try:
+            if not self.active_order_notifications:
+                return
+
+            # Get list of order IDs to update
+            order_ids = list(self.active_order_notifications.keys())
+
+            for order_id in order_ids:
+                try:
+                    # Get latest order status
+                    updated_data = self.get_order_status(order_id)
+                    if updated_data:
+                        status = updated_data.get('status', '').upper()
+
+                        # Handle status changes
+                        if status == 'COMPLETE':
+                            self._handle_order_completion_notification(updated_data)
+                        elif status == 'CANCELLED':
+                            self._handle_order_cancellation_notification(updated_data)
+                        elif status == 'REJECTED':
+                            reason = updated_data.get('status_message', 'Unknown reason')
+                            self._handle_order_rejection_notification(updated_data, reason)
+                        elif status == 'PARTIAL':
+                            # Update existing partial fill notification
+                            if order_id in self.active_order_notifications:
+                                notification = self.active_order_notifications[order_id]
+                                if hasattr(notification, 'update_progress'):
+                                    filled_qty = updated_data.get('filled_quantity', 0)
+                                    total_qty = updated_data.get('quantity', 1)
+                                    notification.update_progress(filled_qty, total_qty)
+
+                except Exception as e:
+                    logger.debug(f"Error updating order {order_id}: {e}")
+                    continue
+
+        except Exception as e:
+            logger.error(f"Error in tracked orders update: {e}")
 
     def _handle_order_completion(self, order_data: Dict[str, Any]):
         """Handle completed order updates."""
@@ -1852,27 +2156,6 @@ class SwingTraderWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Error handling order completion: {e}")
 
-    def _handle_order_cancellation_update(self, order_data: Dict[str, Any]):
-        """Handle order cancellation updates."""
-        try:
-            symbol = order_data.get('tradingsymbol', '')
-            order_id = order_data.get('order_id', '')
-
-            # Show cancellation notification
-            message = f"Order cancelled: {symbol} ({order_id[:8]}...)"
-            self._show_order_notification(message, "info")
-
-            # Close status dialog if it's for this order
-            if (hasattr(self, 'order_status_dialog') and
-                    self.order_status_dialog and
-                    self.order_status_dialog.order_id == order_id):
-                # Let the dialog handle its own closure after showing cancellation status
-                pass
-
-            logger.info(f"Order cancellation handled: {order_id}")
-
-        except Exception as e:
-            logger.error(f"Error handling order cancellation: {e}")
 
     def _handle_order_rejection_update(self, order_data: Dict[str, Any]):
         """Handle order rejection updates."""
@@ -1890,48 +2173,7 @@ class SwingTraderWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Error handling order rejection: {e}")
 
-    def _handle_partial_order_update(self, order_data: Dict[str, Any]):
-        """Handle partial fill updates."""
-        try:
-            symbol = order_data.get('tradingsymbol', '')
-            filled_quantity = order_data.get('filled_quantity', 0)
-            total_quantity = order_data.get('quantity', 0)
 
-            # Calculate fill percentage
-            fill_percentage = (filled_quantity / total_quantity * 100) if total_quantity > 0 else 0
-
-            # Show partial fill notification
-            message = f"Partial fill: {filled_quantity}/{total_quantity} {symbol} ({fill_percentage:.0f}%)"
-            self._show_order_notification(message, "info")
-
-            # Ensure status dialog is shown for partial fills
-            if not hasattr(self, 'order_status_dialog') or not self.order_status_dialog:
-                self.show_order_status_dialog(order_data)
-
-            # Refresh positions if there's any fill
-            if filled_quantity > 0:
-                self._refresh_positions_table()
-
-            logger.info(f"Partial order update handled: {symbol} - {filled_quantity}/{total_quantity}")
-
-        except Exception as e:
-            logger.error(f"Error handling partial order update: {e}")
-
-    def _show_order_status_if_needed(self, order_data: Dict[str, Any]):
-        """Show order status dialog if order is pending and dialog not already shown."""
-        try:
-            status = order_data.get('status', '').upper()
-
-            # Only show for pending orders that might need user action
-            if status in ['OPEN', 'PENDING_EXECUTION', 'TRIGGER_PENDING']:
-                # Check if dialog already exists for this order
-                if (not hasattr(self, 'order_status_dialog') or
-                        not self.order_status_dialog or
-                        self.order_status_dialog.order_id != order_data.get('order_id')):
-                    self.show_order_status_dialog(order_data)
-
-        except Exception as e:
-            logger.error(f"Error showing order status dialog: {e}")
 
     def _refresh_ui_after_order_update(self, order_data: Dict[str, Any]):
         """Refresh UI components after order update."""
@@ -2342,6 +2584,49 @@ class SwingTraderWindow(QMainWindow):
             self.main_splitter.setSizes([250, 600, 300])
             if hasattr(self, 'right_panel_splitter'):
                 self.right_panel_splitter.setSizes([300, 200])
+
+        # UTILITY: Get active order count for debugging
+        def get_active_order_count(self) -> int:
+            """Get count of active order notifications and tracked orders."""
+            notification_count = len(self.active_order_notifications) if hasattr(self,
+                                                                                 'active_order_notifications') else 0
+            tracked_count = self.order_tracker.get_active_order_count() if self.order_tracker else 0
+
+            return max(notification_count, tracked_count)
+
+        # DEBUG: Method to check system health
+        def debug_order_system_health(self):
+            """Debug method to check order system health."""
+            try:
+                logger.info("=== ORDER SYSTEM HEALTH CHECK ===")
+
+                # Check active notifications
+                notification_count = len(self.active_order_notifications) if hasattr(self,
+                                                                                     'active_order_notifications') else 0
+                logger.info(f"Active order notifications: {notification_count}")
+
+                # Check order tracker
+                if self.order_tracker:
+                    tracked_count = self.order_tracker.get_active_order_count()
+                    logger.info(f"Tracked orders: {tracked_count}")
+
+                    tracked_orders = self.order_tracker.get_tracked_orders()
+                    for order_id, order_data in tracked_orders.items():
+                        status = order_data.get('status', 'UNKNOWN')
+                        symbol = order_data.get('tradingsymbol', 'N/A')
+                        logger.info(f"  {order_id[:8]}... | {symbol} | {status}")
+                else:
+                    logger.warning("Order tracker not initialized")
+
+                # Check notification manager
+                if hasattr(self, 'notification_manager'):
+                    active_notifications = len(self.notification_manager.active_notifications)
+                    logger.info(f"Total active notifications: {active_notifications}")
+
+                logger.info("=== HEALTH CHECK COMPLETE ===")
+
+            except Exception as e:
+                logger.error(f"Error in order system health check: {e}")
 
     def _apply_dark_theme(self):
         """Enhanced dark theme with FIXED splitter styling for proper resizing."""
