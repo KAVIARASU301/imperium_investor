@@ -21,6 +21,7 @@ from dialogs.order_history_dialog import OrderHistoryDialog
 from dialogs.performance_dialog import PerformanceDialog
 from dialogs.order_status_dialog import create_order_status_dialog
 from dialogs.alert_management_system import AlertSystemManager
+from dialogs.notification_dialog import NotificationManager, NotificationType, setup_notification_system
 
 from utils.advanced_order_manager import AdvancedOrderManager
 from utils.risk_management import (
@@ -65,6 +66,7 @@ class SwingTraderWindow(QMainWindow):
         self.instrument_list: List[Dict] = []
         self.instrument_map: Dict[str, Dict] = {}
         self._subscribed_tokens = set()
+        self.notification_manager = setup_notification_system(self)
 
         if isinstance(self.trader, PaperTradingManager):
             self.trader.set_trade_logger(self.trade_logger)
@@ -581,21 +583,6 @@ class SwingTraderWindow(QMainWindow):
             positions = self.position_manager.get_all_positions()
             self.risk_manager.update_positions(positions)
 
-    @Slot(str)
-    def _on_api_error(self, error_message: str):
-        """Handle API errors from position manager - log only, no dialogs during startup."""
-        logger.error(f"Position Manager API Error: {error_message}")
-
-        if hasattr(self, '_startup_complete') and self._startup_complete:
-            critical_errors = ['Authentication failed', 'Network error', 'Invalid API key']
-            is_critical = any(critical in error_message for critical in critical_errors)
-
-            if is_critical:
-                self._show_order_notification(f"Critical API Error: {error_message}", "error")
-            else:
-                self._update_status_message(f"API Warning: {error_message}")
-        print(f"API Error: {error_message}")
-
     def _mark_startup_complete(self):
         """Mark that startup sequence is complete and enable notifications."""
         self._startup_complete = True
@@ -676,24 +663,29 @@ class SwingTraderWindow(QMainWindow):
 
     @Slot(dict)
     def _on_position_closed(self, closure_data: dict):
+        """Enhanced position closure handler."""
         if not getattr(self, '_startup_complete', False):
             return
+
+        self._show_position_update_notification(closure_data)
+        self._refresh_positions_table()
+
         symbol = closure_data.get('tradingsymbol', '')
         pnl = closure_data.get('pnl', 0.0)
-        message = f"Position closed: {symbol} | P&L: ₹{pnl:,.2f}"
-        notification_type = "success" if pnl >= 0 else "info"
-        self._show_order_notification(message, notification_type)
-        self._refresh_positions_table()
         logger.info(f"Position closed notification: {symbol}, P&L: ₹{pnl:,.2f}")
 
     @Slot(dict)
     def _on_position_opened(self, position_data: dict):
+        """Enhanced position opening handler."""
         if not getattr(self, '_startup_complete', False):
             return
+
+        self._show_position_update_notification(position_data)
+        self._refresh_positions_table()
+
         symbol = position_data.get('tradingsymbol', '')
         quantity = position_data.get('quantity', 0)
-        self._refresh_positions_table()
-        logger.info(f"Last Trade: {symbol}, Qty: {quantity}")
+        logger.info(f"Position opened: {symbol}, Qty: {quantity}")
 
     @Slot(float, float)
     def _on_pnl_updated(self, unrealized_pnl: float, realized_pnl: float):
@@ -702,7 +694,8 @@ class SwingTraderWindow(QMainWindow):
 
     @Slot(str, float)
     def _on_risk_alert(self, message: str, risk_value: float):
-        # self._show_order_notification(f"RISK ALERT: {message}", "error", sound_type='alert')
+        """Enhanced risk alert handler."""
+        self._show_risk_alert_notification(message, risk_value)
         logger.warning(f"Risk Alert: {message} (Value: {risk_value})")
 
     @Slot(dict)
@@ -778,55 +771,49 @@ class SwingTraderWindow(QMainWindow):
         dialog.order_placed.connect(self._handle_order_placement)
         dialog.show()
 
-
     @Slot(dict)
     def _handle_order_placement(self, order_data: Dict[str, Any]):
+        """Enhanced order placement handler with new notifications."""
         try:
             logger.info(f"Received order request: {order_data}")
             if not self._validate_order_data(order_data):
                 return
 
+            # Risk validation
             if self.risk_manager:
                 is_valid, msg = self.risk_manager.validate_order(order_data)
                 if not is_valid:
-                    self._show_order_notification(f"Risk validation failed: {msg}", "error")
+                    self._show_order_rejected_notification(order_data, msg)
                     return
 
+            # Place order
             if self.order_manager:
                 self.order_manager.place_order(order_data)
             else:
                 logger.warning("Order manager not available. Cannot place order.")
                 self._show_order_notification("Order placement system is offline.", "error")
-
+                return
 
             order_id = order_data.get('order_id', '')
 
-
             if order_id:
+                # Log order placement
+                if hasattr(self, 'trade_logger'):
+                    self.trade_logger.log_order_placement(order_data, order_id)
 
-                self._show_order_notification(f"Order placed: {order_id}", "success")
+                # Show enhanced order placed notification
+                self._show_order_placed_notification(order_data)
 
                 # Show order status dialog for monitoring
-                self.show_order_status_dialog(order_data)
-
-                # Log order placement to trade logger
-                self.trade_logger.log_order_placement(order_data, order_id)
-
-                # Show success notification
-                symbol = order_data.get('tradingsymbol', '')
-                trans_type = order_data.get('transaction_type', '')
-                quantity = order_data.get('quantity', 0)
-
-                message = f"Order placed: {trans_type} {quantity} {symbol} (ID: {order_id})"
-                self._show_order_notification(message, "success")
+                QTimer.singleShot(500, lambda: self.show_order_status_dialog(order_data))
 
                 # Refresh order history if dialog is open
-                if (self.order_history_dialog and
+                if (hasattr(self, 'order_history_dialog') and
+                        self.order_history_dialog and
                         self.order_history_dialog.isVisible()):
                     QTimer.singleShot(1000, self.order_history_dialog.refresh_orders)
 
                 logger.info(f"Order placed and logged: {order_id}")
-
             else:
                 self._show_order_notification("Order placement failed", "error")
 
@@ -871,48 +858,7 @@ class SwingTraderWindow(QMainWindow):
         # Also log it
         logger.info(f"Status: {message}")
 
-    # Alternative approach - modify _show_order_notification to be less intrusive during startup:
-    def _show_order_notification(self, message: str, notification_type: str = "info", sound_type: str = None,
-                                 silent_during_startup: bool = True):
-        """Show notification with option to suppress during startup."""
 
-        # Check if we should suppress during startup
-        if silent_during_startup and not getattr(self, '_startup_complete', True):
-            logger.info(f"Suppressed startup notification: {message}")
-            return
-
-        # Play sound regardless
-        if sound_type is None:
-            sound_type = notification_type
-
-        if sound_type == "success" and self.success_sound:
-            self.success_sound.play()
-        elif sound_type == "error" and self.error_sound:
-            self.error_sound.play()
-        elif sound_type == "placed" and self.order_placed_sound:
-            self.order_placed_sound.play()
-        elif sound_type == "alert" and self.alert_sound:
-            self.alert_sound.play()
-
-        # Rest of the existing notification code...
-        msg_box = QMessageBox(self)
-        msg_box.setWindowTitle("Notification")
-        msg_box.setText(message)
-
-        if notification_type == "success":
-            msg_box.setIcon(QMessageBox.Icon.Information)
-            msg_box.setStyleSheet("QMessageBox { background-color: #0a0a0a; color: #00b894; }")
-        elif notification_type == "error":
-            msg_box.setIcon(QMessageBox.Icon.Critical)
-            msg_box.setStyleSheet("QMessageBox { background-color: #0a0a0a; color: #d63031; }")
-        else:  # info
-            msg_box.setIcon(QMessageBox.Icon.Information)
-            msg_box.setStyleSheet("QMessageBox { background-color: #0a0a0a; color: #6a9cff; }")
-
-        if notification_type != "error":
-            QTimer.singleShot(4000, msg_box.accept)
-
-        msg_box.exec()
     def _refresh_positions_table(self):
         logger.debug("Requesting position and order refresh...")
         self.position_manager.fetch_positions_and_orders()
@@ -1731,12 +1677,8 @@ class SwingTraderWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Error showing order status dialog: {e}")
 
-
     def _handle_order_update(self, order_data: Dict[str, Any]):
-        """
-        Enhanced order status update handler that integrates with OrderStatusDialog.
-        This method should be called when orders are executed, cancelled, or status changes.
-        """
+        """Enhanced order update handler with new notifications."""
         try:
             # Log the order update
             if hasattr(self, 'trade_logger') and self.trade_logger:
@@ -1746,42 +1688,39 @@ class SwingTraderWindow(QMainWindow):
             order_id = order_data.get('order_id', '')
             status = order_data.get('status', '').upper()
             symbol = order_data.get('tradingsymbol', '')
-            quantity = order_data.get('quantity', 0)
-            filled_quantity = order_data.get('filled_quantity', 0)
-            avg_price = order_data.get('average_price', 0)
 
             logger.info(f"Processing order update: {order_id} -> {status}")
 
-            # === 1. UPDATE ORDER STATUS DIALOG ===
-            # This is the key integration - update the live status dialog if it exists
+            # Update order status dialog if exists
             if hasattr(self, 'order_status_dialog') and self.order_status_dialog:
                 if self.order_status_dialog.order_id == order_id:
                     self.order_status_dialog.update_from_external(order_data)
 
-            # === 2. HANDLE SPECIFIC STATUS CHANGES ===
+            # Handle specific status changes with enhanced notifications
             if status == 'COMPLETE':
-                self._handle_order_completion(order_data)
+                self._show_order_executed_notification(order_data)
+                self._refresh_positions_table()
 
             elif status == 'CANCELLED':
-                self._handle_order_cancellation_update(order_data)
+                self._show_order_cancelled_notification(order_data)
 
             elif status == 'REJECTED':
-                self._handle_order_rejection_update(order_data)
+                reason = order_data.get('status_message', 'Unknown reason')
+                self._show_order_rejected_notification(order_data, reason)
 
-            elif status in ['PARTIAL', 'TRIGGER_PENDING']:
-                self._handle_partial_order_update(order_data)
+            elif status in ['PARTIAL']:
+                self._show_partial_fill_notification(order_data)
+                # Ensure status dialog is shown for partial fills
+                if not hasattr(self, 'order_status_dialog') or not self.order_status_dialog:
+                    self.show_order_status_dialog(order_data)
 
             elif status in ['OPEN', 'PENDING_EXECUTION']:
-                # Order is still pending - ensure dialog is shown if not already
+                # Ensure status dialog is shown for pending orders
                 if not hasattr(self, 'order_status_dialog') or not self.order_status_dialog:
-                    self._show_order_status_if_needed(order_data)
+                    self.show_order_status_dialog(order_data)
 
-            # === 3. REFRESH UI COMPONENTS ===
+            # Refresh UI components
             self._refresh_ui_after_order_update(order_data)
-
-            # === 4. EMIT SIGNALS FOR OTHER COMPONENTS ===
-            if hasattr(self, 'order_update_signal'):
-                self.order_update_signal.emit(order_data)
 
             logger.info(f"Order update processed successfully: {order_id} -> {status}")
 
@@ -1983,11 +1922,217 @@ class SwingTraderWindow(QMainWindow):
             order_id = order_data.get('order_id')
 
             if order_id:
-                # Show status dialog for monitoring
-                # Add a small delay to ensure order is registered in the system
+
                 QTimer.singleShot(500, lambda: self.show_order_status_dialog(order_data))
 
                 logger.info(f"Order placed with status monitoring: {order_id}")
 
         except Exception as e:
             logger.error(f"Error in order placement with status dialog: {e}")
+
+    def _show_order_notification(self, message: str, notification_type: str = "info",
+                                 sound_type: str = None, silent_during_startup: bool = True,
+                                 action_data: Dict[str, Any] = None):
+        """
+        Enhanced notification system with sleek toast notifications.
+        Replaces the old popup-based notification system.
+
+        Args:
+            message: Notification message text
+            notification_type: Type of notification for styling
+            sound_type: Override sound type (deprecated - auto-determined now)
+            silent_during_startup: Whether to suppress notifications during startup
+            action_data: Optional data for clickable notifications
+        """
+        try:
+            # Check if we should suppress during startup
+            if silent_during_startup and not getattr(self, '_startup_complete', True):
+                logger.info(f"Suppressed startup notification: {message}")
+                return
+
+            # Map old notification types to new system
+            type_mapping = {
+                "success": NotificationType.SUCCESS,
+                "error": NotificationType.ERROR,
+                "info": NotificationType.INFO,
+                "warning": NotificationType.WARNING,
+                "order_placed": NotificationType.ORDER_PLACED,
+                "order_executed": NotificationType.ORDER_EXECUTED,
+                "order_cancelled": NotificationType.ORDER_CANCELLED,
+                "order_rejected": NotificationType.ORDER_REJECTED,
+                "partial_fill": NotificationType.PARTIAL_FILL,
+                "position_update": NotificationType.POSITION_UPDATE,
+                "alert": NotificationType.ALERT,
+                "system": NotificationType.SYSTEM
+            }
+
+            # Get notification type
+            notif_type = type_mapping.get(notification_type, NotificationType.INFO)
+
+            # Show notification through manager
+            notification_id = self.notification_manager.show_notification(
+                message=message,
+                notification_type=notif_type,
+                action_data=action_data,
+                silent=False  # Let the manager handle sound based on notification type
+            )
+
+            logger.debug(f"Showed notification: {notification_id} - {message}")
+
+        except Exception as e:
+            logger.error(f"Error showing notification: {e}")
+            # Fallback to console log if notification system fails
+            print(f"NOTIFICATION: {message}")
+
+    # Enhanced notification methods for specific order events
+    def _show_order_placed_notification(self, order_data: Dict[str, Any]):
+        """Show order placed notification with action data."""
+        symbol = order_data.get('tradingsymbol', '')
+        transaction_type = order_data.get('transaction_type', '')
+        quantity = order_data.get('quantity', 0)
+        price = order_data.get('price', 0)
+        order_id = order_data.get('order_id', '')
+
+        message = f"Order placed: {transaction_type} {quantity} {symbol} @ ₹{price:,.2f}"
+
+        action_data = {
+            'action_type': 'show_order_history',
+            'order_id': order_id,
+            'symbol': symbol
+        }
+
+        self._show_order_notification(message, "order_placed", action_data=action_data)
+
+    def _show_order_executed_notification(self, order_data: Dict[str, Any]):
+        """Show order executed notification with position link."""
+        symbol = order_data.get('tradingsymbol', '')
+        transaction_type = order_data.get('transaction_type', '')
+        filled_quantity = order_data.get('filled_quantity', 0)
+        avg_price = order_data.get('average_price', 0)
+
+        message = f"✓ Executed: {transaction_type} {filled_quantity} {symbol} @ ₹{avg_price:,.2f}"
+
+        action_data = {
+            'action_type': 'show_positions',
+            'symbol': symbol
+        }
+
+        self._show_order_notification(message, "order_executed", action_data=action_data)
+
+    def _show_order_cancelled_notification(self, order_data: Dict[str, Any]):
+        """Show order cancelled notification."""
+        symbol = order_data.get('tradingsymbol', '')
+        order_id = order_data.get('order_id', '')
+
+        message = f"Order cancelled: {symbol} ({order_id[:8]}...)"
+
+        self._show_order_notification(message, "order_cancelled")
+
+    def _show_order_rejected_notification(self, order_data: Dict[str, Any], reason: str = ""):
+        """Show order rejected notification with reason."""
+        symbol = order_data.get('tradingsymbol', '')
+        order_id = order_data.get('order_id', '')
+
+        if reason:
+            message = f"Order rejected: {symbol} - {reason}"
+        else:
+            message = f"Order rejected: {symbol} ({order_id[:8]}...)"
+
+        action_data = {
+            'action_type': 'open_order_dialog',
+            'symbol': symbol,
+            'retry_order': True
+        }
+
+        self._show_order_notification(message, "order_rejected", action_data=action_data)
+
+    def _show_partial_fill_notification(self, order_data: Dict[str, Any]):
+        """Show partial fill notification with progress."""
+        symbol = order_data.get('tradingsymbol', '')
+        filled_quantity = order_data.get('filled_quantity', 0)
+        total_quantity = order_data.get('quantity', 0)
+        order_id = order_data.get('order_id', '')
+
+        fill_percentage = (filled_quantity / total_quantity * 100) if total_quantity > 0 else 0
+        message = f"Partial fill: {filled_quantity}/{total_quantity} {symbol} ({fill_percentage:.0f}%)"
+
+        action_data = {
+            'action_type': 'show_order_history',
+            'order_id': order_id,
+            'symbol': symbol
+        }
+
+        self._show_order_notification(message, "partial_fill", action_data=action_data)
+
+    def _show_position_update_notification(self, position_data: Dict[str, Any]):
+        """Show position update notification."""
+        symbol = position_data.get('tradingsymbol', '')
+        quantity = position_data.get('quantity', 0)
+        pnl = position_data.get('pnl', 0)
+
+        if quantity > 0:
+            message = f"Position: +{quantity} {symbol} | P&L: ₹{pnl:,.2f}"
+        elif quantity < 0:
+            message = f"Position: {quantity} {symbol} | P&L: ₹{pnl:,.2f}"
+        else:
+            message = f"Position closed: {symbol} | P&L: ₹{pnl:,.2f}"
+
+        action_data = {
+            'action_type': 'show_positions',
+            'symbol': symbol
+        }
+
+        self._show_order_notification(message, "position_update", action_data=action_data)
+
+    def _show_risk_alert_notification(self, message: str, risk_value: float = 0):
+        """Show risk management alert."""
+        alert_message = f"⚠ RISK ALERT: {message}"
+        if risk_value > 0:
+            alert_message += f" (₹{risk_value:,.2f})"
+
+        action_data = {
+            'action_type': 'show_positions',
+            'risk_alert': True
+        }
+
+        self._show_order_notification(alert_message, "alert", action_data=action_data)
+
+    def _show_system_notification(self, message: str):
+        """Show system status notification."""
+        self._show_order_notification(message, "system")
+
+    # Connection status notifications
+    def _on_market_data_connected(self):
+        """Handle market data connection."""
+        self._show_system_notification("Market data connected ✓")
+
+    def _on_market_data_disconnected(self):
+        """Handle market data disconnection."""
+        self._show_system_notification("Market data disconnected - Reconnecting...")
+
+    def _on_api_error(self, error_msg: str):
+        """Handle API errors."""
+        self._show_order_notification(f"API Error: {error_msg}", "error")
+
+    # Utility method to clear all notifications
+    def clear_all_notifications(self):
+        """Clear all active notifications."""
+        if hasattr(self, 'notification_manager'):
+            self.notification_manager.clear_all_notifications()
+
+    # Method to show notifications for alerts
+    def _show_alert_notification(self, alert_data: Dict[str, Any]):
+        """Show notification for price alerts."""
+        symbol = alert_data.get('symbol', '')
+        price = alert_data.get('current_price', 0)
+        condition = alert_data.get('condition', '')
+
+        message = f"🔔 Alert: {symbol} {condition} ₹{price:,.2f}"
+
+        action_data = {
+            'action_type': 'open_order_dialog',
+            'symbol': symbol,
+            'alert_triggered': True
+        }
+
+        self._show_order_notification(message, "alert", action_data=action_data)
