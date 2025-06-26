@@ -304,48 +304,23 @@ class OrderStatusDialog(QWidget):
         logger.info(f"Started monitoring order {self.order_id} with status {self.current_status.value[0]}")
 
     def _refresh_order_status(self):
-        """Refresh order status from the main window's order manager."""
+        """Refreshes order status directly from the main window."""
         try:
             updated_data = None
-
-            # Method 1: Try parent_window (explicitly stored reference)
-            if hasattr(self, 'parent_window') and self.parent_window and hasattr(self.parent_window, 'get_order_status'):
+            if hasattr(self, 'parent_window') and self.parent_window and hasattr(self.parent_window,
+                                                                                 'get_order_status'):
                 updated_data = self.parent_window.get_order_status(self.order_id)
+            else:
+                logger.warning(
+                    f"Could not refresh order {self.order_id}: main_window or get_order_status method not found.")
+                # Stop the timer if we can't refresh, to prevent repeated errors.
+                self.update_timer.stop()
+                return
 
-            # Method 2: Try Qt parent (might be different from parent_window)
-            elif self.parent() and hasattr(self.parent(), 'get_order_status'):
-                updated_data = self.parent().get_order_status(self.order_id)
-
-            # Method 3: Try to traverse up the Qt widget hierarchy to find main window
-            elif self.parent():
-                widget = self.parent()
-                while widget:
-                    if hasattr(widget, 'get_order_status'):
-                        updated_data = widget.get_order_status(self.order_id)
-                        break
-                    widget = widget.parent()
-
-            # Method 4: Try QApplication to find main window
-            if not updated_data:
-                try:
-                    app = QApplication.instance()
-                    if app and hasattr(app, 'topLevelWidgets'):
-                        # Look for main window in application's top-level widgets
-                        for widget in app.topLevelWidgets():
-                            if hasattr(widget, 'get_order_status'):
-                                updated_data = widget.get_order_status(self.order_id)
-                                if updated_data:
-                                    break
-                except Exception as e:
-                    logger.debug(f"Could not find main window via QApplication: {e}")
-
-            # Update UI with new data if found
             if updated_data:
                 self._update_order_data(updated_data)
-            else:
-                logger.debug(f"Could not find get_order_status method for order {self.order_id}")
 
-            # Update time elapsed regardless
+            # Update time elapsed
             elapsed = datetime.now() - self.last_update_time
             if elapsed.total_seconds() < 60:
                 time_text = f"{int(elapsed.total_seconds())}s ago"
@@ -356,7 +331,8 @@ class OrderStatusDialog(QWidget):
                 self.time_label.setText(time_text)
 
         except Exception as e:
-            logger.error(f"Error refreshing order status: {e}")
+            logger.error(f"Error refreshing order status for {self.order_id}: {e}", exc_info=True)
+            self.update_timer.stop()  # Stop on error to prevent crash loops
 
     def _update_order_data(self, new_data: Dict[str, Any]):
         """Update order data and UI elements."""
@@ -414,40 +390,34 @@ class OrderStatusDialog(QWidget):
         """Handle order completion with immediate hide to allow main window toast."""
         logger.info(f"Order {self.order_id} completed - hiding dialog for main window toast")
 
+        if self.is_closing:
+            return
+
         try:
-            # Stop all timers and animations immediately
-            if hasattr(self, 'update_timer'):
-                self.update_timer.stop()
-            if hasattr(self, 'auto_close_timer'):
-                self.auto_close_timer.stop()
-            if hasattr(self, 'pulse_animation') and self.pulse_animation:
+            self.update_timer.stop()
+            if self.pulse_animation:
                 self.pulse_animation.stop()
 
-            # Mark as closing to prevent other operations
             self.is_closing = True
             self._is_closed = True
 
-            # Emit completion signal BEFORE hiding (important for main window)
-            if hasattr(self, 'order_completed'):
-                self.order_completed.emit(self.order_data)
-            if hasattr(self, 'refresh_positions_requested'):
-                self.refresh_positions_requested.emit()
+            # Emit completion signal so the main window can take over
+            self.order_completed.emit(self.order_data)
+            self.refresh_positions_requested.emit()
 
-            # Hide immediately without animation
+            # Hide immediately and schedule for deletion
             self.hide()
+            self.deleteLater()
 
-            # Clean up and close
-            self.close()
-
-            # Clear reference in parent if exists
-            if hasattr(self, 'parent_window') and self.parent_window:
-                if hasattr(self.parent_window, 'order_status_dialog'):
+            if hasattr(self, 'parent_window') and self.parent_window and hasattr(self.parent_window,
+                                                                                 'order_status_dialog'):
+                if self.parent_window.order_status_dialog is self:
                     self.parent_window.order_status_dialog = None
 
-            logger.info(f"Order status dialog hidden for completed order {self.order_id}")
+            logger.info(f"Order status dialog for {self.order_id} has been hidden and scheduled for deletion.")
 
         except Exception as e:
-            logger.error(f"Error hiding order status dialog for completion: {e}")
+            logger.error(f"Error hiding order status dialog for completion: {e}", exc_info=True)
 
     def _handle_order_completion(self):
         """Legacy method - now redirects to new completion handler."""

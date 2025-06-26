@@ -104,7 +104,7 @@ class SwingTraderWindow(QMainWindow):
         logger.info("Swing Trader Window Initialized Successfully.")
 
         self._startup_complete = False
-        QTimer.singleShot(20000, self._mark_startup_complete)
+        QTimer.singleShot(1000, self._mark_startup_complete)
 
     def _setup_frameless_window(self):
         """Setup frameless window with custom title bar."""
@@ -1689,44 +1689,27 @@ class SwingTraderWindow(QMainWindow):
             self._show_order_notification(error_msg, "error")
 
     def _on_order_completed(self, order_data: Dict[str, Any]):
-        """Handle order completion with immediate UI feedback and delayed logging."""
+        """Handles the completion of an order by showing a notification and refreshing the UI."""
         try:
-            symbol = order_data.get('tradingsymbol', '')
+            symbol = order_data.get('tradingsymbol', 'Unknown')
             filled_quantity = order_data.get('filled_quantity', 0)
             avg_price = order_data.get('average_price', 0)
             transaction_type = order_data.get('transaction_type', '')
-            order_id = order_data.get('order_id', '')
 
-            logger.info(f"Processing order completion: {order_id}")
-
-            # ====== IMMEDIATE UI UPDATES ======
-
-            # 1. IMMEDIATE: Show SUCCESS toast notification ONLY when order completes
-            message = f"✓ Order completed: {transaction_type} {filled_quantity} {symbol} @ ₹{avg_price:.2f}"
-            self._show_order_notification(message, "order_executed")
-
-            # 2. IMMEDIATE: Force refresh positions from Kite
+            # Force a refresh of the positions from the API
             self._force_refresh_positions_from_kite()
 
-            # 3. IMMEDIATE: Emit trade completion signal
+            # Emit a signal that a trade has been completed for other components
             self.trade_completed.emit()
 
-            # ====== DELAYED OPERATIONS ======
+            # Show a success toast notification
+            message = f"✓ Executed: {transaction_type} {filled_quantity} {symbol} @ ₹{avg_price:,.2f}"
+            self._show_order_notification(message, "order_executed")
 
-            # 4. DELAYED: Log order completion (database write)
-            QTimer.singleShot(50, lambda: self._log_order_completion_async(order_data))
-
-            # 5. DELAYED: Update performance metrics
-            QTimer.singleShot(2000, self._update_performance_metrics_in_header)
-
-            # 6. DELAYED: Refresh performance dialog if open
-            if self.performance_dialog and self.performance_dialog.isVisible():
-                QTimer.singleShot(1500, self.performance_dialog.refresh_data)
-
-            logger.info(f"Order completion processed successfully (UI immediate): {order_id}")
+            logger.info(f"Order completion for {symbol} fully processed.")
 
         except Exception as e:
-            logger.error(f"Error handling order completion: {e}")
+            logger.error(f"Error in _on_order_completed: {e}", exc_info=True)
 
     def _log_order_completion_async(self, order_data: Dict[str, Any]):
         """Log order completion asynchronously."""
@@ -1738,19 +1721,13 @@ class SwingTraderWindow(QMainWindow):
             logger.error(f"Failed to log order completion (async): {log_error}")
 
     def _force_refresh_positions_from_kite(self):
-        """Force refresh positions from Kite API after order execution."""
+        """Force refresh positions from the API after a delay to ensure data consistency."""
         try:
-            logger.info("Force refreshing positions from Kite after order completion")
-
-            if hasattr(self, 'position_manager'):
-                # Use a timer to allow order to settle in Kite's system
-                QTimer.singleShot(1000, self._refresh_positions_from_api)
-                QTimer.singleShot(3000, self._refresh_positions_from_api)  # Second try
-            else:
-                logger.warning("Position manager not available for refresh")
-
+            logger.info("Scheduling a forced refresh of positions from Kite...")
+            # Use a QTimer to allow the order to settle in Kite's system before refreshing
+            QTimer.singleShot(1500, self._refresh_positions_from_api)  # Wait 1.5 seconds
         except Exception as e:
-            logger.error(f"Error forcing position refresh: {e}")
+            logger.error(f"Error scheduling position refresh: {e}", exc_info=True)
 
     def _refresh_positions_from_api(self):
         """Refresh positions directly from API."""
