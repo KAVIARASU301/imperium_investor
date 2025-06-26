@@ -63,6 +63,8 @@ class SwingTraderWindow(QMainWindow):
         self.trading_mode = 'paper' if isinstance(trader, PaperTradingManager) else 'live'
         self.trade_logger = TradeLogger(mode=self.trading_mode)
         self.position_manager = PositionManager(self.trader, self.trade_logger)
+        self.position_manager.set_main_window_reference(self)
+
         self.instrument_list: List[Dict] = []
         self.instrument_map: Dict[str, Dict] = {}
         self._subscribed_tokens = set()
@@ -99,6 +101,8 @@ class SwingTraderWindow(QMainWindow):
         self._init_background_workers()
         self._init_advanced_components()
         self._connect_signals()
+        self._connect_chart_signals()
+
         self._setup_watchlist_shortcuts()
         self._apply_dark_theme()
         self.restore_window_state()
@@ -240,10 +244,167 @@ class SwingTraderWindow(QMainWindow):
         self.instrument_loader.error_occurred.connect(lambda e: logger.error(f"Critical error loading instruments: {e}"))
         self.instrument_loader.start()
 
+        # Enhanced market data worker with chart-specific handling
         self.market_data_worker = MarketDataWorker(self.api_key, self.access_token)
         self.market_data_worker.data_received.connect(self._on_market_data)
         self.market_data_worker.connection_established.connect(self._on_websocket_connect)
         self.market_data_worker.start()
+
+    @Slot()
+    def _on_websocket_connect(self):
+        """Enhanced WebSocket connection handler with immediate chart subscription"""
+        logger.info("WebSocket connected. Setting up enhanced subscriptions.")
+
+        # Immediate chart subscription if available
+        if (hasattr(self, 'candlestick_chart') and
+                hasattr(self.candlestick_chart, 'current_instrument_token') and
+                self.candlestick_chart.current_instrument_token):
+
+            try:
+                self.market_data_worker.add_instruments([self.candlestick_chart.current_instrument_token])
+                logger.info(
+                    f"Immediately subscribed to chart token on connection: {self.candlestick_chart.current_instrument_token}")
+            except Exception as e:
+                logger.error(f"Failed to immediately subscribe to chart on connection: {e}")
+
+        # Then handle other subscriptions
+        self._on_watchlist_changed()
+
+    def _connect_chart_signals(self):
+        """Connect chart-specific signals for live updates"""
+        if self.candlestick_chart:
+            # Connect symbol change to subscription update
+            self.candlestick_chart.symbol_loaded.connect(self._on_chart_symbol_changed)
+
+            # Connect chart data requests
+            self.candlestick_chart.data_request_for_symbol.connect(self._ensure_chart_subscription)
+
+    @Slot(str)
+    def _on_chart_symbol_changed(self, symbol: str):
+        """Handle chart symbol changes with immediate subscription"""
+        logger.info(f"Chart symbol changed to: {symbol}")
+
+        if symbol in self.instrument_map:
+            token = self.instrument_map[symbol]['instrument_token']
+            try:
+                # Add to subscription immediately
+                if self.market_data_worker and self.market_data_worker.is_connected():
+                    self.market_data_worker.add_instruments([token])
+                    logger.info(f"Added chart symbol {symbol} (token: {token}) to subscription")
+                else:
+                    logger.warning("Market data worker not connected, will subscribe when connected")
+
+                # Update all subscriptions to include chart
+                QTimer.singleShot(100, self._on_watchlist_changed)
+
+            except Exception as e:
+                logger.error(f"Failed to subscribe to chart symbol {symbol}: {e}")
+
+    @Slot(str)
+    def _ensure_chart_subscription(self, symbol: str):
+        """Ensure chart symbol is subscribed to market data"""
+        if symbol in self.instrument_map:
+            token = self.instrument_map[symbol]['instrument_token']
+            try:
+                if self.market_data_worker:
+                    current_info = self.market_data_worker.get_subscription_info()
+                    if token not in current_info.get('subscribed_tokens', []):
+                        self.market_data_worker.add_instruments([token])
+                        logger.info(f"Ensured subscription for chart symbol {symbol}")
+            except Exception as e:
+                logger.error(f"Failed to ensure chart subscription for {symbol}: {e}")
+
+        # Add debug method to main window
+        def debug_chart_live_updates(self):
+            """Debug method to check chart live update status"""
+            try:
+                if not self.candlestick_chart:
+                    return {"error": "No chart available"}
+
+                chart_debug = self.candlestick_chart.debug_live_updates()
+
+                # Add market data worker info
+                if self.market_data_worker:
+                    worker_info = self.market_data_worker.get_subscription_info()
+                    chart_debug.update({
+                        'worker_connected': worker_info.get('is_connected', False),
+                        'total_subscriptions': worker_info.get('subscribed_count', 0),
+                        'chart_token_subscribed': (
+                                self.candlestick_chart.current_instrument_token in
+                                worker_info.get('subscribed_tokens', [])
+                        ) if self.candlestick_chart.current_instrument_token else False
+                    })
+
+                logger.info(f"Chart live update debug: {chart_debug}")
+                return chart_debug
+
+            except Exception as e:
+                logger.error(f"Error in debug_chart_live_updates: {e}")
+                return {"error": str(e)}
+
+    @Slot(list)
+    def _on_market_data_enhanced(self, ticks: List[Dict]):
+        """Enhanced market data processing with immediate chart updates"""
+        if not ticks:
+            return
+
+        try:
+            # PRIORITY: Update chart immediately if symbol matches
+            self._update_chart_with_ticks(ticks)
+
+            # Then update other components
+            self.position_manager.update_pnl_from_market_data(ticks)
+            if isinstance(self.trader, PaperTradingManager):
+                self.trader.update_market_data(ticks)
+            self.watchlist.update_data(ticks)
+
+            if self.alert_system:
+                self.alert_system.update_market_data(ticks)
+
+            if self.risk_manager:
+                positions = self.position_manager.get_all_positions()
+                daily_pnl = sum(pos.pnl for pos in positions)
+                self.risk_manager.update_daily_pnl(daily_pnl)
+
+        except Exception as e:
+            logger.error(f"Error processing market data: {e}")
+
+    def _update_chart_with_ticks(self, ticks: List[Dict]):
+        """Dedicated method for chart tick processing"""
+        if not self.candlestick_chart:
+            return
+
+        current_symbol = getattr(self.candlestick_chart, 'current_symbol', None)
+        current_token = getattr(self.candlestick_chart, 'current_instrument_token', None)
+
+        if not current_symbol or not current_token:
+            return
+
+        # Find relevant ticks for chart
+        chart_ticks = []
+        for tick in ticks:
+            tick_token = tick.get('instrument_token')
+            tick_symbol = tick.get('tradingsymbol')
+
+            # Direct token match (most reliable)
+            if tick_token == current_token:
+                # Ensure tradingsymbol is set for chart processing
+                if not tick_symbol:
+                    tick['tradingsymbol'] = current_symbol
+                chart_ticks.append(tick)
+                continue
+
+            # Symbol match as backup
+            if tick_symbol == current_symbol:
+                chart_ticks.append(tick)
+
+        # Update chart immediately if we have relevant ticks
+        if chart_ticks:
+            try:
+                self.candlestick_chart.update_live_data(chart_ticks)
+                logger.debug(f"Updated chart with {len(chart_ticks)} ticks for {current_symbol}")
+            except Exception as e:
+                logger.error(f"Error updating chart with ticks: {e}")
 
     def _init_advanced_components(self):
         """Initializes advanced order and risk management components."""
@@ -253,6 +414,12 @@ class SwingTraderWindow(QMainWindow):
             self.position_monitor = PositionMonitor(self.risk_manager)
             self.trade_analyzer = TradeAnalyzer()
             self.trading_rules = TradingRules()
+
+            # CRITICAL: Set main window reference in position manager
+            if hasattr(self, 'position_manager'):
+                self.position_manager.set_main_window_reference(self)
+                logger.info("Set main window reference in position manager")
+
             logger.info("Advanced trading components initialized successfully.")
         except Exception as e:
             logger.error(f"Failed to initialize advanced components: {e}")
@@ -424,15 +591,20 @@ class SwingTraderWindow(QMainWindow):
     # CORE EVENT HANDLERS (SLOTS)
     # ==============================================================================
 
-    @Slot(list)
     def _on_instruments_loaded(self, instruments: List[Dict]):
+        """Enhanced instrument loading with position manager integration."""
         logger.info(f"Successfully loaded {len(instruments)} instruments.")
         self.instrument_list = instruments
         self.instrument_map = {inst['tradingsymbol']: inst for inst in instruments if 'tradingsymbol' in inst}
 
+        # Set instrument data in all components
         self.header_toolbar.set_instrument_data(instruments)
         self.candlestick_chart.set_instrument_list(instruments)
-        self.position_manager.set_instrument_data(instruments)
+
+        # CRITICAL: Set instrument data in position manager
+        if hasattr(self, 'position_manager'):
+            self.position_manager.set_instrument_data(instruments)
+
         self.watchlist.set_instrument_map(self.instrument_map)
 
         if isinstance(self.trader, PaperTradingManager):
@@ -440,21 +612,11 @@ class SwingTraderWindow(QMainWindow):
         if self.alert_system:
             self.alert_system.set_instrument_map(self.instrument_map)
 
+        # Trigger position refresh after instrument data is set
+        QTimer.singleShot(1000, self._refresh_positions_table)
+
         self._on_watchlist_changed()
-
-
-
-        # Set instruments in chart widget
-        if hasattr(self, 'chart_widget') and self.chart_widget:
-            self.chart_widget.set_instrument_list(instruments)
-
-        # Set instruments in watchlist
-        if hasattr(self, 'watchlist_widget') and self.watchlist_widget:
-            self.watchlist_widget.set_instrument_list(instruments)
-
-        # Delay chart initialization to ensure UI is ready
-        self.chart_init_timer.start(1000)  # 1 second delay
-
+        self.chart_init_timer.start(1000)
         logger.info(f"Loaded {len(instruments)} instruments successfully.")
 
     def _initialize_chart_after_instruments(self):
@@ -487,25 +649,46 @@ class SwingTraderWindow(QMainWindow):
         if not ticks:
             return
         try:
-            # chart update - ensure proper data structure
-            if self.candlestick_chart and hasattr(self.candlestick_chart, 'current_symbol'):
-                current_symbol = self.candlestick_chart.current_symbol
-                current_token = getattr(self.candlestick_chart, 'current_instrument_token', None)
+            # Debug: Log incoming ticks for chart symbol
+            current_chart_symbol = getattr(self.candlestick_chart, 'current_symbol', None)
+            current_chart_token = getattr(self.candlestick_chart, 'current_instrument_token', None)
 
-                # Filter ticks for current chart symbol
+            # Enhanced chart update with better token-to-symbol mapping
+            if self.candlestick_chart and current_chart_symbol:
                 chart_ticks = []
+
                 for tick in ticks:
                     tick_symbol = tick.get('tradingsymbol')
                     tick_token = tick.get('instrument_token')
 
-                    if (tick_symbol == current_symbol or
-                            (current_token and tick_token == current_token)):
+                    # Enhanced matching logic
+                    symbol_matches = tick_symbol == current_chart_symbol
+                    token_matches = (tick_token == current_chart_token) if tick_token and current_chart_token else False
+
+                    # Also check instrument map for symbol resolution
+                    if not symbol_matches and tick_token and hasattr(self, 'instrument_map'):
+                        for symbol, instrument in self.instrument_map.items():
+                            if instrument.get('instrument_token') == tick_token and symbol == current_chart_symbol:
+                                # Add tradingsymbol to tick for better matching
+                                tick['tradingsymbol'] = symbol
+                                symbol_matches = True
+                                break
+
+                    if symbol_matches or token_matches:
                         chart_ticks.append(tick)
 
                 if chart_ticks:
-                    logger.debug(f"Sending {len(chart_ticks)} ticks to chart for {current_symbol}")
+                    logger.debug(f"Sending {len(chart_ticks)} ticks to chart for {current_chart_symbol}")
+                    # Force immediate update
                     self.candlestick_chart.update_live_data(chart_ticks)
+                elif current_chart_token:
+                    # Debug: Check if we're receiving data for chart token
+                    chart_token_ticks = [t for t in ticks if t.get('instrument_token') == current_chart_token]
+                    if chart_token_ticks:
+                        logger.warning(
+                            f"Received {len(chart_token_ticks)} ticks for chart token {current_chart_token} but no symbol match")
 
+            # Continue with other updates
             self.position_manager.update_pnl_from_market_data(ticks)
             if isinstance(self.trader, PaperTradingManager):
                 self.trader.update_market_data(ticks)
@@ -513,18 +696,6 @@ class SwingTraderWindow(QMainWindow):
 
             if self.alert_system:
                 self.alert_system.update_market_data(ticks)
-
-            # Add this debug line to see what's coming in
-            current_chart_symbol = getattr(self.candlestick_chart, 'current_symbol', None)
-            current_chart_token = getattr(self.candlestick_chart, 'current_instrument_token', None)
-
-            relevant_ticks = [tick for tick in ticks
-                              if tick.get('tradingsymbol') == current_chart_symbol
-                              or tick.get('instrument_token') == current_chart_token]
-
-            logger.debug(
-                f"Market data: {len(ticks)} total ticks, {len(relevant_ticks)} relevant for {current_chart_symbol}")
-
 
             if self.risk_manager:
                 positions = self.position_manager.get_all_positions()
@@ -534,22 +705,48 @@ class SwingTraderWindow(QMainWindow):
             logger.error(f"Error processing market data: {e}")
 
     @Slot()
-    def _on_websocket_connect(self):
-        logger.info("WebSocket connected. Subscribing to all required tokens.")
-        self._on_watchlist_changed()
-
-    @Slot()
     def _on_watchlist_changed(self):
+        """Fixed watchlist change handler with position token subscription."""
         logger.info("Watchlist changed - updating subscriptions")
         all_tokens = set()
+
+        # Get tokens from all sources
         all_tokens.update(self.watchlist.get_all_tokens())
         all_tokens.update(self.positions_table.get_all_tokens())
         all_tokens.update(self._get_alert_tokens())
 
+        # CRITICAL: Always include current chart symbol token
+        if (hasattr(self, 'candlestick_chart') and
+                hasattr(self.candlestick_chart, 'current_instrument_token') and
+                self.candlestick_chart.current_instrument_token):
+            all_tokens.add(self.candlestick_chart.current_instrument_token)
+            logger.info(f"Added chart token {self.candlestick_chart.current_instrument_token}")
+
+        # CRITICAL: Add position tokens from position manager
+        if hasattr(self, 'position_manager') and self.position_manager:
+            try:
+                position_tokens = []
+                for symbol, position in self.position_manager._positions.items():
+                    token = None
+
+                    if hasattr(position, 'instrument_token') and position.instrument_token:
+                        token = position.instrument_token
+                    elif symbol in self.instrument_map:
+                        token = self.instrument_map[symbol].get('instrument_token')
+
+                    if token and token > 0:
+                        position_tokens.append(token)
+                        all_tokens.add(token)
+
+                if position_tokens:
+                    logger.info(f"Added {len(position_tokens)} position tokens to subscription")
+
+            except Exception as e:
+                logger.error(f"Error getting position tokens: {e}")
+
         if self.market_data_worker and all_tokens:
             self.market_data_worker.set_instruments(list(all_tokens))
-            logger.info(f"Updated subscription to {len(all_tokens)} tokens.")
-
+            logger.info(f"Updated subscription to {len(all_tokens)} tokens (including chart and positions).")
 
     @Slot(list)
     def _subscribe_to_tokens(self, tokens: List[int]):
@@ -614,28 +811,22 @@ class SwingTraderWindow(QMainWindow):
 
     @Slot(dict)
     def _on_order_executed(self, order_data):
+        """Legacy order executed handler - now just logs."""
         try:
+            order_id = order_data.get('order_id', '')
             symbol = order_data.get('tradingsymbol', '')
-            trans_type = order_data.get('transaction_type', '')
-            qty = order_data.get('quantity', 0)
-            message = f"EXECUTED: {trans_type} {qty} {symbol}"
-            self._show_order_notification(message, "success")
-            self.trade_logger.log_order_update(order_data)
-            self._refresh_positions_table()
-            self.trade_completed.emit()  # <--- ADD THIS LINE
 
-            # Update performance metrics in header (non-blocking)
-            QTimer.singleShot(2000, self._update_performance_metrics_in_header)
+            # Check if this was already processed
+            if order_data.get('update_source') == 'status_dialog':
+                logger.debug(f"Order {order_id} already processed by status dialog, skipping")
+                return
 
-            # Refresh performance dialog if open
-            if (self.performance_dialog and
-                    self.performance_dialog.isVisible()):
-                QTimer.singleShot(1500, self.performance_dialog.refresh_data)
-
-            logger.info("Trade completion processed for performance tracking")
+            # Mark source and delegate to completion handler
+            order_data['update_source'] = 'order_manager'
+            self._on_order_completed(order_data)
 
         except Exception as e:
-            logger.error(f"Failed to process trade completion for performance: {e}")
+            logger.error(f"Error in legacy order executed handler: {e}")
 
     @Slot(dict)
     def _on_order_cancelled(self, order_data):
@@ -773,7 +964,7 @@ class SwingTraderWindow(QMainWindow):
 
     @Slot(dict)
     def _handle_order_placement(self, order_data: Dict[str, Any]):
-        """Enhanced order placement handler with new notifications."""
+        """Enhanced order placement handler with fixed notification logic."""
         try:
             logger.info(f"Received order request: {order_data}")
             if not self._validate_order_data(order_data):
@@ -786,22 +977,33 @@ class SwingTraderWindow(QMainWindow):
                     self._show_order_rejected_notification(order_data, msg)
                     return
 
-            # Place order
+            # Place order via order manager
             if self.order_manager:
-                self.order_manager.place_order(order_data)
+                order_id = self.order_manager.place_order(order_data)
             else:
-                logger.warning("Order manager not available. Cannot place order.")
-                self._show_order_notification("Order placement system is offline.", "error")
-                return
-
-            order_id = order_data.get('order_id', '')
+                # Direct placement if no order manager
+                if hasattr(self.trader, 'place_order'):
+                    order_id = self.trader.place_order(**order_data)
+                else:
+                    logger.error("No order placement method available")
+                    self._show_order_notification("Order placement system is offline.", "error")
+                    return
 
             if order_id:
-                # Log order placement
-                if hasattr(self, 'trade_logger'):
-                    self.trade_logger.log_order_placement(order_data, order_id)
+                # Update order_data with the returned order_id
+                order_data['order_id'] = order_id
+                order_data['status'] = 'PLACED'  # Initial status
 
-                # Show enhanced order placed notification
+                # Log order placement FIRST (before notifications)
+                if hasattr(self, 'trade_logger'):
+                    try:
+                        self.trade_logger.log_order_placement(order_data, order_id)
+                        logger.info(f"Order logged successfully: {order_id}")
+                    except Exception as log_error:
+                        logger.error(f"Failed to log order: {log_error}")
+                        # Continue despite logging error
+
+                # Show SUCCESS notification (fix: was showing "failed" before)
                 self._show_order_placed_notification(order_data)
 
                 # Show order status dialog for monitoring
@@ -813,9 +1015,10 @@ class SwingTraderWindow(QMainWindow):
                         self.order_history_dialog.isVisible()):
                     QTimer.singleShot(1000, self.order_history_dialog.refresh_orders)
 
-                logger.info(f"Order placed and logged: {order_id}")
+                logger.info(f"Order placed successfully: {order_id}")
             else:
-                self._show_order_notification("Order placement failed", "error")
+                # Only show failure if order_id is None/False
+                self._show_order_notification("Order placement failed - no order ID returned", "error")
 
         except Exception as e:
             error_msg = f"Order placement failed: {str(e)}"
@@ -858,10 +1061,18 @@ class SwingTraderWindow(QMainWindow):
         # Also log it
         logger.info(f"Status: {message}")
 
-
     def _refresh_positions_table(self):
+        """Enhanced position table refresh."""
         logger.debug("Requesting position and order refresh...")
-        self.position_manager.fetch_positions_and_orders()
+
+        # Force refresh positions
+        if hasattr(self, 'position_manager'):
+            self.position_manager.fetch_positions_and_orders()
+
+        # Also refresh the positions table data immediately
+        if hasattr(self, 'positions_table'):
+            # Force an immediate UI update
+            QTimer.singleShot(100, self.positions_table.update)
 
     # ==============================================================================
     # ALERT SYSTEM METHODS
@@ -1627,34 +1838,78 @@ class SwingTraderWindow(QMainWindow):
             logger.error(error_msg, exc_info=True)
             self._show_order_notification(error_msg, "error")
 
+    @Slot(dict)
     def _on_order_completed(self, order_data: Dict[str, Any]):
-        """
-        Handle order completion from status dialog.
-
-        Args:
-            order_data: Completed order data
-        """
+        """Single handler for order completion - called from status dialog."""
         try:
             symbol = order_data.get('tradingsymbol', '')
-            quantity = order_data.get('filled_quantity', 0)
-            price = order_data.get('average_price', 0.0)
+            filled_quantity = order_data.get('filled_quantity', 0)
+            avg_price = order_data.get('average_price', 0)
+            transaction_type = order_data.get('transaction_type', '')
+            order_id = order_data.get('order_id', '')
 
-            logger.info(f"Order completed: {symbol} - {quantity} @ ₹{price}")
+            logger.info(f"Processing order completion: {order_id}")
 
-            # Refresh positions table
-            self._refresh_positions_table()
+            # Mark as processed to prevent duplicate handling
+            order_data['update_source'] = 'status_dialog'
+            order_data['status'] = 'COMPLETE'
 
-            # Update any relevant displays
-            if hasattr(self, 'header_toolbar') and hasattr(self.header_toolbar, 'refresh_data'):
-                self.header_toolbar.refresh_data()
+            # Log order update (with source marking)
+            try:
+                self.trade_logger.log_order_update(order_data)
+            except Exception as log_error:
+                logger.error(f"Failed to log order completion: {log_error}")
 
-            # Show completion notification
-            trans_type = order_data.get('transaction_type', '')
-            message = f"✓ {trans_type} {quantity} {symbol} executed @ ₹{price:,.2f}"
+            # Show success notification
+            message = f"✓ Order completed: {transaction_type} {filled_quantity} {symbol} @ ₹{avg_price:.2f}"
             self._show_order_notification(message, "success")
+
+            # CRITICAL: Force fetch positions from Kite after order completion
+            self._force_refresh_positions_from_kite()
+
+            # Emit trade completion signal
+            self.trade_completed.emit()
+
+            # Update performance metrics
+            QTimer.singleShot(2000, self._update_performance_metrics_in_header)
+
+            # Refresh performance dialog if open
+            if self.performance_dialog and self.performance_dialog.isVisible():
+                QTimer.singleShot(1500, self.performance_dialog.refresh_data)
+
+            logger.info(f"Order completion processed successfully: {order_id}")
 
         except Exception as e:
             logger.error(f"Error handling order completion: {e}")
+
+    def _force_refresh_positions_from_kite(self):
+        """Force refresh positions from Kite API after order execution."""
+        try:
+            logger.info("Force refreshing positions from Kite after order completion")
+
+            if hasattr(self, 'position_manager'):
+                # Use a timer to allow order to settle in Kite's system
+                QTimer.singleShot(1000, self._refresh_positions_from_api)
+                QTimer.singleShot(3000, self._refresh_positions_from_api)  # Second try
+            else:
+                logger.warning("Position manager not available for refresh")
+
+        except Exception as e:
+            logger.error(f"Error forcing position refresh: {e}")
+
+    def _refresh_positions_from_api(self):
+        """Refresh positions directly from API."""
+        try:
+            if hasattr(self, 'position_manager'):
+                self.position_manager.fetch_positions_and_orders()
+                logger.info("Positions refreshed from Kite API")
+
+            # Also refresh the positions table UI
+            if hasattr(self, 'positions_table'):
+                QTimer.singleShot(500, self.positions_table.update)
+
+        except Exception as e:
+            logger.error(f"Error refreshing positions from API: {e}")
 
     def show_order_status_dialog(self, order_data: Dict[str, Any]):
         """
@@ -1993,7 +2248,8 @@ class SwingTraderWindow(QMainWindow):
         price = order_data.get('price', 0)
         order_id = order_data.get('order_id', '')
 
-        message = f"Order placed: {transaction_type} {quantity} {symbol} @ ₹{price:,.2f}"
+        # Ensure we show SUCCESS message for placed orders
+        message = f"✓ Order placed: {transaction_type} {quantity} {symbol} @ ₹{price:,.2f}"
 
         action_data = {
             'action_type': 'show_order_history',
@@ -2001,7 +2257,8 @@ class SwingTraderWindow(QMainWindow):
             'symbol': symbol
         }
 
-        self._show_order_notification(message, "order_placed", action_data=action_data)
+        # Use "success" type for order placement
+        self._show_order_notification(message, "success", action_data=action_data)
 
     def _show_order_executed_notification(self, order_data: Dict[str, Any]):
         """Show order executed notification with position link."""
@@ -2136,3 +2393,24 @@ class SwingTraderWindow(QMainWindow):
         }
 
         self._show_order_notification(message, "alert", action_data=action_data)
+
+    # Usage example and testing method
+    def test_chart_live_updates(main_window):
+        """Test method to verify chart live updates are working"""
+        try:
+            # Debug current state
+            debug_info = main_window.debug_chart_live_updates()
+            print("Chart Debug Info:", debug_info)
+
+            # Force an update if chart is loaded
+            if main_window.candlestick_chart and main_window.candlestick_chart.current_symbol:
+                main_window.candlestick_chart.force_live_update()
+                print(f"Forced update for {main_window.candlestick_chart.current_symbol}")
+
+            # Check subscription status
+            if main_window.market_data_worker:
+                worker_info = main_window.market_data_worker.get_subscription_info()
+                print("Worker Info:", worker_info)
+
+        except Exception as e:
+            print(f"Test failed: {e}")

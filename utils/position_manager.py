@@ -1,3 +1,4 @@
+import json
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Union, Any, Tuple
@@ -11,9 +12,80 @@ from utils.paper_trading_manager import PaperTradingManager
 from utils.data_models import Position, Contract
 from utils.pnl_logger import PnlLogger
 from utils.trade_logger import TradeLogger
-
+from dataclasses import dataclass
+from typing import Optional
 logger = logging.getLogger(__name__)
 
+@dataclass
+class Contract:
+    """Contract information for positions."""
+    instrument_token: int = 0
+    exchange_token: int = 0
+    tradingsymbol: str = ""
+    name: str = ""
+    last_price: float = 0.0
+    expiry: Optional[str] = None
+    strike: float = 0.0
+    tick_size: float = 0.05
+    lot_size: int = 1
+    instrument_type: str = "EQ"
+    segment: str = "NSE"
+    exchange: str = "NSE"
+
+
+@dataclass
+class SimplePosition:
+    """Simplified Position class with essential fields only."""
+    tradingsymbol: str
+    exchange: str = "NSE"
+    quantity: int = 0
+    pnl: float = 0.0
+    contract: Optional[Dict] = None
+
+    # Additional essential fields
+    instrument_token: int = 0
+    product: str = "CNC"
+    average_price: float = 0.0
+    last_price: float = 0.0
+    ltp: float = 0.0  # For live updates
+
+    # CRITICAL: Add missing attributes that P&L update needs
+    realised: float = 0.0  # Realized P&L
+    unrealised: float = 0.0  # Unrealized P&L (same as pnl usually)
+
+    def __post_init__(self):
+        """Set LTP from last_price if not set and sync unrealised with pnl."""
+        if self.ltp == 0.0:
+            self.ltp = self.last_price
+        # Sync unrealised with pnl
+        if self.unrealised == 0.0:
+            self.unrealised = self.pnl
+
+
+class PositionWrapper:
+    """Wrapper to add missing attributes to any position object."""
+
+    def __init__(self, position):
+        self._position = position
+
+    def __getattr__(self, name):
+        # First try to get from wrapped position
+        if hasattr(self._position, name):
+            return getattr(self._position, name)
+
+        # Provide defaults for missing attributes
+        defaults = {
+            'realised': 0.0,
+            'unrealised': getattr(self._position, 'pnl', 0.0) if hasattr(self._position, 'pnl') else 0.0
+        }
+
+        return defaults.get(name, None)
+
+    def __setattr__(self, name, value):
+        if name.startswith('_'):
+            super().__setattr__(name, value)
+        else:
+            setattr(self._position, name, value)
 
 class PositionManager(QObject):
     """
@@ -49,6 +121,7 @@ class PositionManager(QObject):
         # Data storage
         self._positions: Dict[str, Position] = {}
         self._pending_orders: List[Dict] = []
+        self._orders = []  # List[Dict] - list of order dictionaries
         self._instrument_map: Dict[str, Dict] = {}
         self._price_cache: Dict[str, Dict] = {}  # Cache for price data
 
@@ -116,75 +189,213 @@ class PositionManager(QObject):
         # Track timer state for safe cleanup
         self._timers_active = True
 
-    def set_instrument_data(self, instruments: List[Dict[str, Any]]):
-        """Set instrument data with enhanced validation and mapping for stocks only."""
+    def set_instrument_data(self, instruments: List[Dict]):
+        """
+        Set instrument data for position processing.
+
+        Args:
+            instruments: List of instrument dictionaries
+        """
         try:
-            with QMutexLocker(self._mutex):
-                if not instruments:
-                    logger.warning("Received empty instrument data.")
+            # Create instrument mapping for position processing
+            self._instrument_map = {}
+            stock_count = 0
+
+            for instrument in instruments:
+                symbol = instrument.get('tradingsymbol')
+                if symbol:
+                    self._instrument_map[symbol] = instrument
+                    if instrument.get('instrument_type') in ['EQ', 'EQUITY']:
+                        stock_count += 1
+
+            logger.info(f"Enhanced instrument mapping created with {stock_count} stock instruments.")
+
+            # Trigger position refresh if we have positions
+            if hasattr(self, '_positions') and self._positions:
+                logger.info("Re-processing existing positions with new instrument data")
+                QTimer.singleShot(500, lambda: self.fetch_positions_and_orders(force_api_call=True))
+
+        except Exception as e:
+            logger.error(f"Error setting instrument data: {e}")
+
+    def fetch_positions_and_orders(self, force_api_call: bool = True):
+        """Fixed position fetch handling Kite API dict response."""
+        try:
+            if not self.trader:
+                logger.warning("No trader instance available for fetching positions")
+                return
+
+            logger.info(f"Fetching positions and orders (force_api={force_api_call})")
+
+            # For paper trading
+            if isinstance(self.trader, PaperTradingManager):
+                positions = self.trader.get_positions()
+                orders = self.trader.get_orders()
+            else:
+                # For live trading - handle Kite API dict response
+                try:
+                    positions_response = self.trader.positions()
+                    orders = self.trader.orders()
+
+                    logger.info(f"Raw positions type: {type(positions_response)}")
+                    logger.info(f"Raw orders type: {type(orders)}")
+
+                    # CRITICAL FIX: Handle dict response from Kite API
+                    if isinstance(positions_response, dict):
+                        # Kite API returns: {'net': [...], 'day': [...]}
+                        # We want the 'net' positions (overall positions)
+                        positions = positions_response.get('net', [])
+
+                        # Debug log the structure
+                        logger.info(f"Positions dict keys: {list(positions_response.keys())}")
+                        logger.info(f"Net positions count: {len(positions)}")
+
+                        # Also check day positions for debugging
+                        day_positions = positions_response.get('day', [])
+                        logger.info(f"Day positions count: {len(day_positions)}")
+
+                    elif isinstance(positions_response, list):
+                        # If it's already a list, use it directly
+                        positions = positions_response
+                        logger.info(f"Got positions as list: {len(positions)} items")
+                    else:
+                        logger.error(f"Unexpected positions response type: {type(positions_response)}")
+                        return
+
+                    logger.info(f"Processing {len(positions)} net positions from Kite API")
+
+                except Exception as api_error:
+                    logger.error(f"Kite API call failed: {api_error}")
+
                     return
 
-                # Create comprehensive instrument mapping for stocks only
-                self._instrument_map = {}
-                for inst in instruments:
-                    if 'tradingsymbol' in inst:
-                        symbol = inst['tradingsymbol']
-                        # Skip options and futures for swing trading
-                        if any(x in symbol for x in ['CE', 'PE', 'FUT']):
-                            continue
+            # Process positions into dictionary structure
+            processed_positions = {}  # Dict[str, Position]
 
-                        self._instrument_map[symbol] = {
-                            'instrument_token': inst.get('instrument_token', 0),
-                            'exchange': inst.get('exchange', 'NSE'),
-                            'segment': inst.get('segment', 'EQ'),
-                            'lot_size': inst.get('lot_size', 1),  # Always 1 for stocks
-                            'name': inst.get('name', symbol),
-                            'instrument_type': inst.get('instrument_type', 'EQ')
-                        }
+            for i, pos_data in enumerate(positions):
+                try:
+                    # Ensure pos_data is a dictionary
+                    if not isinstance(pos_data, dict):
+                        logger.error(f"Position {i} is not a dictionary: {type(pos_data)}")
+                        continue
 
-                logger.info(f"Enhanced instrument mapping created with {len(self._instrument_map)} stock instruments.")
+                    position = self._create_position_from_data(pos_data)
+                    if position and position.quantity != 0:  # Only non-zero positions
+                        processed_positions[position.tradingsymbol] = position
+                        logger.info(f"✅ {position.tradingsymbol}: qty={position.quantity} pnl=₹{position.pnl:.2f}")
 
-                # Trigger initial position fetch
-                QTimer.singleShot(1000, self.fetch_positions_and_orders)
+                except Exception as pos_error:
+                    logger.error(f"Error processing position {i}: {pos_error}")
+                    logger.debug(f"Position data: {pos_data}")
+                    continue
 
-        except Exception as e:
-            logger.error(f"Error setting instrument data: {e}", exc_info=True)
+            # Update positions dictionary
+            self._positions = processed_positions
+            self._orders = orders or []
 
-    def fetch_positions_and_orders(self):
-        """Enhanced position and order fetching with better error handling."""
-        if self._refresh_in_progress or self._cleanup_called:
-            logger.debug("Refresh already in progress or cleanup called, skipping.")
-            return
+            # Request market data subscription for position tokens
+            if processed_positions:
+                self._request_position_token_subscription()
 
-        try:
-            with QMutexLocker(self._mutex):
-                self._refresh_in_progress = True
+            # Convert to list for signal emission (backward compatibility)
+            positions_list = list(processed_positions.values())
 
-            start_time = datetime.now()
+            # Emit positions updated signal
+            self.positions_updated.emit(positions_list)
 
-            # Fetch data from API
-            api_positions = self._fetch_positions_safely()
-            api_orders = self._fetch_orders_safely()
+            if processed_positions:
+                logger.info(f"🎉 Successfully processed {len(processed_positions)} positions!")
+                for symbol, pos in processed_positions.items():
+                    logger.info(f"  📊 {symbol}: {pos.quantity} @ ₹{pos.average_price:.2f} (P&L: ₹{pos.pnl:.2f})")
+                self._force_position_token_subscription()
 
-            if api_positions is not None and api_orders is not None:
-                self._process_api_data(api_positions, api_orders)
-
-                # Calculate performance metrics
-                fetch_time = (datetime.now() - start_time).total_seconds()
-                logger.debug(f"Position refresh completed in {fetch_time:.2f}s")
-
-                # Only emit if not cleaning up
-                if not self._cleanup_called:
-                    self.refresh_completed.emit()
             else:
-                logger.warning("Failed to fetch complete data from API.")
+                logger.warning("No valid positions found after processing")
 
         except Exception as e:
-            logger.error(f"Error in fetch_positions_and_orders: {e}", exc_info=True)
-            if not self._cleanup_called:
-                self.api_error_occurred.emit(str(e))
-        finally:
-            self._refresh_in_progress = False
+            logger.error(f"Fatal error in position fetch: {e}")
+            # Emit empty list on error
+            self.positions_updated.emit([])
+
+    def _request_position_token_subscription(self):
+        """Request market data subscription for all position tokens with enhanced parent finding."""
+        try:
+            if not self._positions:
+                logger.debug("No positions available for token subscription")
+                return
+
+            tokens = []
+            for symbol, position in self._positions.items():
+                # Get instrument token from SimplePosition
+                token = None
+
+                if hasattr(position, 'instrument_token') and position.instrument_token:
+                    token = position.instrument_token
+                elif hasattr(position, 'contract') and isinstance(position.contract, dict):
+                    token = position.contract.get('instrument_token')
+                elif symbol in self._instrument_map:
+                    instrument = self._instrument_map[symbol]
+                    token = instrument.get('instrument_token')
+
+                if token and token > 0:
+                    tokens.append(token)
+                    logger.debug(f"Added token {token} for {symbol}")
+
+            if tokens:
+                # Try multiple ways to get parent window
+                parent = None
+
+                # Method 1: Direct parent
+                if hasattr(self, 'parent') and callable(self.parent):
+                    parent = self.parent()
+
+                # Method 2: Check if we have a main window reference
+                if not parent and hasattr(self, '_main_window'):
+                    parent = self._main_window
+
+                # Method 3: Find main window through QApplication
+                if not parent:
+                    try:
+                        from PySide6.QtWidgets import QApplication
+                        app = QApplication.instance()
+                        if app:
+                            # Find main window
+                            for widget in app.topLevelWidgets():
+                                if hasattr(widget, '_subscribe_to_tokens'):
+                                    parent = widget
+                                    break
+                    except Exception as e:
+                        logger.debug(f"Could not find main window via QApplication: {e}")
+
+                if parent and hasattr(parent, '_subscribe_to_tokens'):
+                    parent._subscribe_to_tokens(tokens)
+                    logger.info(f"✅ Requested market data subscription for {len(tokens)} position tokens")
+
+                    # Also manually trigger watchlist update to include position tokens
+                    if hasattr(parent, '_on_watchlist_changed'):
+                        parent._on_watchlist_changed()
+                        logger.info("Triggered watchlist update to include position tokens")
+
+                else:
+                    logger.warning(f"Cannot request token subscription - parent not available or missing method")
+                    # Store tokens for later subscription
+                    self._pending_tokens = tokens
+                    logger.info(f"Stored {len(tokens)} tokens for later subscription")
+
+        except Exception as e:
+            logger.error(f"Error requesting position token subscription: {e}")
+
+    def set_main_window_reference(self, main_window):
+        """Set reference to main window for token subscription."""
+        self._main_window = main_window
+        logger.info("Main window reference set for position manager")
+
+        # Subscribe to any pending tokens
+        if hasattr(self, '_pending_tokens') and self._pending_tokens:
+            if hasattr(main_window, '_subscribe_to_tokens'):
+                main_window._subscribe_to_tokens(self._pending_tokens)
+                logger.info(f"Subscribed to {len(self._pending_tokens)} pending position tokens")
+                delattr(self, '_pending_tokens')
 
     def _fetch_positions_safely(self) -> Optional[List[Dict]]:
         """Safely fetch positions with retry logic."""
@@ -456,56 +667,70 @@ class PositionManager(QObject):
             logger.error(f"Error updating trade statistics: {e}")
 
     def update_pnl_from_market_data(self, ticks: List[Dict]):
-        """Enhanced market data processing with price caching for stocks."""
+        """Enhanced P&L update with debugging and better error handling."""
         try:
-            if not ticks:
+            if not ticks or not self._positions:
                 return
 
-            ticks_by_token = {tick['instrument_token']: tick for tick in ticks}
-            updated_positions = []
-            total_pnl_change = 0.0
+            updated_count = 0
 
-            with QMutexLocker(self._mutex):
-                for position in self._positions.values():
-                    if not position.contract or position.contract.instrument_token not in ticks_by_token:
+            for tick in ticks:
+                try:
+                    symbol = tick.get('tradingsymbol', '')
+                    ltp = tick.get('last_price', 0.0)
+
+                    if not symbol or ltp <= 0:
                         continue
 
-                    tick = ticks_by_token[position.contract.instrument_token]
-                    new_ltp = tick.get('last_price')
+                    # Check if we have a position for this symbol
+                    if symbol in self._positions:
+                        position = self._positions[symbol]
+                        old_ltp = getattr(position, 'ltp', 0.0)
+                        old_pnl = getattr(position, 'pnl', 0.0)
 
-                    if new_ltp is not None and abs(position.ltp - new_ltp) > 1e-9:
-                        old_pnl = position.pnl
+                        # Update LTP
+                        position.ltp = ltp
 
-                        # Update position
-                        position.ltp = new_ltp
-                        position.pnl = (new_ltp - position.average_price) * position.quantity
+                        # Add timestamp for debugging
+                        setattr(position, '_last_ltp_update', datetime.now().strftime('%H:%M:%S'))
 
-                        # Track P&L changes
-                        pnl_change = position.pnl - old_pnl
-                        total_pnl_change += pnl_change
+                        # Recalculate P&L
+                        if position.quantity != 0 and position.average_price > 0:
+                            if position.quantity > 0:  # Long position
+                                new_pnl = (ltp - position.average_price) * abs(position.quantity)
+                            else:  # Short position
+                                new_pnl = (position.average_price - ltp) * abs(position.quantity)
 
-                        updated_positions.append(position)
+                            # Update P&L fields
+                            position.pnl = new_pnl
 
-                        # Cache price data
-                        self._price_cache[position.tradingsymbol] = {
-                            'ltp': new_ltp,
-                            'timestamp': datetime.now(),
-                            'change': tick.get('change', 0),
-                            'change_percent': tick.get('change_percent', 0)
-                        }
+                            if hasattr(position, 'unrealised'):
+                                position.unrealised = new_pnl
 
-            if updated_positions:
-                # Update unrealized P&L metrics
-                self._update_pnl_metrics()
+                            # Log significant changes
+                            if abs(new_pnl - old_pnl) > 0.1:  # P&L change > 10 paise
+                                logger.info(
+                                    f"🔄 {symbol}: LTP {old_ltp:.2f} → {ltp:.2f}, P&L {old_pnl:.2f} → {new_pnl:.2f}")
+                                updated_count += 1
 
-                # Emit updated positions only if not cleaning up
-                if not self._cleanup_called:
-                    self.positions_updated.emit(self.get_all_positions())
+                except Exception as tick_error:
+                    logger.error(f"Error processing tick for {symbol}: {tick_error}")
+                    continue
 
-                logger.debug(f"Updated {len(updated_positions)} positions, total P&L change: ₹{total_pnl_change:,.2f}")
+            # Emit updates if any positions were updated
+            if updated_count > 0:
+                all_positions = list(self._positions.values())
+                self.positions_updated.emit(all_positions)
+
+                # Calculate total P&L
+                total_unrealized = sum(getattr(pos, 'pnl', 0.0) for pos in self._positions.values())
+                total_realized = sum(getattr(pos, 'realised', 0.0) for pos in self._positions.values())
+
+                self.pnl_updated.emit(total_unrealized, total_realized)
+                logger.debug(f"Updated P&L for {updated_count} positions")
 
         except Exception as e:
-            logger.error(f"Error updating P&L from market data: {e}", exc_info=True)
+            logger.error(f"Error updating P&L from market data: {e}")
 
     def _update_pnl_metrics(self):
         """Update P&L tracking metrics."""
@@ -629,9 +854,24 @@ class PositionManager(QObject):
     # === PUBLIC API METHODS ===
 
     def get_all_positions(self) -> List[Position]:
-        """Get all current positions with thread safety."""
-        with QMutexLocker(self._mutex):
-            return list(self._positions.values())
+        """
+        Get all positions as a list.
+
+        Returns:
+            List of Position objects
+        """
+        try:
+            # FIXED: Handle both dict and list structures
+            if isinstance(self._positions, dict):
+                return list(self._positions.values())
+            elif isinstance(self._positions, list):
+                return self._positions
+            else:
+                logger.warning(f"Unexpected positions data type: {type(self._positions)}")
+                return []
+        except Exception as e:
+            logger.error(f"Error getting all positions: {e}")
+            return []
 
     def get_pending_orders(self) -> List[Dict]:
         """Get all pending orders."""
@@ -647,9 +887,29 @@ class PositionManager(QObject):
         return self.realized_day_pnl
 
     def get_position_by_symbol(self, symbol: str) -> Optional[Position]:
-        """Get position by symbol."""
-        with QMutexLocker(self._mutex):
-            return self._positions.get(symbol)
+        """
+        Get position by symbol with proper data structure handling.
+
+        Args:
+            symbol: Trading symbol
+
+        Returns:
+            Position object or None
+        """
+        try:
+            if isinstance(self._positions, dict):
+                return self._positions.get(symbol)
+            elif isinstance(self._positions, list):
+                # Search in list
+                for position in self._positions:
+                    if hasattr(position, 'tradingsymbol') and position.tradingsymbol == symbol:
+                        return position
+                return None
+            else:
+                return None
+        except Exception as e:
+            logger.error(f"Error getting position for {symbol}: {e}")
+            return None
 
     def has_position(self, symbol: str) -> bool:
         """Check if position exists for symbol."""
@@ -809,6 +1069,177 @@ class PositionManager(QObject):
             except Exception as e:
                 logger.debug(f"Error stopping {timer_attr}: {e}")
 
+    def _force_position_token_subscription(self):
+        """Force subscription to position tokens with multiple fallback methods."""
+        try:
+            tokens = []
+            for symbol, position in self._positions.items():
+                token = None
+
+                # Get token from position
+                if hasattr(position, 'instrument_token') and position.instrument_token:
+                    token = position.instrument_token
+                # Get token from instrument map
+                elif symbol in self._instrument_map:
+                    token = self._instrument_map[symbol].get('instrument_token')
+
+                if token and token > 0:
+                    tokens.append(token)
+
+            if not tokens:
+                logger.warning("No valid tokens found for position subscription")
+                return
+
+            logger.info(f"Force subscribing to {len(tokens)} position tokens")
+
+            # Method 1: Direct main window reference
+            if hasattr(self, '_main_window') and self._main_window:
+                if hasattr(self._main_window, '_subscribe_to_tokens'):
+                    self._main_window._subscribe_to_tokens(tokens)
+                    logger.info("✅ Subscribed via main window reference")
+                    return
+
+            # Method 2: Parent method
+            parent = self.parent()
+            if parent and hasattr(parent, '_subscribe_to_tokens'):
+                parent._subscribe_to_tokens(tokens)
+                logger.info("✅ Subscribed via parent")
+                return
+
+            # Method 3: Find main window and force subscription update
+            try:
+                from PySide6.QtWidgets import QApplication
+                app = QApplication.instance()
+                if app:
+                    for widget in app.topLevelWidgets():
+                        if hasattr(widget, '_subscribe_to_tokens'):
+                            widget._subscribe_to_tokens(tokens)
+                            # Also trigger watchlist update
+                            if hasattr(widget, '_on_watchlist_changed'):
+                                widget._on_watchlist_changed()
+                            logger.info("✅ Subscribed via QApplication search")
+                            return
+            except Exception as e:
+                logger.debug(f"QApplication method failed: {e}")
+
+            logger.warning("❌ All subscription methods failed")
+
+        except Exception as e:
+            logger.error(f"Error in force position token subscription: {e}")
+
+    def debug_kite_positions_format(self):
+        """Debug method to inspect the format of Kite positions response."""
+        try:
+            if not self.trader:
+                return {"error": "No trader available"}
+
+            positions = self.trader.positions()
+
+            debug_info = {
+                "total_positions": len(positions),
+                "position_types": [type(pos).__name__ for pos in positions[:3]],  # First 3
+                "sample_positions": []
+            }
+
+            for i, pos in enumerate(positions[:2]):  # Sample first 2 positions
+                if isinstance(pos, dict):
+                    debug_info["sample_positions"].append({
+                        "index": i,
+                        "type": "dict",
+                        "keys": list(pos.keys()),
+                        "tradingsymbol": pos.get('tradingsymbol', 'N/A'),
+                        "quantity": pos.get('quantity', 'N/A')
+                    })
+                else:
+                    debug_info["sample_positions"].append({
+                        "index": i,
+                        "type": type(pos).__name__,
+                        "content": str(pos)[:200],  # First 200 chars
+                        "length": len(str(pos)) if hasattr(pos, '__len__') else 'N/A'
+                    })
+
+            logger.info(f"Kite positions debug: {debug_info}")
+            return debug_info
+
+        except Exception as e:
+            error_info = {"error": str(e)}
+            logger.error(f"Error debugging Kite positions format: {e}")
+            return error_info
+
+    def fetch_positions_with_debug(self, force_api_call: bool = True):
+        """Enhanced position fetch with detailed debugging."""
+        try:
+            logger.info("=== POSITION FETCH DEBUG START ===")
+
+            # First, debug the Kite API response format
+            debug_info = self.debug_kite_positions_format()
+            logger.info(f"Kite API Debug Info: {debug_info}")
+
+            # Then proceed with normal fetch
+            self.fetch_positions_and_orders(force_api_call)
+
+            logger.info("=== POSITION FETCH DEBUG END ===")
+
+        except Exception as e:
+            logger.error(f"Error in debug position fetch: {e}")
+
+    # 5. Add method to manually trigger position refresh with debug
+    def force_position_refresh_with_debug(main_window):
+        """Force position refresh with debugging - call this method to test."""
+        try:
+            if hasattr(main_window, 'position_manager'):
+                logger.info("Manually triggering position refresh with debug...")
+                main_window.position_manager.fetch_positions_with_debug(force_api_call=True)
+            else:
+                logger.error("Position manager not available")
+        except Exception as e:
+            logger.error(f"Error in manual position refresh: {e}")
+
+    def get_positions_safely(self):
+        """Safely get positions from trader, handling various return formats."""
+        try:
+            if not self.trader:
+                return []
+
+            # Get raw positions
+            raw_positions = self.trader.positions()
+
+            if not raw_positions:
+                return []
+
+            # Process based on type
+            processed_positions = []
+
+            for pos in raw_positions:
+                if isinstance(pos, dict):
+                    # Already a dictionary
+                    processed_positions.append(pos)
+                elif isinstance(pos, str):
+                    # Try to parse as JSON
+                    try:
+                        parsed_pos = json.loads(pos)
+                        if isinstance(parsed_pos, dict):
+                            processed_positions.append(parsed_pos)
+                        else:
+                            logger.warning(f"Parsed position is not a dict: {type(parsed_pos)}")
+                    except json.JSONDecodeError as e:
+                        logger.error(f"Could not parse position string as JSON: {e}")
+                        logger.debug(f"Raw position string: {pos}")
+                else:
+                    # Try to convert to dict if it has attributes
+                    if hasattr(pos, '__dict__'):
+                        processed_positions.append(pos.__dict__)
+                    else:
+                        logger.warning(f"Unknown position type: {type(pos)} - {pos}")
+
+            logger.info(
+                f"Converted {len(raw_positions)} raw positions to {len(processed_positions)} processed positions")
+            return processed_positions
+
+        except Exception as e:
+            logger.error(f"Error getting positions safely: {e}")
+            return []
+
     def force_refresh(self):
         """Force an immediate refresh of positions and orders."""
         if not self._refresh_in_progress and not self._cleanup_called and self._timers_active:
@@ -820,3 +1251,430 @@ class PositionManager(QObject):
             self.cleanup()
         except:
             pass  # Ignore errors during destruction
+
+    def fetch_positions_and_orders_safe(self, force_api_call: bool = True):
+        """Ultra-safe position fetching with multiple fallbacks."""
+        try:
+            if not self.trader:
+                logger.warning("No trader instance available for fetching positions")
+                return
+
+            logger.info(f"Fetching positions and orders safely (force_api={force_api_call})")
+
+            # For paper trading
+            if isinstance(self.trader, PaperTradingManager):
+                positions = self.trader.get_positions()
+                orders = self.trader.get_orders()
+            else:
+                # For live trading - use safe position retrieval
+                try:
+                    positions = self.get_positions_safely()
+                    orders = self.trader.orders()
+                    logger.info(f"Safely fetched {len(positions)} positions and {len(orders)} orders from Kite API")
+
+                except Exception as api_error:
+                    logger.error(f"API call failed: {api_error}")
+                    return
+
+            # Process positions into dictionary structure
+            processed_positions = {}  # Dict[str, Position]
+
+            for i, pos_data in enumerate(positions):
+                try:
+                    # pos_data should now be a dictionary
+                    if not isinstance(pos_data, dict):
+                        logger.error(f"Position {i} is still not a dict after safe processing: {type(pos_data)}")
+                        continue
+
+                    position = self._create_position_from_data(pos_data)
+                    if position and position.quantity != 0:  # Only non-zero positions
+                        processed_positions[position.tradingsymbol] = position
+                        logger.info(
+                            f"✓ Processed position: {position.tradingsymbol} qty={position.quantity} pnl={position.pnl:.2f}")
+
+                except Exception as pos_error:
+                    logger.error(f"Error processing position {i}: {pos_error}")
+                    continue
+
+            # Update positions dictionary
+            self._positions = processed_positions
+            self._orders = orders or []
+
+            # Request market data subscription for position tokens
+            self._request_position_token_subscription()
+
+            # Convert to list for signal emission (backward compatibility)
+            positions_list = list(processed_positions.values())
+
+            # Emit positions updated signal
+            self.positions_updated.emit(positions_list)
+
+            if processed_positions:
+                logger.info(f"🎉 Successfully processed {len(processed_positions)} positions!")
+                for symbol, pos in processed_positions.items():
+                    logger.info(f"  - {symbol}: {pos.quantity} @ ₹{pos.average_price:.2f} (P&L: ₹{pos.pnl:.2f})")
+            else:
+                logger.warning("No positions were successfully processed")
+
+        except Exception as e:
+            logger.error(f"Error in safe position fetch: {e}")
+            # Emit empty list on error
+            self.positions_updated.emit([])
+
+    def debug_kite_api_response(self):
+        """Debug method to inspect what Kite API actually returns."""
+        try:
+            logger.info("=== KITE API DEBUG START ===")
+
+            if not self.trader:
+                logger.error("No trader available for debugging")
+                return
+
+            # Test positions() call
+            try:
+                raw_positions = self.trader.positions()
+                logger.info(f"Positions response type: {type(raw_positions)}")
+                logger.info(
+                    f"Positions response length: {len(raw_positions) if hasattr(raw_positions, '__len__') else 'N/A'}")
+
+                if raw_positions and len(raw_positions) > 0:
+                    first_pos = raw_positions[0]
+                    logger.info(f"First position type: {type(first_pos)}")
+
+                    if isinstance(first_pos, dict):
+                        logger.info(f"First position keys: {list(first_pos.keys())}")
+                        logger.info(
+                            f"Sample values: tradingsymbol={first_pos.get('tradingsymbol')}, quantity={first_pos.get('quantity')}")
+                    else:
+                        logger.info(f"First position content: {str(first_pos)[:200]}")
+
+            except Exception as pos_error:
+                logger.error(f"Error calling trader.positions(): {pos_error}")
+
+            # Test orders() call
+            try:
+                raw_orders = self.trader.orders()
+                logger.info(f"Orders response type: {type(raw_orders)}")
+                logger.info(f"Orders response length: {len(raw_orders) if hasattr(raw_orders, '__len__') else 'N/A'}")
+            except Exception as ord_error:
+                logger.error(f"Error calling trader.orders(): {ord_error}")
+
+            logger.info("=== KITE API DEBUG END ===")
+
+        except Exception as e:
+            logger.error(f"Error in Kite API debug: {e}")
+
+    def _create_position_from_data(self, pos_data: Dict[str, Any]) -> Optional[SimplePosition]:
+        """Create SimplePosition with all required fields."""
+        try:
+            symbol = pos_data.get('tradingsymbol', '').strip()
+            if not symbol:
+                return None
+
+            quantity = int(float(pos_data.get('quantity', 0) or 0))
+            if quantity == 0:
+                return None
+
+            # Extract P&L values
+            pnl = float(pos_data.get('pnl', 0) or 0)
+            unrealised = float(pos_data.get('unrealised', pnl) or 0)
+            realised = float(pos_data.get('realised', 0) or 0)
+
+            # Create complete position with all required fields
+            position = SimplePosition(
+                tradingsymbol=symbol,
+                exchange=pos_data.get('exchange', 'NSE'),
+                quantity=quantity,
+                pnl=pnl,
+                instrument_token=int(float(pos_data.get('instrument_token', 0) or 0)),
+                product=pos_data.get('product', 'CNC'),
+                average_price=float(pos_data.get('average_price', 0) or 0),
+                last_price=float(pos_data.get('last_price', 0) or 0),
+                # CRITICAL: Set the missing attributes
+                realised=realised,
+                unrealised=unrealised,
+                contract={
+                    'instrument_token': int(float(pos_data.get('instrument_token', 0) or 0)),
+                    'tradingsymbol': symbol,
+                    'exchange': pos_data.get('exchange', 'NSE')
+                }
+            )
+
+            logger.info(f"✓ Created complete position: {symbol} qty={quantity}")
+            return position
+
+        except Exception as e:
+            logger.error(f"Error creating position: {e}")
+            return None
+
+    # 6. Test method to manually trigger position fetch with debugging
+    def test_position_fetch(main_window):
+        """Test method to manually fetch positions with full debugging."""
+        try:
+            if hasattr(main_window, 'position_manager'):
+                pm = main_window.position_manager
+
+                logger.info("🧪 MANUAL POSITION FETCH TEST START")
+
+                # Debug API response first
+                pm.debug_kite_api_response()
+
+                # Then try to fetch positions
+                pm.fetch_positions_and_orders(force_api_call=True)
+
+                logger.info("🧪 MANUAL POSITION FETCH TEST END")
+            else:
+                logger.error("Position manager not available")
+        except Exception as e:
+            logger.error(f"Error in test position fetch: {e}")
+
+    def fetch_positions_with_error_handling(self, force_api_call: bool = True):
+        """Position fetch with comprehensive error handling for API issues."""
+        try:
+            if not self.trader:
+                logger.warning("No trader instance available")
+                return
+
+            logger.info("Fetching positions with enhanced error handling...")
+
+            positions = []
+            orders = []
+
+            # Try to get positions with detailed error handling
+            try:
+                positions_response = self.trader.positions()
+                if positions_response is None:
+                    logger.warning("Positions API returned None")
+                    positions = []
+                elif isinstance(positions_response, list):
+                    positions = positions_response
+                    logger.info(f"✓ Got {len(positions)} positions from API")
+                else:
+                    logger.error(f"Unexpected positions response type: {type(positions_response)}")
+                    positions = []
+            except Exception as pos_error:
+                logger.error(f"Failed to fetch positions: {pos_error}")
+                positions = []
+
+            # Try to get orders with detailed error handling
+            try:
+                orders_response = self.trader.orders()
+                if orders_response is None:
+                    logger.warning("Orders API returned None")
+                    orders = []
+                elif isinstance(orders_response, list):
+                    orders = orders_response
+                    logger.info(f"✓ Got {len(orders)} orders from API")
+                else:
+                    logger.error(f"Unexpected orders response type: {type(orders_response)}")
+                    orders = []
+            except Exception as ord_error:
+                logger.error(f"Failed to fetch orders: {ord_error}")
+                orders = []
+
+            # Process positions even if we got some errors
+            processed_positions = {}
+
+            for i, pos_data in enumerate(positions):
+                try:
+                    if isinstance(pos_data, dict):
+                        position = self._create_position_from_data(pos_data)
+                        if position and position.quantity != 0:
+                            processed_positions[position.tradingsymbol] = position
+                            logger.info(
+                                f"✅ {position.tradingsymbol}: {position.quantity} @ ₹{position.average_price:.2f}")
+                    else:
+                        logger.warning(f"Position {i} is not a dict: {type(pos_data)}")
+                except Exception as e:
+                    logger.error(f"Error processing position {i}: {e}")
+
+            # Update internal state
+            self._positions = processed_positions
+            self._orders = orders
+
+            # Emit signal
+            positions_list = list(processed_positions.values())
+            self.positions_updated.emit(positions_list)
+
+            logger.info(f"Position fetch complete: {len(processed_positions)} positions processed")
+
+        except Exception as e:
+            logger.error(f"Critical error in position fetch: {e}")
+            self.positions_updated.emit([])
+
+    def debug_kite_positions_structure(self):
+        """Debug method to see the exact structure of Kite positions response."""
+        try:
+            logger.info("=== KITE POSITIONS STRUCTURE DEBUG ===")
+
+            if not self.trader:
+                logger.error("No trader available")
+                return
+
+            # Get raw positions response
+            raw_response = self.trader.positions()
+            logger.info(f"Raw response type: {type(raw_response)}")
+
+            if isinstance(raw_response, dict):
+                logger.info(f"Dict keys: {list(raw_response.keys())}")
+
+                for key, value in raw_response.items():
+                    logger.info(
+                        f"Key '{key}': type={type(value)}, length={len(value) if hasattr(value, '__len__') else 'N/A'}")
+
+                    if isinstance(value, list) and value:
+                        first_item = value[0]
+                        logger.info(f"  First item in '{key}': type={type(first_item)}")
+
+                        if isinstance(first_item, dict):
+                            logger.info(f"  Sample keys in '{key}': {list(first_item.keys())[:10]}")  # First 10 keys
+                            logger.info(f"  Sample symbol: {first_item.get('tradingsymbol', 'N/A')}")
+                            logger.info(f"  Sample quantity: {first_item.get('quantity', 'N/A')}")
+
+            elif isinstance(raw_response, list):
+                logger.info(f"List length: {len(raw_response)}")
+                if raw_response:
+                    first_pos = raw_response[0]
+                    logger.info(f"First position type: {type(first_pos)}")
+                    if isinstance(first_pos, dict):
+                        logger.info(f"First position keys: {list(first_pos.keys())[:10]}")
+
+            logger.info("=== DEBUG END ===")
+
+        except Exception as e:
+            logger.error(f"Error in debug: {e}")
+
+    def test_positions_debug(main_window):
+        """Test method to debug positions - call this manually."""
+        try:
+            if hasattr(main_window, 'position_manager'):
+                pm = main_window.position_manager
+
+                logger.info("🧪 MANUAL POSITIONS DEBUG TEST")
+
+                # First debug the structure
+                pm.debug_kite_positions_structure()
+
+                # Then try to fetch
+                pm.fetch_positions_and_orders(force_api_call=True)
+
+                logger.info("🧪 DEBUG TEST COMPLETE")
+            else:
+                logger.error("Position manager not available")
+        except Exception as e:
+            logger.error(f"Error in positions debug test: {e}")
+
+    # Alternative simplified method if the main Position class has issues
+    def fetch_positions_simple(self, force_api_call: bool = True):
+        """Simplified position fetch focusing on core functionality."""
+        try:
+            logger.info("Fetching positions with simplified approach...")
+
+            # Get raw response
+            raw_response = self.trader.positions()
+
+            # Handle dict response
+            if isinstance(raw_response, dict):
+                positions = raw_response.get('net', [])
+                logger.info(f"Extracted {len(positions)} net positions from dict response")
+            else:
+                positions = raw_response
+                logger.info(f"Using direct response: {len(positions)} positions")
+
+            # Simple processing - just log what we find
+            valid_positions = []
+            for i, pos in enumerate(positions):
+                if isinstance(pos, dict):
+                    symbol = pos.get('tradingsymbol', f'Unknown_{i}')
+                    quantity = pos.get('quantity', 0)
+                    pnl = pos.get('pnl', 0)
+
+                    if quantity != 0:
+                        valid_positions.append({
+                            'tradingsymbol': symbol,
+                            'quantity': quantity,
+                            'pnl': pnl,
+                            'average_price': pos.get('average_price', 0),
+                            'product': pos.get('product', 'CNC')
+                        })
+                        logger.info(f"Found position: {symbol} qty={quantity} pnl=₹{pnl}")
+
+            logger.info(f"Summary: {len(valid_positions)} valid positions found")
+            return valid_positions
+
+        except Exception as e:
+            logger.error(f"Error in simple position fetch: {e}")
+            return []
+
+    def patch_simple_positions(self):
+        """Add missing attributes to existing SimplePosition objects."""
+        try:
+            for symbol, position in self._positions.items():
+                if isinstance(position, SimplePosition):
+                    # Add missing attributes if they don't exist
+                    if not hasattr(position, 'realised'):
+                        position.realised = 0.0
+                    if not hasattr(position, 'unrealised'):
+                        position.unrealised = position.pnl
+
+                    logger.debug(f"Patched position {symbol} with missing attributes")
+        except Exception as e:
+            logger.error(f"Error patching positions: {e}")
+
+    def add_missing_attributes_to_position(position):
+        """Add missing attributes to a position object dynamically."""
+        try:
+            # Required attributes for P&L updates
+            required_attrs = {
+                'realised': 0.0,
+                'unrealised': getattr(position, 'pnl', 0.0)
+            }
+
+            for attr, default_value in required_attrs.items():
+                if not hasattr(position, attr):
+                    setattr(position, attr, default_value)
+
+            return position
+        except Exception as e:
+            logger.error(f"Error adding missing attributes: {e}")
+            return position
+
+    def debug_position_market_data_status(self):
+        """Debug method to check if positions are getting market data."""
+        try:
+            logger.info("=== POSITION MARKET DATA DEBUG ===")
+
+            for symbol, position in self._positions.items():
+                token = getattr(position, 'instrument_token', 0)
+                ltp = getattr(position, 'ltp', 0)
+                last_update = getattr(position, '_last_ltp_update', 'Never')
+
+                logger.info(f"Position: {symbol}")
+                logger.info(f"  Token: {token}")
+                logger.info(f"  Current LTP: {ltp}")
+                logger.info(f"  Last Update: {last_update}")
+
+            # Check if main window has these tokens subscribed
+            try:
+                if hasattr(self, '_main_window') and self._main_window:
+                    if hasattr(self._main_window, 'market_data_worker'):
+                        worker_info = self._main_window.market_data_worker.get_subscription_info()
+                        subscribed_tokens = worker_info.get('subscribed_tokens', [])
+
+                        for symbol, position in self._positions.items():
+                            token = getattr(position, 'instrument_token', 0)
+                            is_subscribed = token in subscribed_tokens
+                            logger.info(f"Token {token} ({symbol}) subscribed: {is_subscribed}")
+
+            except Exception as e:
+                logger.error(f"Error checking subscription status: {e}")
+
+            logger.info("=== DEBUG END ===")
+
+        except Exception as e:
+            logger.error(f"Error in market data debug: {e}")
+
+    # In position manager
+    def test_market_data_flow(self):
+        """Test if positions are receiving market data."""
+        self.debug_position_market_data_status()

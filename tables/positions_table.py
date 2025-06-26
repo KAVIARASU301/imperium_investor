@@ -534,15 +534,43 @@ P&L%: {pnl_percent:+.2f}%"""
     # === UTILITY METHODS ===
 
     def get_all_tokens(self) -> List[int]:
-        """Get all instrument tokens for market data subscription."""
+        """Enhanced token retrieval for position subscriptions."""
         try:
-            return [
-                pos.contract.instrument_token
-                for pos in self._positions_cache.values()
-                if pos.contract and pos.contract.instrument_token
-            ]
+            tokens = []
+            for pos in self._positions_cache.values():
+                token = None
+
+                # Method 1: Direct instrument token
+                if hasattr(pos, 'instrument_token') and pos.instrument_token:
+                    token = pos.instrument_token
+
+                # Method 2: Contract token
+                elif hasattr(pos, 'contract'):
+                    if isinstance(pos.contract, dict):
+                        token = pos.contract.get('instrument_token')
+                    elif hasattr(pos.contract, 'instrument_token'):
+                        token = pos.contract.instrument_token
+
+                # Method 3: Lookup from parent's instrument map
+                if not token and hasattr(pos, 'tradingsymbol'):
+                    main_window = self.parent()
+                    while main_window and not hasattr(main_window, 'instrument_map'):
+                        main_window = main_window.parent()
+
+                    if main_window and hasattr(main_window, 'instrument_map'):
+                        instrument_map = main_window.instrument_map
+                        if pos.tradingsymbol in instrument_map:
+                            instrument = instrument_map[pos.tradingsymbol]
+                            token = instrument.get('instrument_token')
+
+                if token and token > 0:
+                    tokens.append(token)
+                    logger.debug(f"Position token: {pos.tradingsymbol} -> {token}")
+
+            logger.info(f"Positions table returning {len(tokens)} tokens for subscription")
+            return tokens
         except Exception as e:
-            logger.error(f"Error getting tokens: {e}")
+            logger.error(f"Error getting position tokens: {e}")
             return []
 
     def get_position_by_symbol(self, symbol: str) -> Optional[Position]:

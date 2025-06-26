@@ -42,6 +42,11 @@ class OrderStatusDialog(QWidget):
 
     def __init__(self, order_data: Dict[str, Any], parent=None):
         super().__init__(parent)
+        self.order_id = order_data.get('order_id')
+        self.parent_window = parent
+        self._last_status = None
+        self._is_closed = False
+        self._status_sources = set()
 
         # Core data
         self.order_data = order_data.copy()
@@ -413,7 +418,6 @@ class OrderStatusDialog(QWidget):
                 font-size: 10px;
                 padding: 4px 8px;
                 border-radius: 8px;
-                text-transform: uppercase;
             }}
         """)
 
@@ -448,43 +452,65 @@ class OrderStatusDialog(QWidget):
         self.cancel_requested.emit(self.order_id)
 
     def _close_dialog(self):
-        """Close dialog with animation."""
-        if self.is_closing:
-            return
+        """Close dialog and mark as closed."""
+        self._is_closed = True
+        self.close()
 
-        self.is_closing = True
-        self.update_timer.stop()
-        if self.pulse_animation:
-            self.pulse_animation.stop()
-
-        # Slide down animation
-        self.close_animation = QPropertyAnimation(self, b"pos")
-        self.close_animation.setDuration(300)
-        self.close_animation.setStartValue(self.pos())
-        end_pos = QPoint(self.pos().x(), self.pos().y() + self.height())
-        self.close_animation.setEndValue(end_pos)
-        self.close_animation.setEasingCurve(QEasingCurve.Type.InCubic)
-
-        # Fade out animation
-        self.fade_out_animation = QPropertyAnimation(self, b"windowOpacity")
-        self.fade_out_animation.setDuration(300)
-        self.fade_out_animation.setStartValue(1.0)
-        self.fade_out_animation.setEndValue(0.0)
-
-        # Close after animation
-        self.close_group = QParallelAnimationGroup()
-        self.close_group.addAnimation(self.close_animation)
-        self.close_group.addAnimation(self.fade_out_animation)
-        self.close_group.finished.connect(self.close)
-        self.close_group.start()
 
     def _auto_close(self):
         """Auto-close dialog for completed orders."""
         self._close_dialog()
 
     def update_from_external(self, order_data: Dict[str, Any]):
-        """Update dialog from external order status updates."""
-        self._update_order_data(order_data)
+        """Handle external order updates with duplicate prevention."""
+        if self._is_closed:
+            return
+
+        try:
+            new_status = order_data.get('status', '').upper()
+            source = order_data.get('update_source', 'unknown')
+
+            # Prevent duplicate status updates from same source
+            status_key = f"{new_status}_{source}"
+            if status_key in self._status_sources:
+                logger.debug(f"Ignoring duplicate status update: {status_key}")
+                return
+
+            self._status_sources.add(status_key)
+
+            # Only process if status actually changed
+            if new_status != self._last_status:
+                self._last_status = new_status
+
+                logger.info(f"Order {self.order_id} status changed: {self._last_status} -> {new_status}")
+
+                # Update UI
+                self._update_status_display(order_data)
+
+                # Handle completion
+                if new_status == 'COMPLETE':
+                    self._handle_completion(order_data)
+
+        except Exception as e:
+            logger.error(f"Error updating order status dialog: {e}")
+
+    def _handle_completion(self, order_data: Dict[str, Any]):
+        """Handle order completion with single notification."""
+        try:
+            if self._is_closed:
+                return
+
+            logger.info(f"Order {self.order_id} completed successfully")
+
+            # Notify parent window ONCE
+            if hasattr(self.parent_window, '_on_order_completed'):
+                self.parent_window._on_order_completed(order_data)
+
+            # Auto-close dialog after a delay
+            QTimer.singleShot(3000, self._close_dialog)
+
+        except Exception as e:
+            logger.error(f"Error handling order completion: {e}")
 
     def _apply_advanced_styles(self):
         """Apply modern, advanced styling to the dialog."""
@@ -514,7 +540,6 @@ class OrderStatusDialog(QWidget):
                 font-size: 10px;
                 padding: 4px 8px;
                 border-radius: 8px;
-                text-transform: uppercase;
             }
 
             /* Close Button */
@@ -575,7 +600,6 @@ class OrderStatusDialog(QWidget):
                 padding: 8px 16px;
                 font-size: 11px;
                 border: none;
-                text-transform: uppercase;
                 letter-spacing: 0.5px;
             }
 
@@ -585,7 +609,6 @@ class OrderStatusDialog(QWidget):
             }
             #modifyButton:hover {
                 background-color: #5a5a7a;
-                transform: translateY(-1px);
             }
 
             #cancelButton {
@@ -594,7 +617,6 @@ class OrderStatusDialog(QWidget):
             }
             #cancelButton:hover {
                 background-color: #e17055;
-                transform: translateY(-1px);
             }
 
             /* Status Indicator Dot */

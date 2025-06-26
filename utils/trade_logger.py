@@ -2,9 +2,12 @@
 import sqlite3
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 from typing import List, Dict, Optional, Union, Any
 import json
+import threading
+import time
+
 
 logger = logging.getLogger(__name__)
 
@@ -41,11 +44,38 @@ class TradeLogger:
         logger.info(f"Trade history database for '{mode}' mode at: {self.db_path}")
         self._create_tables()
 
+        self._connection_lock = threading.RLock()  # Add thread safety
+        self._setup_database_optimizations()
+
+    def _setup_database_optimizations(self):
+        """Setup database for better concurrency."""
+        try:
+            with self._get_connection() as conn:
+                # Enable WAL mode for better concurrency
+                conn.execute("PRAGMA journal_mode = WAL")
+                conn.execute("PRAGMA synchronous = NORMAL")
+                conn.execute("PRAGMA cache_size = 10000")
+                conn.execute("PRAGMA temp_store = MEMORY")
+                conn.execute("PRAGMA mmap_size = 268435456")  # 256MB
+                conn.commit()
+                logger.info("Database optimizations applied")
+        except Exception as e:
+            logger.error(f"Failed to apply database optimizations: {e}")
+
     def _get_connection(self):
-        """Creates and returns a database connection with foreign keys enabled."""
-        conn = sqlite3.connect(self.db_path)
-        conn.execute("PRAGMA foreign_keys = ON")
-        return conn
+        """Get database connection with proper locking and timeout."""
+        try:
+            conn = sqlite3.connect(
+                self.db_path,
+                timeout=30.0,  # Increased timeout
+                check_same_thread=False  # Allow multi-threading
+            )
+            conn.execute("PRAGMA foreign_keys = ON")
+            conn.execute("PRAGMA busy_timeout = 10000")  # 10 second busy timeout
+            return conn
+        except sqlite3.Error as e:
+            logger.error(f"Database connection error: {e}")
+            raise
 
     def _create_tables(self):
         """Creates all required tables for comprehensive trade logging."""
@@ -267,20 +297,49 @@ class TradeLogger:
             logger.error(f"Failed to log order placement for {order_id}: {e}")
 
     def log_order_update(self, order_data: Dict):
-        """
-        Log order status updates (execution, cancellation, etc.).
-
-        Args:
-            order_data: Complete order data with current status
-        """
+        """Thread-safe order update logging with retry logic."""
         order_id = order_data.get('order_id')
         if not order_id:
             logger.warning("Cannot log order update - missing order_id")
             return
 
+        # Add update source to prevent duplicate processing
+        order_data['update_source'] = order_data.get('update_source', 'main_window')
+
+        max_retries = 5
+        base_delay = 0.1
+
+        for attempt in range(max_retries):
+            try:
+                with self._connection_lock:  # Thread safety
+                    self._perform_order_update(order_data)
+                    return  # Success, exit retry loop
+
+            except sqlite3.OperationalError as e:
+                if "database is locked" in str(e).lower() and attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)  # Exponential backoff
+                    logger.warning(f"Database locked, retrying in {delay:.2f}s (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(delay)
+                    continue
+                else:
+                    logger.error(f"Failed to update order {order_id} after {attempt + 1} attempts: {e}")
+                    break
+            except Exception as e:
+                logger.error(f"Unexpected error updating order {order_id}: {e}")
+                break
+
+    def _perform_order_update(self, order_data: Dict):
+        """Perform the actual order update in database."""
+        order_id = order_data.get('order_id')
+
         # Get current status from database
         old_status = self._get_order_status(order_id)
         new_status = order_data.get('status')
+
+        # Skip if no status change
+        if old_status == new_status:
+            logger.debug(f"No status change for order {order_id}, skipping update")
+            return
 
         # Update order record
         update_query = """
@@ -306,25 +365,20 @@ class TradeLogger:
             order_id
         )
 
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(update_query, params)
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(update_query, params)
 
-                # Log the status change
-                if old_status != new_status:
-                    self._log_order_update(order_id, old_status, new_status,
-                                           order_data.get('status_message', ''))
+            # Log the status change
+            self._log_order_update(order_id, old_status, new_status,
+                                   order_data.get('status_message', ''))
 
-                # If order is executed, log the trade
-                if new_status == 'COMPLETE' and order_data.get('filled_quantity', 0) > 0:
-                    self._log_trade_execution(order_data)
+            # If order is executed, log the trade
+            if new_status == 'COMPLETE' and order_data.get('filled_quantity', 0) > 0:
+                self._log_trade_execution(order_data)
 
-                conn.commit()
-                logger.info(f"Updated order {order_id}: {old_status} -> {new_status}")
-
-        except sqlite3.Error as e:
-            logger.error(f"Failed to update order {order_id}: {e}")
+            conn.commit()
+            logger.info(f"Updated order {order_id}: {old_status} -> {new_status}")
 
     def _log_order_update(self, order_id: str, old_status: Optional[str],
                           new_status: str, details: str = ""):

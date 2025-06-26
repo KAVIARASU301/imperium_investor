@@ -492,7 +492,7 @@ class AdvancedOrderManager(QObject):
             logger.error(f"Error monitoring orders: {e}")
 
     def _update_order_status(self, order_id: str, status_data: Dict[str, Any]):
-        """Update order status based on broker data."""
+        """Update order status with duplicate prevention."""
         if order_id not in self.active_orders:
             return
 
@@ -510,9 +510,13 @@ class AdvancedOrderManager(QObject):
 
         mapped_status = status_mapping.get(new_status, OrderStatus.OPEN)
 
+        # Only process if status actually changed
         if order.status != mapped_status:
             old_status = order.status
             order.status = mapped_status
+
+            # Mark update source
+            status_data['update_source'] = 'order_manager'
 
             if mapped_status == OrderStatus.COMPLETE:
                 order.executed_at = datetime.now()

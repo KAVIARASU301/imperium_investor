@@ -708,6 +708,11 @@ class CandlestickChart(QWidget):
         self.current_position_info: Optional[Dict] = None
         self.active_alerts: List[Dict] = []
 
+        # Add live update optimization flags
+        self._last_price_update_time = 0
+        self._price_update_throttle = 50  # ms between updates
+        self._force_next_update = False
+
         self._setup_ui()
         self._apply_styles()
         self._setup_keyboard_shortcuts()
@@ -890,6 +895,153 @@ class CandlestickChart(QWidget):
     def _on_timeframe_selected(self, index):
         interval = self.timeframe_dropdown.itemData(index)
         self._change_timeframe(interval)
+
+    def force_live_update(self):
+        """Force the next live update to bypass throttling"""
+        self._force_next_update = True
+
+    def _process_single_live_data_item(self, data_item: Dict[str, Any]):
+        """Process a single live data tick for chart updates - RELAXED VERSION"""
+        trading_symbol = data_item.get('tradingsymbol')
+        last_price = data_item.get('last_price')
+        instrument_token = data_item.get('instrument_token')
+
+        # Skip if no valid data
+        if last_price is None:
+            return
+
+        # Enhanced matching logic
+        symbol_matches = trading_symbol == self.current_symbol
+        token_matches = (instrument_token == self.current_instrument_token
+                         if instrument_token and self.current_instrument_token else False)
+
+        if not (symbol_matches or token_matches):
+            return
+
+        # Update current LTP immediately
+        self.current_ltp = float(last_price)
+        self._update_symbol_info_live(self.current_ltp)
+
+        # RELAXED chart readiness check - allow updates even if not fully ready
+        basic_chart_ready = all([
+            self.chart_view,
+            self.current_state in [ChartState.LOADED, ChartState.LOADING],  # Allow during loading too
+            self.current_symbol  # Just need a symbol
+        ])
+
+        if not basic_chart_ready:
+            logger.debug(f"Basic chart not ready for {trading_symbol} updates")
+            return
+
+        try:
+            # Always try to send price update, even if chart not fully loaded
+            self._send_price_update(last_price)
+
+            # Only try candle updates if fully ready
+            if (self.current_state == ChartState.LOADED and
+                    self.last_df is not None and not self.last_df.empty and
+                    getattr(self.chart_bridge, 'webChannelInitialized', False)):
+
+                # Check if we need a new candle
+                if self._should_create_new_candle():
+                    self._add_new_candle(last_price)
+                else:
+                    self._update_current_candle(last_price)
+
+        except Exception as e:
+            logger.error(f"Error processing live data for {trading_symbol}: {e}")
+            # Always fallback to price update
+            try:
+                self._send_price_update(last_price)
+            except:
+                pass
+
+    def _send_price_update(self, price: float):
+        """Enhanced price update with multiple fallback methods"""
+        if not self.chart_view:
+            return
+
+        try:
+            # Primary update method
+            js_code = f"""
+            try {{
+                if (window.chart && typeof window.chart.updateLivePrice === 'function') {{
+                    window.chart.updateLivePrice({price});
+                }} else if (window.chart) {{
+                    // Fallback 1: Direct property update
+                    window.chart.livePrice = {price};
+                    if (typeof window.chart.draw === 'function') {{
+                        window.chart.draw();
+                    }}
+                }} else {{
+                    // Fallback 2: Force chart re-initialization if needed
+                    console.warn('Chart object not available for price update');
+                }}
+            }} catch (e) {{
+                console.error('Error updating live price:', e);
+                // Fallback 3: Basic property set
+                try {{
+                    if (window.chart) {{
+                        window.chart.livePrice = {price};
+                    }}
+                }} catch (e2) {{
+                    console.error('All price update methods failed:', e2);
+                }}
+            }}
+            """
+            self.chart_view.page().runJavaScript(js_code)
+
+        except Exception as e:
+            logger.error(f"Error in enhanced price update: {e}")
+
+    def _send_basic_price_update(self, price: float):
+        """Basic fallback price update"""
+        if not self.chart_view:
+            return
+
+        try:
+            js_code = f"if (window.chart) {{ window.chart.livePrice = {price}; }}"
+            self.chart_view.page().runJavaScript(js_code)
+        except Exception as e:
+            logger.error(f"Error in basic price update: {e}")
+
+    def debug_live_updates(self):
+        """Enhanced debug method"""
+        try:
+            # Get parent subscription info
+            parent_info = {}
+            if hasattr(self, 'parent') and self.parent():
+                parent = self.parent()
+                if hasattr(parent, 'market_data_worker') and parent.market_data_worker:
+                    worker_info = parent.market_data_worker.get_subscription_info()
+                    parent_info = {
+                        'worker_connected': worker_info.get('is_connected', False),
+                        'worker_running': worker_info.get('is_running', False),
+                        'total_subscriptions': worker_info.get('subscribed_count', 0),
+                        'chart_token_subscribed': (
+                                self.current_instrument_token in worker_info.get('subscribed_tokens', [])
+                        ) if self.current_instrument_token else False
+                    }
+
+            status = {
+                'current_symbol': self.current_symbol,
+                'current_token': self.current_instrument_token,
+                'current_ltp': self.current_ltp,
+                'chart_state': self.current_state.name,
+                'has_chart_view': bool(self.chart_view),
+                'bridge_initialized': getattr(self.chart_bridge, 'webChannelInitialized', False),
+                'has_data': self.last_df is not None and not self.last_df.empty if self.last_df is not None else False,
+                'last_update_time': self._last_price_update_time,
+                'update_throttle': self._price_update_throttle,
+                **parent_info
+            }
+
+            logger.info(f"Chart debug status: {status}")
+            return status
+
+        except Exception as e:
+            logger.error(f"Error in debug_live_updates: {e}")
+            return {"error": str(e)}
 
     @Slot(str)
     def _open_text_note_dialog_for_edit(self, note_json: str):
@@ -1119,7 +1271,7 @@ class CandlestickChart(QWidget):
 
     @Slot(str)
     def on_search(self, symbol: Optional[str] = None):
-        """Enhanced on_search method that saves the symbol"""
+        """Enhanced symbol search with immediate subscription"""
         if not symbol or symbol not in self.instrument_map:
             if symbol:
                 self._show_error(f"Symbol '{symbol}' not found")
@@ -1133,17 +1285,51 @@ class CandlestickChart(QWidget):
         if self.chart_view:
             self.chart_view.page().runJavaScript("if (window.chart) window.chart.setDrawingTool(null, false);")
 
+        # Set new symbol data
+        old_symbol = self.current_symbol
         self.current_symbol = symbol
         self.current_instrument_token = self.instrument_map[symbol]['instrument_token']
+
+        # Reset live update state
+        self.current_ltp = 0.0
+        self._force_next_update = True
+
+        # CRITICAL: Immediately ensure subscription
+        self._ensure_immediate_subscription()
+
         saved_state = self.drawing_storage.load_state(self.current_symbol, self.current_interval)
-        self.current_visible_candle_count = saved_state.get("visible_candle_count", self.global_chart_settings[
-            "default_visible_candles"])
+        self.current_visible_candle_count = saved_state.get("visible_candle_count",
+                                                            self.global_chart_settings["default_visible_candles"])
         self._set_state(ChartState.IDLE)
         self._load_chart_data()
         self.symbol_loaded.emit(symbol)
 
         # Save this as the last viewed symbol
         self.drawing_storage.save_last_viewed_symbol(symbol, self.current_interval)
+
+    def _ensure_immediate_subscription(self):
+        """Ensure immediate subscription to current symbol"""
+        if not self.current_instrument_token:
+            return
+
+        try:
+            parent = self.parent()
+            if parent and hasattr(parent, 'market_data_worker'):
+                worker = parent.market_data_worker
+                if worker and worker.is_connected():
+                    # Add token immediately
+                    worker.add_instruments([self.current_instrument_token])
+                    logger.info(
+                        f"Immediately subscribed to {self.current_symbol} (token: {self.current_instrument_token})")
+
+                    # Force subscription update
+                    if hasattr(parent, '_on_watchlist_changed'):
+                        QTimer.singleShot(100, parent._on_watchlist_changed)
+                else:
+                    logger.warning(f"Market worker not connected, will subscribe when ready")
+
+        except Exception as e:
+            logger.error(f"Failed immediate subscription for {self.current_symbol}: {e}")
 
     def _change_timeframe(self, interval: str):
         """Enhanced timeframe change that also saves the interval"""
@@ -1386,51 +1572,6 @@ class CandlestickChart(QWidget):
         else:
             logger.error(f"Received malformed live_data (not a dict or list of dicts): {live_data}")
 
-    def _process_single_live_data_item(self, data_item: Dict[str, Any]):
-        """Process a single live data tick for chart updates."""
-        trading_symbol = data_item.get('tradingsymbol')
-        last_price = data_item.get('last_price')
-        instrument_token = data_item.get('instrument_token')
-
-        # Skip if no valid data
-        if not trading_symbol or last_price is None:
-            return
-
-        # Check if this tick is for current chart symbol
-        symbol_matches = trading_symbol == self.current_symbol
-        token_matches = (instrument_token == self.current_instrument_token
-                         if instrument_token and self.current_instrument_token else False)
-
-        if not (symbol_matches or token_matches):
-            return
-
-        # Update current LTP
-        self.current_ltp = float(last_price)
-        self._update_symbol_info_live(self.current_ltp)
-
-        # Check if chart is ready for updates
-        chart_ready = all([
-            self.chart_view,
-            self.current_state == ChartState.LOADED,
-            self.last_df is not None and not self.last_df.empty,
-            getattr(self.chart_bridge, 'webChannelInitialized', False)
-        ])
-
-        if not chart_ready:
-            logger.debug(f"Chart not ready for {trading_symbol} updates")
-            return
-
-        try:
-            # Check if we need a new candle
-            if self._should_create_new_candle():
-                self._add_new_candle(last_price)
-            else:
-                self._update_current_candle(last_price)
-
-        except Exception as e:
-            logger.error(f"Error processing live data for {trading_symbol}: {e}")
-            # Fallback - just update the price
-            self._send_price_update(last_price)
 
     def _should_create_new_candle(self) -> bool:
         """Check if current time requires a new candle based on interval."""
@@ -1503,14 +1644,7 @@ class CandlestickChart(QWidget):
 
         self._send_price_update(price)
 
-    def _send_price_update(self, price: float):
-        """Send price update to JavaScript chart."""
-        js_code = f"""
-        if (window.chart && typeof window.chart.updateLivePrice === 'function') {{
-            window.chart.updateLivePrice({price});
-        }}
-        """
-        self.chart_view.page().runJavaScript(js_code)
+
 
     def _update_symbol_info_live(self, ltp: float):
         try:
@@ -1705,43 +1839,43 @@ class CandlestickChart(QWidget):
                 }}
 
                 setupWebChannel() {{
-                        const initWebChannel = () => {{
-                            try {{
-                                if (typeof QWebChannel !== 'undefined' && window.qt && window.qt.webChannelTransport) {{
-                                    new QWebChannel(qt.webChannelTransport, (channel) => {{
-                                        if (channel.objects && channel.objects.chartBridge) {{
-                                            this.chartBridge = channel.objects.chartBridge;
-                                            this.webChannelInitialized = true;
-                                            console.log("QWebChannel ChartBridge loaded successfully.");
-                                            
-                                            // Delay the initialization call to ensure everything is ready
-                                            setTimeout(() => {{
-                                                try {{
-                                                    if (this.chartBridge && typeof this.chartBridge.set_web_channel_initialized === 'function') {{
-                                                        this.chartBridge.set_web_channel_initialized();
-                                                    }} else {{
-                                                        console.error("set_web_channel_initialized not available");
-                                                    }}
-                                                }} catch (e) {{ 
-                                                    console.error("Error calling set_web_channel_initialized:", e); 
+                    const initWebChannel = () => {{
+                        try {{
+                            if (typeof QWebChannel !== 'undefined' && window.qt && window.qt.webChannelTransport) {{
+                                new QWebChannel(qt.webChannelTransport, (channel) => {{
+                                    if (channel.objects && channel.objects.chartBridge) {{
+                                        this.chartBridge = channel.objects.chartBridge;
+                                        this.webChannelInitialized = true;
+                                        console.log("QWebChannel ChartBridge loaded successfully.");
+                                        
+                                        // Delay the initialization call to ensure everything is ready
+                                        setTimeout(() => {{
+                                            try {{
+                                                if (this.chartBridge && typeof this.chartBridge.set_web_channel_initialized === 'function') {{
+                                                    this.chartBridge.set_web_channel_initialized();
+                                                }} else {{
+                                                    console.error("set_web_channel_initialized not available");
                                                 }}
-                                            }}, 500); // Increased delay
-                                            
-                                            this.processNotificationQueue();
-                                        }} else {{ 
-                                            console.warn("chartBridge not found in channel.objects, retrying...");
-                                            setTimeout(initWebChannel, 500); 
-                                        }}
-                                    }});
-                                }} else {{ 
-                                    console.log("WebChannel not ready, retrying in 200ms...");
-                                    setTimeout(initWebChannel, 200); 
-                                }}
-                            }} catch (error) {{ 
-                                console.error("Error setting up WebChannel:", error); 
-                                setTimeout(initWebChannel, 1000); 
+                                            }} catch (e) {{ 
+                                                console.error("Error calling set_web_channel_initialized:", e); 
+                                            }}
+                                        }}, 500); // Increased delay
+                                        
+                                        this.processNotificationQueue();
+                                    }} else {{ 
+                                        console.warn("chartBridge not found in channel.objects, retrying...");
+                                        setTimeout(initWebChannel, 500); 
+                                    }}
+                                }});
+                            }} else {{ 
+                                console.log("WebChannel not ready, retrying in 200ms...");
+                                setTimeout(initWebChannel, 200); 
                             }}
-                        }};
+                        }} catch (error) {{ 
+                            console.error("Error setting up WebChannel:", error); 
+                            setTimeout(initWebChannel, 1000); 
+                        }}
+                    }};
                     initWebChannel();
                 }}
 
@@ -1753,25 +1887,35 @@ class CandlestickChart(QWidget):
 
                 processNotificationQueue() {{
                     if (!this.webChannelInitialized || this.isLoadingState || this.notificationQueue.length === 0) return;
+                    
                     const latestNotifications = new Map();
                     this.notificationQueue.forEach(n => latestNotifications.set(n.type, n));
+                    
                     latestNotifications.forEach((notification, type) => {{
                         try {{
                             if (type === 'drawings' && this.chartBridge && typeof this.chartBridge.notify_drawings_changed === 'function') {{
                                 setTimeout(() => {{
-                                    try {{ this.chartBridge.notify_drawings_changed(JSON.stringify(notification.data)); }}
-                                    catch (e) {{ console.warn("Error in drawings callback:", e); }}
+                                    try {{ 
+                                        this.chartBridge.notify_drawings_changed(JSON.stringify(notification.data)); 
+                                    }} catch (e) {{ 
+                                        console.warn("Error in drawings callback:", e); 
+                                    }}
                                 }}, 50);
                             }} else if (type === 'zoom' && this.chartBridge && typeof this.chartBridge.notify_visible_candle_count_changed === 'function') {{
                                 if (this.isUserZooming) {{
                                     if (this.updateGlobalSettings) this.updateGlobalSettings(notification.data);
                                     setTimeout(() => {{
-                                        try {{ this.chartBridge.notify_visible_candle_count_changed(notification.data); }}
-                                        catch (e) {{ console.warn("Error in zoom callback:", e); }}
+                                        try {{ 
+                                            this.chartBridge.notify_visible_candle_count_changed(notification.data); 
+                                        }} catch (e) {{ 
+                                            console.warn("Error in zoom callback:", e); 
+                                        }}
                                     }}, 50);
                                 }}
                             }}
-                        }} catch (error) {{ console.error(`Error processing ${{type}} notification:`, error); }}
+                        }} catch (error) {{ 
+                            console.error(`Error processing ${{type}} notification:`, error); 
+                        }}
                     }});
                     this.notificationQueue = [];
                 }}
@@ -1820,7 +1964,7 @@ class CandlestickChart(QWidget):
                     this.canvas.addEventListener('contextmenu', (e) => this.handleRightClick(e));
                     document.addEventListener('keydown', (e) => this.handleKeyDown(e));
                 }}
-
+                
                 handleKeyDown(e) {{
                     if (e.key === 'Escape') {{
                         if (this.isDrawing) {{
@@ -1962,17 +2106,54 @@ class CandlestickChart(QWidget):
                 }}
 
                 draw() {{
-                    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-                    this.ctx.fillStyle = this.colors.background; this.ctx.fillRect(0, 0, this.width, this.height);
-                    if (this.data.length === 0) {{
-                        this.ctx.fillStyle = this.colors.text; this.ctx.font = '16px Arial'; this.ctx.textAlign = 'center';
-                        this.ctx.fillText('No data available', this.width / 2, this.height / 2); return;
+                    try {{
+                        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                        this.ctx.fillStyle = this.colors.background;
+                        this.ctx.fillRect(0, 0, this.width, this.height);
+                        
+                        if (this.data.length === 0) {{
+                            this.ctx.fillStyle = this.colors.text;
+                            this.ctx.font = '16px Arial';
+                            this.ctx.textAlign = 'center';
+                            this.ctx.fillText('No data available', this.width / 2, this.height / 2);
+                            return;
+                        }}
+                        
+                        // Core drawing operations
+                        this.drawGrid();
+                        this.drawVolume();
+                        this.drawEMABands();
+                        this.drawCandlesticks();
+                        this.drawAxes();
+                        this.drawAllDrawings();
+                        this.drawPriceNotes();
+                        
+                        // PRIORITY: Always draw live price last (on top)
+                        this.drawCurrentPriceRay();
+                        
+                        // Draw crosshair (if not in drawing mode)
+                        if (this.currentTool === null) {{
+                            this.drawCrosshair();
+                        }}
+                        
+                        // Handle price change animation
+                        if (this.priceChangeAnimation) {{
+                            this.animatePriceChange();
+                        }}
+                        
+                    }} catch (error) {{
+                        console.error('Error in draw method:', error);
                     }}
-                    this.drawGrid(); this.drawVolume(); this.drawEMABands();
-                    this.drawCandlesticks(); this.drawAxes(); this.drawAllDrawings();
-                    this.drawPriceNotes();
-                    this.drawCrosshair(); this.drawCurrentPriceRay();
-                    if (this.priceChangeAnimation) {{this.animatePriceChange();}}
+                }}
+                forceUpdate() {{
+                    try {{
+                        this.calculateBounds();
+                        this.draw();
+                        this.updateSlider();
+                        console.log('Chart force updated');
+                    }} catch (error) {{
+                        console.error('Error in forceUpdate:', error);
+                    }}
                 }}
 
                 drawGrid() {{
@@ -2319,116 +2500,118 @@ class CandlestickChart(QWidget):
                 }}
 
                 drawCurrentPriceRay() {{
-                        if (this.livePrice !== null && this.currentTool === null) {{
-                            const y = this.priceToY(this.livePrice);
-                            
-                            // Determine price direction and colors
-                            let lineColor = this.colors.livePrice;
-                            let bgColor = this.colors.livePrice;
-                            
-                            if (this.previousLivePrice !== null) {{
-                                if (this.livePrice > this.previousLivePrice) {{
-                                    lineColor = '#26a69a'; // Green for up
-                                    bgColor = '#1b5e20'; // Dark green background
-                                }} else if (this.livePrice < this.previousLivePrice) {{
-                                    lineColor = '#ef5350'; // Red for down
-                                    bgColor = '#b71c1c'; // Dark red background
-                                }}
-                            }}
-                            
-                            // Draw the price line across the entire chart
-                            this.ctx.strokeStyle = lineColor;
-                            this.ctx.lineWidth = 1;
-                            this.ctx.setLineDash([4, 2]); // Dashed line
-                            this.ctx.beginPath();
-                            this.ctx.moveTo(this.chartArea.x, y);
-                            this.ctx.lineTo(this.chartArea.x + this.chartArea.width, y);
-                            this.ctx.stroke();
-                            this.ctx.setLineDash([]);
-                            
-                            // Prepare price text
-                            const priceText = '₹' + this.livePrice.toFixed(2);
-                            this.ctx.font = 'bold 11px monospace';
-                            const textMetrics = this.ctx.measureText(priceText);
-                            
-                            // Draw price label on the right scale with dynamic background
-                            const rectX = this.chartArea.x + this.chartArea.width;
-                            const rectY = y - 10;
-                            const rectWidth = textMetrics.width + 12;
-                            const rectHeight = 20;
-                            
-                            // Draw background rectangle
-                            this.ctx.fillStyle = bgColor;
-                            this.ctx.fillRect(rectX, rectY, rectWidth, rectHeight);
-                            
-                            // Draw border
-                            this.ctx.strokeStyle = lineColor;
-                            this.ctx.lineWidth = 1;
-                            this.ctx.strokeRect(rectX, rectY, rectWidth, rectHeight);
-                            
-                            // Draw price text
-                            this.ctx.fillStyle = 'white';
-                            this.ctx.textAlign = 'left';
-                            this.ctx.fillText(priceText, rectX + 6, y + 4);
-                            
-                            // Draw small triangle indicator on the left side of the label
-                            this.ctx.beginPath();
-                            this.ctx.moveTo(rectX, y);
-                            this.ctx.lineTo(rectX - 5, y - 5);
-                            this.ctx.lineTo(rectX - 5, y + 5);
-                            this.ctx.closePath();
-                            this.ctx.fillStyle = bgColor;
-                            this.ctx.fill();
-                            this.ctx.strokeStyle = lineColor;
-                            this.ctx.lineWidth = 1;
-                            this.ctx.stroke();
-                            
-                            // Optionally, add a pulsing effect for the current price
-                            if (this.previousLivePrice !== null && this.livePrice !== this.previousLivePrice) {{
-                                // Draw a subtle glow effect
-                                const glowRadius = 20;
-                                const gradient = this.ctx.createRadialGradient(
-                                    rectX + rectWidth/2, y, 0,
-                                    rectX + rectWidth/2, y, glowRadius
-                                );
-                                gradient.addColorStop(0, lineColor + '40'); // 25% opacity
-                                gradient.addColorStop(1, lineColor + '00'); // 0% opacity
-                                
-                                this.ctx.fillStyle = gradient;
-                                this.ctx.fillRect(
-                                    rectX - glowRadius, 
-                                    y - glowRadius, 
-                                    rectWidth + glowRadius * 2, 
-                                    glowRadius * 2
-                                );
+                    if (this.livePrice !== null) {{
+                        const y = this.priceToY(this.livePrice);
+                        
+                        // Determine price direction and colors
+                        let lineColor = this.colors.livePrice;
+                        let bgColor = this.colors.livePrice;
+                        let pulseColor = lineColor;
+                        
+                        if (this.previousLivePrice !== null) {{
+                            if (this.livePrice > this.previousLivePrice) {{
+                                lineColor = '#26a69a'; // Green for up
+                                bgColor = '#1b5e20'; // Dark green background
+                                pulseColor = '#4caf50';
+                            }} else if (this.livePrice < this.previousLivePrice) {{
+                                lineColor = '#ef5350'; // Red for down
+                                bgColor = '#b71c1c'; // Dark red background
+                                pulseColor = '#f44336';
                             }}
                         }}
+                        
+                        // Draw pulsing effect for active updates
+                        if (this.priceChangeAnimation) {{
+                            const now = Date.now();
+                            const elapsed = now - this.animationStartTime;
+                            if (elapsed < 500) {{
+                                const opacity = 1 - (elapsed / 500);
+                                this.ctx.strokeStyle = pulseColor + Math.floor(opacity * 128).toString(16).padStart(2, '0');
+                                this.ctx.lineWidth = 3;
+                                this.ctx.setLineDash([]);
+                                this.ctx.beginPath();
+                                this.ctx.moveTo(this.chartArea.x, y);
+                                this.ctx.lineTo(this.chartArea.x + this.chartArea.width, y);
+                                this.ctx.stroke();
+                            }}
+                        }}
+                        
+                        // Draw the main price line
+                        this.ctx.strokeStyle = lineColor;
+                        this.ctx.lineWidth = 2;
+                        this.ctx.setLineDash([8, 4]); // Prominent dashed line
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(this.chartArea.x, y);
+                        this.ctx.lineTo(this.chartArea.x + this.chartArea.width, y);
+                        this.ctx.stroke();
+                        this.ctx.setLineDash([]);
+                        
+                        // Draw price label with enhanced visibility
+                        const priceText = '₹' + this.livePrice.toFixed(2);
+                        this.ctx.font = 'bold 12px monospace';
+                        const textMetrics = this.ctx.measureText(priceText);
+                        
+                        const rectX = this.chartArea.x + this.chartArea.width;
+                        const rectY = y - 12;
+                        const rectWidth = textMetrics.width + 16;
+                        const rectHeight = 24;
+                        
+                        // Draw glowing background
+                        this.ctx.shadowColor = bgColor;
+                        this.ctx.shadowBlur = 8;
+                        this.ctx.fillStyle = bgColor;
+                        this.ctx.fillRect(rectX, rectY, rectWidth, rectHeight);
+                        this.ctx.shadowBlur = 0;
+                        
+                        // Draw border
+                        this.ctx.strokeStyle = lineColor;
+                        this.ctx.lineWidth = 2;
+                        this.ctx.strokeRect(rectX, rectY, rectWidth, rectHeight);
+                        
+                        // Draw price text
+                        this.ctx.fillStyle = 'white';
+                        this.ctx.textAlign = 'left';
+                        this.ctx.fillText(priceText, rectX + 8, y + 4);
+                        
+                        // Draw triangle indicator
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(rectX, y);
+                        this.ctx.lineTo(rectX - 8, y - 6);
+                        this.ctx.lineTo(rectX - 8, y + 6);
+                        this.ctx.closePath();
+                        this.ctx.fillStyle = bgColor;
+                        this.ctx.fill();
+                        this.ctx.strokeStyle = lineColor;
+                        this.ctx.lineWidth = 1;
+                        this.ctx.stroke();
                     }}
-                    
+                }}
+                
+                // Enhanced animation method
                 animatePriceChange() {{
-                        if (!this.priceChangeAnimation) return;
+                    if (!this.priceChangeAnimation) return;
+                    
+                    const now = Date.now();
+                    const elapsed = now - this.animationStartTime;
+                    const duration = 300; // 300ms animation
+                    
+                    if (elapsed < duration) {{
+                        const progress = elapsed / duration;
+                        const opacity = 1 - progress;
                         
-                        const now = Date.now();
-                        const elapsed = now - this.animationStartTime;
-                        const duration = 300; // 300ms animation
+                        // Draw fading highlight
+                        const y = this.priceToY(this.livePrice);
+                        const rectX = this.chartArea.x + this.chartArea.width;
                         
-                        if (elapsed < duration) {{
-                            const progress = elapsed / duration;
-                            const opacity = 1 - progress;
-                            
-                            // Draw fading highlight
-                            const y = this.priceToY(this.livePrice);
-                            const rectX = this.chartArea.x + this.chartArea.width;
-                            
-                            this.ctx.fillStyle = this.priceChangeAnimation.color + Math.floor(opacity * 255).toString(16).padStart(2, '0');
-                            this.ctx.fillRect(rectX - 10, y - 15, 100, 30);
-                            
-                            // Continue animation
-                            requestAnimationFrame(() => this.draw());
-                        }} else {{
-                            this.priceChangeAnimation = null;
-                        }}
+                        this.ctx.fillStyle = this.priceChangeAnimation.color + Math.floor(opacity * 255).toString(16).padStart(2, '0');
+                        this.ctx.fillRect(rectX - 10, y - 15, 100, 30);
+                        
+                        // Continue animation
+                        requestAnimationFrame(() => this.draw());
+                    }} else {{
+                        this.priceChangeAnimation = null;
                     }}
+                }}
 
                 drawPriceNotes() {{
                     this.drawings.notes.forEach(note => {{
@@ -2887,18 +3070,21 @@ class CandlestickChart(QWidget):
                     this.draw(); 
                 }}
                 updateDrawingStyle(color, width) {{ this.drawingColor = color || this.drawingColor; this.lineWidth = width || this.lineWidth; }}
-                setVisibleCandleCount(count) {{ 
-                    let newCount = Math.max(20, Math.min(this.data.length + this.rightBufferCandles, count)); 
-                    if (this.visibleCandleCount === newCount) return; 
-                    this.isUserZooming = false; 
-                    this.visibleCandleCount = newCount; 
-                    this.viewPortEnd = Math.min(this.data.length - 1 + this.rightBufferCandles, this.viewPortStart + this.visibleCandleCount - 1); 
-                    this.viewPortStart = Math.max(0, this.viewPortEnd - this.visibleCandleCount + 1); 
-                    this.viewPortEnd = this.viewPortStart + this.visibleCandleCount - 1; 
-                    this.calculateBounds(); 
-                    this.draw(); 
-                    this.updateSlider(); 
-                }}
+                
+                setVisibleCandleCount(count) {{
+                        let newCount = Math.max(20, Math.min(this.data.length + this.rightBufferCandles, count));
+                        if (this.visibleCandleCount === newCount) return;
+                        
+                        this.isUserZooming = false;
+                        this.visibleCandleCount = newCount;
+                        this.viewPortEnd = Math.min(this.data.length - 1 + this.rightBufferCandles, this.viewPortStart + this.visibleCandleCount - 1);
+                        this.viewPortStart = Math.max(0, this.viewPortEnd - this.visibleCandleCount + 1);
+                        this.viewPortEnd = this.viewPortStart + this.visibleCandleCount - 1;
+                        this.calculateBounds();
+                        this.draw();
+                        this.updateSlider();
+                    }}
+
                 setChartSettings(settings) {{ 
                     if (settings) {{ 
                         this.candleWidth = settings.candleWidth || this.candleWidth; 
@@ -2909,12 +3095,13 @@ class CandlestickChart(QWidget):
                         this.draw(); 
                     }} 
                 }}
-                updateLivePrice(newPrice) {{ 
-                        if (this.data.length === 0 || typeof newPrice !== 'number') return; 
-                        
+                updateLivePrice(newPrice) {{
+                    if (this.data.length === 0 || typeof newPrice !== 'number') return;
+                    
+                    try {{
                         // Store previous price before updating
                         this.previousLivePrice = this.livePrice;
-                        this.livePrice = newPrice; 
+                        this.livePrice = newPrice;
                         
                         // Trigger animation if price changed
                         if (this.previousLivePrice !== null && this.livePrice !== this.previousLivePrice) {{
@@ -2924,17 +3111,98 @@ class CandlestickChart(QWidget):
                             this.animationStartTime = Date.now();
                         }}
                         
-                        const lastCandle = this.data[this.data.length - 1]; 
-                        if (lastCandle) {{ 
-                            lastCandle.close = newPrice; 
-                            lastCandle.high = Math.max(lastCandle.high, newPrice); 
-                            lastCandle.low = Math.min(lastCandle.low, newPrice); 
-                        }} 
-                        this.calculateBounds(); 
-                        this.draw(); 
+                        // CRITICAL: Always update the last candle with new price
+                        const lastCandle = this.data[this.data.length - 1];
+                        if (lastCandle) {{
+                            lastCandle.close = newPrice;
+                            lastCandle.high = Math.max(lastCandle.high, newPrice);
+                            lastCandle.low = Math.min(lastCandle.low, newPrice);
+                        }}
+                        
+                        // Force immediate redraw - don't wait for animation frame
+                        this.calculateBounds();
+                        this.draw();
+                        
+                        // Also update the info display immediately
+                        this.updateSymbolInfoLive(newPrice);
+                        
+                    }} catch (error) {{
+                        console.error('Error in updateLivePrice:', error);
                     }}
-                addNewCandle(candle) {{ if(candle) {{ this.data.push(candle); this.calculateBounds(); this.draw(); }} }}
+                }}
+
+                updateLivePriceFallback(newPrice) {{
+                        try {{
+                            // Fallback method for when main updateLivePrice fails
+                            if (this.data.length > 0) {{
+                                this.livePrice = newPrice;
+                                const lastCandle = this.data[this.data.length - 1];
+                                if (lastCandle) {{
+                                    lastCandle.close = newPrice;
+                                    lastCandle.high = Math.max(lastCandle.high, newPrice);
+                                    lastCandle.low = Math.min(lastCandle.low, newPrice);
+                                }}
+                                this.draw();
+                            }}
+                        }} catch (error) {{
+                            console.error('Error in updateLivePriceFallback:', error);
+                        }}
+                    }}
+
+                updateSymbolInfoLive(ltp) {{
+                        try {{
+                            const priceInfoEl = document.getElementById('priceInfo');
+                            if (priceInfoEl && this.currentSymbol) {{
+                                const changeFromOpen = this.data.length > 0 ? ltp - this.data[this.data.length - 1].open : 0;
+                                const changePercent = this.data.length > 0 && this.data[this.data.length - 1].open !== 0 
+                                    ? ((changeFromOpen / this.data[this.data.length - 1].open) * 100).toFixed(2) 
+                                    : '0.00';
+                                
+                                const changeStr = changeFromOpen >= 0 
+                                    ? `+₹${{changeFromOpen.toFixed(2)}} (+${{changePercent}}%)`
+                                    : `₹${{changeFromOpen.toFixed(2)}} (${{changePercent}}%)`;
+                                
+                                const dateStr = this.data.length > 0 
+                                    ? new Date(this.data[this.data.length - 1].time).toLocaleDateString('en-GB', {{ 
+                                        day: '2-digit', month: 'short', year: 'numeric' 
+                                    }})
+                                    : 'Live';
+                                
+                                priceInfoEl.textContent = `${{dateStr}} | LIVE: ₹${{ltp.toFixed(2)}} | ${{changeStr}}`;
+                                priceInfoEl.style.color = changeFromOpen >= 0 ? '#26a69a' : '#ef5350';
+                            }}
+                        }} catch (error) {{
+                            console.error('Error updating symbol info live:', error);
+                        }}
+                    }}
+                addNewCandle(candle) {{
+                    if (!candle) return;
+                    
+                    try {{
+                        // Add the new candle
+                        this.data.push(candle);
+                        
+                        // Update volume data if provided
+                        if (candle.volume !== undefined) {{
+                            this.volumeData.push({{
+                                time: candle.time,
+                                value: candle.volume
+                            }});
+                        }}
+                        
+                        // Force immediate recalculation and redraw
+                        this.calculateBounds();
+                        this.draw();
+                        this.updateSlider();
+                        
+                        console.log('New candle added:', candle);
+                        
+                    }} catch (error) {{
+                        console.error('Error adding new candle:', error);
+                    }}
+                }}                
                 clearAllDrawings() {{ this.drawings = {{ lines: [], rectangles: [], notes: [], horizontal_lines: [] }}; this.draw(); this.notifyDrawingsChange(); }}
+                
                 deleteSelectedDrawing() {{ 
                     if (this.selectedDrawingId) {{ 
                         let deleted = false; 
