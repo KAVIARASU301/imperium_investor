@@ -540,10 +540,10 @@ class ModernManageScansDialog(QDialog):
                 gridline-color: #202020;
                 selection-background-color: rgba(74, 122, 191, 0.2);
                 selection-color: #ffffff;
-                font-size: 12px;
+                font-size: 13px;
             }
             QTableWidget#minimalTable::item {
-                padding: 5px 8px;
+                padding: 1px 1px;
                 border-bottom: 1px solid #202020;
                 background-color: transparent;
             }

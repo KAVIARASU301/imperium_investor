@@ -1,4 +1,4 @@
-# Enhanced watchlist_table.py - FIXED volume and change% issues
+# Enhanced watchlist_table.py - FIXED width consistency with positions table
 import logging
 import json
 import os
@@ -21,8 +21,9 @@ WATCHLIST_FILES = {
     "Parabolic": "user_data/watchlist_parabolic.json"
 }
 
-# Settings for remembering UI state
-SETTINGS_KEY_WIDTH = "watchlist/widget_width"
+
+# Settings for remembering UI state (REMOVED: No longer using fixed width)
+# SETTINGS_KEY_WIDTH = "watchlist/widget_width"
 
 
 class TradingTable(QTableWidget):
@@ -798,7 +799,7 @@ class TradingTable(QTableWidget):
 
 class TabbedWatchlistWidget(QWidget):
     """
-    Enhanced tabbed watchlist widget with proper persistence and real-time updates
+    Enhanced tabbed watchlist widget with FIXED width consistency to match positions table
     """
     symbol_selected = Signal(str)
     subscribe_tokens_requested = Signal(list)
@@ -812,12 +813,12 @@ class TabbedWatchlistWidget(QWidget):
         super().__init__(parent)
         self._instrument_map: Dict[str, Dict] = {}
         self._tables: Dict[str, TradingTable] = {}
-        self._settings = QSettings("SwingTrader", "WatchlistWidget")
+        # REMOVED: QSettings and fixed width - now stretches to match positions table
 
         self._setup_ui()
         self._apply_styles()
         self._load_all_watchlists()
-        self._restore_geometry()
+        # REMOVED: _restore_geometry() - no longer needed
 
     def _setup_ui(self):
         """Sets up the main UI layout with tabs."""
@@ -859,7 +860,7 @@ class TabbedWatchlistWidget(QWidget):
             tab_bar = self.tab_widget.tabBar()
             total_width = self.width()
             tab_count = tab_bar.count()
-            if tab_count > 0:
+            if tab_count > 0 and total_width > 0:
                 margins_and_borders = (tab_count - 1) * 1 + 4
                 available_width = total_width - margins_and_borders
                 tab_width = available_width // tab_count
@@ -873,7 +874,6 @@ class TabbedWatchlistWidget(QWidget):
                 color: #e0e0e0;
                 font-family: "Segoe UI", Arial, sans-serif;
                 font-size: 13px;
-                border: 1px solid #202020;
             }
         """)
 
@@ -988,27 +988,17 @@ class TabbedWatchlistWidget(QWidget):
         except IOError as e:
             logger.error(f"Failed to save {category} watchlist: {e}")
 
-    def _restore_geometry(self):
-        """Restores the widget width from saved settings."""
-        saved_width = self._settings.value(SETTINGS_KEY_WIDTH, 300, type=int)
-        self.setFixedWidth(saved_width)
-
-    def _save_geometry(self):
-        """Saves the current widget width to settings."""
-        self._settings.setValue(SETTINGS_KEY_WIDTH, self.width())
-
     def _apply_tab_width_style(self, tab_width: int):
-        """Enhanced styling with proper tab width"""
+        """Enhanced styling with proper tab width and CONSISTENT SIZING"""
         tab_width_exact = f"{tab_width}px"
 
         self.setStyleSheet(f"""
-            /* Main Widget */
+            /* Main Widget - REMOVED border to match positions table */
             TabbedWatchlistWidget {{
                 background-color: #0a0a0a;
                 color: #e0e0e0;
                 font-family: "Segoe UI", Arial, sans-serif;
                 font-size: 13px;
-                border: 1px solid #202020;
             }}
 
             /* Tab Widget Styling */
@@ -1079,7 +1069,7 @@ class TabbedWatchlistWidget(QWidget):
                 max-width: {tab_width_exact};
             }}
 
-            /* Table Styling - Enhanced from Positions Table */
+            /* Table Styling - EXACT match to positions table */
             TradingTable {{
                 background-color: #0a0a0a;
                 border: none;
@@ -1128,7 +1118,7 @@ class TabbedWatchlistWidget(QWidget):
                 font-weight: 600;
             }}
 
-            /* Header Styling with Sort Indicators - Enhanced from Positions Table */
+            /* Header Styling - EXACT match to positions table */
             QHeaderView::section {{
                 background-color: #1a1a1a;
                 color: #a0c0ff;
@@ -1167,7 +1157,7 @@ class TabbedWatchlistWidget(QWidget):
                 margin-right: 2px;
             }}
 
-            /* Remove Button Styling - Matching Positions Table Exactly */
+            /* Remove Button Styling - EXACT match to positions table */
             QPushButton#removeButton {{
                 background-color: transparent;
                 color: #cc4444;
@@ -1184,7 +1174,7 @@ class TabbedWatchlistWidget(QWidget):
                 background-color: #2a1f1f;
             }}
 
-            /* Enhanced Scrollbars from Positions Table */
+            /* Enhanced Scrollbars - EXACT match to positions table */
             QScrollBar:vertical {{
                 background-color: #0a0a0a;
                 width: 8px;
@@ -1231,9 +1221,8 @@ class TabbedWatchlistWidget(QWidget):
         """)
 
     def resizeEvent(self, event):
-        """Override to save geometry and update tab widths when widget is resized."""
+        """Override to update tab widths when widget is resized - REMOVED geometry saving."""
         super().resizeEvent(event)
-        self._save_geometry()
         self._set_equal_tab_widths()
 
     def showEvent(self, event):
@@ -1242,7 +1231,7 @@ class TabbedWatchlistWidget(QWidget):
         self._set_equal_tab_widths()
 
     def closeEvent(self, event):
-        """Enhanced close event with proper cleanup"""
+        """Enhanced close event with proper cleanup - REMOVED geometry saving"""
         # Save all watchlists
         for category in self._tables.keys():
             self._save_watchlist(category)
@@ -1252,5 +1241,4 @@ class TabbedWatchlistWidget(QWidget):
             if hasattr(table, '_data_update_timer'):
                 table._data_update_timer.stop()
 
-        self._save_geometry()
         super().closeEvent(event)

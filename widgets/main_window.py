@@ -136,16 +136,41 @@ class SwingTraderWindow(QMainWindow):
         self.watchlist = TabbedWatchlistWidget()
         self.positions_table = PositionsTable(parent=self)
 
+        # FIXED: Create right panel splitter with proper resizing behavior
         right_panel_splitter = QSplitter(Qt.Orientation.Vertical)
         right_panel_splitter.addWidget(self.watchlist)
         right_panel_splitter.addWidget(self.positions_table)
+
+        # CRITICAL: Set stretch factors for proper resizing
+        # Watchlist gets more space (factor 3), positions get less (factor 2)
         right_panel_splitter.setStretchFactor(0, 3)
         right_panel_splitter.setStretchFactor(1, 2)
 
+        # FIXED: Enable free resizing by setting resize mode
+        right_panel_splitter.setChildrenCollapsible(False)  # Prevent complete collapse
+        right_panel_splitter.setHandleWidth(3)  # Slightly thicker handle for easier dragging
+
+        # Add widgets to main splitter
         self.main_splitter.addWidget(self.chartink_scanner)
         self.main_splitter.addWidget(self.candlestick_chart)
         self.main_splitter.addWidget(right_panel_splitter)
-        self.main_splitter.setSizes([250, 800, 250])
+
+        # Set initial sizes: Scanner=250, Chart=700, Right Panel=300
+        self.main_splitter.setSizes([250, 700, 300])
+
+        # FIXED: Enable proper stretching and resizing
+        self.main_splitter.setChildrenCollapsible(False)  # Prevent panels from collapsing completely
+        self.main_splitter.setHandleWidth(3)  # Slightly thicker handles
+
+        # CRITICAL: Set stretch factors for main splitter
+        # Scanner: minimal stretch (0), Chart: maximum stretch (1), Right panel: medium stretch (0)
+        self.main_splitter.setStretchFactor(0, 0)  # Scanner - fixed size preference
+        self.main_splitter.setStretchFactor(1, 1)  # Chart - gets most extra space
+        self.main_splitter.setStretchFactor(2, 0)  # Right panel - fixed size preference
+
+        # Store splitter reference for saving/restoring state
+        self.right_panel_splitter = right_panel_splitter
+
 
     def _create_custom_title_bar(self) -> QWidget:
         """Creates a custom title bar for the frameless window."""
@@ -490,34 +515,6 @@ class SwingTraderWindow(QMainWindow):
         logger.info("Application shut down gracefully.")
         super().closeEvent(event)
 
-    def save_window_state(self):
-        try:
-            state = {
-                'geometry': self.saveGeometry().toBase64().data().decode('utf-8'),
-                'splitter': self.main_splitter.saveState().toBase64().data().decode('utf-8'),
-                'is_maximized': self.isMaximized()
-            }
-            self.config_manager.save_window_state(state)
-            logger.info("Window state saved.")
-        except Exception as e:
-            logger.error(f"Failed to save window state: {e}", exc_info=True)
-
-    def restore_window_state(self):
-        try:
-            state = self.config_manager.load_window_state()
-            if state and state.get('geometry'):
-                self.restoreGeometry(QByteArray.fromBase64(state['geometry'].encode('utf-8')))
-                self.main_splitter.restoreState(QByteArray.fromBase64(state['splitter'].encode('utf-8')))
-                if state.get('is_maximized', False):
-                    self.showMaximized()
-                    self.max_btn.setText("❐")
-                logger.info("Window state restored.")
-            else:
-                self.showMaximized()
-                self.max_btn.setText("❐")
-        except Exception as e:
-            logger.error(f"Failed to restore window state: {e}", exc_info=True)
-            self.showMaximized()
 
     # ==============================================================================
     # CORE EVENT HANDLERS (SLOTS)
@@ -1389,34 +1386,7 @@ class SwingTraderWindow(QMainWindow):
         else:
             self._show_order_notification(f"'{current_symbol}' may already be in '{category}'.", "info")
 
-    def _apply_dark_theme(self):
-        self.setStyleSheet("""
-            #mainContainer { background-color: #0a0a0a; border: 1px solid #1a1a1a; }
-            #customTitleBar { background-color: #0a0a0a; border-bottom: 1px solid #202020; }
-            #appTitle { color: #a0c0ff; font-size: 12px; font-weight: 600; }
-            #tradingModeLabel { color: #64ffda; font-size: 10px; font-weight: 500; }
-            #titleBarButton { background-color: transparent; color: #b0b0b0; border: none; font-size: 14px; font-weight: bold; border-radius: 2px; }
-            #titleBarButton:hover { background-color: #2a2a2a; color: #ffffff; }
-            #closeTitleBarButton { background-color: transparent; color: #b0b0b0; border: none; font-size: 12px; font-weight: bold; border-radius: 2px; }
-            #closeTitleBarButton:hover { background-color: #e81123; color: #ffffff; }
-            QMainWindow, QWidget { background-color: #0a0a0a; color: #e0e0e0; font-family: "Segoe UI", Arial, sans-serif; }
-            QSplitter::handle { background-color: #1a1a1a; }
-            QSplitter::handle:horizontal { width: 1px; }
-            QSplitter::handle:vertical { height: 1px; }
-            QSplitter::handle:hover { background-color: #6a9cff; }
-            QScrollBar:vertical { background-color: #151515; width: 12px; border: none; }
-            QScrollBar::handle:vertical { background-color: #3a3a3a; border-radius: 6px; min-height: 20px; }
-            QScrollBar::handle:vertical:hover { background-color: #5a5a5a; }
-            QScrollBar:horizontal { background-color: #151515; height: 12px; border: none; }
-            QScrollBar::handle:horizontal { background-color: #3a3a3a; border-radius: 6px; min-width: 20px; }
-            QScrollBar::handle:horizontal:hover { background-color: #5a5a5a; }
-            QDialog { background-color: #121212; border: 1px solid #282828; }
-            QMessageBox { background-color: #121212; }
-            QMessageBox QPushButton { background-color: #2a2a2a; color: #e0e0e0; border: 1px solid #3a3a3a; padding: 6px 12px; border-radius: 3px; min-width: 60px; }
-            QMessageBox QPushButton:hover { background-color: #3a3a3a; }
-        """)
 
-    # Add this to main_window.py after the _setup_watchlist_shortcuts method
 
     def _setup_global_shortcuts(self):
         """Setup global shortcuts that work based on focused widget context."""
@@ -2383,3 +2353,220 @@ class SwingTraderWindow(QMainWindow):
                 logger.info("✅ Ensured position tokens are subscribed after refresh")
         except Exception as e:
             logger.error(f"Error ensuring position token subscription: {e}")
+
+    def save_window_state(self):
+        """Enhanced window state saving with both splitters."""
+        try:
+            state = {
+                'geometry': self.saveGeometry().toBase64().data().decode('utf-8'),
+                'main_splitter': self.main_splitter.saveState().toBase64().data().decode('utf-8'),
+                'is_maximized': self.isMaximized()
+            }
+
+            # ADDED: Save right panel splitter state separately
+            if hasattr(self, 'right_panel_splitter'):
+                state['right_panel_splitter'] = self.right_panel_splitter.saveState().toBase64().data().decode('utf-8')
+
+            self.config_manager.save_window_state(state)
+            logger.info("Window state saved with both splitters.")
+        except Exception as e:
+            logger.error(f"Failed to save window state: {e}", exc_info=True)
+
+    def restore_window_state(self):
+        """Enhanced window state restoration with both splitters."""
+        try:
+            state = self.config_manager.load_window_state()
+            if state and state.get('geometry'):
+                self.restoreGeometry(QByteArray.fromBase64(state['geometry'].encode('utf-8')))
+
+                # Restore main splitter
+                if 'main_splitter' in state:
+                    self.main_splitter.restoreState(QByteArray.fromBase64(state['main_splitter'].encode('utf-8')))
+                else:
+                    # Fallback to default sizes if no saved state
+                    self.main_splitter.setSizes([250, 700, 300])
+
+                # ADDED: Restore right panel splitter state
+                if hasattr(self, 'right_panel_splitter') and 'right_panel_splitter' in state:
+                    self.right_panel_splitter.restoreState(
+                        QByteArray.fromBase64(state['right_panel_splitter'].encode('utf-8')))
+                elif hasattr(self, 'right_panel_splitter'):
+                    # Fallback to default proportions for right panel
+                    # Calculate based on right panel total size
+                    total_height = self.height() - 100  # Account for header/footer
+                    watchlist_height = int(total_height * 0.6)  # 60% for watchlist
+                    positions_height = int(total_height * 0.4)  # 40% for positions
+                    self.right_panel_splitter.setSizes([watchlist_height, positions_height])
+
+                if state.get('is_maximized', False):
+                    self.showMaximized()
+                    self.max_btn.setText("❐")
+                logger.info("Window state restored with both splitters.")
+            else:
+                # Default state
+                self.showMaximized()
+                self.max_btn.setText("❐")
+                # Set default splitter sizes
+                self.main_splitter.setSizes([250, 700, 300])
+                if hasattr(self, 'right_panel_splitter'):
+                    # Default right panel split: 60% watchlist, 40% positions
+                    self.right_panel_splitter.setSizes([300, 200])
+        except Exception as e:
+            logger.error(f"Failed to restore window state: {e}", exc_info=True)
+            self.showMaximized()
+            # Set safe defaults on error
+            self.main_splitter.setSizes([250, 700, 300])
+            if hasattr(self, 'right_panel_splitter'):
+                self.right_panel_splitter.setSizes([300, 200])
+
+    def _apply_dark_theme(self):
+        """Enhanced dark theme with consistent splitter styling."""
+        self.setStyleSheet("""
+            #mainContainer { 
+                background-color: #0a0a0a; 
+                border: 1px solid #1a1a1a; 
+            }
+
+            #customTitleBar { 
+                background-color: #0a0a0a; 
+                border-bottom: 1px solid #202020; 
+            }
+
+            #appTitle { 
+                color: #a0c0ff; 
+                font-size: 12px; 
+                font-weight: 600; 
+            }
+
+            #tradingModeLabel { 
+                color: #64ffda; 
+                font-size: 10px; 
+                font-weight: 500; 
+            }
+
+            #titleBarButton { 
+                background-color: transparent; 
+                color: #b0b0b0; 
+                border: none; 
+                font-size: 14px; 
+                font-weight: bold; 
+                border-radius: 2px; 
+            }
+
+            #titleBarButton:hover { 
+                background-color: #2a2a2a; 
+                color: #ffffff; 
+            }
+
+            #closeTitleBarButton { 
+                background-color: transparent; 
+                color: #b0b0b0; 
+                border: none; 
+                font-size: 12px; 
+                font-weight: bold; 
+                border-radius: 2px; 
+            }
+
+            #closeTitleBarButton:hover { 
+                background-color: #e81123; 
+                color: #ffffff; 
+            }
+
+            QMainWindow, QWidget { 
+                background-color: #0a0a0a; 
+                color: #e0e0e0; 
+                font-family: "Segoe UI", Arial, sans-serif; 
+            }
+
+            /* ENHANCED: Consistent Splitter Styling */
+            QSplitter::handle { 
+                background-color: #2a2a2a;
+                border: 1px solid #1a1a1a;
+            }
+
+            QSplitter::handle:horizontal { 
+                width: 3px; 
+                border-left: 1px solid #1a1a1a;
+                border-right: 1px solid #1a1a1a;
+            }
+
+            QSplitter::handle:vertical { 
+                height: 3px; 
+                border-top: 1px solid #1a1a1a;
+                border-bottom: 1px solid #1a1a1a;
+            }
+
+            QSplitter::handle:hover { 
+                background-color: #6a9cff; 
+            }
+
+            QSplitter::handle:pressed {
+                background-color: #5a8be0;
+            }
+
+            /* Enhanced Scrollbars */
+            QScrollBar:vertical { 
+                background-color: #151515; 
+                width: 8px; 
+                border: none; 
+                margin: 0px;
+            }
+
+            QScrollBar::handle:vertical { 
+                background-color: #424242; 
+                border-radius: 4px; 
+                min-height: 20px; 
+                margin: 2px;
+            }
+
+            QScrollBar::handle:vertical:hover { 
+                background-color: #616161; 
+            }
+
+            QScrollBar:horizontal { 
+                background-color: #151515; 
+                height: 8px; 
+                border: none; 
+                margin: 0px;
+            }
+
+            QScrollBar::handle:horizontal { 
+                background-color: #424242; 
+                border-radius: 4px; 
+                min-width: 20px; 
+                margin: 2px;
+            }
+
+            QScrollBar::handle:horizontal:hover { 
+                background-color: #616161; 
+            }
+
+            QScrollBar::add-line, QScrollBar::sub-line {
+                border: none;
+                background: none;
+                width: 0px;
+                height: 0px;
+            }
+
+            QDialog { 
+                background-color: #121212; 
+                border: 1px solid #282828; 
+            }
+
+            QMessageBox { 
+                background-color: #121212; 
+            }
+
+            QMessageBox QPushButton { 
+                background-color: #2a2a2a; 
+                color: #e0e0e0; 
+                border: 1px solid #3a3a3a; 
+                padding: 6px 12px; 
+                border-radius: 3px; 
+                min-width: 60px; 
+            }
+
+            QMessageBox QPushButton:hover { 
+                background-color: #3a3a3a; 
+            }
+        """)

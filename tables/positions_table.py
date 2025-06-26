@@ -2,6 +2,7 @@ import logging
 from typing import List, Dict, Optional
 from datetime import datetime
 from dataclasses import asdict
+from functools import partial
 from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QPushButton, QLabel, QVBoxLayout,
     QWidget, QHeaderView, QFrame, QHBoxLayout, QAbstractItemView, QMenu
@@ -16,8 +17,8 @@ logger = logging.getLogger(__name__)
 
 class PositionsTable(QWidget):
     """
-    Optimized positions table with efficient updates and no scrollbar.
-    Features clean design and smooth user experience.
+    Enhanced positions table with consistent styling matching watchlist and scanner tables.
+    Features clean design and smooth user experience with minimal footer.
     """
     # Signals for integration with main window
     exit_position_requested = Signal(dict)
@@ -29,7 +30,7 @@ class PositionsTable(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._positions_cache: Dict[str, Position] = {}
-        self._sort_column = 3  # Default sort by P&L (now column 3)
+        self._sort_column = 3  # Default sort by P&L
         self._sort_order = Qt.SortOrder.DescendingOrder
 
         # Performance tracking
@@ -42,8 +43,8 @@ class PositionsTable(QWidget):
         self._refresh_timer.start(5000)  # Check every 5 seconds
 
         self._setup_ui()
-        self._apply_professional_styles()
-        logger.info("Positions Table initialized.")
+        self._apply_consistent_styles()
+        logger.info("Positions Table initialized with consistent styling.")
 
     def _setup_ui(self):
         """Setup the main UI layout with enhanced features."""
@@ -51,17 +52,13 @@ class PositionsTable(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        # Header with refresh indicator only
-        header = self._create_header()
-        main_layout.addWidget(header)
-
-        # Main table
+        # Main table (no header needed)
         self.table = QTableWidget()
         self._configure_table()
         main_layout.addWidget(self.table, 1)
 
-        # Footer with summary information
-        footer = self._create_enhanced_footer()
+        # Simplified footer with summary information
+        footer = self._create_minimal_footer()
         main_layout.addWidget(footer)
 
         # Connect table signals
@@ -72,306 +69,276 @@ class PositionsTable(QWidget):
         # Connect focus events to clear selection
         self.table.focusOutEvent = self._on_table_focus_out
 
-    def _create_header(self) -> QFrame:
-        """Create minimal header without status indicator."""
-        header_frame = QFrame()
-        header_frame.setObjectName("positionsHeader")
-        header_frame.setFixedHeight(0)  # Remove header completely
-        header_layout = QHBoxLayout(header_frame)
-        header_layout.setContentsMargins(0, 0, 0, 0)
-
-        return header_frame
-
     def _configure_table(self):
-        """Configure table with optimized column layout."""
-        # Reduced to 5 columns: Symbol, Qty, Avg, P&L, Exit
+        """Configure table with layout matching watchlist table exactly."""
+        # FIXED: 5 columns to match watchlist layout
         self.table.setColumnCount(5)
         self.table.setHorizontalHeaderLabels([
             "Symbol", "Qty", "Avg", "P&L", ""
         ])
 
-        # Table behavior
+        # Table behavior - EXACTLY matching watchlist and scanner
         self.table.verticalHeader().setVisible(False)
+        self.table.horizontalHeader().setVisible(True)
+
+        # EXACT match to watchlist behavior
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setShowGrid(False)
+        self.table.setShowGrid(False)  # CRITICAL: No grid lines like watchlist
         self.table.setAlternatingRowColors(True)
         self.table.setSortingEnabled(True)
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-
-        # Clear selection when focus is lost
         self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
         header = self.table.horizontalHeader()
 
-        # Column sizing to match watchlist table layout
-        # Symbol column - stretch to fill available space (like watchlist)
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        # Set header properties matching watchlist
+        header.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # Qty column - resize to contents (like LTP in watchlist)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        # Column sizing EXACTLY matching watchlist table layout
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)  # Symbol - takes remaining space
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)  # Qty - fixed width
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)  # Avg - fixed width
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)  # P&L - fixed width
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)  # Exit button - fixed width
 
-        # Avg column - resize to contents (like Vol in watchlist)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        # Set optimal fixed widths matching watchlist pattern
+        self.table.setColumnWidth(1, 50)  # Qty - compact
+        self.table.setColumnWidth(2, 70)  # Avg - enough for "0000.00"
+        self.table.setColumnWidth(3, 80)  # P&L - enough for "+00,000.00"
+        self.table.setColumnWidth(4, 24)  # Exit button - minimal
 
-        # P&L column - resize to contents (like Chg % in watchlist)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-
-        # Exit button column - fixed width (same as watchlist remove button)
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(4, 24)  # Minimal width for X button
-
-        # Row height for compact appearance (matching watchlist exactly)
+        # Row height matching watchlist exactly
         self.table.verticalHeader().setDefaultSectionSize(28)
 
         # Header click for sorting
         header.sectionClicked.connect(self._on_header_clicked)
 
-    def _create_enhanced_footer(self) -> QFrame:
-        """Create enhanced footer with detailed summary."""
+        # Set cursor for header (matching watchlist)
+        header.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+
+    def _create_minimal_footer(self) -> QFrame:
+        """Create minimal footer with essential summary only."""
         footer_frame = QFrame()
         footer_frame.setObjectName("positionsFooter")
-        footer_frame.setFixedHeight(42)
-        footer_layout = QVBoxLayout(footer_frame)
+        footer_frame.setFixedHeight(28)  # Reduced height for minimal design
+
+        footer_layout = QHBoxLayout(footer_frame)
         footer_layout.setContentsMargins(12, 4, 12, 4)
-        footer_layout.setSpacing(2)
+        footer_layout.setSpacing(12)
 
-        # Top row: Total P&L - simplified layout
-        top_row = QHBoxLayout()
-
-        total_pnl_container = QLabel()
-        total_pnl_container.setObjectName("footerMetric")
-
+        # Total P&L (main metric)
         self.total_pnl_label = QLabel("Total P&L: ₹0.00")
-        self.total_pnl_label.setObjectName("footerMetric")
+        self.total_pnl_label.setObjectName("footerPrimaryMetric")
+        footer_layout.addWidget(self.total_pnl_label)
 
-        top_row.addWidget(self.total_pnl_label)
-        top_row.addStretch()
+        # Separator
+        separator = QLabel("|")
+        separator.setObjectName("footerSeparator")
+        footer_layout.addWidget(separator)
 
-        # Bottom row: Additional metrics with separators
-        bottom_row = QHBoxLayout()
-
+        # Investment amount
         self.investment_label = QLabel("Investment: ₹0")
-        self.investment_label.setObjectName("footerMetric")
+        self.investment_label.setObjectName("footerSecondaryMetric")
+        footer_layout.addWidget(self.investment_label)
 
-        separator1 = QLabel(" | ")
-        separator1.setObjectName("footerMetric")
+        # Separator
+        separator2 = QLabel("|")
+        separator2.setObjectName("footerSeparator")
+        footer_layout.addWidget(separator2)
 
+        # Returns percentage
         self.returns_label = QLabel("Returns: 0.00%")
-        self.returns_label.setObjectName("footerMetric")
+        self.returns_label.setObjectName("footerSecondaryMetric")
+        footer_layout.addWidget(self.returns_label)
 
-        separator2 = QLabel(" | ")
-        separator2.setObjectName("footerMetric")
-
-        self.last_update_label = QLabel("Updated: Never")
-        self.last_update_label.setObjectName("footerMetric")
-
-        bottom_row.addWidget(self.investment_label)
-        bottom_row.addWidget(separator1)
-        bottom_row.addWidget(self.returns_label)
-        bottom_row.addWidget(separator2)
-        bottom_row.addWidget(self.last_update_label)
-        bottom_row.addStretch()
-
-        footer_layout.addLayout(top_row)
-        footer_layout.addLayout(bottom_row)
+        # Push everything to the left
+        footer_layout.addStretch()
 
         return footer_frame
 
     @Slot(list)
     def update_positions(self, positions: List[Position]):
-        """
-        Efficient position update that preserves scroll position and only updates changed data.
-        """
+        """Efficient position update that preserves scroll position."""
         try:
             start_time = datetime.now()
-
-            # Store current scroll position
             v_scrollbar = self.table.verticalScrollBar()
             h_scrollbar = self.table.horizontalScrollBar()
             v_scroll_pos = v_scrollbar.value()
             h_scroll_pos = h_scrollbar.value()
 
-            # Create new cache for positions
             new_cache = {pos.tradingsymbol: pos for pos in positions}
-
-            # Calculate totals
-            total_pnl = 0.0
-            total_investment = 0.0
-
-            # Sort positions by the current sort criteria
             sorted_positions = self._sort_positions(positions)
-
-            # Update table efficiently
             self._update_table_efficiently(sorted_positions, new_cache)
 
-            # Calculate totals from sorted positions
-            for pos in sorted_positions:
-                total_pnl += pos.pnl
-                total_investment += abs(pos.quantity * pos.average_price)
+            total_pnl = sum(pos.pnl for pos in sorted_positions)
+            total_investment = sum(abs(pos.quantity * pos.average_price) for pos in sorted_positions)
 
-            # Update cache
             self._positions_cache = new_cache
-
-            # Update summary information
             self._update_summary(total_pnl, total_investment, len(positions))
-
-            # Restore scroll position
             QTimer.singleShot(0, lambda: self._restore_scroll_position(v_scroll_pos, h_scroll_pos))
 
-            # Update performance metrics
             self._update_count += 1
             self._last_update_time = datetime.now()
             update_time = (datetime.now() - start_time).total_seconds() * 1000
 
-            # Request token subscription for market data
             if positions:
                 tokens = self.get_all_tokens()
                 self.subscribe_tokens_requested.emit(tokens)
 
             logger.debug(f"Position update completed in {update_time:.1f}ms for {len(positions)} positions.")
-
         except Exception as e:
             logger.error(f"Error updating positions: {e}", exc_info=True)
 
-
-
     def _restore_scroll_position(self, v_pos: int, h_pos: int):
         """Restore scroll position after table update."""
-        try:
-            self.table.verticalScrollBar().setValue(v_pos)
-            self.table.horizontalScrollBar().setValue(h_pos)
-        except Exception as e:
-            logger.debug(f"Could not restore scroll position: {e}")
+        self.table.verticalScrollBar().setValue(v_pos)
+        self.table.horizontalScrollBar().setValue(h_pos)
 
     def _sort_positions(self, positions: List[Position]) -> List[Position]:
         """Sort positions based on current sort criteria."""
         try:
-            if self._sort_column == 0:  # Symbol
-                key_func = lambda p: p.tradingsymbol
-            elif self._sort_column == 1:  # Quantity
-                key_func = lambda p: p.quantity
-            elif self._sort_column == 2:  # Average Price
-                key_func = lambda p: p.average_price
-            elif self._sort_column == 3:  # P&L
-                key_func = lambda p: p.pnl
-            else:
+            key_map = {0: 'tradingsymbol', 1: 'quantity', 2: 'average_price', 3: 'pnl'}
+            sort_key = key_map.get(self._sort_column)
+            if not sort_key:
                 return positions
 
             reverse = self._sort_order == Qt.SortOrder.DescendingOrder
-            return sorted(positions, key=key_func, reverse=reverse)
-
+            return sorted(positions, key=lambda p: getattr(p, sort_key, 0), reverse=reverse)
         except Exception as e:
             logger.error(f"Error sorting positions: {e}")
             return positions
 
+    def _update_table_efficiently(self, sorted_positions: List[Position], new_cache: Dict[str, Position]):
+        """Efficiently update table rows."""
+        self.table.setRowCount(len(sorted_positions))
+        for row, pos in enumerate(sorted_positions):
+            self._populate_row(row, pos)
+
+    def _populate_row(self, row: int, pos: Position):
+        """Populate a single row with position data and exit button."""
+        try:
+            # Create items for all columns (matching watchlist pattern)
+            for i in range(4):  # First 4 columns get items
+                self.table.setItem(row, i, QTableWidgetItem())
+
+            # Add exit button in last column (matching watchlist remove button)
+            self.table.setCellWidget(row, 4, self._create_exit_button(row))
+
+            # Update with current data
+            self._update_row_data(row, pos)
+
+        except Exception as e:
+            logger.error(f"Error populating row {row}: {e}")
+
+    def _create_exit_button(self, row) -> QPushButton:
+        """Creates a minimal 'x' button to exit position (matching watchlist style)."""
+        exit_btn = QPushButton("×")
+        exit_btn.setObjectName("exitButton")
+        # Use Qt method for cursor instead of CSS (matching watchlist)
+        exit_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        exit_btn.setFixedSize(16, 16)
+        exit_btn.clicked.connect(partial(self._exit_position_at_row, row))
+        return exit_btn
+
+    def _update_row_data(self, row: int, pos: Position):
+        """Update row data with proper formatting matching watchlist style."""
+        if row >= self.table.rowCount():
+            return
+
+        # Ensure items exist
+        for col_idx in range(4):
+            if not self.table.item(row, col_idx):
+                self.table.setItem(row, col_idx, QTableWidgetItem())
+
+        # Set text values with formatting
+        self.table.item(row, 0).setText(pos.tradingsymbol)
+        self.table.item(row, 1).setText(str(pos.quantity))
+        self.table.item(row, 2).setText(f"{pos.average_price:.2f}")
+        self.table.item(row, 3).setText(f"{pos.pnl:,.2f}")
+
+        # Apply colors (matching watchlist pattern)
+        profit_color = QColor(60, 179, 113)  # Medium Sea Green
+        loss_color = QColor(220, 20, 60)  # Crimson
+        neutral_color = QColor(169, 169, 169)  # DarkGray
+
+        pnl_color = profit_color if pos.pnl >= 0 else loss_color
+
+        # Color the P&L column
+        self.table.item(row, 3).setForeground(pnl_color)
+
+        # Set alignments (matching watchlist exactly)
+        self.table.item(row, 0).setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self.table.item(row, 1).setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.table.item(row, 2).setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.table.item(row, 3).setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+        # Set tooltips
+        self._set_row_tooltips(row, pos)
 
     def _set_row_tooltips(self, row: int, pos: Position):
         """Set informative tooltips for table cells."""
-        try:
-            investment = abs(pos.quantity * pos.average_price)
-            current_value = abs(pos.quantity * pos.ltp)
-            pnl_percent = ((pos.ltp - pos.average_price) / pos.average_price * 100) if pos.average_price != 0 else 0
-
-            tooltip_base = f"""Symbol: {pos.tradingsymbol}
-Product: {pos.product}
-Exchange: {pos.exchange}
-LTP: ₹{pos.ltp:.2f}
-Investment: ₹{investment:,.2f}
-Current Value: ₹{current_value:,.2f}
-P&L%: {pnl_percent:+.2f}%"""
-
-            for col in range(4):
-                self.table.item(row, col).setToolTip(tooltip_base.strip())
-
-        except Exception as e:
-            logger.error(f"Error setting tooltips for row {row}: {e}")
-
-    def _create_exit_button(self, row: int) -> QPushButton:
-        """Create enhanced exit button with watchlist-style cross button."""
-        exit_btn = QPushButton("×")
-        exit_btn.setObjectName("exitButton")
-        exit_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        exit_btn.setFixedSize(16, 16)  # Match watchlist remove button size
-        exit_btn.setToolTip("Exit this position")
-        exit_btn.clicked.connect(lambda: self._on_exit_clicked(row))
-        return exit_btn
+        investment = abs(pos.quantity * pos.average_price)
+        pnl_percent = ((pos.ltp - pos.average_price) / pos.average_price * 100) if pos.average_price != 0 else 0
+        tooltip_text = f"""
+            Symbol: {pos.tradingsymbol}
+            Product: {pos.product}
+            LTP: ₹{pos.ltp:.2f}
+            Investment: ₹{investment:,.2f}
+            P&L %: {pnl_percent:+.2f}%
+                    """.strip()
+        for col in range(4):  # Only first 4 columns have items
+            if self.table.item(row, col):
+                self.table.item(row, col).setToolTip(tooltip_text)
 
     def _update_summary(self, total_pnl: float, total_investment: float, position_count: int):
         """Update summary labels with current data."""
-        try:
-            # Update total P&L with simple inline styling
-            profit_color = "#26a69a"
-            loss_color = "#ef5350"
-            color = profit_color if total_pnl >= 0 else loss_color
+        profit_color = "#26a69a"
+        loss_color = "#ef5350"
+        color = profit_color if total_pnl >= 0 else loss_color
 
-            self.total_pnl_label.setText(f"Total P&L: ₹{total_pnl:,.2f}")
-            self.total_pnl_label.setStyleSheet(
-                f"color: {color}; background-color: transparent; border: none; margin: 0px; padding: 0px; font-size: 12px; font-weight: normal;")
+        # Update main P&L label with color
+        self.total_pnl_label.setText(f"Total P&L: ₹{total_pnl:,.2f}")
+        self.total_pnl_label.setStyleSheet(f"color: {color}; background-color: transparent; border: none;")
 
-            # Update metrics with simple text
-            self.investment_label.setText(f"Investment: ₹{total_investment:,.0f}")
-            returns_percent = (total_pnl / total_investment * 100) if total_investment > 0 else 0
-            self.returns_label.setText(f"Returns: {returns_percent:+.2f}%")
-            self.last_update_label.setText(f"Updated: {self._last_update_time.strftime('%H:%M:%S')}")
-
-        except Exception as e:
-            logger.error(f"Error updating summary: {e}")
+        # Update other metrics
+        self.investment_label.setText(f"Investment: ₹{total_investment:,.0f}")
+        returns_percent = (total_pnl / total_investment * 100) if total_investment > 0 else 0
+        self.returns_label.setText(f"Returns: {returns_percent:+.2f}%")
 
     def _check_data_freshness(self):
-        """Check if data is getting stale and update indicator."""
-        try:
-            # Data freshness check without visual indicator
-            time_since_update = (datetime.now() - self._last_update_time).total_seconds()
-
-            if time_since_update > 60:
-                logger.debug("Position data may be stale (>60s)")
-            elif time_since_update > 30:
-                logger.debug("Position data is getting old (>30s)")
-
-        except Exception as e:
-            logger.error(f"Error checking data freshness: {e}")
-
-    # === EVENT HANDLERS ===
+        """Check if data is getting stale."""
+        time_since_update = (datetime.now() - self._last_update_time).total_seconds()
+        if time_since_update > 30:
+            logger.debug("Position data might be stale.")
 
     @Slot(int)
     def _on_header_clicked(self, logical_index: int):
         """Handle header clicks for sorting."""
-        if logical_index == 4:  # Don't sort by action column
+        if logical_index == 4:  # Don't sort on exit button column
             return
 
         if self._sort_column == logical_index:
-            # Toggle sort order if same column
-            self._sort_order = (Qt.SortOrder.AscendingOrder if self._sort_order == Qt.SortOrder.DescendingOrder
-                                else Qt.SortOrder.DescendingOrder)
+            self._sort_order = Qt.SortOrder.AscendingOrder if self._sort_order == Qt.SortOrder.DescendingOrder else Qt.SortOrder.DescendingOrder
         else:
-            # New column, default to descending for numerical columns
             self._sort_column = logical_index
-            self._sort_order = Qt.SortOrder.DescendingOrder if logical_index > 0 else Qt.SortOrder.AscendingOrder
+            self._sort_order = Qt.SortOrder.DescendingOrder
+        self.update_positions(list(self._positions_cache.values()))
 
-        # Re-trigger update to resort
-        positions = list(self._positions_cache.values())
-        self.update_positions(positions)
+    def _exit_position_at_row(self, row: int):
+        """Exit position at specific row."""
+        if 0 <= row < self.table.rowCount():
+            try:
+                symbol = self.table.item(row, 0).text()
+                position = self._positions_cache.get(symbol)
+                if position:
+                    self.exit_position_requested.emit(asdict(position))
+            except Exception as e:
+                logger.error(f"Error exiting position at row {row}: {e}")
 
     @Slot(int)
-    def _on_exit_clicked(self, row: int):
-        """Handle exit button click."""
-        try:
-            symbol = self.table.item(row, 0).text()
-            if symbol in self._positions_cache:
-                position = self._positions_cache[symbol]
-                # Convert Position dataclass to dictionary
-                position_data = asdict(position)
-                self.exit_position_requested.emit(position_data)
-                logger.info(f"Exit position requested for {symbol}")
-            else:
-                logger.warning(f"Could not find position data for symbol {symbol}")
-        except Exception as e:
-            logger.error(f"Error handling exit click for row {row}: {e}")
-
-    @Slot(int, int)
     def _on_table_focus_out(self, event):
-        """Clear selection when table loses focus (matching positions table)."""
+        """Clear selection when table loses focus."""
         try:
             self.table.clearSelection()
             # Call the original focusOutEvent if it exists
@@ -382,70 +349,86 @@ P&L%: {pnl_percent:+.2f}%"""
 
     def _on_cell_clicked(self, row: int, column: int):
         """Handle cell click for chart updates."""
-        if column == 4:  # Don't trigger on exit button column
-            return
-        try:
-            symbol = self.table.item(row, 0).text()
-            self.symbol_selected.emit(symbol)
-            logger.debug(f"Symbol selected from positions: {symbol}")
-        except Exception as e:
-            logger.error(f"Error handling cell click: {e}")
+        if column != 4 and row < self.table.rowCount():  # Don't handle exit button clicks
+            try:
+                symbol = self.table.item(row, 0).text()
+                self.symbol_selected.emit(symbol)
+            except Exception as e:
+                logger.error(f"Error handling cell click: {e}")
 
     @Slot(int, int)
     def _on_cell_double_clicked(self, row: int, column: int):
         """Handle cell double-click for position details."""
-        if column == 4:
-            return
-        try:
-            symbol = self.table.item(row, 0).text()
-            self.position_details_requested.emit(symbol)
-            logger.debug(f"Position details requested for {symbol}")
-        except Exception as e:
-            logger.error(f"Error handling cell double-click: {e}")
+        if column != 4:  # Don't handle exit button double-clicks
+            try:
+                symbol = self.table.item(row, 0).text()
+                self.position_details_requested.emit(symbol)
+            except Exception as e:
+                logger.error(f"Error handling cell double-click: {e}")
 
     def _show_context_menu(self, position):
         """Show context menu for advanced actions."""
-        try:
-            item = self.table.itemAt(position)
-            if not item:
-                return
+        item = self.table.itemAt(position)
+        if not item:
+            return
+        row = item.row()
+        symbol = self.table.item(row, 0).text()
+        pos = self._positions_cache.get(symbol)
+        if not pos:
+            return
 
-            row = item.row()
-            symbol = self.table.item(row, 0).text()
-            pos = self._positions_cache.get(symbol)
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: #1a1a1a;
+                color: #e0e0e0;
+                border: 1px solid #3a3a3a;
+                border-radius: 4px;
+                padding: 4px;
+                font-size: 12px;
+            }
+            QMenu::item {
+                padding: 8px 16px;
+                border-radius: 2px;
+                margin: 1px;
+            }
+            QMenu::item:selected {
+                background-color: #6a9cff;
+                color: #ffffff;
+            }
+            QMenu::separator {
+                height: 1px;
+                background-color: #3a3a3a;
+                margin: 4px 0px;
+            }
+        """)
 
-            if not pos:
-                return
+        chart_action = QAction("View Chart", self)
+        chart_action.triggered.connect(lambda: self.symbol_selected.emit(symbol))
+        menu.addAction(chart_action)
 
-            menu = QMenu(self)
+        alert_action = QAction("Add Price Alert", self)
+        alert_action.triggered.connect(lambda: self.add_alert_requested.emit(symbol, pos.ltp))
+        menu.addAction(alert_action)
 
-            # Chart action
-            chart_action = QAction("View Chart", self)
-            chart_action.triggered.connect(lambda: self.symbol_selected.emit(symbol))
-            menu.addAction(chart_action)
+        menu.addSeparator()
 
-            # Alert action
-            alert_action = QAction("Add Price Alert", self)
-            alert_action.triggered.connect(lambda: self.add_alert_requested.emit(symbol, pos.ltp))
-            menu.addAction(alert_action)
+        exit_action = QAction("Exit Position", self)
+        exit_action.triggered.connect(lambda: self.exit_position_requested.emit(asdict(pos)))
+        menu.addAction(exit_action)
 
-            menu.addSeparator()
+        menu.exec(self.table.mapToGlobal(position))
 
-            # Exit action
-            exit_action = QAction("Exit Position", self)
-            exit_action.triggered.connect(lambda: self.exit_position_requested.emit(asdict(pos)))
-            menu.addAction(exit_action)
-
-            menu.exec(self.table.mapToGlobal(position))
-
-        except Exception as e:
-            logger.error(f"Error showing context menu: {e}")
-
-
-    # === UTILITY METHODS ===
+    def get_all_tokens(self) -> List[int]:
+        """Get instrument tokens for all current positions."""
+        return [
+            pos.contract.instrument_token
+            for pos in self._positions_cache.values()
+            if hasattr(pos, 'contract') and hasattr(pos.contract, 'instrument_token')
+        ]
 
     def get_position_by_symbol(self, symbol: str) -> Optional[Position]:
-        """Get position object by symbol."""
+        """Get position by symbol."""
         return self._positions_cache.get(symbol)
 
     def has_positions(self) -> bool:
@@ -460,25 +443,19 @@ P&L%: {pnl_percent:+.2f}%"""
         """Get total unrealized P&L."""
         return sum(pos.pnl for pos in self._positions_cache.values())
 
-    def _apply_professional_styles(self):
-        """Apply TC2000-style professional dark theme."""
+    def _apply_consistent_styles(self):
+        """Apply styling consistent with watchlist and scanner tables."""
         self.setStyleSheet("""
-            /* Main Container with thick top border separator */
+            /* Main Widget - matches watchlist and scanner */
             QWidget {
                 background-color: #0a0a0a;
                 color: #e0e0e0;
-                font-family: "Segoe UI", "Arial", sans-serif;
-                font-size: 11px;
+                font-family: "Segoe UI", Arial, sans-serif;
+                font-size: 13px;
                 border-top: 3px solid #404040;
             }
 
-            /* Header */
-            #positionsHeader {
-                background-color: #1a1a1a;
-                border-bottom: 1px solid #2a2a2a;
-            }
-
-            /* Table */
+            /* Table Styling - EXACT match to watchlist and scanner */
             QTableWidget {
                 background-color: #0a0a0a;
                 border: none;
@@ -487,8 +464,47 @@ P&L%: {pnl_percent:+.2f}%"""
                 alternate-background-color: #0f0f0f;
                 outline: none;
                 show-decoration-selected: 0;
+                font-size: 12px;
+                border-radius: 0px;
             }
 
+            QTableWidget::item {
+                padding: 5px 8px;
+                border-bottom: 1px solid #1a1a1a;
+                background-color: transparent;
+                color: #e0e0e0;
+                font-size: 12px;
+            }
+
+            QTableWidget::item:selected {
+                background-color: #1e3a5f !important;
+                outline: none;
+                border: none;
+                color: #ffffff;
+                font-weight: 600;
+            }
+
+            QTableWidget::item:focus {
+                background-color: #1e3a5f !important;
+                outline: none;
+                border: none;
+            }
+
+            QTableWidget::item:hover {
+                background-color: transparent;
+            }
+
+            QTableWidget::item:alternate {
+                background-color: #0f0f0f;
+            }
+
+            QTableWidget::item:alternate:selected {
+                background-color: #1e3a5f !important;
+                color: #ffffff;
+                font-weight: 600;
+            }
+
+            /* Header Styling - EXACT match to watchlist */
             QHeaderView::section {
                 background-color: #1a1a1a;
                 color: #a0c0ff;
@@ -506,34 +522,29 @@ P&L%: {pnl_percent:+.2f}%"""
 
             QHeaderView::section:hover {
                 background-color: #2a2a2a;
+                color: #ccd6f6;
             }
 
-            QTableWidget::item {
-                padding: 5px 8px;
-                border-bottom: 1px solid #1a1a1a;
-                background-color: transparent;
-                color: #e0e0e0;
-                font-size: 12px;
+            QHeaderView::down-arrow {
+                color: #6a9cff;
+                width: 8px;
+                height: 8px;
+                subcontrol-position: center right;
+                subcontrol-origin: margin;
+                margin-right: 2px;
             }
 
-            QTableWidget::item:selected {
-                background-color: #1e3a5f;
-                outline: none;
-                border: none;
+            QHeaderView::up-arrow {
+                color: #6a9cff;
+                width: 8px;
+                height: 8px;
+                subcontrol-position: center right;
+                subcontrol-origin: margin;
+                margin-right: 2px;
             }
 
-            QTableWidget::item:focus {
-                background-color: #1e3a5f;
-                outline: none;
-                border: none;
-            }
-
-            QTableWidget::item:hover {
-                background-color: transparent;
-            }
-
-            /* Exit Button - Matching Watchlist Style Exactly */
-            #exitButton {
+            /* Exit Button - EXACT match to watchlist remove button */
+            QPushButton#exitButton {
                 background-color: transparent;
                 color: #cc4444;
                 border: none;
@@ -544,20 +555,30 @@ P&L%: {pnl_percent:+.2f}%"""
                 margin: 0px;
             }
 
-            #exitButton:hover {
+            QPushButton#exitButton:hover {
                 color: #ff6666;
                 background-color: #2a1f1f;
             }
 
-            /* Footer */
+            /* Minimal Footer Styling */
             #positionsFooter {
                 background-color: #000000;
                 border-top: 1px solid #2a2a2a;
             }
 
-            #footerMetric {
+            #footerPrimaryMetric {
+                color: #e0e0e0;
+                font-size: 11px;
+                font-weight: 600;
+                background-color: transparent;
+                border: none;
+                margin: 0px;
+                padding: 0px;
+            }
+
+            #footerSecondaryMetric {
                 color: #a0a0a0;
-                font-size: 9px;
+                font-size: 10px;
                 font-weight: normal;
                 background-color: transparent;
                 border: none;
@@ -565,11 +586,21 @@ P&L%: {pnl_percent:+.2f}%"""
                 padding: 0px;
             }
 
-            /* Scrollbars */
+            #footerSeparator {
+                color: #505050;
+                font-size: 10px;
+                background-color: transparent;
+                border: none;
+                margin: 0px;
+                padding: 0px;
+            }
+
+            /* Enhanced Scrollbars - EXACT match to watchlist */
             QScrollBar:vertical {
                 background-color: #0a0a0a;
                 width: 8px;
                 border: none;
+                margin: 0px;
             }
 
             QScrollBar::handle:vertical {
@@ -587,6 +618,7 @@ P&L%: {pnl_percent:+.2f}%"""
                 background-color: #0a0a0a;
                 height: 8px;
                 border: none;
+                margin: 0px;
             }
 
             QScrollBar::handle:horizontal {
@@ -603,310 +635,10 @@ P&L%: {pnl_percent:+.2f}%"""
             QScrollBar::add-line, QScrollBar::sub-line {
                 border: none;
                 background: none;
+                width: 0px;
+                height: 0px;
+                margin: 0px;
             }
         """)
 
-        logger.info("Professional dark theme applied to positions table.")
-
-    @Slot(list)
-    def update_positions(self, positions: List[Position]):
-        """FIXED: Enhanced position update with better change detection and forced refresh"""
-        try:
-            if not hasattr(self, '_update_counter'):
-                self._update_counter = 0
-            self._update_counter += 1
-
-            start_time = datetime.now()
-            logger.debug(f"Position table update #{self._update_counter}: {len(positions)} positions")
-
-            # Store current scroll position
-            v_scrollbar = self.table.verticalScrollBar()
-            h_scrollbar = self.table.horizontalScrollBar()
-            v_scroll_pos = v_scrollbar.value()
-            h_scroll_pos = h_scrollbar.value()
-
-            # Create new cache for positions
-            new_cache = {pos.tradingsymbol: pos for pos in positions}
-
-            # Calculate totals
-            total_pnl = 0.0
-            total_investment = 0.0
-
-            # Sort positions by the current sort criteria
-            sorted_positions = self._sort_positions(positions)
-
-            # CRITICAL: Always update all rows if we haven't updated in a while
-            force_full_update = (
-                    self._update_counter % 10 == 0 or  # Every 10th update
-                    len(new_cache) != len(self._positions_cache) or  # Position count changed
-                    not hasattr(self, '_last_full_update') or
-                    (datetime.now() - getattr(self, '_last_full_update', datetime.min)).seconds > 30  # 30 seconds
-            )
-
-            if force_full_update:
-                logger.debug("Performing full table update")
-                self._last_full_update = datetime.now()
-
-            # Update table efficiently or fully
-            self._update_table_efficiently(sorted_positions, new_cache, force_full_update)
-
-            # Calculate totals from sorted positions
-            for pos in sorted_positions:
-                total_pnl += pos.pnl
-                total_investment += abs(pos.quantity * pos.average_price)
-
-            # Update cache
-            self._positions_cache = new_cache
-
-            # Update summary information
-            self._update_summary(total_pnl, total_investment, len(positions))
-
-            # Restore scroll position
-            QTimer.singleShot(0, lambda: self._restore_scroll_position(v_scroll_pos, h_scroll_pos))
-
-            # Update performance metrics
-            self._last_update_time = datetime.now()
-            update_time = (datetime.now() - start_time).total_seconds() * 1000
-
-            # Request token subscription for market data (critical for live updates)
-            if positions:
-                tokens = self.get_all_tokens()
-                if tokens:
-                    self.subscribe_tokens_requested.emit(tokens)
-                    logger.debug(f"Requested subscription for {len(tokens)} position tokens")
-
-            if self._update_counter % 5 == 0:  # Log every 5th update
-                logger.info(
-                    f"Position table update #{self._update_counter} completed in {update_time:.1f}ms for {len(positions)} positions")
-
-        except Exception as e:
-            logger.error(f"Error updating positions: {e}", exc_info=True)
-
-    def _update_table_efficiently(self, sorted_positions: List[Position], new_cache: Dict[str, Position],
-                                  force_full_update: bool = False):
-        """FIXED: Enhanced table update with forced refresh option"""
-        current_rows = self.table.rowCount()
-        needed_rows = len(sorted_positions)
-
-        # Add or remove rows as needed
-        if needed_rows > current_rows:
-            for _ in range(needed_rows - current_rows):
-                self.table.insertRow(self.table.rowCount())
-        elif needed_rows < current_rows:
-            for _ in range(current_rows - needed_rows):
-                self.table.removeRow(self.table.rowCount() - 1)
-
-        # Update each row
-        for row, pos in enumerate(sorted_positions):
-            old_pos = self._positions_cache.get(pos.tradingsymbol)
-
-            # Force update if requested or if this is a significant change
-            if force_full_update:
-                self._populate_row(row, pos, old_pos)
-            else:
-                self._update_row_if_needed(row, pos, old_pos)
-
-    def _update_row_if_needed(self, row: int, pos: Position, old_pos: Optional[Position]):
-        """FIXED: Enhanced change detection with more sensitive thresholds"""
-        try:
-            needs_update = (
-                    old_pos is None or
-                    old_pos.quantity != pos.quantity or
-                    abs(old_pos.average_price - pos.average_price) > 0.01 or
-                    abs(old_pos.pnl - pos.pnl) > 0.01 or  # Even 1 paisa change
-                    abs(getattr(old_pos, 'ltp', 0) - getattr(pos, 'ltp', 0)) > 0.01  # LTP change
-            )
-
-            if needs_update:
-                self._populate_row(row, pos, old_pos)
-                if old_pos and abs(old_pos.pnl - pos.pnl) > 0.01:
-                    logger.debug(f"Updated {pos.tradingsymbol}: P&L {old_pos.pnl:.2f} → {pos.pnl:.2f}")
-        except Exception as e:
-            logger.error(f"Error checking row update for row {row}: {e}")
-            # On error, force update the row
-            self._populate_row(row, pos, old_pos)
-
-    def _populate_row(self, row: int, pos: Position, old_pos: Optional[Position] = None):
-        """FIXED: Enhanced row population with better error handling"""
-        try:
-            # Ensure we have valid data
-            if not hasattr(pos, 'tradingsymbol') or not pos.tradingsymbol:
-                logger.warning(f"Invalid position data for row {row}")
-                return
-
-            # Create items for 4 data columns
-            items = [
-                QTableWidgetItem(str(pos.tradingsymbol)),
-                QTableWidgetItem(str(getattr(pos, 'quantity', 0))),
-                QTableWidgetItem(f"{getattr(pos, 'average_price', 0.0):.2f}"),
-                QTableWidgetItem(f"{getattr(pos, 'pnl', 0.0):,.2f}")
-            ]
-
-            # Set alignments
-            items[0].setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            for i in range(1, 4):
-                items[i].setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
-
-            # Apply colors
-            self._apply_row_colors(items, pos, old_pos)
-
-            # Set items in table (with error handling)
-            for col, item in enumerate(items):
-                try:
-                    self.table.setItem(row, col, item)
-                except Exception as item_error:
-                    logger.error(f"Error setting item at row {row}, col {col}: {item_error}")
-
-            # Add exit button (only if it doesn't exist)
-            if not self.table.cellWidget(row, 4):
-                try:
-                    self.table.setCellWidget(row, 4, self._create_exit_button(row))
-                except Exception as button_error:
-                    logger.error(f"Error creating exit button for row {row}: {button_error}")
-
-            # Set tooltips
-            self._set_row_tooltips(row, pos)
-
-        except Exception as e:
-            logger.error(f"Error populating row {row}: {e}")
-
-    def _apply_row_colors(self, items: List[QTableWidgetItem], pos: Position, old_pos: Optional[Position]):
-        """FIXED: Enhanced color application with change detection"""
-        try:
-            # Color scheme
-            profit_color = QColor(60, 179, 113)  # Medium Sea Green
-            loss_color = QColor(220, 20, 60)  # Crimson
-            neutral_color = QColor(169, 169, 169)  # DarkGray
-            change_color = QColor("#ffeb3b")  # Yellow for changes
-
-            # P&L coloring
-            pnl = getattr(pos, 'pnl', 0.0)
-            if pnl > 0:
-                pnl_color = profit_color
-            elif pnl < 0:
-                pnl_color = loss_color
-            else:
-                pnl_color = neutral_color
-
-            items[3].setForeground(pnl_color)  # P&L column
-
-            # Neutral colors for other columns
-            items[1].setForeground(neutral_color)  # Quantity
-            items[2].setForeground(neutral_color)  # Average Price
-
-            # Change indicators (highlight recent changes)
-            if old_pos and abs(getattr(pos, 'pnl', 0) - getattr(old_pos, 'pnl', 0)) > 0.01:
-                items[3].setBackground(change_color.lighter(180))
-                # Remove highlight after a delay
-                QTimer.singleShot(2000, lambda: self._remove_change_highlight(items[3]))
-
-        except Exception as e:
-            logger.error(f"Error applying row colors: {e}")
-
-    def _remove_change_highlight(self, item: QTableWidgetItem):
-        """Remove change highlight from table item"""
-        try:
-            if item:
-                item.setBackground(QColor())  # Reset to default background
-        except Exception as e:
-            logger.debug(f"Error removing highlight: {e}")
-
-    def get_all_tokens(self) -> List[int]:
-        """FIXED: Enhanced token retrieval for position subscriptions"""
-        try:
-            tokens = []
-            for pos in self._positions_cache.values():
-                token = None
-
-                # Method 1: Direct instrument token
-                if hasattr(pos, 'instrument_token') and pos.instrument_token:
-                    token = pos.instrument_token
-
-                # Method 2: Contract token
-                elif hasattr(pos, 'contract'):
-                    if isinstance(pos.contract, dict):
-                        token = pos.contract.get('instrument_token')
-                    elif hasattr(pos.contract, 'instrument_token'):
-                        token = pos.contract.instrument_token
-
-                # Method 3: Lookup from parent's instrument map
-                if not token and hasattr(pos, 'tradingsymbol'):
-                    main_window = self.parent()
-                    while main_window and not hasattr(main_window, 'instrument_map'):
-                        main_window = main_window.parent()
-
-                    if main_window and hasattr(main_window, 'instrument_map'):
-                        instrument_map = main_window.instrument_map
-                        if pos.tradingsymbol in instrument_map:
-                            instrument = instrument_map[pos.tradingsymbol]
-                            token = instrument.get('instrument_token')
-
-                if token and token > 0:
-                    tokens.append(token)
-                    logger.debug(f"Position token: {pos.tradingsymbol} -> {token}")
-
-            logger.info(f"Positions table returning {len(tokens)} tokens for subscription")
-            return tokens
-        except Exception as e:
-            logger.error(f"Error getting position tokens: {e}")
-            return []
-
-    def force_refresh_display(self):
-        """Force refresh the entire table display"""
-        try:
-            logger.info("🔄 Force refreshing positions table display")
-
-            # Get current positions from cache
-            if self._positions_cache:
-                positions_list = list(self._positions_cache.values())
-
-                # Mark for full update
-                self._last_full_update = datetime.min
-
-                # Trigger update
-                self.update_positions(positions_list)
-
-                logger.info(f"✅ Force refreshed {len(positions_list)} positions")
-            else:
-                logger.warning("No positions in cache to refresh")
-
-        except Exception as e:
-            logger.error(f"Error in force refresh: {e}")
-
-    def debug_table_state(self):
-        """Debug method to check table state"""
-        try:
-            logger.info("=== POSITIONS TABLE DEBUG ===")
-            logger.info(f"Cached positions: {len(self._positions_cache)}")
-            logger.info(f"Table rows: {self.table.rowCount()}")
-            logger.info(f"Update counter: {getattr(self, '_update_counter', 0)}")
-            logger.info(f"Last update: {getattr(self, '_last_update_time', 'Never')}")
-
-            # Check each cached position
-            for symbol, pos in self._positions_cache.items():
-                ltp = getattr(pos, 'ltp', 0)
-                pnl = getattr(pos, 'pnl', 0)
-                last_update = getattr(pos, '_last_ltp_update', 'Never')
-                logger.info(f"  {symbol}: LTP={ltp}, P&L={pnl}, Update={last_update}")
-
-            logger.info("=== DEBUG END ===")
-
-        except Exception as e:
-            logger.error(f"Error in table debug: {e}")
-
-    # Add this method to test table updates manually
-    def test_table_updates(self):
-        """Test method to verify table is updating correctly"""
-        try:
-            logger.info("🧪 Testing table updates...")
-
-            # Debug current state
-            self.debug_table_state()
-
-            # Force a refresh
-            self.force_refresh_display()
-
-            logger.info("✅ Table test complete")
-
-        except Exception as e:
-            logger.error(f"Error in table test: {e}")
+        logger.info("Consistent styling applied to positions table.")
