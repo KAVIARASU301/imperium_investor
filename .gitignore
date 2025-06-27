@@ -19,5 +19,5 @@ __pycache__
 .venv
 .venv/
 env/
-icons/
-icons/
+assets/icons/
+assets/icons/

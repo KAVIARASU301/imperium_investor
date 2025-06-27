@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QThread, Signal, QTimer
 from kiteconnect import KiteConnect
-from utils.token_manager import TokenManager
+from login_setup.token_manager import TokenManager
 
 logger = logging.getLogger(__name__)
 

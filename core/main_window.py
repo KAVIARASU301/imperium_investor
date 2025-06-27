@@ -1,0 +1,1426 @@
+# ==============================================================================
+# UPDATED MAIN WINDOW - REMOVED NOTIFICATION SYSTEM, ADDED STATUS BAR
+# ==============================================================================
+
+import logging
+import os
+import json
+from datetime import datetime
+from typing import List, Dict, Union, Any
+
+from PySide6.QtCore import Qt, QByteArray, QTimer, Slot, Signal
+from PySide6.QtWidgets import QMainWindow, QSplitter, QWidget, QVBoxLayout, QHBoxLayout, \
+    QPushButton, QLabel
+from PySide6.QtGui import QMouseEvent, QKeySequence, QShortcut
+
+from widgets.scanner_table import ChartinkScannerTable
+from widgets.positions_table import PositionsTable
+from widgets.watchlist_table import TabbedWatchlistWidget
+from widgets.canvas_candlestick_chart import CandlestickChart as ChartWindow
+from widgets.header_toolbar import HeaderToolbar
+
+from widgets.order_dialog import OrderDialog
+from widgets.order_history_dialog import OrderHistoryDialog
+from widgets.performance_dialog import PerformanceDialog
+from core.alert_management_system import AlertSystemManager
+
+from core.position_manager import PositionManager
+from widgets.status_bar import status, show_order_placed, show_order_failed, show_error
+
+from core.market_data_worker import MarketDataWorker
+from utils.paper_trading_manager import PaperTradingManager
+from utils.config_manager import ConfigManager
+from core.instrument_loader import InstrumentLoader
+from core.trade_logger import TradeLogger
+from kiteconnect import KiteConnect
+
+logger = logging.getLogger(__name__)
+
+
+class SwingTraderWindow(QMainWindow):
+    """
+    SIMPLIFIED Main Window with LED-style status bar instead of popup notifications:
+    - Simple Position Manager (only works when tracking orders)
+    - LED Status Bar in header toolbar (no popup distractions)
+    - Self-Managing Positions Table (local PnL calculation)
+    - Event-driven updates (no continuous polling)
+    """
+    trade_completed = Signal()
+
+    # ==============================================================================
+    # INITIALIZATION AND SETUP
+    # ==============================================================================
+
+    def __init__(self, trader: Union[KiteConnect, PaperTradingManager], real_kite_client: KiteConnect,
+                 api_key: str, access_token: str):
+        super().__init__()
+
+        # --- Core Application Components ---
+        self.trader = trader
+        self.real_kite_client = real_kite_client
+        self.api_key = api_key
+        self.access_token = access_token
+        self.config_manager = ConfigManager()
+        self.trading_mode = 'paper' if isinstance(trader, PaperTradingManager) else 'live'
+        self.trade_logger = TradeLogger(mode=self.trading_mode)
+
+        # SIMPLIFIED MANAGERS - NO NOTIFICATION SYSTEM
+        self.position_manager = PositionManager(self.trader)
+
+        self.instrument_list: List[Dict] = []
+        self.instrument_map: Dict[str, Dict] = {}
+        self._subscribed_tokens = set()
+
+        if isinstance(self.trader, PaperTradingManager):
+            self.trader.set_trade_logger(self.trade_logger)
+
+        # --- Window Dragging Variables ---
+        self._drag_pos = None
+        self._is_maximized = False
+        self.order_history_dialog = None
+        self.performance_dialog = None
+
+        # --- Alert System & Sounds ---
+        self.alert_system = None
+        self.alert_sound = None
+        self.success_sound = None
+        self.error_sound = None
+        self.order_placed_sound = None
+
+        # --- Setup Sequence ---
+        self._setup_frameless_window()
+        self._setup_ui()
+        self._init_sounds()
+        self._init_alert_system()
+        self._init_background_workers()
+        self._connect_signals()
+        self._connect_chart_signals()
+        self._setup_watchlist_shortcuts()
+        self._apply_dark_theme()
+        self.restore_window_state()
+
+        logger.info("Simplified Swing Trader Window with Status Bar Initialized Successfully.")
+
+        # Start position manager after a delay
+        QTimer.singleShot(2000, self._initialize_position_system)
+
+    def _initialize_position_system(self):
+        """Initialize position system after main components are ready"""
+        try:
+            # Fetch initial positions on startup
+            self.position_manager.fetch_positions_from_kite("app_startup")
+            status.set_ready()  # Set status bar to ready
+            logger.info("Position system initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize position system: {e}")
+            show_error("Failed to initialize positions")
+
+    def _setup_frameless_window(self):
+        """Setup frameless window with custom title bar."""
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+        self.setMinimumSize(1200, 700)
+
+    def _setup_ui(self):
+        """Setup UI with simplified layout"""
+        main_container = QWidget()
+        main_container.setObjectName("mainContainer")
+        self.setCentralWidget(main_container)
+
+        main_layout = QVBoxLayout(main_container)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        self.title_bar = self._create_custom_title_bar()
+        main_layout.addWidget(self.title_bar)
+
+        # HEADER TOOLBAR WITH STATUS BAR INTEGRATION
+        self.header_toolbar = HeaderToolbar(self.trader, self)
+        main_layout.addWidget(self.header_toolbar)
+
+        # Initialize global status manager with header toolbar's status bar
+        if hasattr(self.header_toolbar, 'status_bar'):
+            status.initialize(self.header_toolbar.status_bar)
+            logger.info("Status bar integrated with header toolbar")
+
+        # Create main splitter
+        self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        main_layout.addWidget(self.main_splitter, 1)
+
+        # Create components
+        self.chartink_scanner = ChartinkScannerTable()
+        self.candlestick_chart = ChartWindow(self.real_kite_client)
+        self.watchlist = TabbedWatchlistWidget()
+        self.positions_table = PositionsTable(parent=self)
+
+        # Create right panel splitter
+        right_panel_splitter = QSplitter(Qt.Orientation.Vertical)
+        right_panel_splitter.setObjectName("rightPanelSplitter")
+        right_panel_splitter.addWidget(self.watchlist)
+        right_panel_splitter.addWidget(self.positions_table)
+
+        # Configure splitters
+        right_panel_splitter.setStretchFactor(0, 3)
+        right_panel_splitter.setStretchFactor(1, 2)
+        right_panel_splitter.setChildrenCollapsible(False)
+        right_panel_splitter.setHandleWidth(4)
+
+        self.watchlist.setMinimumHeight(150)
+        self.positions_table.setMinimumHeight(100)
+
+        # Add to main splitter
+        self.main_splitter.addWidget(self.chartink_scanner)
+        self.main_splitter.addWidget(self.candlestick_chart)
+        self.main_splitter.addWidget(right_panel_splitter)
+
+        self.main_splitter.setChildrenCollapsible(False)
+        self.main_splitter.setHandleWidth(4)
+        self.main_splitter.setStretchFactor(0, 0)
+        self.main_splitter.setStretchFactor(1, 1)
+        self.main_splitter.setStretchFactor(2, 0)
+        self.main_splitter.setSizes([250, 600, 300])
+
+        self.right_panel_splitter = right_panel_splitter
+
+    def _create_custom_title_bar(self) -> QWidget:
+        """Creates a custom title bar for the frameless window."""
+        title_bar = QWidget()
+        title_bar.setObjectName("customTitleBar")
+        title_bar.setFixedHeight(28)
+
+        layout = QHBoxLayout(title_bar)
+        layout.setContentsMargins(8, 0, 4, 0)
+        layout.setSpacing(4)
+
+        title_label = QLabel("Kristjan Qullamaggie")
+        title_label.setObjectName("appTitle")
+        layout.addWidget(title_label)
+
+        mode_label = QLabel(f"[{self.trading_mode.upper()}]")
+        mode_label.setObjectName("tradingModeLabel")
+        layout.addWidget(mode_label)
+
+        layout.addStretch()
+
+        min_btn = QPushButton("−")
+        min_btn.setObjectName("titleBarButton")
+        min_btn.setFixedSize(24, 24)
+        min_btn.clicked.connect(self.showMinimized)
+        layout.addWidget(min_btn)
+
+        self.max_btn = QPushButton("□")
+        self.max_btn.setObjectName("titleBarButton")
+        self.max_btn.setFixedSize(24, 24)
+        self.max_btn.clicked.connect(self._toggle_maximize)
+        layout.addWidget(self.max_btn)
+
+        close_btn = QPushButton("✕")
+        close_btn.setObjectName("closeTitleBarButton")
+        close_btn.setFixedSize(24, 24)
+        close_btn.clicked.connect(self.close)
+        layout.addWidget(close_btn)
+
+        title_bar.mousePressEvent = self._title_bar_mouse_press
+        title_bar.mouseMoveEvent = self._title_bar_mouse_move
+        title_bar.mouseDoubleClickEvent = self._title_bar_double_click
+        return title_bar
+
+    def _init_alert_system(self):
+        try:
+            self.alert_system = AlertSystemManager(self)
+            self.alert_system.alert_sound_requested.connect(self._play_alert_sound)
+            self.alert_system.engine_status_changed.connect(self._on_alert_engine_status)
+            logger.info("Alert system initialized successfully.")
+        except Exception as e:
+            logger.error(f"Failed to initialize alert system: {e}")
+            self.alert_system = None
+
+    @Slot(str)
+    def _on_alert_engine_status(self, status_msg: str):
+        if status_msg == "error":
+            logger.warning("Alert engine encountered an error")
+        elif status_msg == "running":
+            logger.info("Alert engine is running normally")
+
+    def _init_background_workers(self):
+        """Initialize background workers"""
+        self.chart_init_timer = QTimer()
+        self.chart_init_timer.setSingleShot(True)
+        self.chart_init_timer.timeout.connect(self._initialize_chart_after_instruments)
+
+        self.instrument_loader = InstrumentLoader(self.real_kite_client)
+        self.instrument_loader.instruments_loaded.connect(self._on_instruments_loaded)
+        self.instrument_loader.error_occurred.connect(
+            lambda e: logger.error(f"Critical error loading instruments: {e}"))
+        self.instrument_loader.start()
+
+        self.market_data_worker = MarketDataWorker(self.api_key, self.access_token)
+        self.market_data_worker.data_received.connect(self._on_market_data)
+        self.market_data_worker.connection_established.connect(self._on_websocket_connect)
+        self.market_data_worker.start()
+
+    @Slot()
+    def _on_websocket_connect(self):
+        """WebSocket connection handler"""
+        logger.info("WebSocket connected. Setting up subscriptions.")
+        status.show_api_status("CONNECTED")
+
+        if (hasattr(self, 'candlestick_chart') and
+                hasattr(self.candlestick_chart, 'current_instrument_token') and
+                self.candlestick_chart.current_instrument_token):
+            try:
+                self.market_data_worker.add_instruments([self.candlestick_chart.current_instrument_token])
+                logger.info(f"Subscribed to chart token: {self.candlestick_chart.current_instrument_token}")
+            except Exception as e:
+                logger.error(f"Failed to subscribe to chart: {e}")
+        self._on_watchlist_changed()
+
+    def _connect_chart_signals(self):
+        """Connect chart signals"""
+        if self.candlestick_chart:
+            self.candlestick_chart.symbol_loaded.connect(self._on_chart_symbol_changed)
+            self.candlestick_chart.data_request_for_symbol.connect(self._ensure_chart_subscription)
+
+    @Slot(str)
+    def _on_chart_symbol_changed(self, symbol: str):
+        """Handle chart symbol changes"""
+        logger.info(f"Chart symbol changed to: {symbol}")
+        if symbol in self.instrument_map:
+            token = self.instrument_map[symbol]['instrument_token']
+            try:
+                if self.market_data_worker and self.market_data_worker.is_connected():
+                    self.market_data_worker.add_instruments([token])
+                    logger.info(f"Added chart symbol {symbol} to subscription")
+                QTimer.singleShot(100, self._on_watchlist_changed)
+            except Exception as e:
+                logger.error(f"Failed to subscribe to chart symbol {symbol}: {e}")
+
+    @Slot(str)
+    def _ensure_chart_subscription(self, symbol: str):
+        """Ensure chart symbol is subscribed"""
+        if symbol in self.instrument_map:
+            token = self.instrument_map[symbol]['instrument_token']
+            try:
+                if self.market_data_worker:
+                    current_info = self.market_data_worker.get_subscription_info()
+                    if token not in current_info.get('subscribed_tokens', []):
+                        self.market_data_worker.add_instruments([token])
+                        logger.info(f"Ensured subscription for chart symbol {symbol}")
+            except Exception as e:
+                logger.error(f"Failed to ensure chart subscription for {symbol}: {e}")
+
+    # ==============================================================================
+    # SIMPLIFIED SIGNAL CONNECTIONS
+    # ==============================================================================
+
+    def _connect_signals(self):
+        """Connect signals with simplified architecture"""
+        logger.info("Connecting component signals...")
+
+        # SIMPLIFIED: Position Manager → Positions Table (direct connection)
+        self.position_manager.positions_updated.connect(self.positions_table.update_positions)
+        # NO MORE NOTIFICATION SIGNALS - Position manager uses global status directly
+
+        # SIMPLIFIED: Positions Table → Main Window
+        self.positions_table.exit_position_requested.connect(self._handle_exit_position_request)
+        self.positions_table.symbol_selected.connect(self.candlestick_chart.on_search)
+        self.positions_table.subscribe_to_market_data.connect(self._subscribe_to_tokens)
+
+        # Chart → Main Window & Header
+        self.candlestick_chart.order_button_clicked.connect(self._show_order_dialog)
+        self.candlestick_chart.symbol_loaded.connect(self.header_toolbar.set_current_symbol)
+        if self.alert_system:
+            self.candlestick_chart.alert_creation_requested.connect(self.alert_system.create_alert_from_chart)
+
+        # Scanner & Watchlist → Chart
+        self.chartink_scanner.symbol_selected.connect(self.candlestick_chart.on_search)
+        self.watchlist.symbol_selected.connect(self.candlestick_chart.on_search)
+        self.watchlist.subscribe_tokens_requested.connect(self._subscribe_to_tokens)
+        self.watchlist.place_order_requested.connect(self._show_order_dialog_from_dict)
+        self.watchlist.watchlist_changed.connect(self._on_watchlist_changed)
+
+        # Header Toolbar → Main Window
+        self.header_toolbar.symbol_selected.connect(self.candlestick_chart.on_search)
+        self.header_toolbar.buy_order_requested.connect(self._on_header_buy_order)
+        self.header_toolbar.sell_order_requested.connect(self._on_header_sell_order)
+        self.header_toolbar.order_history_requested.connect(self._show_order_history_dialog)
+        self.header_toolbar.performance_dashboard_requested.connect(self._show_performance_dialog)
+
+        # Alert System
+        if self.alert_system:
+            self.header_toolbar.add_alert_requested.connect(self.alert_system.show_quick_alert_dialog)
+            self.header_toolbar.alert_manager_requested.connect(self.alert_system.show_alert_manager)
+        else:
+            self.header_toolbar.add_alert_requested.connect(self._alert_system_unavailable)
+            self.header_toolbar.alert_manager_requested.connect(self._alert_system_unavailable)
+
+        # Alert update timer
+        self.alert_update_timer = QTimer(self)
+        self.alert_update_timer.timeout.connect(self._update_alert_badges)
+        self.alert_update_timer.start(30000)
+
+        logger.info("All component signals connected successfully.")
+
+    # ==============================================================================
+    # WINDOW MANAGEMENT & EVENTS
+    # ==============================================================================
+
+    def _title_bar_mouse_press(self, event: QMouseEvent):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+
+    def _title_bar_mouse_move(self, event: QMouseEvent):
+        if event.buttons() == Qt.MouseButton.LeftButton and self._drag_pos:
+            if not self.isMaximized():
+                self.move(event.globalPosition().toPoint() - self._drag_pos)
+
+    def _title_bar_double_click(self, event: QMouseEvent):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._toggle_maximize()
+
+    def _toggle_maximize(self):
+        if self.isMaximized():
+            self.showNormal()
+            self.max_btn.setText("□")
+            self._is_maximized = False
+        else:
+            self.showMaximized()
+            self.max_btn.setText("❐")
+            self._is_maximized = True
+
+    def closeEvent(self, event):
+        """Enhanced close event with cleanup"""
+        logger.info("Close event triggered. Saving state and stopping workers...")
+        try:
+            self.save_window_state()
+
+            # # Stop position manager
+            # if hasattr(self, 'position_manager'):
+            #     self.position_manager.stop_tracking()
+
+            # Stop alert system
+            if self.alert_system:
+                self.alert_system.stop_engine()
+                if hasattr(self, 'alert_update_timer'):
+                    self.alert_update_timer.stop()
+
+            # Stop background workers
+            if hasattr(self, 'instrument_loader') and self.instrument_loader and self.instrument_loader.isRunning():
+                self.instrument_loader.quit()
+                self.instrument_loader.wait(2000)
+
+            # Close dialogs
+            if hasattr(self,
+                       'order_history_dialog') and self.order_history_dialog and self.order_history_dialog.isVisible():
+                self.order_history_dialog.close()
+            if hasattr(self, 'performance_dialog') and self.performance_dialog and self.performance_dialog.isVisible():
+                self.performance_dialog.close()
+
+            # Stop market data worker
+            if hasattr(self, 'market_data_worker') and self.market_data_worker:
+                self.market_data_worker.stop()
+
+            logger.info("Application shut down gracefully.")
+        except Exception as e:
+            logger.error(f"Error during shutdown: {e}")
+        super().closeEvent(event)
+
+    # ==============================================================================
+    # CORE EVENT HANDLERS (SIMPLIFIED)
+    # ==============================================================================
+
+    def _on_instruments_loaded(self, instruments: List[Dict]):
+        """Handle instrument loading"""
+        logger.info(f"Successfully loaded {len(instruments)} instruments.")
+        self.instrument_list = instruments
+        self.instrument_map = {inst['tradingsymbol']: inst for inst in instruments if 'tradingsymbol' in inst}
+
+        # Set instrument data in components
+        self.header_toolbar.set_instrument_data(instruments)
+        self.candlestick_chart.set_instrument_list(instruments)
+        self.watchlist.set_instrument_map(self.instrument_map)
+
+        if isinstance(self.trader, PaperTradingManager):
+            self.trader.set_instrument_data(instruments)
+        if self.alert_system:
+            self.alert_system.set_instrument_map(self.instrument_map)
+
+        # Fetch positions after instruments are loaded
+        QTimer.singleShot(1000, lambda: self.position_manager.fetch_positions_from_kite("instruments_loaded"))
+
+        self._on_watchlist_changed()
+        self.chart_init_timer.start(1000)
+        logger.info("Instruments loaded successfully.")
+
+    def _initialize_chart_after_instruments(self):
+        """Initialize chart after instruments are ready"""
+        try:
+            logger.info("Chart auto-loading initiated")
+        except Exception as e:
+            logger.error(f"Error in chart auto-loading: {e}")
+
+    @Slot(list)
+    def _on_market_data(self, ticks: List[Dict]):
+        """Handle market data updates"""
+        if not ticks:
+            return
+        try:
+            # Update chart
+            current_chart_symbol = getattr(self.candlestick_chart, 'current_symbol', None)
+            current_chart_token = getattr(self.candlestick_chart, 'current_instrument_token', None)
+
+            if self.candlestick_chart and current_chart_symbol:
+                chart_ticks = []
+                for tick in ticks:
+                    tick_symbol = tick.get('tradingsymbol')
+                    tick_token = tick.get('instrument_token')
+
+                    symbol_matches = tick_symbol == current_chart_symbol
+                    token_matches = (tick_token == current_chart_token) if tick_token and current_chart_token else False
+
+                    if not symbol_matches and tick_token and hasattr(self, 'instrument_map'):
+                        for symbol, instrument in self.instrument_map.items():
+                            if instrument.get('instrument_token') == tick_token and symbol == current_chart_symbol:
+                                tick['tradingsymbol'] = symbol
+                                symbol_matches = True
+                                break
+
+                    if symbol_matches or token_matches:
+                        chart_ticks.append(tick)
+
+                if chart_ticks:
+                    logger.debug(f"Sending {len(chart_ticks)} ticks to chart for {current_chart_symbol}")
+                    self.candlestick_chart.update_live_data(chart_ticks)
+
+            # SIMPLIFIED: Update positions table with market data
+            for tick in ticks:
+                token = tick.get('instrument_token')
+                ltp = tick.get('last_price', 0)
+                if token and ltp > 0:
+                    self.positions_table.update_market_data(token, ltp)
+
+            # Update other components
+            if isinstance(self.trader, PaperTradingManager):
+                self.trader.update_market_data(ticks)
+            self.watchlist.update_data(ticks)
+            if self.alert_system:
+                self.alert_system.update_market_data(ticks)
+
+        except Exception as e:
+            logger.error(f"Error processing market data: {e}")
+
+    @Slot()
+    def _on_watchlist_changed(self):
+        """Handle watchlist changes with position priority"""
+        logger.info("Watchlist changed - updating subscriptions")
+        all_tokens = set()
+
+        # Priority 1: Position tokens
+        if hasattr(self, 'positions_table') and self.positions_table.positions_data:
+            position_tokens = [pos.token for pos in self.positions_table.positions_data.values() if pos.token > 0]
+            all_tokens.update(position_tokens)
+            logger.info(f"Added {len(position_tokens)} position tokens")
+
+        # Priority 2: Chart token
+        if (hasattr(self, 'candlestick_chart') and
+                hasattr(self.candlestick_chart, 'current_instrument_token') and
+                self.candlestick_chart.current_instrument_token):
+            all_tokens.add(self.candlestick_chart.current_instrument_token)
+            logger.info(f"Added chart token: {self.candlestick_chart.current_instrument_token}")
+
+        # Priority 3: Watchlist tokens
+        watchlist_tokens = self.watchlist.get_all_tokens()
+        all_tokens.update(watchlist_tokens)
+        logger.info(f"Added {len(watchlist_tokens)} watchlist tokens")
+
+        # Priority 4: Alert tokens
+        alert_tokens = self._get_alert_tokens()
+        all_tokens.update(alert_tokens)
+
+        # Subscribe to all tokens
+        if self.market_data_worker and all_tokens:
+            self.market_data_worker.set_instruments(list(all_tokens))
+            logger.info(f"Updated subscription to {len(all_tokens)} tokens")
+
+    @Slot(list)
+    def _subscribe_to_tokens(self, tokens: List[int]):
+        """Subscribe to market data tokens"""
+        if not tokens:
+            return
+
+        new_tokens = [token for token in tokens if token not in self._subscribed_tokens]
+        if not new_tokens:
+            return
+
+        try:
+            if self.market_data_worker and hasattr(self.market_data_worker, 'add_instruments'):
+                self.market_data_worker.add_instruments(new_tokens)
+                self._subscribed_tokens.update(new_tokens)
+                logger.info(f"Added {len(new_tokens)} new tokens to subscription")
+        except Exception as e:
+            logger.error(f"Failed to subscribe to tokens: {e}")
+
+    # ==============================================================================
+    # SIMPLIFIED ORDER HANDLING WITH STATUS BAR
+    # ==============================================================================
+
+    @Slot(str, float)
+    def _show_order_dialog(self, symbol: str, ltp_from_chart: float = 0.0):
+        """Show order dialog - simplified"""
+        ltp = ltp_from_chart if ltp_from_chart > 0.0 else self._get_fresh_ltp(symbol)
+        if ltp == 0.0:
+            show_error(f"Could not fetch LTP for {symbol}")
+            return
+        if symbol not in self.instrument_map:
+            show_error(f"Symbol {symbol} not found")
+            return
+
+        default_qty = self.config_manager.load_settings().get('default_quantity', 1)
+        order_details = {'tradingsymbol': symbol, 'ltp': ltp, 'transaction_type': 'BUY', 'quantity': default_qty}
+
+        dialog = OrderDialog(self, symbol, ltp, order_details)
+        dialog.order_placed.connect(self._handle_order_placement)
+        dialog.show()
+
+    def _show_order_dialog_from_dict(self, order_data: Dict[str, Any]):
+        """Show order dialog from watchlist"""
+        symbol = order_data.get('tradingsymbol')
+        if symbol:
+            ltp = self._get_fresh_ltp(symbol)
+            dialog = OrderDialog(self, symbol, ltp, order_data)
+            dialog.order_placed.connect(self._handle_order_placement)
+            dialog.show()
+
+    def _on_header_buy_order(self, symbol: str):
+        """Handle buy order from header"""
+        self._show_order_dialog(symbol)
+
+    def _on_header_sell_order(self, symbol: str):
+        """Handle sell order from header"""
+        ltp = self._get_fresh_ltp(symbol)
+        if ltp == 0.0:
+            show_error(f"Could not fetch LTP for {symbol}")
+            return
+
+        default_qty = self.config_manager.load_settings().get('default_quantity', 1)
+        order_details = {'tradingsymbol': symbol, 'ltp': ltp, 'transaction_type': 'SELL', 'quantity': default_qty}
+
+        dialog = OrderDialog(self, symbol, ltp, order_details)
+        dialog.order_placed.connect(self._handle_order_placement)
+        dialog.show()
+
+    @Slot(str)
+    def _handle_exit_position_request(self, symbol: str):
+        """Handle position exit request - simplified"""
+        position = self.positions_table.get_position_by_symbol(symbol)
+        if not position:
+            show_error(f"Position not found: {symbol}")
+            return
+
+        transaction_type = "SELL" if position.quantity > 0 else "BUY"
+        ltp = self._get_fresh_ltp(symbol)
+
+        exit_order = {
+            "tradingsymbol": symbol,
+            "transaction_type": transaction_type,
+            "quantity": abs(position.quantity),
+            "order_type": "MARKET",
+            "product": position.product,
+            "ltp": ltp
+        }
+
+        dialog = OrderDialog(self, symbol, ltp, exit_order)
+        dialog.order_placed.connect(self._handle_order_placement)
+        dialog.show()
+
+    def _handle_order_placement(self, order_data: Dict[str, Any]):
+        """SIMPLIFIED order placement handler with status bar"""
+        try:
+            logger.info(f"Placing order: {order_data}")
+
+            if not self._validate_order_data(order_data):
+                return
+
+            symbol = order_data.get('tradingsymbol', '')
+
+            # Show order placed status immediately
+            show_order_placed(symbol)
+
+            # Place order directly with trader
+            if hasattr(self.trader, 'place_order'):
+                order_id = self.trader.place_order(**order_data)
+            else:
+                logger.error("No order placement method available")
+                show_error("Order placement system offline")
+                return
+
+            if order_id:
+                # Update order data with ID
+                order_data['order_id'] = order_id
+                order_data['status'] = 'PENDING'
+
+                # START POSITION MANAGER TRACKING
+                self.position_manager.start_tracking_order(order_id, order_data)
+
+                # Log order placement
+                QTimer.singleShot(100, lambda: self._log_order_placement_async(order_data, order_id))
+
+                logger.info(f"Order placed and tracking started: {order_id}")
+            else:
+                show_order_failed("No order ID returned")
+
+        except Exception as e:
+            error_msg = f"Order placement failed: {str(e)}"
+            logger.error(error_msg, exc_info=True)
+            show_order_failed(str(e))
+
+    def _log_order_placement_async(self, order_data: Dict[str, Any], order_id: str):
+        """Log order placement asynchronously"""
+        try:
+            if hasattr(self, 'trade_logger') and self.trade_logger:
+                self.trade_logger.log_order_placement(order_data, order_id)
+                logger.info(f"Order logged successfully: {order_id}")
+        except Exception as log_error:
+            logger.error(f"Failed to log order: {log_error}")
+
+    # ==============================================================================
+    # DIALOG SHOW METHODS
+    # ==============================================================================
+
+    def _show_order_history_dialog(self):
+        """Show order history dialog"""
+        try:
+            if self.order_history_dialog is None or not self.order_history_dialog.isVisible():
+                self.order_history_dialog = OrderHistoryDialog(
+                    trade_logger=self.trade_logger,
+                    parent=self
+                )
+                self.order_history_dialog.refresh_requested.connect(self._refresh_order_history)
+                self.order_history_dialog.export_requested.connect(self._export_order_history)
+
+            self.order_history_dialog.show()
+            self.order_history_dialog.raise_()
+            self.order_history_dialog.activateWindow()
+            logger.info("Order history dialog opened")
+        except Exception as e:
+            logger.error(f"Failed to show order history dialog: {e}")
+            show_error("Failed to open order history")
+
+    def _show_performance_dialog(self):
+        """Show performance dialog"""
+        try:
+            if self.performance_dialog is None or not self.performance_dialog.isVisible():
+                self.performance_dialog = PerformanceDialog(
+                    trade_logger=self.trade_logger,
+                    parent=self
+                )
+                self.trade_completed.connect(self.performance_dialog.refresh_data)
+
+            self.performance_dialog.refresh_data()
+            self.performance_dialog.show()
+            self.performance_dialog.raise_()
+            self.performance_dialog.activateWindow()
+            logger.info("Performance dashboard opened")
+        except Exception as e:
+            logger.error(f"Failed to show performance dashboard: {e}")
+            show_error("Failed to open performance dashboard")
+
+    def _refresh_order_history(self):
+        """Handle order history refresh request"""
+        try:
+            if self.order_history_dialog and self.order_history_dialog.isVisible():
+                self.order_history_dialog.refresh_orders()
+                status.show_info("Order history refreshed")
+                logger.info("Order history manually refreshed")
+        except Exception as e:
+            logger.error(f"Failed to refresh order history: {e}")
+            show_error("Failed to refresh order history")
+
+    def _export_order_history(self, export_data: dict):
+        """Handle order history export request"""
+        try:
+            # Create exports directory
+            home = os.path.expanduser("~")
+            exports_dir = os.path.join(home, ".swing_trader", "exports")
+            os.makedirs(exports_dir, exist_ok=True)
+
+            # Generate filename with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"order_history_export_{timestamp}.json"
+            filepath = os.path.join(exports_dir, filename)
+
+            # Add metadata
+            export_data.update({
+                'export_source': 'swing_trader_order_history',
+                'trading_mode': self.trading_mode,
+                'export_timestamp': timestamp
+            })
+
+            # Export to JSON file
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(export_data, f, indent=2, ensure_ascii=False, default=str)
+
+            status.show_info(f"Exported: {filename}")
+            logger.info(f"Order history exported to: {filepath}")
+
+        except Exception as e:
+            logger.error(f"Failed to export order history: {e}")
+            show_error("Export failed")
+
+    # ==============================================================================
+    # ALERT SYSTEM METHODS
+    # ==============================================================================
+
+    @Slot()
+    def _play_alert_sound(self):
+        if self.alert_sound:
+            self.alert_sound.play()
+
+    @Slot()
+    def _update_alert_badges(self):
+        if self.alert_system and hasattr(self.header_toolbar, 'update_alert_counts'):
+            try:
+                active, triggered = self.alert_system.get_notification_counts()
+                self.header_toolbar.update_alert_counts(active, triggered)
+            except Exception as e:
+                logger.debug(f"Error updating alert badges: {e}")
+
+    def _get_alert_tokens(self) -> List[int]:
+        return self.alert_system.get_active_alert_tokens() if self.alert_system else []
+
+    def _alert_system_unavailable(self):
+        show_error("Alert system unavailable")
+
+    # ==============================================================================
+    # UTILITY & HELPER METHODS
+    # ==============================================================================
+
+    def _get_fresh_ltp(self, symbol: str) -> float:
+        """Get fresh LTP for symbol"""
+        ltp = 0.0
+
+        # Check watchlist tables
+        for table in self.watchlist._tables.values():
+            if hasattr(table, '_watchlist_data') and symbol in table._watchlist_data:
+                ltp = table._watchlist_data[symbol].get('ltp', 0.0)
+                if ltp > 0:
+                    return ltp
+
+        # Check instrument map
+        if symbol in self.instrument_map:
+            ltp = self.instrument_map[symbol].get('last_price', 0)
+            if ltp > 0:
+                return ltp
+
+        # Fallback to API
+        try:
+            if self.real_kite_client:
+                exchange = self.instrument_map.get(symbol, {}).get('exchange', 'NSE')
+                quote = self.real_kite_client.quote([f"{exchange}:{symbol}"])
+                ltp = quote[f"{exchange}:{symbol}"].get('last_price', 0)
+                return ltp
+        except Exception as e:
+            logger.warning(f"Failed to fetch LTP for {symbol} via API: {e}")
+
+        return ltp
+
+    def _validate_order_data(self, order_data: Dict[str, Any]) -> bool:
+        """Validate order data"""
+        required = ['tradingsymbol', 'transaction_type', 'quantity', 'order_type']
+        for field in required:
+            if field not in order_data:
+                show_error(f"Missing field: {field}")
+                return False
+
+        if not isinstance(order_data.get('quantity'), (int, float)) or order_data['quantity'] <= 0:
+            show_error("Invalid quantity")
+            return False
+
+        if order_data['tradingsymbol'] not in self.instrument_map:
+            show_error(f"Symbol not found: {order_data['tradingsymbol']}")
+            return False
+
+        return True
+
+    def _setup_watchlist_shortcuts(self):
+        """Setup keyboard shortcuts"""
+        # Watchlist shortcuts
+        shortcut_map = {"Ctrl+Shift+1": "Breakouts", "Ctrl+Shift+2": "EP", "Ctrl+Shift+3": "Parabolic"}
+        for key, category in shortcut_map.items():
+            shortcut = QShortcut(QKeySequence(key), self)
+            shortcut.activated.connect(lambda cat=category: self._add_symbol_to_watchlist_from_chart(cat))
+
+        # Order history shortcut (Ctrl+H)
+        order_history_shortcut = QShortcut(QKeySequence("Ctrl+H"), self)
+        order_history_shortcut.activated.connect(self._show_order_history_dialog)
+
+        # Performance dashboard shortcut (Ctrl+P)
+        performance_shortcut = QShortcut(QKeySequence("Ctrl+P"), self)
+        performance_shortcut.activated.connect(self._show_performance_dialog)
+
+        # Global navigation shortcuts
+        self._setup_global_shortcuts()
+        logger.info("Keyboard shortcuts initialized")
+
+    def _add_symbol_to_watchlist_from_chart(self, category: str):
+        """Add current chart symbol to watchlist"""
+        current_symbol = getattr(self.candlestick_chart, 'current_symbol', None)
+        if not current_symbol:
+            status.show_info("No symbol on chart")
+            return
+
+        if self.watchlist.add_symbol(current_symbol, category):
+            status.show_info(f"Added {current_symbol} to {category}")
+        else:
+            status.show_info(f"{current_symbol} already in {category}")
+
+    def _setup_global_shortcuts(self):
+        """Setup global navigation shortcuts"""
+        from PySide6.QtGui import QShortcut, QKeySequence
+
+        # Global spacebar shortcut for symbol navigation
+        self.spacebar_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Space), self)
+        self.spacebar_shortcut.activated.connect(self._handle_global_spacebar)
+
+        # Global Shift+Spacebar for reverse navigation
+        self.shift_spacebar_shortcut = QShortcut(QKeySequence("Shift+Space"), self)
+        self.shift_spacebar_shortcut.activated.connect(self._handle_global_shift_spacebar)
+
+        logger.info("Global navigation shortcuts initialized")
+
+    def _handle_global_spacebar(self):
+        """Handle spacebar press based on focused widget"""
+        focused_widget = self.focusWidget()
+
+        # Check scanner focus
+        if self._is_scanner_focused(focused_widget):
+            if hasattr(self.chartink_scanner, '_next_symbol'):
+                self.chartink_scanner._next_symbol()
+                return
+
+        # Check watchlist focus
+        watchlist_table = self._get_focused_watchlist_table(focused_widget)
+        if watchlist_table:
+            self._navigate_watchlist_symbols(watchlist_table, direction='next')
+            return
+
+        # Check positions focus
+        if self._is_positions_focused(focused_widget):
+            self._navigate_position_symbols(direction='next')
+            return
+
+        # Fallback to scanner
+        if hasattr(self.chartink_scanner, '_next_symbol'):
+            self.chartink_scanner._next_symbol()
+
+    def _handle_global_shift_spacebar(self):
+        """Handle Shift+spacebar press based on focused widget"""
+        focused_widget = self.focusWidget()
+
+        if self._is_scanner_focused(focused_widget):
+            if hasattr(self.chartink_scanner, '_previous_symbol'):
+                self.chartink_scanner._previous_symbol()
+                return
+
+        watchlist_table = self._get_focused_watchlist_table(focused_widget)
+        if watchlist_table:
+            self._navigate_watchlist_symbols(watchlist_table, direction='previous')
+            return
+
+        if self._is_positions_focused(focused_widget):
+            self._navigate_position_symbols(direction='previous')
+            return
+
+        if hasattr(self.chartink_scanner, '_previous_symbol'):
+            self.chartink_scanner._previous_symbol()
+
+    def _is_scanner_focused(self, widget) -> bool:
+        """Check if scanner has focus"""
+        if not widget:
+            return False
+        current = widget
+        while current:
+            if current == self.chartink_scanner:
+                return True
+            if hasattr(current, 'objectName') and 'scanner' in current.objectName().lower():
+                return True
+            current = current.parent()
+        return False
+
+    def _get_focused_watchlist_table(self, widget):
+        """Get focused watchlist table"""
+        if not widget:
+            return None
+        current = widget
+        while current:
+            if current == self.watchlist:
+                for category, table in self.watchlist._tables.items():
+                    if table == widget or self._is_child_of_widget(widget, table):
+                        return table
+                return None
+            current = current.parent()
+        return None
+
+    def _is_positions_focused(self, widget) -> bool:
+        """Check if positions table has focus"""
+        if not widget:
+            return False
+        current = widget
+        while current:
+            if current == self.positions_table:
+                return True
+            if hasattr(current, 'table') and current.table == widget:
+                return True
+            current = current.parent()
+        return False
+
+    def _is_child_of_widget(self, child, parent) -> bool:
+        """Check if child is descendant of parent"""
+        if not child or not parent:
+            return False
+        current = child
+        while current:
+            if current == parent:
+                return True
+            current = current.parent()
+        return False
+
+    def _navigate_watchlist_symbols(self, table, direction='next'):
+        """Navigate symbols in watchlist table"""
+        if not table or not hasattr(table, '_watchlist_symbols'):
+            return
+
+        symbols = list(table._watchlist_symbols)
+        if not symbols:
+            return
+
+        current_row = table.currentRow()
+        if current_row == -1:
+            current_row = 0
+
+        if direction == 'next':
+            next_row = (current_row + 1) % len(symbols)
+        else:
+            next_row = (current_row - 1) % len(symbols)
+
+        table.selectRow(next_row)
+        table.setCurrentCell(next_row, 0)
+
+        try:
+            symbol_item = table.item(next_row, 0)
+            if symbol_item:
+                symbol = symbol_item.text()
+                if symbol and symbol != 'N/A':
+                    table.symbol_selected.emit(symbol)
+                    logger.debug(f"Watchlist navigation: Selected {symbol}")
+        except Exception as e:
+            logger.warning(f"Error navigating watchlist symbols: {e}")
+
+    def _navigate_position_symbols(self, direction='next'):
+        """Navigate symbols in positions table"""
+        if not hasattr(self.positions_table, 'table'):
+            return
+
+        table = self.positions_table.table
+        row_count = table.rowCount()
+        if row_count == 0:
+            return
+
+        current_row = table.currentRow()
+        if current_row == -1:
+            current_row = 0
+
+        if direction == 'next':
+            next_row = (current_row + 1) % row_count
+        else:
+            next_row = (current_row - 1) % row_count
+
+        table.selectRow(next_row)
+        table.setCurrentCell(next_row, 0)
+
+        try:
+            symbol_item = table.item(next_row, 0)
+            if symbol_item:
+                symbol = symbol_item.text()
+                if symbol and symbol != 'N/A':
+                    self.positions_table.symbol_selected.emit(symbol)
+                    logger.debug(f"Positions navigation: Selected {symbol}")
+        except Exception as e:
+            logger.warning(f"Error navigating position symbols: {e}")
+
+    # ==============================================================================
+    # WINDOW STATE MANAGEMENT
+    # ==============================================================================
+
+    def save_window_state(self):
+        """Save window state"""
+        try:
+            state = {
+                'geometry': self.saveGeometry().toBase64().data().decode('utf-8'),
+                'main_splitter': self.main_splitter.saveState().toBase64().data().decode('utf-8'),
+                'is_maximized': self.isMaximized()
+            }
+
+            if hasattr(self, 'right_panel_splitter'):
+                state['right_panel_splitter'] = self.right_panel_splitter.saveState().toBase64().data().decode('utf-8')
+
+            self.config_manager.save_window_state(state)
+            logger.info("Window state saved")
+        except Exception as e:
+            logger.error(f"Failed to save window state: {e}")
+
+    def restore_window_state(self):
+        """Restore window state"""
+        try:
+            state = self.config_manager.load_window_state()
+            if state and state.get('geometry'):
+                self.restoreGeometry(QByteArray.fromBase64(state['geometry'].encode('utf-8')))
+
+                if 'main_splitter' in state:
+                    try:
+                        self.main_splitter.restoreState(QByteArray.fromBase64(state['main_splitter'].encode('utf-8')))
+                    except Exception as e:
+                        logger.warning(f"Failed to restore main splitter state: {e}")
+                        self.main_splitter.setSizes([250, 600, 300])
+                else:
+                    self.main_splitter.setSizes([250, 600, 300])
+
+                if hasattr(self, 'right_panel_splitter') and 'right_panel_splitter' in state:
+                    try:
+                        self.right_panel_splitter.restoreState(
+                            QByteArray.fromBase64(state['right_panel_splitter'].encode('utf-8')))
+                    except Exception as e:
+                        logger.warning(f"Failed to restore right panel splitter state: {e}")
+                        self.right_panel_splitter.setSizes([300, 200])
+                elif hasattr(self, 'right_panel_splitter'):
+                    self.right_panel_splitter.setSizes([300, 200])
+
+                if state.get('is_maximized', False):
+                    self.showMaximized()
+                    self.max_btn.setText("❐")
+
+                logger.info("Window state restored")
+            else:
+                # Default state
+                self.showMaximized()
+                self.max_btn.setText("❐")
+                self.main_splitter.setSizes([250, 600, 300])
+                if hasattr(self, 'right_panel_splitter'):
+                    self.right_panel_splitter.setSizes([300, 200])
+
+        except Exception as e:
+            logger.error(f"Failed to restore window state: {e}")
+            # Safe fallback
+            self.showMaximized()
+            self.main_splitter.setSizes([250, 600, 300])
+            if hasattr(self, 'right_panel_splitter'):
+                self.right_panel_splitter.setSizes([300, 200])
+
+    # ==============================================================================
+    # SOUND SYSTEM
+    # ==============================================================================
+
+    def _init_sounds(self):
+        """Initialize sound effects"""
+
+        def create_sound(file_name):
+            base_name = file_name.replace('.mp3', '').replace('.wav', '')
+            possible_files = [f"{base_name}.wav", f"{base_name}.mp3"]
+
+            for filename in possible_files:
+                sound_file = os.path.join("assets", filename)
+                if not os.path.exists(sound_file):
+                    continue
+
+                try:
+                    from PySide6.QtMultimedia import QSoundEffect
+                    from PySide6.QtCore import QUrl
+
+                    sound_effect = QSoundEffect(self)
+                    file_url = QUrl.fromLocalFile(os.path.abspath(sound_file))
+                    sound_effect.setSource(file_url)
+                    sound_effect.setVolume(0.7)
+                    sound_effect.setLoopCount(1)
+
+                    if sound_effect.source().isEmpty():
+                        continue
+
+                    logger.info(f"Sound loaded: {sound_file}")
+                    return sound_effect
+
+                except Exception as e:
+                    logger.warning(f"Could not load sound {sound_file}: {e}")
+                    continue
+
+            logger.warning(f"Could not load any sound file for: {file_name}")
+            return None
+
+        # Initialize sound effects
+        self.alert_sound = create_sound("alert.wav")
+        self.success_sound = create_sound("success.wav")
+        self.error_sound = create_sound("error.wav")
+        self.order_placed_sound = create_sound("placed.wav")
+
+        # Log sound status
+        working_sounds = sum([
+            self.alert_sound is not None,
+            self.success_sound is not None,
+            self.error_sound is not None,
+            self.order_placed_sound is not None
+        ])
+        logger.info(f"Sound initialization: {working_sounds}/4 sounds loaded")
+
+    def _play_sound_safe(self, sound_effect, sound_name=""):
+        """Safely play sound effect"""
+        if sound_effect is None:
+            return False
+
+        try:
+            if hasattr(sound_effect, 'isPlaying') and sound_effect.isPlaying():
+                sound_effect.stop()
+
+            sound_effect.play()
+            logger.debug(f"Playing sound: {sound_name}")
+            return True
+        except Exception as e:
+            logger.warning(f"Error playing {sound_name}: {e}")
+            return False
+
+    @Slot()
+    def _play_alert_sound(self):
+        """Play alert sound"""
+        self._play_sound_safe(self.alert_sound, "alert")
+
+    def _play_success_sound(self):
+        """Play success sound"""
+        self._play_sound_safe(self.success_sound, "success")
+
+    def _play_error_sound(self):
+        """Play error sound"""
+        self._play_sound_safe(self.error_sound, "error")
+
+    def _play_order_placed_sound(self):
+        """Play order placed sound"""
+        self._play_sound_safe(self.order_placed_sound, "order_placed")
+
+    # ==============================================================================
+    # DARK THEME STYLING
+    # ==============================================================================
+
+    def _apply_dark_theme(self):
+        """Apply dark theme with splitter styling"""
+        self.setStyleSheet("""
+            #mainContainer { 
+                background-color: #0a0a0a; 
+                border: 1px solid #1a1a1a; 
+            }
+
+            #customTitleBar { 
+                background-color: #0a0a0a; 
+                border-bottom: 1px solid #202020; 
+            }
+
+            #appTitle { 
+                color: #a0c0ff; 
+                font-size: 12px; 
+                font-weight: 600; 
+            }
+
+            #tradingModeLabel { 
+                color: #64ffda; 
+                font-size: 10px; 
+                font-weight: 500; 
+            }
+
+            #titleBarButton { 
+                background-color: transparent; 
+                color: #b0b0b0; 
+                border: none; 
+                font-size: 14px; 
+                font-weight: bold; 
+                border-radius: 2px; 
+            }
+
+            #titleBarButton:hover { 
+                background-color: #2a2a2a; 
+                color: #ffffff; 
+            }
+
+            #closeTitleBarButton { 
+                background-color: transparent; 
+                color: #b0b0b0; 
+                border: none; 
+                font-size: 12px; 
+                font-weight: bold; 
+                border-radius: 2px; 
+            }
+
+            #closeTitleBarButton:hover { 
+                background-color: #e81123; 
+                color: #ffffff; 
+            }
+
+            QMainWindow, QWidget { 
+                background-color: #0a0a0a; 
+                color: #e0e0e0; 
+                font-family: "Segoe UI", Arial, sans-serif; 
+            }
+
+            /* Splitter styling for easy dragging */
+            QSplitter { 
+                background-color: #0a0a0a;
+            }
+
+            QSplitter::handle { 
+                background-color: #1a1a1a;
+                border: none;
+                margin: 0px;
+            }
+
+            QSplitter::handle:horizontal { 
+                width: 4px; 
+                background-color: #1a1a1a;
+                border-left: 1px solid #0a0a0a;
+                border-right: 1px solid #0a0a0a;
+            }
+
+            QSplitter::handle:vertical { 
+                height: 4px; 
+                background-color: #1a1a1a;
+                border-top: 1px solid #0a0a0a;
+                border-bottom: 1px solid #0a0a0a;
+            }
+
+            QSplitter::handle:hover { 
+                background-color: #6a9cff; 
+            }
+
+            QSplitter::handle:pressed {
+                background-color: #5a8be0;
+            }
+
+            QSplitter#rightPanelSplitter::handle:vertical {
+                background-color: #2a2a2a;
+                height: 4px;
+            }
+
+            QSplitter#rightPanelSplitter::handle:vertical:hover {
+                background-color: #6a9cff;
+            }
+
+            /* Enhanced Scrollbars */
+            QScrollBar:vertical { 
+                background-color: #151515; 
+                width: 8px; 
+                border: none; 
+                margin: 0px;
+            }
+
+            QScrollBar::handle:vertical { 
+                background-color: #424242; 
+                border-radius: 4px; 
+                min-height: 20px; 
+                margin: 2px;
+            }
+
+            QScrollBar::handle:vertical:hover { 
+                background-color: #616161; 
+            }
+
+            QScrollBar:horizontal { 
+                background-color: #151515; 
+                height: 8px; 
+                border: none; 
+                margin: 0px;
+            }
+
+            QScrollBar::handle:horizontal { 
+                background-color: #424242; 
+                border-radius: 4px; 
+                min-width: 20px; 
+                margin: 2px;
+            }
+
+            QScrollBar::handle:horizontal:hover { 
+                background-color: #616161; 
+            }
+
+            QScrollBar::add-line, QScrollBar::sub-line {
+                border: none;
+                background: none;
+                width: 0px;
+                height: 0px;
+            }
+
+            QDialog { 
+                background-color: #121212; 
+                border: 1px solid #282828; 
+            }
+
+            QMessageBox { 
+                background-color: #121212; 
+            }
+
+            QMessageBox QPushButton { 
+                background-color: #2a2a2a; 
+                color: #e0e0e0; 
+                border: 1px solid #3a3a3a; 
+                padding: 6px 12px; 
+                border-radius: 3px; 
+                min-width: 60px; 
+            }
+
+            QMessageBox QPushButton:hover { 
+                background-color: #3a3a3a; 
+            }
+        """)
+
+
+# ==============================================================================
+# USAGE EXAMPLES FOR STATUS BAR INTEGRATION
+# ==============================================================================
+
+"""
+HOW TO USE THE NEW STATUS BAR SYSTEM:
+
+1. IN HEADER TOOLBAR:
+   Add status bar widget between sell buttons and market status
+
+2. IN POSITION MANAGER:
+   from utils.simple_status_bar import show_order_completed, show_order_failed
+
+   # When order completes
+   show_order_completed("RELIANCE", "+₹2,450")
+
+   # When order fails
+   show_order_failed("Insufficient margin")
+
+3. ANYWHERE IN THE APP:
+   from utils.simple_status_bar import show_order_placed, show_error
+
+   show_order_placed("RELIANCE")
+   show_error("API connection failed")
+
+FEATURES:
+- LED-style status bar in header toolbar
+- No popup distractions
+- Auto-clear after specified time
+- Flash animation for important messages
+- Global access from anywhere
+- Professional and clean
+- Monospace font for consistent layout
+
+REMOVED:
+- Complex notification system
+- Popup notifications
+- Enhanced order notifications
+- Notification manager
+- All notification-related complexity
+
+RESULT:
+- Much cleaner and simpler
+- No UI distractions
+- Professional LED board appearance
+- Easy to use from anywhere
+- Reduced code complexity by 70%
+"""

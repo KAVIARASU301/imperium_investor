@@ -816,25 +816,6 @@ class TabbedWatchlistWidget(QWidget):
         self._apply_styles()
         self._load_all_watchlists()
 
-    def _set_equal_tab_widths(self):
-        """FIXED: More stable tab width calculation."""
-        if not hasattr(self, 'tab_widget'):
-            return
-
-        tab_bar = self.tab_widget.tabBar()
-        total_width = self.width()
-        tab_count = tab_bar.count()
-
-        # FIXED: Only update if width change is significant
-        if abs(total_width - self._last_tab_width_update) < 30:
-            return
-
-        if tab_count > 0 and total_width > 100:  # Minimum width check
-            self._last_tab_width_update = total_width
-            margins_and_borders = (tab_count - 1) * 1 + 4
-            available_width = max(total_width - margins_and_borders, 200)  # Minimum available width
-            tab_width = available_width // tab_count
-            self._apply_tab_width_style(tab_width)
 
     def _setup_ui(self):
         """Sets up the main UI layout with tabs."""
@@ -870,17 +851,7 @@ class TabbedWatchlistWidget(QWidget):
         self.tab_widget.show()
         self._set_equal_tab_widths()
 
-    def _set_equal_tab_widths(self):
-        """Sets equal width for all tabs based on the widget width."""
-        if hasattr(self, 'tab_widget'):
-            tab_bar = self.tab_widget.tabBar()
-            total_width = self.width()
-            tab_count = tab_bar.count()
-            if tab_count > 0 and total_width > 0:
-                margins_and_borders = (tab_count - 1) * 1 + 4
-                available_width = total_width - margins_and_borders
-                tab_width = available_width // tab_count
-                self._apply_tab_width_style(tab_width)
+
 
     def _apply_styles(self):
         """Applies TC2000-inspired styling to the tabbed watchlist."""

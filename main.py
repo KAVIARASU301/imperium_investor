@@ -3,10 +3,10 @@ import logging
 
 from PySide6.QtWidgets import QApplication, QMessageBox, QWidget
 from kiteconnect import KiteConnect
-from utils.login_manager import LoginManager
+from login_setup.login_manager import LoginManager
 from utils.paper_trading_manager import PaperTradingManager
-from utils.login_setup_config import setup_logging
-from widgets.main_window import SwingTraderWindow
+from login_setup.login_setup_config import setup_logging
+from core.main_window import SwingTraderWindow
 
 # Set up global logging for the application.
 setup_logging()

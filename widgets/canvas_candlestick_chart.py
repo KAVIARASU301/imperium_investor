@@ -1005,43 +1005,6 @@ class CandlestickChart(QWidget):
         except Exception as e:
             logger.error(f"Error in basic price update: {e}")
 
-    def debug_live_updates(self):
-        """Enhanced debug method"""
-        try:
-            # Get parent subscription info
-            parent_info = {}
-            if hasattr(self, 'parent') and self.parent():
-                parent = self.parent()
-                if hasattr(parent, 'market_data_worker') and parent.market_data_worker:
-                    worker_info = parent.market_data_worker.get_subscription_info()
-                    parent_info = {
-                        'worker_connected': worker_info.get('is_connected', False),
-                        'worker_running': worker_info.get('is_running', False),
-                        'total_subscriptions': worker_info.get('subscribed_count', 0),
-                        'chart_token_subscribed': (
-                                self.current_instrument_token in worker_info.get('subscribed_tokens', [])
-                        ) if self.current_instrument_token else False
-                    }
-
-            status = {
-                'current_symbol': self.current_symbol,
-                'current_token': self.current_instrument_token,
-                'current_ltp': self.current_ltp,
-                'chart_state': self.current_state.name,
-                'has_chart_view': bool(self.chart_view),
-                'bridge_initialized': getattr(self.chart_bridge, 'webChannelInitialized', False),
-                'has_data': self.last_df is not None and not self.last_df.empty if self.last_df is not None else False,
-                'last_update_time': self._last_price_update_time,
-                'update_throttle': self._price_update_throttle,
-                **parent_info
-            }
-
-            logger.info(f"Chart debug status: {status}")
-            return status
-
-        except Exception as e:
-            logger.error(f"Error in debug_live_updates: {e}")
-            return {"error": str(e)}
 
     @Slot(str)
     def _open_text_note_dialog_for_edit(self, note_json: str):
@@ -1244,13 +1207,13 @@ class CandlestickChart(QWidget):
         if self.order_btn: self.order_btn.setEnabled(config['buttons_enabled'] and self.current_symbol != "")
 
     def set_instrument_list(self, instruments: List[Dict[str, Any]]):
-        """Set the instrument list and attempt to autoload last viewed symbol"""
+        """Set the instrument list and attempt to autoload the last viewed symbol"""
         try:
             self.instrument_map = {inst['tradingsymbol']: inst for inst in instruments if
                                    all(k in inst for k in ['tradingsymbol', 'instrument_token'])}
             logger.info(f"Loaded {len(self.instrument_map)} instruments")
 
-            # Attempt to autoload last viewed symbol if enabled
+            # Attempt to autoload the last viewed symbol if enabled
             if self.should_auto_load_last_symbol:
                 self._attempt_auto_load_last_symbol()
 
@@ -1354,7 +1317,7 @@ class CandlestickChart(QWidget):
         self.should_auto_load_last_symbol = False
 
     def enable_auto_load(self):
-        """Enable auto-loading of last symbol"""
+        """Enable autoloading of last symbol"""
         self.should_auto_load_last_symbol = True
 
     def _save_current_state_sync(self):
@@ -1574,7 +1537,7 @@ class CandlestickChart(QWidget):
 
 
     def _should_create_new_candle(self) -> bool:
-        """Check if current time requires a new candle based on interval."""
+        """Check if current time requires a new candle based on an interval."""
         if self.last_df is None or self.last_df.empty:
             return False
 
@@ -1625,7 +1588,7 @@ class CandlestickChart(QWidget):
         }])
         self.last_df = pd.concat([self.last_df, new_row], ignore_index=True)
 
-        # Send to JavaScript
+        # Send it to JavaScript
         js_code = f"""
         if (window.chart && typeof window.chart.addNewCandle === 'function') {{
             window.chart.addNewCandle({json.dumps(new_candle_data)});
@@ -3526,7 +3489,7 @@ class CandlestickChart(QWidget):
         """)
 
     def closeEvent(self, event):
-        """Enhanced close event that saves last viewed symbol"""
+        """Enhanced close event that saves the last viewed symbol"""
         try:
             if self.current_symbol and self.chart_view:
                 self._save_current_state_sync()

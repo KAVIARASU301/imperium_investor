@@ -1,4 +1,4 @@
-# header_toolbar.py (Refactored)
+# header_toolbar.py (Updated with Status Bar)
 
 import logging
 from datetime import datetime
@@ -11,6 +11,9 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Signal, QStringListModel, Qt, QTimer
 from PySide6.QtGui import QPainter, QColor, QFont, QPen, QBrush
 from kiteconnect import KiteConnect
+
+# Import the simple status bar
+from widgets.status_bar import StatusBar, status
 
 logger = logging.getLogger(__name__)
 
@@ -47,19 +50,19 @@ class NotificationBadge(QLabel):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         # Draw semi-transparent red circle
-        painter.setBrush(QBrush(QColor(255, 68, 68, 0)))  # Last parameter is alpha (0-255)
-        painter.setPen(QPen(QColor(255, 68, 68, 0), 1))
-        painter.drawEllipse(0, 0, 16, 16)
+        painter.setBrush(QBrush(QColor(255, 68, 68, 200)))
+        painter.setPen(QPen(QColor(255, 68, 68, 200), 1))
+        painter.drawEllipse(0, 0, 14, 14)
 
         # Draw white number
-        painter.setPen(QColor("#FF0000"))
+        painter.setPen(QColor("#ffffff"))
         painter.setFont(QFont("Arial", 8, QFont.Weight.Bold))
         painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.text())
 
 
 class HeaderToolbar(QToolBar):
     """
-    Refactored compact, modern toolbar with alert management and trading features.
+    Compact, modern toolbar with status bar integration and trading features.
     """
     symbol_selected = Signal(str)
     add_alert_requested = Signal()
@@ -68,8 +71,8 @@ class HeaderToolbar(QToolBar):
     performance_dashboard_requested = Signal()
     market_depth_requested = Signal(str)
     timeframe_changed = Signal(str)
-    buy_order_requested = Signal(str)  # Signal for buy order with symbol
-    sell_order_requested = Signal(str)  # Signal for sell order with symbol
+    buy_order_requested = Signal(str)
+    sell_order_requested = Signal(str)
 
     def __init__(self, trader: Union[KiteConnect, Any], parent=None):
         super().__init__(parent)
@@ -77,29 +80,30 @@ class HeaderToolbar(QToolBar):
         self.setObjectName("enhancedHeaderToolbar")
         self.trader = trader
         self._instrument_map: Dict[str, Dict] = {}
-        self._account_info = {'available_balance': 0.0, 'used_margin': 0.0, 'pnl': 0.0}
+        self._account_info = {'available_balance': 0.0, 'user_id': 'N/A'}
 
         self._init_ui()
         self._apply_styles()
         self._setup_timers()
 
     def _init_ui(self):
-        """Initializes the enhanced UI components of the toolbar."""
+        """Initialize UI components with status bar integration."""
         self._create_symbol_search_section()
+        self._create_status_bar_section()  # NEW: Status bar section
         self._create_center_spacer()
-        self._create_market_status_section()
         self._create_alert_section()
         self._create_trading_actions_section()
         self._create_account_section()
 
     def _create_symbol_search_section(self):
-        """Creates an enhanced symbol search section with buy/sell buttons."""
+        """Creates symbol search section with buy/sell buttons."""
         symbol_label = QLabel("SYMBOL:")
         symbol_label.setObjectName("symbolLabel")
         self.addWidget(symbol_label)
 
+        # REDUCED SIZE: Symbol input field (half the original width)
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Search symbols (e.g., RELIANCE)")
+        self.search_input.setPlaceholderText("Search symbols")
         self.search_input.setObjectName("enhancedSymbolSearch")
         self.search_input.returnPressed.connect(self._on_search_enter)
         self.addWidget(self.search_input)
@@ -107,23 +111,38 @@ class HeaderToolbar(QToolBar):
         # Buy and Sell buttons
         self.buy_button = QPushButton("BUY")
         self.buy_button.setObjectName("buyButton")
-        self.buy_button.setToolTip("Place Buy Order for Current Symbol")
         self.buy_button.setFixedSize(45, 24)
         self.buy_button.clicked.connect(self._on_buy_clicked)
         self.addWidget(self.buy_button)
 
         self.sell_button = QPushButton("SELL")
         self.sell_button.setObjectName("sellButton")
-        self.sell_button.setToolTip("Place Sell Order for Current Symbol")
         self.sell_button.setFixedSize(45, 24)
         self.sell_button.clicked.connect(self._on_sell_clicked)
         self.addWidget(self.sell_button)
 
+        # Setup completer
         self.completer = QCompleter(self)
         self.completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
         self.completer.setFilterMode(Qt.MatchFlag.MatchContains)
         self.search_input.setCompleter(self.completer)
         self.completer.activated.connect(self._on_search_enter)
+
+    def _create_status_bar_section(self):
+        """NEW: Creates the LED-style status bar section."""
+        # Add small separator
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.VLine)
+        separator.setObjectName("sectionSeparator")
+        self.addWidget(separator)
+
+        # Create status bar widget
+        self.status_bar = StatusBar(self)
+        self.addWidget(self.status_bar)
+
+        # Initialize global status manager
+        status.initialize(self.status_bar)
+        logger.info("Status bar integrated into header toolbar")
 
     def _create_center_spacer(self):
         spacer = QWidget()
@@ -131,31 +150,13 @@ class HeaderToolbar(QToolBar):
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.addWidget(spacer)
 
-    def _create_market_status_section(self):
-        market_widget = QWidget()
-        market_widget.setObjectName("marketStatusWidget")
-        market_layout = QHBoxLayout(market_widget)
-        market_layout.setContentsMargins(6, 2, 6, 2)
-        market_layout.setSpacing(4)
-
-        self.market_status_label = QLabel("●")
-        self.market_status_label.setObjectName("marketStatusIndicator")
-        market_layout.addWidget(self.market_status_label)
-
-        self.market_text_label = QLabel("Market")
-        self.market_text_label.setObjectName("marketStatusText")
-        market_layout.addWidget(self.market_text_label)
-
-        self.addWidget(market_widget)
-
     def _create_alert_section(self):
-        """Creates an enhanced alert management section with consistent styling."""
+        """Creates alert management section."""
         separator = QFrame()
         separator.setFrameShape(QFrame.Shape.VLine)
         separator.setObjectName("sectionSeparator")
         self.addWidget(separator)
 
-        # Alert container widget with consistent dark styling
         alert_widget = QWidget()
         alert_widget.setObjectName("alertActionWidget")
 
@@ -168,19 +169,17 @@ class HeaderToolbar(QToolBar):
         quick_alert_container.setFixedSize(60, 24)
         self.quick_alert_button = QPushButton("Alert", quick_alert_container)
         self.quick_alert_button.setObjectName("alertActionButton")
-        self.quick_alert_button.setToolTip("Quick Alert (Ctrl+A)")
         self.quick_alert_button.clicked.connect(self.add_alert_requested.emit)
         self.quick_alert_button.setGeometry(0, 0, 60, 24)
         self.active_badge = NotificationBadge(quick_alert_container)
         self.active_badge.move(46, -2)
         alert_layout.addWidget(quick_alert_container)
 
-        # Alert Manager Button with badge (combines manager and history)
+        # Alert Manager Button with badge
         manager_container = QWidget()
         manager_container.setFixedSize(85, 24)
         self.alert_manager_button = QPushButton("Alert Manager", manager_container)
         self.alert_manager_button.setObjectName("alertActionButton")
-        self.alert_manager_button.setToolTip("Alert Manager & History (Ctrl+Shift+A)")
         self.alert_manager_button.clicked.connect(self.alert_manager_requested.emit)
         self.alert_manager_button.setGeometry(0, 0, 85, 24)
         self.triggered_badge = NotificationBadge(manager_container)
@@ -190,13 +189,12 @@ class HeaderToolbar(QToolBar):
         self.addWidget(alert_widget)
 
     def _create_trading_actions_section(self):
-        """Creates trading actions section with Order History and Performance Dashboard."""
+        """Creates trading actions section."""
         separator = QFrame()
         separator.setFrameShape(QFrame.Shape.VLine)
         separator.setObjectName("sectionSeparator")
         self.addWidget(separator)
 
-        # Trading actions container widget
         actions_widget = QWidget()
         actions_widget.setObjectName("tradingActionWidget")
 
@@ -207,7 +205,6 @@ class HeaderToolbar(QToolBar):
         # Order History Button
         self.order_history_btn = QPushButton("Order History")
         self.order_history_btn.setObjectName("tradingActionButton")
-        self.order_history_btn.setToolTip("View Order History")
         self.order_history_btn.clicked.connect(self.order_history_requested.emit)
         self.order_history_btn.setFixedSize(95, 24)
         actions_layout.addWidget(self.order_history_btn)
@@ -215,7 +212,6 @@ class HeaderToolbar(QToolBar):
         # Performance Dashboard Button
         self.performance_btn = QPushButton("Performance")
         self.performance_btn.setObjectName("tradingActionButton")
-        self.performance_btn.setToolTip("Performance Dashboard")
         self.performance_btn.clicked.connect(self.performance_dashboard_requested.emit)
         self.performance_btn.setFixedSize(85, 24)
         actions_layout.addWidget(self.performance_btn)
@@ -223,7 +219,7 @@ class HeaderToolbar(QToolBar):
         self.addWidget(actions_widget)
 
     def _create_account_section(self):
-        """Creates the account information display section."""
+        """Creates simplified account information display."""
         separator = QFrame()
         separator.setFrameShape(QFrame.Shape.VLine)
         separator.setObjectName("sectionSeparator")
@@ -253,85 +249,59 @@ class HeaderToolbar(QToolBar):
         return dot
 
     def _setup_timers(self):
+        """Setup simplified timers."""
+        # Simplified account refresh
         QTimer.singleShot(1000, self._refresh_account_info)
         self.account_timer = QTimer(self)
         self.account_timer.timeout.connect(self._refresh_account_info)
         self.account_timer.start(30000)
 
-        self.market_timer = QTimer(self)
-        self.market_timer.timeout.connect(self._update_market_status)
-        self.market_timer.start(60000)
-
-    def _update_market_status(self):
-        """Updates market status indicator."""
-        current_time = datetime.now().time()
-        market_open = datetime.strptime("09:15", "%H:%M").time() <= current_time <= datetime.strptime("15:30",
-                                                                                                      "%H:%M").time()
-        self.show_connection_status(market_open)
-
     def _refresh_account_info(self):
-        """Enhanced account information refresh."""
+        """SIMPLIFIED account information refresh - no error handling complexity."""
         try:
-            actual_trader = self._get_actual_trader()
-            if not actual_trader:
-                self._show_demo_mode()
-                return
+            # Try to get account info from actual trader
+            if hasattr(self.trader, 'profile') and hasattr(self.trader, 'margins'):
+                profile = self.trader.profile()
+                margins = self.trader.margins()
+                equity_margins = margins.get('equity', {})
 
-            profile = actual_trader.profile()
-            margins = actual_trader.margins()
-            equity_margins = margins.get('equity', {})
+                self._account_info = {
+                    'user_id': profile.get('user_id', 'DEMO'),
+                    'available_balance': equity_margins.get('available', {}).get('live_balance', 0.0)
+                }
+            else:
+                # Demo mode
+                self._account_info = {'user_id': 'DEMO', 'available_balance': 0.0}
 
-            self._account_info = {
-                'user_id': profile.get('user_id', 'N/A'),
-                'available_balance': equity_margins.get('available', {}).get('live_balance', 0.0),
-                'used_margin': equity_margins.get('utilised', {}).get('total', 0.0)
-            }
             self._update_account_display()
 
         except Exception as e:
-            logger.error(f"Failed to refresh account info: {e}")
-            self._show_error_state()
+            logger.debug(f"Using demo account info: {e}")
+            # Simple fallback
+            self._account_info = {'user_id': 'DEMO', 'available_balance': 0.0}
+            self._update_account_display()
 
     def _update_account_display(self):
         """Updates the UI labels for account information."""
-        self.user_id_label.setText(self._account_info.get('user_id', 'N/A'))
-        self._format_and_set_balance(self._account_info.get('available_balance', 0.0))
-
-    def _get_actual_trader(self):
-        """Gets the actual KiteConnect client."""
-        if hasattr(self.trader, 'profile') and hasattr(self.trader, 'margins'):
-            return self.trader
-        return None
-
-    def _show_demo_mode(self):
-        """Shows demo mode when no trading client is available."""
-        self.user_id_label.setText("DEMO")
-        self.balance_label.setText("₹--")
-
-    def _show_error_state(self):
-        """Shows error state briefly."""
-        self.user_id_label.setText("ERROR")
-        self.balance_label.setText("₹--")
+        self.user_id_label.setText(self._account_info.get('user_id', 'DEMO'))
+        balance = self._account_info.get('available_balance', 0.0)
+        self.balance_label.setText(self._format_indian_currency(balance))
 
     def _format_indian_currency(self, amount: float) -> str:
-        """Format currency in Indian numbering system (lakhs, crores)."""
+        """Format currency in Indian numbering system."""
         if amount == 0:
             return "₹0"
 
-        # Convert to string and handle negative numbers
         is_negative = amount < 0
         amount = abs(amount)
         amount_str = f"{amount:.0f}"
 
-        # Indian number formatting: first 3 digits, then groups of 2
         if len(amount_str) <= 3:
             formatted = amount_str
         else:
-            # First 3 digits from right
             last_three = amount_str[-3:]
             remaining = amount_str[:-3]
 
-            # Add commas every 2 digits for the remaining part
             formatted_remaining = ""
             for i, digit in enumerate(reversed(remaining)):
                 if i > 0 and i % 2 == 0:
@@ -343,16 +313,15 @@ class HeaderToolbar(QToolBar):
         prefix = "-₹" if is_negative else "₹"
         return prefix + formatted
 
-    def _format_and_set_balance(self, balance: float):
-        self.balance_label.setText(self._format_indian_currency(balance))
-
     def set_instrument_data(self, instruments: List[Dict[str, Any]]):
+        """Set instrument data for symbol search."""
         symbols = [inst['tradingsymbol'] for inst in instruments if 'tradingsymbol' in inst]
         self._instrument_map = {inst['tradingsymbol']: inst for inst in instruments if 'tradingsymbol' in inst}
         model = QStringListModel(symbols)
         self.completer.setModel(model)
 
     def update_alert_counts(self, active_count: int, triggered_today: int):
+        """Update alert badge counts."""
         self.active_badge.set_count(active_count)
         self.triggered_badge.set_count(triggered_today)
 
@@ -365,6 +334,7 @@ class HeaderToolbar(QToolBar):
         return self.search_input.text().upper().strip()
 
     def _on_search_enter(self, text=""):
+        """Handle symbol search."""
         symbol = (text or self.search_input.text()).upper().strip()
         if symbol and symbol in self._instrument_map:
             self.symbol_selected.emit(symbol)
@@ -377,11 +347,7 @@ class HeaderToolbar(QToolBar):
         if symbol and symbol in self._instrument_map:
             self.buy_order_requested.emit(symbol)
         else:
-            # Try to get current symbol from chart if input is empty
-            if not symbol:
-                logger.warning("No symbol entered. Please enter a symbol in the search field.")
-            else:
-                logger.warning(f"Invalid symbol '{symbol}' entered for buy order")
+            logger.warning("No valid symbol entered for buy order")
 
     def _on_sell_clicked(self):
         """Handle sell button click."""
@@ -389,13 +355,32 @@ class HeaderToolbar(QToolBar):
         if symbol and symbol in self._instrument_map:
             self.sell_order_requested.emit(symbol)
         else:
-            # Try to get current symbol from chart if input is empty
-            if not symbol:
-                logger.warning("No symbol entered. Please enter a symbol in the search field.")
-            else:
-                logger.warning(f"Invalid symbol '{symbol}' entered for sell order")
+            logger.warning("No valid symbol entered for sell order")
+
+    def update_performance_metrics(self, performance_data: Dict[str, Any]):
+        """SIMPLIFIED performance metrics update - no tooltips."""
+        try:
+            daily_pnl = performance_data.get('daily_pnl', 0)
+
+            # Simple color indicator on performance button
+            if daily_pnl > 0:
+                self.performance_btn.setStyleSheet(
+                    self.performance_btn.styleSheet() +
+                    "border-left: 3px solid #00b894;"
+                )
+            elif daily_pnl < 0:
+                self.performance_btn.setStyleSheet(
+                    self.performance_btn.styleSheet() +
+                    "border-left: 3px solid #d63031;"
+                )
+
+            logger.debug(f"Header performance updated: P&L ₹{daily_pnl:,.2f}")
+
+        except Exception as e:
+            logger.error(f"Failed to update performance metrics: {e}")
 
     def _apply_styles(self):
+        """Apply styles with status bar integration."""
         self.setStyleSheet("""
             QToolBar#enhancedHeaderToolbar {
                 background-color: #1a1a1a;
@@ -424,8 +409,8 @@ class HeaderToolbar(QToolBar):
                 border-radius: 3px;
                 font-size: 10px; 
                 font-weight: 500;
-                min-width: 180px; 
-                max-width: 220px; 
+                min-width: 90px; 
+                max-width: 110px; 
                 max-height: 24px;
             }
             #enhancedSymbolSearch:focus { 
@@ -461,6 +446,25 @@ class HeaderToolbar(QToolBar):
                 background-color: #5a1a1a;
                 border: 1px solid #ff4444;
                 color: #ff4444;
+            }
+            #marketStatusWidget { 
+                background-color: #1a1a1a; 
+                border-radius: 4px; 
+                border: 1px solid #333; 
+            }
+            #marketOpen { 
+                background-color: #1a1a1a;
+                color: #00ff00; 
+            } 
+            #marketClosed { 
+                background-color: #1a1a1a;
+                color: #ff4444; 
+            }
+            #marketStatusText { 
+                background-color: #1a1a1a;
+                color: #cccccc; 
+                font-size: 10px; 
+                font-weight: 600; 
             }
             #marketStatusWidget { 
                 background-color: #1a1a1a; 
@@ -528,59 +532,8 @@ class HeaderToolbar(QToolBar):
             }
         """)
 
-    def show_connection_status(self, connected: bool):
-        """Shows connection status in the market status area."""
-        if connected:
-            self.market_text_label.setText("Connected")
-            self.market_status_label.setObjectName("marketOpen")
-        else:
-            self.market_text_label.setText("Disconnected")
-            self.market_status_label.setObjectName("marketClosed")
-
-        self.market_status_label.style().polish(self.market_status_label)
-
-    def update_performance_metrics(self, performance_data: Dict[str, Any]):
-        """
-        Update the header with performance indicators.
-
-        Args:
-            performance_data: Dictionary with performance metrics
-        """
-        try:
-            # Update any performance indicators in the header
-            # This could be a small P&L indicator, win rate badge, etc.
-
-            daily_pnl = performance_data.get('daily_pnl', 0)
-            win_rate = performance_data.get('win_rate', 0)
-
-            # Update tooltip or small indicator if you have one
-            if hasattr(self, 'performance_btn'):
-                tooltip_text = f"Performance Dashboard\n"
-                tooltip_text += f"Daily P&L: ₹{daily_pnl:,.2f}\n"
-                tooltip_text += f"Win Rate: {win_rate:.1f}%\n"
-                tooltip_text += f"Total Trades: {performance_data.get('total_trades', 0)}"
-
-                self.performance_btn.setToolTip(tooltip_text)
-
-                # Optional: Change button color based on performance
-                if daily_pnl > 0:
-                    self.performance_btn.setStyleSheet(
-                        self.performance_btn.styleSheet() +
-                        "border-left: 3px solid #00b894;"
-                    )
-                elif daily_pnl < 0:
-                    self.performance_btn.setStyleSheet(
-                        self.performance_btn.styleSheet() +
-                        "border-left: 3px solid #d63031;"
-                    )
-
-            logger.debug(f"Header performance metrics updated: P&L ₹{daily_pnl:,.2f}")
-
-        except Exception as e:
-            logger.error(f"Failed to update header performance metrics: {e}")
-
     def closeEvent(self, event):
         """Clean up timers when closing."""
-        self.account_timer.stop()
-        self.market_timer.stop()
+        if hasattr(self, 'account_timer'):
+            self.account_timer.stop()
         super().closeEvent(event)

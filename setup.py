@@ -13,11 +13,11 @@ except FileNotFoundError:
     long_description = "Desktop application for options scalping with Zerodha Kite"
 
 setup(
-    name="options-scalper",
+    name="Swing Trading App",
     version="1.0.0",
     author="Kaviarasu",
     author_email="kaviarasu301@gmail.com",
-    url="https://github.com/kaviarasu301/scalper_version_7",
+    url="https://github.com/kaviarasu301/",
     description="Desktop application for options scalping with Zerodha Kite",
     long_description=long_description,
     long_description_content_type="text/markdown",
