@@ -1805,6 +1805,8 @@ class CandlestickChart(QWidget):
                     this.isLoadingState = false; this.notificationQueue = [];
                     this.notificationTimer = null;
                     this.positionInfo = null;
+                    this.lastPriceDirection = 'neutral';  // 'up' | 'down' | 'neutral'
+                    this.previousLivePrice = null;
                     this.activeAlerts = [];
                     this.init();
                 }}
@@ -2227,58 +2229,51 @@ class CandlestickChart(QWidget):
                     }}
                     
                     drawVolumeScale() {{
-                            this.ctx.strokeStyle = this.colors.grid;
-                            this.ctx.fillStyle = this.colors.text;
-                            this.ctx.font = '10px monospace';
-                            this.ctx.textAlign = 'left';
-                            
-                            // Always draw exactly 5 levels (0%, 25%, 50%, 75%, 100%)
-                            const levels = 5;
-                            
-                            for (let i = 0; i < levels; i++) {{
-                                const point = i / (levels - 1); // This gives us 0, 0.25, 0.5, 0.75, 1.0
-                                const y = this.volumeArea.y + this.volumeArea.height - (point * this.volumeArea.height);
-                                
-                                // Draw grid line (make bottom line slightly more visible)
-                                this.ctx.strokeStyle = i === 0 ? this.colors.grid : 'rgba(51, 51, 51, 0.5)';
-                                this.ctx.lineWidth = 0.5;
-                                this.ctx.beginPath();
-                                this.ctx.moveTo(this.chartArea.x, y);
-                                this.ctx.lineTo(this.chartArea.x + this.chartArea.width, y);
-                                this.ctx.stroke();
-                                
-                                // Draw label
-                                const volumeValue = this.maxVolume * point;
-                                const label = this.formatVolumeK(volumeValue);
-                                this.ctx.fillText(label, this.volumeArea.x + this.volumeArea.width + 4, y + 3);
-                            }}
-                            
-                            // Highlight current day's volume if visible
-                            if (this.data.length > 0) {{
-                                const lastIndex = this.data.length - 1;
-                                if (lastIndex >= this.viewPortStart && lastIndex <= this.viewPortEnd) {{
-                                    const currentVolume = this.volumeData[lastIndex].value;
-                                    const y = this.volumeArea.y + this.volumeArea.height - (Math.min(1.0, currentVolume / this.maxVolume) * this.volumeArea.height);
-                                    
-                                    
-                                    
-                                    // Draw current volume label with background
-                                    const currentLabel = this.formatVolumeK(currentVolume);
-                                    const textMetrics = this.ctx.measureText(currentLabel);
-                                    const labelX = this.volumeArea.x + this.volumeArea.width + 4;
-                                    const labelY = y + 3;
-                                    
-                                    // Background for current volume
-                                    this.ctx.fillStyle = '#FF0000';
-                                    this.ctx.fillRect(labelX - 2, labelY - 10, textMetrics.width + 4, 12);
-                                    
-                                    // Text for current volume
-                                    this.ctx.fillStyle = 'white';
-                                    this.ctx.fillText(currentLabel, labelX, labelY);
-                                }}
-                            }}
+                        this.ctx.strokeStyle = this.colors.grid;
+                        this.ctx.fillStyle = this.colors.text;
+                        this.ctx.font = '10px monospace';
+                        this.ctx.textAlign = 'left';
+                    
+                        const levels = 5;
+                        const logMaxVol = Math.log(1 + this.maxVolume);
+                    
+                        for (let i = 0; i < levels; i++) {{
+                            const point = i / (levels - 1);
+                            const logVolume = point * logMaxVol;
+                            const y = this.volumeArea.y + this.volumeArea.height - (logVolume / logMaxVol * this.volumeArea.height);
+                    
+                            // Grid line
+                            this.ctx.strokeStyle = i === 0 ? this.colors.grid : 'rgba(51, 51, 51, 0.5)';
+                            this.ctx.lineWidth = 0.5;
+                            this.ctx.beginPath();
+                            this.ctx.moveTo(this.chartArea.x, y);
+                            this.ctx.lineTo(this.chartArea.x + this.chartArea.width, y);
+                            this.ctx.stroke();
+                    
+                            // ❌ Skip volume scale labels to reduce clutter
                         }}
                     
+                        // ✅ Highlight current volume (styled)
+                        if (this.data.length > 0) {{
+                            const lastIndex = this.data.length - 1;
+                            if (lastIndex >= this.viewPortStart && lastIndex <= this.viewPortEnd) {{
+                                const currentVolume = this.volumeData[lastIndex].value;
+                                const logVol = Math.log(1 + currentVolume);
+                                const y = this.volumeArea.y + this.volumeArea.height - (logVol / logMaxVol * this.volumeArea.height);
+                    
+                                const currentLabel = this.formatVolumeK(currentVolume);
+                                const textMetrics = this.ctx.measureText(currentLabel);
+                                const labelX = this.volumeArea.x + this.volumeArea.width + 4;
+                                const labelY = y + 3;
+                    
+                                this.ctx.fillStyle = '#FF0000';
+                                this.ctx.fillRect(labelX - 2, labelY - 10, textMetrics.width + 4, 12);
+                    
+                                this.ctx.fillStyle = 'white';
+                                this.ctx.fillText(currentLabel, labelX, labelY);
+                            }}
+                        }}
+                    }}
                     formatVolumeK(vol) {{
                         if (vol === 0) return '0K';
                         if (vol >= 1e6) return (vol / 1e6).toFixed(1) + 'M';
@@ -2302,34 +2297,167 @@ class CandlestickChart(QWidget):
                         this.ctx.stroke();
                     }}
                 }}
-
+                
                 drawAxes() {{
                     this.ctx.fillStyle = this.colors.text; 
                     this.ctx.font = '11px monospace'; 
-                    this.ctx.textAlign = 'left';
-                    
-                    // Draw price scale
+                
+                    // === PRICE SCALE ===
                     const priceRange = this.maxPrice - this.minPrice; 
                     if (priceRange <= 0) return;
-                    const priceStep = priceRange / 8;
-                    for (let i = 0; i <= 8; i++) {{
-                        const price = this.minPrice + (priceStep * i);
-                        const y = this.priceToY(price);
-                        this.ctx.fillText('₹' + price.toFixed(2), this.chartArea.x + this.chartArea.width + 4, y + 4);
-                    }}
-                    
-                    
-                    // Draw time labels
-                    const visibleCandles = this.viewPortEnd - this.viewPortStart + 1;
-                    const timeStep = Math.max(1, Math.floor(visibleCandles / 6)); 
-                    this.ctx.textAlign = 'center';
-                    for (let i = this.viewPortStart; i < this.data.length; i += timeStep) {{
-                        if (i < 0) continue;
-                        const x = this.candleToX(i) + this.candleWidth / 2;
-                        const date = new Date(this.data[i].time);
-                        this.ctx.fillText(this.formatTimeLabel(date), x, this.volumeArea.y + this.volumeArea.height + 20);
-                    }}
+                
+                    const niceStep = this.getNicePriceStep(priceRange);
+                    const minRounded = Math.floor(this.minPrice / niceStep) * niceStep;
+                    const maxRounded = Math.ceil(this.maxPrice / niceStep) * niceStep;
+                
                     this.ctx.textAlign = 'left';
+                
+                    for (let price = minRounded; price <= maxRounded; price += niceStep) {{
+                        const y = this.priceToY(price);
+                
+                        if (y < this.chartArea.y + 10 || y > this.chartArea.y + this.chartArea.height - 10) continue;
+                
+                        const label = '₹' + price.toFixed(2);
+                        const labelX = this.chartArea.x + this.chartArea.width + 6;
+                
+                        this.ctx.fillText(label, labelX, y + 4);
+                    }}
+                
+                    // === TIME SCALE ===
+                    const visibleCandles = this.viewPortEnd - this.viewPortStart + 1;
+                    this.ctx.textAlign = 'center';
+                
+                    const tf = this.currentInterval || 'day';
+                    let prevDate = null;
+                
+                    for (let i = this.viewPortStart; i <= this.viewPortEnd; i++) {{
+                        const data = this.data[i];
+                        if (!data) continue;
+                
+                        const date = new Date(data.time);
+                
+                        if ((["1minute", "3minute", "5minute"].includes(tf)) &&
+                            date.getHours() === 15 && date.getMinutes() === 15) {{
+                            continue;
+                        }}
+                
+                        const isStartOfDay = !prevDate || (
+                            date.getDate() !== prevDate.getDate() ||
+                            date.getMonth() !== prevDate.getMonth()
+                        );
+                
+                        let showLabel = false;
+                
+                        if (["1minute", "3minute", "5minute"].includes(tf)) {{
+                            const mins = date.getHours() * 60 + date.getMinutes();
+                            showLabel = (mins % 30 === 15) || isStartOfDay;
+                        }} else if (["15minute", "30minute"].includes(tf)) {{
+                            showLabel = isStartOfDay;
+                        }} else if (tf === "60minute") {{
+                            showLabel = isStartOfDay && (
+                                !prevDate || (Math.floor(date.getTime() / (24 * 60 * 60 * 1000)) % 2 === 0)
+                            );
+                        }} else if (["week", "month"].includes(tf)) {{
+                            showLabel = this.shouldLabelTime(tf, date, prevDate);
+                        }}
+                
+                        if (showLabel) {{
+                            const x = this.candleToX(i) + this.candleWidth / 2;
+                            const label = this.formatTimeLabelDynamic(date, tf, isStartOfDay);
+                            this.ctx.fillText(label, x, this.volumeArea.y + this.volumeArea.height + 20);
+                        }}
+                
+                        prevDate = date;
+                    }}
+                
+                    // === FIXED MONTH MARKERS for DAILY TF ===
+                    if (tf === "day") {{
+                        const seenMonths = new Set();
+                
+                        for (let i = 0; i < this.data.length; i++) {{
+                            const date = new Date(this.data[i].time);
+                            const key = date.getFullYear() + '-' + date.getMonth();
+                
+                            if (!seenMonths.has(key)) {{
+                                seenMonths.add(key);
+                
+                                if (i >= this.viewPortStart && i <= this.viewPortEnd) {{
+                                    const x = this.candleToX(i) + this.candleWidth / 2;
+                                    const label = date.toLocaleString('default', {{ month: 'short' }});  // "Jan"
+                                    this.ctx.fillText(label, x, this.volumeArea.y + this.volumeArea.height + 20);
+                                }}
+                            }}
+                        }}
+                    }}
+                
+                    this.ctx.textAlign = 'left';
+                }}
+                
+                
+                
+                getNicePriceStep(range) {{
+                    const rough = range / 8;
+                    const pow10 = Math.pow(10, Math.floor(Math.log10(rough)));
+                    const niceSteps = [1, 2, 2.5, 5, 10];
+                    for (let step of niceSteps) {{
+                        if (step * pow10 >= rough)
+                            return step * pow10;
+                    }}
+                    return 10 * pow10;
+                }}
+                
+                getTimeStepForInterval(interval) {{
+                    switch (interval) {{
+                        case "1minute": return 6;        // every 30 mins (6 × 5min candles)
+                        case "3minute": return 10;       // every ~30 mins
+                        case "5minute": return 6;        // every 30 mins
+                        case "15minute": return 9999;    // show only first candle per day
+                        case "30minute": return 9999;
+                        case "60minute": return 9999;
+                        case "day": return 1;            // one per day
+                        case "week": return 26;          // one every 6 months
+                        case "month": return 3;          // quarterly
+                        default: return 6;
+                    }}
+                }}
+                
+                shouldLabelTime(interval, date, prevDate) {{
+                    switch (interval) {{
+                        case "week":
+                            return !prevDate || date.getMonth() !== prevDate.getMonth();
+                        case "month":
+                            return date.getMonth() % 3 === 0;
+                        default:
+                            return false;
+                    }}
+                }}
+                
+                
+                formatTimeLabelDynamic(date, interval, isStartOfDay = false) {{
+                    const pad = (v) => v.toString().padStart(2, '0');
+                    const timeStr = pad(date.getHours()) + ':' + pad(date.getMinutes());
+                
+                    if (["1minute", "3minute", "5minute"].includes(interval)) {{
+                        if (isStartOfDay) {{
+                            const dateStr = pad(date.getDate()) + '-' + pad(date.getMonth() + 1) + '-' + date.getFullYear();
+                            return timeStr + ' (' + dateStr + ')';
+                        }}
+                        return timeStr;
+                    }}
+                
+                    if (["15minute", "30minute", "60minute"].includes(interval)) {{
+                        return pad(date.getDate()) + '-' + pad(date.getMonth() + 1) + '-' + date.getFullYear();
+                    }}
+                
+                    if (interval === "day") {{
+                        return date.toLocaleString('default', {{ month: 'short' }});  // "Jan"
+                    }}
+                
+                    if (["week", "month"].includes(interval)) {{
+                        return date.toLocaleString('default', {{ month: 'short', year: '2-digit' }});
+                    }}
+                
+                    return date.toLocaleDateString();
                 }}
 
                 drawAllDrawings() {{
@@ -2500,116 +2628,111 @@ class CandlestickChart(QWidget):
                 }}
 
                 drawCurrentPriceRay() {{
-                    if (this.livePrice !== null) {{
+                        if (this.livePrice === null) return;
+                    
+                        const ctx = this.ctx;
                         const y = this.priceToY(this.livePrice);
-                        
-                        // Determine price direction and colors
-                        let lineColor = this.colors.livePrice;
-                        let bgColor = this.colors.livePrice;
-                        let pulseColor = lineColor;
-                        
+                    
+                        // === Update direction on price change ===
                         if (this.previousLivePrice !== null) {{
                             if (this.livePrice > this.previousLivePrice) {{
-                                lineColor = '#26a69a'; // Green for up
-                                bgColor = '#1b5e20'; // Dark green background
-                                pulseColor = '#4caf50';
+                                this.lastPriceDirection = 'up';
                             }} else if (this.livePrice < this.previousLivePrice) {{
-                                lineColor = '#ef5350'; // Red for down
-                                bgColor = '#b71c1c'; // Dark red background
-                                pulseColor = '#f44336';
+                                this.lastPriceDirection = 'down';
                             }}
+                        }} else {{
+                            this.lastPriceDirection = 'neutral';
                         }}
-                        
-                        // Draw pulsing effect for active updates
-                        if (this.priceChangeAnimation) {{
-                            const now = Date.now();
-                            const elapsed = now - this.animationStartTime;
-                            if (elapsed < 500) {{
-                                const opacity = 1 - (elapsed / 500);
-                                this.ctx.strokeStyle = pulseColor + Math.floor(opacity * 128).toString(16).padStart(2, '0');
-                                this.ctx.lineWidth = 3;
-                                this.ctx.setLineDash([]);
-                                this.ctx.beginPath();
-                                this.ctx.moveTo(this.chartArea.x, y);
-                                this.ctx.lineTo(this.chartArea.x + this.chartArea.width, y);
-                                this.ctx.stroke();
-                            }}
+                        this.previousLivePrice = this.livePrice;
+                    
+                        // Trigger redraw (keep label background updated)
+                        this.animatePriceChange();
+                    
+                        // === Determine background color ===
+                        let bgColor = '#222';  // neutral gray
+                        if (this.lastPriceDirection === 'up') {{
+                            bgColor = '#1e6d2f';  // dark green
+                        }} else if (this.lastPriceDirection === 'down') {{
+                            bgColor = '#f90404';  // dark red
                         }}
-                        
-                        // Draw the main price line
-                        this.ctx.strokeStyle = lineColor;
-                        this.ctx.lineWidth = 2;
-                        this.ctx.setLineDash([8, 4]); // Prominent dashed line
-                        this.ctx.beginPath();
-                        this.ctx.moveTo(this.chartArea.x, y);
-                        this.ctx.lineTo(this.chartArea.x + this.chartArea.width, y);
-                        this.ctx.stroke();
-                        this.ctx.setLineDash([]);
-                        
-                        // Draw price label with enhanced visibility
+                    
+                        // === Thin dotted horizontal price line ===
+                        ctx.strokeStyle = this.colors.livePrice || '#888';
+                        ctx.lineWidth = 1;
+                        ctx.setLineDash([2, 2]);
+                        ctx.beginPath();
+                        ctx.moveTo(this.chartArea.x, y);
+                        ctx.lineTo(this.chartArea.x + this.chartArea.width, y);
+                        ctx.stroke();
+                        ctx.setLineDash([]);
+                    
+                        // === Price label with countdown ===
                         const priceText = '₹' + this.livePrice.toFixed(2);
-                        this.ctx.font = 'bold 12px monospace';
-                        const textMetrics = this.ctx.measureText(priceText);
-                        
-                        const rectX = this.chartArea.x + this.chartArea.width;
-                        const rectY = y - 12;
-                        const rectWidth = textMetrics.width + 16;
-                        const rectHeight = 24;
-                        
-                        // Draw glowing background
-                        this.ctx.shadowColor = bgColor;
-                        this.ctx.shadowBlur = 8;
-                        this.ctx.fillStyle = bgColor;
-                        this.ctx.fillRect(rectX, rectY, rectWidth, rectHeight);
-                        this.ctx.shadowBlur = 0;
-                        
-                        // Draw border
-                        this.ctx.strokeStyle = lineColor;
-                        this.ctx.lineWidth = 2;
-                        this.ctx.strokeRect(rectX, rectY, rectWidth, rectHeight);
-                        
-                        // Draw price text
-                        this.ctx.fillStyle = 'white';
-                        this.ctx.textAlign = 'left';
-                        this.ctx.fillText(priceText, rectX + 8, y + 4);
-                        
-                        // Draw triangle indicator
-                        this.ctx.beginPath();
-                        this.ctx.moveTo(rectX, y);
-                        this.ctx.lineTo(rectX - 8, y - 6);
-                        this.ctx.lineTo(rectX - 8, y + 6);
-                        this.ctx.closePath();
-                        this.ctx.fillStyle = bgColor;
-                        this.ctx.fill();
-                        this.ctx.strokeStyle = lineColor;
-                        this.ctx.lineWidth = 1;
-                        this.ctx.stroke();
+                        const timeLeft = this.getCandleCountdown();
+                        const labelText = priceText + '  •  ' + timeLeft;
+                    
+                        ctx.font = '10px monospace';
+                        const textWidth = ctx.measureText(labelText).width;
+                        const labelHeight = 16;
+                    
+                        const rectX = this.chartArea.x + this.chartArea.width + 6;
+                        const rectY = y - labelHeight / 2;
+                    
+                        // === Background box ===
+                        ctx.fillStyle = bgColor;
+                        ctx.fillRect(rectX, rectY, textWidth + 8, labelHeight);
+                    
+                        // === Border ===
+                        ctx.strokeStyle = '#555';
+                        ctx.lineWidth = 0.5;
+                        ctx.strokeRect(rectX, rectY, textWidth + 8, labelHeight);
+                    
+                        // === Text ===
+                        ctx.fillStyle = '#fff';
+                        ctx.textAlign = 'left';
+                        ctx.fillText(labelText, rectX + 4, y + 4);
                     }}
+
+                
+                
+                // === Helper: Candle countdown ===
+                getCandleCountdown() {{
+                    if (!this.data || !this.data.length) return '';
+                
+                    const lastCandle = this.data[this.data.length - 1];
+                    const candleTime = new Date(lastCandle.time).getTime();
+                
+                    const intervalMs = this.getIntervalMilliseconds();
+                    const now = Date.now();
+                
+                    const nextClose = candleTime + intervalMs;
+                    const remainingMs = Math.max(0, nextClose - now);
+                
+                    const totalSeconds = Math.floor(remainingMs / 1000);
+                    const minutes = Math.floor(totalSeconds / 60);
+                    const seconds = totalSeconds % 60;
+                
+                    return `${{minutes}}:${{seconds.toString().padStart(2, '0')}}`;
                 }}
                 
-                // Enhanced animation method
+                // === Helper: Timeframe to milliseconds ===
+                getIntervalMilliseconds() {{
+                    switch (this.currentInterval) {{
+                        case "1minute": return 60 * 1000;
+                        case "3minute": return 3 * 60 * 1000;
+                        case "5minute": return 5 * 60 * 1000;
+                        case "15minute": return 15 * 60 * 1000;
+                        case "30minute": return 30 * 60 * 1000;
+                        case "60minute": return 60 * 60 * 1000;
+                        case "day": return 24 * 60 * 60 * 1000;
+                        default: return 60 * 1000;
+                    }}
+                }}
                 animatePriceChange() {{
-                    if (!this.priceChangeAnimation) return;
-                    
-                    const now = Date.now();
-                    const elapsed = now - this.animationStartTime;
-                    const duration = 300; // 300ms animation
-                    
-                    if (elapsed < duration) {{
-                        const progress = elapsed / duration;
-                        const opacity = 1 - progress;
-                        
-                        // Draw fading highlight
-                        const y = this.priceToY(this.livePrice);
-                        const rectX = this.chartArea.x + this.chartArea.width;
-                        
-                        this.ctx.fillStyle = this.priceChangeAnimation.color + Math.floor(opacity * 255).toString(16).padStart(2, '0');
-                        this.ctx.fillRect(rectX - 10, y - 15, 100, 30);
-                        
-                        // Continue animation
+                    if (typeof requestAnimationFrame !== 'undefined') {{
                         requestAnimationFrame(() => this.draw());
                     }} else {{
-                        this.priceChangeAnimation = null;
+                        this.draw();
                     }}
                 }}
 
@@ -2627,18 +2750,45 @@ class CandlestickChart(QWidget):
                 }}
 
                 handleChartDrag(e) {{
-                    const deltaX = e.clientX - this.lastMouseX, deltaY = e.clientY - this.lastMouseY;
-                    const visibleCandles = this.viewPortEnd - this.viewPortStart + 1;
-                    const pixelsPerCandle = this.chartArea.width / visibleCandles;
-                    const candleShift = -Math.round(deltaX / pixelsPerCandle);
-                    let newStart = Math.max(0, Math.min(this.viewPortStart + candleShift, this.data.length + this.rightBufferCandles - visibleCandles));
-                    if (this.viewPortStart !== newStart) {{ this.viewPortStart = newStart; this.viewPortEnd = this.viewPortStart + visibleCandles - 1; }}
-                    const pricePerPixel = (this.maxPrice - this.minPrice) / this.chartArea.height;
-                    const priceDelta = -deltaY * pricePerPixel;
-                    this.minPrice += priceDelta; this.maxPrice += priceDelta;
-                    this.lastMouseX = e.clientX; this.lastMouseY = e.clientY;
-                    this.calculateBounds(); this.updateSlider();
-                }}
+                            const deltaX = e.clientX - this.lastMouseX;
+                            const deltaY = e.clientY - this.lastMouseY;
+                        
+                            // Horizontal drag (X-axis)
+                            const visibleCandles = this.viewPortEnd - this.viewPortStart + 1;
+                            const pixelsPerCandle = this.chartArea.width / visibleCandles;
+                            const candleShift = -Math.round(deltaX / pixelsPerCandle);
+                        
+                            let newStart = Math.max(
+                                0,
+                                Math.min(
+                                    this.viewPortStart + candleShift,
+                                    this.data.length + this.rightBufferCandles - visibleCandles
+                                )
+                            );
+                        
+                            if (this.viewPortStart !== newStart) {{
+                                this.viewPortStart = newStart;
+                                this.viewPortEnd = this.viewPortStart + visibleCandles - 1;
+                            }}
+                        
+                            // Vertical drag (Y-axis)
+                            const pricePerPixel = (this.maxPrice - this.minPrice) / this.chartArea.height;
+                            const priceDelta = -deltaY * pricePerPixel;
+                        
+                            this.minPrice += priceDelta;
+                            this.maxPrice += priceDelta;
+                        
+                            // Update last mouse position
+                            this.lastMouseX = e.clientX;
+                            this.lastMouseY = e.clientY;
+                        
+                            // Recalculate and redraw
+                            // Comment out or remove this line for vertical drag
+                            this.calculateBounds(); 
+                            this.updateSlider();
+                            this.draw();
+                        }}
+
 
                 handleWheel(e) {{
                     e.preventDefault();

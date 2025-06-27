@@ -4,8 +4,7 @@ import json
 from datetime import datetime
 from typing import List, Dict, Union, Any, Optional
 
-from PySide6.QtCore import Qt, QUrl, QByteArray, QTimer, Slot, Signal
-from PySide6.QtMultimedia import QSoundEffect
+from PySide6.QtCore import Qt,  QByteArray, QTimer, Slot, Signal
 from PySide6.QtWidgets import QMainWindow, QSplitter, QMessageBox, QWidget, QVBoxLayout, QHBoxLayout, \
     QPushButton, QLabel
 from PySide6.QtGui import QMouseEvent, QKeySequence, QShortcut
@@ -245,25 +244,6 @@ class SwingTraderWindow(QMainWindow):
         title_bar.mouseDoubleClickEvent = self._title_bar_double_click
         return title_bar
 
-    def _init_sounds(self):
-        """Initializes all sound effects for the application."""
-
-        def create_sound(file_name):
-            sound_file = os.path.join("assets", file_name)
-            if not os.path.exists(sound_file):
-                logger.warning(f"Sound file not found: {sound_file}. Please ensure the 'assets' directory is present.")
-                return None
-
-            sound_effect = QSoundEffect(self)
-            sound_effect.setSource(QUrl.fromLocalFile(sound_file))
-            sound_effect.setVolume(1.0)  # You can make this configurable
-            logger.info(f"Sound loaded: {sound_file}")
-            return sound_effect
-
-        self.alert_sound = create_sound("alert.mp3")
-        self.success_sound = create_sound("success.mp3")
-        self.error_sound = create_sound("error.mp3")
-        self.order_placed_sound = create_sound("placed.mp3")
 
     def _init_alert_system(self):
         try:
@@ -492,7 +472,6 @@ class SwingTraderWindow(QMainWindow):
         if self.order_manager:
             self.order_manager.order_placed.connect(self._on_order_placed)
             self.order_manager.order_cancelled.connect(self._on_order_cancelled)
-            self.order_manager.order_rejected.connect(self._on_order_rejected)
             self.order_manager.bracket_order_completed.connect(self._on_bracket_completed)
             self.order_manager.oco_triggered.connect(self._on_oco_triggered)
 
@@ -810,14 +789,7 @@ class SwingTraderWindow(QMainWindow):
         symbol = order_data.get('tradingsymbol', '')
         self._show_order_notification(f"Order cancelled for {symbol}", "info")
 
-    @Slot(dict, str)
-    def _on_order_rejected(self, order_data, reason):
-        symbol = order_data.get('tradingsymbol', '')
-        message = f"REJECTED: Order for {symbol}. Reason: {reason}"
-        self._show_order_notification(message, "error")
-        order_data['status'] = 'REJECTED'
-        order_data['status_message'] = reason
-        self.trade_logger.log_order_update(order_data)
+
 
     @Slot(dict)
     def _on_bracket_completed(self, bracket_data):
@@ -2250,60 +2222,6 @@ class SwingTraderWindow(QMainWindow):
             return None
 
 
-    def _show_order_notification(self, message: str, notification_type: str = "info",
-                                 sound_type: str = None, silent_during_startup: bool = True,
-                                 action_data: Dict[str, Any] = None):
-        """
-        Enhanced notification system with sleek toast notifications.
-        Replaces the old popup-based notification system.
-
-        Args:
-            message: Notification message text
-            notification_type: Type of notification for styling
-            sound_type: Override sound type (deprecated - auto-determined now)
-            silent_during_startup: Whether to suppress notifications during startup
-            action_data: Optional data for clickable notifications
-        """
-        try:
-            # Check if we should suppress during startup
-            if silent_during_startup and not getattr(self, '_startup_complete', True):
-                logger.info(f"Suppressed startup notification: {message}")
-                return
-
-            # Map old notification types to new system
-            type_mapping = {
-                "success": NotificationType.SUCCESS,
-                "error": NotificationType.ERROR,
-                "info": NotificationType.INFO,
-                "warning": NotificationType.WARNING,
-                "order_placed": NotificationType.ORDER_PLACED,
-                "order_executed": NotificationType.ORDER_EXECUTED,
-                "order_cancelled": NotificationType.ORDER_CANCELLED,
-                "order_rejected": NotificationType.ORDER_REJECTED,
-                "partial_fill": NotificationType.PARTIAL_FILL,
-                "position_update": NotificationType.POSITION_UPDATE,
-                "alert": NotificationType.ALERT,
-                "system": NotificationType.SYSTEM
-            }
-
-            # Get notification type
-            notif_type = type_mapping.get(notification_type, NotificationType.INFO)
-
-            # Show notification through manager
-            notification_id = self.notification_manager.show_notification(
-                message=message,
-                notification_type=notif_type,
-                action_data=action_data,
-                silent=False  # Let the manager handle sound based on notification type
-            )
-
-            logger.debug(f"Showed notification: {notification_id} - {message}")
-
-        except Exception as e:
-            logger.error(f"Error showing notification: {e}")
-            # Fallback to console log if notification system fails
-            print(f"NOTIFICATION: {message}")
-
 
     def _show_order_executed_notification(self, order_data: Dict[str, Any]):
         """Show order executed notification with position link."""
@@ -2322,7 +2240,7 @@ class SwingTraderWindow(QMainWindow):
         self._show_order_notification(message, "order_executed", action_data=action_data)
 
     def _show_order_cancelled_notification(self, order_data: Dict[str, Any]):
-        """Show order cancelled notification."""
+        """Show order canceled notification."""
         symbol = order_data.get('tradingsymbol', '')
         order_id = order_data.get('order_id', '')
 
@@ -2585,48 +2503,243 @@ class SwingTraderWindow(QMainWindow):
             if hasattr(self, 'right_panel_splitter'):
                 self.right_panel_splitter.setSizes([300, 200])
 
-        # UTILITY: Get active order count for debugging
-        def get_active_order_count(self) -> int:
-            """Get count of active order notifications and tracked orders."""
+    # UTILITY: Get active order count for debugging
+    def get_active_order_count(self) -> int:
+        """Get count of active order notifications and tracked orders."""
+        notification_count = len(self.active_order_notifications) if hasattr(self,
+                                                                             'active_order_notifications') else 0
+        tracked_count = self.order_tracker.get_active_order_count() if self.order_tracker else 0
+
+        return max(notification_count, tracked_count)
+
+    # DEBUG: Method to check system health
+    def debug_order_system_health(self):
+        """Debug method to check order system health."""
+        try:
+            logger.info("=== ORDER SYSTEM HEALTH CHECK ===")
+
+            # Check active notifications
             notification_count = len(self.active_order_notifications) if hasattr(self,
                                                                                  'active_order_notifications') else 0
-            tracked_count = self.order_tracker.get_active_order_count() if self.order_tracker else 0
+            logger.info(f"Active order notifications: {notification_count}")
 
-            return max(notification_count, tracked_count)
+            # Check order tracker
+            if self.order_tracker:
+                tracked_count = self.order_tracker.get_active_order_count()
+                logger.info(f"Tracked orders: {tracked_count}")
 
-        # DEBUG: Method to check system health
-        def debug_order_system_health(self):
-            """Debug method to check order system health."""
-            try:
-                logger.info("=== ORDER SYSTEM HEALTH CHECK ===")
+                tracked_orders = self.order_tracker.get_tracked_orders()
+                for order_id, order_data in tracked_orders.items():
+                    status = order_data.get('status', 'UNKNOWN')
+                    symbol = order_data.get('tradingsymbol', 'N/A')
+                    logger.info(f"  {order_id[:8]}... | {symbol} | {status}")
+            else:
+                logger.warning("Order tracker not initialized")
 
-                # Check active notifications
-                notification_count = len(self.active_order_notifications) if hasattr(self,
-                                                                                     'active_order_notifications') else 0
-                logger.info(f"Active order notifications: {notification_count}")
+            # Check notification manager
+            if hasattr(self, 'notification_manager'):
+                active_notifications = len(self.notification_manager.active_notifications)
+                logger.info(f"Total active notifications: {active_notifications}")
 
-                # Check order tracker
-                if self.order_tracker:
-                    tracked_count = self.order_tracker.get_active_order_count()
-                    logger.info(f"Tracked orders: {tracked_count}")
+            logger.info("=== HEALTH CHECK COMPLETE ===")
 
-                    tracked_orders = self.order_tracker.get_tracked_orders()
-                    for order_id, order_data in tracked_orders.items():
-                        status = order_data.get('status', 'UNKNOWN')
-                        symbol = order_data.get('tradingsymbol', 'N/A')
-                        logger.info(f"  {order_id[:8]}... | {symbol} | {status}")
-                else:
-                    logger.warning("Order tracker not initialized")
+        except Exception as e:
+            logger.error(f"Error in order system health check: {e}")
 
-                # Check notification manager
-                if hasattr(self, 'notification_manager'):
-                    active_notifications = len(self.notification_manager.active_notifications)
-                    logger.info(f"Total active notifications: {active_notifications}")
 
-                logger.info("=== HEALTH CHECK COMPLETE ===")
 
-            except Exception as e:
-                logger.error(f"Error in order system health check: {e}")
+    # Updated sound methods for widgets/main_window.py
+
+    def _init_sounds(self):
+        """Initializes all sound effects for the application with resilient error handling."""
+
+        def create_sound(file_name):
+            """Create a QSoundEffect with comprehensive error handling and fallback."""
+            # Try multiple file formats
+            base_name = file_name.replace('.mp3', '').replace('.wav', '')
+            possible_files = [
+                f"{base_name}.wav",  # Preferred format
+                f"{base_name}.mp3",  # Fallback format
+            ]
+
+            for filename in possible_files:
+                sound_file = os.path.join("assets", filename)
+
+                if not os.path.exists(sound_file):
+                    logger.debug(f"Sound file not found: {sound_file}")
+                    continue
+
+                try:
+                    from PySide6.QtMultimedia import QSoundEffect
+                    from PySide6.QtCore import QUrl
+
+                    sound_effect = QSoundEffect(self)
+
+                    # Create QUrl with proper file path
+                    file_url = QUrl.fromLocalFile(os.path.abspath(sound_file))
+                    sound_effect.setSource(file_url)
+
+                    # Set volume and other properties
+                    sound_effect.setVolume(0.7)  # Slightly lower volume to prevent distortion
+                    sound_effect.setLoopCount(1)  # Ensure it only plays once
+
+                    # Verify the sound effect loaded successfully
+                    if sound_effect.source().isEmpty():
+                        logger.warning(f"Failed to set source for sound: {sound_file}")
+                        continue
+
+                    # Test if the sound can be played (check status)
+                    def check_status():
+                        if hasattr(sound_effect, 'status'):
+                            from PySide6.QtMultimedia import QSoundEffect
+                            if sound_effect.status() == QSoundEffect.Status.Error:
+                                logger.warning(f"Sound effect error for: {sound_file}")
+                            elif sound_effect.status() == QSoundEffect.Status.Ready:
+                                logger.info(f"Sound loaded successfully: {sound_file}")
+
+                    # Connect to status changed signal if available
+                    if hasattr(sound_effect, 'statusChanged'):
+                        sound_effect.statusChanged.connect(check_status)
+
+                    logger.info(f"Sound loaded: {sound_file}")
+                    return sound_effect
+
+                except ImportError:
+                    logger.warning("QtMultimedia not available - sounds disabled")
+                    return None
+                except Exception as e:
+                    logger.warning(f"Could not load sound {sound_file}: {e}")
+                    continue
+
+            # If we get here, no sound file worked
+            logger.warning(
+                f"Could not load any sound file for: {file_name}. Please ensure the 'assets' directory contains {base_name}.wav or {base_name}.mp3")
+            return None
+
+        # Initialize all sound effects with WAV preference
+        self.alert_sound = create_sound("alert.wav")
+        self.success_sound = create_sound("success.wav")
+        self.error_sound = create_sound("error.wav")
+        self.order_placed_sound = create_sound("placed.wav")
+
+        # Log sound initialization status
+        sound_status = {
+            'alert': self.alert_sound is not None,
+            'success': self.success_sound is not None,
+            'error': self.error_sound is not None,
+            'order_placed': self.order_placed_sound is not None
+        }
+
+        working_sounds = sum(sound_status.values())
+        logger.info(f"Sound initialization complete: {working_sounds}/4 sounds loaded successfully")
+
+        if working_sounds == 0:
+            logger.warning("No sound effects loaded. Check that assets directory contains .wav or .mp3 files.")
+
+    def _play_sound_safe(self, sound_effect, sound_name=""):
+        """Safely play a sound effect with error handling."""
+        if sound_effect is None:
+            logger.debug(f"Cannot play {sound_name} - sound effect not loaded")
+            return False
+
+        try:
+            # Check if sound is ready before playing
+            if hasattr(sound_effect, 'status'):
+                from PySide6.QtMultimedia import QSoundEffect
+                if sound_effect.status() == QSoundEffect.Status.Error:
+                    logger.warning(f"Cannot play {sound_name} - sound in error state")
+                    return False
+                elif sound_effect.status() == QSoundEffect.Status.Loading:
+                    logger.debug(f"Cannot play {sound_name} - sound still loading")
+                    return False
+
+            # Check if currently playing and stop if needed
+            if hasattr(sound_effect, 'isPlaying') and sound_effect.isPlaying():
+                sound_effect.stop()
+
+            # Play the sound
+            sound_effect.play()
+            logger.debug(f"Playing sound: {sound_name}")
+            return True
+
+        except Exception as e:
+            logger.warning(f"Error playing {sound_name}: {e}")
+            return False
+
+    @Slot()
+    def _play_alert_sound(self):
+        """Play alert sound with resilient error handling."""
+        self._play_sound_safe(self.alert_sound, "alert")
+
+    def _play_success_sound(self):
+        """Play success sound with resilient error handling."""
+        self._play_sound_safe(self.success_sound, "success")
+
+    def _play_error_sound(self):
+        """Play error sound with resilient error handling."""
+        self._play_sound_safe(self.error_sound, "error")
+
+    def _play_order_placed_sound(self):
+        """Play order placed sound with resilient error handling."""
+        self._play_sound_safe(self.order_placed_sound, "order_placed")
+
+    # Updated notification method to use appropriate sounds
+    def _show_order_notification(self, message: str, notification_type: str = "info",
+                                 sound_type: str = None, silent_during_startup: bool = False,
+                                 action_data: Dict[str, Any] = None):
+        """Enhanced notification with automatic sound selection."""
+        try:
+            # Check if we should suppress during startup
+            if silent_during_startup and not getattr(self, '_startup_complete', True):
+                logger.info(f"Suppressed startup notification: {message}")
+                return
+
+            # Map old notification types to new system
+            type_mapping = {
+                "success": NotificationType.SUCCESS,
+                "error": NotificationType.ERROR,
+                "info": NotificationType.INFO,
+                "warning": NotificationType.WARNING,
+                "order_placed": NotificationType.ORDER_PLACED,
+                "order_executed": NotificationType.ORDER_EXECUTED,
+                "order_cancelled": NotificationType.ORDER_CANCELLED,
+                "order_rejected": NotificationType.ORDER_REJECTED,
+                "partial_fill": NotificationType.PARTIAL_FILL,
+                "position_update": NotificationType.POSITION_UPDATE,
+                "alert": NotificationType.ALERT,
+                "system": NotificationType.SYSTEM
+            }
+
+            # Get notification type
+            notif_type = type_mapping.get(notification_type, NotificationType.INFO)
+
+            # Play appropriate sound based on notification type
+            if not silent_during_startup:
+                if notification_type == "success":
+                    self._play_success_sound()
+                elif notification_type == "error":
+                    self._play_error_sound()
+                elif notification_type in ["order_placed", "order_executed"]:
+                    self._play_order_placed_sound()
+                elif notification_type == "alert":
+                    self._play_alert_sound()
+
+            # Show notification through manager
+            notification_id = self.notification_manager.show_notification(
+                message=message,
+                notification_type=notif_type,
+                action_data=action_data,
+                silent=True  # We handle sound manually above
+            )
+
+            logger.debug(f"Showed notification: {notification_id} - {message}")
+
+        except Exception as e:
+            logger.error(f"Error showing notification: {e}")
+            # Fallback to console log if notification system fails
+            print(f"NOTIFICATION: {message}")
+
+
 
     def _apply_dark_theme(self):
         """Enhanced dark theme with FIXED splitter styling for proper resizing."""

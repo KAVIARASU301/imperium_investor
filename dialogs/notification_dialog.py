@@ -6,12 +6,12 @@ from enum import Enum
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
-    QApplication, QGraphicsOpacityEffect, QStackedWidget, QGraphicsEffect,
+    QApplication,
     QGraphicsDropShadowEffect, QProgressBar
 )
 from PySide6.QtCore import (Qt, Signal, QTimer, QRect)
 from PySide6.QtCore import QPropertyAnimation, QParallelAnimationGroup, QEasingCurve, QPoint, QByteArray
-from PySide6.QtGui import QFont, QPixmap, QPainter, QColor, QLinearGradient
+from PySide6.QtGui import QFont, QColor
 
 logger = logging.getLogger(__name__)
 
@@ -453,36 +453,90 @@ class NotificationManager:
         self.sounds = {}
         self._setup_sounds()
 
+    # ===================================================================
+    # Updated sound methods for dialogs/notification_dialog.py
+    # ===================================================================
+
     def _setup_sounds(self):
-        """Setup enhanced sound effects for different notification types."""
+        """Setup enhanced sound effects for different notification types with resilient loading."""
         try:
             from PySide6.QtMultimedia import QSoundEffect
             from PySide6.QtCore import QUrl
             import os
 
-            # Initialize sounds if files exist
+            # Initialize sounds if files exist - using assets directory with WAV preference
             sound_files = {
-                NotificationType.SUCCESS: "sounds/success.wav",
-                NotificationType.ERROR: "sounds/error.wav",
-                NotificationType.ORDER_PLACED: "sounds/order_placed.wav",
-                NotificationType.ORDER_EXECUTED: "sounds/order_executed.wav",
-                NotificationType.ALERT: "sounds/alert.wav"
+                NotificationType.SUCCESS: "assets/success.wav",
+                NotificationType.ERROR: "assets/error.wav",
+                NotificationType.ORDER_PLACED: "assets/placed.wav",
+                NotificationType.ORDER_EXECUTED: "assets/placed.wav",  # Reuse placed sound
+                NotificationType.ALERT: "assets/alert.wav"
+            }
+
+            # Fallback to MP3 if WAV not available
+            fallback_files = {
+                NotificationType.SUCCESS: "assets/success.mp3",
+                NotificationType.ERROR: "assets/error.mp3",
+                NotificationType.ORDER_PLACED: "assets/placed.mp3",
+                NotificationType.ORDER_EXECUTED: "assets/placed.mp3",
+                NotificationType.ALERT: "assets/alert.mp3"
             }
 
             for notif_type, file_path in sound_files.items():
                 try:
-                    if os.path.exists(file_path):
-                        sound = QSoundEffect()
-                        sound.setSource(QUrl.fromLocalFile(file_path))
-                        sound.setVolume(0.4)  # Slightly higher volume for premium feel
-                        self.sounds[notif_type] = sound
-                    else:
-                        logger.debug(f"Sound file not found: {file_path}")
+                    # Try WAV first, then MP3 fallback
+                    paths_to_try = [file_path, fallback_files.get(notif_type)]
+
+                    for path in paths_to_try:
+                        if path and os.path.exists(path):
+                            sound = QSoundEffect()
+                            file_url = QUrl.fromLocalFile(os.path.abspath(path))
+                            sound.setSource(file_url)
+                            sound.setVolume(0.4)  # Slightly higher volume for premium feel
+                            sound.setLoopCount(1)  # Ensure single play
+
+                            # Verify the sound loaded successfully
+                            if not sound.source().isEmpty():
+                                self.sounds[notif_type] = sound
+                                logger.debug(f"Sound loaded for {notif_type.value}: {path}")
+                                break
+                            else:
+                                logger.debug(f"Failed to load sound source: {path}")
+                        else:
+                            logger.debug(f"Sound file not found: {path}")
+
+                    if notif_type not in self.sounds:
+                        logger.debug(f"No sound available for notification type: {notif_type.value}")
+
                 except Exception as e:
-                    logger.debug(f"Could not load sound {file_path}: {e}")
+                    logger.debug(f"Could not load sound for {notif_type.value}: {e}")
+
+            # Log summary
+            loaded_sounds = len(self.sounds)
+            total_sounds = len(sound_files)
+            logger.info(f"Notification sounds loaded: {loaded_sounds}/{total_sounds}")
 
         except ImportError:
             logger.debug("QtMultimedia not available for sounds")
+        except Exception as e:
+            logger.warning(f"Error setting up notification sounds: {e}")
+
+    def _play_notification_sound(self, notification_type: NotificationType):
+        """Safely play notification sound."""
+        if notification_type in self.sounds:
+            try:
+                sound = self.sounds[notification_type]
+
+                # Stop if already playing
+                if hasattr(sound, 'isPlaying') and sound.isPlaying():
+                    sound.stop()
+
+                # Play the sound
+                sound.play()
+                logger.debug(f"Playing notification sound: {notification_type.value}")
+
+            except Exception as e:
+                logger.debug(f"Error playing notification sound {notification_type.value}: {e}")
 
     def show_notification(self, message: str, notification_type: NotificationType,
                           action_data: Dict[str, Any] = None, silent: bool = False) -> str:
