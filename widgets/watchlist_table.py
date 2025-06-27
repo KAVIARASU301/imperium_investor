@@ -2,15 +2,15 @@
 import logging
 import json
 import os
-from typing import List, Dict, Optional
+from typing import List, Dict
 from functools import partial
 
 from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QPushButton, QVBoxLayout, QWidget,
     QHeaderView, QAbstractItemView, QMenu, QTabWidget
 )
-from PySide6.QtCore import Qt, Signal, Slot, QPoint, QSettings, QTimer
-from PySide6.QtGui import QColor, QCursor, QAction, QFont
+from PySide6.QtCore import Qt, Signal, Slot, QPoint, QTimer
+from PySide6.QtGui import QColor, QCursor, QAction, QResizeEvent
 
 logger = logging.getLogger(__name__)
 
@@ -20,10 +20,6 @@ WATCHLIST_FILES = {
     "EP": "user_data/watchlist_episodic.json",
     "Parabolic": "user_data/watchlist_parabolic.json"
 }
-
-
-# Settings for remembering UI state (REMOVED: No longer using fixed width)
-# SETTINGS_KEY_WIDTH = "watchlist/widget_width"
 
 
 class TradingTable(QTableWidget):
@@ -84,7 +80,7 @@ class TradingTable(QTableWidget):
 
         # FIXED: Set compact fixed widths for right-side columns
         self.setColumnWidth(1, 70)  # LTP - enough for "0000.00"
-        self.setColumnWidth(2, 50)  # Volume - enough for "999K" or "9.9L"
+        self.setColumnWidth(2, 70)  # Volume - enough for "999K" or "9.9L"
         self.setColumnWidth(3, 60)  # Change % - enough for "+00.00%"
         self.setColumnWidth(4, 24)  # Remove button - minimal
 
@@ -527,52 +523,42 @@ class TradingTable(QTableWidget):
         self.item(row, 0).setText(tradingsymbol)
         self.item(row, 1).setText(f"{ltp:.2f}" if ltp > 0 else "0.00")
 
-        # FIXED: Format volume with shorter notation for space efficiency
-        if volume > 0:
-            if volume >= 10000000:  # 1 crore+
-                volume_text = f"{volume / 10000000:.1f}Cr"
-            elif volume >= 100000:  # 1 lakh+
-                volume_text = f"{volume / 100000:.0f}L"  # No decimal for lakhs to save space
-            elif volume >= 1000:
-                volume_text = f"{volume / 1000:.0f}K"  # No decimal for thousands
-            else:
-                volume_text = str(volume)
+        # Format volume with K/M notation
+        if volume >= 1_000_000:
+            volume_text = f"{volume / 1_000_000:.1f}M"
+        elif volume >= 1_000:
+            volume_text = f"{volume / 1_000:.1f}K"
         else:
-            volume_text = "0"
+            volume_text = str(volume)
         self.item(row, 2).setText(volume_text)
 
-        # FIXED: Format change percentage with compact notation
+        # Format change percentage
         if change_pct != 0:
-            self.item(row, 3).setText(f"{change_pct:+.1f}%")  # Only 1 decimal place to save space
+            self.item(row, 3).setText(f"{change_pct:+.1f}%")
         else:
             self.item(row, 3).setText("0.0%")
 
-        # Set data for proper sorting (store actual numeric values)
+        # Set data for proper sorting
         self.item(row, 0).setData(Qt.ItemDataRole.UserRole, tradingsymbol)
         self.item(row, 1).setData(Qt.ItemDataRole.UserRole, ltp)
-        self.item(row, 2).setData(Qt.ItemDataRole.UserRole, volume)  # Store raw volume for sorting
-        self.item(row, 3).setData(Qt.ItemDataRole.UserRole, change_pct)  # Store raw percentage for sorting
+        self.item(row, 2).setData(Qt.ItemDataRole.UserRole, volume)
+        self.item(row, 3).setData(Qt.ItemDataRole.UserRole, change_pct)
 
         # Apply colors
-        profit_color = QColor(60, 179, 113)  # Medium Sea Green
-        loss_color = QColor(220, 20, 60)  # Crimson
-        neutral_color = QColor(169, 169, 169)  # DarkGray
-
+        profit_color = QColor(60, 179, 113)
+        loss_color = QColor(220, 20, 60)
+        neutral_color = QColor(169, 169, 169)
         color = profit_color if change_pct > 0 else (loss_color if change_pct < 0 else neutral_color)
 
-        # Apply color to LTP and Change %
         self.item(row, 1).setForeground(color)
         self.item(row, 3).setForeground(color)
         self.item(row, 2).setForeground(neutral_color)
 
-        # Set alignments with improved text formatting
+        # Set alignments
         self.item(row, 0).setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        self.item(row, 1).setTextAlignment(
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)  # Right-align numbers
-        self.item(row, 2).setTextAlignment(
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)  # Right-align numbers
-        self.item(row, 3).setTextAlignment(
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)  # Right-align numbers
+        self.item(row, 1).setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.item(row, 2).setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.item(row, 3).setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 
     def _refresh_display(self):
         """Periodic refresh of display data"""
@@ -706,7 +692,7 @@ class TradingTable(QTableWidget):
         menu.addAction(sort_ltp)
 
         sort_volume = QAction("Sort by Volume", self)
-        sort_volume.triggered.connect(lambda: self._sort_table_by_column(2, Qt.SortOrder.DescendingOrder))
+        sort_volume.triggered.connect(lambda: self._sort_table_by_column(2,Qt.SortOrder.DescendingOrder))
         menu.addAction(sort_volume)
 
         sort_change_desc = QAction("Sort by Change % ↓ (Best First)", self)
@@ -795,7 +781,7 @@ class TradingTable(QTableWidget):
 
 class TabbedWatchlistWidget(QWidget):
     """
-    Enhanced tabbed watchlist widget with FIXED width consistency to match positions table
+    Enhanced tabbed watchlist widget with dynamic width calculation.
     """
     symbol_selected = Signal(str)
     subscribe_tokens_requested = Signal(list)
@@ -809,13 +795,9 @@ class TabbedWatchlistWidget(QWidget):
         super().__init__(parent)
         self._instrument_map: Dict[str, Dict] = {}
         self._tables: Dict[str, TradingTable] = {}
-
-        # FIXED: Remove automatic resizing that interferes with splitter
-        self._last_tab_width_update = 0
         self._setup_ui()
         self._apply_styles()
         self._load_all_watchlists()
-
 
     def _setup_ui(self):
         """Sets up the main UI layout with tabs."""
@@ -823,22 +805,28 @@ class TabbedWatchlistWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Create tab widget
+        self.setMinimumWidth(350)
+
         self.tab_widget = QTabWidget()
         self.tab_widget.setObjectName("tradingTabs")
 
-        # Disable tab scrolling
+        # Initialize tab width tracking variables
+        self._last_widget_width = 0
+        self._last_calculated_tab_width = 0
+        self._resize_timer = QTimer()
+        self._resize_timer.setSingleShot(True)
+        self._resize_timer.timeout.connect(self._update_tab_widths)
+
         tab_bar = self.tab_widget.tabBar()
         tab_bar.setUsesScrollButtons(False)
-        tab_bar.setExpanding(True)
+        tab_bar.setExpanding(False)  # Set to False for manual control
+        tab_bar.setDrawBase(False)  # Prevents visual glitches
 
-        # Create tables for each category
         categories = ["Breakouts", "EP", "Parabolic"]
         for category in categories:
             table = TradingTable(category)
             self._tables[category] = table
 
-            # Connect all signals
             table.symbol_selected.connect(self.symbol_selected.emit)
             table.place_order_requested.connect(self.place_order_requested.emit)
             table.advanced_buy_order_requested.connect(self.advanced_buy_order_requested.emit)
@@ -848,136 +836,10 @@ class TabbedWatchlistWidget(QWidget):
             self.tab_widget.addTab(table, category.upper())
 
         layout.addWidget(self.tab_widget)
-        self.tab_widget.show()
-        self._set_equal_tab_widths()
 
-
-
-    def _apply_styles(self):
-        """Applies TC2000-inspired styling to the tabbed watchlist."""
-        self.setStyleSheet("""
-            TabbedWatchlistWidget {
-                background-color: #0a0a0a;
-                color: #e0e0e0;
-                font-family: "Segoe UI", Arial, sans-serif;
-                font-size: 13px;
-            }
-        """)
-
-    def set_instrument_map(self, instrument_map: Dict[str, Dict]):
-        """Enhanced instrument map setting with proper propagation"""
-        logger.info(f"Setting instrument map with {len(instrument_map)} instruments")
-        self._instrument_map = instrument_map
-
-        # Propagate to all tables
-        for table in self._tables.values():
-            table.set_instrument_map(instrument_map)
-
-        # Request token subscription for all existing symbols
-        self._subscribe_all_tokens()
-
-    def _subscribe_all_tokens(self):
-        """Subscribe to all tokens across all watchlists"""
-        all_tokens = self.get_all_tokens()
-        if all_tokens:
-            self.subscribe_tokens_requested.emit(all_tokens)
-            logger.info(f"Subscribed to {len(all_tokens)} tokens across all watchlists")
-
-    @Slot(list)
-    def update_data(self, ticks: List[Dict]):
-        """Enhanced data update with logging"""
-        if ticks:
-            # Log first tick for debugging
-            if logger.isEnabledFor(logging.DEBUG) and len(ticks) > 0:
-                logger.debug(f"Received {len(ticks)} ticks. First tick structure: {ticks[0]}")
-
-            # Distribute to all tables
-            for table in self._tables.values():
-                table.update_data(ticks)
-
-    def add_symbol(self, symbol: str, category: str = None) -> bool:
-        """Enhanced symbol addition with proper persistence"""
-        if category is None:
-            current_index = self.tab_widget.currentIndex()
-            category = list(self._tables.keys())[current_index]
-
-        if category in self._tables:
-            success = self._tables[category].add_symbol(symbol)
-            if success:
-                # Save immediately
-                self._save_watchlist(category)
-
-                # Subscribe to token
-                if symbol in self._instrument_map:
-                    token = self._instrument_map[symbol].get('instrument_token')
-                    if token:
-                        self.subscribe_tokens_requested.emit([token])
-
-                self.watchlist_changed.emit()
-                logger.info(f"Successfully added {symbol} to {category}")
-                return True
-            else:
-                logger.warning(f"Failed to add {symbol} to {category}")
-        return False
-
-    def get_current_category(self) -> str:
-        """Returns the currently selected category."""
-        current_index = self.tab_widget.currentIndex()
-        return list(self._tables.keys())[current_index]
-
-    def get_all_tokens(self) -> List[int]:
-        """Returns a list of all instrument tokens from all watchlists."""
-        all_tokens = []
-        for table in self._tables.values():
-            all_tokens.extend(table.get_all_tokens())
-        return list(set(all_tokens))  # Remove duplicates
-
-    def _load_all_watchlists(self):
-        """Enhanced watchlist loading with better error handling"""
-        for category, filepath in WATCHLIST_FILES.items():
-            if os.path.exists(filepath):
-                try:
-                    with open(filepath, 'r') as f:
-                        symbols = json.load(f)
-
-                    if isinstance(symbols, list):
-                        self._tables[category].load_watchlist_data(symbols)
-                        logger.info(f"Loaded {len(symbols)} symbols for {category} watchlist")
-                    else:
-                        logger.warning(f"Invalid format in {filepath}, expected list of symbols")
-
-                except (json.JSONDecodeError, IOError) as e:
-                    logger.error(f"Failed to load {category} watchlist: {e}")
-            else:
-                logger.info(f"No existing watchlist file for {category}")
-
-    def _save_watchlist(self, category: str):
-        """Enhanced watchlist saving"""
-        if category not in WATCHLIST_FILES or category not in self._tables:
-            return
-
-        filepath = WATCHLIST_FILES[category]
-        try:
-            # Ensure directory exists
-            dir_name = os.path.dirname(filepath)
-            if dir_name and not os.path.exists(dir_name):
-                os.makedirs(dir_name)
-
-            # Get symbols list
-            symbols = self._tables[category].get_symbol_list()
-
-            # Save to file
-            with open(filepath, 'w') as f:
-                json.dump(symbols, f, indent=4)
-
-            logger.info(f"Saved {category} watchlist with {len(symbols)} symbols to {filepath}")
-
-        except IOError as e:
-            logger.error(f"Failed to save {category} watchlist: {e}")
-
-    def _set_equal_tab_widths(self):
-        """FIXED: Responsive tab width calculation that matches table width."""
-        if not hasattr(self, 'tab_widget'):
+    def _update_tab_widths(self):
+        """Enhanced tab width calculation with glitch prevention."""
+        if not hasattr(self, 'tab_widget') or not self.isVisible():
             return
 
         tab_bar = self.tab_widget.tabBar()
@@ -986,26 +848,46 @@ class TabbedWatchlistWidget(QWidget):
         if tab_count == 0:
             return
 
-        # FIXED: Get the actual widget width, not the window width
-        widget_width = self.width()
+        # Get current widget width
+        current_width = self.width()
 
-        # FIXED: Account for tab borders and margins more accurately
-        tab_bar_margins = 6  # Left and right margins
+        # Prevent updates if width hasn't changed significantly (prevents glitches)
+        if abs(current_width - self._last_widget_width) < 10:
+            return
+
+        self._last_widget_width = current_width
+
+        # Calculate available width for tabs
+        # Account for tab bar margins, borders, and container padding
+        tab_bar_margins = 4  # Total left + right margins
         tab_borders = (tab_count - 1) * 1  # 1px border between tabs
-        available_width = max(widget_width - tab_bar_margins - tab_borders, tab_count * 50)  # Minimum 50px per tab
+        container_padding = 2  # Container padding
+        scrollbar_width = 15  # Reserve space for potential scrollbar
 
-        tab_width = available_width // tab_count
+        # Calculate usable width
+        usable_width = current_width - tab_bar_margins - tab_borders - container_padding - scrollbar_width
 
-        # FIXED: Only update if change is significant (prevents constant updates)
-        if abs(tab_width - self._last_tab_width_update) > 5:
-            self._last_tab_width_update = tab_width
-            self._apply_tab_width_style(tab_width)
+        # Ensure minimum tab width
+        min_tab_width = 50
+        max_usable_width = max(usable_width, tab_count * min_tab_width)
 
-    def _apply_tab_width_style(self, tab_width: int):
-        """FIXED: Enhanced styling with proper tab width that matches table columns."""
-        tab_width_exact = f"{tab_width}px"
+        # Calculate equal tab width
+        calculated_tab_width = max_usable_width // tab_count
 
-        self.setStyleSheet(f"""
+        # Only update if the change is significant (prevents constant updates)
+        if abs(calculated_tab_width - self._last_calculated_tab_width) > 8:
+            self._last_calculated_tab_width = calculated_tab_width
+            self._apply_dynamic_tab_styles(calculated_tab_width)
+
+            logger.debug(f"Updated tab width: {calculated_tab_width}px for widget width: {current_width}px")
+
+    def _apply_dynamic_tab_styles(self, tab_width: int):
+        """Apply styles with dynamic tab width, preventing visual glitches."""
+        # Use exact pixel values to prevent rounding issues
+        tab_width_px = f"{tab_width}px"
+
+        # Create stylesheet with fixed tab widths
+        dynamic_stylesheet = f"""
             /* Main Widget */
             TabbedWatchlistWidget {{
                 background-color: #0a0a0a;
@@ -1024,14 +906,14 @@ class TabbedWatchlistWidget(QWidget):
                 border: 1px solid #202020;
                 background-color: #0a0a0a;
                 border-radius: 0px;
-                border-top: none;  /* FIXED: Remove top border to align with tabs */
+                border-top: none;
             }}
 
             QTabWidget#tradingTabs::tab-bar {{
                 alignment: left;
             }}
 
-            /* Hide tab scroll buttons completely */
+            /* Completely hide scroll buttons */
             QTabBar::scroller {{
                 width: 0px;
                 height: 0px;
@@ -1044,11 +926,11 @@ class TabbedWatchlistWidget(QWidget):
                 background: transparent;
             }}
 
-            /* FIXED: Tab Bar Styling with precise width control */
+            /* Dynamic Tab Styling - Equal Width Distribution */
             QTabBar::tab {{
                 background-color: #1a1a1a;
                 color: #8892b0;
-                padding: 6px 4px;  /* FIXED: Reduced horizontal padding */
+                padding: 6px 2px;
                 margin: 0px;
                 border: 1px solid #202020;
                 border-bottom: none;
@@ -1057,9 +939,9 @@ class TabbedWatchlistWidget(QWidget):
                 font-weight: 600;
                 letter-spacing: 0.5px;
                 text-align: center;
-                width: {tab_width_exact};
-                min-width: {tab_width_exact};
-                max-width: {tab_width_exact};
+                width: {tab_width_px};
+                min-width: {tab_width_px};
+                max-width: {tab_width_px};
             }}
 
             QTabBar::tab:last {{
@@ -1070,17 +952,17 @@ class TabbedWatchlistWidget(QWidget):
                 background-color: #0a0a0a;
                 color: #6a9cff;
                 border-bottom: 2px solid #6a9cff;
-                width: {tab_width_exact};
-                min-width: {tab_width_exact};
-                max-width: {tab_width_exact};
+                width: {tab_width_px};
+                min-width: {tab_width_px};
+                max-width: {tab_width_px};
             }}
 
             QTabBar::tab:hover:!selected {{
                 background-color: #2a2a2a;
                 color: #ccd6f6;
-                width: {tab_width_exact};
-                min-width: {tab_width_exact};
-                max-width: {tab_width_exact};
+                width: {tab_width_px};
+                min-width: {tab_width_px};
+                max-width: {tab_width_px};
             }}
 
             /* Table Styling - EXACT match to scanner table */
@@ -1232,26 +1114,180 @@ class TabbedWatchlistWidget(QWidget):
                 height: 0px;
                 margin: 0px;
             }}
-        """)
+        """
 
-    def resizeEvent(self, event):
-        """FIXED: Responsive resize handling for tab widths."""
+        # Apply the stylesheet in a thread-safe manner
+        self.setStyleSheet(dynamic_stylesheet)
+
+    def resizeEvent(self, event: QResizeEvent):
+        """Enhanced resize event handling with debouncing to prevent glitches."""
         super().resizeEvent(event)
-        # FIXED: Add small delay to prevent too frequent updates during resizing
+
+        # Stop any pending resize updates
         if hasattr(self, '_resize_timer'):
             self._resize_timer.stop()
 
-        self._resize_timer = QTimer()
-        self._resize_timer.setSingleShot(True)
-        self._resize_timer.timeout.connect(self._set_equal_tab_widths)
-        self._resize_timer.start(50)  # 50ms delay
+        # Start timer with longer delay to debounce rapid resize events
+        self._resize_timer.start(100)  # 100ms delay for smoother resizing
 
     def showEvent(self, event):
-        """FIXED: Set initial tab widths when widget is shown."""
+        """Initialize tab widths when widget is first shown."""
         super().showEvent(event)
-        # FIXED: Use single shot timer to ensure proper sizing after widget is fully shown
-        QTimer.singleShot(10, self._set_equal_tab_widths)
 
+        # Use QTimer.singleShot to ensure the widget is fully rendered
+        QTimer.singleShot(50, self._initial_tab_width_setup)
+
+    def _initial_tab_width_setup(self):
+        """Initial setup of tab widths after widget is fully rendered."""
+        if self.isVisible() and self.width() > 0:
+            self._update_tab_widths()
+
+    def _apply_styles(self):
+        """Initial style application - basic styles without tab widths."""
+        # Tab widths will be set dynamically by _apply_dynamic_tab_styles()
+        # This ensures the widget has basic styling before dynamic updates
+        basic_stylesheet = """
+            TabbedWatchlistWidget {
+                background-color: #0a0a0a;
+                color: #e0e0e0;
+                font-family: "Segoe UI", Arial, sans-serif;
+                font-size: 13px;
+            }
+        """
+        self.setStyleSheet(basic_stylesheet)
+
+    # Additional helper method for debugging tab width issues
+    def _debug_tab_dimensions(self):
+        """Debug method to log current tab dimensions."""
+        if not hasattr(self, 'tab_widget'):
+            return
+
+        tab_bar = self.tab_widget.tabBar()
+        widget_width = self.width()
+        tab_count = tab_bar.count()
+
+        logger.debug(f"Widget width: {widget_width}, Tab count: {tab_count}")
+
+        for i in range(tab_count):
+            tab_rect = tab_bar.tabRect(i)
+            logger.debug(f"Tab {i} rect: {tab_rect.width()}x{tab_rect.height()}")
+
+    # Method to force tab width recalculation (useful for external calls)
+    def force_update_tab_widths(self):
+        """Force an immediate update of tab widths."""
+        self._last_widget_width = 0  # Reset to force update
+        self._update_tab_widths()
+
+    def set_instrument_map(self, instrument_map: Dict[str, Dict]):
+        """Enhanced instrument map setting with proper propagation"""
+        logger.info(f"Setting instrument map with {len(instrument_map)} instruments")
+        self._instrument_map = instrument_map
+
+        # Propagate to all tables
+        for table in self._tables.values():
+            table.set_instrument_map(instrument_map)
+
+        # Request token subscription for all existing symbols
+        self._subscribe_all_tokens()
+
+    def _subscribe_all_tokens(self):
+        """Subscribe to all tokens across all watchlists"""
+        all_tokens = self.get_all_tokens()
+        if all_tokens:
+            self.subscribe_tokens_requested.emit(all_tokens)
+            logger.info(f"Subscribed to {len(all_tokens)} tokens across all watchlists")
+
+    @Slot(list)
+    def update_data(self, ticks: List[Dict]):
+        """Enhanced data update with logging"""
+        if ticks:
+            # Log first tick for debugging
+            if logger.isEnabledFor(logging.DEBUG) and len(ticks) > 0:
+                logger.debug(f"Received {len(ticks)} ticks. First tick structure: {ticks[0]}")
+
+            # Distribute to all tables
+            for table in self._tables.values():
+                table.update_data(ticks)
+
+    def add_symbol(self, symbol: str, category: str = None) -> bool:
+        """Enhanced symbol addition with proper persistence"""
+        if category is None:
+            current_index = self.tab_widget.currentIndex()
+            category = list(self._tables.keys())[current_index]
+
+        if category in self._tables:
+            success = self._tables[category].add_symbol(symbol)
+            if success:
+                # Save immediately
+                self._save_watchlist(category)
+
+                # Subscribe to token
+                if symbol in self._instrument_map:
+                    token = self._instrument_map[symbol].get('instrument_token')
+                    if token:
+                        self.subscribe_tokens_requested.emit([token])
+
+                self.watchlist_changed.emit()
+                logger.info(f"Successfully added {symbol} to {category}")
+                return True
+            else:
+                logger.warning(f"Failed to add {symbol} to {category}")
+        return False
+
+    def get_current_category(self) -> str:
+        """Returns the currently selected category."""
+        current_index = self.tab_widget.currentIndex()
+        return list(self._tables.keys())[current_index]
+
+    def get_all_tokens(self) -> List[int]:
+        """Returns a list of all instrument tokens from all watchlists."""
+        all_tokens = []
+        for table in self._tables.values():
+            all_tokens.extend(table.get_all_tokens())
+        return list(set(all_tokens))  # Remove duplicates
+
+    def _load_all_watchlists(self):
+        """Enhanced watchlist loading with better error handling"""
+        for category, filepath in WATCHLIST_FILES.items():
+            if os.path.exists(filepath):
+                try:
+                    with open(filepath, 'r') as f:
+                        symbols = json.load(f)
+
+                    if isinstance(symbols, list):
+                        self._tables[category].load_watchlist_data(symbols)
+                        logger.info(f"Loaded {len(symbols)} symbols for {category} watchlist")
+                    else:
+                        logger.warning(f"Invalid format in {filepath}, expected list of symbols")
+
+                except (json.JSONDecodeError, IOError) as e:
+                    logger.error(f"Failed to load {category} watchlist: {e}")
+            else:
+                logger.info(f"No existing watchlist file for {category}")
+
+    def _save_watchlist(self, category: str):
+        """Enhanced watchlist saving"""
+        if category not in WATCHLIST_FILES or category not in self._tables:
+            return
+
+        filepath = WATCHLIST_FILES[category]
+        try:
+            # Ensure directory exists
+            dir_name = os.path.dirname(filepath)
+            if dir_name and not os.path.exists(dir_name):
+                os.makedirs(dir_name)
+
+            # Get symbols list
+            symbols = self._tables[category].get_symbol_list()
+
+            # Save to file
+            with open(filepath, 'w') as f:
+                json.dump(symbols, f, indent=4)
+
+            logger.info(f"Saved {category} watchlist with {len(symbols)} symbols to {filepath}")
+
+        except IOError as e:
+            logger.error(f"Failed to save {category} watchlist: {e}")
 
     def closeEvent(self, event):
         """Enhanced close event with proper cleanup - REMOVED geometry saving"""

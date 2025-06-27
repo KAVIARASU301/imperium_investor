@@ -68,8 +68,9 @@ class TextNoteDialog(QDialog):
         options_layout.addWidget(self.size_spinbox)
         layout.addLayout(options_layout)
 
-        buttons = QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        button_box = QDialogButtonBox(buttons)
+        button_box = QDialogButtonBox()
+        button_box.addButton(QDialogButtonBox.StandardButton.Ok)
+        button_box.addButton(QDialogButtonBox.StandardButton.Cancel)
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
@@ -633,6 +634,20 @@ class ChartBridge(QObject):
 
         self.chart_ready.emit()
 
+    @Slot(str)
+    def notify_alert_creation_requested(self, alert_json: str):
+        """Receives alert creation request from JavaScript."""
+        if not self.webChannelInitialized:
+            self._pending_calls.append(('notify_alert_creation_requested', alert_json))
+            return
+        try:
+            json.loads(alert_json)  # Validate JSON
+            self.alert_creation_requested.emit(alert_json)
+            logger.info(f"Alert creation requested from chart: {alert_json}")
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid alert JSON received from JavaScript: {e}")
+        except Exception as e:
+            logger.error(f"Error in notify_alert_creation_requested: {e}")
 
 class CandlestickChart(QWidget):
     """Professional candlestick chart with fixed drawing persistence"""
@@ -1024,7 +1039,7 @@ class CandlestickChart(QWidget):
     def _toggle_measure_tool(self, checked: bool):
         # Deactivate other drawing tools when measure tool is activated
         if checked:
-            self._toggle_drawing_tool(None, False)
+            self._toggle_drawing_tool("", False)  # Pass empty string instead of None
         if self.chart_view and self.current_state == ChartState.LOADED:
             js_code = f"if (window.chart) window.chart.setDrawingTool('measure', {str(checked).lower()});"
             self.chart_view.page().runJavaScript(js_code)
@@ -2355,9 +2370,7 @@ class CandlestickChart(QWidget):
                 
                     this.ctx.textAlign = 'left';
                 }}
-                
-                
-                
+    
                 getNicePriceStep(range) {{
                     const rough = range / 8;
                     const pow10 = Math.pow(10, Math.floor(Math.log10(rough)));
@@ -2576,15 +2589,46 @@ class CandlestickChart(QWidget):
 
                 drawCrosshair() {{
                     if (this.currentTool === null && this.crosshairX !== null && this.crosshairY !== null) {{
-                        this.ctx.strokeStyle = this.colors.crosshair; this.ctx.lineWidth = 1; this.ctx.setLineDash([5, 5]);
-                        this.ctx.beginPath(); this.ctx.moveTo(this.crosshairX, this.chartArea.y); this.ctx.lineTo(this.crosshairX, this.volumeArea.y + this.volumeArea.height); this.ctx.stroke();
+                        // Make crosshair lines 50% transparent
+                        this.ctx.strokeStyle = 'rgba(160, 192, 255, 0.2)'; // 50% of original crosshair color
+                        this.ctx.lineWidth = 1; 
+                        this.ctx.setLineDash([5, 5]);
+                        
+                        // Vertical crosshair line
+                        this.ctx.beginPath(); 
+                        this.ctx.moveTo(this.crosshairX, this.chartArea.y); 
+                        this.ctx.lineTo(this.crosshairX, this.volumeArea.y + this.volumeArea.height); 
+                        this.ctx.stroke();
+                        
+                        // Horizontal crosshair line and price label
                         if (this.crosshairY >= this.chartArea.y && this.crosshairY <= this.chartArea.y + this.chartArea.height) {{
-                            this.ctx.beginPath(); this.ctx.moveTo(this.chartArea.x, this.crosshairY); this.ctx.lineTo(this.chartArea.x + this.chartArea.width, this.crosshairY); this.ctx.stroke();
+                            this.ctx.beginPath(); 
+                            this.ctx.moveTo(this.chartArea.x, this.crosshairY); 
+                            this.ctx.lineTo(this.chartArea.x + this.chartArea.width, this.crosshairY); 
+                            this.ctx.stroke();
+                            
+                            // Price label with darker background
                             const priceText = '₹' + this.yToPrice(this.crosshairY).toFixed(2);
-                            this.ctx.font = 'bold 12px monospace'; const textMetrics = this.ctx.measureText(priceText);
-                            const rectX = this.chartArea.x + this.chartArea.width, rectY = this.crosshairY - 8, rectWidth = textMetrics.width + 10, rectHeight = 16;
-                            this.ctx.fillStyle = this.colors.crosshair; this.ctx.fillRect(rectX, rectY, rectWidth, rectHeight);
-                            this.ctx.fillStyle = 'white'; this.ctx.fillText(priceText, rectX + 5, this.crosshairY + 4);
+                            this.ctx.font = 'bold 12px monospace'; 
+                            const textMetrics = this.ctx.measureText(priceText);
+                            const rectX = this.chartArea.x + this.chartArea.width;
+                            const rectY = this.crosshairY - 8;
+                            const rectWidth = textMetrics.width + 10;
+                            const rectHeight = 16;
+                            
+                            // Much darker background for price label
+                            this.ctx.fillStyle = '#1a1a1a'; // Very dark gray instead of crosshair color
+                            this.ctx.fillRect(rectX, rectY, rectWidth, rectHeight);
+                            
+                            // Add subtle border for definition
+                            this.ctx.strokeStyle = '#333333';
+                            this.ctx.lineWidth = 0.5;
+                            this.ctx.setLineDash([]);
+                            this.ctx.strokeRect(rectX, rectY, rectWidth, rectHeight);
+                            
+                            // White text for contrast
+                            this.ctx.fillStyle = 'white'; 
+                            this.ctx.fillText(priceText, rectX + 5, this.crosshairY + 4);
                         }}
                         this.ctx.setLineDash([]);
                     }}
@@ -2608,96 +2652,67 @@ class CandlestickChart(QWidget):
                         }}
                         this.previousLivePrice = this.livePrice;
                     
-                        // Trigger redraw (keep label background updated)
-                        this.animatePriceChange();
+                        // === Calculate current candle x-position ===
+                        const candleX = this.getCandleXPosition();
                     
-                        // === Determine background color ===
-                        let bgColor = '#222';  // neutral gray
-                        if (this.lastPriceDirection === 'up') {{
-                            bgColor = '#1e6d2f';  // dark green
-                        }} else if (this.lastPriceDirection === 'down') {{
-                            bgColor = '#f90404';  // dark red
-                        }}
-                    
-                        // === Thin dotted horizontal price line ===
+                        // === Thin dotted horizontal price line (from current candle to price scale) ===
                         ctx.strokeStyle = this.colors.livePrice || '#888';
                         ctx.lineWidth = 1;
                         ctx.setLineDash([2, 2]);
                         ctx.beginPath();
-                        ctx.moveTo(this.chartArea.x, y);
-                        ctx.lineTo(this.chartArea.x + this.chartArea.width, y);
+                        ctx.moveTo(candleX, y);  // Start at candle position  
+                        ctx.lineTo(this.chartArea.x + this.chartArea.width, y);  // End at right edge where price scale is
                         ctx.stroke();
                         ctx.setLineDash([]);
                     
-                        // === Price label with countdown ===
+                        // === Price label ===
                         const priceText = '₹' + this.livePrice.toFixed(2);
-                        const timeLeft = this.getCandleCountdown();
-                        const labelText = priceText + '  •  ' + timeLeft;
                     
                         ctx.font = '10px monospace';
-                        const textWidth = ctx.measureText(labelText).width;
+                        const textWidth = ctx.measureText(priceText).width;
                         const labelHeight = 16;
                     
                         const rectX = this.chartArea.x + this.chartArea.width + 6;
                         const rectY = y - labelHeight / 2;
                     
-                        // === Background box ===
-                        ctx.fillStyle = bgColor;
+                        // === Background box (always black) ===
+                        ctx.fillStyle = '#000000';
                         ctx.fillRect(rectX, rectY, textWidth + 8, labelHeight);
                     
-                        // === Border ===
-                        ctx.strokeStyle = '#555';
+                        // === Gray border ===
+                        ctx.strokeStyle = '#555555';
                         ctx.lineWidth = 0.5;
                         ctx.strokeRect(rectX, rectY, textWidth + 8, labelHeight);
                     
-                        // === Text ===
-                        ctx.fillStyle = '#fff';
+                        // === Text color based on price direction ===
+                        let textColor = '#26a69a';  // Default green for neutral/up
+                        if (this.lastPriceDirection === 'up' || this.lastPriceDirection === 'neutral') {{
+                            textColor = '#26a69a';  // Green
+                        }} else if (this.lastPriceDirection === 'down') {{
+                            textColor = '#ef5350';  // Red
+                        }}
+                    
+                        ctx.fillStyle = textColor;
                         ctx.textAlign = 'left';
-                        ctx.fillText(labelText, rectX + 4, y + 4);
+                        ctx.fillText(priceText, rectX + 4, y + 4);
                     }}
-
-                
-                
-                // === Helper: Candle countdown ===
-                getCandleCountdown() {{
-                    if (!this.data || !this.data.length) return '';
-                
-                    const lastCandle = this.data[this.data.length - 1];
-                    const candleTime = new Date(lastCandle.time).getTime();
-                
-                    const intervalMs = this.getIntervalMilliseconds();
-                    const now = Date.now();
-                
-                    const nextClose = candleTime + intervalMs;
-                    const remainingMs = Math.max(0, nextClose - now);
-                
-                    const totalSeconds = Math.floor(remainingMs / 1000);
-                    const minutes = Math.floor(totalSeconds / 60);
-                    const seconds = totalSeconds % 60;
-                
-                    return `${{minutes}}:${{seconds.toString().padStart(2, '0')}}`;
-                }}
-                
-                // === Helper: Timeframe to milliseconds ===
-                getIntervalMilliseconds() {{
-                    switch (this.currentInterval) {{
-                        case "1minute": return 60 * 1000;
-                        case "3minute": return 3 * 60 * 1000;
-                        case "5minute": return 5 * 60 * 1000;
-                        case "15minute": return 15 * 60 * 1000;
-                        case "30minute": return 30 * 60 * 1000;
-                        case "60minute": return 60 * 60 * 1000;
-                        case "day": return 24 * 60 * 60 * 1000;
-                        default: return 60 * 1000;
+                    
+                    // === Helper: Get current candle x-position ===
+                    getCandleXPosition() {{
+                        if (!this.data || !this.data.length) return this.chartArea.x;
+                        
+                        // Get the last candle index
+                        const lastIndex = this.data.length - 1;
+                        
+                        // Check if the last candle is within the current viewport
+                        if (lastIndex >= this.viewPortStart && lastIndex <= this.viewPortEnd) {{
+                            // Use the existing candleToX function which properly handles viewport
+                            return this.candleToX(lastIndex) + (this.candleWidth / 2);
+                        }}
+                        
+                        // If the last candle is not visible, return the right edge of visible area
+                        return this.chartArea.x + this.chartArea.width;
                     }}
-                }}
-                animatePriceChange() {{
-                    if (typeof requestAnimationFrame !== 'undefined') {{
-                        requestAnimationFrame(() => this.draw());
-                    }} else {{
-                        this.draw();
-                    }}
-                }}
 
                 drawPriceNotes() {{
                     this.drawings.notes.forEach(note => {{
@@ -2836,18 +2851,6 @@ class CandlestickChart(QWidget):
                     document.querySelectorAll('.chart-context-menu').forEach(m => m.parentNode && m.parentNode.removeChild(m));
                 }}
 
-                createAlert(symbol, price, intent = 'auto') {{
-                    const currentLTP = this.livePrice || (this.data.length > 0 ? this.data[this.data.length - 1].close : price);
-                    const isAboveLTP = price > currentLTP;
-                    if (intent === 'auto') {{
-                        const hasLong = this.checkHasLongPosition ? this.checkHasLongPosition(symbol) : false;
-                        const hasShort = this.checkHasShortPosition ? this.checkHasShortPosition(symbol) : false;
-                        if (isAboveLTP) intent = hasLong ? 'profit_target' : (hasShort ? 'stop_loss' : 'buy_entry');
-                        else intent = hasLong ? 'stop_loss' : (hasShort ? 'profit_target' : 'sell_entry');
-                    }}
-                    const alertData = {{ symbol, price, condition: isAboveLTP ? 'crosses_above' : 'crosses_below', intent, current_ltp: currentLTP, note: this.generateAlertNote(symbol, price, currentLTP, intent) }};
-                    if (this.chartBridge) this.chartBridge.show_order_dialog_from_chart(JSON.stringify(orderData));
-                }}
 
                 addHorizontalLine(priceLevel) {{ this.drawings.horizontal_lines.push({{ id: Date.now() + Math.random(), type: 'horizontal_line', price: priceLevel, color: '#FFD700', lineWidth: 2, style: 'solid', label: `₹${{priceLevel.toFixed(2)}}` }}); this.draw(); this.notifyDrawingsChange(); }}
                 addSupportLine(priceLevel) {{ this.drawings.horizontal_lines.push({{ id: Date.now() + Math.random(), type: 'horizontal_line', price: priceLevel, color: '#4CAF50', lineWidth: 2, style: 'solid', label: `Support: ₹${{priceLevel.toFixed(2)}}` }}); this.draw(); this.notifyDrawingsChange(); }}
@@ -3086,23 +3089,6 @@ class CandlestickChart(QWidget):
                     return messages[intent] || `Alert for ${{symbol}} at ₹${{alertPrice.toFixed(2)}}`;
                 }}
 
-                showAlertCreatedNotification(symbol, price, intent) {{
-                    const el = document.createElement('div');
-                    el.style.cssText = `position: fixed; top: 20px; right: 20px; background-color: #4CAF50; color: white; padding: 12px 20px; border-radius: 6px; z-index: 10001; font-family: -apple-system, sans-serif; font-size: 13px; font-weight: 500; box-shadow: 0 4px 12px rgba(0,0,0,0.3); animation: slideInRight 0.3s ease-out;`;
-                    el.innerHTML = `<div style="display: flex; align-items: center;"><span style="margin-right: 8px; font-size: 16px;">🔔</span><div><div>Alert Created!</div><div style="font-size: 11px; opacity: 0.9; margin-top: 2px;">${{symbol}} at ₹${{price.toFixed(2)}} (${{intent.replace('_', ' ')}})</div></div></div>`;
-                    if (!document.querySelector('#alert-animations')) {{
-                        const style = document.createElement('style');
-                        style.id = 'alert-animations';
-                        style.textContent = `@keyframes slideInRight{{from{{transform:translateX(100%);opacity:0}}to{{transform:translateX(0);opacity:1}}}}@keyframes slideOutRight{{from{{transform:translateX(0);opacity:1}}to{{transform:translateX(100%);opacity:0}}}}`;
-                        document.head.appendChild(style);
-                    }}
-                    document.body.appendChild(el);
-                    setTimeout(() => {{
-                        el.style.animation = 'slideOutRight 0.3s ease-in';
-                        setTimeout(() => el.parentNode && el.parentNode.removeChild(el), 300);
-                    }}, 3000);
-                }}
-
                 placeOrderAtPrice(symbol, price) {{
                     const orderData = {{
                         symbol: symbol,
@@ -3134,36 +3120,11 @@ class CandlestickChart(QWidget):
                         current_ltp: currentLTP,
                         note: this.generateAlertNote(symbol, price, currentLTP, intent)
                     }};
-                    if (this.chartBridge && this.chartBridge.create_alert_from_chart) {{
-                        this.chartBridge.create_alert_from_chart(JSON.stringify(alertData));
+                    if (this.chartBridge && this.chartBridge.notify_alert_creation_requested) {{
+                        this.chartBridge.notify_alert_creation_requested(JSON.stringify(alertData));
+                    }} else {{
+                        console.error('Alert bridge method not available');
                     }}
-                    this.showAlertCreatedNotification(symbol, price, intent);
-                }}
-
-                createAlert(symbol, price, intent = 'auto') {{
-                    const currentLTP = this.livePrice || (this.data.length > 0 ? this.data[this.data.length - 1].close : price);
-                    const isAboveLTP = price > currentLTP;
-                    if (intent === 'auto') {{
-                        const hasLong = this.checkHasLongPosition ? this.checkHasLongPosition(symbol) : false;
-                        const hasShort = this.checkHasShortPosition ? this.checkHasShortPosition(symbol) : false;
-                        if (isAboveLTP) {{
-                            intent = hasLong ? 'profit_target' : (hasShort ? 'stop_loss' : 'buy_entry');
-                        }} else {{
-                            intent = hasLong ? 'stop_loss' : (hasShort ? 'profit_target' : 'sell_entry');
-                        }}
-                    }}
-                    const alertData = {{
-                        symbol: symbol,
-                        price: price,
-                        condition: isAboveLTP ? 'crosses_above' : 'crosses_below',
-                        intent: intent,
-                        current_ltp: currentLTP,
-                        note: this.generateAlertNote(symbol, price, currentLTP, intent)
-                    }};
-                    if (this.chartBridge && this.chartBridge.create_alert_from_chart) {{
-                        this.chartBridge.create_alert_from_chart(JSON.stringify(alertData));
-                    }}
-                    this.showAlertCreatedNotification(symbol, price, intent);
                 }}
 
                 setDrawingTool(tool, enabled, color, width) {{ 
