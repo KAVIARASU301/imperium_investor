@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtGui import QColor, QCursor, QAction
+from functools import partial
 
 logger = logging.getLogger(__name__)
 
@@ -184,14 +185,19 @@ class PositionsTable(QWidget):
         # Populate with initial data
         self._update_single_row_data(row, position)
 
+
     def _create_exit_button(self, symbol: str) -> QPushButton:
         """Create exit button for position"""
         exit_btn = QPushButton("×")
         exit_btn.setObjectName("exitButton")
         exit_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         exit_btn.setFixedSize(16, 16)
-        exit_btn.clicked.connect(lambda: self.exit_position_requested.emit(symbol))
+        exit_btn.clicked.connect(partial(self._emit_exit_position_signal, symbol))
         return exit_btn
+
+    def _emit_exit_position_signal(self, symbol: str):
+        """Emit exit position signal with proper symbol"""
+        self.exit_position_requested.emit(symbol)
 
     def _subscribe_to_market_data_once(self, positions_list: List[Position]):
         """Subscribe to market data ONCE for all position tokens"""
@@ -248,9 +254,9 @@ class PositionsTable(QWidget):
 
         # Set alignments
         self.table.item(row, 0).setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        self.table.item(row, 1).setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self.table.item(row, 2).setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self.table.item(row, 3).setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.table.item(row, 1).setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
+        self.table.item(row, 2).setTextAlignment(Qt.AlignmentFlag.AlignCenter  | Qt.AlignmentFlag.AlignVCenter)
+        self.table.item(row, 3).setTextAlignment(Qt.AlignmentFlag.AlignCenter  | Qt.AlignmentFlag.AlignVCenter)
 
         # Set tooltip
         investment = abs(position.quantity * position.avg_price)
@@ -308,38 +314,24 @@ class PositionsTable(QWidget):
             return
 
         menu = QMenu(self)
-        menu.setStyleSheet("""
-            QMenu {
-                background-color: #1a1a1a;
-                color: #e0e0e0;
-                border: 1px solid #3a3a3a;
-                border-radius: 4px;
-                padding: 4px;
-                font-size: 12px;
-            }
-            QMenu::item {
-                padding: 8px 16px;
-                border-radius: 2px;
-                margin: 1px;
-            }
-            QMenu::item:selected {
-                background-color: #6a9cff;
-                color: #ffffff;
-            }
-        """)
+        # ... styling code ...
 
         # Simple menu options
         chart_action = QAction("View Chart", self)
-        chart_action.triggered.connect(lambda: self.symbol_selected.emit(symbol))
+        chart_action.triggered.connect(partial(self._emit_symbol_selected, symbol))
         menu.addAction(chart_action)
 
         menu.addSeparator()
 
         exit_action = QAction("Exit Position", self)
-        exit_action.triggered.connect(lambda: self.exit_position_requested.emit(symbol))
+        exit_action.triggered.connect(partial(self._emit_exit_position_signal, symbol))
         menu.addAction(exit_action)
 
         menu.exec(self.table.mapToGlobal(position))
+
+    def _emit_symbol_selected(self, symbol: str):
+        """Emit symbol selected signal"""
+        self.symbol_selected.emit(symbol)
 
     # ===========================================================================
     # UTILITY METHODS

@@ -1085,7 +1085,18 @@ class ChartinkScannerTable(QWidget):
                 for col in range(1, 4):
                     self.table.setItem(0, col, QTableWidgetItem(""))
             else:
-                self._run_current_scan()
+                # FIXED: Don't auto-run scan after saving changes
+                # Just clear the table and show a message to manually select/run
+                self.table.setRowCount(0)
+                self.table.insertRow(0)
+                item = QTableWidgetItem("✅ Scans saved. Select a scan from dropdown to run.")
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+                self.table.setItem(0, 0, item)
+                for col in range(1, 4):
+                    self.table.setItem(0, col, QTableWidgetItem(""))
+
+                # Log the successful save
+                logger.info(f"Scans saved successfully. {len(self.scans)} scans available.")
 
     def _run_current_scan(self):
         """Run the currently selected Chartink scan."""
@@ -1158,11 +1169,25 @@ class ChartinkScannerTable(QWidget):
         """Get complete data for a specific symbol."""
         return self._symbol_data.get(symbol)
 
+    def cleanup(self):
+        """Clean up scanner table threads"""
+        try:
+            logger.info("Cleaning up ChartinkScannerTable...")
+
+            if hasattr(self, 'scan_thread') and self.scan_thread:
+                if self.scan_thread.isRunning():
+                    self.scan_thread.quit()
+                    if not self.scan_thread.wait(2000):
+                        self.scan_thread.terminate()
+                        self.scan_thread.wait(1000)
+
+            logger.info("ChartinkScannerTable cleanup completed")
+        except Exception as e:
+            logger.error(f"Error cleaning up ChartinkScannerTable: {e}")
+
     def closeEvent(self, event):
         """Clean up when widget is closed."""
-        if self.scan_thread and self.scan_thread.isRunning():
-            self.scan_thread.terminate()
-            self.scan_thread.wait(2000)
+        self.cleanup()
         super().closeEvent(event)
 
     def _load_scans(self) -> List[Dict[str, str]]:

@@ -3,7 +3,7 @@ import sqlite3
 import logging
 import os
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional, Union, Any
+from typing import List, Dict, Optional, Union, Any, Tuple
 import json
 import threading
 import queue
@@ -23,53 +23,91 @@ class DatabaseWorker(QObject):
         self.db_path = db_path
         self.operation_queue = queue.Queue()
         self.running = False
+        self._shutdown_event = threading.Event()
 
     def start_processing(self):
         """Start processing database operations"""
         self.running = True
-        self._process_operations()
+        self._shutdown_event.clear()
+        # Start processing in a separate thread to avoid blocking
+        self._processing_thread = threading.Thread(target=self._process_operations, daemon=True)
+        self._processing_thread.start()
 
     def stop_processing(self):
-        """Stop processing operations"""
+        """Stop processing operations gracefully"""
+        logger.info("Stopping DatabaseWorker...")
         self.running = False
+        self._shutdown_event.set()
+
+        # Add a sentinel value to wake up the queue
+        try:
+            self.operation_queue.put(("SHUTDOWN", {}), timeout=1)
+        except:
+            pass
+
+        # Wait for the processing thread to finish
+        if hasattr(self, '_processing_thread') and self._processing_thread.is_alive():
+            self._processing_thread.join(timeout=3)
+
+        logger.info("DatabaseWorker stopped")
 
     def add_operation(self, operation_type: str, data: dict):
         """Add operation to queue"""
-        self.operation_queue.put((operation_type, data))
+        if self.running:
+            try:
+                self.operation_queue.put((operation_type, data), timeout=1)
+            except queue.Full:
+                logger.warning("Database operation queue is full, dropping operation")
 
     def _process_operations(self):
-        """Process database operations in background"""
-        while self.running:
+        """Process database operations in background with proper shutdown handling"""
+        logger.info("DatabaseWorker processing started")
+
+        while self.running and not self._shutdown_event.is_set():
             try:
                 # Get operation from queue (blocks for max 1 second)
                 operation_type, data = self.operation_queue.get(timeout=1.0)
 
-                success, message = self._execute_operation(operation_type, data)
-                self.operation_completed.emit(success, message)
+                # Check for shutdown signal
+                if operation_type == "SHUTDOWN":
+                    logger.info("DatabaseWorker received shutdown signal")
+                    break
+
+                # Only process if still running
+                if self.running and not self._shutdown_event.is_set():
+                    success, message = self._execute_operation(operation_type, data)
+                    if success is not None and message is not None:
+                        self.operation_completed.emit(success, message)
 
             except queue.Empty:
+                # This is normal - just continue the loop
                 continue
             except Exception as e:
                 logger.error(f"Database worker error: {e}")
-                self.operation_completed.emit(False, str(e))
+                if self.running:
+                    self.operation_completed.emit(False, str(e))
 
-    def _execute_operation(self, operation_type: str, data: dict) -> tuple[bool, str]:
+        logger.info("DatabaseWorker processing ended")
+
+    def _execute_operation(self, operation_type: str, data: dict) -> Tuple[bool, str]:
         """Execute a single database operation"""
+        if self._shutdown_event.is_set():
+            return False, "Worker shutting down"
+
+        conn = None
         try:
             conn = sqlite3.connect(
                 self.db_path,
-                timeout=10.0,
+                timeout=5.0,  # Reduced timeout for faster shutdown
                 check_same_thread=False
             )
 
             if operation_type == "log_order_placement":
                 self._log_order_placement_sync(conn, data)
-                return True, f"Order {data.get('order_id')} logged successfully"
-
-            elif operation_type == "log_order_update":
+                return True, "Order placement logged"
+            elif operation_type == "log_order_update":  # Fixed: was "update_order_status"
                 self._log_order_update_sync(conn, data)
-                return True, f"Order {data.get('order_id')} updated successfully"
-
+                return True, "Order status updated"
             else:
                 return False, f"Unknown operation type: {operation_type}"
 
@@ -77,8 +115,11 @@ class DatabaseWorker(QObject):
             logger.error(f"Database operation failed: {e}")
             return False, str(e)
         finally:
-            if 'conn' in locals():
-                conn.close()
+            if conn is not None:
+                try:
+                    conn.close()
+                except:
+                    pass
 
     def _log_order_placement_sync(self, conn: sqlite3.Connection, order_data: dict):
         """Synchronous order placement logging"""
@@ -146,12 +187,8 @@ class DatabaseWorker(QObject):
 
 
 class TradeLogger(QObject):
-    """
-    Enhanced trade logging system with background database operations.
-    Prevents UI freezing by moving all database work to background threads.
-    """
+    """Enhanced trade logging system with proper thread cleanup."""
 
-    # Signals for async operations
     order_logged = Signal(str, bool)  # order_id, success
 
     def __init__(self, mode: str = 'live', db_path: Optional[str] = None):
@@ -167,19 +204,25 @@ class TradeLogger(QObject):
             self.db_path = db_path
 
         self.mode = mode
+        self._shutdown_requested = False
         logger.info(f"Trade history database for '{mode}' mode at: {self.db_path}")
 
         # Initialize database in background
         self._init_database_async()
 
-        # Setup background worker
+        # Setup background worker with better cleanup
         self.worker_thread = QThread()
+        self.worker_thread.setObjectName("TradeLoggerWorkerThread")
+
         self.db_worker = DatabaseWorker(self.db_path)
         self.db_worker.moveToThread(self.worker_thread)
 
         # Connect signals
         self.db_worker.operation_completed.connect(self._on_operation_completed)
         self.worker_thread.started.connect(self.db_worker.start_processing)
+
+        # Handle thread cleanup
+        self.worker_thread.finished.connect(self.worker_thread.deleteLater)
 
         # Start worker thread
         self.worker_thread.start()
@@ -242,6 +285,9 @@ class TradeLogger(QObject):
         """
         Log order placement asynchronously - NO UI BLOCKING
         """
+        if self._shutdown_requested:
+            return
+
         # Prepare data for background processing
         log_data = order_data.copy()
         log_data['order_id'] = order_id
@@ -256,6 +302,9 @@ class TradeLogger(QObject):
         """
         Log order update asynchronously - NO UI BLOCKING
         """
+        if self._shutdown_requested:
+            return
+
         order_id = order_data.get('order_id')
         if not order_id:
             logger.warning("Cannot log order update - missing order_id")
@@ -306,11 +355,40 @@ class TradeLogger(QObject):
             logger.error(f"Failed to fetch orders: {e}")
             return []
 
+    def cleanup(self):
+        """Clean up the trade logger and stop background threads"""
+        if self._shutdown_requested:
+            return
+
+        self._shutdown_requested = True
+        logger.info("Cleaning up TradeLogger...")
+
+        try:
+            # Stop the database worker first
+            if hasattr(self, 'db_worker') and self.db_worker:
+                logger.info("Stopping database worker...")
+                self.db_worker.stop_processing()
+
+            # Stop the worker thread
+            if hasattr(self, 'worker_thread') and self.worker_thread:
+                if self.worker_thread.isRunning():
+                    logger.info("Stopping TradeLogger worker thread...")
+                    self.worker_thread.quit()
+                    if not self.worker_thread.wait(3000):  # Wait 3 seconds
+                        logger.warning("Force terminating TradeLogger worker thread...")
+                        self.worker_thread.terminate()
+                        self.worker_thread.wait(1000)
+
+            logger.info("TradeLogger cleanup completed")
+
+        except Exception as e:
+            logger.error(f"Error cleaning up TradeLogger: {e}")
+
     def close(self):
-        """Clean shutdown of background worker"""
-        if hasattr(self, 'db_worker'):
-            self.db_worker.stop_processing()
-        if hasattr(self, 'worker_thread'):
-            self.worker_thread.quit()
-            self.worker_thread.wait(3000)  # Wait max 3 seconds
-        logger.info("TradeLogger closed")
+        """Alias for cleanup() for backward compatibility"""
+        self.cleanup()
+
+    def __del__(self):
+        """Destructor to ensure cleanup"""
+        if hasattr(self, '_shutdown_requested') and not self._shutdown_requested:
+            self.cleanup()

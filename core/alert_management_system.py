@@ -432,37 +432,6 @@ class AlertEngine(QThread):
         except Exception as e:
             logger.error(f"Error updating market data in engine: {e}")
 
-    def run(self):
-        """Main engine loop with error recovery."""
-        self._running = True
-        self._error_count = 0
-        logger.info("AlertEngine thread started successfully")
-
-        while self._running:
-            try:
-                self._check_alerts()
-                self._last_heartbeat = time.time()
-                self._error_count = 0  # Reset error count on successful iteration
-                self.msleep(self._check_interval_ms)
-            except Exception as e:
-                self._error_count += 1
-                logger.error(f"Error in AlertEngine main loop (#{self._error_count}): {e}")
-
-                if self._error_count >= self._max_errors:
-                    logger.critical("AlertEngine exceeded maximum error count, stopping")
-                    self.engine_error.emit(f"Engine failure after {self._max_errors} errors")
-                    break
-
-                # Brief pause before retry
-                self.msleep(5000)
-
-        logger.info("AlertEngine thread stopped")
-
-    def stop(self):
-        """Gracefully stop the engine."""
-        logger.info("Stopping AlertEngine...")
-        self._running = False
-        self._watchdog_timer.stop()
 
     def _check_engine_health(self):
         """Watchdog function to monitor engine health."""
@@ -525,6 +494,59 @@ class AlertEngine(QThread):
         for alert in triggered_alerts:
             self.alert_triggered.emit(alert, alert.triggered_price)
 
+    def stop(self):
+        """Gracefully stop the engine with proper cleanup."""
+        logger.info("Stopping AlertEngine...")
+
+        # Set the running flag to False first
+        self._running = False
+
+        # Stop the watchdog timer
+        if hasattr(self, '_watchdog_timer') and self._watchdog_timer:
+            self._watchdog_timer.stop()
+            self._watchdog_timer.deleteLater()
+
+        # Wake up the thread if it's sleeping
+        if self.isRunning():
+            # Request interruption
+            self.requestInterruption()
+
+        logger.info("AlertEngine stop requested")
+
+    def run(self):
+        """Main engine loop with proper interruption handling."""
+        self._running = True
+        self._error_count = 0
+        logger.info("AlertEngine thread started successfully")
+
+        while self._running and not self.isInterruptionRequested():
+            try:
+                self._check_alerts()
+                self._last_heartbeat = time.time()
+                self._error_count = 0  # Reset error count on successful iteration
+
+                # Use msleep with smaller intervals to allow faster interruption
+                for _ in range(self._check_interval_ms // 100):  # Break into 100ms chunks
+                    if not self._running or self.isInterruptionRequested():
+                        break
+                    self.msleep(100)
+
+            except Exception as e:
+                self._error_count += 1
+                logger.error(f"Error in AlertEngine main loop (#{self._error_count}): {e}")
+
+                if self._error_count >= self._max_errors:
+                    logger.critical("AlertEngine exceeded maximum error count, stopping")
+                    self.engine_error.emit(f"Engine failure after {self._max_errors} errors")
+                    break
+
+                # Brief pause before retry (also interruptible)
+                for _ in range(50):  # 5 seconds in 100ms chunks
+                    if not self._running or self.isInterruptionRequested():
+                        break
+                    self.msleep(100)
+
+        logger.info("AlertEngine thread stopped")
 
 # --- Main Alert Management Dialog ---
 class AdvancedAlertManager(QDialog):
@@ -945,7 +967,7 @@ class AdvancedAlertManager(QDialog):
                 background-color: rgba(255, 107, 107, 0.2);
             }
             
-            /* Checkboxes */
+            /* Enhanced Checkbox Styles with Better Visibility */
             QCheckBox {
                 margin-left: 8px;
                 spacing: 4px;
@@ -954,25 +976,37 @@ class AdvancedAlertManager(QDialog):
             QCheckBox::indicator {
                 width: 16px;
                 height: 16px;
-                border: 2px solid #333;
+                border: 2px solid #444444;  /* More visible border for unchecked */
                 border-radius: 3px;
-                background-color: #000000;
+                background-color: #1a1a1a;  /* Slightly lighter than pure black */
             }
             
             QCheckBox::indicator:checked {
                 background-color: #ff4444;
                 border-color: #ff4444;
-                background-image: url("data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iMTIiIHZpZXdCb3g9IjAgMCAxMiAxMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTIgNkw1IDlMMTAgMyIgc3Ryb2tlPSIjZmY0NDQ0IiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPgo8L3N2Zz4=");
-                background-repeat: no-repeat;
-                background-position: center;
+                color: white;
             }
             
             QCheckBox::indicator:hover {
-                border-color: #4a9eff;
+                border-color: #ff4444;  /* Red border on hover */
+                background-color: #2a2a2a;  /* Slightly lighter background on hover */
             }
-
             
-            /* Scrollbars */
+            QCheckBox::indicator:checked:hover {
+                background-color: #ff5555;  /* Lighter red when checked and hovered */
+                border-color: #ff5555;
+            }
+            
+            QCheckBox::indicator:pressed {
+                background-color: #333333;
+                border-color: #ff6666;
+            }
+            
+            QCheckBox::indicator:checked:pressed {
+                background-color: #ee3333;
+                border-color: #ee3333;
+            }
+                        /* Scrollbars */
             QScrollBar:vertical {
                 background-color: #0a0a0a;
                 width: 12px;
@@ -1388,27 +1422,6 @@ class AlertSystemManager(QObject):
             logger.error(f"Error getting active alert tokens: {e}")
             return []
 
-    def stop_engine(self):
-        """Stop the alert engine and save the final state."""
-        try:
-            logger.info("Stopping alert engine and saving alerts...")
-
-            # Stop auto-save timer
-            self.auto_save_timer.stop()
-
-            # Save final state
-            self._save_alerts()
-
-            # Stop engine
-            if self.alert_engine:
-                self.alert_engine.stop()
-                self.alert_engine.wait(5000)  # Wait up to 5 seconds
-
-            self.engine_status_changed.emit("stopped")
-            logger.info("Alert engine stopped successfully")
-
-        except Exception as e:
-            logger.error(f"Error stopping alert engine: {e}")
 
     def _get_current_positions(self) -> Dict:
         """Get current trading positions."""
@@ -1477,48 +1490,39 @@ class AlertSystemManager(QObject):
             logger.error(f"Error getting system status: {e}")
             return {'error': str(e)}
 
+    def stop_engine(self):
+        """Stop the alert engine and save the final state with improved cleanup."""
+        try:
+            logger.info("Stopping alert engine and saving alerts...")
 
-# === INTEGRATION INSTRUCTIONS ===
-"""
-INTEGRATION STEPS FOR MAIN WINDOW:
+            # Stop auto-save timer first
+            if hasattr(self, 'auto_save_timer'):
+                self.auto_save_timer.stop()
 
-1. Replace the existing alert system initialization in main_window.py:
+            # Save final state
+            self._save_alerts()
 
-   def _init_alert_system(self):
-       try:
-           self.alert_system = AlertSystemManager(self)
-           self.alert_system.alert_sound_requested.connect(self._play_alert_sound)
-           self.alert_system.engine_status_changed.connect(self._on_alert_engine_status)
-           logger.info("Advanced alert system initialized successfully.")
-       except Exception as e:
-           logger.error(f"Failed to initialize alert system: {e}")
-           self.alert_system = None
+            # Stop engine with timeout
+            if hasattr(self, 'alert_engine') and self.alert_engine:
+                self.alert_engine.stop()
 
-2. Add this method to handle engine status changes:
+                # Give it time to stop gracefully
+                if self.alert_engine.isRunning():
+                    logger.info("Waiting for alert engine to stop...")
+                    if not self.alert_engine.wait(5000):  # Wait 5 seconds
+                        logger.warning("Alert engine didn't stop gracefully, terminating...")
+                        self.alert_engine.terminate()
+                        # Wait for termination
+                        self.alert_engine.wait(2000)
 
-   @Slot(str)
-   def _on_alert_engine_status(self, status: str):
-       if status == "error":
-           logger.warning("Alert engine encountered an error")
-       elif status == "running":
-           logger.info("Alert engine is running normally")
+                # Clean up the engine reference
+                self.alert_engine = None
 
-3. Ensure market data is passed to alert system in _on_market_data:
+            self.engine_status_changed.emit("stopped")
+            logger.info("Alert engine stopped successfully")
 
-   if self.alert_system:
-       self.alert_system.update_market_data(ticks)
-
-4. Add cleanup in closeEvent:
-
-   def closeEvent(self, event):
-       if self.alert_system:
-           self.alert_system.stop_engine()
-       # ... rest of cleanup code
-
-5. The system will now:
-   - Start automatically on application startup
-   - Run in a separate thread for failproof operation
-   - Auto-save every 30 seconds + on all changes
-   - Recover from errors automatically
-   - Provide comprehensive logging and status monitoring
-"""
+        except Exception as e:
+            logger.error(f"Error stopping alert engine: {e}")
+            # Ensure the engine reference is cleared even on error
+            if hasattr(self, 'alert_engine'):
+                self.alert_engine = None

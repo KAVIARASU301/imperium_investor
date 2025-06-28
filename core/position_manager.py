@@ -20,6 +20,7 @@ class Position:
     token: int
     ltp: float = 0.0
     pnl: float = 0.0
+    product: str = "MIS"  # ADD THIS LINE - Default to MIS
 
 
 class PositionManager(QObject):
@@ -63,7 +64,8 @@ class PositionManager(QObject):
                         quantity=pos_data.get('quantity', 0),
                         avg_price=pos_data.get('average_price', 0),
                         token=pos_data.get('instrument_token', 0),
-                        ltp=pos_data.get('last_price', 0)
+                        ltp=pos_data.get('last_price', 0),
+                        product=pos_data.get('product', 'MIS')  # ADD THIS LINE - Extract product from Kite data
                     )
                     position.pnl = (position.ltp - position.avg_price) * position.quantity
                     simple_positions.append(position)

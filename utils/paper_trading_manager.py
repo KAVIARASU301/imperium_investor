@@ -739,27 +739,3 @@ class PaperTradingMixin:
         except Exception as e:
             logger.error(f"Failed to initialize order history integration: {e}")
 
-
-# Quick fix instructions
-def get_quick_fix_instructions():
-    """Instructions for quick integration fix"""
-    return """
-    QUICK FIX INSTRUCTIONS:
-
-    1. Replace PaperTradingManager import in main.py:
-       from utils.fixed_paper_trading_manager import FixedPaperTradingManager
-
-    2. Update trader initialization in main.py:
-       trader = FixedPaperTradingManager()
-
-    3. Add to SwingTraderWindow._on_market_data method:
-       if isinstance(self.trader, FixedPaperTradingManager):
-           self.trader.update_market_data(ticks)
-
-    4. Add methods from PaperTradingMixin to SwingTraderWindow class
-
-    5. Connect signals in SwingTraderWindow.__init__:
-       integrate_fixed_paper_trading(self, self.trader)
-
-    This will fix all the reported issues!
-    """

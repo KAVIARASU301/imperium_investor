@@ -256,26 +256,59 @@ class MarketDataWorker(QObject):
         return self.is_running and self.kws and self.kws.is_connected()
 
     def stop(self):
-        """Stops the worker and gracefully closes the WebSocket connection."""
+        """Stops the worker and gracefully closes the WebSocket connection with improved cleanup."""
         if not self.is_running:
             return
 
         logger.info("Stopping MarketDataWorker...")
 
+        # Set running flag to False first
+        self.is_running = False
+
+        # Clear subscriptions first
+        try:
+            if self.kws and self.kws.is_connected() and self.subscribed_tokens:
+                token_list = list(self.subscribed_tokens)
+                self.kws.unsubscribe(token_list)
+                logger.info(f"Unsubscribed from {len(token_list)} instruments.")
+        except Exception as e:
+            logger.error(f"Failed to clear subscriptions during stop: {e}")
+
         # Close WebSocket connection
         if self.kws:
             try:
-                self.kws.close(code=1000, reason="User closed the application.")
-            except Exception as e:
-                logger.error(f"Error closing WebSocket: {e}")
+                # First try graceful close
+                if self.kws.is_connected():
+                    self.kws.close(code=1000, reason="Application shutdown")
 
-        self.is_running = False
+                # Small delay to allow graceful close
+                import time
+                time.sleep(0.5)
+
+            except Exception as e:
+                logger.error(f"Error closing WebSocket gracefully: {e}")
+            finally:
+                # Force disconnect if still connected
+                try:
+                    if hasattr(self.kws, 'ws') and self.kws.ws:
+                        self.kws.ws.close()
+                except:
+                    pass
+                self.kws = None
+
+        # Clear data structures
         self.subscribed_tokens = set()
+
         logger.info("MarketDataWorker stopped.")
 
+    # Also add this improved restart method
     def restart(self):
-        """Restart the WebSocket connection."""
+        """Restart the WebSocket connection with better cleanup."""
         logger.info("Restarting MarketDataWorker...")
+
+        # Stop current connection
         self.stop()
-        # Small delay before restart
-        QTimer.singleShot(1000, self.start)
+
+        # Wait a bit before restarting to ensure cleanup
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(2000, self.start)  # Increased delay to 2 seconds
