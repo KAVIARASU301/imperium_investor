@@ -1,15 +1,14 @@
 # header_toolbar.py (Updated with Status Bar)
 
 import logging
-from datetime import datetime
 from typing import List, Dict, Any, Union
 
 from PySide6.QtWidgets import (
     QToolBar, QLineEdit, QCompleter, QWidget, QLabel, QSizePolicy, QPushButton,
     QHBoxLayout, QFrame
 )
-from PySide6.QtCore import Signal, QStringListModel, Qt, QTimer
-from PySide6.QtGui import QPainter, QColor, QFont, QPen, QBrush
+from PySide6.QtCore import Signal, QStringListModel, Qt, QTimer, QEvent
+from PySide6.QtGui import QPainter, QColor, QFont, QKeyEvent
 from kiteconnect import KiteConnect
 
 # Import the simple status bar
@@ -96,11 +95,12 @@ class HeaderToolbar(QToolBar):
         symbol_label.setObjectName("symbolLabel")
         self.addWidget(symbol_label)
 
-        # REDUCED SIZE: Symbol input field (half the original width)
-        self.search_input = QLineEdit()
+        # Use custom symbol input instead of regular QLineEdit
+        self.search_input = SymbolSearchInput()  # Changed this line
         self.search_input.setPlaceholderText("Search symbols")
         self.search_input.setObjectName("enhancedSymbolSearch")
         self.search_input.returnPressed.connect(self._on_search_enter)
+
         self.addWidget(self.search_input)
 
         # Buy and Sell buttons
@@ -116,12 +116,38 @@ class HeaderToolbar(QToolBar):
         self.sell_button.clicked.connect(self._on_sell_clicked)
         self.addWidget(self.sell_button)
 
-        # Setup completer
+        # Setup completer with enhanced settings
         self.completer = QCompleter(self)
         self.completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
         self.completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        self.completer.setMaxVisibleItems(10)
+        self.completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+
+        # Configure completer popup
+        popup = self.completer.popup()
+        popup.setStyleSheet("""
+            QListView {
+                background-color: #2b2b2b;
+                color: #ffffff;
+                border: 1px solid #555555;
+                selection-background-color: #0078d4;
+                font-size: 11px;
+            }
+            QListView::item {
+                padding: 4px;
+                border-bottom: 1px solid #3a3a3a;
+            }
+            QListView::item:hover {
+                background-color: #404040;
+            }
+            QListView::item:selected {
+                background-color: #0078d4;
+            }
+        """)
+
         self.search_input.setCompleter(self.completer)
         self.completer.activated.connect(self._on_search_enter)
+
 
     def _create_status_bar_section(self):
         """NEW: Creates the LED-style status bar section."""
@@ -532,3 +558,56 @@ class HeaderToolbar(QToolBar):
         if hasattr(self, 'account_timer'):
             self.account_timer.stop()
         super().closeEvent(event)
+
+
+
+
+from PySide6.QtWidgets import QLineEdit
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QKeyEvent
+
+
+# Update the SymbolSearchInput class in widgets/header_toolbar.py
+
+class SymbolSearchInput(QLineEdit):
+    """Custom QLineEdit with proper arrow key handling for completer."""
+
+    def keyPressEvent(self, event):
+        """Override to handle arrow keys properly with completer."""
+        key = event.key()
+
+        # Handle arrow keys specially
+        if key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
+            completer = self.completer()
+
+            if completer:
+                # If there's text and popup is not visible, show it
+                if self.text().strip() and not completer.popup().isVisible():
+                    completer.complete()
+
+                # If popup is visible, let the default handling work
+                if completer.popup().isVisible():
+                    super().keyPressEvent(event)
+                    return
+
+            # If no completer or popup not visible, consume the event
+            # This prevents the chart timeframe change
+            event.accept()  # Explicitly accept the event
+            return
+
+        # For all other keys, use default handling
+        super().keyPressEvent(event)
+
+    def focusInEvent(self, event):
+        """Handle focus in event."""
+        super().focusInEvent(event)
+        # Optionally show completer when focused if there's text
+        if self.text().strip() and self.completer():
+            self.completer().complete()
+
+    def focusOutEvent(self, event):
+        """Handle focus out event."""
+        super().focusOutEvent(event)
+        # Hide completer when focus is lost
+        if self.completer() and self.completer().popup().isVisible():
+            self.completer().popup().hide()

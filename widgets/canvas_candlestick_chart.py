@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
                                QStackedWidget, QLabel, QPushButton, QProgressBar,
                                QFrame, QMessageBox, QColorDialog, QDialog,
                                QFormLayout, QSpinBox, QComboBox, QMenu,
-                               QTextEdit, QDialogButtonBox)
+                               QTextEdit, QDialogButtonBox, QApplication)
 from PySide6.QtGui import QFont, QKeySequence, QShortcut, QColor, QAction
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebChannel import QWebChannel
@@ -1157,8 +1157,15 @@ class CandlestickChart(QWidget):
 
         logger.info("Chart keyboard shortcuts initialized (including Up/Down for timeframes)")
 
+
     def _timeframe_up(self):
-        """Move to the next higher timeframe (e.g., 1m -> 3m -> 5m -> 15m -> ...)"""
+        """Move to the next higher timeframe - only if symbol input is not focused"""
+        # Check if symbol input is focused
+        focused_widget = QApplication.focusWidget()
+        if (hasattr(self.parent(), 'header_toolbar') and
+                focused_widget == self.parent().header_toolbar.search_input):
+            return  # Don't change timeframe if symbol input is focused
+
         if not self.timeframe_dropdown or self.current_state != ChartState.LOADED:
             return
 
@@ -1177,7 +1184,13 @@ class CandlestickChart(QWidget):
                 QTimer.singleShot(2000, lambda: self._update_symbol_info_with_status())
 
     def _timeframe_down(self):
-        """Move to the next lower timeframe (e.g., 1D -> 1H -> 30m -> 15m -> ...)"""
+        """Move to the next lower timeframe - only if symbol input is not focused"""
+        # Check if symbol input is focused
+        focused_widget = QApplication.focusWidget()
+        if (hasattr(self.parent(), 'header_toolbar') and
+                focused_widget == self.parent().header_toolbar.search_input):
+            return  # Don't change timeframe if symbol input is focused
+
         if not self.timeframe_dropdown or self.current_state != ChartState.LOADED:
             return
 

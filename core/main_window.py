@@ -8,10 +8,10 @@ import json
 from datetime import datetime
 from typing import List, Dict, Union, Any, Optional
 
-from PySide6.QtCore import Qt, QByteArray, QTimer, Slot, Signal
+from PySide6.QtCore import Qt, QByteArray, QTimer, Slot, Signal, QEvent
 from PySide6.QtWidgets import QMainWindow, QSplitter, QWidget, QVBoxLayout, QHBoxLayout, \
-    QPushButton, QLabel
-from PySide6.QtGui import QMouseEvent, QKeySequence, QShortcut
+    QPushButton, QLabel, QApplication
+from PySide6.QtGui import QMouseEvent, QKeySequence, QShortcut, QKeyEvent
 
 from widgets.scanner_table import ChartinkScannerTable
 from widgets.positions_table import PositionsTable
@@ -95,6 +95,7 @@ class SwingTraderWindow(QMainWindow):
         self._connect_signals()
         self._connect_chart_signals()
         self._setup_watchlist_shortcuts()
+
         self._apply_dark_theme()
         self.restore_window_state()
 
@@ -102,6 +103,7 @@ class SwingTraderWindow(QMainWindow):
 
         # Start position manager after a delay
         QTimer.singleShot(2000, self._initialize_position_system)
+
 
     def _initialize_position_system(self):
         """Initialize a position system after the main parts are ready"""
@@ -1425,6 +1427,52 @@ class SwingTraderWindow(QMainWindow):
                 background-color: #3a3a3a; 
             }
         """)
+
+    def keyPressEvent(self, event):
+        """Override keyPressEvent for main window key handling."""
+
+        # Check if symbol input is focused - if so, don't interfere with arrow keys
+        focused_widget = QApplication.focusWidget()
+        if (focused_widget == self.header_toolbar.search_input and
+                event.key() in (Qt.Key.Key_Up, Qt.Key.Key_Down, Qt.Key.Key_Return, Qt.Key.Key_Enter,
+                                Qt.Key.Key_Escape)):
+            # Let the HeaderToolbar's eventFilter handle these keys
+            super().keyPressEvent(event)
+            return
+
+        # Auto-focus logic for letter keys (existing code)
+        if self._is_letter_key(event) and not self._is_input_focused():
+            if not (event.modifiers() & (Qt.KeyboardModifier.ControlModifier |
+                                         Qt.KeyboardModifier.AltModifier |
+                                         Qt.KeyboardModifier.MetaModifier)):
+                # Clear and focus the symbol input
+                self.header_toolbar.search_input.clear()
+                self.header_toolbar.search_input.setFocus()
+
+                # Send the key to the input field
+                self.header_toolbar.search_input.setText(event.text())
+                return
+
+        # Call parent implementation for all other keys
+        super().keyPressEvent(event)
+
+    def _is_letter_key(self, key_event):
+        """Check if the pressed key is a letter (a-z, A-Z)."""
+        key = key_event.key()
+        return (Qt.Key.Key_A <= key <= Qt.Key.Key_Z)
+
+    def _is_input_focused(self):
+        """Check if any input field is currently focused."""
+        focused_widget = QApplication.focusWidget()
+
+        if focused_widget is None:
+            return False
+
+        # Check if the focused widget is an input field
+        from PySide6.QtWidgets import QLineEdit, QTextEdit, QPlainTextEdit, QSpinBox, QDoubleSpinBox
+
+        input_types = (QLineEdit, QTextEdit, QPlainTextEdit, QSpinBox, QDoubleSpinBox)
+        return isinstance(focused_widget, input_types)
 
     def closeEvent(self, event):
         """Handle application close event with comprehensive cleanup"""
