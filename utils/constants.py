@@ -80,6 +80,11 @@ INDEX_SYMBOL_MAP = {
     'MIDCPNIFTY': 'NIFTY MID SELECT'
 }
 
+# Exchange preferences - NSE first, BSE as fallback
+EXCHANGE_PREFERENCE_ORDER = ["NSE", "BSE", "NFO"]
+DEFAULT_EXCHANGE = "NSE"
+FALLBACK_EXCHANGE = "BSE"
+
 # Exchange codes
 EXCHANGE_NFO = "NFO"
 EXCHANGE_NSE = "NSE"

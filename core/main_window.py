@@ -360,14 +360,6 @@ class SwingTraderWindow(QMainWindow):
         self.alert_update_timer.timeout.connect(self._update_alert_badges)
         self.alert_update_timer.start(30000)
 
-        # ADD THESE LINES - Connect trader signals to sound methods
-        if hasattr(self.trader, 'order_completed'):
-            self.trader.order_completed.connect(self._on_order_completed_with_sound)
-
-        if hasattr(self.trader, 'order_failed'):
-            self.trader.order_failed.connect(self._on_order_failed_with_sound)
-        logger.info("All component signals connected successfully.")
-
     # ==============================================================================
     # WINDOW MANAGEMENT & EVENTS
     # ==============================================================================
@@ -437,10 +429,12 @@ class SwingTraderWindow(QMainWindow):
     # ==============================================================================
 
     def _on_instruments_loaded(self, instruments: List[Dict]):
-        """Handle instrument loading"""
+        """Handle instrument loading with NSE preference"""
         logger.info(f"Successfully loaded {len(instruments)} instruments.")
         self.instrument_list = instruments
-        self.instrument_map = {inst['tradingsymbol']: inst for inst in instruments if 'tradingsymbol' in inst}
+
+        # BUILD INSTRUMENT MAP WITH NSE PREFERENCE
+        self.instrument_map = self._build_instrument_map_with_nse_preference(instruments)
 
         # Set instrument data in components
         self.header_toolbar.set_instrument_data(instruments)
@@ -459,6 +453,52 @@ class SwingTraderWindow(QMainWindow):
         self.chart_init_timer.start(1000)
         logger.info("Instruments loaded successfully.")
 
+    def _build_instrument_map_with_nse_preference(self, instruments: List[Dict]) -> Dict[str, Dict]:
+        """Build instrument map prioritizing NSE over BSE for same symbols"""
+        instrument_map = {}
+
+        # Sort instruments to process NSE first, then BSE, then others
+        def exchange_priority(inst):
+            exchange = inst.get('exchange', '')
+            if exchange == 'NSE':
+                return 0  # Highest priority
+            elif exchange == 'BSE':
+                return 1  # Second priority
+            else:
+                return 2  # Lowest priority
+
+        sorted_instruments = sorted(instruments, key=exchange_priority)
+
+        # Build map - NSE will be processed first and won't be overwritten
+        nse_count = 0
+        bse_count = 0
+        bse_overridden = 0
+
+        for inst in sorted_instruments:
+            symbol = inst.get('tradingsymbol')
+            exchange = inst.get('exchange', '')
+
+            if symbol:
+                if symbol not in instrument_map:
+                    # First time seeing this symbol
+                    instrument_map[symbol] = inst
+                    if exchange == 'NSE':
+                        nse_count += 1
+                    elif exchange == 'BSE':
+                        bse_count += 1
+                else:
+                    # Symbol already exists - this means BSE is trying to override NSE
+                    existing_exchange = instrument_map[symbol].get('exchange', '')
+                    if existing_exchange == 'NSE' and exchange == 'BSE':
+                        bse_overridden += 1
+                        logger.debug(f"Kept NSE version of {symbol} (ignored BSE)")
+                    # Don't overwrite - keep the NSE version
+
+        logger.info(f"Built instrument map: {nse_count} NSE symbols, {bse_count} BSE-only symbols")
+        logger.info(f"BSE duplicates ignored: {bse_overridden}")
+
+        return instrument_map
+
     def _initialize_chart_after_instruments(self):
         """Initialize chart after instruments are ready"""
         try:
@@ -468,53 +508,184 @@ class SwingTraderWindow(QMainWindow):
 
     @Slot(list)
     def _on_market_data(self, ticks: List[Dict]):
-        """Handle market data updates"""
+        """Handle market data updates with NSE preference and improved filtering"""
         if not ticks:
             return
+
         try:
-            # Update chart
-            current_chart_symbol = getattr(self.candlestick_chart, 'current_symbol', None)
-            current_chart_token = getattr(self.candlestick_chart, 'current_instrument_token', None)
+            # Filter and prioritize ticks by exchange preference
+            filtered_ticks = self._filter_ticks_by_exchange_preference(ticks)
 
-            if self.candlestick_chart and current_chart_symbol:
-                chart_ticks = []
-                for tick in ticks:
-                    tick_symbol = tick.get('tradingsymbol')
-                    tick_token = tick.get('instrument_token')
+            # Update chart with filtered data
+            self._update_chart_data(filtered_ticks)
 
-                    symbol_matches = tick_symbol == current_chart_symbol
-                    token_matches = (tick_token == current_chart_token) if tick_token and current_chart_token else False
+            # Update positions table with market data (using filtered ticks)
+            self._update_positions_market_data(filtered_ticks)
 
-                    if not symbol_matches and tick_token and hasattr(self, 'instrument_map'):
-                        for symbol, instrument in self.instrument_map.items():
-                            if instrument.get('instrument_token') == tick_token and symbol == current_chart_symbol:
-                                tick['tradingsymbol'] = symbol
-                                symbol_matches = True
-                                break
-
-                    if symbol_matches or token_matches:
-                        chart_ticks.append(tick)
-
-                if chart_ticks:
-                    logger.debug(f"Sending {len(chart_ticks)} ticks to chart for {current_chart_symbol}")
-                    self.candlestick_chart.update_live_data(chart_ticks)
-
-            # SIMPLIFIED: Update positions table with market data
-            for tick in ticks:
-                token = tick.get('instrument_token')
-                ltp = tick.get('last_price', 0)
-                if token and ltp > 0:
-                    self.positions_table.update_market_data(token, ltp)
-
-            # Update other components
+            # Update other components with filtered data
             if isinstance(self.trader, PaperTradingManager):
-                self.trader.update_market_data(ticks)
-            self.watchlist.update_data(ticks)
+                self.trader.update_market_data(filtered_ticks)
+
+            self.watchlist.update_data(filtered_ticks)
+
             if self.alert_system:
-                self.alert_system.update_market_data(ticks)
+                self.alert_system.update_market_data(filtered_ticks)
 
         except Exception as e:
             logger.error(f"Error processing market data: {e}")
+
+    def _filter_ticks_by_exchange_preference(self, ticks: List[Dict]) -> List[Dict]:
+        """Filter ticks to prefer NSE over BSE for same symbols"""
+        if not hasattr(self, 'instrument_map'):
+            return ticks
+
+        # Group ticks by symbol
+        symbol_ticks = {}
+        token_to_symbol = {}
+
+        for tick in ticks:
+            # Get symbol from tick or resolve from token
+            symbol = tick.get('tradingsymbol')
+            token = tick.get('instrument_token')
+
+            if not symbol and token:
+                # Try to resolve symbol from token
+                symbol = self._resolve_symbol_from_token(token)
+                if symbol:
+                    tick['tradingsymbol'] = symbol
+
+            if symbol:
+                if symbol not in symbol_ticks:
+                    symbol_ticks[symbol] = []
+                symbol_ticks[symbol].append(tick)
+
+                if token:
+                    token_to_symbol[token] = symbol
+
+        # Filter to prefer NSE over BSE for each symbol
+        filtered_ticks = []
+
+        for symbol, tick_list in symbol_ticks.items():
+            if len(tick_list) == 1:
+                # Only one tick for this symbol, use it
+                filtered_ticks.extend(tick_list)
+            else:
+                # Multiple ticks for same symbol, prefer NSE
+                nse_tick = None
+                bse_tick = None
+                other_ticks = []
+
+                for tick in tick_list:
+                    exchange = self._get_exchange_for_tick(tick, symbol)
+                    if exchange == 'NSE':
+                        nse_tick = tick
+                    elif exchange == 'BSE':
+                        bse_tick = tick
+                    else:
+                        other_ticks.append(tick)
+
+                # Prefer NSE, fallback to BSE, then others
+                if nse_tick:
+                    filtered_ticks.append(nse_tick)
+                    logger.debug(f"Using NSE tick for {symbol}")
+                elif bse_tick:
+                    filtered_ticks.append(bse_tick)
+                    logger.debug(f"Using BSE tick for {symbol} (NSE not available)")
+                else:
+                    filtered_ticks.extend(other_ticks)
+
+        logger.debug(f"Filtered {len(ticks)} ticks to {len(filtered_ticks)} (NSE preference applied)")
+        return filtered_ticks
+
+    def _resolve_symbol_from_token(self, token: int) -> str:
+        """Resolve trading symbol from instrument token with NSE preference"""
+        if not hasattr(self, 'instrument_map'):
+            return None
+
+        # Look for token in instrument map
+        nse_symbol = None
+        bse_symbol = None
+        other_symbol = None
+
+        for symbol, instrument in self.instrument_map.items():
+            if instrument.get('instrument_token') == token:
+                exchange = instrument.get('exchange', '')
+                if exchange == 'NSE':
+                    nse_symbol = symbol
+                elif exchange == 'BSE':
+                    bse_symbol = symbol
+                else:
+                    other_symbol = symbol
+
+        # Return in preference order
+        return nse_symbol or bse_symbol or other_symbol
+
+    def _get_exchange_for_tick(self, tick: Dict, symbol: str) -> str:
+        """Get exchange for a tick, with lookup in instrument map if needed"""
+        # First check if tick has exchange info
+        if 'exchange' in tick:
+            return tick['exchange']
+
+        # Look up in instrument map
+        if hasattr(self, 'instrument_map') and symbol in self.instrument_map:
+            return self.instrument_map[symbol].get('exchange', 'NSE')
+
+        # Default to NSE
+        return 'NSE'
+
+    def _update_chart_data(self, ticks: List[Dict]):
+        """Update chart with filtered market data"""
+        current_chart_symbol = getattr(self.candlestick_chart, 'current_symbol', None)
+        current_chart_token = getattr(self.candlestick_chart, 'current_instrument_token', None)
+
+        if not self.candlestick_chart or not current_chart_symbol:
+            return
+
+        chart_ticks = []
+        for tick in ticks:
+            tick_symbol = tick.get('tradingsymbol')
+            tick_token = tick.get('instrument_token')
+
+            # Direct symbol match
+            symbol_matches = tick_symbol == current_chart_symbol
+
+            # Token match (if available)
+            token_matches = (tick_token == current_chart_token) if tick_token and current_chart_token else False
+
+            if symbol_matches or token_matches:
+                chart_ticks.append(tick)
+
+        if chart_ticks:
+            logger.debug(f"Sending {len(chart_ticks)} filtered ticks to chart for {current_chart_symbol}")
+            self.candlestick_chart.update_live_data(chart_ticks)
+
+    def _update_positions_market_data(self, ticks: List[Dict]):
+        """Update positions table with filtered market data"""
+        for tick in ticks:
+            token = tick.get('instrument_token')
+            ltp = tick.get('last_price', 0)
+            if token and ltp > 0:
+                self.positions_table.update_market_data(token, ltp)
+
+    # Additional helper method for monitoring exchange usage
+    def _log_exchange_statistics(self, ticks: List[Dict]):
+        """Log statistics about exchange usage in ticks (for debugging)"""
+        if not logger.isEnabledFor(logging.DEBUG):
+            return
+
+        exchange_counts = {'NSE': 0, 'BSE': 0, 'OTHER': 0}
+
+        for tick in ticks:
+            symbol = tick.get('tradingsymbol')
+            if symbol and hasattr(self, 'instrument_map'):
+                exchange = self.instrument_map.get(symbol, {}).get('exchange', 'OTHER')
+                if exchange in exchange_counts:
+                    exchange_counts[exchange] += 1
+                else:
+                    exchange_counts['OTHER'] += 1
+
+        if any(exchange_counts.values()):
+            logger.debug(f"Market data exchange distribution: {exchange_counts}")
 
     @Slot()
     def _on_watchlist_changed(self):
@@ -776,10 +947,6 @@ class SwingTraderWindow(QMainWindow):
     # ALERT SYSTEM METHODS
     # ==============================================================================
 
-    @Slot()
-    def _play_alert_sound(self):
-        if self.alert_sound:
-            self.alert_sound.play()
 
     @Slot()
     def _update_alert_badges(self):
@@ -801,7 +968,7 @@ class SwingTraderWindow(QMainWindow):
     # ==============================================================================
 
     def _get_fresh_ltp(self, symbol: str) -> float:
-        """Get fresh LTP for symbol"""
+        """Get fresh LTP for symbol with NSE preference"""
         ltp = 0.0
 
         # Check watchlist tables
@@ -811,15 +978,16 @@ class SwingTraderWindow(QMainWindow):
                 if ltp > 0:
                     return ltp
 
-        # Check instrument map
+        # Check instrument map (now NSE-preferred)
         if symbol in self.instrument_map:
             ltp = self.instrument_map[symbol].get('last_price', 0)
             if ltp > 0:
                 return ltp
 
-        # Fallback to API
+        # Fallback to API with NSE preference
         try:
             if self.real_kite_client:
+                # Use the exchange from our NSE-preferred instrument map
                 exchange = self.instrument_map.get(symbol, {}).get('exchange', 'NSE')
                 quote = self.real_kite_client.quote([f"{exchange}:{symbol}"])
                 ltp = quote[f"{exchange}:{symbol}"].get('last_price', 0)

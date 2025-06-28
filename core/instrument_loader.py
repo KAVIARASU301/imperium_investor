@@ -112,10 +112,10 @@ class InstrumentLoader(QThread):
             logger.error(f"Error saving instruments to cache: {e}")
 
     def fetch_instruments_with_fallback(self) -> List[Dict[str, Any]]:
-        """Fetch instruments with multiple fallback strategies"""
+        """Fetch instruments with multiple fallback strategies - NSE FIRST"""
         max_retries = 5
         base_delay = 2
-        exchanges = ["NSE", "BSE"]
+        exchanges = ["NSE", "BSE"]  # This order is CRITICAL - NSE must be first
 
         for attempt in range(max_retries):
             if self._stop_requested:
@@ -131,8 +131,9 @@ class InstrumentLoader(QThread):
 
                 # Set a longer timeout for the KiteConnect client
                 original_timeout = getattr(self.kite, 'timeout', 7)
-                self.kite.timeout = min(30, original_timeout + (attempt * 5))  # Increase timeout with each retry
+                self.kite.timeout = min(30, original_timeout + (attempt * 5))
 
+                # IMPORTANT: Process NSE first, then BSE
                 for exchange in exchanges:
                     if self._stop_requested:
                         raise Exception("Operation cancelled by user")
@@ -142,46 +143,39 @@ class InstrumentLoader(QThread):
                         self.progress_update.emit(f"Fetching {exchange} instruments...")
 
                         instruments = self.kite.instruments(exchange)
-                        all_instruments.extend(instruments)
-                        logger.info(f"Fetched {len(instruments)} instruments from {exchange}")
 
-                        # Small delay between exchanges
-                        time.sleep(0.5)
+                        if instruments:
+                            logger.info(f"Fetched {len(instruments)} instruments from {exchange}")
+                            # Add exchange info to each instrument if not present
+                            for inst in instruments:
+                                if 'exchange' not in inst:
+                                    inst['exchange'] = exchange
+                            all_instruments.extend(instruments)
+                        else:
+                            logger.warning(f"No instruments returned from {exchange}")
 
-                    except Exception as e:
-                        logger.warning(f"Failed to fetch {exchange} instruments: {e}")
+                    except Exception as exchange_error:
+                        logger.error(f"Failed to fetch {exchange} instruments: {exchange_error}")
                         # Continue with next exchange instead of failing completely
-                        continue
 
                 if all_instruments:
-                    logger.info(f"Successfully loaded {len(all_instruments)} total instruments")
-                    self.save_instruments_to_cache(all_instruments)
+                    logger.info(f"Successfully fetched {len(all_instruments)} total instruments")
+                    self._save_to_cache(all_instruments)
                     return all_instruments
                 else:
                     raise Exception("No instruments fetched from any exchange")
 
             except Exception as e:
-                error_msg = str(e)
-                logger.error(f"Attempt {attempt + 1} failed: {error_msg}")
-
-                if self._stop_requested:
-                    raise e
-
                 if attempt < max_retries - 1:
-                    # Exponential backoff with jitter
-                    delay = base_delay * (2 ** attempt) + (attempt * 2)
-                    delay = min(delay, 30)  # Cap at 30 seconds
-
-                    logger.info(f"Retrying in {delay} seconds...")
-                    self.progress_update.emit(f"Retry in {delay}s... ({error_msg})")
-
-                    for i in range(int(delay)):
-                        if self._stop_requested:
-                            raise Exception("Operation cancelled by user")
-                        time.sleep(1)
+                    delay = base_delay * (2 ** attempt)  # Exponential backoff
+                    logger.warning(f"Fetch attempt {attempt + 1} failed: {e}. Retrying in {delay}s...")
+                    self.progress_update.emit(f"Attempt failed. Retrying in {delay}s...")
+                    time.sleep(delay)
                 else:
-                    logger.error("All retries failed")
-                    raise Exception(f"Failed to load instruments after {max_retries} attempts. Last error: {error_msg}")
+                    logger.error(f"All {max_retries} attempts failed. Last error: {e}")
+                    raise
+
+        return []
 
     def run(self):
         """Load instruments with caching and robust error handling"""
