@@ -3,11 +3,9 @@
 # ==============================================================================
 
 import logging
-from typing import Optional
-from datetime import datetime
-from PySide6.QtWidgets import QLabel, QWidget, QHBoxLayout
-from PySide6.QtCore import QTimer, Signal, QPropertyAnimation, QEasingCurve
-from PySide6.QtGui import QFont, QColor
+
+from PySide6.QtWidgets import QLabel
+from PySide6.QtCore import QTimer
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +38,7 @@ class StatusBar(QLabel):
         self._setup_default_style()
         self.set_ready()
 
-        logger.info("Simple status bar initialized")
+        logger.info("Status bar initialized")
 
     def _setup_default_style(self):
         """Setup default LED board styling"""
@@ -91,7 +89,7 @@ class StatusBar(QLabel):
         self._set_status(message, "#ff6600", auto_clear=5000)
 
     def set_order_cancelled(self, symbol: str = ""):
-        """Show order cancelled status - yellow LED"""
+        """Show order canceled status - yellow LED"""
         message = f"● CANCELLED: {symbol}" if symbol else "● ORDER CANCELLED"
         self._set_status(message, "#ffaa00", auto_clear=3000)
 
@@ -265,7 +263,7 @@ class GlobalStatusManager:
         logger.info("Global status manager initialized")
 
     def is_initialized(self) -> bool:
-        """Check if status bar is initialized"""
+        """Check if the status bar is initialized"""
         return self._status_bar is not None
 
     # ==========================================================================
@@ -293,7 +291,7 @@ class GlobalStatusManager:
             self._status_bar.set_order_rejected(reason)
 
     def show_order_cancelled(self, symbol: str = ""):
-        """Show order cancelled status globally"""
+        """Show order canceled status globally"""
         if self._status_bar:
             self._status_bar.set_order_cancelled(symbol)
 

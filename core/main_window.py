@@ -1,5 +1,5 @@
 # ==============================================================================
-# UPDATED MAIN WINDOW - REMOVED NOTIFICATION SYSTEM, ADDED STATUS BAR
+#  MAIN WINDOW
 # ==============================================================================
 
 import logging

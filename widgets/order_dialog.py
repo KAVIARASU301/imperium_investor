@@ -575,20 +575,20 @@ class CompactOrderDialog(QDialog):
     def mousePressEvent(self, event: QMouseEvent):
         """Handle mouse press for dragging."""
         if event.button() == Qt.MouseButton.LeftButton:
-            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            self._drag_pos = event.position().toPoint()
             event.accept()
 
     def mouseMoveEvent(self, event: QMouseEvent):
         """Handle mouse move for dragging."""
-        if event.buttons() == Qt.MouseButton.LeftButton and self._drag_pos is not None:
-            self.move(event.globalPosition().toPoint() - self._drag_pos)
+        if event.buttons() & Qt.MouseButton.LeftButton and self._drag_pos:
+            delta = event.position().toPoint() - self._drag_pos
+            self.move(self.x() + delta.x(), self.y() + delta.y())
             event.accept()
 
     def mouseReleaseEvent(self, event: QMouseEvent):
         """Handle mouse release."""
-        if event.button() == Qt.MouseButton.LeftButton:
-            self._drag_pos = None
-            event.accept()
+        self._drag_pos = None
+        event.accept()
 
 
 # Alias for backward compatibility

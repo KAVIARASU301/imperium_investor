@@ -49,13 +49,8 @@ class NotificationBadge(QLabel):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # Draw semi-transparent red circle
-        painter.setBrush(QBrush(QColor(255, 68, 68, 200)))
-        painter.setPen(QPen(QColor(255, 68, 68, 200), 1))
-        painter.drawEllipse(0, 0, 14, 14)
-
         # Draw white number
-        painter.setPen(QColor("#ffffff"))
+        painter.setPen(QColor("#f80404"))
         painter.setFont(QFont("Arial", 8, QFont.Weight.Bold))
         painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.text())
 
@@ -177,11 +172,11 @@ class HeaderToolbar(QToolBar):
 
         # Alert Manager Button with badge
         manager_container = QWidget()
-        manager_container.setFixedSize(85, 24)
+        manager_container.setFixedSize(95, 24)
         self.alert_manager_button = QPushButton("Alert Manager", manager_container)
         self.alert_manager_button.setObjectName("alertActionButton")
         self.alert_manager_button.clicked.connect(self.alert_manager_requested.emit)
-        self.alert_manager_button.setGeometry(0, 0, 85, 24)
+        self.alert_manager_button.setGeometry(0, 0, 95, 24)
         self.triggered_badge = NotificationBadge(manager_container)
         self.triggered_badge.move(71, -2)
         alert_layout.addWidget(manager_container)
