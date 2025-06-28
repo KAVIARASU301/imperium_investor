@@ -6,13 +6,12 @@ import logging
 import os
 import json
 from datetime import datetime
-from typing import List, Dict, Union, Any
+from typing import List, Dict, Union, Any, Optional
 
 from PySide6.QtCore import Qt, QByteArray, QTimer, Slot, Signal
 from PySide6.QtWidgets import QMainWindow, QSplitter, QWidget, QVBoxLayout, QHBoxLayout, \
     QPushButton, QLabel
 from PySide6.QtGui import QMouseEvent, QKeySequence, QShortcut
-from PySide6.QtWidgets import QApplication
 
 from widgets.scanner_table import ChartinkScannerTable
 from widgets.positions_table import PositionsTable
@@ -105,7 +104,7 @@ class SwingTraderWindow(QMainWindow):
         QTimer.singleShot(2000, self._initialize_position_system)
 
     def _initialize_position_system(self):
-        """Initialize position system after main components are ready"""
+        """Initialize a position system after the main parts are ready"""
         try:
             # Fetch initial positions on startup
             self.position_manager.fetch_positions_from_kite("app_startup")
@@ -143,7 +142,7 @@ class SwingTraderWindow(QMainWindow):
             status.initialize(self.header_toolbar.status_bar)
             logger.info("Status bar integrated with header toolbar")
 
-        # Create main splitter
+        # Create the main splitter
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
         main_layout.addWidget(self.main_splitter, 1)
 
@@ -168,7 +167,7 @@ class SwingTraderWindow(QMainWindow):
         self.watchlist.setMinimumHeight(150)
         self.positions_table.setMinimumHeight(100)
 
-        # Add to main splitter
+        # Add to the main splitter
         self.main_splitter.addWidget(self.chartink_scanner)
         self.main_splitter.addWidget(self.candlestick_chart)
         self.main_splitter.addWidget(right_panel_splitter)
@@ -562,7 +561,7 @@ class SwingTraderWindow(QMainWindow):
         logger.debug(f"Filtered {len(ticks)} ticks to {len(filtered_ticks)} (NSE preference applied)")
         return filtered_ticks
 
-    def _resolve_symbol_from_token(self, token: int) -> str:
+    def _resolve_symbol_from_token(self, token: int) -> Optional[str]:
         """Resolve trading symbol from instrument token with NSE preference"""
         if not hasattr(self, 'instrument_map'):
             return None
@@ -586,12 +585,12 @@ class SwingTraderWindow(QMainWindow):
         return nse_symbol or bse_symbol or other_symbol
 
     def _get_exchange_for_tick(self, tick: Dict, symbol: str) -> str:
-        """Get exchange for a tick, with lookup in instrument map if needed"""
+        """Get exchange for a tick, with lookup in an instrument map if needed"""
         # First check if tick has exchange info
         if 'exchange' in tick:
             return tick['exchange']
 
-        # Look up in instrument map
+        # Look up in an instrument map
         if hasattr(self, 'instrument_map') and symbol in self.instrument_map:
             return self.instrument_map[symbol].get('exchange', 'NSE')
 
@@ -817,7 +816,7 @@ class SwingTraderWindow(QMainWindow):
         """
         try:
             if hasattr(self, 'trade_logger') and self.trade_logger:
-                # This is now fully async and won't block UI
+                # This is now fully async and won't block the UI
                 self.trade_logger.log_order_placement(order_data, order_id)
                 logger.info(f"Order queued for logging: {order_id}")
         except Exception as log_error:
@@ -1073,7 +1072,7 @@ class SwingTraderWindow(QMainWindow):
             self.chartink_scanner._previous_symbol()
 
     def _is_scanner_focused(self, widget) -> bool:
-        """Check if scanner has focus"""
+        """Check if the scanner has focus"""
         if not widget:
             return False
         current = widget
@@ -1100,7 +1099,7 @@ class SwingTraderWindow(QMainWindow):
         return None
 
     def _is_positions_focused(self, widget) -> bool:
-        """Check if positions table has focus"""
+        """Check if the position table has focus"""
         if not widget:
             return False
         current = widget
@@ -1113,7 +1112,7 @@ class SwingTraderWindow(QMainWindow):
         return False
 
     def _is_child_of_widget(self, child, parent) -> bool:
-        """Check if child is descendant of parent"""
+        """Check if child is a descendant of parent"""
         if not child or not parent:
             return False
         current = child
@@ -1428,7 +1427,7 @@ class SwingTraderWindow(QMainWindow):
         """)
 
     def closeEvent(self, event):
-        """Enhanced close event with complete thread cleanup including TradeLogger"""
+        """Handle application close event with comprehensive cleanup"""
         logger.info("Close event triggered. Saving state and stopping workers...")
 
         # Prevent multiple cleanup calls
@@ -1443,127 +1442,48 @@ class SwingTraderWindow(QMainWindow):
             # 1. Save window state first
             self.save_window_state()
 
-            # 2. Stop all timers first to prevent new operations
+            # 2. Stop market data worker FIRST with a shutdown flag
+            if hasattr(self, 'market_data_worker') and self.market_data_worker:
+                logger.info("Stopping market data worker...")
+                # 🟢 SET SHUTDOWN FLAG TO PREVENT RECONNECTION
+                if hasattr(self.market_data_worker, '_shutdown_requested'):
+                    self.market_data_worker._shutdown_requested = True
+                self.market_data_worker.stop()
+
+            # 3. Stop all other timers to prevent new operations
             if hasattr(self, 'alert_update_timer') and self.alert_update_timer:
                 self.alert_update_timer.stop()
 
-            # 3. Stop TradeLogger worker thread FIRST (this was missing!)
+            # 4. Stop TradeLogger worker thread
             if hasattr(self, 'trade_logger') and self.trade_logger:
                 logger.info("Stopping trade logger...")
-                # Call the close method if it exists
-                if hasattr(self.trade_logger, 'close'):
-                    self.trade_logger.close()
-                # Also try the cleanup method from the new implementation
-                elif hasattr(self.trade_logger, 'cleanup'):
-                    self.trade_logger.cleanup()
-                # Fallback: stop the worker thread directly
-                elif hasattr(self.trade_logger, 'worker_thread'):
-                    if self.trade_logger.worker_thread.isRunning():
-                        # Stop the database worker
-                        if hasattr(self.trade_logger, 'db_worker'):
-                            self.trade_logger.db_worker.stop_processing()
-                        self.trade_logger.worker_thread.quit()
-                        if not self.trade_logger.worker_thread.wait(3000):
-                            logger.warning("Force terminating TradeLogger worker thread...")
-                            self.trade_logger.worker_thread.terminate()
-                            self.trade_logger.worker_thread.wait(1000)
+                self.trade_logger.cleanup()
 
-            # 4. Stop chart operations and threads
+            # 5. Stop chart operations and threads
             if hasattr(self, 'candlestick_chart') and self.candlestick_chart:
                 logger.info("Stopping chart operations...")
                 if hasattr(self.candlestick_chart, '_stop_current_operations'):
                     self.candlestick_chart._stop_current_operations()
 
-                # Stop any chart data loader threads
-                if hasattr(self.candlestick_chart, 'data_loader_thread') and self.candlestick_chart.data_loader_thread:
-                    if self.candlestick_chart.data_loader_thread.isRunning():
-                        logger.info("Stopping chart data loader thread...")
-                        self.candlestick_chart.data_loader_thread.quit()
-                        if not self.candlestick_chart.data_loader_thread.wait(2000):
-                            self.candlestick_chart.data_loader_thread.terminate()
-                            self.candlestick_chart.data_loader_thread.wait(1000)
-
-            # 5. Stop scanner worker threads
-            if hasattr(self, 'scanner_table') and self.scanner_table:
-                logger.info("Stopping scanner threads...")
-                if hasattr(self.scanner_table, 'scan_thread') and self.scanner_table.scan_thread:
-                    if self.scanner_table.scan_thread.isRunning():
-                        self.scanner_table.scan_thread.quit()
-                        if not self.scanner_table.scan_thread.wait(2000):
-                            self.scanner_table.scan_thread.terminate()
-                            self.scanner_table.scan_thread.wait(1000)
-
-            # 6. Stop alert system and wait for it to finish
+            # 6. Stop alert system
             if hasattr(self, 'alert_system') and self.alert_system:
                 logger.info("Stopping alert system...")
                 self.alert_system.stop_engine()
-                # Give alert engine time to stop gracefully
-                if hasattr(self.alert_system, 'alert_engine') and self.alert_system.alert_engine:
-                    if self.alert_system.alert_engine.isRunning():
-                        if not self.alert_system.alert_engine.wait(5000):  # Wait 5 seconds
-                            logger.warning("Force terminating alert engine...")
-                            self.alert_system.alert_engine.terminate()
-                            self.alert_system.alert_engine.wait(2000)
 
-            # 7. Stop market data worker
-            if hasattr(self, 'market_data_worker') and self.market_data_worker:
-                logger.info("Stopping market data worker...")
-                self.market_data_worker.stop()
-                # The market data worker uses WebSocket, give it time to close gracefully
-                QTimer.singleShot(1000, lambda: None)  # Small delay for WebSocket cleanup
-
-            # 8. Stop instrument loader thread
-            if hasattr(self, 'instrument_loader') and self.instrument_loader:
-                if self.instrument_loader.isRunning():
-                    logger.info("Stopping instrument loader...")
-                    self.instrument_loader.quit()
-                    if not self.instrument_loader.wait(3000):  # Wait 3 seconds
-                        logger.warning("Force terminating instrument loader...")
-                        self.instrument_loader.terminate()
-                        self.instrument_loader.wait(1000)
-
-            # 9. Stop position manager if it has any tracking threads
+            # 7. Stop position manager
             if hasattr(self, 'position_manager') and self.position_manager:
                 logger.info("Stopping position manager...")
                 if hasattr(self.position_manager, 'stop_tracking'):
                     self.position_manager.stop_tracking()
-                # Check for any timer-based tracking
-                if hasattr(self.position_manager, '_tracking_timer'):
-                    self.position_manager._tracking_timer.stop()
 
-            # 10. Close any open dialogs
-            if hasattr(self,
-                       'order_history_dialog') and self.order_history_dialog and self.order_history_dialog.isVisible():
-                logger.info("Closing order history dialog...")
-                self.order_history_dialog.close()
-
-            if hasattr(self, 'performance_dialog') and self.performance_dialog and self.performance_dialog.isVisible():
-                logger.info("Closing performance dialog...")
-                self.performance_dialog.close()
-
-            # 11. Stop any remaining QTimers
+            # 8. Stop any remaining timers
             for child in self.findChildren(QTimer):
                 if child.isActive():
                     child.stop()
-                    logger.info(f"Stopped timer: {child.objectName()}")
-
-            # 12. Force garbage collection to clean up any remaining objects
-            import gc
-            gc.collect()
 
             logger.info("Application shut down gracefully.")
-
-            # Accept the close event
             event.accept()
 
         except Exception as e:
             logger.error(f"Error during application shutdown: {e}")
-            # Even if there's an error, accept the event to ensure closure
-            event.accept()
-        finally:
-            self._cleanup_in_progress = False
-
-        # 13. Final cleanup - process any remaining events
-        from PySide6.QtWidgets import QApplication
-        if QApplication.instance():
-            QApplication.instance().processEvents()
+            event.accept()  # Accept anyway to avoid hanging

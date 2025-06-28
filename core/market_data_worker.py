@@ -25,6 +25,7 @@ class MarketDataWorker(QObject):
         self.kws = None
         self.is_running = False
         self.subscribed_tokens = set()  # Always initialize as set
+        self._shutdown_requested = False  # ← ADD THIS FLAG
 
     def start(self):
         """Initialize and start the WebSocket connection."""
@@ -95,11 +96,12 @@ class MarketDataWorker(QObject):
         self.is_running = False
         self.connection_closed.emit()
 
-        # Auto-retry connection after 5 seconds if not intentionally stopped
-        if code != 1000:  # 1000 is normal closure
+        # 🟢 FIXED: Only auto-retry if not intentionally stopped AND not shutting down
+        if code != 1000 and not self._shutdown_requested:  # ← ADD SHUTDOWN CHECK
             logger.info("Attempting to reconnect in 5 seconds...")
-            # Use QTimer.singleShot to avoid threading issues
             QTimer.singleShot(5000, self._retry_connection)
+        elif self._shutdown_requested:
+            logger.info("Shutdown requested - skipping reconnection attempt")
 
     def _on_error(self, ws: KiteTicker, code: int, reason: str):
         """Callback for handling WebSocket errors."""
@@ -108,9 +110,12 @@ class MarketDataWorker(QObject):
 
     def _retry_connection(self):
         """Retry WebSocket connection."""
-        if not self.is_running:
+        # 🟢 ADDITIONAL SAFETY CHECK
+        if not self.is_running and not self._shutdown_requested:
             logger.info("Retrying WebSocket connection...")
             self.start()
+        elif self._shutdown_requested:
+            logger.info("Shutdown in progress - cancelling reconnection")
 
     def set_instruments(self, instrument_tokens: Union[List[int], Set[int]]):
         """
@@ -262,7 +267,8 @@ class MarketDataWorker(QObject):
 
         logger.info("Stopping MarketDataWorker...")
 
-        # Set running flag to False first
+        # 🟢 SET SHUTDOWN FLAG FIRST
+        self._shutdown_requested = True
         self.is_running = False
 
         # Clear subscriptions first
@@ -277,9 +283,9 @@ class MarketDataWorker(QObject):
         # Close WebSocket connection
         if self.kws:
             try:
-                # First try graceful close
+                # First try graceful close with normal code
                 if self.kws.is_connected():
-                    self.kws.close(code=1000, reason="Application shutdown")
+                    self.kws.close(code=1000, reason="Application shutdown")  # Use code 1000 for normal closure
 
                 # Small delay to allow graceful close
                 import time
@@ -301,14 +307,19 @@ class MarketDataWorker(QObject):
 
         logger.info("MarketDataWorker stopped.")
 
-    # Also add this improved restart method
     def restart(self):
         """Restart the WebSocket connection with better cleanup."""
+        if self._shutdown_requested:
+            logger.info("Cannot restart - shutdown was requested")
+            return
+
         logger.info("Restarting MarketDataWorker...")
 
         # Stop current connection
+        old_shutdown_flag = self._shutdown_requested
         self.stop()
+        self._shutdown_requested = old_shutdown_flag  # Restore the flag if this is a restart, not shutdown
 
         # Wait a bit before restarting to ensure cleanup
-        from PySide6.QtCore import QTimer
-        QTimer.singleShot(2000, self.start)  # Increased delay to 2 seconds
+        if not self._shutdown_requested:
+            QTimer.singleShot(2000, self.start)
