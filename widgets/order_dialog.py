@@ -1,10 +1,10 @@
-# widgets/order_dialog.py - Fixed version with complete error handling
+# widgets/order_dialog.py - Improved version with better alignment, darker theme, and compact height
 
 import logging
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget, QFrame,
     QComboBox, QCheckBox, QButtonGroup, QRadioButton, QMessageBox,
-    QTabWidget, QSpinBox, QDoubleSpinBox, QGridLayout, QGroupBox
+    QTabWidget, QSpinBox, QDoubleSpinBox, QGridLayout, QGroupBox, QFormLayout
 )
 from PySide6.QtCore import Qt, Signal, QRect, QTimer
 from PySide6.QtGui import QMouseEvent, QShowEvent, QPainter, QFont, QPen, QColor, QBrush
@@ -24,53 +24,53 @@ class CompactToggleSwitch(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedSize(100, 20)  # Match close button height
+        self.setFixedSize(90, 18)  # Smaller size
         self._is_buy = True
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)  # Sharp edges
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
 
         # Background - sharp square edges
         rect = self.rect()
-        painter.setPen(QPen(QColor("#3a3a3a"), 1))
+        painter.setPen(QPen(QColor("#1a1a1a"), 1))
 
         if self._is_buy:
-            painter.setBrush(QBrush(QColor("#1a3d1a")))  # Dark green
+            painter.setBrush(QBrush(QColor("#0d1a0d")))  # Darker green
         else:
-            painter.setBrush(QBrush(QColor("#3d1a1a")))  # Dark red
+            painter.setBrush(QBrush(QColor("#1a0d0d")))  # Darker red
 
-        painter.drawRect(rect)  # Square edges instead of rounded
+        painter.drawRect(rect)
 
         # Button - sharp square edges
-        button_width = 46
-        button_height = 16
+        button_width = 42
+        button_height = 14
         button_y = 2
 
         if self._is_buy:
             button_x = 2
-            color = QColor("#4CAF50")
+            color = QColor("#2d5a2d")
         else:
             button_x = self.width() - button_width - 2
-            color = QColor("#F44336")
+            color = QColor("#5a2d2d")
 
         painter.setBrush(QBrush(color))
-        painter.setPen(QPen(QColor("#222222"), 1))
-        painter.drawRect(button_x, button_y, button_width, button_height)  # Square edges
+        painter.setPen(QPen(QColor("#0a0a0a"), 1))
+        painter.drawRect(button_x, button_y, button_width, button_height)
 
         # Text
         painter.setPen(QColor("#ffffff"))
-        font = QFont("Arial", 8, QFont.Weight.Bold)
+        font = QFont("Arial", 7, QFont.Weight.Bold)
         painter.setFont(font)
 
         if self._is_buy:
             painter.drawText(button_x, button_y, button_width, button_height, Qt.AlignmentFlag.AlignCenter, "BUY")
-            painter.setPen(QColor("#888888"))
-            painter.drawText(button_x + button_width + 3, 0, self.width() - button_x - button_width - 6, self.height(),
+            painter.setPen(QColor("#666666"))
+            painter.drawText(button_x + button_width + 2, 0, self.width() - button_x - button_width - 4, self.height(),
                              Qt.AlignmentFlag.AlignCenter, "SELL")
         else:
             painter.drawText(button_x, button_y, button_width, button_height, Qt.AlignmentFlag.AlignCenter, "SELL")
-            painter.setPen(QColor("#888888"))
+            painter.setPen(QColor("#666666"))
             painter.drawText(2, 0, button_x - 2, self.height(), Qt.AlignmentFlag.AlignCenter, "BUY")
 
     def mousePressEvent(self, event):
@@ -89,7 +89,7 @@ class CompactToggleSwitch(QWidget):
 
 
 class CompactOrderDialog(QDialog):
-    """Compact order dialog with complete error handling and 2010-2015 style UI."""
+    """Compact order dialog with improved alignment, darker theme, and reduced height."""
 
     ltp_update_requested = Signal(str)
     order_placed = Signal(dict)
@@ -118,7 +118,7 @@ class CompactOrderDialog(QDialog):
         """Configure dialog properties."""
         self.setWindowTitle(f"Order - {self.symbol}")
         self.setModal(True)
-        self.setFixedSize(380, 480)
+        self.setFixedSize(350, 380)  # Reduced height from 480 to 380
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
 
     def showEvent(self, event: QShowEvent):
@@ -131,7 +131,7 @@ class CompactOrderDialog(QDialog):
             self.move(x, y)
 
     def _setup_ui(self):
-        """Build the compact UI."""
+        """Build the compact UI with better vertical alignment."""
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
@@ -140,7 +140,7 @@ class CompactOrderDialog(QDialog):
         header_frame = self._create_header()
         main_layout.addWidget(header_frame)
 
-        # Content
+        # Content with form layout for better alignment
         content_frame = self._create_content()
         main_layout.addWidget(content_frame)
 
@@ -151,11 +151,11 @@ class CompactOrderDialog(QDialog):
     def _create_header(self) -> QFrame:
         """Create compact header."""
         header = QFrame()
-        header.setFixedHeight(40)
+        header.setFixedHeight(35)  # Reduced from 40 to 35
         header.setObjectName("orderDialogHeader")
 
         layout = QHBoxLayout(header)
-        layout.setContentsMargins(15, 8, 8, 8)
+        layout.setContentsMargins(12, 6, 6, 6)
 
         # Symbol and LTP
         symbol_label = QLabel(f"{self.symbol}")
@@ -167,7 +167,7 @@ class CompactOrderDialog(QDialog):
         # Close button
         close_btn = QPushButton("×")
         close_btn.setObjectName("closeButton")
-        close_btn.setFixedSize(20, 20)
+        close_btn.setFixedSize(18, 18)  # Smaller close button
         close_btn.clicked.connect(self.reject)
 
         layout.addWidget(symbol_label)
@@ -178,85 +178,86 @@ class CompactOrderDialog(QDialog):
         return header
 
     def _create_content(self) -> QFrame:
-        """Create main content area."""
+        """Create main content area with form layout for better alignment."""
         content = QFrame()
         content.setObjectName("orderDialogContent")
 
         layout = QVBoxLayout(content)
-        layout.setContentsMargins(15, 15, 15, 15)
-        layout.setSpacing(15)
+        layout.setContentsMargins(15, 15, 15, 15)  # Increased margins
+        layout.setSpacing(12)  # Increased spacing
+
+        # Create form layout for better alignment
+        form_layout = QFormLayout()
+        form_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        form_layout.setFormAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        form_layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+        form_layout.setVerticalSpacing(12)  # Increased vertical spacing
+        form_layout.setHorizontalSpacing(12)
 
         # Buy/Sell Toggle
-        toggle_layout = QHBoxLayout()
-        toggle_layout.addWidget(QLabel("Transaction:"))
         self.buy_sell_toggle = CompactToggleSwitch()
         self.buy_sell_toggle.set_buy_mode(self._is_buy)
-        toggle_layout.addWidget(self.buy_sell_toggle)
-        toggle_layout.addStretch()
-        layout.addLayout(toggle_layout)
+        form_layout.addRow("Transaction:", self.buy_sell_toggle)
 
         # Quantity
-        qty_layout = QHBoxLayout()
-        qty_layout.addWidget(QLabel("Quantity:"))
         self.quantity_spin = QSpinBox()
         self.quantity_spin.setRange(1, 10000)
         self.quantity_spin.setValue(self.order_details.get('quantity', 1))
-        qty_layout.addWidget(self.quantity_spin)
-        qty_layout.addStretch()
-        layout.addLayout(qty_layout)
+        self.quantity_spin.setFixedWidth(140)  # Increased width
+        form_layout.addRow("Quantity:", self.quantity_spin)
 
         # Order Type
-        type_layout = QHBoxLayout()
-        type_layout.addWidget(QLabel("Order Type:"))
         self.order_type_combo = QComboBox()
         self.order_type_combo.addItems(["MARKET", "LIMIT"])
         self.order_type_combo.setCurrentText(self._order_type)
-        type_layout.addWidget(self.order_type_combo)
-        type_layout.addStretch()
-        layout.addLayout(type_layout)
+        self.order_type_combo.setFixedWidth(140)  # Increased width
+        form_layout.addRow("Order Type:", self.order_type_combo)
 
         # Price (for LIMIT orders)
-        price_layout = QHBoxLayout()
-        price_layout.addWidget(QLabel("Price:"))
         self.price_spin = QDoubleSpinBox()
         self.price_spin.setRange(0.05, 99999.95)
         self.price_spin.setDecimals(2)
         self.price_spin.setSingleStep(0.05)
         self.price_spin.setValue(self.ltp)
         self.price_spin.setEnabled(self._order_type == "LIMIT")
-        price_layout.addWidget(self.price_spin)
-        price_layout.addStretch()
-        layout.addLayout(price_layout)
+        self.price_spin.setFixedWidth(140)  # Increased width
+        form_layout.addRow("Price:", self.price_spin)
 
         # Product Type
-        product_layout = QHBoxLayout()
-        product_layout.addWidget(QLabel("Product:"))
         self.product_combo = QComboBox()
         self.product_combo.addItems(["MIS", "CNC", "NRML"])
         self.product_combo.setCurrentText(self._product_type)
-        product_layout.addWidget(self.product_combo)
-        product_layout.addStretch()
-        layout.addLayout(product_layout)
+        self.product_combo.setFixedWidth(140)  # Increased width
+        form_layout.addRow("Product:", self.product_combo)
 
+        # Total Margin Required (Price * Quantity)
+        self.total_margin_label = QLabel("₹0.00")
+        self.total_margin_label.setObjectName("totalMarginLabel")
+        self.total_margin_label.setFixedWidth(140)  # Increased width
+        form_layout.addRow("Total Margin:", self.total_margin_label)
+
+        layout.addLayout(form_layout)
         return content
 
     def _create_buttons(self) -> QFrame:
         """Create button area."""
         button_frame = QFrame()
-        button_frame.setFixedHeight(60)
+        button_frame.setFixedHeight(50)  # Reduced from 60 to 50
         button_frame.setObjectName("orderDialogButtons")
 
         layout = QHBoxLayout(button_frame)
-        layout.setContentsMargins(15, 15, 15, 15)
+        layout.setContentsMargins(15, 12, 15, 12)  # Increased margins
 
         # Cancel button
         cancel_btn = QPushButton("Cancel")
         cancel_btn.setObjectName("cancelButton")
+        cancel_btn.setFixedHeight(32)  # Increased height
         cancel_btn.clicked.connect(self.reject)
 
         # Place Order button
         self.place_btn = QPushButton("Place Order")
         self.place_btn.setObjectName("placeOrderButton")
+        self.place_btn.setFixedHeight(32)  # Increased height
         self.place_btn.clicked.connect(self._place_order)
 
         layout.addStretch()
@@ -270,12 +271,20 @@ class CompactOrderDialog(QDialog):
         self.buy_sell_toggle.toggled.connect(self._on_transaction_type_changed)
         self.order_type_combo.currentTextChanged.connect(self._on_order_type_changed)
 
+        # Connect signals for real-time margin calculation
+        self.quantity_spin.valueChanged.connect(self._update_total_margin)
+        self.price_spin.valueChanged.connect(self._update_total_margin)
+        self.order_type_combo.currentTextChanged.connect(self._update_total_margin)
+
     def _populate_initial_data(self):
         """Populate dialog with initial data."""
         # Set transaction type from order details
         if 'transaction_type' in self.order_details:
             self._is_buy = self.order_details['transaction_type'] == 'BUY'
             self.buy_sell_toggle.set_buy_mode(self._is_buy)
+
+        # Calculate initial total margin
+        self._update_total_margin()
 
     def _on_transaction_type_changed(self, is_buy: bool):
         """Handle transaction type change."""
@@ -285,6 +294,24 @@ class CompactOrderDialog(QDialog):
         """Handle order type change."""
         self._order_type = order_type
         self.price_spin.setEnabled(order_type == "LIMIT")
+        self._update_total_margin()
+
+    def _update_total_margin(self):
+        """Update total margin calculation in real-time."""
+        try:
+            quantity = self.quantity_spin.value()
+
+            # Get price based on order type
+            if self.order_type_combo.currentText() == "LIMIT":
+                price = self.price_spin.value()
+            else:
+                price = self.ltp  # Use LTP for MARKET orders
+
+            total_margin = price * quantity
+            self.total_margin_label.setText(f"₹{total_margin:,.2f}")
+
+        except (ValueError, AttributeError):
+            self.total_margin_label.setText("₹0.00")
 
     def _place_order(self):
         """
@@ -378,107 +405,166 @@ class CompactOrderDialog(QDialog):
         logger.info(f"Order Dialog Success: {message}")
 
     # ============================================================================
-    # DIALOG STYLING
+    # DIALOG STYLING - DARKER THEME WITH BETTER ALIGNMENT
     # ============================================================================
 
     def _apply_compact_styles(self):
-        """Apply compact 2010-2015 style."""
+        """Apply darker, more compact styling with better alignment."""
         self.setStyleSheet("""
-            /* Main Dialog */
+            /* Main Dialog - Much Darker */
             QDialog {
-                background-color: #2d2d2d;
-                border: 1px solid #555555;
+                background-color: #0a0a0a;
+                border: 1px solid #1a1a1a;
             }
 
-            /* Header */
+            /* Header - Much Darker */
             #orderDialogHeader {
-                background-color: #3d3d3d;
-                border-bottom: 1px solid #555555;
+                background-color: #0f0f0f;
+                border-bottom: 1px solid #1a1a1a;
             }
 
             #symbolLabel {
-                font-size: 14px;
+                font-size: 14px;  /* Increased from 13px */
                 font-weight: bold;
                 color: #ffffff;
             }
 
             #ltpLabel {
-                font-size: 12px;
+                font-size: 12px;  /* Increased from 11px */
                 color: #4CAF50;
                 font-weight: bold;
             }
 
             #closeButton {
-                background-color: #f44336;
+                background-color: #d32f2f;
                 border: none;
                 color: white;
-                font-size: 14px;
+                font-size: 13px;  /* Increased from 12px */
                 font-weight: bold;
-                border-radius: 2px;
+                border-radius: 1px;
             }
 
             #closeButton:hover {
-                background-color: #d32f2f;
+                background-color: #b71c1c;
             }
 
-            /* Content */
+            /* Content - Much Darker */
             #orderDialogContent {
-                background-color: #2d2d2d;
+                background-color: #0a0a0a;
             }
 
             QLabel {
-                color: #ffffff;
-                font-size: 11px;
+                color: #e0e0e0;
+                font-size: 11px;  /* Increased from 10px */
+                font-weight: 500;
+                min-width: 80px;  /* Increased from 70px */
+                padding-right: 6px;
             }
 
+            /* Input Fields - Larger and Better Sized */
             QSpinBox, QDoubleSpinBox, QComboBox {
-                background-color: #1a1a1a;
-                border: 1px solid #555555;
+                background-color: #0d0d0d;
+                border: 1px solid #2a2a2a;
                 color: #ffffff;
-                padding: 4px;
-                font-size: 11px;
-                min-width: 80px;
+                padding: 6px 8px;  /* Increased padding */
+                font-size: 11px;   /* Increased from 10px */
+                min-height: 22px;  /* Increased from 18px */
+                max-height: 26px;  /* Increased from 22px */
+                border-radius: 2px;
             }
 
             QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
                 border: 1px solid #4CAF50;
+                background-color: #111111;
             }
 
-            /* Buttons */
+            QSpinBox:hover, QDoubleSpinBox:hover, QComboBox:hover {
+                border: 1px solid #404040;
+                background-color: #0f0f0f;
+            }
+
+            /* ComboBox dropdown */
+            QComboBox::drop-down {
+                border: none;
+                width: 24px;  /* Increased from 20px */
+                background-color: #1a1a1a;
+            }
+
+            QComboBox::down-arrow {
+                image: none;
+                border: 3px solid #666666;  /* Increased from 2px */
+                border-top: none;
+                border-left: 3px solid transparent;
+                border-right: 3px solid transparent;
+                width: 0;
+                height: 0;
+            }
+
+            QComboBox QAbstractItemView {
+                background-color: #0d0d0d;
+                border: 1px solid #2a2a2a;
+                selection-background-color: #2a2a2a;
+                color: #ffffff;
+                font-size: 11px;  /* Added font size for dropdown */
+            }
+
+            /* Buttons - Much Darker */
             #orderDialogButtons {
-                background-color: #3d3d3d;
-                border-top: 1px solid #555555;
+                background-color: #0f0f0f;
+                border-top: 1px solid #1a1a1a;
             }
 
             #cancelButton {
-                background-color: #666666;
-                border: 1px solid #555555;
-                color: #ffffff;
-                padding: 8px 16px;
-                font-size: 11px;
-                min-width: 70px;
+                background-color: #333333;
+                border: 1px solid #404040;
+                color: #e0e0e0;
+                padding: 8px 16px;  /* Increased padding */
+                font-size: 11px;    /* Increased from 10px */
+                min-width: 70px;    /* Increased from 60px */
+                border-radius: 2px;
             }
 
             #cancelButton:hover {
-                background-color: #777777;
+                background-color: #404040;
+                border-color: #505050;
             }
 
             #placeOrderButton {
-                background-color: #4CAF50;
-                border: 1px solid #45a049;
+                background-color: #2d5a2d;
+                border: 1px solid #4CAF50;
                 color: #ffffff;
-                padding: 8px 16px;
-                font-size: 11px;
+                padding: 8px 16px;  /* Increased padding */
+                font-size: 11px;    /* Increased from 10px */
                 font-weight: bold;
-                min-width: 90px;
+                min-width: 90px;    /* Increased from 80px */
+                border-radius: 2px;
             }
 
             #placeOrderButton:hover {
-                background-color: #45a049;
+                background-color: #4CAF50;
+                border-color: #66BB6A;
             }
 
             #placeOrderButton:pressed {
-                background-color: #3d8b40;
+                background-color: #1a4a1a;
+                border-color: #2d5a2d;
+            }
+
+            /* Total Margin Label */
+            #totalMarginLabel {
+                color: #64ffda;
+                font-size: 12px;  /* Increased from 11px */
+                font-weight: bold;
+                background-color: #0d1a1a;
+                padding: 6px 8px;  /* Increased padding */
+                border: 1px solid #2a4a4a;
+                border-radius: 2px;
+                min-height: 22px;  /* Increased from 18px */
+            }
+
+            /* Form Layout Styling */
+            QFormLayout {
+                spacing: 8px;  /* Increased from 6px */
             }
         """)
 
