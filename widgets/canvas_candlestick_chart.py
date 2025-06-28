@@ -803,7 +803,7 @@ class CandlestickChart(QWidget):
         timeframes = [
             ("1 Min", "minute"), ("3 Min", "3minute"), ("5 Min", "5minute"),
             ("15 Min", "15minute"), ("30 Min", "30minute"), ("1 Hr", "60minute"),
-            ("1 Day", "day"), ("1 W", "week"), ("1 M", "month")
+            ("1 Day", "day"), ("1 W", "week")
         ]
         self.timeframe_dropdown.view().setMinimumWidth(80)
 
@@ -1144,11 +1144,56 @@ class CandlestickChart(QWidget):
         return widget
 
     def _setup_keyboard_shortcuts(self):
+        """Setup keyboard shortcuts for chart operations"""
         QShortcut(QKeySequence("F5"), self).activated.connect(self._force_refresh)
         QShortcut(QKeySequence("Ctrl+A"), self).activated.connect(self._auto_scale_chart)
         QShortcut(QKeySequence("Ctrl+S"), self).activated.connect(self._save_drawings)
         QShortcut(QKeySequence("Delete"), self).activated.connect(self._delete_selected_drawing)
         QShortcut(QKeySequence("Ctrl+M"), self).activated.connect(self.measure_tool_btn.toggle)
+
+        # Timeframe navigation shortcuts
+        QShortcut(QKeySequence("Up"), self).activated.connect(self._timeframe_down) # from day to min
+        QShortcut(QKeySequence("Down"), self).activated.connect(self._timeframe_up) # from day to week
+
+        logger.info("Chart keyboard shortcuts initialized (including Up/Down for timeframes)")
+
+    def _timeframe_up(self):
+        """Move to the next higher timeframe (e.g., 1m -> 3m -> 5m -> 15m -> ...)"""
+        if not self.timeframe_dropdown or self.current_state != ChartState.LOADED:
+            return
+
+        current_index = self.timeframe_dropdown.currentIndex()
+        if current_index < self.timeframe_dropdown.count() - 1:
+            new_index = current_index + 1
+            new_text = self.timeframe_dropdown.itemText(new_index)
+            self.timeframe_dropdown.setCurrentIndex(new_index)
+            interval = self.timeframe_dropdown.itemData(new_index)
+            self._change_timeframe(interval)
+            logger.info(f"Timeframe UP: {new_text}")
+
+            # Optional: Show brief status message
+            if hasattr(self, '_update_symbol_info_with_status'):
+                self._update_symbol_info_with_status(f"Timeframe: {new_text}")
+                QTimer.singleShot(2000, lambda: self._update_symbol_info_with_status())
+
+    def _timeframe_down(self):
+        """Move to the next lower timeframe (e.g., 1D -> 1H -> 30m -> 15m -> ...)"""
+        if not self.timeframe_dropdown or self.current_state != ChartState.LOADED:
+            return
+
+        current_index = self.timeframe_dropdown.currentIndex()
+        if current_index > 0:
+            new_index = current_index - 1
+            new_text = self.timeframe_dropdown.itemText(new_index)
+            self.timeframe_dropdown.setCurrentIndex(new_index)
+            interval = self.timeframe_dropdown.itemData(new_index)
+            self._change_timeframe(interval)
+            logger.info(f"Timeframe DOWN: {new_text}")
+
+            # Optional: Show brief status message
+            if hasattr(self, '_update_symbol_info_with_status'):
+                self._update_symbol_info_with_status(f"Timeframe: {new_text}")
+                QTimer.singleShot(2000, lambda: self._update_symbol_info_with_status())
 
     @Slot(object)
     def update_position_data(self, position_info: Optional[Dict]):
@@ -2328,7 +2373,14 @@ class CandlestickChart(QWidget):
                 
                         if (["1minute", "3minute", "5minute"].includes(tf)) {{
                             const mins = date.getHours() * 60 + date.getMinutes();
-                            showLabel = (mins % 30 === 15) || isStartOfDay;
+                            
+                            // For start of day, show only the date (no time)
+                            if (isStartOfDay) {{
+                                showLabel = (date.getHours() === 9 && date.getMinutes() === 15);
+                            }} else {{
+                                // Show labels every 1 hour: 10:15, 11:15, 12:15, 13:15, 14:15, 15:15
+                                showLabel = (mins % 60 === 15);
+                            }}
                         }} else if (["15minute", "30minute"].includes(tf)) {{
                             showLabel = isStartOfDay;
                         }} else if (tf === "60minute") {{
@@ -2338,7 +2390,7 @@ class CandlestickChart(QWidget):
                         }} else if (["week", "month"].includes(tf)) {{
                             showLabel = this.shouldLabelTime(tf, date, prevDate);
                         }}
-                
+                                        
                         if (showLabel) {{
                             const x = this.candleToX(i) + this.candleWidth / 2;
                             const label = this.formatTimeLabelDynamic(date, tf, isStartOfDay);
@@ -2351,23 +2403,25 @@ class CandlestickChart(QWidget):
                     // === FIXED MONTH MARKERS for DAILY TF ===
                     if (tf === "day") {{
                         const seenMonths = new Set();
-                
+                    
                         for (let i = 0; i < this.data.length; i++) {{
                             const date = new Date(this.data[i].time);
                             const key = date.getFullYear() + '-' + date.getMonth();
-                
+                    
                             if (!seenMonths.has(key)) {{
                                 seenMonths.add(key);
-                
+                    
                                 if (i >= this.viewPortStart && i <= this.viewPortEnd) {{
                                     const x = this.candleToX(i) + this.candleWidth / 2;
-                                    const label = date.toLocaleString('default', {{ month: 'short' }});  // "Jan"
+                                    // Updated to include year
+                                    const year = date.getFullYear().toString().slice(-2);
+                                    const label = date.toLocaleString('default', {{ month: 'short' }}) + ` '${{year}}`;  // "Jan '25"
                                     this.ctx.fillText(label, x, this.volumeArea.y + this.volumeArea.height + 20);
                                 }}
                             }}
                         }}
                     }}
-                
+                                    
                     this.ctx.textAlign = 'left';
                 }}
     
@@ -2385,8 +2439,8 @@ class CandlestickChart(QWidget):
                 getTimeStepForInterval(interval) {{
                     switch (interval) {{
                         case "1minute": return 6;        // every 30 mins (6 × 5min candles)
-                        case "3minute": return 10;       // every ~30 mins
-                        case "5minute": return 6;        // every 30 mins
+                        case "3minute": return 12;       // every ~30 mins
+                        case "5minute": return 12;        // every 30 mins
                         case "15minute": return 9999;    // show only first candle per day
                         case "30minute": return 9999;
                         case "60minute": return 9999;
@@ -2400,23 +2454,37 @@ class CandlestickChart(QWidget):
                 shouldLabelTime(interval, date, prevDate) {{
                     switch (interval) {{
                         case "week":
-                            return !prevDate || date.getMonth() !== prevDate.getMonth();
+                            // Only show labels at quarter boundaries (every 3 months) to prevent overlapping
+                            if (!prevDate) return true;
+                            
+                            // Check if we've crossed into a new quarter
+                            const currentQuarter = Math.floor(date.getMonth() / 3);
+                            const prevQuarter = Math.floor(prevDate.getMonth() / 3);
+                            const currentYear = date.getFullYear();
+                            const prevYear = prevDate.getFullYear();
+                            
+                            return (currentYear !== prevYear) || (currentQuarter !== prevQuarter);
+                            
                         case "month":
+                            // For monthly timeframe, show labels every 3 months (quarterly)
                             return date.getMonth() % 3 === 0;
+                            
                         default:
                             return false;
                     }}
                 }}
                 
-                
+                // Update the formatTimeLabelDynamic function:
+
                 formatTimeLabelDynamic(date, interval, isStartOfDay = false) {{
                     const pad = (v) => v.toString().padStart(2, '0');
                     const timeStr = pad(date.getHours()) + ':' + pad(date.getMinutes());
                 
                     if (["1minute", "3minute", "5minute"].includes(interval)) {{
                         if (isStartOfDay) {{
+                            // Show only date for start of day, no time
                             const dateStr = pad(date.getDate()) + '-' + pad(date.getMonth() + 1) + '-' + date.getFullYear();
-                            return timeStr + ' (' + dateStr + ')';
+                            return dateStr;
                         }}
                         return timeStr;
                     }}
@@ -2426,10 +2494,20 @@ class CandlestickChart(QWidget):
                     }}
                 
                     if (interval === "day") {{
-                        return date.toLocaleString('default', {{ month: 'short' }});  // "Jan"
+                        const year = date.getFullYear().toString().slice(-2);
+                        return date.toLocaleString('default', {{ month: 'short' }}) + ` '${{year}}`;  // "Jan '25"
                     }}
                 
-                    if (["week", "month"].includes(interval)) {{
+                    if (interval === "week") {{
+                        // For weekly timeframe, show first month of each quarter (e.g., "Jan '25", "Apr '25")
+                        const quarter = Math.floor(date.getMonth() / 3);
+                        const quarterStartMonth = quarter * 3; // 0, 3, 6, 9 for Q1, Q2, Q3, Q4
+                        const quarterDate = new Date(date.getFullYear(), quarterStartMonth, 1);
+                        const year = date.getFullYear().toString().slice(-2);
+                        return quarterDate.toLocaleString('default', {{ month: 'short' }}) + ` '${{year}}`;
+                    }}
+                
+                    if (interval === "month") {{
                         return date.toLocaleString('default', {{ month: 'short', year: '2-digit' }});
                     }}
                 
