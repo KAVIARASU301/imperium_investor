@@ -6,7 +6,9 @@ import logging
 from typing import Dict, List, Optional
 from PySide6.QtCore import QObject, Signal, QTimer
 from dataclasses import dataclass
-
+from widgets.status_bar import (
+    show_order_completed, show_order_failed, show_error, show_info
+)
 logger = logging.getLogger(__name__)
 
 
@@ -79,13 +81,15 @@ class PositionManager(QObject):
     # ===========================================================================
 
     def start_tracking_order(self, order_id: str, order_data: dict):
-        """Start tracking an order from pending to complete"""
+        """
+        OPTIMIZED: Start tracking an order - NO BLOCKING OPERATIONS
+        """
         logger.info(f"🔄 Started tracking order: {order_id}")
 
-        # Store order for tracking
+        # Store order for tracking - IMMEDIATE
         self.tracking_orders[order_id] = order_data
 
-        # Show pending notification
+        # Show notification - IMMEDIATE, NO DELAYS
         symbol = order_data.get('tradingsymbol', '')
         quantity = order_data.get('quantity', 0)
         price = order_data.get('price', 0)
@@ -96,7 +100,7 @@ class PositionManager(QObject):
             "pending"
         )
 
-        # Start checking every second until complete
+        # Start checking IMMEDIATELY - no delays
         if not self.order_check_timer.isActive():
             self.order_check_timer.start(1000)  # Check every 1 second
 

@@ -34,6 +34,12 @@ from core.instrument_loader import InstrumentLoader
 from core.trade_logger import TradeLogger
 from kiteconnect import KiteConnect
 
+from widgets.status_bar import (
+    show_error, show_info, show_order_placed, show_order_failed,
+    show_order_completed, show_order_rejected, show_order_cancelled,
+    status  # Global status manager
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -634,7 +640,9 @@ class SwingTraderWindow(QMainWindow):
         dialog.show()
 
     def _handle_order_placement(self, order_data: Dict[str, Any]):
-        """SIMPLIFIED order placement handler with status bar"""
+        """
+        OPTIMIZED order placement handler - NO UI BLOCKING
+        """
         try:
             logger.info(f"Placing order: {order_data}")
 
@@ -643,7 +651,7 @@ class SwingTraderWindow(QMainWindow):
 
             symbol = order_data.get('tradingsymbol', '')
 
-            # Show order placed status immediately
+            # Show order placed status immediately - NO DELAYS
             show_order_placed(symbol)
 
             # Place order directly with trader
@@ -659,11 +667,11 @@ class SwingTraderWindow(QMainWindow):
                 order_data['order_id'] = order_id
                 order_data['status'] = 'PENDING'
 
-                # START POSITION MANAGER TRACKING
+                # START POSITION MANAGER TRACKING - IMMEDIATE
                 self.position_manager.start_tracking_order(order_id, order_data)
 
-                # Log order placement
-                QTimer.singleShot(100, lambda: self._log_order_placement_async(order_data, order_id))
+                # LOG ORDER PLACEMENT - NOW FULLY ASYNC, NO UI BLOCKING
+                self._log_order_placement_immediate(order_data, order_id)
 
                 logger.info(f"Order placed and tracking started: {order_id}")
             else:
@@ -674,14 +682,18 @@ class SwingTraderWindow(QMainWindow):
             logger.error(error_msg, exc_info=True)
             show_order_failed(str(e))
 
-    def _log_order_placement_async(self, order_data: Dict[str, Any], order_id: str):
-        """Log order placement asynchronously"""
+    def _log_order_placement_immediate(self, order_data: Dict[str, Any], order_id: str):
+        """
+        Log order placement immediately with no delays or timers
+        """
         try:
             if hasattr(self, 'trade_logger') and self.trade_logger:
+                # This is now fully async and won't block UI
                 self.trade_logger.log_order_placement(order_data, order_id)
-                logger.info(f"Order logged successfully: {order_id}")
+                logger.info(f"Order queued for logging: {order_id}")
         except Exception as log_error:
-            logger.error(f"Failed to log order: {log_error}")
+            # Even if logging fails, don't block the UI
+            logger.error(f"Failed to queue order for logging: {log_error}")
 
     # ==============================================================================
     # DIALOG SHOW METHODS

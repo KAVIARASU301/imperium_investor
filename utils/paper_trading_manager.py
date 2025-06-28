@@ -10,6 +10,7 @@ from typing import Dict, List, Any, Optional, Tuple
 from PySide6.QtCore import QObject, QTimer, Signal
 from dataclasses import dataclass
 import uuid
+from widgets.status_bar import show_error, show_info, show_order_completed
 
 logger = logging.getLogger(__name__)
 
