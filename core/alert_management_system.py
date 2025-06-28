@@ -116,7 +116,7 @@ class AlertCreationDialog(QDialog):
     def _setup_ui(self):
         self.setWindowTitle("Create Price Alert")
         self.setModal(True)
-        self.setMinimumSize(450, 380)
+        self.setMinimumSize(450, 420)  # Slightly increased height for double-line notes
 
         container = QWidget(self)
         container.setObjectName("alertDialogContainer")
@@ -124,14 +124,15 @@ class AlertCreationDialog(QDialog):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.addWidget(container)
         layout = QVBoxLayout(container)
-        layout.setContentsMargins(20, 15, 20, 20)
-        layout.setSpacing(15)
+        layout.setContentsMargins(20, 15, 20, 15)  # Reduced bottom margin
+        layout.setSpacing(12)  # Reduced spacing
 
         header_layout = QHBoxLayout()
         title = QLabel("Create Price Alert")
         title.setObjectName("dialogTitle")
         close_btn = QPushButton("✕")
         close_btn.setObjectName("closeButton")
+        close_btn.setFixedSize(24, 24)  # Smaller close button
         close_btn.clicked.connect(self.reject)
         header_layout.addWidget(title)
         header_layout.addStretch()
@@ -139,40 +140,67 @@ class AlertCreationDialog(QDialog):
         layout.addLayout(header_layout)
 
         form_layout = QFormLayout()
-        form_layout.setSpacing(12)
+        form_layout.setSpacing(8)  # Reduced spacing between form fields
+        form_layout.setVerticalSpacing(8)
+        form_layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+
+        # Compact input fields
         self.symbol_input = QLineEdit(self.symbol)
-        self.symbol_input.setObjectName("alertInput")
+        self.symbol_input.setObjectName("alertInputCompact")
+        self.symbol_input.setMaximumHeight(32)  # Compact height
+
         self.price_input = QLineEdit(f"{self.price:.2f}")
-        self.price_input.setObjectName("alertInput")
+        self.price_input.setObjectName("alertInputCompact")
+        self.price_input.setMaximumHeight(32)  # Compact height
+
         self.condition_combo = QComboBox()
-        self.condition_combo.setObjectName("alertCombo")
+        self.condition_combo.setObjectName("alertComboCompact")
+        self.condition_combo.setMaximumHeight(32)  # Compact height
         self.condition_combo.addItems([c.value for c in AlertCondition])
+
         self.intent_combo = QComboBox()
-        self.intent_combo.setObjectName("alertCombo")
+        self.intent_combo.setObjectName("alertComboCompact")
+        self.intent_combo.setMaximumHeight(32)  # Compact height
         self.intent_combo.addItems([i.value for i in AlertIntent])
+
         self.validity_combo = QComboBox()
-        self.validity_combo.setObjectName("alertCombo")
+        self.validity_combo.setObjectName("alertComboCompact")
+        self.validity_combo.setMaximumHeight(32)  # Compact height
         self.validity_combo.addItems(["1 Day", "3 Days", "1 Week", "2 Weeks", "1 Month"])
         self.validity_combo.setCurrentText("1 Week")
-        self.note_input = QLineEdit(self.note_str)
-        self.note_input.setObjectName("alertInput")
+
+        # Double-line notes field - using QTextEdit instead of QLineEdit
+        from PySide6.QtWidgets import QTextEdit
+        self.note_input = QTextEdit(self.note_str)
+        self.note_input.setObjectName("alertNotesInput")
+        self.note_input.setMaximumHeight(60)  # Double line height
+        self.note_input.setMinimumHeight(60)
+        self.note_input.setPlaceholderText("Optional notes about this alert...")
 
         form_layout.addRow("Symbol:", self.symbol_input)
         form_layout.addRow("Alert Price:", self.price_input)
         form_layout.addRow("Condition:", self.condition_combo)
         form_layout.addRow("Intent:", self.intent_combo)
         form_layout.addRow("Validity:", self.validity_combo)
-        form_layout.addRow("Note:", self.note_input)
+        form_layout.addRow("Notes:", self.note_input)
         layout.addLayout(form_layout)
 
+        # Compact button layout
         button_layout = QHBoxLayout()
+        button_layout.setSpacing(8)  # Reduced spacing between buttons
         button_layout.addStretch()
+
+        # Compact buttons
         cancel_btn = QPushButton("Cancel")
-        cancel_btn.setObjectName("cancelButton")
+        cancel_btn.setObjectName("cancelButtonCompact")
+        cancel_btn.setFixedSize(70, 30)  # Compact button size
         cancel_btn.clicked.connect(self.reject)
-        create_btn = QPushButton("Create Alert")
-        create_btn.setObjectName("createButton")
+
+        create_btn = QPushButton("Create")  # Shortened text
+        create_btn.setObjectName("createButtonCompact")
+        create_btn.setFixedSize(70, 30)  # Compact button size
         create_btn.clicked.connect(self._create_alert)
+
         button_layout.addWidget(cancel_btn)
         button_layout.addWidget(create_btn)
         layout.addLayout(button_layout)
@@ -209,7 +237,7 @@ class AlertCreationDialog(QDialog):
                 price=price,
                 condition=AlertCondition(self.condition_combo.currentText()),
                 intent=AlertIntent(self.intent_combo.currentText()),
-                note=self.note_input.text().strip(),
+                note=self.note_input.toPlainText().strip(),  # Changed to toPlainText() for QTextEdit
                 validity_days=validity_days,
                 created_time=datetime.now(),
                 expiry_time=datetime.now() + timedelta(days=validity_days)
@@ -220,7 +248,7 @@ class AlertCreationDialog(QDialog):
             QMessageBox.warning(self, "Invalid Input", f"Please check your inputs: {e}")
 
     def _apply_styles(self):
-        """Apply enhanced dark theme styling for creation dialog."""
+        """Apply enhanced dark theme styling for compact creation dialog."""
         self.setStyleSheet("""
             /* Dialog Container */
             QWidget#alertDialogContainer {
@@ -228,7 +256,7 @@ class AlertCreationDialog(QDialog):
                 border: 2px solid #1a1a1a;
                 border-radius: 12px;
             }
-            
+
             /* Dialog Title */
             QLabel#dialogTitle {
                 color: #ffffff;
@@ -237,140 +265,160 @@ class AlertCreationDialog(QDialog):
                 padding: 4px;
                 background-color: transparent;
             }
-            
-            /* Close Button */
+
+            /* Close Button - Compact */
             QPushButton#closeButton {
                 background-color: transparent;
                 border: none;
                 color: #666;
-                font-size: 18px;
+                font-size: 16px;
                 font-weight: bold;
-                padding: 4px 8px;
-                border-radius: 4px;
+                padding: 2px;
+                border-radius: 3px;
             }
             QPushButton#closeButton:hover {
                 color: #ff4757;
                 background-color: #1a1a1a;
             }
-            
-            /* Input Fields */
-            QLineEdit#alertInput {
+
+            /* Compact Input Fields */
+            QLineEdit#alertInputCompact {
                 background-color: #0a0a0a;
                 border: 2px solid #1a1a1a;
-                border-radius: 6px;
-                padding: 10px 12px;
+                border-radius: 4px;
+                padding: 6px 8px;
                 color: #ffffff;
-                font-size: 13px;
+                font-size: 12px;
                 font-weight: 500;
                 selection-background-color: #4a9eff;
+                max-height: 32px;
             }
-            QLineEdit#alertInput:focus {
+            QLineEdit#alertInputCompact:focus {
                 border-color: #4a9eff;
                 background-color: #0f0f0f;
             }
-            QLineEdit#alertInput:hover {
+            QLineEdit#alertInputCompact:hover {
                 border-color: #2a2a2a;
             }
-            
-            /* Combo Boxes */
-            QComboBox#alertCombo {
+
+            /* Compact Combo Boxes */
+            QComboBox#alertComboCompact {
                 background-color: #0a0a0a;
                 border: 2px solid #1a1a1a;
-                border-radius: 6px;
-                padding: 10px 12px;
+                border-radius: 4px;
+                padding: 6px 8px;
                 color: #ffffff;
-                font-size: 13px;
+                font-size: 12px;
                 font-weight: 500;
                 min-width: 120px;
+                max-height: 32px;
             }
-            QComboBox#alertCombo:focus {
+            QComboBox#alertComboCompact:focus {
                 border-color: #4a9eff;
                 background-color: #0f0f0f;
             }
-            QComboBox#alertCombo:hover {
+            QComboBox#alertComboCompact:hover {
                 border-color: #2a2a2a;
             }
-            QComboBox#alertCombo::drop-down {
+            QComboBox#alertComboCompact::drop-down {
                 border: none;
-                width: 30px;
-                border-top-right-radius: 6px;
-                border-bottom-right-radius: 6px;
+                width: 24px;
+                border-top-right-radius: 4px;
+                border-bottom-right-radius: 4px;
             }
-            QComboBox#alertCombo::down-arrow {
+            QComboBox#alertComboCompact::down-arrow {
                 image: none;
-                border-left: 4px solid transparent;
-                border-right: 4px solid transparent;
-                border-top: 6px solid #666;
+                border-left: 3px solid transparent;
+                border-right: 3px solid transparent;
+                border-top: 5px solid #666;
                 width: 0px;
                 height: 0px;
             }
-            QComboBox#alertCombo QAbstractItemView {
+            QComboBox#alertComboCompact QAbstractItemView {
                 background-color: #0a0a0a;
                 border: 2px solid #1a1a1a;
-                border-radius: 6px;
+                border-radius: 4px;
                 color: #ffffff;
                 selection-background-color: #4a9eff;
                 selection-color: #ffffff;
-                padding: 4px;
+                padding: 2px;
             }
-            QComboBox#alertCombo QAbstractItemView::item {
-                padding: 8px 12px;
-                border-radius: 4px;
+            QComboBox#alertComboCompact QAbstractItemView::item {
+                padding: 6px 8px;
+                border-radius: 3px;
                 margin: 1px;
             }
-            QComboBox#alertCombo QAbstractItemView::item:hover {
+            QComboBox#alertComboCompact QAbstractItemView::item:hover {
                 background-color: #1a1a1a;
             }
-            
-            /* Form Labels */
+
+            /* Double-line Notes Input */
+            QTextEdit#alertNotesInput {
+                background-color: #0a0a0a;
+                border: 2px solid #1a1a1a;
+                border-radius: 4px;
+                padding: 6px 8px;
+                color: #ffffff;
+                font-size: 12px;
+                font-weight: 500;
+                selection-background-color: #4a9eff;
+                font-family: 'Segoe UI', Arial, sans-serif;
+            }
+            QTextEdit#alertNotesInput:focus {
+                border-color: #4a9eff;
+                background-color: #0f0f0f;
+            }
+            QTextEdit#alertNotesInput:hover {
+                border-color: #2a2a2a;
+            }
+
+            /* Form Labels - Compact */
             QFormLayout QLabel {
                 color: #cccccc;
-                font-size: 13px;
+                font-size: 12px;
                 font-weight: 600;
-                padding: 4px 0px;
+                padding: 2px 0px;
+                background-color: transparent;
             }
-            
-            /* Create Button */
-            QPushButton#createButton {
+
+            /* Compact Create Button */
+            QPushButton#createButtonCompact {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                     stop:0 #4CAF50, stop:1 #45a049);
                 color: white;
                 border: none;
-                border-radius: 8px;
-                padding: 12px 24px;
-                font-weight: 700;
-                font-size: 14px;
-                letter-spacing: 0.5px;
+                border-radius: 4px;
+                font-size: 12px;
+                font-weight: 600;
             }
-            QPushButton#createButton:hover {
+            QPushButton#createButtonCompact:hover {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #5CBF60, stop:1 #4CAF50);
+                    stop:0 #5CBF60, stop:1 #4db851);
             }
-            QPushButton#createButton:pressed {
+            QPushButton#createButtonCompact:pressed {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #45a049, stop:1 #3d8b40);
+                    stop:0 #3d8b40, stop:1 #357a38);
             }
-            
-            /* Cancel Button */
-            QPushButton#cancelButton {
+
+            /* Compact Cancel Button */
+            QPushButton#cancelButtonCompact {
                 background-color: #2a2a2a;
                 color: #cccccc;
-                border: 2px solid #1a1a1a;
-                border-radius: 8px;
-                padding: 12px 24px;
+                border: 1px solid #3a3a3a;
+                border-radius: 4px;
+                font-size: 12px;
                 font-weight: 600;
-                font-size: 14px;
             }
-            QPushButton#cancelButton:hover {
+            QPushButton#cancelButtonCompact:hover {
                 background-color: #3a3a3a;
-                border-color: #2a2a2a;
+                border-color: #4a4a4a;
                 color: #ffffff;
             }
-            QPushButton#cancelButton:pressed {
+            QPushButton#cancelButtonCompact:pressed {
                 background-color: #1a1a1a;
+                border-color: #2a2a2a;
             }
         """)
-
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.LeftButton:
             self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()

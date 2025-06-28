@@ -546,10 +546,13 @@ class ChartSettingsDialog(QDialog):
                 color: #e0e0e0;
                 border: 1px solid #333333;
             }
+
             QLabel {
                 color: #e0e0e0;
                 font-size: 12px;
+                background-color: transparent;
             }
+
             QSpinBox {
                 background-color: #2a2a2a;
                 color: #e0e0e0;
@@ -557,14 +560,17 @@ class ChartSettingsDialog(QDialog):
                 border-radius: 4px;
                 padding: 2px;
             }
+
             QSpinBox::up-button, QSpinBox::down-button {
                 width: 16px;
                 border-left: 1px solid #404040;
                 background-color: #3a3a3a;
             }
+
             QSpinBox::up-button:hover, QSpinBox::down-button:hover {
                 background-color: #4a4a4a;
             }
+
             QPushButton {
                 background-color: #0066cc;
                 color: white;
@@ -573,17 +579,34 @@ class ChartSettingsDialog(QDialog):
                 padding: 5px 10px;
                 font-weight: bold;
             }
+
             QPushButton:hover {
                 background-color: #0080ff;
             }
+
             QPushButton:pressed {
                 background-color: #0050a0;
             }
-            QPushButton#colorButton { /* Specific style for color buttons */
+
+            QPushButton#colorButton {
                 border: 1px solid #555;
+                background-color: transparent;
             }
+
             QPushButton#colorButton:hover {
-                 border: 1px solid #888;
+                border: 1px solid #888;
+            }
+
+            QFormLayout {
+                background-color: transparent;
+            }
+
+            QHBoxLayout {
+                background-color: transparent;
+            }
+
+            QWidget {
+                background-color: transparent;
             }
         """)
 

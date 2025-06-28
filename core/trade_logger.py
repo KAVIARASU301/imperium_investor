@@ -323,18 +323,27 @@ class TradeLogger(QObject):
         else:
             logger.error(f"Database operation failed: {message}")
 
-    def get_all_orders(self, limit: int = 100) -> List[Dict]:
+
+
+    # Additional methods to add to the TradeLogger class in core/trade_logger.py
+
+    def get_all_trades(self, limit: int = 1000) -> List[Dict]:
         """
-        Get orders synchronously for UI display.
-        This is acceptable since it's called only when user opens order history.
+        Get all completed trades from the database.
+        This method provides backward compatibility for components expecting this interface.
         """
         try:
             conn = sqlite3.connect(self.db_path, timeout=5.0)
             cursor = conn.cursor()
 
             query = """
-                SELECT * FROM orders 
-                ORDER BY order_timestamp DESC 
+                SELECT 
+                    order_id, tradingsymbol, transaction_type, quantity, 
+                    average_price, filled_quantity, execution_timestamp,
+                    product, exchange, status, order_timestamp
+                FROM orders 
+                WHERE status = 'COMPLETE' AND average_price > 0
+                ORDER BY execution_timestamp DESC 
                 LIMIT ?
             """
 
@@ -343,17 +352,317 @@ class TradeLogger(QObject):
 
             # Convert to list of dictionaries
             columns = [description[0] for description in cursor.description]
-            orders = []
+            trades = []
             for row in rows:
-                order_dict = dict(zip(columns, row))
-                orders.append(order_dict)
+                trade_dict = dict(zip(columns, row))
+                trades.append(trade_dict)
 
             conn.close()
-            return orders
+            logger.info(f"Retrieved {len(trades)} trades from database")
+            return trades
 
         except Exception as e:
-            logger.error(f"Failed to fetch orders: {e}")
+            logger.error(f"Failed to fetch trades: {e}")
             return []
+
+    def get_daily_pnl_history(self, days: int = 90) -> List[Dict]:
+        """
+        Calculate daily P&L history from completed trades.
+        This method provides backward compatibility for components expecting this interface.
+        """
+        try:
+            # Get all completed trades
+            trades = self.get_all_trades(limit=5000)  # Get more trades for accurate daily calculation
+
+            if not trades:
+                return []
+
+            # Calculate daily P&L
+            daily_pnl = {}
+            symbol_positions = {}
+
+            # Sort trades by execution time
+            sorted_trades = sorted(trades, key=lambda t: t.get('execution_timestamp', ''))
+
+            for trade in sorted_trades:
+                # Extract date from execution_timestamp
+                exec_time = trade.get('execution_timestamp', '')
+                if not exec_time:
+                    continue
+
+                try:
+                    # Parse the timestamp and extract date
+                    if isinstance(exec_time, str):
+                        trade_date = datetime.strptime(exec_time, '%Y-%m-%d %H:%M:%S').date()
+                    else:
+                        trade_date = exec_time.date()
+
+                    date_str = trade_date.strftime('%Y-%m-%d')
+                except:
+                    continue
+
+                # Initialize daily P&L for this date if not exists
+                if date_str not in daily_pnl:
+                    daily_pnl[date_str] = 0.0
+
+                # Calculate P&L for this trade
+                symbol = trade['tradingsymbol']
+                if symbol not in symbol_positions:
+                    symbol_positions[symbol] = {'quantity': 0, 'total_cost': 0.0}
+
+                position = symbol_positions[symbol]
+                quantity = trade.get('filled_quantity', trade.get('quantity', 0))
+                price = trade.get('average_price', 0.0)
+
+                if trade['transaction_type'] == 'BUY':
+                    position['quantity'] += quantity
+                    position['total_cost'] += quantity * price
+                else:  # SELL
+                    if position['quantity'] > 0:
+                        avg_cost = position['total_cost'] / position['quantity'] if position['quantity'] > 0 else price
+                        pnl = (price - avg_cost) * quantity
+                        daily_pnl[date_str] += pnl
+
+                        # Update position
+                        position['quantity'] -= quantity
+                        if position['quantity'] > 0:
+                            position['total_cost'] -= quantity * avg_cost
+                        else:
+                            position['total_cost'] = 0.0
+
+            # Convert to list format and filter by days
+            result = []
+            cutoff_date = datetime.now().date() - timedelta(days=days)
+
+            cumulative_pnl = 0
+            for date_str in sorted(daily_pnl.keys()):
+                try:
+                    trade_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+                    if trade_date >= cutoff_date:
+                        cumulative_pnl += daily_pnl[date_str]
+                        result.append({
+                            'date': date_str,
+                            'daily_pnl': daily_pnl[date_str],
+                            'cumulative_pnl': cumulative_pnl
+                        })
+                except:
+                    continue
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Failed to calculate daily P&L history: {e}")
+            return []
+
+    def get_performance_metrics(self) -> Dict[str, Any]:
+        """
+        Calculate comprehensive performance metrics.
+        This method provides backward compatibility for components expecting this interface.
+        """
+        try:
+            trades = self.get_all_trades()
+
+            if not trades:
+                return {
+                    'total_trades': 0,
+                    'winning_trades': 0,
+                    'losing_trades': 0,
+                    'win_rate': 0.0,
+                    'total_pnl': 0.0,
+                    'profit_factor': 0.0,
+                    'max_drawdown': 0.0,
+                    'sharpe_ratio': 0.0
+                }
+
+            # Calculate P&L for each trade
+            symbol_positions = {}
+            trade_pnls = []
+
+            # Sort trades by execution time
+            sorted_trades = sorted(trades, key=lambda t: t.get('execution_timestamp', ''))
+
+            for trade in sorted_trades:
+                symbol = trade['tradingsymbol']
+                if symbol not in symbol_positions:
+                    symbol_positions[symbol] = {'quantity': 0, 'total_cost': 0.0}
+
+                position = symbol_positions[symbol]
+                quantity = trade.get('filled_quantity', trade.get('quantity', 0))
+                price = trade.get('average_price', 0.0)
+
+                if trade['transaction_type'] == 'BUY':
+                    position['quantity'] += quantity
+                    position['total_cost'] += quantity * price
+                else:  # SELL
+                    if position['quantity'] > 0:
+                        avg_cost = position['total_cost'] / position['quantity'] if position['quantity'] > 0 else price
+                        pnl = (price - avg_cost) * quantity
+                        trade_pnls.append(pnl)
+
+                        # Update position
+                        position['quantity'] -= quantity
+                        if position['quantity'] > 0:
+                            position['total_cost'] -= quantity * avg_cost
+                        else:
+                            position['total_cost'] = 0.0
+
+            # Calculate metrics
+            total_trades = len(trade_pnls)
+            if total_trades == 0:
+                return {
+                    'total_trades': 0,
+                    'winning_trades': 0,
+                    'losing_trades': 0,
+                    'win_rate': 0.0,
+                    'total_pnl': 0.0,
+                    'profit_factor': 0.0,
+                    'max_drawdown': 0.0,
+                    'sharpe_ratio': 0.0
+                }
+
+            winning_trades = len([pnl for pnl in trade_pnls if pnl > 0])
+            losing_trades = len([pnl for pnl in trade_pnls if pnl <= 0])
+
+            total_profit = sum([pnl for pnl in trade_pnls if pnl > 0])
+            total_loss = abs(sum([pnl for pnl in trade_pnls if pnl <= 0]))
+            total_pnl = sum(trade_pnls)
+
+            win_rate = (winning_trades / total_trades) * 100 if total_trades > 0 else 0.0
+            profit_factor = total_profit / total_loss if total_loss > 0 else float('inf') if total_profit > 0 else 0.0
+
+            # Calculate max drawdown
+            cumulative_pnl = 0
+            peak = 0
+            max_drawdown = 0
+            for pnl in trade_pnls:
+                cumulative_pnl += pnl
+                if cumulative_pnl > peak:
+                    peak = cumulative_pnl
+                drawdown = peak - cumulative_pnl
+                if drawdown > max_drawdown:
+                    max_drawdown = drawdown
+
+            # Simple Sharpe ratio calculation (assuming daily returns)
+            if len(trade_pnls) > 1:
+                mean_return = sum(trade_pnls) / len(trade_pnls)
+                variance = sum((pnl - mean_return) ** 2 for pnl in trade_pnls) / (len(trade_pnls) - 1)
+                std_dev = variance ** 0.5
+                sharpe_ratio = mean_return / std_dev if std_dev > 0 else 0.0
+            else:
+                sharpe_ratio = 0.0
+
+            return {
+                'total_trades': total_trades,
+                'winning_trades': winning_trades,
+                'losing_trades': losing_trades,
+                'win_rate': win_rate,
+                'total_pnl': total_pnl,
+                'profit_factor': profit_factor,
+                'max_drawdown': max_drawdown,
+                'sharpe_ratio': sharpe_ratio
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to calculate performance metrics: {e}")
+            return {
+                'total_trades': 0,
+                'winning_trades': 0,
+                'losing_trades': 0,
+                'win_rate': 0.0,
+                'total_pnl': 0.0,
+                'profit_factor': 0.0,
+                'max_drawdown': 0.0,
+                'sharpe_ratio': 0.0
+            }
+
+    def get_trade_statistics(self) -> Dict[str, Any]:
+        """
+        Get detailed trade statistics for analysis.
+        """
+        try:
+            trades = self.get_all_trades()
+
+            if not trades:
+                return {}
+
+            # Basic statistics
+            total_orders = len(trades)
+            buy_orders = len([t for t in trades if t['transaction_type'] == 'BUY'])
+            sell_orders = len([t for t in trades if t['transaction_type'] == 'SELL'])
+
+            # Volume statistics
+            total_volume = sum(
+                (t.get('filled_quantity', 0) or t.get('quantity', 0)) * t.get('average_price', 0)
+                for t in trades
+            )
+
+            avg_order_size = total_volume / total_orders if total_orders > 0 else 0
+
+            # Symbol distribution
+            symbol_counts = {}
+            for trade in trades:
+                symbol = trade['tradingsymbol']
+                symbol_counts[symbol] = symbol_counts.get(symbol, 0) + 1
+
+            most_traded_symbols = sorted(symbol_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+
+            return {
+                'total_orders': total_orders,
+                'buy_orders': buy_orders,
+                'sell_orders': sell_orders,
+                'total_volume': total_volume,
+                'avg_order_size': avg_order_size,
+                'unique_symbols': len(symbol_counts),
+                'most_traded_symbols': most_traded_symbols
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to get trade statistics: {e}")
+            return {}
+
+    def export_trades_to_csv(self, filepath: str, days: int = None) -> bool:
+        """
+        Export trades to CSV file.
+        """
+        try:
+            import csv
+
+            trades = self.get_all_trades()
+
+            if days:
+                # Filter by days
+                cutoff_date = datetime.now() - timedelta(days=days)
+                trades = [
+                    t for t in trades
+                    if t.get('execution_timestamp') and
+                       datetime.strptime(t['execution_timestamp'], '%Y-%m-%d %H:%M:%S') >= cutoff_date
+                ]
+
+            if not trades:
+                logger.warning("No trades to export")
+                return False
+
+            # Write to CSV
+            with open(filepath, 'w', newline='', encoding='utf-8') as csvfile:
+                fieldnames = [
+                    'order_id', 'tradingsymbol', 'transaction_type', 'quantity',
+                    'average_price', 'filled_quantity', 'execution_timestamp',
+                    'product', 'exchange', 'status'
+                ]
+
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                writer.writeheader()
+
+                for trade in trades:
+                    row = {field: trade.get(field, '') for field in fieldnames}
+                    writer.writerow(row)
+
+            logger.info(f"Exported {len(trades)} trades to {filepath}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to export trades to CSV: {e}")
+            return False
 
     def cleanup(self):
         """Clean up the trade logger and stop background threads"""
