@@ -2371,6 +2371,8 @@ class CandlestickChart(QWidget):
                 
                         let showLabel = false;
                 
+                        // Update the timeframe labeling logic to include viewport checks:
+
                         if (["1minute", "3minute", "5minute"].includes(tf)) {{
                             const mins = date.getHours() * 60 + date.getMinutes();
                             
@@ -2382,12 +2384,17 @@ class CandlestickChart(QWidget):
                                 showLabel = (mins % 60 === 15);
                             }}
                         }} else if (["15minute", "30minute"].includes(tf)) {{
-                            showLabel = isStartOfDay;
+                            // Only show start of day labels if they're not at the very beginning of viewport
+                            showLabel = isStartOfDay && (i > this.viewPortStart + 2);
                         }} else if (tf === "60minute") {{
-                            showLabel = isStartOfDay && (
+                            // Only show labels if they're not at the very beginning of viewport
+                            showLabel = isStartOfDay && (i > this.viewPortStart + 2) && (
                                 !prevDate || (Math.floor(date.getTime() / (24 * 60 * 60 * 1000)) % 2 === 0)
                             );
-                        }} else if (["week", "month"].includes(tf)) {{
+                        }} else if (["week"].includes(tf)) {{
+                            // Only show quarter labels if they have enough space from the left edge
+                            showLabel = this.shouldLabelTime(tf, date, prevDate) && (i > this.viewPortStart + 5);
+                        }} else if (["month"].includes(tf)) {{
                             showLabel = this.shouldLabelTime(tf, date, prevDate);
                         }}
                                         
