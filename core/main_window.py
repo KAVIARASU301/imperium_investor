@@ -602,7 +602,7 @@ class SwingTraderWindow(QMainWindow):
         if not hasattr(self, 'instrument_map'):
             return None
 
-        # Look for token in instrument map
+        # Look for token in an instrument map
         nse_symbol = None
         bse_symbol = None
         other_symbol = None

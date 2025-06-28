@@ -1,4 +1,4 @@
-# Enhanced watchlist_table.py - FIXED width consistency with positions table
+# Enhanced watchlist_table.py - FIXED width consistency with position table
 import logging
 import json
 import os
@@ -42,6 +42,7 @@ class TradingTable(QTableWidget):
 
         # Initialize empty watchlist data
         self._watchlist_symbols = set()  # Track symbols separately
+        self._last_widget_width = 0  # Reset to force update
 
         self._configure_table()
         self._connect_signals()
@@ -80,7 +81,7 @@ class TradingTable(QTableWidget):
 
         # FIXED: Set compact fixed widths for right-side columns
         self.setColumnWidth(1, 70)  # LTP - enough for "0000.00"
-        self.setColumnWidth(2, 70)  # Volume - enough for "999K" or "9.9L"
+        self.setColumnWidth(2, 70)  # Volume - enough for "999 K" or "9.9 L"
         self.setColumnWidth(3, 60)  # Change % - enough for "+00.00%"
         self.setColumnWidth(4, 24)  # Remove button - minimal
 
@@ -98,7 +99,7 @@ class TradingTable(QTableWidget):
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_enhanced_context_menu)
 
-        # Connect focus events to clear selection (from positions table)
+        # Connect focus events to clear selection (from position table)
         self.focusOutEvent = self._on_table_focus_out
 
     def _on_cell_double_clicked(self, row: int, column: int):
@@ -114,7 +115,7 @@ class TradingTable(QTableWidget):
                 logger.warning(f"Could not get symbol from double-clicked row {row}.")
 
     def _on_table_focus_out(self, event):
-        """Clear selection when table loses focus (from positions table)."""
+        """Clear selection when table loses focus (from position table)."""
         try:
             self.clearSelection()
             # Call the original focusOutEvent if it exists
@@ -136,7 +137,7 @@ class TradingTable(QTableWidget):
         else:
             self._sort_column = logical_index
             # Default sort order based on column
-            if logical_index == 3:  # Change % column - default to descending (best performers first)
+            if logical_index == 3:  # Change % column - default to descending (the best performers first)
                 self._sort_order = Qt.SortOrder.DescendingOrder
             else:
                 self._sort_order = Qt.SortOrder.AscendingOrder
@@ -151,7 +152,7 @@ class TradingTable(QTableWidget):
         if not self._watchlist_symbols:
             return
 
-        # Create list of (symbol, sort_value) tuples
+        # Create a list of (symbol, sort_value) tuples
         sort_data = []
 
         for symbol in self._watchlist_symbols:
@@ -231,7 +232,7 @@ class TradingTable(QTableWidget):
         self._populate_full_table()
 
     def _initialize_watchlist_data(self):
-        """Initialize watchlist data from instrument map for existing symbols"""
+        """Initialize watchlist data from an instrument map for existing symbols"""
         for symbol in list(self._watchlist_symbols):
             if symbol in self._instrument_map:
                 instrument = self._instrument_map[symbol]
@@ -256,7 +257,7 @@ class TradingTable(QTableWidget):
                     "exchange": instrument.get('exchange', 'NSE'),
                     "segment": instrument.get('segment', 'NSE'),
                     "last_price": instrument.get('last_price', 0.0),
-                    "volume": instrument.get('volume', 0),  # This should be day volume
+                    "volume": instrument.get('volume', 0),  # This should be a day volume
                     "volume_traded": instrument.get('volume_traded', 0),  # Alternative field
                     "ohlc": ohlc_data,
                     "ltp": instrument.get('last_price', 0.0),  # Current LTP
@@ -411,7 +412,7 @@ class TradingTable(QTableWidget):
             logger.warning(f"Symbol '{symbol}' not found in instrument map")
             return False
 
-        # Add to symbol set
+        # Add to a symbol set
         self._watchlist_symbols.add(symbol)
 
         # Initialize data
@@ -767,7 +768,7 @@ class TradingTable(QTableWidget):
         return list(self._watchlist_symbols)
 
     def load_watchlist_data(self, symbols: List[str]):
-        """Load watchlist from list of symbols"""
+        """Load watchlist from a list of symbols"""
         self._watchlist_symbols = set(symbols) if symbols else set()
         self._watchlist_data.clear()
 
@@ -859,7 +860,7 @@ class TabbedWatchlistWidget(QWidget):
 
         # Calculate available width for tabs
         # Account for tab bar margins, borders, and container padding
-        tab_bar_margins = 4  # Total left + right margins
+        tab_bar_margins = 4  # Total left and right margins
         tab_borders = (tab_count - 1) * 1  # 1px border between tabs
         container_padding = 2  # Container padding
         scrollbar_width = 15  # Reserve space for potential scrollbar
@@ -1128,7 +1129,7 @@ class TabbedWatchlistWidget(QWidget):
             self._resize_timer.stop()
 
         # Start timer with longer delay to debounce rapid resize events
-        self._resize_timer.start(100)  # 100ms delay for smoother resizing
+        self._resize_timer.start(100)  # 100 ms delay for smoother resizing
 
     def showEvent(self, event):
         """Initialize tab widths when widget is first shown."""
@@ -1175,7 +1176,6 @@ class TabbedWatchlistWidget(QWidget):
     # Method to force tab width recalculation (useful for external calls)
     def force_update_tab_widths(self):
         """Force an immediate update of tab widths."""
-        self._last_widget_width = 0  # Reset to force update
         self._update_tab_widths()
 
     def set_instrument_map(self, instrument_map: Dict[str, Dict]):
@@ -1277,7 +1277,7 @@ class TabbedWatchlistWidget(QWidget):
             if dir_name and not os.path.exists(dir_name):
                 os.makedirs(dir_name)
 
-            # Get symbols list
+            # Get symbol list
             symbols = self._tables[category].get_symbol_list()
 
             # Save to file
