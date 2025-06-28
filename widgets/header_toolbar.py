@@ -178,7 +178,7 @@ class HeaderToolbar(QToolBar):
         self.alert_manager_button.clicked.connect(self.alert_manager_requested.emit)
         self.alert_manager_button.setGeometry(0, 0, 95, 24)
         self.triggered_badge = NotificationBadge(manager_container)
-        self.triggered_badge.move(71, -2)
+        self.triggered_badge.move(81, -2)
         alert_layout.addWidget(manager_container)
 
         self.addWidget(alert_widget)

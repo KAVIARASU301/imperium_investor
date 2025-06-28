@@ -3,12 +3,12 @@
 # ==============================================================================
 
 import logging
-from typing import Dict, List, Optional
 from PySide6.QtCore import QObject, Signal, QTimer
 from dataclasses import dataclass
 from widgets.status_bar import (
     show_order_completed, show_order_failed, show_error, show_info
 )
+
 logger = logging.getLogger(__name__)
 
 
@@ -149,31 +149,40 @@ class PositionManager(QObject):
         quantity = kite_order.get('quantity', 0)
         tx_type = kite_order.get('transaction_type', '')
 
-        # Send appropriate notification
-        if status == 'COMPLETE':
-            avg_price = kite_order.get('average_price', 0)
-            self.show_notification.emit(
-                f"✅ {tx_type} {quantity} {symbol} @ ₹{avg_price} - Completed",
-                "success"
-            )
+        try:
+            if status in ['COMPLETE', 'FILLED']:
+                show_order_completed(symbol, "")
+            elif status in ['REJECTED', 'CANCELLED', 'FAILED']:
+                show_order_failed(f"Order {status.lower()}")
 
-            # Refresh positions after completion
-            QTimer.singleShot(2000, lambda: self.fetch_positions_from_kite("order_completed"))
+            # Send appropriate notification
+            if status == 'COMPLETE':
+                avg_price = kite_order.get('average_price', 0)
+                self.show_notification.emit(
+                    f"✅ {tx_type} {quantity} {symbol} @ ₹{avg_price} - Completed",
+                    "success"
+                )
 
-        elif status == 'CANCELLED':
-            self.show_notification.emit(
-                f"❌ {tx_type} {quantity} {symbol} - Cancelled",
-                "warning"
-            )
+                # Refresh positions after completion
+                QTimer.singleShot(2000, lambda: self.fetch_positions_from_kite("order_completed"))
 
-        elif status == 'REJECTED':
-            reject_reason = kite_order.get('status_message', 'Unknown reason')
-            self.show_notification.emit(
-                f"🚫 {tx_type} {quantity} {symbol} - Rejected: {reject_reason}",
-                "error"
-            )
+            elif status == 'CANCELLED':
+                self.show_notification.emit(
+                    f"❌ {tx_type} {quantity} {symbol} - Cancelled",
+                    "warning"
+                )
 
-        logger.info(f"Order {order_id} completed with status: {status}")
+            elif status == 'REJECTED':
+                reject_reason = kite_order.get('status_message', 'Unknown reason')
+                self.show_notification.emit(
+                    f"🚫 {tx_type} {quantity} {symbol} - Rejected: {reject_reason}",
+                    "error"
+                )
+
+            logger.info(f"Order {order_id} completed with status: {status}")
+        except Exception as e:
+            logger.error(f"Error handling order completion: {e}")
+            show_error("Order completion error")
 
     # ===========================================================================
     # JOB 4: SAFETY REFRESH (OPTIONAL)

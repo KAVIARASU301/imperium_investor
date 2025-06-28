@@ -27,6 +27,7 @@ import os
 import time
 from dataclasses import dataclass, asdict
 from enum import Enum
+from utils.sounds import play_alert
 
 logger = logging.getLogger(__name__)
 
@@ -1179,6 +1180,7 @@ class AlertSystemManager(QObject):
     def _on_alert_triggered(self, alert: Alert, trigger_price: float):
         """Handle triggered alert."""
         try:
+            play_alert()
             self.alert_sound_requested.emit()
             logger.info(f"Alert Triggered: {alert.symbol} at {trigger_price:.2f}")
 

@@ -25,7 +25,6 @@ from widgets.performance_dialog import PerformanceDialog
 from core.alert_management_system import AlertSystemManager
 
 from core.position_manager import PositionManager
-from widgets.status_bar import status, show_order_placed, show_order_failed, show_error
 
 from core.market_data_worker import MarketDataWorker
 from utils.paper_trading_manager import PaperTradingManager
@@ -39,6 +38,8 @@ from widgets.status_bar import (
     show_order_completed, show_order_rejected, show_order_cancelled,
     status  # Global status manager
 )
+from utils.sounds import play_alert, play_error
+
 
 logger = logging.getLogger(__name__)
 
@@ -86,17 +87,9 @@ class SwingTraderWindow(QMainWindow):
         self.order_history_dialog = None
         self.performance_dialog = None
 
-        # --- Alert System & Sounds ---
-        self.alert_system = None
-        self.alert_sound = None
-        self.success_sound = None
-        self.error_sound = None
-        self.order_placed_sound = None
-
         # --- Setup Sequence ---
         self._setup_frameless_window()
         self._setup_ui()
-        self._init_sounds()
         self._init_alert_system()
         self._init_background_workers()
         self._connect_signals()
@@ -234,7 +227,7 @@ class SwingTraderWindow(QMainWindow):
     def _init_alert_system(self):
         try:
             self.alert_system = AlertSystemManager(self)
-            self.alert_system.alert_sound_requested.connect(self._play_alert_sound)
+            self.alert_system.alert_sound_requested.connect(lambda: play_alert())
             self.alert_system.engine_status_changed.connect(self._on_alert_engine_status)
             logger.info("Alert system initialized successfully.")
         except Exception as e:
@@ -242,10 +235,12 @@ class SwingTraderWindow(QMainWindow):
             self.alert_system = None
 
     @Slot(str)
-    def _on_alert_engine_status(self, status_msg: str):
-        if status_msg == "error":
+    def _on_alert_engine_status(self, status: str):
+        """Handle alert engine status changes"""
+        if status == "error":
             logger.warning("Alert engine encountered an error")
-        elif status_msg == "running":
+            play_error()  # SIMPLE
+        elif status == "running":
             logger.info("Alert engine is running normally")
 
     def _init_background_workers(self):
@@ -365,6 +360,12 @@ class SwingTraderWindow(QMainWindow):
         self.alert_update_timer.timeout.connect(self._update_alert_badges)
         self.alert_update_timer.start(30000)
 
+        # ADD THESE LINES - Connect trader signals to sound methods
+        if hasattr(self.trader, 'order_completed'):
+            self.trader.order_completed.connect(self._on_order_completed_with_sound)
+
+        if hasattr(self.trader, 'order_failed'):
+            self.trader.order_failed.connect(self._on_order_failed_with_sound)
         logger.info("All component signals connected successfully.")
 
     # ==============================================================================
@@ -640,42 +641,34 @@ class SwingTraderWindow(QMainWindow):
         dialog.show()
 
     def _handle_order_placement(self, order_data: Dict[str, Any]):
-        """
-        OPTIMIZED order placement handler - NO UI BLOCKING
-        """
+        """CLEAN order placement handler - sounds via status bar only"""
         try:
             logger.info(f"Placing order: {order_data}")
 
             if not self._validate_order_data(order_data):
+                show_error("Order validation failed")  # Sound plays automatically
                 return
 
             symbol = order_data.get('tradingsymbol', '')
 
-            # Show order placed status immediately - NO DELAYS
+            # ONLY status call - sound plays automatically
             show_order_placed(symbol)
 
-            # Place order directly with trader
             if hasattr(self.trader, 'place_order'):
                 order_id = self.trader.place_order(**order_data)
             else:
                 logger.error("No order placement method available")
-                show_error("Order placement system offline")
+                show_error("Order placement system offline")  # Sound plays automatically
                 return
 
             if order_id:
-                # Update order data with ID
                 order_data['order_id'] = order_id
                 order_data['status'] = 'PENDING'
-
-                # START POSITION MANAGER TRACKING - IMMEDIATE
                 self.position_manager.start_tracking_order(order_id, order_data)
-
-                # LOG ORDER PLACEMENT - NOW FULLY ASYNC, NO UI BLOCKING
                 self._log_order_placement_immediate(order_data, order_id)
-
                 logger.info(f"Order placed and tracking started: {order_id}")
             else:
-                show_order_failed("No order ID returned")
+                show_order_failed("No order ID returned")  # Sound plays automatically
 
         except Exception as e:
             error_msg = f"Order placement failed: {str(e)}"
@@ -1128,92 +1121,6 @@ class SwingTraderWindow(QMainWindow):
             if hasattr(self, 'right_panel_splitter'):
                 self.right_panel_splitter.setSizes([300, 200])
 
-    # ==============================================================================
-    # SOUND SYSTEM
-    # ==============================================================================
-
-    def _init_sounds(self):
-        """Initialize sound effects"""
-
-        def create_sound(file_name):
-            base_name = file_name.replace('.mp3', '').replace('.wav', '')
-            possible_files = [f"{base_name}.wav", f"{base_name}.mp3"]
-
-            for filename in possible_files:
-                sound_file = os.path.join("assets", filename)
-                if not os.path.exists(sound_file):
-                    continue
-
-                try:
-                    from PySide6.QtMultimedia import QSoundEffect
-                    from PySide6.QtCore import QUrl
-
-                    sound_effect = QSoundEffect(self)
-                    file_url = QUrl.fromLocalFile(os.path.abspath(sound_file))
-                    sound_effect.setSource(file_url)
-                    sound_effect.setVolume(0.7)
-                    sound_effect.setLoopCount(1)
-
-                    if sound_effect.source().isEmpty():
-                        continue
-
-                    logger.info(f"Sound loaded: {sound_file}")
-                    return sound_effect
-
-                except Exception as e:
-                    logger.warning(f"Could not load sound {sound_file}: {e}")
-                    continue
-
-            logger.warning(f"Could not load any sound file for: {file_name}")
-            return None
-
-        # Initialize sound effects
-        self.alert_sound = create_sound("alert.wav")
-        self.success_sound = create_sound("success.wav")
-        self.error_sound = create_sound("error.wav")
-        self.order_placed_sound = create_sound("placed.wav")
-
-        # Log sound status
-        working_sounds = sum([
-            self.alert_sound is not None,
-            self.success_sound is not None,
-            self.error_sound is not None,
-            self.order_placed_sound is not None
-        ])
-        logger.info(f"Sound initialization: {working_sounds}/4 sounds loaded")
-
-    def _play_sound_safe(self, sound_effect, sound_name=""):
-        """Safely play sound effect"""
-        if sound_effect is None:
-            return False
-
-        try:
-            if hasattr(sound_effect, 'isPlaying') and sound_effect.isPlaying():
-                sound_effect.stop()
-
-            sound_effect.play()
-            logger.debug(f"Playing sound: {sound_name}")
-            return True
-        except Exception as e:
-            logger.warning(f"Error playing {sound_name}: {e}")
-            return False
-
-    @Slot()
-    def _play_alert_sound(self):
-        """Play alert sound"""
-        self._play_sound_safe(self.alert_sound, "alert")
-
-    def _play_success_sound(self):
-        """Play success sound"""
-        self._play_sound_safe(self.success_sound, "success")
-
-    def _play_error_sound(self):
-        """Play error sound"""
-        self._play_sound_safe(self.error_sound, "error")
-
-    def _play_order_placed_sound(self):
-        """Play order placed sound"""
-        self._play_sound_safe(self.order_placed_sound, "order_placed")
 
     # ==============================================================================
     # DARK THEME STYLING
