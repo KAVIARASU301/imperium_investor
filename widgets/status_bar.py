@@ -21,8 +21,8 @@ class StatusBar(QLabel):
 
         # Default appearance
         self.setFixedHeight(24)
-        self.setMinimumWidth(200)
-        self.setMaximumWidth(300)
+        self.setMinimumWidth(400)
+        self.setMaximumWidth(600)
 
         # Auto-clear timer
         self.clear_timer = QTimer()
@@ -44,11 +44,11 @@ class StatusBar(QLabel):
         """Setup default LED board styling"""
         self.setStyleSheet("""
             QLabel {
-                background-color: #1a1a1a;
+                background-color: #000000;
                 color: #00ff00;
                 border: 1px solid #333333;
-                border-radius: 3px;
-                padding: 2px 8px;
+                border-radius: 6px;
+                padding: 2px 12px;
                 font-family: "Courier New", monospace;
                 font-size: 11px;
                 font-weight: bold;
