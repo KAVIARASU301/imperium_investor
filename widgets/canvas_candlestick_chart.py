@@ -20,7 +20,7 @@ from PySide6.QtWebChannel import QWebChannel
 from kiteconnect import KiteConnect
 from cachetools import TTLCache
 import threading
-
+from widgets.status_bar import show_info
 logger = logging.getLogger(__name__)
 
 
@@ -658,6 +658,35 @@ class ChartBridge(QObject):
         self.chart_ready.emit()
 
     @Slot(str)
+    def notify_text_note_requested(self, mouse_pos_json: str):
+        """Receives text note creation request from JavaScript."""
+        if not self.webChannelInitialized:
+            self._pending_calls.append(('notify_text_note_requested', mouse_pos_json))
+            return
+        try:
+            json.loads(mouse_pos_json)  # Validate JSON
+            self.text_note_requested.emit(mouse_pos_json)
+            logger.info(f"Text note creation requested from chart: {mouse_pos_json}")
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid text note JSON received from JavaScript: {e}")
+        except Exception as e:
+            logger.error(f"Error in notify_text_note_requested: {e}")
+
+    @Slot(str)
+    def notify_text_note_edit_requested(self, note_json: str):
+        """Receives text note edit request from JavaScript."""
+        if not self.webChannelInitialized:
+            self._pending_calls.append(('notify_text_note_edit_requested', note_json))
+            return
+        try:
+            json.loads(note_json)  # Validate JSON
+            self.text_note_edit_requested.emit(note_json)
+            logger.info(f"Text note edit requested from chart: {note_json}")
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid text note edit JSON received from JavaScript: {e}")
+        except Exception as e:
+            logger.error(f"Error in notify_text_note_edit_requested: {e}")
+    @Slot(str)
     def notify_alert_creation_requested(self, alert_json: str):
         """Receives alert creation request from JavaScript."""
         if not self.webChannelInitialized:
@@ -1180,15 +1209,8 @@ class CandlestickChart(QWidget):
 
         logger.info("Chart keyboard shortcuts initialized (including Up/Down for timeframes)")
 
-
     def _timeframe_up(self):
-        """Move to the next higher timeframe - only if symbol input is not focused"""
-        # Check if symbol input is focused
-        focused_widget = QApplication.focusWidget()
-        if (hasattr(self.parent(), 'header_toolbar') and
-                focused_widget == self.parent().header_toolbar.search_input):
-            return  # Don't change timeframe if symbol input is focused
-
+        """Move to the next higher timeframe"""
         if not self.timeframe_dropdown or self.current_state != ChartState.LOADED:
             return
 
@@ -1199,21 +1221,11 @@ class CandlestickChart(QWidget):
             self.timeframe_dropdown.setCurrentIndex(new_index)
             interval = self.timeframe_dropdown.itemData(new_index)
             self._change_timeframe(interval)
-            logger.info(f"Timeframe UP: {new_text}")
+            show_info(f"Timeframe UP: {new_text}")
 
-            # Optional: Show brief status message
-            if hasattr(self, '_update_symbol_info_with_status'):
-                self._update_symbol_info_with_status(f"Timeframe: {new_text}")
-                QTimer.singleShot(2000, lambda: self._update_symbol_info_with_status())
 
     def _timeframe_down(self):
-        """Move to the next lower timeframe - only if symbol input is not focused"""
-        # Check if symbol input is focused
-        focused_widget = QApplication.focusWidget()
-        if (hasattr(self.parent(), 'header_toolbar') and
-                focused_widget == self.parent().header_toolbar.search_input):
-            return  # Don't change timeframe if symbol input is focused
-
+        """Move to the next lower timeframe"""
         if not self.timeframe_dropdown or self.current_state != ChartState.LOADED:
             return
 
@@ -1224,12 +1236,7 @@ class CandlestickChart(QWidget):
             self.timeframe_dropdown.setCurrentIndex(new_index)
             interval = self.timeframe_dropdown.itemData(new_index)
             self._change_timeframe(interval)
-            logger.info(f"Timeframe DOWN: {new_text}")
-
-            # Optional: Show brief status message
-            if hasattr(self, '_update_symbol_info_with_status'):
-                self._update_symbol_info_with_status(f"Timeframe: {new_text}")
-                QTimer.singleShot(2000, lambda: self._update_symbol_info_with_status())
+            show_info(f"Timeframe DOWN: {new_text}")
 
     @Slot(object)
     def update_position_data(self, position_info: Optional[Dict]):
@@ -2078,8 +2085,8 @@ class CandlestickChart(QWidget):
                     const clickedNoteId = this.getDrawingAtPoint(mousePos, 'note');
                     if (clickedNoteId) {{
                         const note = this.drawings.notes.find(n => n.id === clickedNoteId);
-                        if (note && this.chartBridge && this.chartBridge.text_note_edit_dialog) {{
-                            this.chartBridge.text_note_edit_requested(JSON.stringify(note));
+                        if (note && this.chartBridge && typeof this.chartBridge.notify_text_note_edit_requested === 'function') {{
+                            this.chartBridge.notify_text_note_edit_requested(JSON.stringify(note));
                         }}
                         return;
                     }}
@@ -2087,8 +2094,8 @@ class CandlestickChart(QWidget):
 
                 startDrawing(mousePos) {{
                     if (this.currentTool === 'note') {{
-                        if (this.chartBridge && this.chartBridge.request_text_note_dialog) {{
-                            this.chartBridge.request_text_note_dialog(JSON.stringify(mousePos));
+                        if (this.chartBridge && typeof this.chartBridge.notify_text_note_requested === 'function') {{
+                            this.chartBridge.notify_text_note_requested(JSON.stringify(mousePos));
                         }}
                         return;
                     }}
