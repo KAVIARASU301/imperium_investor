@@ -1,127 +1,59 @@
-"""Constants used throughout the application"""
+"""Constants specific to Interactive Brokers trading"""
 
-
-# Application info
-APP_NAME = "Options Scalper Pro"
-APP_VERSION = "1.0.0"
-APP_AUTHOR = "Trading Tools Inc."
-
-# Trading constants
-DEFAULT_LOT_SIZES = {
-    "NIFTY": 25,
-    "BANKNIFTY": 15,
-    "FINNIFTY": 25,
-    "MIDCPNIFTY": 50
+# Exchange mappings
+EXCHANGE_MAPPING = {
+    "NYSE": "SMART",
+    "NASDAQ": "SMART",
+    "ARCA": "ARCA",
+    "BATS": "BATS",
+    "IEX": "IEX"
 }
 
-# Strike step rules based on NSE standards
-STRIKE_STEP_RULES = {
-    'NIFTY': {
-        (0, 10000): 50,
-        (10000, 20000): 50,
-        (20000, float('inf')): 100
-    },
-    'BANKNIFTY': {
-        (0, 20000): 100,
-        (20000, float('inf')): 100
-    },
-    'FINNIFTY': {
-        (0, float('inf')): 50
-    },
-    'MIDCPNIFTY': {
-        (0, float('inf')): 25
-    }
-}
-
-# UI constants
-REFRESH_INTERVAL_MS = 2000  # 2 seconds
-MAX_STRIKE_RANGE = 10
-DEFAULT_STRIKE_RANGE = 5
-MIN_OI_THRESHOLD = 100000
-
-# Color scheme
-COLORS = {
-    "profit": "#4CAF50",
-    "loss": "#F44336",
-    "neutral": "#6c757d",
-    "buy": "#007bff",
-    "sell": "#ffc107",
-    "background": "#0f0f0f",
-    "foreground": "#1a1a1a",
-    "text": "#ffffff",
-    "text_muted": "#888888",
-    "border": "#333333",
-    "hover": "#2a2a2a",
-    "selected": "#3a3a3a"
-}
-
-# Market timings (IST)
-MARKET_OPEN_HOUR = 9
-MARKET_OPEN_MINUTE = 15
-MARKET_CLOSE_HOUR = 15
-MARKET_CLOSE_MINUTE = 30
-
-# Order limits
-MAX_ORDER_SIZE = 1800  # Maximum quantity per order as per exchange
-MAX_ORDERS_PER_SECOND = 10
-ORDER_RATE_LIMIT_WINDOW = 1  # seconds
-
-# Risk management defaults
-DEFAULT_MAX_LOSS = 20000
-DEFAULT_MAX_POSITIONS = 20
-DEFAULT_PROFIT_TARGET = 20.0  # percentage
-DEFAULT_STOP_LOSS = 10.0  # percentage
-
-# Index mappings for price lookup
-INDEX_SYMBOL_MAP = {
-    'NIFTY': 'NIFTY 50',
-    'BANKNIFTY': 'NIFTY BANK',
-    'FINNIFTY': 'NIFTY FIN SERVICE',
-    'MIDCPNIFTY': 'NIFTY MID SELECT'
-}
-
-# Exchange preferences - NSE first, BSE as fallback
-EXCHANGE_PREFERENCE_ORDER = ["NSE", "BSE", "NFO"]
-DEFAULT_EXCHANGE = "NSE"
-FALLBACK_EXCHANGE = "BSE"
-
-# Exchange codes
-EXCHANGE_NFO = "NFO"
-EXCHANGE_NSE = "NSE"
-
-# Product types
-PRODUCT_MIS = "MIS"
-PRODUCT_NRML = "NRML"
+# Default exchange preference order
+EXCHANGE_PREFERENCE_ORDER = ["SMART", "NYSE", "NASDAQ", "ARCA"]
 
 # Order types
-ORDER_TYPE_MARKET = "MARKET"
-ORDER_TYPE_LIMIT = "LIMIT"
+ORDER_TYPE_MARKET = "MKT"
+ORDER_TYPE_LIMIT = "LMT"
+ORDER_TYPE_STOP = "STP"
+ORDER_TYPE_STOP_LIMIT = "STP LMT"
+ORDER_TYPE_TRAIL = "TRAIL"
 
 # Transaction types
 TRANSACTION_TYPE_BUY = "BUY"
 TRANSACTION_TYPE_SELL = "SELL"
 
-# Validity types
-VALIDITY_DAY = "DAY"
-VALIDITY_IOC = "IOC"
+# Product types
+PRODUCT_TYPE_STOCK = "STK"
+PRODUCT_TYPE_OPTION = "OPT"
+PRODUCT_TYPE_FUTURE = "FUT"
+PRODUCT_TYPE_FOREX = "CASH"
 
-# Error messages
-ERROR_MESSAGES = {
-    "NO_INSTRUMENTS": "Instruments not loaded. Please wait...",
-    "NO_CONNECTION": "No connection to Kite API",
-    "INVALID_TOKEN": "Invalid access token. Please login again.",
-    "MARKET_CLOSED": "Market is closed",
-    "MAX_LOSS_REACHED": "Maximum daily loss reached",
-    "INSUFFICIENT_MARGIN": "Insufficient margin for this order",
-    "ORDER_FAILED": "Order placement failed",
-    "POSITION_EXIT_FAILED": "Failed to exit position"
+# Default lot sizes for US options
+DEFAULT_LOT_SIZES = {
+    "default": 100  # Standard US options contract
 }
 
-# Success messages
-SUCCESS_MESSAGES = {
-    "ORDER_PLACED": "Order placed successfully",
-    "POSITION_EXITED": "Position exited successfully",
-    "ALL_POSITIONS_EXITED": "All positions exited successfully",
-    "SETTINGS_SAVED": "Settings saved successfully",
-    "DATA_REFRESHED": "Data refreshed successfully"
+# Strike step rules (for options)
+STRIKE_STEP_RULES = {
+    "default": 1.0,
+    "penny_pilot": 0.5
+}
+
+# Colors for UI (USD themed)
+COLORS = {
+    "primary": "#1976D2",      # Blue
+    "secondary": "#D32F2F",    # Red
+    "success": "#388E3C",      # Green
+    "warning": "#F57C00",      # Orange
+    "background": "#1E1E1E",   # Dark
+    "text": "#FFFFFF"          # White
+}
+
+# Market hours (ET)
+MARKET_HOURS = {
+    "pre_market_start": "04:00",
+    "market_open": "09:30",
+    "market_close": "16:00",
+    "after_hours_end": "20:00"
 }

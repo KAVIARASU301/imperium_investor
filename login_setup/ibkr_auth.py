@@ -10,7 +10,6 @@ from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
 
 from PySide6.QtCore import QThread, Signal, QTimer, QObject
-from PySide6.QtWidgets import QApplication
 
 try:
     from ib_insync import IB, util
@@ -53,70 +52,90 @@ class IBKRConnectionWorker(QThread):
         self.params = connection_params
         self.ib = None
         self.should_stop = False
-        self.loop = None
 
     def run(self):
-        """Main connection logic running in separate thread with proper asyncio handling"""
+        """
+        Main connection logic.
+        This now runs entirely within the QThread's event loop.
+        """
         if not IBKR_AVAILABLE:
-            self.connection_failed.emit(
-                "ib_insync library not available. Please install: pip install ib_insync"
-            )
+            self.connection_failed.emit("ib_insync not available. Please install: pip install ib_insync")
             return
 
         try:
-            # Create new event loop for this thread
-            self.loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(self.loop)
+            # Create a new event loop for this thread
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
 
-            self.connection_progress.emit("Initializing IB client...")
+            # Create and connect the IB client in this new loop
+            self.ib = IB()
+            self.connection_progress.emit(f"Connecting to {self.params.host}:{self.params.port}...")
 
-            # Run the async connection in the event loop
-            self.loop.run_until_complete(self._async_connect())
+            # The connect method now runs synchronously within this thread's loop
+            self.ib.connect(
+                host=self.params.host,
+                port=self.params.port,
+                clientId=self.params.client_id,
+                timeout=25,  # Slightly longer timeout
+                readonly=True  # Start in read-only mode for safety
+            )
 
+            if self.ib.isConnected():
+                self.connection_progress.emit("Connection successful! Verifying...")
+                # A simple request to confirm the API is responsive
+                self.ib.reqCurrentTime()
+                self.connection_success.emit(self.ib)
+            else:
+                # This path is unlikely as connect() will raise an exception on failure
+                self.connection_failed.emit("Connection failed for an unknown reason.")
+
+        except asyncio.TimeoutError:
+            self.connection_failed.emit(
+                "Connection timeout. TWS/Gateway found but API not responding.\n\n"
+                "Please check for any pop-up dialogs in TWS/Gateway that may need to be dismissed."
+            )
+        except ConnectionRefusedError:
+            self.connection_failed.emit("Connection refused. Is TWS/Gateway running?")
         except Exception as e:
             logger.error(f"IBKR connection error: {e}", exc_info=True)
-            self.connection_failed.emit(f"Connection error: {str(e)}")
+            self.connection_failed.emit(f"An unexpected error occurred: {e}")
         finally:
-            # Clean up the event loop
-            if self.loop and not self.loop.is_closed():
-                try:
-                    self.loop.close()
-                except:
-                    pass
+            if self.ib and self.ib.isConnected() and self.should_stop:
+                self.ib.disconnect()
 
     async def _async_connect(self):
-        """Async connection method that runs in the event loop"""
+        """Async connection method that runs in the event loop."""
         try:
-            # Create IB instance
+            self.connection_progress.emit("Initializing IB client...")
             self.ib = IB()
 
             # Set up event handlers
-            self.ib.disconnectedEvent += self._on_disconnected
-            self.ib.errorEvent += self._on_error
+            self.ib.disconnectedEvent.connect(self._on_disconnected)
+            self.ib.errorEvent.connect(self._on_error)
 
             self.connection_progress.emit(
                 f"Connecting to TWS/Gateway at {self.params.host}:{self.params.port}..."
             )
 
-            # Attempt async connection with increased timeout
+            # Attempt async connection with a clear timeout
             await self.ib.connectAsync(
                 host=self.params.host,
                 port=self.params.port,
                 clientId=self.params.client_id,
-                timeout=15  # Increased timeout for slow connections
+                timeout=20  # Increased timeout to 20 seconds for robustness
             )
 
             if self.ib.isConnected():
-                self.connection_progress.emit("Connection established! Validating account...")
-
-                # Validate connection by requesting account info
-                account_valid = await self._validate_connection_async()
-                if account_valid:
+                self.connection_progress.emit("Connection established! Validating...")
+                # Request managed accounts to confirm the connection is usable
+                accounts = self.ib.managedAccounts()
+                if accounts:
                     self.connection_success.emit(self.ib)
                 else:
-                    self.connection_failed.emit("Connection validation failed")
+                    self.connection_failed.emit("Connection valid but no accounts found.")
             else:
-                self.connection_failed.emit("Failed to establish connection")
+                # This case is often covered by the TimeoutError exception
+                self.connection_failed.emit("Failed to establish connection after timeout.")
 
         except asyncio.TimeoutError:
             self.connection_failed.emit(
@@ -128,30 +147,33 @@ class IBKRConnectionWorker(QThread):
             )
         except ConnectionRefusedError:
             self.connection_failed.emit(
-                "Connection refused. Is TWS or IB Gateway running?"
+                "Connection refused. Is TWS or IB Gateway running on the correct port?"
             )
         except Exception as e:
-            logger.error(f"Async connection error: {e}", exc_info=True)
-            error_msg = str(e)
+            logger.error(f"Async connection failed: {e}", exc_info=True)
+            self.connection_failed.emit(f"An unexpected error occurred: {e}")
 
-            # Provide helpful error messages based on common issues
-            if "timeout" in error_msg.lower():
-                self.connection_failed.emit(
-                    "Connection timeout. Check TWS/Gateway API settings:\n"
-                    "• Enable 'Socket Clients' in API settings\n"
-                    "• Verify port number matches trading mode\n"
-                    "• Try a different Client ID"
-                )
-            elif "refused" in error_msg.lower():
-                self.connection_failed.emit(
-                    "Connection refused. TWS/Gateway not running or wrong port."
-                )
-            elif "already connected" in error_msg.lower():
-                self.connection_failed.emit(
-                    "Client ID already in use. Try a different Client ID (2, 3, 4, etc.)"
-                )
-            else:
-                self.connection_failed.emit(f"Connection error: {error_msg}")
+    def _on_disconnected(self):
+        """Handle disconnection event."""
+        if not self.should_stop:
+            logger.warning("IBKR connection lost unexpectedly.")
+            self.disconnected.emit()
+
+    def _on_error(self, reqId, errorCode, errorString, contract):
+        """Handle IBKR error events."""
+        # Log all errors but only emit failures for critical connection issues
+        logger.error(f"IBKR Error: reqId={reqId}, code={errorCode}, msg='{errorString}'")
+        critical_errors = [1100, 1101, 1102, 2104, 2106, 2108, 2158]
+        if errorCode in critical_errors:
+            self.connection_failed.emit(f"API Error ({errorCode}): {errorString}")
+
+    def stop(self):
+        """Stop the worker and disconnect."""
+        self.should_stop = True
+        if self.ib:
+            self.ib.disconnect()
+        self.quit()
+
 
     async def _validate_connection_async(self) -> bool:
         """Validate the connection by checking account info asynchronously"""
@@ -178,32 +200,6 @@ class IBKRConnectionWorker(QThread):
         except Exception as e:
             logger.error(f"Connection validation failed: {e}")
             return False
-
-    def _on_disconnected(self):
-        """Handle disconnection event"""
-        logger.warning("IBKR connection lost")
-        self.disconnected.emit()
-
-    def _on_error(self, reqId, errorCode, errorString, contract):
-        """Handle IBKR error events"""
-        logger.error(f"IBKR Error {errorCode}: {errorString}")
-
-        # Critical errors that indicate connection problems
-        critical_errors = [1100, 1101, 1102, 2104, 2106, 2108]
-        if errorCode in critical_errors:
-            self.connection_failed.emit(f"Critical error {errorCode}: {errorString}")
-
-    def stop(self):
-        """Stop the worker and disconnect"""
-        self.should_stop = True
-        if self.ib and self.ib.isConnected():
-            try:
-                # Schedule disconnection in the event loop
-                if self.loop and not self.loop.is_closed():
-                    asyncio.run_coroutine_threadsafe(self.ib.disconnectAsync(), self.loop)
-            except Exception as e:
-                logger.error(f"Error disconnecting: {e}")
-        self.quit()
 
 
 class IBKRAuth(QObject):
