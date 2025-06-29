@@ -2078,8 +2078,8 @@ class CandlestickChart(QWidget):
                     const clickedNoteId = this.getDrawingAtPoint(mousePos, 'note');
                     if (clickedNoteId) {{
                         const note = this.drawings.notes.find(n => n.id === clickedNoteId);
-                        if (note && this.chartBridge && this.chartBridge.request_text_note_edit_dialog) {{
-                            this.chartBridge.request_text_note_edit_dialog(JSON.stringify(note));
+                        if (note && this.chartBridge && this.chartBridge.text_note_edit_dialog) {{
+                            this.chartBridge.text_note_edit_requested(JSON.stringify(note));
                         }}
                         return;
                     }}
