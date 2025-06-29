@@ -1229,24 +1229,6 @@ class AlertSystemManager(QObject):
         except Exception as e:
             logger.error(f"Error in save and refresh: {e}")
 
-    def _add_alert(self, alert: Alert):
-        """Add a new alert to the system."""
-        try:
-            self.all_alerts.append(alert)
-            logger.info(f"Added alert: {alert.symbol} at {alert.price:.2f}")
-            self._save_and_refresh_all()
-        except Exception as e:
-            logger.error(f"Error adding alert: {e}")
-
-    def _delete_alert(self, alert_to_delete: Alert):
-        """Delete an alert from the system."""
-        try:
-            if alert_to_delete in self.all_alerts:
-                self.all_alerts.remove(alert_to_delete)
-                logger.info(f"Deleted alert: {alert_to_delete.symbol}")
-                self._save_and_refresh_all()
-        except Exception as e:
-            logger.error(f"Error deleting alert: {e}")
 
     @Slot(int, object)
     def _on_alert_acknowledged(self, state, alert: Alert):
@@ -1346,23 +1328,299 @@ class AlertSystemManager(QObject):
         except Exception as e:
             logger.error(f"Error showing quick alert dialog: {e}")
 
+    # Refactored AlertSystemManager methods for chart lines integration
+    # Add these methods to your AlertSystemManager class
+
     @Slot(str)
     def create_alert_from_chart(self, alert_json: str):
-        """Create alert from chart context menu."""
+        """Create alert from chart context menu with chart line integration."""
         try:
             if not self._initialized:
+                logger.warning("Alert system not initialized, cannot create alert from chart")
                 return
 
-            data = json.loads(alert_json)
+            # Parse the JSON data from chart
+            alert_data = json.loads(alert_json)
+            symbol = alert_data.get('symbol', '')
+            price = alert_data.get('price', 0.0)
+            intent = alert_data.get('intent', '')
+            note = alert_data.get('note', '')
+            current_ltp = alert_data.get('current_ltp', 0.0)
+
+            if not symbol or not price:
+                logger.error("Invalid alert data from chart: missing symbol or price")
+                return
+
+            logger.info(f"Creating alert from chart: {symbol} at {price:.2f}")
+
+            # Show the creation dialog
             self._show_creation_dialog(
-                symbol=data.get('symbol', ''),
-                price=data.get('price', 0.0),
-                intent=data.get('intent', ''),
-                note=data.get('note', ''),
-                current_ltp=data.get('current_ltp', 0.0)
+                symbol=symbol,
+                price=price,
+                intent=intent,
+                note=note,
+                current_ltp=current_ltp
             )
+
         except (json.JSONDecodeError, KeyError) as e:
             logger.error(f"Failed to parse alert data from chart: {e}")
+        except Exception as e:
+            logger.error(f"Error creating alert from chart: {e}")
+
+    def _add_alert(self, alert: Alert):
+        """Add a new alert to the system with chart line integration."""
+        try:
+            # Add alert to the system
+            self.all_alerts.append(alert)
+            logger.info(f"Added alert: {alert.symbol} at {alert.price:.2f} with intent: {alert.intent.value}")
+
+            # Add chart line for the alert
+            if hasattr(self.main_window, 'chart_lines_manager'):
+                intent_text = alert.intent.value if alert.intent != AlertIntent.BREAKOUT_WATCH else ""
+                success = self.main_window.chart_lines_manager.add_alert_line(
+                    symbol=alert.symbol,
+                    price=alert.price,
+                    intent=intent_text
+                )
+                if success:
+                    logger.info(f"Alert line added to chart for {alert.symbol}")
+                else:
+                    logger.warning(f"Failed to add alert line to chart for {alert.symbol}")
+            else:
+                logger.warning("Chart lines manager not available, alert created without chart line")
+
+            # Save and refresh all components
+            self._save_and_refresh_all()
+
+        except Exception as e:
+            logger.error(f"Error adding alert: {e}")
+
+    def _delete_alert(self, alert_to_delete: Alert):
+        """Delete an alert from the system with chart line removal."""
+        try:
+            if alert_to_delete not in self.all_alerts:
+                logger.warning(f"Alert not found in system: {alert_to_delete.symbol} at {alert_to_delete.price}")
+                return
+
+            # Remove chart line first
+            if hasattr(self.main_window, 'chart_lines_manager'):
+                success = self.main_window.chart_lines_manager.remove_alert_line(
+                    symbol=alert_to_delete.symbol,
+                    price=alert_to_delete.price
+                )
+                if success:
+                    logger.info(f"Alert line removed from chart for {alert_to_delete.symbol}")
+                else:
+                    logger.warning(f"Failed to remove alert line from chart for {alert_to_delete.symbol}")
+            else:
+                logger.warning("Chart lines manager not available, alert deleted without removing chart line")
+
+            # Remove from alerts list
+            self.all_alerts.remove(alert_to_delete)
+            logger.info(f"Deleted alert: {alert_to_delete.symbol} at {alert_to_delete.price:.2f}")
+
+            # Save and refresh all components
+            self._save_and_refresh_all()
+
+        except Exception as e:
+            logger.error(f"Error deleting alert: {e}")
+
+    @Slot(object, float)
+    def _on_alert_triggered(self, alert: Alert, trigger_price: float):
+        """Handle triggered alert with chart line removal."""
+        try:
+            # Play alert sound
+            play_alert()
+            self.alert_sound_requested.emit()
+
+            # Update alert status
+            alert.triggered = True
+            alert.triggered_time = datetime.now()
+            alert.triggered_price = trigger_price
+
+            logger.info(f"Alert Triggered: {alert.symbol} at {trigger_price:.2f}")
+
+            # Remove chart line for triggered alert
+            if hasattr(self.main_window, 'chart_lines_manager'):
+                success = self.main_window.chart_lines_manager.remove_alert_line(
+                    symbol=alert.symbol,
+                    price=alert.price
+                )
+                if success:
+                    logger.info(f"Triggered alert line removed from chart for {alert.symbol}")
+                else:
+                    logger.warning(f"Failed to remove triggered alert line from chart for {alert.symbol}")
+            else:
+                logger.warning("Chart lines manager not available, triggered alert line not removed")
+
+            # Save and refresh all components
+            self._save_and_refresh_all()
+
+            # Switch to triggered alerts tab if dialog is open
+            if self.alert_manager_dialog and self.alert_manager_dialog.isVisible():
+                self.alert_manager_dialog.tab_widget.setCurrentIndex(1)
+
+        except Exception as e:
+            logger.error(f"Error handling triggered alert: {e}")
+
+    @Slot(object)
+    def _on_alert_expired(self, alert: Alert):
+        """Handle expired alert with chart line removal."""
+        try:
+            if alert not in self.all_alerts:
+                logger.warning(f"Expired alert not found in system: {alert.symbol}")
+                return
+
+            # Remove chart line for expired alert
+            if hasattr(self.main_window, 'chart_lines_manager'):
+                success = self.main_window.chart_lines_manager.remove_alert_line(
+                    symbol=alert.symbol,
+                    price=alert.price
+                )
+                if success:
+                    logger.info(f"Expired alert line removed from chart for {alert.symbol}")
+                else:
+                    logger.warning(f"Failed to remove expired alert line from chart for {alert.symbol}")
+            else:
+                logger.warning("Chart lines manager not available, expired alert line not removed")
+
+            # Remove from alerts list
+            self.all_alerts.remove(alert)
+            logger.info(f"Alert expired and removed: {alert.symbol} at {alert.price:.2f}")
+
+            # Save and refresh all components
+            self._save_and_refresh_all()
+
+        except Exception as e:
+            logger.error(f"Error handling expired alert: {e}")
+
+    def delete_alert_by_symbol_and_price(self, symbol: str, price: float):
+        """Public method to delete alert by symbol and price (useful for external calls)."""
+        try:
+            # Find the alert
+            alert_to_delete = None
+            for alert in self.all_alerts:
+                if alert.symbol == symbol and abs(alert.price - price) < 0.01:
+                    alert_to_delete = alert
+                    break
+
+            if alert_to_delete:
+                self._delete_alert(alert_to_delete)
+                return True
+            else:
+                logger.warning(f"No alert found for {symbol} at {price:.2f}")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error deleting alert by symbol and price: {e}")
+            return False
+
+    def get_alerts_for_symbol(self, symbol: str) -> List[Alert]:
+        """Get all alerts for a specific symbol."""
+        try:
+            return [alert for alert in self.all_alerts if alert.symbol == symbol]
+        except Exception as e:
+            logger.error(f"Error getting alerts for symbol {symbol}: {e}")
+            return []
+
+    def remove_all_alert_lines_for_symbol(self, symbol: str):
+        """Remove all alert lines for a symbol from chart (useful when switching symbols)."""
+        try:
+            if hasattr(self.main_window, 'chart_lines_manager'):
+                # Get all alerts for this symbol
+                symbol_alerts = self.get_alerts_for_symbol(symbol)
+
+                # Remove each alert line
+                for alert in symbol_alerts:
+                    if not alert.triggered:  # Only remove active alert lines
+                        self.main_window.chart_lines_manager.remove_alert_line(
+                            symbol=alert.symbol,
+                            price=alert.price
+                        )
+
+                logger.info(f"Removed all alert lines for symbol: {symbol}")
+
+        except Exception as e:
+            logger.error(f"Error removing alert lines for symbol {symbol}: {e}")
+
+    def refresh_alert_lines_for_symbol(self, symbol: str):
+        """Refresh all alert lines for a symbol on chart (useful when loading new symbol)."""
+        try:
+            if hasattr(self.main_window, 'chart_lines_manager'):
+                # Get all active alerts for this symbol
+                symbol_alerts = [alert for alert in self.all_alerts
+                                 if alert.symbol == symbol and not alert.triggered]
+
+                # Add lines for each active alert
+                for alert in symbol_alerts:
+                    intent_text = alert.intent.value if alert.intent != AlertIntent.BREAKOUT_WATCH else ""
+                    self.main_window.chart_lines_manager.add_alert_line(
+                        symbol=alert.symbol,
+                        price=alert.price,
+                        intent=intent_text
+                    )
+
+                logger.info(f"Refreshed {len(symbol_alerts)} alert lines for symbol: {symbol}")
+
+        except Exception as e:
+            logger.error(f"Error refreshing alert lines for symbol {symbol}: {e}")
+
+    # Method to handle bulk alert operations (useful for cleanup)
+    def cleanup_triggered_alert_lines(self):
+        """Remove all chart lines for triggered alerts (cleanup method)."""
+        try:
+            if hasattr(self.main_window, 'chart_lines_manager'):
+                triggered_alerts = [alert for alert in self.all_alerts if alert.triggered]
+
+                for alert in triggered_alerts:
+                    self.main_window.chart_lines_manager.remove_alert_line(
+                        symbol=alert.symbol,
+                        price=alert.price
+                    )
+
+                logger.info(f"Cleaned up {len(triggered_alerts)} triggered alert lines")
+
+        except Exception as e:
+            logger.error(f"Error cleaning up triggered alert lines: {e}")
+
+    # Method to synchronize chart lines with alert system (useful for recovery)
+    def sync_alert_lines_with_system(self, symbol: str = None):
+        """Synchronize chart lines with alert system state."""
+        try:
+            if not hasattr(self.main_window, 'chart_lines_manager'):
+                logger.warning("Chart lines manager not available for sync")
+                return
+
+            if symbol:
+                # Sync for specific symbol
+                active_alerts = [alert for alert in self.all_alerts
+                                 if alert.symbol == symbol and not alert.triggered]
+
+                # Remove all existing alert lines for this symbol first
+                self.remove_all_alert_lines_for_symbol(symbol)
+
+                # Add lines for active alerts
+                for alert in active_alerts:
+                    intent_text = alert.intent.value if alert.intent != AlertIntent.BREAKOUT_WATCH else ""
+                    self.main_window.chart_lines_manager.add_alert_line(
+                        symbol=alert.symbol,
+                        price=alert.price,
+                        intent=intent_text
+                    )
+
+                logger.info(f"Synced alert lines for symbol {symbol}: {len(active_alerts)} lines")
+            else:
+                # Sync for all symbols (heavy operation, use sparingly)
+                active_alerts = [alert for alert in self.all_alerts if not alert.triggered]
+                symbols = list(set(alert.symbol for alert in active_alerts))
+
+                for sym in symbols:
+                    self.refresh_alert_lines_for_symbol(sym)
+
+                logger.info(f"Synced alert lines for {len(symbols)} symbols")
+
+        except Exception as e:
+            logger.error(f"Error syncing alert lines: {e}")
 
     def _show_creation_dialog(self, symbol, price, intent="", note="", current_ltp=0.0):
         """Show the alert creation dialog."""

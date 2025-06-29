@@ -36,9 +36,10 @@ class PositionManager(QObject):
     positions_updated = Signal(list)  # Send positions to table
     show_notification = Signal(str, str)  # message, type
 
-    def __init__(self, trader):
+    def __init__(self, trader, main_window=None):
         super().__init__()
         self.trader = trader
+        self.main_window = main_window  # Add this line
         self.tracking_orders = {}  # order_id -> order_data
         self.order_check_timer = QTimer()
         self.order_check_timer.timeout.connect(self._check_pending_orders)
@@ -146,45 +147,95 @@ class PositionManager(QObject):
     # ===========================================================================
 
     def _handle_order_completion(self, order_id: str, kite_order: dict, status: str):
-        """Handle when order completes/fails"""
+        """Handle when order completes/fails with chart line integration"""
         symbol = kite_order.get('tradingsymbol', '')
         quantity = kite_order.get('quantity', 0)
         tx_type = kite_order.get('transaction_type', '')
 
         try:
             if status in ['COMPLETE', 'FILLED']:
+                # Show order completed notification
                 show_order_completed(symbol, "")
+
+                # Add position line to chart
+                if self.main_window and hasattr(self.main_window, 'chart_lines_manager'):
+                    order_type = kite_order.get('transaction_type', '')
+                    filled_quantity = kite_order.get('filled_quantity', kite_order.get('quantity', 0))
+                    avg_price = kite_order.get('average_price', 0)
+
+                    if filled_quantity and avg_price:
+                        success = self.main_window.chart_lines_manager.add_position_line(
+                            symbol=symbol,
+                            order_type=order_type,
+                            quantity=filled_quantity,
+                            avg_price=avg_price
+                        )
+                        if success:
+                            logger.info(f"Position line added to chart for {symbol}")
+                        else:
+                            logger.warning(f"Failed to add position line to chart for {symbol}")
+                    else:
+                        logger.warning(
+                            f"Invalid order data for chart line: quantity={filled_quantity}, price={avg_price}")
+                else:
+                    logger.debug("Chart lines manager not available, position line not added")
+
             elif status in ['REJECTED', 'CANCELLED', 'FAILED']:
                 show_order_failed(f"Order {status.lower()}")
 
-            # Send appropriate notification
-            if status == 'COMPLETE':
-                avg_price = kite_order.get('average_price', 0)
-                self.show_notification.emit(
-                    f"✅ {tx_type} {quantity} {symbol} @ ₹{avg_price} - Completed",
-                    "success"
-                )
-
-                # Refresh positions after completion
-                QTimer.singleShot(2000, lambda: self.fetch_positions_from_kite("order_completed"))
-
-            elif status == 'CANCELLED':
-                self.show_notification.emit(
-                    f"❌ {tx_type} {quantity} {symbol} - Cancelled",
-                    "warning"
-                )
-
-            elif status == 'REJECTED':
-                reject_reason = kite_order.get('status_message', 'Unknown reason')
-                self.show_notification.emit(
-                    f"🚫 {tx_type} {quantity} {symbol} - Rejected: {reject_reason}",
-                    "error"
-                )
-
-            logger.info(f"Order {order_id} completed with status: {status}")
         except Exception as e:
-            logger.error(f"Error handling order completion: {e}")
-            show_error("Order completion error")
+            logger.error(f"Error in order completion handling: {e}")
+
+    def update_position_line(self, symbol: str, total_quantity: int, avg_price: float, order_type: str):
+        """Update position line when position changes (e.g., partial fills, position averaging)"""
+        try:
+            if not self.main_window or not hasattr(self.main_window, 'chart_lines_manager'):
+                logger.debug("Chart lines manager not available for position line update")
+                return
+
+            # Remove existing position line first
+            remove_success = self.main_window.chart_lines_manager.remove_position_line(symbol)
+
+            # Add new line with updated info if position still exists
+            if total_quantity != 0:
+                add_success = self.main_window.chart_lines_manager.add_position_line(
+                    symbol=symbol,
+                    order_type=order_type,
+                    quantity=abs(total_quantity),
+                    avg_price=avg_price
+                )
+                if add_success:
+                    logger.info(f"Updated position line for {symbol}: {total_quantity} @ {avg_price:.2f}")
+                else:
+                    logger.warning(f"Failed to update position line for {symbol}")
+            else:
+                logger.info(f"Position closed, line removed for {symbol}")
+
+        except Exception as e:
+            logger.error(f"Error updating position line for {symbol}: {e}")
+
+    def remove_position_line_for_symbol(self, symbol: str):
+        """Remove position line for a symbol (when position is fully closed)"""
+        try:
+            if self.main_window and hasattr(self.main_window, 'chart_lines_manager'):
+                success = self.main_window.chart_lines_manager.remove_position_line(symbol)
+                if success:
+                    logger.info(f"Position line removed for {symbol}")
+                else:
+                    logger.warning(f"Failed to remove position line for {symbol}")
+            else:
+                logger.debug("Chart lines manager not available for position line removal")
+        except Exception as e:
+            logger.error(f"Error removing position line for {symbol}: {e}")
+
+    # Add method to handle position updates from external sources (like position table)
+    def on_position_closed_externally(self, symbol: str):
+        """Handle position closure from external sources (e.g., manual close, web platform)"""
+        try:
+            self.remove_position_line_for_symbol(symbol)
+            logger.info(f"External position closure handled for {symbol}")
+        except Exception as e:
+            logger.error(f"Error handling external position closure for {symbol}: {e}")
 
     # ===========================================================================
     # JOB 4: SAFETY REFRESH (OPTIONAL)

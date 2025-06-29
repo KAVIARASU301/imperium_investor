@@ -3570,6 +3570,7 @@ class CandlestickChart(QWidget):
             QMenu::item:selected { background-color: #0066cc; }
         """)
 
+
     def closeEvent(self, event):
         """Enhanced close event that saves the last viewed symbol"""
         try:

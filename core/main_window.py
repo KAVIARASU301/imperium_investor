@@ -23,6 +23,7 @@ from widgets.order_dialog import OrderDialog
 from widgets.order_history_dialog import OrderHistoryDialog
 from widgets.performance_dialog import PerformanceDialog
 from core.alert_management_system import AlertSystemManager
+from core.chart_lines_manager import ChartLinesManager
 
 from core.position_manager import PositionManager
 
@@ -72,7 +73,12 @@ class SwingTraderWindow(QMainWindow):
         self.trade_logger = TradeLogger(mode=self.trading_mode)
 
         # SIMPLIFIED MANAGERS - NO NOTIFICATION SYSTEM
-        self.position_manager = PositionManager(self.trader)
+        self.position_manager = PositionManager(self.trader, main_window=self)
+
+        self.chart_lines_manager = ChartLinesManager(self)
+        self.chart_lines_manager.chart_refresh_requested.connect(
+            self._refresh_chart_drawings
+        )
 
         self.instrument_list: List[Dict] = []
         self.instrument_map: Dict[str, Dict] = {}
@@ -311,6 +317,17 @@ class SwingTraderWindow(QMainWindow):
                         logger.info(f"Ensured subscription for chart symbol {symbol}")
             except Exception as e:
                 logger.error(f"Failed to ensure chart subscription for {symbol}: {e}")
+
+    def _refresh_chart_drawings(self):
+        """Refresh chart drawings when lines are updated"""
+        try:
+            if hasattr(self, 'candlestick_chart'):
+                # Force chart to reload current symbol's drawings
+                current_symbol = getattr(self.candlestick_chart, 'current_symbol', '')
+                if current_symbol:
+                    self.candlestick_chart.load_symbol_with_fresh_drawings(current_symbol)
+        except Exception as e:
+            logger.error(f"Error refreshing chart drawings: {e}")
 
     # ==============================================================================
     # SIMPLIFIED SIGNAL CONNECTIONS

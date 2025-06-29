@@ -38,6 +38,7 @@ class SoundManager(QObject):
         self.enabled = True
         self.use_qt_audio = True
         self.use_system_fallback = True
+        self.qt_sounds_initialized = False  # NEW: Track Qt initialization
 
         # Sound file mappings - only required sounds
         self.sound_files = {
@@ -48,7 +49,7 @@ class SoundManager(QObject):
         }
 
         self._detect_audio_system()
-        self._load_all_sounds()
+        self._load_sound_file_paths()  # CHANGED: Only load file paths, not Qt sounds
         self._initialized = True
         logger.info("SoundManager initialized successfully")
 
@@ -125,10 +126,8 @@ class SoundManager(QObject):
 
         return None
 
-    # UPDATE your _load_all_sounds method in sounds.py:
-    def _load_all_sounds(self):
-        """Load all sound files from assets directory with robust path finding"""
-
+    def _load_sound_file_paths(self):
+        """Load sound file paths (but don't create Qt sounds yet)"""
         # Find assets directory dynamically
         assets_dir = self.find_assets_directory()
 
@@ -145,10 +144,8 @@ class SoundManager(QObject):
             sound_path = self._find_sound_file(filename, assets_dir)
             if sound_path:
                 self.sound_files_paths[sound_name] = sound_path
-                if self.use_qt_audio:
-                    self.sounds[sound_name] = self._create_qt_sound_effect(sound_path)
-                else:
-                    self.sounds[sound_name] = None
+                # Initialize sounds dict but don't create Qt sounds yet
+                self.sounds[sound_name] = None
             else:
                 self.sounds[sound_name] = None
                 self.sound_files_paths[sound_name] = ""
@@ -156,7 +153,7 @@ class SoundManager(QObject):
         # Log sound loading status
         loaded_count = sum(1 for path in self.sound_files_paths.values() if path)
         total_count = len(self.sound_files)
-        logger.info(f"Sound loading complete: {loaded_count}/{total_count} sound files found")
+        logger.info(f"Sound files found: {loaded_count}/{total_count}")
 
         # Debug info
         for name, path in self.sound_files_paths.items():
@@ -164,6 +161,24 @@ class SoundManager(QObject):
                 logger.info(f"  ✅ {name}: {path}")
             else:
                 logger.warning(f"  ❌ {name}: NOT FOUND")
+
+    def _initialize_qt_sounds(self):
+        """Initialize Qt sounds only when QApplication is available"""
+        if self.qt_sounds_initialized:
+            return
+
+        app = QApplication.instance()
+        if app is None:
+            logger.debug("QApplication not available, skipping Qt sound initialization")
+            return
+
+        logger.info("Initializing Qt sounds...")
+        for sound_name, sound_path in self.sound_files_paths.items():
+            if sound_path and self.use_qt_audio:
+                self.sounds[sound_name] = self._create_qt_sound_effect(sound_path)
+
+        self.qt_sounds_initialized = True
+        logger.info("Qt sounds initialized successfully")
 
     def _find_sound_file(self, filename: str, assets_dir: str) -> str:
         """Find sound file with fallback extensions"""
@@ -184,7 +199,7 @@ class SoundManager(QObject):
         try:
             app = QApplication.instance()
             if app is None:
-                logger.warning("No QApplication instance available")
+                # Don't log warning here - this is normal during initialization
                 return None
 
             sound_effect = QSoundEffect(app)
@@ -212,6 +227,10 @@ class SoundManager(QObject):
         """Play sound using Qt QSoundEffect"""
         if not self.use_qt_audio:
             return False
+
+        # Initialize Qt sounds if not done yet
+        if not self.qt_sounds_initialized:
+            self._initialize_qt_sounds()
 
         sound_effect = self.sounds.get(sound_name)
         if sound_effect is None:
@@ -310,9 +329,12 @@ class SoundManager(QObject):
     def set_volume(self, volume: float):
         """Set volume for Qt sounds (0.0 to 1.0)"""
         self.default_volume = max(0.0, min(1.0, volume))
+
+        # Update existing Qt sounds
         for sound_effect in self.sounds.values():
             if sound_effect:
                 sound_effect.setVolume(self.default_volume)
+
         logger.info(f"Qt sound volume set to: {self.default_volume}")
 
     def enable_sounds(self, enabled: bool = True):
