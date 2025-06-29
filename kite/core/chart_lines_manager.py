@@ -1,0 +1,542 @@
+import json
+import os
+import logging
+from datetime import datetime
+from typing import Dict, Any, Optional
+from PySide6.QtCore import QObject, Signal, Slot
+
+logger = logging.getLogger(__name__)
+
+
+class ChartLinesManager(QObject):
+    """
+    Manages alert lines and position lines in the chart
+    Compatible with existing drawing system: user_data/chart_drawings/SYMBOL_day_state.json
+    """
+
+    # Signals to communicate with chart
+    chart_refresh_requested = Signal()
+
+    def __init__(self, main_window):
+        super().__init__()
+        self.main_window = main_window
+        self.drawings_dir = "user_data/chart_drawings"
+        os.makedirs(self.drawings_dir, exist_ok=True)
+
+    def _get_symbol_file_path(self, symbol: str) -> str:
+        """Get the path to the symbol's drawings JSON file for day timeframe"""
+        # Use the same format as existing system: SYMBOL_day_state.json
+        safe_symbol = symbol.replace("/", "_").replace(":", "_").replace("-", "_")
+        return os.path.join(self.drawings_dir, f"{safe_symbol}_day_state.json")
+
+    def _load_symbol_drawings(self, symbol: str) -> Dict:
+        """Load existing drawings for a symbol or create new structure"""
+        file_path = self._get_symbol_file_path(symbol)
+
+        if os.path.exists(file_path):
+            try:
+                with open(file_path, 'r') as f:
+                    data = json.load(f)
+
+                # Handle both old and new format
+                if "drawings" in data:
+                    return data  # New format with state
+                else:
+                    # Old format - just drawings
+                    return {
+                        "drawings": data,
+                        "visible_candle_count": 100
+                    }
+            except (json.JSONDecodeError, IOError) as e:
+                logger.error(f"Error loading drawings for {symbol}: {e}")
+
+        # Default structure matching existing system
+        return {
+            "drawings": {
+                "lines": [],
+                "rectangles": [],
+                "notes": [],
+                "horizontal_lines": [],
+                "horizontal_rays": [],
+                "arrow_lines": []
+            },
+            "visible_candle_count": 100
+        }
+
+    def _save_symbol_drawings(self, symbol: str, state: Dict) -> bool:
+        """Save drawings to symbol's JSON file"""
+        try:
+            file_path = self._get_symbol_file_path(symbol)
+
+            # Ensure the state structure is valid
+            if not isinstance(state, dict):
+                logger.error(f"Invalid state type for {symbol}: {type(state)}")
+                return False
+
+            # Ensure drawings structure exists
+            if "drawings" not in state:
+                state["drawings"] = {
+                    "lines": [],
+                    "rectangles": [],
+                    "notes": [],
+                    "horizontal_lines": [],
+                    "horizontal_rays": [],
+                    "arrow_lines": []
+                }
+
+            drawings = state["drawings"]
+            if not isinstance(drawings, dict):
+                logger.error(f"Invalid drawings type for {symbol}: {type(drawings)}")
+                return False
+
+            # Ensure all required drawing types exist
+            for draw_type in ["lines", "rectangles", "notes", "horizontal_lines", "horizontal_rays", "arrow_lines"]:
+                if draw_type not in drawings:
+                    drawings[draw_type] = []
+                elif not isinstance(drawings[draw_type], list):
+                    drawings[draw_type] = []
+
+            # Save with proper formatting
+            with open(file_path, 'w') as f:
+                json.dump(state, f, indent=2)
+
+            logger.info(f"Saved drawings state for {symbol}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error saving drawings for {symbol}: {e}")
+            return False
+
+    def _create_horizontal_ray_line(self, price: float, color: str, start_time: float,
+                                    text: str) -> Dict:
+        """Create a horizontal ray line structure matching existing format"""
+        current_time = datetime.now().timestamp() * 1000  # JavaScript timestamp format
+        # Set start time to 10 days ago so text appears fully on chart
+        ten_days_ago = (datetime.now().timestamp() - (10 * 24 * 60 * 60)) * 1000
+
+        return {
+            "id": current_time + (price * 1000),  # Unique ID
+            "type": "horizontal_ray",
+            "startTime": ten_days_ago,  # Start 10 days ago
+            "startPrice": price,
+            "color": color,
+            "lineWidth": 1,
+            "timestamp": current_time
+        }
+
+    def _create_text_note(self, price: float, start_time: float, text: str,
+                          color: str = "#FFFFFF") -> Dict:
+        """Create a text note structure matching existing format"""
+        current_time = datetime.now().timestamp() * 1000  # JavaScript timestamp format
+        # Set start time to 10 days ago so text appears fully on chart
+        ten_days_ago = (datetime.now().timestamp() - (10 * 24 * 60 * 60)) * 1000
+
+        return {
+            "id": current_time + (price * 1000) + 1,  # Unique ID (slightly different from line)
+            "type": "note",
+            "time": ten_days_ago,  # Start 10 days ago
+            "price": price + 0.5,  # Position text slightly above the line
+            "text": text,
+            "color": color,
+            "size": 12,
+            "timestamp": current_time
+        }
+
+    # Alert Line Management
+    def add_alert_line(self, symbol: str, price: float, intent: str = "") -> bool:
+        """Add an alert line with text"""
+        try:
+            state = self._load_symbol_drawings(symbol)
+            # We don't use current_time parameter anymore since it's calculated in helper functions
+
+            # Create alert text (no intent)
+            alert_text = f"Alert @ {price:.2f}"
+
+            # Create horizontal ray line (yellow color) - starts 10 days ago
+            line = self._create_horizontal_ray_line(
+                price=price,
+                color="#FFD700",  # Yellow
+                start_time=0,  # Not used anymore, calculated inside function
+                text=alert_text
+            )
+
+            # Create text note above the line - starts 10 days ago
+            note = self._create_text_note(
+                price=price,
+                start_time=0,  # Not used anymore, calculated inside function
+                text=alert_text,
+                color="#FFD700"
+            )
+
+            # Add to drawings
+            state["drawings"]["horizontal_rays"].append(line)
+            state["drawings"]["notes"].append(note)
+
+            # Save and refresh
+            success = self._save_symbol_drawings(symbol, state)
+            if success:
+                self._refresh_chart()
+                logger.info(f"Added alert line for {symbol} at {price:.2f} (starts 10 days ago)")
+
+            return success
+
+        except Exception as e:
+            logger.error(f"Error adding alert line: {e}")
+            return False
+
+    def remove_alert_line(self, symbol: str, price: float) -> bool:
+        """Remove alert line by price (with tolerance for floating point comparison)"""
+        try:
+            state = self._load_symbol_drawings(symbol)
+            drawings = state["drawings"]
+
+            # Remove horizontal rays matching the price (yellow alert lines)
+            original_ray_count = len(drawings["horizontal_rays"])
+            drawings["horizontal_rays"] = [
+                ray for ray in drawings["horizontal_rays"]
+                if not (ray.get("type") == "horizontal_ray" and
+                        abs(ray.get("startPrice", 0) - price) < 0.01 and
+                        ray.get("color") == "#FFD700")
+            ]
+
+            # Remove corresponding notes
+            original_note_count = len(drawings["notes"])
+            drawings["notes"] = [
+                note for note in drawings["notes"]
+                if not (note.get("type") == "note" and
+                        abs(note.get("price", 0) - price - 0.5) < 0.01 and
+                        "Alert @" in note.get("text", "") and
+                        note.get("color") == "#FFD700")
+            ]
+
+            removed_items = (original_ray_count - len(drawings["horizontal_rays"])) + \
+                            (original_note_count - len(drawings["notes"]))
+
+            if removed_items > 0:
+                success = self._save_symbol_drawings(symbol, state)
+                if success:
+                    self._refresh_chart()
+                    logger.info(f"Removed {removed_items} alert line items for {symbol} at {price:.2f}")
+                return success
+            else:
+                logger.debug(f"No alert line found for {symbol} at {price:.2f}")
+                return True  # Not an error if line doesn't exist
+
+        except Exception as e:
+            logger.error(f"Error removing alert line: {e}")
+            return False
+
+    # Position Line Management
+    def add_position_line(self, symbol: str, order_type: str, quantity: int,
+                          avg_price: float, timestamp: float = None) -> bool:
+        """Add a position line with text showing total position"""
+        try:
+            state = self._load_symbol_drawings(symbol)
+
+            # Get existing position information before removing lines
+            existing_position = self._get_existing_position_info(state["drawings"])
+
+            # Remove any existing position lines first
+            self._remove_existing_position_lines(state["drawings"])
+
+            # Calculate total position
+            total_quantity = quantity  # Start with current order quantity
+            final_avg_price = avg_price  # Start with current order price
+            final_order_type = order_type
+
+            if existing_position:
+                existing_qty = existing_position['quantity']
+                existing_price = existing_position['avg_price']
+                existing_type = existing_position['order_type']
+
+                # Calculate total quantity and average price
+                if order_type.upper() == existing_type.upper():
+                    # Same direction - add quantities and calculate weighted average
+                    total_quantity = existing_qty + quantity
+                    total_cost = (existing_qty * existing_price) + (quantity * avg_price)
+                    final_avg_price = total_cost / total_quantity if total_quantity != 0 else avg_price
+                    final_order_type = order_type
+                else:
+                    # Opposite direction - net the quantities
+                    if order_type.upper() == "BUY":
+                        total_quantity = quantity - existing_qty  # New buy minus existing short
+                    else:
+                        total_quantity = existing_qty - quantity  # Existing long minus new sell
+
+                    # Determine final order type and price
+                    if total_quantity > 0:
+                        final_order_type = "BUY" if existing_type.upper() == "BUY" else "BUY"
+                        if order_type.upper() == "BUY":
+                            final_order_type = "BUY"
+                            final_avg_price = avg_price
+                        else:
+                            final_order_type = existing_type
+                            final_avg_price = existing_price
+                    elif total_quantity < 0:
+                        final_order_type = "SELL"
+                        final_avg_price = avg_price if order_type.upper() == "SELL" else existing_price
+                        total_quantity = abs(total_quantity)
+                    else:
+                        # Position is fully closed, don't add any line
+                        success = self._save_symbol_drawings(symbol, state)
+                        if success:
+                            self._refresh_chart()
+                            logger.info(f"Position fully closed for {symbol}, no line added")
+                        return success
+
+            # Don't create line if total quantity is 0
+            if total_quantity == 0:
+                success = self._save_symbol_drawings(symbol, state)
+                if success:
+                    self._refresh_chart()
+                    logger.info(f"Position closed for {symbol}, line removed")
+                return success
+
+            # Determine colors and text based on final order type and total quantity
+            if final_order_type.upper() == "BUY":
+                color = "#00FF00"  # Green
+                text = f"Bought {total_quantity} @{final_avg_price:.2f}"
+            else:  # SELL/SHORT
+                color = "#FF0000"  # Red
+                text = f"Shorted {total_quantity} @{final_avg_price:.2f}"
+
+            # Create horizontal ray line - starts 10 days ago
+            line = self._create_horizontal_ray_line(
+                price=final_avg_price,
+                color=color,
+                start_time=0,  # Not used anymore, calculated inside function
+                text=text
+            )
+
+            # Create text note above the line - starts 10 days ago
+            note = self._create_text_note(
+                price=final_avg_price,
+                start_time=0,  # Not used anymore, calculated inside function
+                text=text,
+                color=color
+            )
+
+            # Add to drawings
+            state["drawings"]["horizontal_rays"].append(line)
+            state["drawings"]["notes"].append(note)
+
+            # Save and refresh
+            success = self._save_symbol_drawings(symbol, state)
+            if success:
+                self._refresh_chart()
+                logger.info(f"Updated position line for {symbol}: {text} (total position)")
+
+            return success
+
+        except Exception as e:
+            logger.error(f"Error adding position line: {e}")
+            return False
+
+    def remove_position_line(self, symbol: str) -> bool:
+        """Remove all position lines for a symbol"""
+        try:
+            state = self._load_symbol_drawings(symbol)
+            drawings = state["drawings"]
+
+            # Count items before removal
+            original_ray_count = len(drawings["horizontal_rays"])
+            original_note_count = len(drawings["notes"])
+
+            # Remove position lines (green or red colored rays/notes)
+            self._remove_existing_position_lines(drawings)
+
+            removed_items = (original_ray_count - len(drawings["horizontal_rays"])) + \
+                            (original_note_count - len(drawings["notes"]))
+
+            if removed_items > 0:
+                success = self._save_symbol_drawings(symbol, state)
+                if success:
+                    self._refresh_chart()
+                    logger.info(f"Removed {removed_items} position line items for {symbol}")
+                return success
+            else:
+                logger.debug(f"No position lines found for {symbol}")
+                return True
+
+        except Exception as e:
+            logger.error(f"Error removing position line: {e}")
+            return False
+
+    def _get_existing_position_info(self, drawings: Dict) -> Optional[Dict]:
+        """Extract existing position information from current drawings"""
+        try:
+            # Look for existing position lines (green or red horizontal rays)
+            for ray in drawings.get("horizontal_rays", []):
+                if (ray.get("type") == "horizontal_ray" and
+                        ray.get("color") in ["#00FF00", "#FF0000"]):
+
+                    # Look for corresponding note to extract quantity and price info
+                    for note in drawings.get("notes", []):
+                        if (note.get("type") == "note" and
+                                note.get("color") == ray.get("color") and
+                                any(keyword in note.get("text", "") for keyword in ["Bought", "Shorted"])):
+
+                            # Parse the text to extract quantity and price
+                            text = note.get("text", "")
+                            try:
+                                if "Bought" in text:
+                                    # Extract from "Bought 100 @150.25"
+                                    parts = text.replace("Bought ", "").split(" @")
+                                    quantity = int(parts[0])
+                                    price = float(parts[1])
+                                    return {
+                                        'quantity': quantity,
+                                        'avg_price': price,
+                                        'order_type': 'BUY'
+                                    }
+                                elif "Shorted" in text:
+                                    # Extract from "Shorted 50 @145.50"
+                                    parts = text.replace("Shorted ", "").split(" @")
+                                    quantity = int(parts[0])
+                                    price = float(parts[1])
+                                    return {
+                                        'quantity': quantity,
+                                        'avg_price': price,
+                                        'order_type': 'SELL'
+                                    }
+                            except (ValueError, IndexError) as e:
+                                logger.warning(f"Could not parse position text: {text}, error: {e}")
+                                continue
+
+            return None
+
+        except Exception as e:
+            logger.error(f"Error getting existing position info: {e}")
+            return None
+
+    def _remove_existing_position_lines(self, drawings: Dict):
+        """Helper to remove existing position lines from drawings"""
+        # Remove position rays (green or red colored, but not yellow alert lines)
+        drawings["horizontal_rays"] = [
+            ray for ray in drawings["horizontal_rays"]
+            if not (ray.get("type") == "horizontal_ray" and
+                    ray.get("color") in ["#00FF00", "#FF0000"])
+        ]
+
+        # Remove position notes (containing "Bought" or "Shorted", but not "Alert @")
+        drawings["notes"] = [
+            note for note in drawings["notes"]
+            if not (note.get("type") == "note" and
+                    any(keyword in note.get("text", "") for keyword in ["Bought", "Shorted"]) and
+                    note.get("color") in ["#00FF00", "#FF0000"])
+        ]
+
+    def _refresh_chart(self):
+        """Signal the chart to refresh and reload drawings"""
+        try:
+            self.chart_refresh_requested.emit()
+
+            # Directly refresh chart if available
+            if hasattr(self.main_window, 'candlestick_chart'):
+                chart = self.main_window.candlestick_chart
+
+                # Try different methods to refresh the chart
+                if hasattr(chart, 'load_symbol_drawings'):
+                    chart.load_symbol_drawings(chart.current_symbol, 'day')
+                elif hasattr(chart, '_load_chart_data'):
+                    chart._load_chart_data(force_refresh=True)
+                elif hasattr(chart, 'reload_drawings'):
+                    chart.reload_drawings()
+
+                logger.debug("Chart refresh requested")
+
+        except Exception as e:
+            logger.error(f"Error refreshing chart: {e}")
+
+    def load_symbol_with_fresh_drawings(self, symbol: str):
+        """Load symbol and refresh its drawings"""
+        try:
+            file_path = self._get_symbol_file_path(symbol)
+
+            if os.path.exists(file_path):
+                with open(file_path, 'r') as f:
+                    state = json.load(f)
+
+                # Update chart with fresh drawings
+                if hasattr(self.main_window, 'candlestick_chart'):
+                    chart = self.main_window.candlestick_chart
+
+                    # Try to update the chart's drawings
+                    if hasattr(chart, 'run_js_function'):
+                        chart.run_js_function("updateDrawings", [state.get("drawings", {})])
+                    elif hasattr(chart, 'chart_view'):
+                        js_code = f"if (window.chart && window.chart.updateDrawings) window.chart.updateDrawings({json.dumps(state.get('drawings', {}))});"
+                        chart.chart_view.page().runJavaScript(js_code)
+
+                logger.info(f"Loaded fresh drawings for {symbol}")
+        except Exception as e:
+            logger.error(f"Error loading fresh drawings for {symbol}: {e}")
+
+    # Public interface methods for other components
+    @Slot(str, float, str)
+    def on_alert_created(self, symbol: str, price: float, intent: str = ""):
+        """Slot to handle alert creation"""
+        self.add_alert_line(symbol, price, intent)
+
+    @Slot(str, float)
+    def on_alert_triggered_or_deleted(self, symbol: str, price: float):
+        """Slot to handle alert trigger or deletion"""
+        self.remove_alert_line(symbol, price)
+
+    @Slot(str, str, int, float)
+    def on_position_created(self, symbol: str, order_type: str, quantity: int, avg_price: float):
+        """Slot to handle position creation"""
+        self.add_position_line(symbol, order_type, quantity, avg_price)
+
+    @Slot(str)
+    def on_position_closed(self, symbol: str):
+        """Slot to handle position closure"""
+        self.remove_position_line(symbol)
+
+    def sync_lines_with_chart_symbol(self, symbol: str):
+        """Sync alert and position lines when chart symbol changes"""
+        try:
+            # This method can be called when the chart loads a new symbol
+            # to ensure all lines are properly displayed
+            self.load_symbol_with_fresh_drawings(symbol)
+            logger.info(f"Synced lines for chart symbol: {symbol}")
+        except Exception as e:
+            logger.error(f"Error syncing lines for symbol {symbol}: {e}")
+
+    def cleanup_all_triggered_alerts(self):
+        """Remove all alert lines from all symbol files (cleanup utility)"""
+        try:
+            for filename in os.listdir(self.drawings_dir):
+                if filename.endswith("_day_state.json"):
+                    symbol = filename.replace("_day_state.json", "").replace("_", "/")
+
+                    try:
+                        state = self._load_symbol_drawings(symbol)
+                        drawings = state["drawings"]
+
+                        # Remove all alert lines (yellow)
+                        original_count = len(drawings["horizontal_rays"]) + len(drawings["notes"])
+
+                        drawings["horizontal_rays"] = [
+                            ray for ray in drawings["horizontal_rays"]
+                            if ray.get("color") != "#FFD700"
+                        ]
+
+                        drawings["notes"] = [
+                            note for note in drawings["notes"]
+                            if not ("Alert @" in note.get("text", "") and note.get("color") == "#FFD700")
+                        ]
+
+                        new_count = len(drawings["horizontal_rays"]) + len(drawings["notes"])
+                        removed = original_count - new_count
+
+                        if removed > 0:
+                            self._save_symbol_drawings(symbol, state)
+                            logger.info(f"Cleaned up {removed} alert lines for {symbol}")
+
+                    except Exception as e:
+                        logger.error(f"Error cleaning up alerts for {symbol}: {e}")
+
+        except Exception as e:
+            logger.error(f"Error during alert cleanup: {e}")
+

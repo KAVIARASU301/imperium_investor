@@ -7,9 +7,9 @@ from PySide6.QtWidgets import QApplication, QMessageBox, QWidget
 from PySide6.QtCore import QTimer
 from kiteconnect import KiteConnect
 from login_setup.login_manager import LoginManager
-from utils.paper_trading_manager import PaperTradingManager
+from kite.utils.paper_trading_manager import PaperTradingManager
 from login_setup.login_setup_config import setup_logging
-from core.main_window import SwingTraderWindow
+from kite.core.main_window import SwingTraderWindow
 
 # Set up global logging for the application.
 setup_logging()
