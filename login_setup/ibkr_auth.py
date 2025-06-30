@@ -31,7 +31,7 @@ class IBKRConnectionParams:
     host: str = "127.0.0.1"
     port: int = 7497  # Default to paper trading
     client_id: int = 1
-    timeout: float = 10.0
+    timeout: float = 50.0
     trading_mode: TradingMode = TradingMode.PAPER
 
 

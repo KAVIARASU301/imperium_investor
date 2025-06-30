@@ -20,7 +20,7 @@ class ChartLinesManager(QObject):
     def __init__(self, main_window):
         super().__init__()
         self.main_window = main_window
-        self.drawings_dir = "user_data/chart_drawings"
+        self.drawings_dir = "kite/user_data/chart_drawings"
         os.makedirs(self.drawings_dir, exist_ok=True)
 
     def _get_symbol_file_path(self, symbol: str) -> str:

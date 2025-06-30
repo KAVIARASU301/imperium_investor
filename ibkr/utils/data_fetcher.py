@@ -114,3 +114,15 @@ class IBKRDataFetcher:
         except Exception as e:
             logger.error(f"Error fetching orders: {e}")
             return []
+
+    async def get_current_price(self, symbol: str) -> float:
+        """Gets the last traded price for a symbol."""
+        try:
+            contract = Stock(symbol, 'SMART', 'USD')
+            self.ib.reqMktData(contract, '', False, False)
+            await self.ib.sleep(1) # Allow time for data to arrive
+            ticker = self.ib.ticker(contract)
+            return ticker.last
+        except Exception as e:
+            logger.error(f"Error fetching current price for {symbol}: {e}")
+            return 0.0
