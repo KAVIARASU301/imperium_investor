@@ -483,7 +483,7 @@ class DualModeLoginManager(QDialog):
         # Host
         host_layout = QHBoxLayout()
         host_layout.addWidget(QLabel("Host:"))
-        self.ibkr_host_input = QLineEdit("127.0.0.1")
+        self.ibkr_host_input = QLineEdit("::1")
         self.ibkr_host_input.setObjectName("settingInput")
         host_layout.addWidget(self.ibkr_host_input)
         settings_layout.addLayout(host_layout)
@@ -1005,7 +1005,7 @@ Need help? Check IBKR API documentation or contact support.
     def _auto_login_ibkr(self, session_data: Dict[str, Any]):
         """Auto-login with saved IBKR session (attempt reconnection)"""
         client_id = session_data.get('client_id', 1)
-        host = session_data.get('host', '127.0.0.1')
+        host = session_data.get('host', '::1')
 
         if not is_ibkr_available():
             self.stacked_widget.setCurrentIndex(1)

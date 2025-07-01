@@ -1,14 +1,16 @@
 # login_setup/ibkr_auth.py
 """
-Interactive Brokers authentication and connection management using ib_insync.
-Handles both paper and live trading connections to TWS/IB Gateway.
+Interactive Brokers authentication with Linux timeout fixes.
+This version addresses common timeout issues on Linux systems.
 """
 
 import logging
 import asyncio
+import time
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
-
+import asyncio
+import threading
 from PySide6.QtCore import QThread, Signal, QTimer, QObject
 
 try:
@@ -28,17 +30,16 @@ logger = logging.getLogger(__name__)
 @dataclass
 class IBKRConnectionParams:
     """Parameters for IBKR connection"""
-    host: str = "127.0.0.1"
+    host: str = "::1"
     port: int = 7497  # Default to paper trading
     client_id: int = 1
-    timeout: float = 50.0
+    timeout: float = 15.0  # Reduced from 50.0
     trading_mode: TradingMode = TradingMode.PAPER
 
 
 class IBKRConnectionWorker(QThread):
     """
-    Background worker thread for IBKR connection to prevent UI freezing.
-    Uses proper asyncio event loop handling for ib_insync.
+    Background worker thread for IBKR connection with improved thread safety.
     """
 
     # Signals
@@ -53,10 +54,11 @@ class IBKRConnectionWorker(QThread):
         self.ib = None
         self.should_stop = False
 
+    # Replace the IBKRConnectionWorker.run() method in your ibkr_auth.py with this version:
+
     def run(self):
         """
-        Main connection logic.
-        This now runs entirely within the QThread's event loop.
+        Main connection logic with proper asyncio event loop setup.
         """
         if not IBKR_AVAILABLE:
             self.connection_failed.emit("ib_insync not available. Please install: pip install ib_insync")
@@ -67,145 +69,196 @@ class IBKRConnectionWorker(QThread):
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
 
-            # Create and connect the IB client in this new loop
-            self.ib = IB()
-            self.connection_progress.emit(f"Connecting to {self.params.host}:{self.params.port}...")
+            # Run the connection in the event loop
+            loop.run_until_complete(self._async_connect())
 
-            # The connect method now runs synchronously within this thread's loop
-            self.ib.connect(
-                host=self.params.host,
-                port=self.params.port,
-                clientId=self.params.client_id,
-                timeout=25,  # Slightly longer timeout
-                readonly=True  # Start in read-only mode for safety
-            )
-
-            if self.ib.isConnected():
-                self.connection_progress.emit("Connection successful! Verifying...")
-                # A simple request to confirm the API is responsive
-                self.ib.reqCurrentTime()
-                self.connection_success.emit(self.ib)
-            else:
-                # This path is unlikely as connect() will raise an exception on failure
-                self.connection_failed.emit("Connection failed for an unknown reason.")
-
-        except asyncio.TimeoutError:
-            self.connection_failed.emit(
-                "Connection timeout. TWS/Gateway found but API not responding.\n\n"
-                "Please check for any pop-up dialogs in TWS/Gateway that may need to be dismissed."
-            )
-        except ConnectionRefusedError:
-            self.connection_failed.emit("Connection refused. Is TWS/Gateway running?")
         except Exception as e:
             logger.error(f"IBKR connection error: {e}", exc_info=True)
-            self.connection_failed.emit(f"An unexpected error occurred: {e}")
+            if not self.should_stop:
+                self._handle_general_error(e)
         finally:
-            if self.ib and self.ib.isConnected() and self.should_stop:
-                self.ib.disconnect()
+            # Clean up the event loop
+            try:
+                if hasattr(self, 'ib') and self.ib and self.ib.isConnected():
+                    self.ib.disconnect()
+            except:
+                pass
+
+            # Close the event loop
+            try:
+                loop = asyncio.get_event_loop()
+                if not loop.is_closed():
+                    loop.close()
+            except:
+                pass
 
     async def _async_connect(self):
         """Async connection method that runs in the event loop."""
+        if self.should_stop:
+            return
+
         try:
-            self.connection_progress.emit("Initializing IB client...")
+            self.connection_progress.emit("Creating IB client...")
             self.ib = IB()
 
-            # Set up event handlers
-            self.ib.disconnectedEvent.connect(self._on_disconnected)
-            self.ib.errorEvent.connect(self._on_error)
+            # Reduce ib_insync logging verbosity
+            if hasattr(util, 'logToConsole'):
+                util.logToConsole(level=logging.WARNING)
 
-            self.connection_progress.emit(
-                f"Connecting to TWS/Gateway at {self.params.host}:{self.params.port}..."
-            )
+            if self.should_stop:
+                return
 
-            # Attempt async connection with a clear timeout
+            self.connection_progress.emit(f"Connecting to {self.params.host}:{self.params.port}...")
+
+            # Use async connection
             await self.ib.connectAsync(
                 host=self.params.host,
                 port=self.params.port,
                 clientId=self.params.client_id,
-                timeout=20  # Increased timeout to 20 seconds for robustness
+                timeout=self.params.timeout
             )
+
+            if self.should_stop:
+                return
 
             if self.ib.isConnected():
-                self.connection_progress.emit("Connection established! Validating...")
-                # Request managed accounts to confirm the connection is usable
-                accounts = self.ib.managedAccounts()
-                if accounts:
-                    self.connection_success.emit(self.ib)
+                self.connection_progress.emit("Connected! Testing API functionality...")
+
+                # Test API functionality
+                if await self._test_api_functionality_async():
+                    if not self.should_stop:
+                        self.connection_success.emit(self.ib)
                 else:
-                    self.connection_failed.emit("Connection valid but no accounts found.")
+                    if not self.should_stop:
+                        self.connection_failed.emit("Connected but API test failed")
             else:
-                # This case is often covered by the TimeoutError exception
-                self.connection_failed.emit("Failed to establish connection after timeout.")
+                if not self.should_stop:
+                    self.connection_failed.emit("Connection failed")
 
         except asyncio.TimeoutError:
-            self.connection_failed.emit(
-                "Connection timeout. TWS/Gateway found but API not responding.\n"
-                "Please check:\n"
-                "• API is enabled in TWS/Gateway settings\n"
-                "• Correct port is configured\n"
-                "• Client ID is not already in use"
-            )
+            if not self.should_stop:
+                self._handle_timeout_error()
         except ConnectionRefusedError:
-            self.connection_failed.emit(
-                "Connection refused. Is TWS or IB Gateway running on the correct port?"
-            )
+            if not self.should_stop:
+                self._handle_connection_refused()
         except Exception as e:
-            logger.error(f"Async connection failed: {e}", exc_info=True)
-            self.connection_failed.emit(f"An unexpected error occurred: {e}")
+            if not self.should_stop:
+                self._handle_general_error(e)
 
-    def _on_disconnected(self):
-        """Handle disconnection event."""
-        if not self.should_stop:
-            logger.warning("IBKR connection lost unexpectedly.")
-            self.disconnected.emit()
+    async def _test_api_functionality_async(self) -> bool:
+        """Async version of API functionality test."""
+        if self.should_stop:
+            return False
 
-    def _on_error(self, reqId, errorCode, errorString, contract):
-        """Handle IBKR error events."""
-        # Log all errors but only emit failures for critical connection issues
-        logger.error(f"IBKR Error: reqId={reqId}, code={errorCode}, msg='{errorString}'")
-        critical_errors = [1100, 1101, 1102, 2104, 2106, 2108, 2158]
-        if errorCode in critical_errors:
-            self.connection_failed.emit(f"API Error ({errorCode}): {errorString}")
+        try:
+            # Test: Request current time
+            current_time = self.ib.reqCurrentTime()
+
+            if not current_time:
+                logger.warning("Current time request failed")
+                return False
+
+            # Test: Get managed accounts (optional)
+            try:
+                accounts = self.ib.managedAccounts()
+                if accounts:
+                    logger.info(f"Found managed accounts: {accounts}")
+                else:
+                    logger.info("No managed accounts found, but connection works")
+                return True
+
+            except Exception as e:
+                logger.warning(f"Account request failed but connection OK: {e}")
+                return True  # Connection is working even if account query fails
+
+        except Exception as e:
+            logger.error(f"API functionality test failed: {e}")
+            return False
+
+
+    def _test_api_functionality(self) -> bool:
+        """Test that API is fully functional after connection."""
+        if self.should_stop:
+            return False
+
+        try:
+            # Test 1: Request current time (most basic API call)
+            current_time = self.ib.reqCurrentTime()
+
+            if not current_time:
+                logger.warning("Current time request failed")
+                return False
+
+            # Test 2: Get managed accounts (optional)
+            try:
+                accounts = self.ib.managedAccounts()
+                if accounts:
+                    logger.info(f"Found managed accounts: {accounts}")
+                else:
+                    logger.info("No managed accounts found, but connection works")
+                return True
+
+            except Exception as e:
+                logger.warning(f"Account request failed but connection OK: {e}")
+                return True  # Connection is working even if account query fails
+
+        except Exception as e:
+            logger.error(f"API functionality test failed: {e}")
+            return False
+
+    def _handle_timeout_error(self):
+        """Handle timeout errors with Linux-specific guidance."""
+        error_msg = (
+            "❌ Connection timeout to IB Gateway.\n\n"
+            "Quick fixes to try:\n"
+            "1. Restart IB Gateway completely\n"
+            "2. Try a different Client ID (2, 3, 4, etc.)\n"
+            "3. Check for popup dialogs in Gateway\n"
+            "4. Ensure Gateway is logged in properly"
+        )
+        self.connection_failed.emit(error_msg)
+
+    def _handle_connection_refused(self):
+        """Handle connection refused errors."""
+        error_msg = (
+            "❌ Connection refused by IB Gateway.\n\n"
+            "Check:\n"
+            "• IB Gateway is running and logged in\n"
+            "• Correct port (7497=Paper, 7496=Live)\n"
+            "• No firewall blocking the connection"
+        )
+        self.connection_failed.emit(error_msg)
+
+    def _handle_general_error(self, e: Exception):
+        """Handle general connection errors with specific guidance."""
+        logger.error(f"IBKR connection error: {e}", exc_info=True)
+
+        error_str = str(e).lower()
+
+        if "already connected" in error_str or "duplicate" in error_str:
+            error_msg = f"❌ Client ID {self.params.client_id} is already in use.\nTry a different Client ID (2, 3, 4, etc.)"
+        elif "refused" in error_str:
+            error_msg = "❌ Gateway refused the connection.\nCheck that IB Gateway is running and logged in."
+        elif "timeout" in error_str:
+            error_msg = "❌ Connection timed out.\nTry restarting IB Gateway completely."
+        else:
+            error_msg = f"❌ Connection failed: {str(e)}\nTry restarting IB Gateway."
+
+        self.connection_failed.emit(error_msg)
 
     def stop(self):
-        """Stop the worker and disconnect."""
+        """Stop the worker safely."""
         self.should_stop = True
-        if self.ib:
-            self.ib.disconnect()
-        self.quit()
-
-
-    async def _validate_connection_async(self) -> bool:
-        """Validate the connection by checking account info asynchronously"""
-        try:
-            self.connection_progress.emit("Requesting account information...")
-
-            # Request account summary to validate connection
-            account_summary = self.ib.accountSummary()
-
-            # Wait a bit longer for the data to arrive
-            await asyncio.sleep(2)
-
-            if account_summary:
-                self.connection_progress.emit("Account validated successfully")
-                return True
-            else:
-                # Try requesting managed accounts as fallback
-                managed_accounts = self.ib.managedAccounts()
-                if managed_accounts:
-                    self.connection_progress.emit("Account access confirmed")
-                    return True
-
-            return False
-        except Exception as e:
-            logger.error(f"Connection validation failed: {e}")
-            return False
+        if self.ib and self.ib.isConnected():
+            try:
+                self.ib.disconnect()
+            except:
+                pass
 
 
 class IBKRAuth(QObject):
     """
-    Main IBKR authentication manager.
-    Handles connection setup, validation, and management with proper async support.
+    Main IBKR authentication manager with improved Linux support.
     """
 
     # Signals for external components
@@ -227,20 +280,18 @@ class IBKRAuth(QObject):
         self.heartbeat_timer.setInterval(30000)  # Check every 30 seconds
 
     def connect_to_tws(self, trading_mode: TradingMode,
-                       host: str = "127.0.0.1",
+                       host: str = "::1",
                        client_id: int = 1) -> bool:
         """
-        Initiate connection to TWS/Gateway
-
-        Args:
-            trading_mode: Paper or live trading
-            host: TWS/Gateway host address
-            client_id: Unique client identifier
-
-        Returns:
-            bool: True if connection initiated successfully
+        Initiate connection to TWS/Gateway with improved error handling.
         """
         try:
+            # Clean up any existing worker first
+            if self.worker:
+                self.worker.stop()
+                self.worker.wait(2000)  # Wait up to 2 seconds
+                self.worker = None
+
             # Get broker config for port selection
             config = get_broker_config(BrokerMode.AMERICA)
             port = config.default_ports.get(trading_mode.value, 7497)
@@ -249,6 +300,7 @@ class IBKRAuth(QObject):
                 host=host,
                 port=port,
                 client_id=client_id,
+                timeout=10.0,  # Shorter timeout
                 trading_mode=trading_mode
             )
 
@@ -259,12 +311,74 @@ class IBKRAuth(QObject):
             self.worker.connection_progress.connect(self._on_connection_progress)
             self.worker.disconnected.connect(self._on_disconnected)
 
+            # Handle thread finished signal
+            self.worker.finished.connect(self._on_worker_finished)
+
             self.worker.start()
             return True
 
         except Exception as e:
             logger.error(f"Failed to initiate IBKR connection: {e}")
-            self.status_updated.emit(f"Connection failed: {e}")
+            self.status_updated.emit(f"❌ Connection setup failed: {e}")
+            return False
+
+    def _on_worker_finished(self):
+        """Handle worker thread finishing."""
+        if self.worker:
+            self.worker.deleteLater()
+            self.worker = None
+
+    def disconnect(self):
+        """Gracefully disconnect from IBKR with proper thread cleanup."""
+        try:
+            self.heartbeat_timer.stop()
+
+            if self.worker:
+                self.worker.stop()
+                self.worker.wait(3000)  # Wait up to 3 seconds
+                if self.worker.isRunning():
+                    self.worker.terminate()
+                    self.worker.wait(1000)
+                self.worker = None
+
+            if self.ib_client and self.ib_client.isConnected():
+                self.ib_client.disconnect()
+
+            self.is_connected = False
+            self.ib_client = None
+            self.account_info = {}
+
+            logger.info("Disconnected from IBKR")
+
+        except Exception as e:
+            logger.error(f"Error during disconnect: {e}")
+    def _quick_connectivity_check(self, host: str, port: int) -> bool:
+        """Quick check if port is accessible with automatic address family detection."""
+        try:
+            import socket
+
+            # Use getaddrinfo to properly resolve the address and determine the family
+            try:
+                addr_info = socket.getaddrinfo(host, port, socket.AF_UNSPEC, socket.SOCK_STREAM)
+                if not addr_info:
+                    return False
+
+                # Try the first address family returned
+                family, socktype, proto, canonname, sockaddr = addr_info[0]
+
+                sock = socket.socket(family, socktype)
+                sock.settimeout(2)
+                result = sock.connect_ex(sockaddr)
+                sock.close()
+
+                return result == 0
+
+            except socket.gaierror as e:
+                logger.debug(f"Address resolution failed for {host}: {e}")
+                return False
+
+        except Exception as e:
+            logger.debug(f"Quick connectivity check failed: {e}")
             return False
 
     def _on_connection_success(self, ib_client):
@@ -278,7 +392,7 @@ class IBKRAuth(QObject):
         # Start connection monitoring
         self.heartbeat_timer.start()
 
-        self.status_updated.emit("Connected to IBKR successfully")
+        self.status_updated.emit("✅ Connected to IBKR successfully!")
         self.connection_established.emit(ib_client)
 
         logger.info(f"IBKR connection established - Client ID: {self.connection_params.client_id}")
@@ -288,7 +402,7 @@ class IBKRAuth(QObject):
         self.is_connected = False
         self.ib_client = None
 
-        self.status_updated.emit(f"Connection failed: {error_message}")
+        self.status_updated.emit("❌ Connection failed")
         logger.error(f"IBKR connection failed: {error_message}")
 
         # Cleanup worker
@@ -298,7 +412,7 @@ class IBKRAuth(QObject):
 
     def _on_connection_progress(self, message: str):
         """Handle connection progress updates"""
-        self.status_updated.emit(message)
+        self.status_updated.emit(f"🔄 {message}")
         logger.info(f"IBKR connection: {message}")
 
     def _on_disconnected(self):
@@ -306,7 +420,7 @@ class IBKRAuth(QObject):
         self.is_connected = False
         self.heartbeat_timer.stop()
 
-        self.status_updated.emit("Connection lost")
+        self.status_updated.emit("❌ Connection lost")
         self.connection_lost.emit()
 
         logger.warning("IBKR connection lost unexpectedly")
@@ -358,11 +472,7 @@ class IBKRAuth(QObject):
                 self.worker = None
 
             if self.ib_client and self.ib_client.isConnected():
-                # For cleanup, we'll just disconnect synchronously
-                try:
-                    self.ib_client.disconnect()
-                except:
-                    pass
+                self.ib_client.disconnect()
                 logger.info("Disconnected from IBKR")
 
             self.is_connected = False
@@ -391,34 +501,6 @@ class IBKRAuth(QObject):
             'account_count': len(self.account_info)
         }
 
-    def test_connection(self, host: str = "127.0.0.1", port: int = 7497) -> bool:
-        """
-        Test connection to TWS/Gateway without establishing persistent connection
-
-        Args:
-            host: TWS/Gateway host
-            port: TWS/Gateway port
-
-        Returns:
-            bool: True if connection test successful
-        """
-        if not IBKR_AVAILABLE:
-            logger.error("ib_insync not available for connection test")
-            return False
-
-        try:
-            # Simple socket test instead of full IB connection for testing
-            import socket
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(5)
-            result = sock.connect_ex((host, port))
-            sock.close()
-            return result == 0
-
-        except Exception as e:
-            logger.debug(f"Connection test failed: {e}")
-            return False
-
 
 class IBKRConnectionValidator:
     """
@@ -428,10 +510,7 @@ class IBKRConnectionValidator:
     @staticmethod
     def check_tws_running(port: int = 7497) -> Dict[str, Any]:
         """
-        Check if TWS or IB Gateway is running on specified port
-
-        Returns:
-            Dict with status information
+        Check if TWS or IB Gateway is running on specified port with robust address handling.
         """
         result = {
             'running': False,
@@ -447,22 +526,38 @@ class IBKRConnectionValidator:
 
         try:
             import socket
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(2)
-            connection_result = sock.connect_ex(('127.0.0.1', port))
-            sock.close()
 
-            if connection_result == 0:
-                result['running'] = True
-                result['message'] = f"TWS/Gateway detected on port {port}"
-            else:
-                result['message'] = f"No service detected on port {port}"
-                result['suggestions'] = [
-                    "Start TWS or IB Gateway",
-                    f"Ensure it's configured for port {port}",
-                    "Check if port is correct for your trading mode",
-                    "Paper Trading: port 7497, Live Trading: port 7496"
-                ]
+            # Try both IPv6 and IPv4
+            hosts_to_try = ['::1', '127.0.0.1']
+
+            for host in hosts_to_try:
+                try:
+                    addr_info = socket.getaddrinfo(host, port, socket.AF_UNSPEC, socket.SOCK_STREAM)
+                    if not addr_info:
+                        continue
+
+                    family, socktype, proto, canonname, sockaddr = addr_info[0]
+                    sock = socket.socket(family, socktype)
+                    sock.settimeout(2)
+                    connection_result = sock.connect_ex(sockaddr)
+                    sock.close()
+
+                    if connection_result == 0:
+                        result['running'] = True
+                        result['message'] = f"TWS/Gateway detected on {host}:{port}"
+                        return result
+
+                except (socket.gaierror, OSError):
+                    continue
+
+            # If we get here, no connection worked
+            result['message'] = f"No service detected on port {port}"
+            result['suggestions'] = [
+                "Start TWS or IB Gateway",
+                f"Ensure it's configured for port {port}",
+                "Check if port is correct for your trading mode",
+                "Paper Trading: port 7497, Live Trading: port 7496"
+            ]
 
         except Exception as e:
             result['message'] = f"Port check failed: {e}"
@@ -471,70 +566,75 @@ class IBKRConnectionValidator:
         return result
 
     @staticmethod
-    def get_recommended_settings() -> Dict[str, Any]:
-        """Get recommended TWS/Gateway settings for API connection"""
-        return {
-            'api_settings': {
-                'enable_activex_and_socket_clients': True,
-                'socket_port': 7497,  # For paper trading
-                'master_api_client_id': 0,
-                'read_only_api': False,
-                'download_open_orders_on_connection': True
-            },
-            'trading_permissions': {
-                'paper_trading_account': True,
-                'api_trading_enabled': True,
-                'outside_rth': True  # Allow trading outside regular hours
-            },
-            'security': {
-                'trusted_ips': ['127.0.0.1'],
-                'bypass_order_precautions': False  # Keep safety checks
-            }
-        }
-
-    @staticmethod
-    def validate_client_id(client_id: int) -> Dict[str, Any]:
-        """Validate client ID for IBKR connection"""
-        result = {
-            'valid': False,
-            'message': '',
+    def diagnose_connection_issue(port: int = 7497) -> Dict[str, Any]:
+        """
+        Comprehensive diagnosis of connection issues.
+        """
+        diagnosis = {
+            'port_open': False,
+            'api_responsive': False,
             'recommendations': []
         }
 
-        if not isinstance(client_id, int):
-            result['message'] = "Client ID must be an integer"
-            return result
+        # Check 1: Port accessibility
+        try:
+            import socket
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(2)
+            result = sock.connect_ex(('::1', port))
+            sock.close()
 
-        if client_id < 0:
-            result['message'] = "Client ID must be non-negative"
-            return result
+            diagnosis['port_open'] = (result == 0)
+        except:
+            diagnosis['port_open'] = False
 
-        if client_id == 0:
-            result['message'] = "Client ID 0 is reserved for TWS"
-            result['recommendations'] = ["Use a client ID between 1-100"]
-            return result
+        # Check 2: API responsiveness
+        if diagnosis['port_open']:
+            try:
+                import socket
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(3)
 
-        if client_id > 100:
-            result['message'] = "Client ID should typically be between 1-100"
-            result['recommendations'] = ["Consider using a lower client ID"]
+                if sock.connect_ex(('::1', port)) == 0:
+                    sock.send(b'API\0')
+                    sock.settimeout(1)
+                    response = sock.recv(100)
+                    diagnosis['api_responsive'] = len(response) > 0
 
-        result['valid'] = True
-        result['message'] = f"Client ID {client_id} is valid"
-        return result
+                sock.close()
+            except:
+                diagnosis['api_responsive'] = False
+
+        # Generate recommendations
+        if not diagnosis['port_open']:
+            diagnosis['recommendations'] = [
+                "Start IB Gateway or TWS",
+                f"Ensure it's configured for port {port}",
+                "Login to your account in Gateway"
+            ]
+        elif not diagnosis['api_responsive']:
+            diagnosis['recommendations'] = [
+                "Configure API in IB Gateway: Configure → API Settings",
+                "✓ Enable ActiveX and Socket Clients",
+                f"Set Socket port to {port}",
+                "Set Master API client ID to 0",
+                "Click OK and restart Gateway",
+                "Check for popup dialogs that need dismissal"
+            ]
+        else:
+            diagnosis['recommendations'] = [
+                "Port and API appear ready",
+                "Try different Client IDs (1, 2, 3, etc.)",
+                "Restart the application if connection still fails"
+            ]
+
+        return diagnosis
 
 
-# Utility functions for IBKR integration
-def get_default_connection_params(trading_mode: TradingMode) -> IBKRConnectionParams:
-    """Get default connection parameters for specified trading mode"""
-    config = get_broker_config(BrokerMode.AMERICA)
-    port = config.default_ports.get(trading_mode.value, 7497)
-
-    return IBKRConnectionParams(
-        host="127.0.0.1",
-        port=port,
-        client_id=1,
-        trading_mode=trading_mode
-    )
+# Utility functions
+def is_ibkr_available() -> bool:
+    """Check if IBKR functionality is available"""
+    return IBKR_AVAILABLE
 
 
 def create_ibkr_auth() -> IBKRAuth:
@@ -542,33 +642,20 @@ def create_ibkr_auth() -> IBKRAuth:
     return IBKRAuth()
 
 
-def is_ibkr_available() -> bool:
-    """Check if IBKR functionality is available"""
-    return IBKR_AVAILABLE
+def diagnose_linux_ibkr_issues(port: int = 7497) -> str:
+    """
+    Quick diagnosis function that returns a formatted string with recommendations.
+    """
+    validator = IBKRConnectionValidator()
+    diagnosis = validator.diagnose_connection_issue(port)
 
+    result = f"🔍 IBKR Connection Diagnosis (Port {port}):\n"
+    result += f"Port accessible: {'✅' if diagnosis['port_open'] else '❌'}\n"
+    result += f"API responsive: {'✅' if diagnosis['api_responsive'] else '❌'}\n\n"
 
-def get_ibkr_requirements() -> List[str]:
-    """Get list of requirements for IBKR functionality"""
-    requirements = [
-        "ib_insync>=0.9.86",
-        "TWS or IB Gateway installed and running",
-        "API connections enabled in TWS/Gateway settings",
-        "Appropriate trading permissions"
-    ]
-    return requirements
+    if diagnosis['recommendations']:
+        result += "📝 Recommendations:\n"
+        for i, rec in enumerate(diagnosis['recommendations'], 1):
+            result += f"{i}. {rec}\n"
 
-
-# Exception classes for IBKR-specific errors
-class IBKRConnectionError(Exception):
-    """Raised when IBKR connection fails"""
-    pass
-
-
-class IBKRAuthenticationError(Exception):
-    """Raised when IBKR authentication fails"""
-    pass
-
-
-class IBKRNotAvailableError(Exception):
-    """Raised when IBKR functionality is not available"""
-    pass
+    return result

@@ -1,852 +1,1053 @@
-# ibkr/core/main_window.py
 """
-Main window implementation for IBKR mode of the swing trader application.
-Provides the same interface as Kite but with IBKR-specific functionality.
+Enhanced IBKR main window with complete trading functionality.
+Integrates seamlessly with your dual-mode architecture.
 """
 
 import logging
-from typing import Optional, Dict, Any, List
+from typing import Dict, List, Any, Optional
+from datetime import datetime
 
 from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-    QLabel, QTableWidget, QTableWidgetItem, QHeaderView, QTabWidget,
-    QComboBox, QLineEdit, QSpinBox, QMessageBox, QSplitter
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
+    QTableWidget, QTableWidgetItem, QPushButton, QLineEdit, QSpinBox,
+    QComboBox, QLabel, QGroupBox, QProgressBar, QTextEdit, QSplitter,
+    QHeaderView, QMessageBox, QStatusBar, QMenuBar, QMenu, QDialog
 )
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtCore import Qt, QTimer, Signal, pyqtSlot
+from PySide6.QtGui import QFont, QColor, QPalette, QAction
 
 try:
-    from ib_insync import Stock, Option, MarketOrder, LimitOrder
-except ImportError:
-    Stock = Option = MarketOrder = LimitOrder = None
+    from ib_insync import Stock, Contract
 
-from ibkr.utils.constants import (
-    COLORS, ORDER_TYPE_MARKET, ORDER_TYPE_LIMIT,
-    TRANSACTION_TYPE_BUY, TRANSACTION_TYPE_SELL
-)
-from ibkr.utils.data_fetcher import IBKRDataFetcher
-from ibkr.utils.paper_trading_manager import PaperTradingManager
+    IBKR_AVAILABLE = True
+except ImportError:
+    IBKR_AVAILABLE = False
+    Stock = None
+    Contract = None
+
+from login_setup.broker_modes import BrokerMode, TradingMode
+from ibkr.core.trading_client import IBKRTradingClient
+from ibkr.utils.paper_trading_manager import IBKRPaperTradingManager
+
+# Import the separate order dialog
+try:
+    from ibkr.ui.order_dialog import OrderDialog
+except ImportError:
+    # Fallback if order dialog not available
+    OrderDialog = None
 
 logger = logging.getLogger(__name__)
 
 
-class SwingTraderWindow(QMainWindow):
+class IBKRMainWindow(QMainWindow):
     """
-    Main window for IBKR swing trading.
-    Maintains same interface as Kite version for consistency.
+    Enhanced main window for IBKR trading with complete functionality.
+    Supports both live and paper trading modes.
     """
 
     # Signals
-    position_updated = Signal()
     order_placed = Signal(dict)
-    connection_lost = Signal()
+    position_updated = Signal(dict)
+    connection_status_changed = Signal(bool)
 
-    def __init__(self, ib_client=None, trading_mode="paper", parent=None):
-        super().__init__(parent)
-
-        # Core components
-        self.ib_client = ib_client
+    def __init__(self, trading_client: IBKRTradingClient, trading_mode: TradingMode):
+        super().__init__()
+        self.trading_client = trading_client
         self.trading_mode = trading_mode
-        self.is_paper_trading = trading_mode == "paper" and ib_client is None
-
-        # Initialize components
-        if self.is_paper_trading:
-            self.paper_manager = PaperTradingManager()
-            self.data_fetcher = None
-        else:
-            self.paper_manager = None
-            self.data_fetcher = IBKRDataFetcher(ib_client) if ib_client else None
+        self.is_paper_trading = trading_mode == TradingMode.PAPER
 
         # Data storage
-        self.positions = []
-        self.orders = []
         self.watchlist = []
+        self.market_data = {}
+        self.positions = {}
+        self.orders = {}
 
-        # UI setup
-        self.setWindowTitle(f"Swing Trader - IBKR ({trading_mode.title()} Mode)")
-        self.setGeometry(100, 100, 1400, 800)
+        # UI components
+        self.watchlist_table = None
+        self.positions_table = None
+        self.orders_table = None
+        self.account_info_widget = None
+        self.status_bar = None
 
         self._setup_ui()
-        self._apply_styles()
-
-        # Setup timers
+        self._setup_signals()
         self._setup_timers()
+        self._load_initial_data()
 
-        # Load initial data
-        if not self.is_paper_trading and self.ib_client:
-            self._refresh_data()
+        # Window properties
+        self.setWindowTitle(f"IBKR Trading - {trading_mode.value.title()} Mode")
+        self.resize(1200, 800)
 
     def _setup_ui(self):
-        """Setup the main UI layout"""
+        """Set up the main user interface"""
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
 
+        # Create menu bar
+        self._create_menu_bar()
+
+        # Main layout with splitter
         main_layout = QVBoxLayout(central_widget)
-        main_layout.setContentsMargins(10, 10, 10, 10)
 
-        # Header
-        self._create_header(main_layout)
-
-        # Main content area with splitter
-        splitter = QSplitter(Qt.Horizontal)
-
-        # Left panel - Watchlist and Order Entry
-        left_widget = QWidget()
-        left_layout = QVBoxLayout(left_widget)
-        left_layout.setContentsMargins(0, 0, 0, 0)
-
-        self._create_watchlist_section(left_layout)
-        self._create_order_entry_section(left_layout)
-
-        splitter.addWidget(left_widget)
-
-        # Right panel - Positions and Orders
-        right_widget = QWidget()
-        right_layout = QVBoxLayout(right_widget)
-        right_layout.setContentsMargins(0, 0, 0, 0)
-
-        # Tab widget for positions and orders
-        self.tab_widget = QTabWidget()
-        self.tab_widget.addTab(self._create_positions_tab(), "Positions")
-        self.tab_widget.addTab(self._create_orders_tab(), "Orders")
-
-        right_layout.addWidget(self.tab_widget)
-
-        splitter.addWidget(right_widget)
-        splitter.setSizes([500, 900])
-
-        main_layout.addWidget(splitter)
-
-        # Status bar
-        self._create_status_bar()
-
-    def _create_header(self, layout):
-        """Create header section with account info"""
-        header = QWidget()
-        header.setObjectName("headerWidget")
-        header_layout = QHBoxLayout(header)
-
-        # Title
-        title = QLabel("IBKR Swing Trader")
-        title.setObjectName("appTitle")
-        header_layout.addWidget(title)
-
-        header_layout.addStretch()
-
-        # Account info
-        self.balance_label = QLabel("Balance: $0.00")
-        self.balance_label.setObjectName("balanceLabel")
-        header_layout.addWidget(self.balance_label)
-
-        self.buying_power_label = QLabel("Buying Power: $0.00")
-        self.buying_power_label.setObjectName("buyingPowerLabel")
-        header_layout.addWidget(self.buying_power_label)
+        # Top toolbar
+        toolbar_layout = QHBoxLayout()
 
         # Connection status
-        self.connection_status = QLabel("● Connected" if self.ib_client else "● Paper Trading")
-        self.connection_status.setObjectName("connectionStatus")
-        self.connection_status.setStyleSheet(
-            f"color: {'#4CAF50' if self.ib_client else '#FF9800'};"
-        )
-        header_layout.addWidget(self.connection_status)
+        self.connection_label = QLabel("🔴 Disconnected")
+        toolbar_layout.addWidget(self.connection_label)
 
-        # Refresh button
-        refresh_btn = QPushButton("Refresh")
-        refresh_btn.setObjectName("refreshButton")
-        refresh_btn.clicked.connect(self._refresh_data)
-        header_layout.addWidget(refresh_btn)
+        # Trading mode indicator
+        mode_label = QLabel(f"Mode: {self.trading_mode.value.title()}")
+        mode_label.setStyleSheet("font-weight: bold; color: #007bff;")
+        toolbar_layout.addWidget(mode_label)
 
-        layout.addWidget(header)
+        toolbar_layout.addStretch()
 
-    def _create_watchlist_section(self, layout):
-        """Create watchlist section"""
-        watchlist_widget = QWidget()
-        watchlist_widget.setObjectName("sectionWidget")
-        watchlist_layout = QVBoxLayout(watchlist_widget)
+        # Quick order section
+        quick_order_group = QGroupBox("Quick Order")
+        quick_layout = QHBoxLayout(quick_order_group)
 
-        # Header
-        header_layout = QHBoxLayout()
+        self.quick_symbol = QLineEdit()
+        self.quick_symbol.setPlaceholderText("Symbol")
+        self.quick_symbol.setMaximumWidth(80)
+        quick_layout.addWidget(self.quick_symbol)
 
-        label = QLabel("Watchlist")
-        label.setObjectName("sectionTitle")
-        header_layout.addWidget(label)
+        self.quick_quantity = QSpinBox()
+        self.quick_quantity.setRange(1, 10000)
+        self.quick_quantity.setValue(100)
+        self.quick_quantity.setMaximumWidth(80)
+        quick_layout.addWidget(self.quick_quantity)
 
-        header_layout.addStretch()
+        buy_btn = QPushButton("Buy")
+        buy_btn.clicked.connect(lambda: self._quick_order("BUY"))
+        buy_btn.setStyleSheet("background-color: #28a745; color: white;")
+        quick_layout.addWidget(buy_btn)
 
-        # Add symbol input
+        sell_btn = QPushButton("Sell")
+        sell_btn.clicked.connect(lambda: self._quick_order("SELL"))
+        sell_btn.setStyleSheet("background-color: #dc3545; color: white;")
+        quick_layout.addWidget(sell_btn)
+
+        toolbar_layout.addWidget(quick_order_group)
+
+        main_layout.addLayout(toolbar_layout)
+
+        # Create main content with tabs
+        tab_widget = QTabWidget()
+
+        # Trading tab
+        trading_tab = self._create_trading_tab()
+        tab_widget.addTab(trading_tab, "Trading")
+
+        # Portfolio tab
+        portfolio_tab = self._create_portfolio_tab()
+        tab_widget.addTab(portfolio_tab, "Portfolio")
+
+        # Orders tab
+        orders_tab = self._create_orders_tab()
+        tab_widget.addTab(orders_tab, "Orders")
+
+        # Analysis tab (placeholder)
+        analysis_tab = self._create_analysis_tab()
+        tab_widget.addTab(analysis_tab, "Analysis")
+
+        main_layout.addWidget(tab_widget)
+
+        # Status bar
+        self.status_bar = QStatusBar()
+        self.setStatusBar(self.status_bar)
+        self.status_bar.showMessage("Ready")
+
+    def _create_menu_bar(self):
+        """Create application menu bar"""
+        menubar = self.menuBar()
+
+        # File menu
+        file_menu = menubar.addMenu("File")
+
+        connect_action = QAction("Connect", self)
+        connect_action.triggered.connect(self._reconnect)
+        file_menu.addAction(connect_action)
+
+        disconnect_action = QAction("Disconnect", self)
+        disconnect_action.triggered.connect(self._disconnect)
+        file_menu.addAction(disconnect_action)
+
+        file_menu.addSeparator()
+
+        exit_action = QAction("Exit", self)
+        exit_action.triggered.connect(self.close)
+        file_menu.addAction(exit_action)
+
+        # Trading menu
+        trading_menu = menubar.addMenu("Trading")
+
+        place_order_action = QAction("Place Order", self)
+        place_order_action.triggered.connect(self._show_order_dialog)
+        trading_menu.addAction(place_order_action)
+
+        cancel_all_action = QAction("Cancel All Orders", self)
+        cancel_all_action.triggered.connect(self._cancel_all_orders)
+        trading_menu.addAction(cancel_all_action)
+
+        # Tools menu
+        tools_menu = menubar.addMenu("Tools")
+
+        if self.is_paper_trading:
+            reset_action = QAction("Reset Paper Account", self)
+            reset_action.triggered.connect(self._reset_paper_account)
+            tools_menu.addAction(reset_action)
+
+        refresh_action = QAction("Refresh All Data", self)
+        refresh_action.triggered.connect(self._refresh_all_data)
+        tools_menu.addAction(refresh_action)
+
+    def _create_trading_tab(self) -> QWidget:
+        """Create the main trading tab"""
+        widget = QWidget()
+        layout = QHBoxLayout(widget)
+
+        # Left side - Watchlist
+        left_panel = QVBoxLayout()
+
+        # Watchlist section
+        watchlist_group = QGroupBox("Watchlist")
+        watchlist_layout = QVBoxLayout(watchlist_group)
+
+        # Add symbol section
+        add_symbol_layout = QHBoxLayout()
         self.symbol_input = QLineEdit()
-        self.symbol_input.setPlaceholderText("Add symbol...")
-        self.symbol_input.setMaximumWidth(150)
+        self.symbol_input.setPlaceholderText("Enter symbol...")
         self.symbol_input.returnPressed.connect(self._add_to_watchlist)
-        header_layout.addWidget(self.symbol_input)
+        add_symbol_layout.addWidget(self.symbol_input)
 
-        add_btn = QPushButton("+")
-        add_btn.setObjectName("addButton")
-        add_btn.setFixedSize(30, 30)
+        add_btn = QPushButton("Add")
         add_btn.clicked.connect(self._add_to_watchlist)
-        header_layout.addWidget(add_btn)
+        add_symbol_layout.addWidget(add_btn)
 
-        watchlist_layout.addLayout(header_layout)
+        watchlist_layout.addLayout(add_symbol_layout)
 
         # Watchlist table
-        self.watchlist_table = QTableWidget()
-        self.watchlist_table.setObjectName("dataTable")
-        self.watchlist_table.setColumnCount(4)
-        self.watchlist_table.setHorizontalHeaderLabels(["Symbol", "Last", "Change", "Volume"])
+        self.watchlist_table = QTableWidget(0, 5)
+        self.watchlist_table.setHorizontalHeaderLabels([
+            "Symbol", "Last", "Change", "Change%", "Volume"
+        ])
         self.watchlist_table.horizontalHeader().setStretchLastSection(True)
         self.watchlist_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.watchlist_table.itemClicked.connect(self._on_watchlist_item_clicked)
-
+        self.watchlist_table.doubleClicked.connect(self._on_watchlist_double_click)
         watchlist_layout.addWidget(self.watchlist_table)
-        layout.addWidget(watchlist_widget)
 
-    def _create_order_entry_section(self, layout):
-        """Create order entry section"""
-        order_widget = QWidget()
-        order_widget.setObjectName("sectionWidget")
-        order_layout = QVBoxLayout(order_widget)
+        left_panel.addWidget(watchlist_group)
 
-        # Title
-        title = QLabel("Order Entry")
-        title.setObjectName("sectionTitle")
-        order_layout.addWidget(title)
+        # Account info section
+        account_group = QGroupBox("Account Information")
+        account_layout = QVBoxLayout(account_group)
 
-        # Symbol
-        symbol_layout = QHBoxLayout()
-        symbol_layout.addWidget(QLabel("Symbol:"))
+        self.account_info_widget = QTextEdit()
+        self.account_info_widget.setMaximumHeight(150)
+        self.account_info_widget.setReadOnly(True)
+        account_layout.addWidget(self.account_info_widget)
+
+        left_panel.addWidget(account_group)
+
+        # Right side - Order entry and market data
+        right_panel = QVBoxLayout()
+
+        # Order entry section
+        order_group = QGroupBox("Order Entry")
+        order_layout = QVBoxLayout(order_group)
+
+        # Order form
+        order_form_layout = QHBoxLayout()
+
         self.order_symbol = QLineEdit()
-        self.order_symbol.setPlaceholderText("Enter symbol...")
-        symbol_layout.addWidget(self.order_symbol)
-        order_layout.addLayout(symbol_layout)
+        self.order_symbol.setPlaceholderText("Symbol")
+        order_form_layout.addWidget(QLabel("Symbol:"))
+        order_form_layout.addWidget(self.order_symbol)
 
-        # Quantity
-        qty_layout = QHBoxLayout()
-        qty_layout.addWidget(QLabel("Quantity:"))
         self.order_quantity = QSpinBox()
         self.order_quantity.setRange(1, 10000)
         self.order_quantity.setValue(100)
-        qty_layout.addWidget(self.order_quantity)
-        order_layout.addLayout(qty_layout)
+        order_form_layout.addWidget(QLabel("Qty:"))
+        order_form_layout.addWidget(self.order_quantity)
 
-        # Order type
-        type_layout = QHBoxLayout()
-        type_layout.addWidget(QLabel("Type:"))
         self.order_type = QComboBox()
-        self.order_type.addItems(["MARKET", "LIMIT", "STOP", "STOP LIMIT"])
-        self.order_type.currentTextChanged.connect(self._on_order_type_changed)
-        type_layout.addWidget(self.order_type)
-        order_layout.addLayout(type_layout)
+        self.order_type.addItems(["MKT", "LMT", "STP"])
+        order_form_layout.addWidget(QLabel("Type:"))
+        order_form_layout.addWidget(self.order_type)
 
-        # Price (for limit orders)
-        self.price_layout = QHBoxLayout()
-        self.price_layout.addWidget(QLabel("Price:"))
         self.order_price = QLineEdit()
-        self.order_price.setPlaceholderText("0.00")
-        self.price_layout.addWidget(self.order_price)
-        order_layout.addLayout(self.price_layout)
-        self.price_layout.setEnabled(False)
+        self.order_price.setPlaceholderText("Price")
+        order_form_layout.addWidget(QLabel("Price:"))
+        order_form_layout.addWidget(self.order_price)
 
-        # Action buttons
-        button_layout = QHBoxLayout()
+        order_layout.addLayout(order_form_layout)
 
-        self.buy_btn = QPushButton("BUY")
-        self.buy_btn.setObjectName("buyButton")
-        self.buy_btn.clicked.connect(lambda: self._place_order("BUY"))
-        button_layout.addWidget(self.buy_btn)
+        # Order buttons
+        order_buttons_layout = QHBoxLayout()
 
-        self.sell_btn = QPushButton("SELL")
-        self.sell_btn.setObjectName("sellButton")
-        self.sell_btn.clicked.connect(lambda: self._place_order("SELL"))
-        button_layout.addWidget(self.sell_btn)
+        buy_btn = QPushButton("BUY")
+        buy_btn.clicked.connect(lambda: self._place_order("BUY"))
+        buy_btn.setStyleSheet("background-color: #28a745; color: white; font-weight: bold;")
+        order_buttons_layout.addWidget(buy_btn)
 
-        order_layout.addLayout(button_layout)
-        order_layout.addStretch()
+        sell_btn = QPushButton("SELL")
+        sell_btn.clicked.connect(lambda: self._place_order("SELL"))
+        sell_btn.setStyleSheet("background-color: #dc3545; color: white; font-weight: bold;")
+        order_buttons_layout.addWidget(sell_btn)
 
-        layout.addWidget(order_widget)
+        advanced_btn = QPushButton("Advanced Order")
+        advanced_btn.clicked.connect(self._show_order_dialog)
+        order_buttons_layout.addWidget(advanced_btn)
 
-    def _create_positions_tab(self):
-        """Create positions tab"""
+        order_layout.addLayout(order_buttons_layout)
+
+        right_panel.addWidget(order_group)
+
+        # Market data section
+        market_data_group = QGroupBox("Market Data")
+        market_data_layout = QVBoxLayout(market_data_group)
+
+        self.market_data_text = QTextEdit()
+        self.market_data_text.setReadOnly(True)
+        self.market_data_text.setMaximumHeight(200)
+        market_data_layout.addWidget(self.market_data_text)
+
+        right_panel.addWidget(market_data_group)
+
+        # Add panels to main layout
+        layout.addLayout(left_panel, 2)
+        layout.addLayout(right_panel, 1)
+
+        return widget
+
+
+    def _create_portfolio_tab(self) -> QWidget:
+        """Create the portfolio tab"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
 
         # Positions table
-        self.positions_table = QTableWidget()
-        self.positions_table.setObjectName("dataTable")
-        self.positions_table.setColumnCount(7)
+        positions_group = QGroupBox("Current Positions")
+        positions_layout = QVBoxLayout(positions_group)
+
+        self.positions_table = QTableWidget(0, 8)
         self.positions_table.setHorizontalHeaderLabels([
             "Symbol", "Quantity", "Avg Price", "Current Price",
-            "P&L", "P&L %", "Actions"
+            "Market Value", "P&L", "P&L %", "Exchange"
         ])
         self.positions_table.horizontalHeader().setStretchLastSection(True)
+        self.positions_table.setSelectionBehavior(QTableWidget.SelectRows)
+        positions_layout.addWidget(self.positions_table)
 
-        layout.addWidget(self.positions_table)
+        # Position controls
+        pos_controls_layout = QHBoxLayout()
+
+        refresh_pos_btn = QPushButton("Refresh Positions")
+        refresh_pos_btn.clicked.connect(self._refresh_positions)
+        pos_controls_layout.addWidget(refresh_pos_btn)
+
+        close_pos_btn = QPushButton("Close Selected Position")
+        close_pos_btn.clicked.connect(self._close_selected_position)
+        pos_controls_layout.addWidget(close_pos_btn)
+
+        pos_controls_layout.addStretch()
+
+        positions_layout.addLayout(pos_controls_layout)
+        layout.addWidget(positions_group)
+
         return widget
 
-    def _create_orders_tab(self):
-        """Create orders tab"""
+
+    def _create_orders_tab(self) -> QWidget:
+        """Create the orders tab"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
 
         # Orders table
-        self.orders_table = QTableWidget()
-        self.orders_table.setObjectName("dataTable")
-        self.orders_table.setColumnCount(7)
+        orders_group = QGroupBox("Order History")
+        orders_layout = QVBoxLayout(orders_group)
+
+        self.orders_table = QTableWidget(0, 9)
         self.orders_table.setHorizontalHeaderLabels([
-            "Order ID", "Symbol", "Type", "Quantity",
-            "Price", "Status", "Actions"
+            "Order ID", "Symbol", "Action", "Quantity", "Type",
+            "Price", "Status", "Filled", "Time"
         ])
         self.orders_table.horizontalHeader().setStretchLastSection(True)
+        self.orders_table.setSelectionBehavior(QTableWidget.SelectRows)
+        orders_layout.addWidget(self.orders_table)
 
-        layout.addWidget(self.orders_table)
+        # Order controls
+        order_controls_layout = QHBoxLayout()
+
+        refresh_orders_btn = QPushButton("Refresh Orders")
+        refresh_orders_btn.clicked.connect(self._refresh_orders)
+        order_controls_layout.addWidget(refresh_orders_btn)
+
+        cancel_selected_btn = QPushButton("Cancel Selected")
+        cancel_selected_btn.clicked.connect(self._cancel_selected_order)
+        order_controls_layout.addWidget(cancel_selected_btn)
+
+        cancel_all_btn = QPushButton("Cancel All Orders")
+        cancel_all_btn.clicked.connect(self._cancel_all_orders)
+        order_controls_layout.addWidget(cancel_all_btn)
+
+        order_controls_layout.addStretch()
+
+        orders_layout.addLayout(order_controls_layout)
+        layout.addWidget(orders_group)
+
         return widget
 
-    def _create_status_bar(self):
-        """Create status bar"""
-        self.status_bar = self.statusBar()
-        self.status_bar.showMessage("Ready")
+
+    def _create_analysis_tab(self) -> QWidget:
+        """Create the analysis tab (placeholder for future features)"""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        # Performance summary
+        perf_group = QGroupBox("Performance Summary")
+        perf_layout = QVBoxLayout(perf_group)
+
+        self.performance_text = QTextEdit()
+        self.performance_text.setReadOnly(True)
+        self.performance_text.setText("Performance analysis features coming soon...")
+        perf_layout.addWidget(self.performance_text)
+
+        layout.addWidget(perf_group)
+
+        # Chart placeholder
+        chart_group = QGroupBox("Charts")
+        chart_layout = QVBoxLayout(chart_group)
+
+        chart_placeholder = QLabel("Chart functionality will be added here")
+        chart_placeholder.setAlignment(Qt.AlignCenter)
+        chart_placeholder.setStyleSheet("color: gray; font-style: italic;")
+        chart_layout.addWidget(chart_placeholder)
+
+        layout.addWidget(chart_group)
+
+        return widget
+
+
+    def _setup_signals(self):
+        """Connect trading client signals to UI updates"""
+        if hasattr(self.trading_client, 'order_status_updated'):
+            self.trading_client.order_status_updated.connect(self._on_order_status_update)
+
+        if hasattr(self.trading_client, 'position_updated'):
+            self.trading_client.position_updated.connect(self._on_position_update)
+
+        if hasattr(self.trading_client, 'market_data_updated'):
+            self.trading_client.market_data_updated.connect(self._on_market_data_update)
+
+        if hasattr(self.trading_client, 'account_updated'):
+            self.trading_client.account_updated.connect(self._on_account_update)
+
+        if hasattr(self.trading_client, 'connection_status_changed'):
+            self.trading_client.connection_status_changed.connect(self._on_connection_status_changed)
+
 
     def _setup_timers(self):
-        """Setup refresh timers"""
-        # Data refresh timer
-        self.refresh_timer = QTimer()
-        self.refresh_timer.timeout.connect(self._refresh_data)
-        self.refresh_timer.start(30000)  # 30 seconds
+        """Set up periodic update timers"""
+        # Refresh positions every 30 seconds
+        self.positions_timer = QTimer()
+        self.positions_timer.timeout.connect(self._refresh_positions)
+        self.positions_timer.start(30000)
 
-        # Connection check timer
-        if self.ib_client:
-            self.connection_timer = QTimer()
-            self.connection_timer.timeout.connect(self._check_connection)
-            self.connection_timer.start(5000)  # 5 seconds
+        # Refresh orders every 10 seconds
+        self.orders_timer = QTimer()
+        self.orders_timer.timeout.connect(self._refresh_orders)
+        self.orders_timer.start(10000)
 
-    def _on_order_type_changed(self, order_type):
-        """Handle order type change"""
-        is_limit = order_type in ["LIMIT", "STOP LIMIT"]
-        self.price_layout.setEnabled(is_limit)
-        if not is_limit:
-            self.order_price.clear()
+        # Update account info every 60 seconds
+        self.account_timer = QTimer()
+        self.account_timer.timeout.connect(self._refresh_account_info)
+        self.account_timer.start(60000)
 
-    def _on_watchlist_item_clicked(self, item):
-        """Handle watchlist item click"""
-        row = item.row()
-        symbol_item = self.watchlist_table.item(row, 0)
-        if symbol_item:
-            self.order_symbol.setText(symbol_item.text())
+
+    def _load_initial_data(self):
+        """Load initial data on startup"""
+        self._update_connection_status()
+        self._refresh_positions()
+        self._refresh_orders()
+        self._refresh_account_info()
+
+        # Add some default symbols to watchlist
+        default_symbols = ["AAPL", "GOOGL", "MSFT", "TSLA", "SPY"]
+        for symbol in default_symbols:
+            self._add_symbol_to_watchlist(symbol)
+
+        # Event handlers
+
+
+    @pyqtSlot(dict)
+    def _on_order_status_update(self, order_data: Dict[str, Any]):
+        """Handle order status updates"""
+        self.orders[order_data['order_id']] = order_data
+        self._refresh_orders_table()
+
+        status_msg = f"Order {order_data['order_id']} - {order_data['symbol']}: {order_data['status']}"
+        self.status_bar.showMessage(status_msg, 5000)
+
+
+    @pyqtSlot(dict)
+    def _on_position_update(self, position_data: Dict[str, Any]):
+        """Handle position updates"""
+        self.positions[position_data['symbol']] = position_data
+        self._refresh_positions_table()
+
+
+    @pyqtSlot(dict)
+    def _on_market_data_update(self, market_data: Dict[str, Any]):
+        """Handle market data updates"""
+        symbol = market_data['symbol']
+        self.market_data[symbol] = market_data
+        self._update_watchlist_display()
+        self._update_market_data_display()
+
+
+    @pyqtSlot(dict)
+    def _on_account_update(self, account_data: Dict[str, Any]):
+        """Handle account updates"""
+        self._update_account_display(account_data)
+
+
+    @pyqtSlot(bool)
+    def _on_connection_status_changed(self, connected: bool):
+        """Handle connection status changes"""
+        self._update_connection_status(connected)
+
+
+    # UI update methods
+
+    def _update_connection_status(self, connected: bool = None):
+        """Update connection status display"""
+        if connected is None:
+            connected = self.trading_client.is_connected()
+
+        if connected:
+            self.connection_label.setText("🟢 Connected")
+            self.connection_label.setStyleSheet("color: green;")
+        else:
+            self.connection_label.setText("🔴 Disconnected")
+            self.connection_label.setStyleSheet("color: red;")
+
+
+    def _refresh_positions(self):
+        """Refresh positions data"""
+        try:
+            positions = self.trading_client.get_positions()
+            self.positions = {pos['tradingsymbol']: pos for pos in positions}
+            self._refresh_positions_table()
+        except Exception as e:
+            logger.error(f"Error refreshing positions: {e}")
+            self.status_bar.showMessage(f"Error refreshing positions: {e}", 5000)
+
+
+    def _refresh_orders(self):
+        """Refresh orders data"""
+        try:
+            orders = self.trading_client.get_orders()
+            self.orders = {order['order_id']: order for order in orders}
+            self._refresh_orders_table()
+        except Exception as e:
+            logger.error(f"Error refreshing orders: {e}")
+            self.status_bar.showMessage(f"Error refreshing orders: {e}", 5000)
+
+
+    def _refresh_account_info(self):
+        """Refresh account information"""
+        try:
+            if hasattr(self.trading_client, 'get_account_summary'):
+                account_summary = self.trading_client.get_account_summary()
+                self._update_account_display(account_summary)
+        except Exception as e:
+            logger.error(f"Error refreshing account info: {e}")
+
+
+    def _refresh_positions_table(self):
+        """Update positions table display"""
+        self.positions_table.setRowCount(len(self.positions))
+
+        for row, (symbol, position) in enumerate(self.positions.items()):
+            self.positions_table.setItem(row, 0, QTableWidgetItem(symbol))
+            self.positions_table.setItem(row, 1, QTableWidgetItem(str(position.get('quantity', 0))))
+            self.positions_table.setItem(row, 2, QTableWidgetItem(f"${position.get('average_price', 0):.2f}"))
+
+            # Get current price from market data or position data
+            current_price = position.get('current_price', 0)
+            if current_price == 0 and symbol in self.market_data:
+                current_price = self.market_data[symbol].get('last_price', self.market_data[symbol].get('last', 0))
+
+            self.positions_table.setItem(row, 3, QTableWidgetItem(f"${current_price:.2f}"))
+
+            # Calculate market value
+            quantity = position.get('quantity', 0)
+            market_value = quantity * current_price if current_price > 0 else position.get('market_value', 0)
+            self.positions_table.setItem(row, 4, QTableWidgetItem(f"${market_value:.2f}"))
+
+            # P&L calculation
+            pnl = position.get('pnl', 0)
+            if pnl == 0 and current_price > 0:  # Calculate if not provided
+                avg_price = position.get('average_price', 0)
+                if avg_price > 0:
+                    pnl = (current_price - avg_price) * quantity
+
+            pnl_item = QTableWidgetItem(f"${pnl:.2f}")
+            pnl_item.setForeground(QColor("green" if pnl >= 0 else "red"))
+            self.positions_table.setItem(row, 5, pnl_item)
+
+            # P&L percentage
+            avg_price = position.get('average_price', 0)
+            pnl_percent = (pnl / (avg_price * abs(quantity)) * 100) if avg_price > 0 and quantity != 0 else 0
+            pnl_percent_item = QTableWidgetItem(f"{pnl_percent:.2f}%")
+            pnl_percent_item.setForeground(QColor("green" if pnl_percent >= 0 else "red"))
+            self.positions_table.setItem(row, 6, pnl_percent_item)
+
+            self.positions_table.setItem(row, 7, QTableWidgetItem(position.get('exchange', 'SMART')))
+
+
+    def _refresh_orders_table(self):
+        """Update orders table display"""
+        self.orders_table.setRowCount(len(self.orders))
+
+        for row, (order_id, order) in enumerate(self.orders.items()):
+            self.orders_table.setItem(row, 0, QTableWidgetItem(str(order_id)))
+            self.orders_table.setItem(row, 1, QTableWidgetItem(order.get('tradingsymbol', '')))
+            self.orders_table.setItem(row, 2, QTableWidgetItem(order.get('transaction_type', '')))
+            self.orders_table.setItem(row, 3, QTableWidgetItem(str(order.get('quantity', 0))))
+            self.orders_table.setItem(row, 4, QTableWidgetItem(order.get('order_type', '')))
+            self.orders_table.setItem(row, 5, QTableWidgetItem(f"${order.get('price', 0):.2f}"))
+
+            status = order.get('status', '')
+            status_item = QTableWidgetItem(status)
+            if status in ['FILLED', 'COMPLETE']:
+                status_item.setForeground(QColor("green"))
+            elif status in ['CANCELLED', 'REJECTED']:
+                status_item.setForeground(QColor("red"))
+            elif status in ['SUBMITTED', 'PENDING']:
+                status_item.setForeground(QColor("blue"))
+
+            self.orders_table.setItem(row, 6, status_item)
+            self.orders_table.setItem(row, 7, QTableWidgetItem(str(order.get('filled_quantity', 0))))
+            self.orders_table.setItem(row, 8, QTableWidgetItem(
+                order.get('order_timestamp', '')[:19] if order.get('order_timestamp') else ''))
+
+
+    def _update_account_display(self, account_data: Dict[str, Any]):
+        """Update account information display"""
+        account_text = "Account Summary:\n\n"
+
+        for key, value in account_data.items():
+            if isinstance(value, dict) and 'value' in value:
+                account_text += f"{key}: {value['value']} {value.get('currency', '')}\n"
+            else:
+                account_text += f"{key}: {value}\n"
+
+        self.account_info_widget.setText(account_text)
+
+
+    def _update_watchlist_display(self):
+        """Update watchlist table with latest market data"""
+        for row in range(self.watchlist_table.rowCount()):
+            symbol_item = self.watchlist_table.item(row, 0)
+            if symbol_item:
+                symbol = symbol_item.text()
+                if symbol in self.market_data:
+                    data = self.market_data[symbol]
+
+                    # Update last price - IBKR uses 'last_price' not 'last'
+                    last_price = data.get('last_price', data.get('last', 0))
+                    self.watchlist_table.setItem(row, 1, QTableWidgetItem(f"${last_price:.2f}"))
+
+                    # Calculate change using open price
+                    open_price = data.get('open', last_price)
+                    change = last_price - open_price if open_price > 0 else 0
+                    change_item = QTableWidgetItem(f"${change:.2f}")
+                    change_item.setForeground(QColor("green" if change >= 0 else "red"))
+                    self.watchlist_table.setItem(row, 2, change_item)
+
+                    # Change percentage
+                    change_percent = (change / open_price * 100) if open_price > 0 else 0
+                    change_percent_item = QTableWidgetItem(f"{change_percent:.2f}%")
+                    change_percent_item.setForeground(QColor("green" if change_percent >= 0 else "red"))
+                    self.watchlist_table.setItem(row, 3, change_percent_item)
+
+                    # Volume
+                    volume = data.get('volume', 0)
+                    self.watchlist_table.setItem(row, 4, QTableWidgetItem(f"{volume:,}"))
+
+
+    def _update_market_data_display(self):
+        """Update market data text display"""
+        if not self.market_data:
+            return
+
+        text = "Real-time Market Data:\n\n"
+        for symbol, data in list(self.market_data.items())[-5:]:  # Show last 5 updates
+            last_price = data.get('last_price', data.get('last', 0))
+            bid = data.get('bid', 0)
+            ask = data.get('ask', 0)
+            text += f"{symbol}: ${last_price:.2f} "
+            text += f"(Bid: ${bid:.2f}, Ask: ${ask:.2f})\n"
+
+        self.market_data_text.setText(text)
+
+
+    # Trading methods
 
     def _add_to_watchlist(self):
         """Add symbol to watchlist"""
         symbol = self.symbol_input.text().strip().upper()
-        if not symbol:
-            return
+        if symbol:
+            self._add_symbol_to_watchlist(symbol)
+            self.symbol_input.clear()
 
-        # Check if already in watchlist
-        for i in range(self.watchlist_table.rowCount()):
-            if self.watchlist_table.item(i, 0).text() == symbol:
-                self.symbol_input.clear()
+
+    def _add_symbol_to_watchlist(self, symbol: str):
+        """Add a symbol to the watchlist table"""
+        # Check if symbol already exists
+        for row in range(self.watchlist_table.rowCount()):
+            if self.watchlist_table.item(row, 0).text() == symbol:
                 return
 
-        # Add to watchlist
+        # Add new row
         row = self.watchlist_table.rowCount()
         self.watchlist_table.insertRow(row)
         self.watchlist_table.setItem(row, 0, QTableWidgetItem(symbol))
         self.watchlist_table.setItem(row, 1, QTableWidgetItem("--"))
         self.watchlist_table.setItem(row, 2, QTableWidgetItem("--"))
         self.watchlist_table.setItem(row, 3, QTableWidgetItem("--"))
+        self.watchlist_table.setItem(row, 4, QTableWidgetItem("--"))
 
-        self.watchlist.append(symbol)
-        self.symbol_input.clear()
+        # Subscribe to market data if client supports it
+        if hasattr(self.trading_client, 'subscribe_market_data'):
+            self.trading_client.subscribe_market_data([symbol])
 
-        # Fetch quote if connected
-        if self.data_fetcher:
-            self._update_watchlist_quotes()
+
+    def _on_watchlist_double_click(self, index):
+        """Handle double-click on watchlist item"""
+        row = index.row()
+        symbol_item = self.watchlist_table.item(row, 0)
+        if symbol_item:
+            symbol = symbol_item.text()
+            self.order_symbol.setText(symbol)
+
+
+    def _quick_order(self, action: str):
+        """Place a quick market order"""
+        symbol = self.quick_symbol.text().strip().upper()
+        quantity = self.quick_quantity.value()
+
+        if not symbol:
+            QMessageBox.warning(self, "Error", "Please enter a symbol")
+            return
+
+        self._execute_order(symbol, action, quantity, "MKT")
+
 
     def _place_order(self, action: str):
-        """Place an order"""
+        """Place an order from the order entry form"""
         symbol = self.order_symbol.text().strip().upper()
-        if not symbol:
-            QMessageBox.warning(self, "Input Error", "Please enter a symbol")
-            return
-
         quantity = self.order_quantity.value()
         order_type = self.order_type.currentText()
+        price_text = self.order_price.text().strip()
 
-        # Get price for limit orders
-        price = None
-        if order_type in ["LIMIT", "STOP LIMIT"]:
-            try:
-                price = float(self.order_price.text())
-            except ValueError:
-                QMessageBox.warning(self, "Input Error", "Please enter a valid price")
-                return
-
-        # Confirm order
-        msg = f"{action} {quantity} shares of {symbol}"
-        if price:
-            msg += f" at ${price:.2f}"
-        msg += f"\nOrder Type: {order_type}"
-
-        reply = QMessageBox.question(self, "Confirm Order", msg)
-        if reply != QMessageBox.Yes:
+        if not symbol:
+            QMessageBox.warning(self, "Error", "Please enter a symbol")
             return
 
+        price = None
+        if order_type != "MKT" and price_text:
+            try:
+                price = float(price_text)
+            except ValueError:
+                QMessageBox.warning(self, "Error", "Invalid price format")
+                return
+
+        self._execute_order(symbol, action, quantity, order_type, price)
+
+
+    def _execute_order(self, symbol: str, action: str, quantity: int,
+                       order_type: str, price: Optional[float] = None):
+        """Execute an order with the trading client"""
         try:
-            if self.is_paper_trading:
-                # Paper trading order
-                order = self.paper_manager.place_order(
-                    symbol=symbol,
-                    quantity=quantity,
-                    order_type=order_type,
-                    action=action,
-                    price=price
-                )
-                self.status_bar.showMessage(f"Paper order placed: {order['order_id']}")
-            else:
-                # Real order through IBKR
-                contract = Stock(symbol, 'SMART', 'USD')
-
-                if order_type == "MARKET":
-                    order = MarketOrder(action, quantity)
-                elif order_type == "LIMIT":
-                    order = LimitOrder(action, quantity, price)
-                else:
-                    QMessageBox.warning(self, "Not Implemented",
-                                        f"{order_type} orders not yet implemented")
-                    return
-
-                trade = self.ib_client.placeOrder(contract, order)
-                self.status_bar.showMessage(f"Order placed: {trade.order.orderId}")
-
-            # Clear form
-            self.order_symbol.clear()
-            self.order_price.clear()
-
-            # Refresh orders
-            self._refresh_orders()
-
-            # Emit signal
-            self.order_placed.emit({
+            # Prepare order parameters
+            order_params = {
                 'symbol': symbol,
-                'quantity': quantity,
                 'action': action,
-                'order_type': order_type,
-                'price': price
-            })
+                'quantity': quantity,
+                'order_type': order_type
+            }
+
+            if price is not None:
+                order_params['price'] = price
+
+            # Place the order
+            result = self.trading_client.place_order(**order_params)
+
+            if 'error' in result:
+                QMessageBox.critical(self, "Order Error", result['error'])
+            else:
+                order_id = result.get('order_id', 'Unknown')
+                self.status_bar.showMessage(f"Order placed: {order_id}", 5000)
+
+                # Clear order form
+                self.order_symbol.clear()
+                self.order_price.clear()
+
+                # Refresh orders
+                self._refresh_orders()
 
         except Exception as e:
             logger.error(f"Error placing order: {e}")
-            QMessageBox.critical(self, "Order Error", f"Failed to place order: {str(e)}")
+            QMessageBox.critical(self, "Order Error", str(e))
 
-    def _refresh_data(self):
-        """Refresh all data"""
-        try:
-            self._refresh_positions()
-            self._refresh_orders()
-            self._update_account_info()
-            self._update_watchlist_quotes()
-            self.status_bar.showMessage("Data refreshed")
-        except Exception as e:
-            logger.error(f"Error refreshing data: {e}")
-            self.status_bar.showMessage(f"Refresh error: {str(e)}")
 
-    def _refresh_positions(self):
-        """Refresh positions table"""
-        try:
-            if self.is_paper_trading:
-                self.positions = self.paper_manager.get_positions()
-            elif self.data_fetcher:
-                self.positions = self.data_fetcher.get_positions()
-            else:
-                self.positions = []
-
-            # Update table
-            self.positions_table.setRowCount(0)
-
-            for position in self.positions:
-                row = self.positions_table.rowCount()
-                self.positions_table.insertRow(row)
-
-                # Symbol
-                self.positions_table.setItem(row, 0, QTableWidgetItem(position['symbol']))
-
-                # Quantity
-                qty_item = QTableWidgetItem(str(position['quantity']))
-                qty_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                self.positions_table.setItem(row, 1, qty_item)
-
-                # Avg Price
-                avg_price = position.get('average_price', 0)
-                avg_item = QTableWidgetItem(f"${avg_price:.2f}")
-                avg_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                self.positions_table.setItem(row, 2, avg_item)
-
-                # Current Price (mock for now)
-                current_price = position.get('current_price', avg_price)
-                current_item = QTableWidgetItem(f"${current_price:.2f}")
-                current_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                self.positions_table.setItem(row, 3, current_item)
-
-                # P&L
-                pnl = (current_price - avg_price) * position['quantity']
-                pnl_item = QTableWidgetItem(f"${pnl:,.2f}")
-                pnl_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                if pnl >= 0:
-                    pnl_item.setForeground(Qt.green)
-                else:
-                    pnl_item.setForeground(Qt.red)
-                self.positions_table.setItem(row, 4, pnl_item)
-
-                # P&L %
-                pnl_pct = ((current_price - avg_price) / avg_price * 100) if avg_price > 0 else 0
-                pnl_pct_item = QTableWidgetItem(f"{pnl_pct:.2f}%")
-                pnl_pct_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                if pnl_pct >= 0:
-                    pnl_pct_item.setForeground(Qt.green)
-                else:
-                    pnl_pct_item.setForeground(Qt.red)
-                self.positions_table.setItem(row, 5, pnl_pct_item)
-
-                # Actions
-                close_btn = QPushButton("Close")
-                close_btn.setObjectName("actionButton")
-                close_btn.clicked.connect(lambda _, s=position['symbol']: self._close_position(s))
-                self.positions_table.setCellWidget(row, 6, close_btn)
-
-            self.position_updated.emit()
-
-        except Exception as e:
-            logger.error(f"Error refreshing positions: {e}")
-
-    def _refresh_orders(self):
-        """Refresh orders table"""
-        try:
-            if self.is_paper_trading:
-                self.orders = self.paper_manager.get_orders()
-            elif self.data_fetcher:
-                self.orders = self.data_fetcher.get_orders()
-            else:
-                self.orders = []
-
-            # Update table
-            self.orders_table.setRowCount(0)
-
-            for order in self.orders:
-                row = self.orders_table.rowCount()
-                self.orders_table.insertRow(row)
-
-                # Order ID
-                self.orders_table.setItem(row, 0, QTableWidgetItem(str(order.get('order_id', ''))))
-
-                # Symbol
-                self.orders_table.setItem(row, 1, QTableWidgetItem(order.get('symbol', '')))
-
-                # Type
-                self.orders_table.setItem(row, 2, QTableWidgetItem(order.get('order_type', '')))
-
-                # Quantity
-                qty_item = QTableWidgetItem(str(order.get('quantity', 0)))
-                qty_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                self.orders_table.setItem(row, 3, qty_item)
-
-                # Price
-                price = order.get('limit_price') or order.get('price', '--')
-                if isinstance(price, (int, float)):
-                    price_text = f"${price:.2f}"
-                else:
-                    price_text = str(price)
-                price_item = QTableWidgetItem(price_text)
-                price_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                self.orders_table.setItem(row, 4, price_item)
-
-                # Status
-                status = order.get('status', 'UNKNOWN')
-                status_item = QTableWidgetItem(status)
-                if status == 'FILLED':
-                    status_item.setForeground(Qt.green)
-                elif status in ['CANCELLED', 'REJECTED']:
-                    status_item.setForeground(Qt.red)
-                else:
-                    status_item.setForeground(Qt.yellow)
-                self.orders_table.setItem(row, 5, status_item)
-
-                # Actions
-                if status not in ['FILLED', 'CANCELLED', 'REJECTED']:
-                    cancel_btn = QPushButton("Cancel")
-                    cancel_btn.setObjectName("cancelButton")
-                    cancel_btn.clicked.connect(
-                        lambda _, oid=order.get('order_id'): self._cancel_order(oid)
-                    )
-                    self.orders_table.setCellWidget(row, 6, cancel_btn)
-
-        except Exception as e:
-            logger.error(f"Error refreshing orders: {e}")
-
-    def _update_account_info(self):
-        """Update account information in header"""
-        try:
-            if self.is_paper_trading:
-                info = self.paper_manager.get_account_info()
-                self.balance_label.setText(f"Balance: ${info['balance']:,.2f}")
-                self.buying_power_label.setText(f"Buying Power: ${info['buying_power']:,.2f}")
-            elif self.ib_client and self.ib_client.isConnected():
-                # Get account summary
-                account_values = self.ib_client.accountSummary()
-
-                # Extract key values
-                balance = 0
-                buying_power = 0
-
-                for item in account_values:
-                    if item.tag == 'TotalCashValue':
-                        balance = float(item.value)
-                    elif item.tag == 'BuyingPower':
-                        buying_power = float(item.value)
-
-                self.balance_label.setText(f"Balance: ${balance:,.2f}")
-                self.buying_power_label.setText(f"Buying Power: ${buying_power:,.2f}")
-
-        except Exception as e:
-            logger.error(f"Error updating account info: {e}")
-
-    def _update_watchlist_quotes(self):
-        """Update watchlist quotes"""
-        if not self.data_fetcher:
+    def _show_order_dialog(self):
+        """Show advanced order dialog"""
+        if OrderDialog is None:
+            QMessageBox.information(self, "Info", "Advanced order dialog not available")
             return
 
-        try:
-            for row in range(self.watchlist_table.rowCount()):
-                symbol_item = self.watchlist_table.item(row, 0)
-                if symbol_item:
-                    symbol = symbol_item.text()
+        # Get current symbol and price
+        symbol = self.order_symbol.text().strip().upper()
+        current_price = 0.0
 
-                    # In real implementation, would fetch async
-                    # For now, just show placeholder
-                    self.watchlist_table.item(row, 1).setText("--")
-                    self.watchlist_table.item(row, 2).setText("--")
-                    self.watchlist_table.item(row, 3).setText("--")
+        if symbol and symbol in self.market_data:
+            current_price = self.market_data[symbol].get('last', 0.0)
 
-        except Exception as e:
-            logger.error(f"Error updating watchlist: {e}")
+        dialog = OrderDialog(self, symbol, current_price)
+        if dialog.exec() == QDialog.Accepted:
+            order_data = dialog.order_data
 
-    def _check_connection(self):
-        """Check IBKR connection status"""
-        try:
-            if self.ib_client and not self.ib_client.isConnected():
-                self.connection_status.setText("● Disconnected")
-                self.connection_status.setStyleSheet("color: #F44336;")
-                self.connection_lost.emit()
-            else:
-                self.connection_status.setText("● Connected")
-                self.connection_status.setStyleSheet("color: #4CAF50;")
-        except Exception as e:
-            logger.error(f"Error checking connection: {e}")
+            try:
+                result = self.trading_client.place_order(**order_data)
 
-    def _close_position(self, symbol: str):
-        """Close a position"""
-        # Find position
-        position = next((p for p in self.positions if p['symbol'] == symbol), None)
-        if not position:
+                if 'error' in result:
+                    QMessageBox.critical(self, "Order Error", result['error'])
+                else:
+                    order_id = result.get('order_id', 'Unknown')
+                    self.status_bar.showMessage(f"Advanced order placed: {order_id}", 5000)
+                    self._refresh_orders()
+
+            except Exception as e:
+                logger.error(f"Error placing advanced order: {e}")
+                QMessageBox.critical(self, "Order Error", str(e))
+
+
+    def _close_selected_position(self):
+        """Close the selected position"""
+        current_row = self.positions_table.currentRow()
+        if current_row < 0:
+            QMessageBox.warning(self, "Selection Error", "Please select a position to close")
             return
 
-        # Confirm
+        symbol_item = self.positions_table.item(current_row, 0)
+        quantity_item = self.positions_table.item(current_row, 1)
+
+        if not symbol_item or not quantity_item:
+            return
+
+        symbol = symbol_item.text()
+        quantity = abs(int(float(quantity_item.text())))
+
+        # Determine action (opposite of current position)
+        current_quantity = int(float(quantity_item.text()))
+        action = "SELL" if current_quantity > 0 else "BUY"
+
+        # Confirm close
         reply = QMessageBox.question(
-            self, "Close Position",
-            f"Close position in {symbol}?\nQuantity: {position['quantity']}"
+            self, "Confirm Close",
+            f"Close position: {action} {quantity} shares of {symbol}?",
+            QMessageBox.Yes | QMessageBox.No
         )
 
         if reply == QMessageBox.Yes:
-            # Place sell order
-            self.order_symbol.setText(symbol)
-            self.order_quantity.setValue(position['quantity'])
-            self.order_type.setCurrentText("MARKET")
-            self._place_order("SELL")
+            self._execute_order(symbol, action, quantity, "MKT")
 
-    def _cancel_order(self, order_id):
-        """Cancel an order"""
+
+    def _cancel_selected_order(self):
+        """Cancel the selected order"""
+        current_row = self.orders_table.currentRow()
+        if current_row < 0:
+            QMessageBox.warning(self, "Selection Error", "Please select an order to cancel")
+            return
+
+        order_id_item = self.orders_table.item(current_row, 0)
+        status_item = self.orders_table.item(current_row, 6)
+
+        if not order_id_item or not status_item:
+            return
+
+        order_id = order_id_item.text()
+        status = status_item.text()
+
+        if status not in ['SUBMITTED', 'PENDING']:
+            QMessageBox.warning(self, "Cancel Error", f"Cannot cancel order with status: {status}")
+            return
+
+        try:
+            if hasattr(self.trading_client, 'cancel_order'):
+                result = self.trading_client.cancel_order(order_id)
+
+                if 'error' in result:
+                    QMessageBox.critical(self, "Cancel Error", result['error'])
+                else:
+                    self.status_bar.showMessage(f"Order {order_id} cancelled", 5000)
+                    self._refresh_orders()
+            else:
+                QMessageBox.information(self, "Info", "Order cancellation not supported")
+
+        except Exception as e:
+            logger.error(f"Error cancelling order: {e}")
+            QMessageBox.critical(self, "Cancel Error", str(e))
+
+
+    def _cancel_all_orders(self):
+        """Cancel all pending orders"""
+        pending_orders = [order_id for order_id, order in self.orders.items()
+                          if order.get('status') in ['SUBMITTED', 'PENDING']]
+
+        if not pending_orders:
+            QMessageBox.information(self, "Info", "No pending orders to cancel")
+            return
+
         reply = QMessageBox.question(
-            self, "Cancel Order",
-            f"Cancel order {order_id}?"
+            self, "Confirm Cancel All",
+            f"Cancel {len(pending_orders)} pending orders?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            cancelled_count = 0
+
+            for order_id in pending_orders:
+                try:
+                    if hasattr(self.trading_client, 'cancel_order'):
+                        result = self.trading_client.cancel_order(order_id)
+                        if 'error' not in result:
+                            cancelled_count += 1
+                except Exception as e:
+                    logger.error(f"Error cancelling order {order_id}: {e}")
+
+            self.status_bar.showMessage(f"Cancelled {cancelled_count} orders", 5000)
+            self._refresh_orders()
+
+
+    def _reset_paper_account(self):
+        """Reset paper trading account (if in paper mode)"""
+        if not self.is_paper_trading:
+            QMessageBox.warning(self, "Error", "Account reset only available in paper trading mode")
+            return
+
+        reply = QMessageBox.question(
+            self, "Confirm Reset",
+            "This will reset your paper trading account to initial state. Continue?",
+            QMessageBox.Yes | QMessageBox.No
         )
 
         if reply == QMessageBox.Yes:
             try:
-                if self.is_paper_trading:
-                    # Cancel paper order
-                    for order in self.paper_manager.orders:
-                        if order['order_id'] == order_id:
-                            order['status'] = 'CANCELLED'
-                            break
-                    self.paper_manager._save_state()
-                else:
-                    # Cancel real order
-                    self.ib_client.cancelOrder(order_id)
+                if hasattr(self.trading_client, 'reset_account'):
+                    self.trading_client.reset_account()
+                    self.status_bar.showMessage("Paper account reset", 5000)
 
-                self.status_bar.showMessage(f"Order {order_id} cancelled")
-                self._refresh_orders()
+                    # Refresh all data
+                    self._refresh_all_data()
+                else:
+                    QMessageBox.information(self, "Info", "Account reset not supported")
 
             except Exception as e:
-                logger.error(f"Error cancelling order: {e}")
-                QMessageBox.warning(self, "Cancel Error", f"Failed to cancel order: {str(e)}")
+                logger.error(f"Error resetting paper account: {e}")
+                QMessageBox.critical(self, "Reset Error", str(e))
 
-    def _apply_styles(self):
-        """Apply custom styles"""
-        self.setStyleSheet(f"""
-            QMainWindow {{
-                background-color: {COLORS['background']};
-            }}
 
-            QWidget#headerWidget {{
-                background-color: {COLORS['secondary_background']};
-                border-radius: 5px;
-                padding: 10px;
-                margin-bottom: 10px;
-            }}
+    def _refresh_all_data(self):
+        """Refresh all data displays"""
+        self._refresh_positions()
+        self._refresh_orders()
+        self._refresh_account_info()
+        self.status_bar.showMessage("Data refreshed", 3000)
 
-            QWidget#sectionWidget {{
-                background-color: {COLORS['secondary_background']};
-                border-radius: 5px;
-                padding: 10px;
-                margin: 5px;
-            }}
 
-            QLabel#appTitle {{
-                font-size: 20px;
-                font-weight: bold;
-                color: {COLORS['text']};
-            }}
+    def _reconnect(self):
+        """Attempt to reconnect to the broker"""
+        try:
+            # This would depend on your specific reconnection logic
+            self.status_bar.showMessage("Attempting to reconnect...", 3000)
+            # Add reconnection logic here
 
-            QLabel#sectionTitle {{
-                font-size: 16px;
-                font-weight: bold;
-                color: {COLORS['text']};
-                margin-bottom: 10px;
-            }}
+        except Exception as e:
+            logger.error(f"Error reconnecting: {e}")
+            QMessageBox.critical(self, "Connection Error", str(e))
 
-            QLabel#balanceLabel, QLabel#buyingPowerLabel {{
-                font-size: 14px;
-                color: {COLORS['text']};
-                margin: 0 10px;
-            }}
 
-            QLabel#connectionStatus {{
-                font-size: 14px;
-                font-weight: bold;
-                margin: 0 10px;
-            }}
+    def _disconnect(self):
+        """Disconnect from the broker"""
+        try:
+            self.trading_client.disconnect()
+            self._update_connection_status(False)
+            self.status_bar.showMessage("Disconnected", 3000)
 
-            QPushButton {{
-                background-color: {COLORS['primary']};
-                color: white;
-                border: none;
-                border-radius: 4px;
-                padding: 8px 16px;
-                font-weight: bold;
-            }}
+        except Exception as e:
+            logger.error(f"Error disconnecting: {e}")
 
-            QPushButton:hover {{
-                background-color: #1565C0;
-            }}
 
-            QPushButton#buyButton {{
-                background-color: {COLORS['success']};
-            }}
-
-            QPushButton#buyButton:hover {{
-                background-color: #2E7D32;
-            }}
-
-            QPushButton#sellButton {{
-                background-color: {COLORS['warning']};
-            }}
-
-            QPushButton#sellButton:hover {{
-                background-color: #E65100;
-            }}
-
-            QPushButton#cancelButton {{
-                background-color: {COLORS['secondary']};
-                padding: 4px 12px;
-            }}
-
-            QPushButton#cancelButton:hover {{
-                background-color: #B71C1C;
-            }}
-
-            QPushButton#actionButton {{
-                padding: 4px 12px;
-            }}
-
-            QPushButton#addButton {{
-                font-size: 18px;
-                padding: 0;
-            }}
-
-            QPushButton#refreshButton {{
-                padding: 6px 12px;
-            }}
-
-            QTableWidget {{
-                background-color: {COLORS['secondary_background']};
-                border: none;
-                gridline-color: #424242;
-                color: {COLORS['text']};
-            }}
-
-            QTableWidget::item {{
-                padding: 5px;
-            }}
-
-            QTableWidget::item:selected {{
-                background-color: {COLORS['primary']};
-            }}
-
-            QHeaderView::section {{
-                background-color: #424242;
-                color: {COLORS['text']};
-                padding: 8px;
-                border: none;
-                font-weight: bold;
-            }}
-
-            QLineEdit, QComboBox, QSpinBox {{
-                background-color: #424242;
-                border: 1px solid #616161;
-                border-radius: 4px;
-                padding: 6px;
-                color: {COLORS['text']};
-            }}
-
-            QLineEdit:focus, QComboBox:focus, QSpinBox:focus {{
-                border-color: {COLORS['primary']};
-            }}
-
-            QTabWidget::pane {{
-                background-color: {COLORS['secondary_background']};
-                border: none;
-            }}
-
-            QTabBar::tab {{
-                background-color: #424242;
-                color: {COLORS['text']};
-                padding: 8px 16px;
-                margin-right: 2px;
-            }}
-
-            QTabBar::tab:selected {{
-                background-color: {COLORS['primary']};
-            }}
-
-            QStatusBar {{
-                background-color: {COLORS['secondary_background']};
-                color: {COLORS['text']};
-            }}
-        """)
+    # Cleanup methods
 
     def closeEvent(self, event):
         """Handle window close event"""
-        if self.ib_client:
+        # Stop timers
+        if hasattr(self, 'positions_timer'):
+            self.positions_timer.stop()
+        if hasattr(self, 'orders_timer'):
+            self.orders_timer.stop()
+        if hasattr(self, 'account_timer'):
+            self.account_timer.stop()
+
+        # Unsubscribe from market data
+        if hasattr(self.trading_client, 'unsubscribe_market_data') and self.watchlist:
             try:
-                self.ib_client.disconnect()
-            except:
-                pass
+                self.trading_client.unsubscribe_market_data(self.watchlist)
+            except Exception as e:
+                logger.error(f"Error unsubscribing from market data: {e}")
+
+        # Accept the close event
         event.accept()
+
+
+    def get_trading_client(self) -> IBKRTradingClient:
+        """Get the trading client instance"""
+        return self.trading_client
+
+
+    def is_connected(self) -> bool:
+        """Check if the trading client is connected"""
+        return self.trading_client.is_connected()
+
+
+    def get_positions_data(self) -> Dict[str, Any]:
+        """Get current positions data"""
+        return self.positions
+
+
+    def get_orders_data(self) -> Dict[str, Any]:
+        """Get current orders data"""
+        return self.orders
+
+
+    def add_symbols_to_watchlist(self, symbols: List[str]):
+        """Add multiple symbols to watchlist"""
+        for symbol in symbols:
+            self._add_symbol_to_watchlist(symbol.upper())
+
+
+    def set_market_data(self, symbol: str, data: Dict[str, Any]):
+        """Manually set market data for a symbol (for testing)"""
+        self.market_data[symbol] = data
+        self._update_watchlist_display()
+        self._update_market_data_display()  # ibkr/core/enhanced_main_window.py
+
+
