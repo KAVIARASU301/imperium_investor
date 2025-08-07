@@ -9,7 +9,7 @@ import importlib
 from typing import Union, Dict, Any, Optional, Type, List
 from abc import ABC, abstractmethod
 
-from login_setup.broker_modes import BrokerMode, TradingMode, get_broker_config
+from login_setup.broker_modes import BrokerMode, TradingMode, get_broker_config, get_module_path
 from login_setup.enhanced_token_manager import EnhancedTokenManager
 
 logger = logging.getLogger(__name__)
@@ -336,6 +336,28 @@ class BrokerFactory:
     Enhanced factory class for creating and managing broker clients.
     Handles both live and paper trading clients with improved IBKR IPv6 support.
     """
+
+    @staticmethod
+    def load_broker_main_window(broker_mode: BrokerMode) -> Type:
+        """
+        Dynamically loads the main window class for the specified broker.
+        This prevents circular dependencies and keeps broker-specific UI separate.
+        """
+        try:
+            module_path = get_module_path(broker_mode)
+            main_window_module_name = f"{module_path}.core.main_window"
+
+            logger.info(f"Dynamically loading main window from: {main_window_module_name}")
+
+            module = importlib.import_module(main_window_module_name)
+
+            # The main window class is expected to be named 'SwingTraderWindow' in both modules
+            MainWindowClass = getattr(module, 'SwingTraderWindow')
+
+            return MainWindowClass
+        except (ImportError, AttributeError) as e:
+            logger.error(f"Failed to load main window for {broker_mode.value}: {e}")
+            raise RuntimeError(f"Could not load main window for {broker_mode.value}") from e
 
     @staticmethod
     def create_client(broker_mode: BrokerMode,

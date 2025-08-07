@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QComboBox, QLabel, QGroupBox, QProgressBar, QTextEdit, QSplitter,
     QHeaderView, QMessageBox, QStatusBar, QMenuBar, QMenu, QDialog
 )
-from PySide6.QtCore import Qt, QTimer, Signal, pyqtSlot
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QFont, QColor, QPalette, QAction
 
 try:
@@ -481,7 +481,6 @@ class IBKRMainWindow(QMainWindow):
         # Event handlers
 
 
-    @pyqtSlot(dict)
     def _on_order_status_update(self, order_data: Dict[str, Any]):
         """Handle order status updates"""
         self.orders[order_data['order_id']] = order_data
@@ -491,14 +490,12 @@ class IBKRMainWindow(QMainWindow):
         self.status_bar.showMessage(status_msg, 5000)
 
 
-    @pyqtSlot(dict)
     def _on_position_update(self, position_data: Dict[str, Any]):
         """Handle position updates"""
         self.positions[position_data['symbol']] = position_data
         self._refresh_positions_table()
 
 
-    @pyqtSlot(dict)
     def _on_market_data_update(self, market_data: Dict[str, Any]):
         """Handle market data updates"""
         symbol = market_data['symbol']
@@ -507,13 +504,11 @@ class IBKRMainWindow(QMainWindow):
         self._update_market_data_display()
 
 
-    @pyqtSlot(dict)
     def _on_account_update(self, account_data: Dict[str, Any]):
         """Handle account updates"""
         self._update_account_display(account_data)
 
 
-    @pyqtSlot(bool)
     def _on_connection_status_changed(self, connected: bool):
         """Handle connection status changes"""
         self._update_connection_status(connected)

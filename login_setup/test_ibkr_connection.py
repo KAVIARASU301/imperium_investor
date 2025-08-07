@@ -58,7 +58,8 @@ class IBKRConnectionTester:
             print(f"\n🎯 Best address found: {host}:{port_used} ({family_name})")
         else:
             print("\n❌ No working addresses found. Cannot proceed with API tests.")
-            self._print_connectivity_help(port)
+            # **FIXED: Removed 'port' argument from the call**
+            self._print_connectivity_help()
             return {'connectivity': False}
 
         # Step 4: Test API responsiveness
@@ -67,7 +68,8 @@ class IBKRConnectionTester:
         print(f"   API responsive: {'✅' if api_responsive else '❌'}")
 
         if not api_responsive:
-            self._print_api_help(port)
+            # **FIXED: Removed 'port' argument from the call**
+            self._print_api_help()
 
         # Step 5: Test actual IB connection
         print("\n🚀 Testing actual IBKR connection...")
@@ -149,7 +151,6 @@ class IBKRConnectionTester:
             sock = socket.socket(family, socket.SOCK_STREAM)
             sock.settimeout(3.0)
 
-            # **FIXED: Use the correct tuple format for IPv6 connections**
             if family == socket.AF_INET6:
                 addr = (host, port, 0, 0)
             else:
@@ -178,13 +179,11 @@ class IBKRConnectionTester:
         if not working_results:
             return None
 
-        # Prefer IPv6 with low latency
         ipv6_results = sorted([r for r in working_results if r['family'] == 'IPv6'],
                               key=lambda x: x['latency_ms'] or 999)
         if ipv6_results:
             best = ipv6_results[0]
         else:
-            # Fallback to best IPv4
             ipv4_results = sorted([r for r in working_results if r['family'] == 'IPv4'],
                                   key=lambda x: x['latency_ms'] or 999)
             best = ipv4_results[0]
@@ -201,14 +200,12 @@ class IBKRConnectionTester:
             sock = socket.socket(family, socket.SOCK_STREAM)
             sock.settimeout(3.0)
 
-            # **FIXED: Use the correct tuple format for IPv6 connections**
             if family == socket.AF_INET6:
                 addr = (host, port, 0, 0)
             else:
                 addr = (host, port)
 
             sock.connect(addr)
-            # A basic API probe that doesn't require a full handshake
             sock.send(b'API\0')
             sock.settimeout(2.0)
             response = sock.recv(100)
@@ -225,9 +222,8 @@ class IBKRConnectionTester:
         host, port, _ = address
 
         try:
-            if hasattr(util, 'logToConsole'): util.logToConsole(level=40)  # ERROR level
+            if hasattr(util, 'logToConsole'): util.logToConsole(level=40)
             ib = IB()
-            # **IMPROVEMENT: Connect directly to the validated IP**
             ib.connect(host=host, port=port, clientId=999, timeout=8)
 
             if ib.isConnected():
@@ -238,7 +234,6 @@ class IBKRConnectionTester:
                 return {'success': False, 'error': 'ib.connect call completed but isConnected() is false.'}
         except Exception as e:
             return {'success': False, 'error': str(e)}
-
 
     def _generate_recommendations(self, connectivity_results: List[Dict[str, Any]],
                                   api_responsive: bool, connection_result: Dict[str, Any]) -> List[str]:
@@ -257,35 +252,35 @@ class IBKRConnectionTester:
             ])
         elif not api_responsive:
             recommendations.extend([
-                "⚙️ Configure API in IB Gateway:",
-                "   • Go to Configure → API Settings",
-                "   • ✅ Enable 'ActiveX and Socket Clients'",
-                "   • 🔢 Set Socket port correctly",
-                "   • 🆔 Set Master API client ID to 0",
-                "   • 🔄 Click OK and restart Gateway",
-                "💬 Dismiss any popup dialogs in Gateway"
+                "⚙️ **Configure API in IB Gateway (This is your likely problem!)**",
+                "   • Go to: File -> Global Configuration -> API -> Settings",
+                "   • ✅ **CHECK** 'Enable ActiveX and Socket Clients'",
+                "   • 🔢 Make sure 'Socket port' is set to 7497 (for paper)",
+                "   • 🌐 Under 'Trusted IP Addresses', click 'Create' and add `::1` and `127.0.0.1`",
+                "   • 🔄 Click OK and restart Gateway completely",
+                "💬 Dismiss any popup dialogs in the Gateway application"
             ])
         elif not connection_result.get('success'):
             error = connection_result.get('error', '')
             if 'already' in error.lower() or 'duplicate' in error.lower():
-                recommendations.append("🔢 Try different Client ID (2, 3, 4, etc.)")
+                recommendations.append("🔢 Try a different Client ID in your script (e.g., 2, 3, 4, etc.)")
             elif 'timeout' in error.lower():
                 recommendations.extend([
                     "⏱️ Connection timeout - try:",
-                    "   • Restart Gateway completely",
-                    "   • Use different Client ID",
-                    "   • Check for Gateway popup dialogs"
+                    "   • Restarting Gateway completely",
+                    "   • Using a different Client ID",
+                    "   • Checking for Gateway popup dialogs"
                 ])
             else:
                 recommendations.extend([
                     "🔄 Try restarting IB Gateway",
-                    "🔢 Use different Client ID (2, 3, 4, etc.)",
+                    "🔢 Use a different Client ID",
                     "💬 Check for popup dialogs in Gateway"
                 ])
         else:
             recommendations.extend([
                 "✅ Everything looks good!",
-                "🎯 Connection should work in your application",
+                "🎯 Connection should now work in your main application",
                 "💡 If issues persist, try different Client IDs"
             ])
 
@@ -293,90 +288,53 @@ class IBKRConnectionTester:
 
     def _print_connectivity_help(self):
         """Print connectivity troubleshooting help"""
-        print("""x""")
+        # **FIXED: Added useful help text**
+        print("""
+        ----------------------------------------------------
+        💡 Troubleshooting Connectivity:
+        1.  **Is IB Gateway or TWS Running?** - Make sure the application is open.
+        2.  **Are You Logged In?** - You must be fully logged into your IBKR account within the Gateway.
+        3.  **Correct Port?** - Paper trading is usually 7497. Live trading is 7496.
+        4.  **Firewall?** - Check if your system's firewall is blocking the connection on that port.
+        5.  **Restart** - When in doubt, completely close and restart the IB Gateway application.
+        ----------------------------------------------------
+        """)
 
     def _print_api_help(self):
         """Print API configuration help"""
-        print("""x""")
+        # **FIXED: Added useful help text**
+        print("""
+        ----------------------------------------------------
+        💡 Troubleshooting API Responsiveness (Your current issue!):
+        The script can see the Gateway, but the Gateway is not responding to the API handshake.
+        This is almost always a configuration issue inside the Gateway itself.
+
+        **Solution:**
+        1.  In IB Gateway, go to **File -> Global Configuration**.
+        2.  On the left, go to **API -> Settings**.
+        3.  **CHECK THE BOX** for "Enable ActiveX and Socket Clients". This is required.
+        4.  Make sure the "Socket port" number matches the port in the script (7497 for paper).
+        5.  Under "Trusted IP Addresses", click "Create" and add `::1` and then `127.0.0.1`. This explicitly allows local connections.
+        6.  Click **Apply** and **OK**.
+        7.  **Completely restart the IB Gateway application** for the settings to take effect.
+        ----------------------------------------------------
+        """)
 
     def _print_connection_help(self):
         """Print connection troubleshooting help"""
-        print("""x""")
+        # **FIXED: Added useful help text**
+        print("""
+        ----------------------------------------------------
+        💡 Troubleshooting Final Connection:
+        The script can see the Gateway and the API is on, but the final login fails.
 
-
-def quick_test(port: int = 7497):
-    """Quick connection test"""
-    print(f"🔍 Quick IBKR Test (Port {port})")
-    print("=" * 30)
-
-    if not IBKR_AVAILABLE:
-        print("❌ ib_insync not available")
-        print("💡 Install with: pip install ib_insync")
-        return
-
-    # Test IPv6 first
-    addresses_to_test = [
-        ("::1", 7497, socket.AF_INET6, "IPv6"),
-        ("127.0.0.1", 7497, socket.AF_INET, "IPv4")
-    ]
-
-    working_address = None
-
-    for host, test_port, family, family_name in addresses_to_test:
-        try:
-            sock = socket.socket(family, socket.SOCK_STREAM)
-            sock.settimeout(2)
-
-            if family == socket.AF_INET6:
-                result = sock.connect_ex((host, test_port, 0, 0))
-            else:
-                result = sock.connect_ex((host, test_port))
-
-            sock.close()
-
-            if result == 0:
-                print(f"✅ {family_name} connectivity: {host}:{test_port}")
-                if not working_address:
-                    working_address = (host, test_port, family)
-            else:
-                print(f"❌ {family_name} connectivity: {host}:{test_port}")
-
-        except Exception as e:
-            print(f"❌ {family_name} test failed: {e}")
-
-    if not working_address:
-        print("\n❌ No connectivity detected")
-        print("💡 Check if IB Gateway is running")
-        return
-
-    # Test actual IB connection
-    host, port, family = working_address
-    family_name = 'IPv6' if family == socket.AF_INET6 else 'IPv4'
-
-    try:
-        print(f"\n🚀 Testing IB connection via {family_name}...")
-
-        if hasattr(util, 'logToConsole'):
-            util.logToConsole(level=40)  # Suppress logs
-
-        ib = IB()
-        ib.connect(host=host, port=port, clientId=999, timeout=5)
-
-        if ib.isConnected():
-            current_time = ib.reqCurrentTime()
-            print(f"✅ IB connection successful!")
-            print(f"📊 API test: {current_time}")
-            ib.disconnect()
-        else:
-            print("❌ IB connection failed")
-
-    except Exception as e:
-        print(f"❌ IB connection error: {e}")
-
-        if "already connected" in str(e).lower():
-            print("💡 Try different Client ID (2, 3, 4, etc.)")
-        elif "timeout" in str(e).lower():
-            print("💡 Try restarting IB Gateway")
+        **Common Causes:**
+        1.  **Client ID in Use:** Another application is already connected using the same Client ID.
+            -> Try changing the Client ID in your main script to a different number (e.g., 2, 3, 10).
+        2.  **Gateway Pop-ups:** Check the IB Gateway application for any pop-up dialogs or messages that need to be clicked.
+        3.  **Gateway is "Asleep":** Sometimes restarting the Gateway is the only fix.
+        ----------------------------------------------------
+        """)
 
 
 def main():
@@ -385,32 +343,28 @@ def main():
 
     parser = argparse.ArgumentParser(description="IBKR Connection Test Utility")
     parser.add_argument("--port", type=int, default=7497, help="Port to test (default: 7497)")
-    parser.add_argument("--quick", action="store_true", help="Run quick test only")
 
     args = parser.parse_args()
 
     try:
-        if args.quick:
-            quick_test(args.port)
-        else:
-            tester = IBKRConnectionTester()
-            results = tester.run_full_diagnosis(args.port)
+        tester = IBKRConnectionTester()
+        results = tester.run_full_diagnosis(args.port)
 
-            print(f"\n🎯 Test Summary:")
-            print(f"   Library available: {'✅' if results.get('library_available') else '❌'}")
+        print(f"\n🎯 Test Summary:")
+        print(f"   Library available: {'✅' if results.get('library_available') else '❌'}")
 
-            if results.get('connectivity_results'):
-                working_count = sum(1 for r in results['connectivity_results'] if r['success'])
-                total_count = len(results['connectivity_results'])
-                print(f"   Connectivity: {working_count}/{total_count} addresses working")
+        if results.get('connectivity_results'):
+            working_count = sum(1 for r in results['connectivity_results'] if r['success'])
+            total_count = len(results['connectivity_results'])
+            print(f"   Connectivity: {working_count}/{total_count} addresses working")
 
-            if results.get('best_address'):
-                host, port, family = results['best_address']
-                family_name = 'IPv6' if family == socket.AF_INET6 else 'IPv4'
-                print(f"   Best address: {host}:{port} ({family_name})")
+        if results.get('best_address'):
+            host, port, family = results['best_address']
+            family_name = 'IPv6' if family == socket.AF_INET6 else 'IPv4'
+            print(f"   Best address: {host}:{port} ({family_name})")
 
-            print(f"   API responsive: {'✅' if results.get('api_responsive') else '❌'}")
-            print(f"   IB connection: {'✅' if results.get('connection_result', {}).get('success') else '❌'}")
+        print(f"   API responsive: {'✅' if results.get('api_responsive') else '❌'}")
+        print(f"   IB connection: {'✅' if results.get('connection_result', {}).get('success') else '❌'}")
 
     except KeyboardInterrupt:
         print("\n\n⏹️ Test interrupted by user")
