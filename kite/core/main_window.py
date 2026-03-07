@@ -55,6 +55,17 @@ class SwingTraderWindow(QMainWindow):
     """
     trade_completed = Signal()
 
+    def _get_paper_trading_manager(self) -> Optional[PaperTradingManager]:
+        """Return the underlying paper trading manager, even when wrapped."""
+        if isinstance(self.trader, PaperTradingManager):
+            return self.trader
+
+        wrapped_client = getattr(self.trader, 'client', None)
+        if isinstance(wrapped_client, PaperTradingManager):
+            return wrapped_client
+
+        return None
+
     # ==============================================================================
     # INITIALIZATION AND SETUP
     # ==============================================================================
@@ -69,7 +80,8 @@ class SwingTraderWindow(QMainWindow):
         self.api_key = api_key
         self.access_token = access_token
         self.config_manager = ConfigManager()
-        self.trading_mode = 'paper' if isinstance(trader, PaperTradingManager) else 'live'
+        paper_trader = self._get_paper_trading_manager()
+        self.trading_mode = 'paper' if paper_trader else 'live'
         self.trade_logger = TradeLogger(mode=self.trading_mode)
 
         # SIMPLIFIED MANAGERS - NO NOTIFICATION SYSTEM
@@ -84,8 +96,9 @@ class SwingTraderWindow(QMainWindow):
         self.instrument_map: Dict[str, Dict] = {}
         self._subscribed_tokens = set()
 
-        if isinstance(self.trader, PaperTradingManager):
-            self.trader.set_trade_logger(self.trade_logger)
+        if paper_trader:
+            paper_trader.set_trade_logger(self.trade_logger)
+            paper_trader.set_main_window(self)
 
         # --- Window Dragging Variables ---
         self._drag_pos = None
@@ -424,8 +437,9 @@ class SwingTraderWindow(QMainWindow):
         self.candlestick_chart.set_instrument_list(instruments)
         self.watchlist.set_instrument_map(self.instrument_map)
 
-        if isinstance(self.trader, PaperTradingManager):
-            self.trader.set_instrument_data(instruments)
+        paper_trader = self._get_paper_trading_manager()
+        if paper_trader:
+            paper_trader.set_instrument_data(instruments)
         if self.alert_system:
             self.alert_system.set_instrument_map(self.instrument_map)
 
@@ -506,8 +520,9 @@ class SwingTraderWindow(QMainWindow):
             self._update_positions_market_data(filtered_ticks)
 
             # Update other components with filtered data
-            if isinstance(self.trader, PaperTradingManager):
-                self.trader.update_market_data(filtered_ticks)
+            paper_trader = self._get_paper_trading_manager()
+            if paper_trader:
+                paper_trader.update_market_data(filtered_ticks)
 
             self.watchlist.update_data(filtered_ticks)
 

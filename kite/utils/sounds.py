@@ -128,6 +128,10 @@ class SoundManager(QObject):
 
     def _load_sound_file_paths(self):
         """Load sound file paths (but don't create Qt sounds yet)"""
+        # Always initialize sound dictionaries so known sounds remain valid
+        self.sounds = {sound_name: None for sound_name in self.sound_files}
+        self.sound_files_paths = {sound_name: "" for sound_name in self.sound_files}
+
         # Find assets directory dynamically
         assets_dir = self.find_assets_directory()
 

@@ -160,7 +160,7 @@ class InstrumentLoader(QThread):
 
                 if all_instruments:
                     logger.info(f"Successfully fetched {len(all_instruments)} total instruments")
-                    self._save_to_cache(all_instruments)
+                    self.save_instruments_to_cache(all_instruments)
                     return all_instruments
                 else:
                     raise Exception("No instruments fetched from any exchange")

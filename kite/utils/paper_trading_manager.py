@@ -75,6 +75,7 @@ class PaperTradingManager(QObject):
         # Components
         self.trade_logger = None
         self.main_window = None
+        self._instrument_symbol_aliases: Dict[str, str] = {}
         self.execution_rules = self._setup_execution_rules()
         self._last_market_data_time = datetime.now()
         self._market_data_timeout = 30
@@ -129,6 +130,7 @@ class PaperTradingManager(QObject):
                 variety, exchange, tradingsymbol, transaction_type,
                 quantity, product, order_type, price, trigger_price
             )
+            tradingsymbol = self._resolve_trading_symbol(tradingsymbol) or tradingsymbol
             # Generate unique order ID
             order_id = f"paper_{uuid.uuid4().hex[:12]}"
 
@@ -186,13 +188,41 @@ class PaperTradingManager(QObject):
             self.execution_notification.emit(error_msg, "error")
             raise
 
+    def _resolve_trading_symbol(self, tradingsymbol: str) -> Optional[str]:
+        """Resolve symbol against known mappings with normalization and aliases."""
+        if not tradingsymbol:
+            return None
+
+        normalized = tradingsymbol.strip().upper()
+
+        if normalized in self.tradingsymbol_to_token:
+            return normalized
+
+        alias_symbol = self._instrument_symbol_aliases.get(normalized)
+        if alias_symbol and alias_symbol in self.tradingsymbol_to_token:
+            return alias_symbol
+
+        if self.main_window and hasattr(self.main_window, 'instrument_map'):
+            instrument = self.main_window.instrument_map.get(normalized)
+            if instrument:
+                mapped_symbol = instrument.get('tradingsymbol', normalized)
+                token = instrument.get('instrument_token')
+                if token:
+                    self.tradingsymbol_to_token[mapped_symbol] = token
+                    self.token_to_tradingsymbol[token] = mapped_symbol
+                    self._instrument_symbol_aliases[normalized] = mapped_symbol
+                    return mapped_symbol
+
+        return None
+
     def _validate_order_parameters(self, variety, exchange, tradingsymbol, transaction_type,
                                    quantity, product, order_type, price, trigger_price):
         """Fixed parameter validation"""
         if not all([variety, exchange, tradingsymbol, transaction_type, quantity, product, order_type]):
             raise ValueError("Missing required order parameters")
 
-        if tradingsymbol not in self.tradingsymbol_to_token:
+        resolved_symbol = self._resolve_trading_symbol(tradingsymbol)
+        if not resolved_symbol:
             raise ValueError(f"Unknown trading symbol: {tradingsymbol}")
 
         if quantity <= 0:
@@ -500,6 +530,7 @@ class PaperTradingManager(QObject):
 
         self.tradingsymbol_to_token = {}
         self.token_to_tradingsymbol = {}
+        self._instrument_symbol_aliases = {}
 
         for instrument in instruments:
             if 'tradingsymbol' in instrument and 'instrument_token' in instrument:
