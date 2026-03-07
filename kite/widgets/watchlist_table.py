@@ -31,6 +31,7 @@ class TradingTable(QTableWidget):
     advanced_buy_order_requested = Signal(str)
     advanced_sell_order_requested = Signal(str)
     bracket_order_requested = Signal(str)
+    watchlist_symbols_changed = Signal()
 
     def __init__(self, category: str, parent=None):
         super().__init__(parent)
@@ -469,6 +470,7 @@ class TradingTable(QTableWidget):
 
         logger.info(f"Added {symbol} to {self.category} watchlist with LTP: {self._watchlist_data[symbol]['ltp']}, "
                     f"Volume: {self._watchlist_data[symbol]['volume']}")
+        self.watchlist_symbols_changed.emit()
         return True
 
     def remove_symbol(self, symbol: str) -> bool:
@@ -479,6 +481,7 @@ class TradingTable(QTableWidget):
                 del self._watchlist_data[symbol]
             self._populate_full_table()
             logger.info(f"Removed {symbol} from {self.category} watchlist")
+            self.watchlist_symbols_changed.emit()
             return True
         return False
 
@@ -879,10 +882,18 @@ class TabbedWatchlistWidget(QWidget):
             table.advanced_buy_order_requested.connect(self.advanced_buy_order_requested.emit)
             table.advanced_sell_order_requested.connect(self.advanced_sell_order_requested.emit)
             table.bracket_order_requested.connect(self.bracket_order_requested.emit)
+            table.watchlist_symbols_changed.connect(
+                lambda c=category: self._handle_watchlist_symbols_changed(c)
+            )
 
             self.tab_widget.addTab(table, category.upper())
 
         layout.addWidget(self.tab_widget)
+
+    def _handle_watchlist_symbols_changed(self, category: str):
+        """Persist symbol list changes immediately for the given category."""
+        self._save_watchlist(category)
+        self.watchlist_changed.emit()
 
     def _update_tab_widths(self):
         """Enhanced tab width calculation with glitch prevention."""
@@ -1263,16 +1274,11 @@ class TabbedWatchlistWidget(QWidget):
         if category in self._tables:
             success = self._tables[category].add_symbol(symbol)
             if success:
-                # Save immediately
-                self._save_watchlist(category)
-
                 # Subscribe to token
                 if symbol in self._instrument_map:
                     token = self._instrument_map[symbol].get('instrument_token')
                     if token:
                         self.subscribe_tokens_requested.emit([token])
-
-                self.watchlist_changed.emit()
                 logger.info(f"Successfully added {symbol} to {category}")
                 return True
             else:
