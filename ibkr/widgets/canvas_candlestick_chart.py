@@ -1865,8 +1865,8 @@ class CandlestickChart(QWidget):
             #metricsInfo {{ font-weight: 600; margin-bottom: 6px; color: #f0f5ff; }}
             #priceInfo {{ color: #58b4ff; font-weight: 600; }}
             #timeSlider {{ position: absolute; bottom: 0; left: 0; width: 100%; height: 14px; background: linear-gradient(180deg, #101a2b 0%, #0b1422 100%); border-top: 1px solid #24324a; display: flex; align-items: center; justify-content: center; overflow: hidden; user-select: none; z-index: 10; }}
-            #sliderTrack {{ position: relative; height: 2px; background-color: #223044; border-radius: 999px; width: calc(100% - 16px); margin: 0 8px; box-shadow: inset 0 0 0 1px #2d3d58; }}
-            #sliderThumb {{ position: absolute; width: 70px; height: 6px; background: linear-gradient(180deg, #2b8cff 0%, #1d67c8 100%); border: 1px solid #3d95ff; border-radius: 999px; cursor: grab; display: flex; align-items: center; justify-content: center; color: transparent; font-size: 0; z-index: 12; box-shadow: 0 2px 6px rgba(0,0,0,0.35); }}
+            #sliderTrack {{ position: relative; height: 1px; background-color: #5b6370; border-radius: 999px; width: calc(100% - 16px); margin: 0 8px; box-shadow: inset 0 0 0 1px rgba(120, 128, 140, 0.18); }}
+            #sliderThumb {{ position: absolute; width: 70px; height: 3px; background: linear-gradient(180deg, #8f97a3 0%, #757d89 100%); border: 1px solid rgba(208, 213, 221, 0.35); border-radius: 999px; cursor: grab; display: flex; align-items: center; justify-content: center; color: transparent; font-size: 0; z-index: 12; box-shadow: 0 1px 2px rgba(0,0,0,0.2); }}
         </style>
     </head>
     <body>
