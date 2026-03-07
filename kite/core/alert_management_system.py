@@ -566,6 +566,8 @@ class AlertSystemManager(QObject):
     """
 
     alert_triggered = Signal(str)  # alert_id
+    alert_sound_requested = Signal()
+    engine_status_changed = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -580,7 +582,8 @@ class AlertSystemManager(QObject):
         self._engine_thread.started.connect(self.engine.start_engine)
         self._engine_thread.start()
 
-        self.engine.alert_triggered.connect(self.alert_triggered)
+        self.engine.alert_triggered.connect(self._on_engine_alert_triggered)
+        self.engine_status_changed.emit("running")
         logger.info("AlertSystemManager ready")
 
     def update_market_data(self, ticks: List[Dict]) -> None:
@@ -602,10 +605,36 @@ class AlertSystemManager(QObject):
         self._dialog = AlertManagementDialog(self.store, parent or self.parent())
         self._dialog.show()
 
+    @Slot(str)
+    def _on_engine_alert_triggered(self, alert_id: str) -> None:
+        self.alert_triggered.emit(alert_id)
+        self.alert_sound_requested.emit()
+
+    def set_instrument_map(self, instrument_map: Dict[str, Dict]) -> None:
+        """Compatibility API; map is not required by current alert engine."""
+        self._instrument_map = instrument_map
+
+    def show_quick_alert_dialog(self, parent=None) -> None:
+        self.show_dialog(parent=parent)
+
+    def show_alert_manager(self, parent=None) -> None:
+        self.show_dialog(parent=parent)
+
+    def get_notification_counts(self) -> tuple[int, int]:
+        alerts = self.store.all()
+        active = sum(1 for a in alerts if a.status == AlertStatus.ACTIVE.value)
+        triggered = sum(1 for a in alerts if a.status == AlertStatus.TRIGGERED.value)
+        return active, triggered
+
+    def get_active_alert_tokens(self) -> List[int]:
+        # Alerts are symbol-based; token extraction is not available here.
+        return []
+
     def stop_engine(self) -> None:
         self.engine.stop_engine()
         self._engine_thread.quit()
         self._engine_thread.wait(3_000)
+        self.engine_status_changed.emit("stopped")
         logger.info("AlertSystemManager stopped")
 
 

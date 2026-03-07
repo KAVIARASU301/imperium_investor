@@ -106,6 +106,10 @@ class MarketDataWorker(QObject):
 
         logger.info("MarketDataWorker stopped")
 
+    def is_connected(self) -> bool:
+        """Compatibility helper for UI checks."""
+        return bool(self.is_running and self.kws is not None)
+
     def get_subscription_info(self) -> Dict:
         return {
             "subscribed_tokens": list(self.subscribed_tokens),

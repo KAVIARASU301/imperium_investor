@@ -30,7 +30,11 @@ from kite.core.position_manager import PositionManager
 from kite.core.shutdown_manager import CleanShutdownMixin
 
 from kite.core.market_data_worker import MarketDataWorker
-from kite.utils.paper_trading_manager import PaperTradingManager, integrate_paper_trading
+from kite.utils.paper_trading_manager import (
+    PaperTradingManager,
+    PaperTradingMixin,
+    integrate_paper_trading,
+)
 from kite.utils.config_manager import ConfigManager
 from kite.core.instrument_loader import InstrumentLoader
 from kite.core.trade_logger import TradeLogger
@@ -47,7 +51,7 @@ from kite.utils.sounds import play_alert, play_error
 logger = logging.getLogger(__name__)
 
 
-class SwingTraderWindow(CleanShutdownMixin, QMainWindow):
+class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     """
     SIMPLIFIED Main Window with LED-style status bar instead of popup notifications:
     - Simple Position Manager (only works when tracking orders)
@@ -260,6 +264,7 @@ class SwingTraderWindow(CleanShutdownMixin, QMainWindow):
             self.alert_system = AlertSystemManager(self)
             self.alert_system.alert_sound_requested.connect(lambda: play_alert())
             self.alert_system.engine_status_changed.connect(self._on_alert_engine_status)
+            self.alert_system.alert_triggered.connect(self._on_alert_triggered)
             logger.info("Alert system initialized successfully.")
         except Exception as e:
             logger.error(f"Failed to initialize alert system: {e}")
@@ -395,8 +400,8 @@ class SwingTraderWindow(CleanShutdownMixin, QMainWindow):
 
         # Alert System
         if self.alert_system:
-            self.header_toolbar.add_alert_requested.connect(self.alert_system.show_quick_alert_dialog)
-            self.header_toolbar.alert_manager_requested.connect(self.alert_system.show_alert_manager)
+            self.header_toolbar.add_alert_requested.connect(lambda: self.alert_system.show_quick_alert_dialog(self))
+            self.header_toolbar.alert_manager_requested.connect(lambda: self.alert_system.show_alert_manager(self))
         else:
             self.header_toolbar.add_alert_requested.connect(self._alert_system_unavailable)
             self.header_toolbar.alert_manager_requested.connect(self._alert_system_unavailable)
@@ -453,7 +458,6 @@ class SwingTraderWindow(CleanShutdownMixin, QMainWindow):
 
         paper_trader = self._get_paper_trading_manager()
         if paper_trader:
-            paper_trader.set_instrument_data(instruments)
             paper_trader.set_instrument_map(self.instrument_map)
             logger.info("Paper trader instrument map updated")
         if self.alert_system:
@@ -965,6 +969,13 @@ class SwingTraderWindow(CleanShutdownMixin, QMainWindow):
     # ALERT SYSTEM METHODS
     # ==============================================================================
 
+
+
+    @Slot(str)
+    def _on_alert_triggered(self, alert_id: str):
+        """Handle alert trigger events from alert engine."""
+        logger.info(f"Alert triggered: {alert_id}")
+        self._update_alert_badges()
 
     @Slot()
     def _update_alert_badges(self):
@@ -1525,4 +1536,3 @@ class SwingTraderWindow(CleanShutdownMixin, QMainWindow):
 
         input_types = (QLineEdit, QTextEdit, QPlainTextEdit, QSpinBox, QDoubleSpinBox)
         return isinstance(focused_widget, input_types)
-
