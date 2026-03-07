@@ -9,6 +9,7 @@ from PySide6.QtCore import QObject, Signal
 DEFAULT_COLOR_THEME: Dict[str, Any] = {
     "link_all_sections": True,
     "enable_table_directional_colors": False,
+    "enable_volume_strength_indicator": False,
     "candles": {
         "up": "#26a69a",
         "down": "#ef5350",
@@ -68,6 +69,9 @@ class ColorThemeManager(QObject):
         merged["link_all_sections"] = bool(custom.get("link_all_sections", merged["link_all_sections"]))
         merged["enable_table_directional_colors"] = bool(
             custom.get("enable_table_directional_colors", merged["enable_table_directional_colors"])
+        )
+        merged["enable_volume_strength_indicator"] = bool(
+            custom.get("enable_volume_strength_indicator", merged["enable_volume_strength_indicator"])
         )
 
         for section in ("candles", "volume", "tables"):

@@ -731,6 +731,7 @@ class ChartinkScannerTable(QWidget):
         self._symbol_to_row: Dict[str, int] = {}
         self._current_symbol_index = 0  # Track current symbol for spacebar navigation
         self._color_theme = {
+            "enable_volume_strength_indicator": False,
             "tables": {"positive": "#26a69a", "negative": "#ef5350", "neutral": "#a9a9a9", "volume": "#45d4ff"}
         }
 
@@ -950,16 +951,19 @@ class ChartinkScannerTable(QWidget):
             volume_text = str(volume)
         else:
             volume_text = "-"
-        # TC2000-style quick visual buzz indicator
-        if volume >= 5_000_000:
-            buzz = "▰▰▰"
-        elif volume >= 1_000_000:
-            buzz = "▰▰▱"
-        elif volume >= 250_000:
-            buzz = "▰▱▱"
+        show_volume_strength = bool(self._color_theme.get("enable_volume_strength_indicator", False))
+        if show_volume_strength:
+            if volume >= 5_000_000:
+                strength = "3pt"
+            elif volume >= 1_000_000:
+                strength = "2pt"
+            elif volume >= 250_000:
+                strength = "1pt"
+            else:
+                strength = "0pt"
+            volume_item.setText(f"{strength} {volume_text}")
         else:
-            buzz = "▱▱▱"
-        volume_item.setText(f"{buzz} {volume_text}")
+            volume_item.setText(volume_text)
         volume_item.setToolTip(f"Reported volume: {volume:,.0f}")
 
         # Change % column

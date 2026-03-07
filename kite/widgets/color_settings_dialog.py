@@ -9,6 +9,8 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QCheckBox,
     QGroupBox,
+    QTabWidget,
+    QWidget,
 )
 from PySide6.QtGui import QColor
 
@@ -23,26 +25,32 @@ class ColorSettingsDialog(QDialog):
 
         layout = QVBoxLayout(self)
 
+        tabs = QTabWidget()
+        layout.addWidget(tabs)
+
+        colors_tab = QWidget()
+        colors_layout = QVBoxLayout(colors_tab)
+
         self.link_checkbox = QCheckBox("Use same green/red colors across candles, volume, and tables")
         self.link_checkbox.setChecked(bool(self._theme.get("link_all_sections", True)))
         self.link_checkbox.toggled.connect(self._sync_linked_state)
-        layout.addWidget(self.link_checkbox)
+        colors_layout.addWidget(self.link_checkbox)
 
         self.table_color_toggle_checkbox = QCheckBox("Enable directional colors in scanner/watchlist/positions tables")
         self.table_color_toggle_checkbox.setChecked(bool(self._theme.get("enable_table_directional_colors", False)))
-        layout.addWidget(self.table_color_toggle_checkbox)
+        colors_layout.addWidget(self.table_color_toggle_checkbox)
 
         candle_group = QGroupBox("Candles")
         candle_form = QFormLayout(candle_group)
         candle_form.addRow("Green candle", self._build_color_button("candles.up", self._theme["candles"]["up"]))
         candle_form.addRow("Red candle", self._build_color_button("candles.down", self._theme["candles"]["down"]))
-        layout.addWidget(candle_group)
+        colors_layout.addWidget(candle_group)
 
         volume_group = QGroupBox("Volume")
         volume_form = QFormLayout(volume_group)
         volume_form.addRow("Up volume", self._build_color_button("volume.up", self._theme["volume"]["up"]))
         volume_form.addRow("Down volume", self._build_color_button("volume.down", self._theme["volume"]["down"]))
-        layout.addWidget(volume_group)
+        colors_layout.addWidget(volume_group)
 
         table_group = QGroupBox("Scanner / Watchlist / Positions")
         table_form = QFormLayout(table_group)
@@ -50,7 +58,17 @@ class ColorSettingsDialog(QDialog):
         table_form.addRow("Negative", self._build_color_button("tables.negative", self._theme["tables"]["negative"]))
         table_form.addRow("Neutral", self._build_color_button("tables.neutral", self._theme["tables"]["neutral"]))
         table_form.addRow("Volume text", self._build_color_button("tables.volume", self._theme["tables"]["volume"]))
-        layout.addWidget(table_group)
+        colors_layout.addWidget(table_group)
+
+        tabs.addTab(colors_tab, "Colors")
+
+        more_tab = QWidget()
+        more_layout = QVBoxLayout(more_tab)
+        self.volume_strength_toggle_checkbox = QCheckBox("Show volume strength indicator (1/2/3 points)")
+        self.volume_strength_toggle_checkbox.setChecked(bool(self._theme.get("enable_volume_strength_indicator", False)))
+        more_layout.addWidget(self.volume_strength_toggle_checkbox)
+        more_layout.addStretch()
+        tabs.addTab(more_tab, "More")
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
@@ -109,4 +127,5 @@ class ColorSettingsDialog(QDialog):
     def get_theme(self) -> Dict[str, Any]:
         self._theme["link_all_sections"] = self.link_checkbox.isChecked()
         self._theme["enable_table_directional_colors"] = self.table_color_toggle_checkbox.isChecked()
+        self._theme["enable_volume_strength_indicator"] = self.volume_strength_toggle_checkbox.isChecked()
         return self._theme

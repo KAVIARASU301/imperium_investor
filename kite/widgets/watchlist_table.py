@@ -47,6 +47,7 @@ class TradingTable(QTableWidget):
 
         self._color_theme = {
             "enable_table_directional_colors": False,
+            "enable_volume_strength_indicator": False,
             "tables": {"positive": "#26a69a", "negative": "#ef5350", "neutral": "#a9a9a9", "volume": "#45d4ff"}
         }
 
@@ -548,16 +549,19 @@ class TradingTable(QTableWidget):
         else:
             volume_text = str(volume)
 
-        if volume >= 5_000_000:
-            buzz = "▰▰▰"
-        elif volume >= 1_000_000:
-            buzz = "▰▰▱"
-        elif volume >= 250_000:
-            buzz = "▰▱▱"
+        show_volume_strength = bool(self._color_theme.get("enable_volume_strength_indicator", False))
+        if show_volume_strength:
+            if volume >= 5_000_000:
+                strength = "3pt"
+            elif volume >= 1_000_000:
+                strength = "2pt"
+            elif volume >= 250_000:
+                strength = "1pt"
+            else:
+                strength = "0pt"
+            self.item(row, 2).setText(f"{strength} {volume_text}")
         else:
-            buzz = "▱▱▱"
-
-        self.item(row, 2).setText(f"{buzz} {volume_text}")
+            self.item(row, 2).setText(volume_text)
         self.item(row, 2).setToolTip(f"Reported volume: {volume:,.0f}")
 
         # Format change percentage

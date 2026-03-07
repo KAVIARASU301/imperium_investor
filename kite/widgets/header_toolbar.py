@@ -227,10 +227,10 @@ class HeaderToolbar(QToolBar):
         self.performance_btn.setFixedSize(85, 24)
         actions_layout.addWidget(self.performance_btn)
 
-        self.color_settings_btn = QPushButton("Colors")
+        self.color_settings_btn = QPushButton("Settings")
         self.color_settings_btn.setObjectName("tradingActionButton")
         self.color_settings_btn.clicked.connect(self.color_settings_requested.emit)
-        self.color_settings_btn.setFixedSize(60, 24)
+        self.color_settings_btn.setFixedSize(70, 24)
         actions_layout.addWidget(self.color_settings_btn)
 
         self.addWidget(actions_widget)
