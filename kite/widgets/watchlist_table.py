@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QHeaderView, QAbstractItemView, QMenu, QTabWidget
 )
 from PySide6.QtCore import Qt, Signal, Slot, QPoint, QTimer
-from PySide6.QtGui import QColor, QCursor, QAction, QResizeEvent
+from PySide6.QtGui import QColor, QCursor, QAction, QResizeEvent, QFont, QBrush
 
 logger = logging.getLogger(__name__)
 
@@ -63,9 +63,11 @@ class TradingTable(QTableWidget):
         # Table behavior
         self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.setShowGrid(False)
+        self.setShowGrid(True)
         self.setAlternatingRowColors(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
 
         # Enable sorting
         self.setSortingEnabled(True)
@@ -86,7 +88,11 @@ class TradingTable(QTableWidget):
         self.setColumnWidth(4, 24)  # Remove button - minimal
 
         # Row height for compact appearance
-        self.verticalHeader().setDefaultSectionSize(28)
+        self.verticalHeader().setDefaultSectionSize(24)
+
+        header_font = QFont("Segoe UI", 10)
+        header_font.setBold(True)
+        header.setFont(header_font)
 
         # Initialize sorting state
         self._sort_column = -1
@@ -522,7 +528,8 @@ class TradingTable(QTableWidget):
 
         # Set text values
         self.item(row, 0).setText(tradingsymbol)
-        self.item(row, 1).setText(f"{ltp:.2f}" if ltp > 0 else "0.00")
+        self.item(row, 0).setToolTip(f"Open chart for {tradingsymbol}")
+        self.item(row, 1).setText(f"{ltp:,.2f}" if ltp > 0 else "0.00")
 
         # Format volume with K/M notation
         if volume >= 1_000_000:
@@ -531,13 +538,21 @@ class TradingTable(QTableWidget):
             volume_text = f"{volume / 1_000:.1f}K"
         else:
             volume_text = str(volume)
-        self.item(row, 2).setText(volume_text)
+
+        if volume >= 5_000_000:
+            buzz = "▰▰▰"
+        elif volume >= 1_000_000:
+            buzz = "▰▰▱"
+        elif volume >= 250_000:
+            buzz = "▰▱▱"
+        else:
+            buzz = "▱▱▱"
+
+        self.item(row, 2).setText(f"{buzz} {volume_text}")
+        self.item(row, 2).setToolTip(f"Reported volume: {volume:,.0f}")
 
         # Format change percentage
-        if change_pct != 0:
-            self.item(row, 3).setText(f"{change_pct:+.1f}%")
-        else:
-            self.item(row, 3).setText("0.0%")
+        self.item(row, 3).setText(f"{change_pct:+.2f}%" if abs(change_pct) > 0.01 else "0.00%")
 
         # Set data for proper sorting
         self.item(row, 0).setData(Qt.ItemDataRole.UserRole, tradingsymbol)
@@ -553,13 +568,24 @@ class TradingTable(QTableWidget):
 
         self.item(row, 1).setForeground(color)
         self.item(row, 3).setForeground(color)
-        self.item(row, 2).setForeground(neutral_color)
+        self.item(row, 2).setForeground(QColor("#45d4ff"))
+
+        if change_pct > 0:
+            self.item(row, 3).setBackground(QBrush(QColor(18, 55, 34, 140)))
+        elif change_pct < 0:
+            self.item(row, 3).setBackground(QBrush(QColor(70, 20, 20, 140)))
+        else:
+            self.item(row, 3).setBackground(QBrush(QColor(35, 35, 35, 100)))
 
         # Set alignments
         self.item(row, 0).setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        self.item(row, 1).setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.item(row, 2).setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.item(row, 3).setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.item(row, 1).setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.item(row, 2).setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self.item(row, 3).setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+        symbol_font = self.item(row, 0).font()
+        symbol_font.setBold(True)
+        self.item(row, 0).setFont(symbol_font)
 
     def _refresh_display(self):
         """Periodic refresh of display data"""
@@ -611,7 +637,7 @@ class TradingTable(QTableWidget):
         menu = QMenu(self)
         menu.setStyleSheet("""
             QMenu {
-                background-color: #1a1a1a;
+                background-color: #0b1019;
                 color: #e0e0e0;
                 border: 1px solid #3a3a3a;
                 border-radius: 4px;
@@ -624,7 +650,7 @@ class TradingTable(QTableWidget):
                 margin: 1px;
             }
             QMenu::item:selected {
-                background-color: #6a9cff;
+                background-color: #6ec8ff;
                 color: #ffffff;
             }
             QMenu::separator {
@@ -891,7 +917,7 @@ class TabbedWatchlistWidget(QWidget):
         dynamic_stylesheet = f"""
             /* Main Widget */
             TabbedWatchlistWidget {{
-                background-color: #0a0a0a;
+                background-color: #05070b;
                 color: #e0e0e0;
                 font-family: "Segoe UI", Arial, sans-serif;
                 font-size: 13px;
@@ -899,13 +925,13 @@ class TabbedWatchlistWidget(QWidget):
 
             /* Tab Widget Styling */
             QTabWidget#tradingTabs {{
-                background-color: #0a0a0a;
-                border: none;
+                background-color: #05070b;
+                border: 1px solid #1a2536;
             }}
 
             QTabWidget#tradingTabs::pane {{
                 border: 1px solid #202020;
-                background-color: #0a0a0a;
+                background-color: #05070b;
                 border-radius: 0px;
                 border-top: none;
             }}
@@ -929,7 +955,7 @@ class TabbedWatchlistWidget(QWidget):
 
             /* Dynamic Tab Styling - Equal Width Distribution */
             QTabBar::tab {{
-                background-color: #1a1a1a;
+                background-color: #0b1019;
                 color: #8892b0;
                 padding: 6px 2px;
                 margin: 0px;
@@ -950,17 +976,17 @@ class TabbedWatchlistWidget(QWidget):
             }}
 
             QTabBar::tab:selected {{
-                background-color: #0a0a0a;
-                color: #6a9cff;
-                border-bottom: 2px solid #6a9cff;
+                background-color: #05070b;
+                color: #6ec8ff;
+                border-bottom: 2px solid #6ec8ff;
                 width: {tab_width_px};
                 min-width: {tab_width_px};
                 max-width: {tab_width_px};
             }}
 
             QTabBar::tab:hover:!selected {{
-                background-color: #2a2a2a;
-                color: #ccd6f6;
+                background-color: #16253a;
+                color: #dbe9ff;
                 width: {tab_width_px};
                 min-width: {tab_width_px};
                 max-width: {tab_width_px};
@@ -968,11 +994,11 @@ class TabbedWatchlistWidget(QWidget):
 
             /* Table Styling - EXACT match to scanner table */
             TradingTable {{
-                background-color: #0a0a0a;
-                border: none;
-                gridline-color: #2a2a2a;
-                selection-background-color: #1e3a5f;
-                alternate-background-color: #0f0f0f;
+                background-color: #05070b;
+                border: 1px solid #1a2536;
+                gridline-color: #162131;
+                selection-background-color: #234b73;
+                alternate-background-color: #070b12;
                 outline: none;
                 show-decoration-selected: 0;
                 font-size: 12px;
@@ -980,15 +1006,15 @@ class TabbedWatchlistWidget(QWidget):
             }}
 
             TradingTable::item {{
-                padding: 5px 8px;
-                border-bottom: 1px solid #1a1a1a;
+                padding: 3px 8px;
+                border-bottom: 1px solid #101926;
                 background-color: transparent;
                 color: #e0e0e0;
                 font-size: 12px;
             }}
 
             TradingTable::item:selected {{
-                background-color: #1e3a5f !important;
+                background-color: #234b73 !important;
                 outline: none;
                 border: none;
                 color: #ffffff;
@@ -996,7 +1022,7 @@ class TabbedWatchlistWidget(QWidget):
             }}
 
             TradingTable::item:focus {{
-                background-color: #1e3a5f !important;
+                background-color: #234b73 !important;
                 outline: none;
                 border: none;
             }}
@@ -1006,23 +1032,23 @@ class TabbedWatchlistWidget(QWidget):
             }}
 
             TradingTable::item:alternate {{
-                background-color: #0f0f0f;
+                background-color: #070b12;
             }}
 
             TradingTable::item:alternate:selected {{
-                background-color: #1e3a5f !important;
+                background-color: #234b73 !important;
                 color: #ffffff;
                 font-weight: 600;
             }}
 
             /* Header Styling - EXACT match to scanner table */
             QHeaderView::section {{
-                background-color: #1a1a1a;
-                color: #a0c0ff;
+                background-color: #0b1019;
+                color: #7fd4ff;
                 padding: 3px 10px;
                 border: none;
-                border-bottom: 1px solid #303030;
-                border-right: 1px solid #101010;
+                border-bottom: 1px solid #24344c;
+                border-right: 1px solid #121c2b;
                 font-weight: 600;
                 font-size: 11px;
             }}
@@ -1032,12 +1058,12 @@ class TabbedWatchlistWidget(QWidget):
             }}
 
             QHeaderView::section:hover {{
-                background-color: #2a2a2a;
-                color: #ccd6f6;
+                background-color: #16253a;
+                color: #dbe9ff;
             }}
 
             QHeaderView::down-arrow {{
-                color: #6a9cff;
+                color: #6ec8ff;
                 width: 8px;
                 height: 8px;
                 subcontrol-position: center right;
@@ -1046,7 +1072,7 @@ class TabbedWatchlistWidget(QWidget):
             }}
 
             QHeaderView::up-arrow {{
-                color: #6a9cff;
+                color: #6ec8ff;
                 width: 8px;
                 height: 8px;
                 subcontrol-position: center right;
@@ -1073,7 +1099,7 @@ class TabbedWatchlistWidget(QWidget):
 
             /* Enhanced Scrollbars */
             QScrollBar:vertical {{
-                background-color: #0a0a0a;
+                background-color: #05070b;
                 width: 8px;
                 border: none;
                 margin: 0px;
@@ -1091,7 +1117,7 @@ class TabbedWatchlistWidget(QWidget):
             }}
 
             QScrollBar:horizontal {{
-                background-color: #0a0a0a;
+                background-color: #05070b;
                 height: 8px;
                 border: none;
                 margin: 0px;
@@ -1149,7 +1175,7 @@ class TabbedWatchlistWidget(QWidget):
         # This ensures the widget has basic styling before dynamic updates
         basic_stylesheet = """
             TabbedWatchlistWidget {
-                background-color: #0a0a0a;
+                background-color: #05070b;
                 color: #e0e0e0;
                 font-family: "Segoe UI", Arial, sans-serif;
                 font-size: 13px;

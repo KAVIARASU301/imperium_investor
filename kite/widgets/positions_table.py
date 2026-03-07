@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
     QWidget, QHeaderView, QFrame, QHBoxLayout, QAbstractItemView, QMenu
 )
 from PySide6.QtCore import Qt, Signal, Slot
-from PySide6.QtGui import QColor, QCursor, QAction
+from PySide6.QtGui import QColor, QCursor, QAction, QFont, QBrush
 from functools import partial
 
 logger = logging.getLogger(__name__)
@@ -82,10 +82,12 @@ class PositionsTable(QWidget):
         self.table.horizontalHeader().setVisible(True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setShowGrid(False)
+        self.table.setShowGrid(True)
         self.table.setAlternatingRowColors(True)
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
 
         # Column sizing
         header = self.table.horizontalHeader()
@@ -101,7 +103,11 @@ class PositionsTable(QWidget):
         self.table.setColumnWidth(3, 80)  # P&L
         self.table.setColumnWidth(4, 24)  # Exit button
 
-        self.table.verticalHeader().setDefaultSectionSize(28)
+        self.table.verticalHeader().setDefaultSectionSize(24)
+
+        header_font = QFont("Segoe UI", 10)
+        header_font.setBold(True)
+        header.setFont(header_font)
 
     def _create_minimal_footer(self) -> QFrame:
         """Create minimal footer"""
@@ -239,9 +245,10 @@ class PositionsTable(QWidget):
 
         # Update text values
         self.table.item(row, 0).setText(position.symbol)
-        self.table.item(row, 1).setText(str(position.quantity))
-        self.table.item(row, 2).setText(f"{position.avg_price:.2f}")
-        self.table.item(row, 3).setText(f"{position.pnl:,.2f}")
+        self.table.item(row, 0).setToolTip(f"Open chart for {position.symbol}")
+        self.table.item(row, 1).setText(f"{position.quantity:,}")
+        self.table.item(row, 2).setText(f"{position.avg_price:,.2f}")
+        self.table.item(row, 3).setText(f"{position.pnl:+,.2f}")
 
         # Color code P&L
         pnl_item = self.table.item(row, 3)
@@ -252,11 +259,23 @@ class PositionsTable(QWidget):
         else:
             pnl_item.setForeground(QColor(169, 169, 169))  # Gray
 
+        # Subtle directional tint for P&L cell
+        if position.pnl > 0:
+            pnl_item.setBackground(QBrush(QColor(18, 55, 34, 140)))
+        elif position.pnl < 0:
+            pnl_item.setBackground(QBrush(QColor(70, 20, 20, 140)))
+        else:
+            pnl_item.setBackground(QBrush(QColor(35, 35, 35, 100)))
+
         # Set alignments
         self.table.item(row, 0).setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        self.table.item(row, 1).setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
-        self.table.item(row, 2).setTextAlignment(Qt.AlignmentFlag.AlignCenter  | Qt.AlignmentFlag.AlignVCenter)
-        self.table.item(row, 3).setTextAlignment(Qt.AlignmentFlag.AlignCenter  | Qt.AlignmentFlag.AlignVCenter)
+        self.table.item(row, 1).setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.table.item(row, 2).setTextAlignment(Qt.AlignmentFlag.AlignRight  | Qt.AlignmentFlag.AlignVCenter)
+        self.table.item(row, 3).setTextAlignment(Qt.AlignmentFlag.AlignRight  | Qt.AlignmentFlag.AlignVCenter)
+
+        symbol_font = self.table.item(row, 0).font()
+        symbol_font.setBold(True)
+        self.table.item(row, 0).setFont(symbol_font)
 
         # Set tooltip
         investment = abs(position.quantity * position.avg_price)
@@ -367,7 +386,7 @@ class PositionsTable(QWidget):
         self.setStyleSheet("""
             /* Main Widget - matches watchlist and scanner */
             QWidget {
-                background-color: #0a0a0a;
+                background-color: #05070b;
                 color: #e0e0e0;
                 font-family: "Segoe UI", Arial, sans-serif;
                 font-size: 13px;
@@ -376,11 +395,11 @@ class PositionsTable(QWidget):
 
             /* Table Styling - EXACT match to watchlist and scanner */
             QTableWidget {
-                background-color: #0a0a0a;
-                border: none;
-                gridline-color: #2a2a2a;
-                selection-background-color: #1e3a5f;
-                alternate-background-color: #0f0f0f;
+                background-color: #03060c;
+                border: 1px solid #1a2536;
+                gridline-color: #162131;
+                selection-background-color: #234b73;
+                alternate-background-color: #070b12;
                 outline: none;
                 show-decoration-selected: 0;
                 font-size: 12px;
@@ -388,15 +407,15 @@ class PositionsTable(QWidget):
             }
 
             QTableWidget::item {
-                padding: 5px 8px;
-                border-bottom: 1px solid #1a1a1a;
+                padding: 3px 8px;
+                border-bottom: 1px solid #101926;
                 background-color: transparent;
                 color: #e0e0e0;
                 font-size: 12px;
             }
 
             QTableWidget::item:selected {
-                background-color: #1e3a5f !important;
+                background-color: #234b73 !important;
                 outline: none;
                 border: none;
                 color: #ffffff;
@@ -404,7 +423,7 @@ class PositionsTable(QWidget):
             }
 
             QTableWidget::item:focus {
-                background-color: #1e3a5f !important;
+                background-color: #234b73 !important;
                 outline: none;
                 border: none;
             }
@@ -414,23 +433,23 @@ class PositionsTable(QWidget):
             }
 
             QTableWidget::item:alternate {
-                background-color: #0f0f0f;
+                background-color: #070b12;
             }
 
             QTableWidget::item:alternate:selected {
-                background-color: #1e3a5f !important;
+                background-color: #234b73 !important;
                 color: #ffffff;
                 font-weight: 600;
             }
 
             /* Header Styling - EXACT match to watchlist */
             QHeaderView::section {
-                background-color: #1a1a1a;
-                color: #a0c0ff;
+                background-color: #0b1019;
+                color: #7fd4ff;
                 padding: 3px 10px;
                 border: none;
-                border-bottom: 1px solid #303030;
-                border-right: 1px solid #101010;
+                border-bottom: 1px solid #24344c;
+                border-right: 1px solid #121c2b;
                 font-weight: 600;
                 font-size: 11px;
             }
@@ -440,8 +459,8 @@ class PositionsTable(QWidget):
             }
 
             QHeaderView::section:hover {
-                background-color: #2a2a2a;
-                color: #ccd6f6;
+                background-color: #16253a;
+                color: #dbe9ff;
             }
 
             /* Exit Button - EXACT match to watchlist remove button */
@@ -463,8 +482,8 @@ class PositionsTable(QWidget):
 
             /* Minimal Footer Styling */
             #positionsFooter {
-                background-color: #000000;
-                border-top: 1px solid #2a2a2a;
+                background-color: #05070b;
+                border-top: 1px solid #1f2c3f;
             }
 
             #footerPrimaryMetric {
@@ -498,7 +517,7 @@ class PositionsTable(QWidget):
 
             /* Enhanced Scrollbars - EXACT match to watchlist */
             QScrollBar:vertical {
-                background-color: #0a0a0a;
+                background-color: #05070b;
                 width: 8px;
                 border: none;
                 margin: 0px;
@@ -516,7 +535,7 @@ class PositionsTable(QWidget):
             }
 
             QScrollBar:horizontal {
-                background-color: #0a0a0a;
+                background-color: #05070b;
                 height: 8px;
                 border: none;
                 margin: 0px;

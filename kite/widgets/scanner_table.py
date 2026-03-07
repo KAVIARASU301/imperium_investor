@@ -872,7 +872,7 @@ class ChartinkScannerTable(QWidget):
     def _configure_table(self):
         """FIXED table configuration with proper row selection."""
         self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["Symbol", "Price", "Volume", "%Chg"])
+        self.table.setHorizontalHeaderLabels(["Symbol", "Price", "Volume", "% Change"])
 
         self.table.horizontalHeader().setVisible(True)
         header = self.table.horizontalHeader()
@@ -887,8 +887,16 @@ class ChartinkScannerTable(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setShowGrid(False)
+        self.table.setShowGrid(True)
         self.table.setAlternatingRowColors(True)
+        self.table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+
+        # TC2000-inspired compact table density
+        self.table.verticalHeader().setDefaultSectionSize(24)
+        header_font = QFont("Segoe UI", 10)
+        header_font.setBold(True)
+        self.table.horizontalHeader().setFont(header_font)
 
         # FIXED: Add focus policy for better behavior (from positions table)
         self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -904,6 +912,7 @@ class ChartinkScannerTable(QWidget):
             symbol_item = QTableWidgetItem()
             self.table.setItem(row, 0, symbol_item)
         symbol_item.setText(data['symbol'])
+        symbol_item.setToolTip(f"Open chart for {data['symbol']}")
 
         # Price column (EOD closing price)
         price = data.get('price', 0.0)
@@ -911,7 +920,7 @@ class ChartinkScannerTable(QWidget):
         if not price_item:
             price_item = QTableWidgetItem()
             self.table.setItem(row, 1, price_item)
-        price_item.setText(f"{price:.2f}" if price > 0 else "-")
+        price_item.setText(f"{price:,.2f}" if price > 0 else "-")
 
         # Volume column
         volume = data.get('volume', 0)
@@ -929,7 +938,17 @@ class ChartinkScannerTable(QWidget):
             volume_text = str(volume)
         else:
             volume_text = "-"
-        volume_item.setText(volume_text)
+        # TC2000-style quick visual buzz indicator
+        if volume >= 5_000_000:
+            buzz = "▰▰▰"
+        elif volume >= 1_000_000:
+            buzz = "▰▰▱"
+        elif volume >= 250_000:
+            buzz = "▰▱▱"
+        else:
+            buzz = "▱▱▱"
+        volume_item.setText(f"{buzz} {volume_text}")
+        volume_item.setToolTip(f"Reported volume: {volume:,.0f}")
 
         # Change % column
         change_pct = data.get('change_pct', 0.0)
@@ -937,7 +956,7 @@ class ChartinkScannerTable(QWidget):
         if not change_pct_item:
             change_pct_item = QTableWidgetItem()
             self.table.setItem(row, 3, change_pct_item)
-        change_pct_item.setText(f"{change_pct:.2f}%" if abs(change_pct) > 0.01 else "-")
+        change_pct_item.setText(f"{change_pct:+.2f}%" if abs(change_pct) > 0.01 else "0.00%")
 
         # Apply color coding based on change %
         profit_color = QColor(60, 179, 113)  # Medium Sea Green
@@ -949,13 +968,25 @@ class ChartinkScannerTable(QWidget):
         # Color the price and change % columns
         price_item.setForeground(color)
         change_pct_item.setForeground(color)
-        volume_item.setForeground(neutral_color)
+        volume_item.setForeground(QColor("#45d4ff"))
+
+        # Subtle directional tint in % change cell (keeps selected-row style readable)
+        if change_pct > 0:
+            change_pct_item.setBackground(QBrush(QColor(18, 55, 34, 140)))
+        elif change_pct < 0:
+            change_pct_item.setBackground(QBrush(QColor(70, 20, 20, 140)))
+        else:
+            change_pct_item.setBackground(QBrush(QColor(35, 35, 35, 100)))
 
         # Set text alignments
         symbol_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        price_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
-        volume_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
-        change_pct_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
+        price_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        volume_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        change_pct_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+        symbol_font = symbol_item.font()
+        symbol_font.setBold(True)
+        symbol_item.setFont(symbol_font)
 
     @Slot(list)
     def _on_scan_complete(self, scan_results: List[Dict]):
@@ -1253,7 +1284,7 @@ class ChartinkScannerTable(QWidget):
         """FIXED dark theme styling with proper alternate row selection."""
         self.setStyleSheet("""
             QWidget {
-                background-color: #0a0a0a;
+                background-color: #05070b;
                 color: #e0e0e0;
                 font-family: "Segoe UI", Arial, sans-serif;
                 font-size: 13px;
@@ -1261,22 +1292,22 @@ class ChartinkScannerTable(QWidget):
 
             /* Header Container */
             QWidget#headerContainer {
-                background-color: #1a1a1a;
-                border-bottom: 1px solid #303030;
+                background-color: #0b1019;
+                border-bottom: 1px solid #1f2c3f;
                 padding: 5px;
             }
 
             /* Scan Label */
             QLabel#scanLabel {
-                color: #a0c0ff;
+                color: #6ec8ff;
                 font-weight: 600;
                 font-size: 11px;
             }
 
             /* Dropdown */
             QComboBox#minimalDropdown {
-                background-color: #1a1a1a;
-                border: 1px solid #303030;
+                background-color: #0a111b;
+                border: 1px solid #24354d;
                 color: #ffffff;
                 padding: 3px 6px;
                 border-radius: 2px;
@@ -1337,17 +1368,17 @@ class ChartinkScannerTable(QWidget):
 
             /* Settings Button */
             QPushButton#settingsMinimalButton {
-                background-color: #2a2a2a;
-                color: #a0c0ff;
+                background-color: #111b2a;
+                color: #6ec8ff;
                 font-size: 11px;
                 font-weight: 500;
                 border-radius: 3px;
-                border: 1px solid #303030;
+                border: 1px solid #223651;
                 padding: 3px 7px;
             }
             QPushButton#settingsMinimalButton:hover {
-                background-color: #3a3a3a;
-                border-color: #505050;
+                background-color: #16253a;
+                border-color: #365783;
             }
             QPushButton#settingsMinimalButton:pressed {
                 background-color: #1a1a1a;
@@ -1361,11 +1392,11 @@ class ChartinkScannerTable(QWidget):
 
             /* FIXED Table Styling with Proper Alternate Row Selection */
             QTableWidget {
-                background-color: #0a0a0a;
-                border: none;
-                gridline-color: #2a2a2a;
-                selection-background-color: #1e3a5f;
-                alternate-background-color: #0f0f0f;
+                background-color: #03060c;
+                border: 1px solid #1a2536;
+                gridline-color: #162131;
+                selection-background-color: #234b73;
+                alternate-background-color: #070b12;
                 outline: none;
                 show-decoration-selected: 0;
                 font-size: 12px;
@@ -1373,15 +1404,15 @@ class ChartinkScannerTable(QWidget):
             }
 
             QTableWidget::item {
-                padding: 5px 8px;
-                border-bottom: 1px solid #1a1a1a;
+                padding: 3px 8px;
+                border-bottom: 1px solid #101926;
                 background-color: transparent;
                 color: #e0e0e0;
                 font-size: 12px;
             }
 
             QTableWidget::item:selected {
-                background-color: #1e3a5f !important;
+                background-color: #234b73 !important;
                 outline: none;
                 border: none;
                 color: #ffffff;
@@ -1410,14 +1441,15 @@ class ChartinkScannerTable(QWidget):
 
             /* Header Styling */
             QHeaderView::section {
-                background-color: #1a1a1a;
-                color: #a0c0ff;
+                background-color: #0b1019;
+                color: #7fd4ff;
                 padding: 3px 10px;
                 border: none;
-                border-bottom: 1px solid #303030;
-                border-right: 1px solid #101010;
+                border-bottom: 1px solid #24344c;
+                border-right: 1px solid #121c2b;
                 font-weight: 600;
                 font-size: 11px;
+                text-transform: uppercase;
             }
             QHeaderView::section:last {
                 border-right: none;
@@ -1428,7 +1460,7 @@ class ChartinkScannerTable(QWidget):
 
             /* Enhanced Scrollbars */
             QScrollBar:vertical {
-                background-color: #0a0a0a;
+                background-color: #05070b;
                 width: 8px;
                 border: none;
                 margin: 0px;
