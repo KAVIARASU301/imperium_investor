@@ -411,12 +411,50 @@ class DualModeLoginManager(QDialog):
         self.selected_trading_mode = TradingMode.LIVE if self.live_radio.isChecked() else TradingMode.PAPER
 
         if self.selected_broker == BrokerMode.INDIA:
-            if self._use_active_kite_session():
-                return
+            if self._active_kite_session and self._active_kite_creds:
+                choice = self._prompt_kite_session_choice()
+                if choice == "use_active" and self._use_active_kite_session():
+                    return
+                if choice == "relogin":
+                    self._clear_active_kite_session()
+                else:
+                    return
             self._prefill_kite_credentials()
             self.stacked_widget.setCurrentIndex(2)
         else:
             self.stacked_widget.setCurrentIndex(4)
+
+    def _prompt_kite_session_choice(self) -> str:
+        """Ask user whether to continue with active session or login again."""
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Icon.Question)
+        msg.setWindowTitle("Active Kite Session")
+        msg.setText("An active Kite session was found.")
+        msg.setInformativeText(
+            "You can continue instantly using it, or cancel this session and login again "
+            "with same or different API keys."
+        )
+
+        use_active_btn = msg.addButton("Use Active Session", QMessageBox.ButtonRole.AcceptRole)
+        relogin_btn = msg.addButton("Re-login", QMessageBox.ButtonRole.DestructiveRole)
+        msg.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+
+        msg.exec()
+        clicked = msg.clickedButton()
+
+        if clicked == use_active_btn:
+            return "use_active"
+        if clicked == relogin_btn:
+            return "relogin"
+        return "cancel"
+
+    def _clear_active_kite_session(self):
+        """Clear persisted active Kite session so user can generate a fresh login."""
+        self.token_manager.clear_broker_session(BrokerMode.INDIA)
+        self._active_kite_session = None
+        self._active_kite_creds = None
+        self.session_hint_label.setText("ℹ️ Previous Kite session cleared. Login again to continue.")
+        self.auto_login_status.setText("No active Kite session.")
 
     def _use_active_kite_session(self) -> bool:
         """Use existing Kite session only after user explicitly selects Kite."""
