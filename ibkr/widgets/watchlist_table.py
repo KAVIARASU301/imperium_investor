@@ -983,7 +983,6 @@ class TabbedWatchlistWidget(QWidget):
                 padding: 5px 8px;
                 border-bottom: 1px solid #1a1a1a;
                 background-color: transparent;
-                color: #e0e0e0;
                 font-size: 12px;
             }}
 
