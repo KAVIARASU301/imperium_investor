@@ -249,6 +249,7 @@ class AlertEngine(QObject):
         self._mutex = QMutex()
         self._running = False
 
+    @Slot()
     def start_engine(self):
         self._running = True
         self._timer = QTimer(self)
@@ -256,6 +257,7 @@ class AlertEngine(QObject):
         self._timer.start(2_000)   # evaluate every 2 seconds
         logger.info("AlertEngine started")
 
+    @Slot()
     def stop_engine(self):
         self._running = False
         if hasattr(self, "_timer"):
@@ -568,6 +570,7 @@ class AlertSystemManager(QObject):
     alert_triggered = Signal(str)  # alert_id
     alert_sound_requested = Signal()
     engine_status_changed = Signal(str)
+    _request_engine_stop = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -583,6 +586,7 @@ class AlertSystemManager(QObject):
         self._engine_thread.start()
 
         self.engine.alert_triggered.connect(self._on_engine_alert_triggered)
+        self._request_engine_stop.connect(self.engine.stop_engine)
         self.engine_status_changed.emit("running")
         logger.info("AlertSystemManager ready")
 
@@ -604,6 +608,58 @@ class AlertSystemManager(QObject):
             return
         self._dialog = AlertManagementDialog(self.store, parent or self.parent())
         self._dialog.show()
+
+
+    @Slot(str)
+    def create_alert_from_chart(self, alert_json: str) -> None:
+        """Create and register an alert from chart bridge JSON payload."""
+        try:
+            data = json.loads(alert_json or "{}")
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid chart alert payload: {e}")
+            return
+
+        symbol = str(data.get("symbol", "")).strip().upper()
+        if not symbol:
+            logger.warning("Chart alert ignored: missing symbol")
+            return
+
+        try:
+            target_value = float(data.get("price", 0.0))
+        except (TypeError, ValueError):
+            target_value = 0.0
+
+        if target_value <= 0:
+            logger.warning(f"Chart alert ignored for {symbol}: invalid target price {target_value}")
+            return
+
+        condition_map = {
+            "crosses_above": AlertCondition.PRICE_CROSSED_UP.value,
+            "crosses_below": AlertCondition.PRICE_CROSSED_DOWN.value,
+        }
+        intent_map = {
+            "buy_entry": AlertIntent.BUY_ENTRY.value,
+            "sell_entry": AlertIntent.SELL_ENTRY.value,
+            "profit_target": AlertIntent.PROFIT_TARGET.value,
+            "stop_loss": AlertIntent.STOP_LOSS.value,
+            "breakout": AlertIntent.BREAKOUT.value,
+            "support": AlertIntent.SUPPORT.value,
+            "info": AlertIntent.INFO.value,
+        }
+
+        condition = condition_map.get(str(data.get("condition", "")).lower(), AlertCondition.PRICE_IS_ABOVE.value)
+        intent = intent_map.get(str(data.get("intent", "")).lower(), AlertIntent.INFO.value)
+
+        alert = Alert(
+            id=f"alert_{uuid.uuid4().hex[:8]}",
+            symbol=symbol,
+            condition=condition,
+            intent=intent,
+            target_value=target_value,
+            note=str(data.get("note", "")).strip(),
+        )
+        self.add_alert(alert)
+        logger.info(f"Alert created from chart: {symbol} {condition} @ {target_value}")
 
     @Slot(str)
     def _on_engine_alert_triggered(self, alert_id: str) -> None:
@@ -631,7 +687,7 @@ class AlertSystemManager(QObject):
         return []
 
     def stop_engine(self) -> None:
-        self.engine.stop_engine()
+        self._request_engine_stop.emit()
         self._engine_thread.quit()
         self._engine_thread.wait(3_000)
         self.engine_status_changed.emit("stopped")
