@@ -2343,19 +2343,57 @@ class CandlestickChart(QWidget):
                 }}
 
                 drawCandlesticks() {{
-                    const visibleCandles = this.viewPortEnd - this.viewPortStart + 1; if (visibleCandles <= 0) return;
+                    const visibleCandles = this.viewPortEnd - this.viewPortStart + 1;
+                    if (visibleCandles <= 0) return;
+
                     const candleSpace = this.chartArea.width / visibleCandles;
-                    this.candleWidth = Math.max(1, candleSpace - this.candleSpacing);
+                    this.candleWidth = Math.max(2, candleSpace - this.candleSpacing);
+
+                    // TC2000-like style with stronger bullish/bearish color separation.
+                    const bodyInset = this.candleWidth >= 8 ? 0.4 : 0.2;
+                    const bodyWidth = Math.max(1, this.candleWidth - (bodyInset * 2));
+                    const wickWidth = this.candleWidth >= 7 ? 1.5 : 1;
+                    const shouldDrawBodyBorder = this.candleWidth >= 6;
+
+                    this.ctx.lineJoin = 'miter';
+                    this.ctx.lineCap = 'butt';
+
                     for (let i = this.viewPortStart; i < this.data.length && i <= this.viewPortEnd; i++) {{
                         if (i < 0) continue;
-                        const candle = this.data[i], x = this.candleToX(i);
-                        const openY = this.priceToY(candle.open), closeY = this.priceToY(candle.close), highY = this.priceToY(candle.high), lowY = this.priceToY(candle.low);
+
+                        const candle = this.data[i];
+                        const x = this.candleToX(i);
+                        const bodyX = x + bodyInset;
+
+                        const openY = this.priceToY(candle.open);
+                        const closeY = this.priceToY(candle.close);
+                        const highY = this.priceToY(candle.high);
+                        const lowY = this.priceToY(candle.low);
+
                         const isUp = candle.close >= candle.open;
-                        this.ctx.fillStyle = isUp ? this.colors.upCandle : this.colors.downCandle; this.ctx.strokeStyle = this.ctx.fillStyle; this.ctx.lineWidth = 1;
-                        this.ctx.beginPath(); this.ctx.moveTo(x + this.candleWidth / 2, highY); this.ctx.lineTo(x + this.candleWidth / 2, lowY); this.ctx.stroke();
-                        const bodyHeight = Math.abs(closeY - openY);
-                        if (bodyHeight < 1) {{ this.ctx.beginPath(); this.ctx.moveTo(x, openY); this.ctx.lineTo(x + this.candleWidth, openY); this.ctx.stroke(); }}
-                        else {{ this.ctx.fillRect(x, Math.min(openY, closeY), this.candleWidth, bodyHeight); }}
+                        const baseColor = isUp ? this.colors.upCandle : this.colors.downCandle;
+                        const borderColor = isUp ? '#1d7a67' : '#a33c36';
+
+                        // Wick keeps strong up/down color for better distinction.
+                        this.ctx.strokeStyle = baseColor;
+                        this.ctx.lineWidth = wickWidth;
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(x + this.candleWidth / 2, highY);
+                        this.ctx.lineTo(x + this.candleWidth / 2, lowY);
+                        this.ctx.stroke();
+
+                        const topY = Math.min(openY, closeY);
+                        const bodyHeight = Math.max(1, Math.abs(closeY - openY));
+
+                        // Body fill stays vivid; draw a subtle darker border only when candles are wide enough.
+                        this.ctx.fillStyle = baseColor;
+                        this.ctx.fillRect(bodyX, topY, bodyWidth, bodyHeight);
+
+                        if (shouldDrawBodyBorder) {{
+                            this.ctx.strokeStyle = borderColor;
+                            this.ctx.lineWidth = 0.8;
+                            this.ctx.strokeRect(bodyX + 0.5, topY + 0.5, Math.max(0, bodyWidth - 1), Math.max(0, bodyHeight - 1));
+                        }}
                     }}
                 }}
 
