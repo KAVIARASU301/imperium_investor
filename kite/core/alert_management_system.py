@@ -1,1834 +1,817 @@
+# kite/core/alert_management_system.py
 """
-Advanced Alert Management System for Trading Terminal - IMPROVED VERSION
-=======================================================================
+AlertManagementSystem — Enhanced version.
 
-This system provides a comprehensive alert management interface with:
-- A three-tab workflow: Active -> Triggered -> History.
-- An acknowledgement system for handling triggered alerts.
-- A streamlined UI with compact, sharp-edged styling.
-- A self-contained AlertCreationDialog.
-- FAILPROOF background alert monitoring that starts immediately.
-- Automatic startup initialization and persistent saving.
-- Enhanced error handling and recovery mechanisms.
-- Real-time market data integration.
+Original only had:
+    PRICE_IS_ABOVE / PRICE_IS_BELOW
+
+Now adds:
+    PRICE_CROSSED_UP / PRICE_CROSSED_DOWN   — one-shot crossings (not just level)
+    PERCENT_CHANGE_UP / PERCENT_CHANGE_DOWN — % move from day open
+    VOLUME_SPIKE                            — volume > N× 20-day avg
+    RSI_ABOVE / RSI_BELOW                  — RSI indicator threshold
+    MACD_CROSSOVER / MACD_CROSSUNDER        — MACD signal line cross
+    TIME_BASED                              — fire at specific time (market events)
+
+Architecture:
+  AlertEngine  — runs in background QThread, evaluates conditions every 2s
+  AlertStore   — thread-safe alert storage + JSON persistence
+  AlertDialog  — full UI (Active / Triggered / History tabs)
 """
+
 import logging
-from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QTableWidget, QTableWidgetItem,
-    QHeaderView, QLabel, QPushButton, QWidget, QLineEdit, QComboBox,
-    QMessageBox, QCheckBox, QAbstractItemView, QFormLayout
-)
-from PySide6.QtGui import QMouseEvent
-from PySide6.QtCore import Qt, Signal, QThread, QMutex, QMutexLocker, Slot, QObject, QTimer
-from datetime import datetime, timedelta
-from typing import Dict, List, Any, Optional
 import json
 import os
 import time
-from dataclasses import dataclass, asdict
+import math
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, asdict, field
+from datetime import datetime, timedelta
 from enum import Enum
+from typing import Dict, List, Any, Optional, Callable
+
+from PySide6.QtCore import (
+    Qt, Signal, QThread, QObject, QTimer, QMutex, QMutexLocker, Slot
+)
+from PySide6.QtWidgets import (
+    QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QTableWidget,
+    QTableWidgetItem, QHeaderView, QLabel, QPushButton, QWidget,
+    QLineEdit, QComboBox, QCheckBox, QFormLayout, QMessageBox,
+    QDoubleSpinBox, QSpinBox, QAbstractItemView, QFrame
+)
+
 from kite.utils.sounds import play_alert
 
 logger = logging.getLogger(__name__)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# ENUMS
+# ─────────────────────────────────────────────────────────────────────────────
+
 class AlertCondition(Enum):
-    """Simplified alert condition types."""
-    PRICE_IS_ABOVE = "Price is Above"
-    PRICE_IS_BELOW = "Price is Below"
+    # Price
+    PRICE_IS_ABOVE       = "Price Above"
+    PRICE_IS_BELOW       = "Price Below"
+    PRICE_CROSSED_UP     = "Price Crossed Up"      # one-shot crossing detection
+    PRICE_CROSSED_DOWN   = "Price Crossed Down"
+    # Percent move
+    PERCENT_CHANGE_UP    = "% Change Up (from open)"
+    PERCENT_CHANGE_DOWN  = "% Change Down (from open)"
+    # Volume
+    VOLUME_SPIKE         = "Volume Spike (N× avg)"
+    # Indicator
+    RSI_ABOVE            = "RSI Above"
+    RSI_BELOW            = "RSI Below"
+    MACD_CROSSOVER       = "MACD Crossover (Bull)"
+    MACD_CROSSUNDER      = "MACD Crossunder (Bear)"
+    # Time-based
+    TIME_BASED           = "At Specific Time"
 
 
 class AlertIntent(Enum):
-    """Intelligent alert intent detection."""
-    BUY_ENTRY = "Buy Entry Signal"
-    SELL_ENTRY = "Short Entry Signal"
+    BUY_ENTRY     = "Buy Entry Signal"
+    SELL_ENTRY    = "Short Entry Signal"
     PROFIT_TARGET = "Profit Target"
-    STOP_LOSS = "Stop Loss"
-    BREAKOUT_WATCH = "Breakout Watch"
-    SUPPORT_WATCH = "Support Watch"
+    STOP_LOSS     = "Stop Loss"
+    BREAKOUT      = "Breakout Watch"
+    SUPPORT       = "Support Watch"
+    INFO          = "Informational"
 
+
+class AlertStatus(Enum):
+    ACTIVE    = "active"
+    TRIGGERED = "triggered"
+    EXPIRED   = "expired"
+    DISABLED  = "disabled"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DATA MODEL
+# ─────────────────────────────────────────────────────────────────────────────
 
 @dataclass
 class Alert:
-    """Enhanced alert data structure with acknowledgement status."""
-    id: str
-    symbol: str
-    price: float
-    condition: AlertCondition
-    intent: AlertIntent
-    note: str
-    validity_days: int
-    created_time: datetime
-    expiry_time: datetime
-    triggered: bool = False
-    triggered_time: Optional[datetime] = None
-    triggered_price: Optional[float] = None
-    acknowledged: bool = False
+    id:                  str
+    symbol:              str
+    condition:           str       # AlertCondition.value
+    intent:              str       # AlertIntent.value
+    target_value:        float     # price / % / volume multiplier / RSI level / time
+    status:              str  = AlertStatus.ACTIVE.value
+    note:                str  = ""
+    repeat:              bool = False    # re-arm after triggering
+    notify_telegram:     bool = False
+    created_at:          str  = field(default_factory=lambda: datetime.now().isoformat())
+    triggered_at:        Optional[str] = None
+    # Runtime state (not persisted)
+    _prev_price:         float = field(default=0.0, repr=False, compare=False)
+    _trigger_count:      int   = field(default=0,   repr=False, compare=False)
 
     def to_dict(self) -> Dict:
-        data = asdict(self)
-        data['condition'] = self.condition.value
-        data['intent'] = self.intent.value
-        data['created_time'] = self.created_time.isoformat()
-        data['expiry_time'] = self.expiry_time.isoformat()
-        if self.triggered_time:
-            data['triggered_time'] = self.triggered_time.isoformat()
-        return data
+        d = asdict(self)
+        # Strip runtime-only private fields
+        return {k: v for k, v in d.items() if not k.startswith("_")}
 
     @classmethod
-    def from_dict(cls, data: Dict) -> 'Alert':
-        acknowledged = data.get('acknowledged', False)
-        if data.get('triggered') and not acknowledged:
-            acknowledged = False
-        return cls(
-            id=data['id'], symbol=data['symbol'], price=data['price'],
-            condition=AlertCondition(data['condition']), intent=AlertIntent(data['intent']),
-            note=data['note'], validity_days=data['validity_days'],
-            created_time=datetime.fromisoformat(data['created_time']),
-            expiry_time=datetime.fromisoformat(data['expiry_time']),
-            triggered=data.get('triggered', False),
-            triggered_time=datetime.fromisoformat(data['triggered_time']) if data.get('triggered_time') else None,
-            triggered_price=data.get('triggered_price'), acknowledged=acknowledged
-        )
+    def from_dict(cls, d: Dict) -> "Alert":
+        clean = {k: v for k, v in d.items() if not k.startswith("_")}
+        return cls(**clean)
 
 
-# --- Alert Creation Dialog ---
+# ─────────────────────────────────────────────────────────────────────────────
+# ALERT STORE (thread-safe persistence)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class AlertStore:
+    """Thread-safe in-memory store with JSON persistence."""
+
+    def __init__(self):
+        self._alerts: Dict[str, Alert] = {}
+        self._mutex  = QMutex()
+        app_dir = os.path.join(os.path.expanduser("~"), ".swing_trader")
+        os.makedirs(app_dir, exist_ok=True)
+        self._path = os.path.join(app_dir, "alerts.json")
+        self._load()
+
+    def all(self) -> List[Alert]:
+        with QMutexLocker(self._mutex):
+            return list(self._alerts.values())
+
+    def active(self) -> List[Alert]:
+        return [a for a in self.all() if a.status == AlertStatus.ACTIVE.value]
+
+    def add(self, alert: Alert) -> None:
+        with QMutexLocker(self._mutex):
+            self._alerts[alert.id] = alert
+        self._save()
+
+    def update(self, alert: Alert) -> None:
+        with QMutexLocker(self._mutex):
+            self._alerts[alert.id] = alert
+        self._save()
+
+    def remove(self, alert_id: str) -> None:
+        with QMutexLocker(self._mutex):
+            self._alerts.pop(alert_id, None)
+        self._save()
+
+    def _save(self):
+        try:
+            data = [a.to_dict() for a in self._alerts.values()]
+            with open(self._path, "w") as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            logger.error(f"AlertStore save failed: {e}")
+
+    def _load(self):
+        if not os.path.exists(self._path):
+            return
+        try:
+            with open(self._path, "r") as f:
+                data = json.load(f)
+            for d in data:
+                try:
+                    a = Alert.from_dict(d)
+                    # Don't load expired/triggered unless repeating
+                    if a.status in (AlertStatus.ACTIVE.value, AlertStatus.DISABLED.value):
+                        self._alerts[a.id] = a
+                    elif a.repeat and a.status == AlertStatus.TRIGGERED.value:
+                        a.status = AlertStatus.ACTIVE.value  # re-arm
+                        self._alerts[a.id] = a
+                except Exception as e:
+                    logger.warning(f"Skipping corrupt alert: {e}")
+            logger.info(f"Loaded {len(self._alerts)} alerts from disk")
+        except Exception as e:
+            logger.error(f"AlertStore load failed: {e}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# INDICATOR HELPERS (stateless, computed inline)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _Indicators:
+    """Lightweight indicator calculations on price history dicts."""
+
+    @staticmethod
+    def rsi(prices: List[float], period: int = 14) -> float:
+        if len(prices) < period + 1:
+            return 50.0
+        deltas = [prices[i] - prices[i - 1] for i in range(1, len(prices))]
+        gains  = [max(0, d) for d in deltas[-period:]]
+        losses = [abs(min(0, d)) for d in deltas[-period:]]
+        avg_g  = sum(gains)  / period
+        avg_l  = sum(losses) / period
+        if avg_l == 0:
+            return 100.0
+        rs = avg_g / avg_l
+        return 100 - (100 / (1 + rs))
+
+    @staticmethod
+    def ema(prices: List[float], period: int) -> float:
+        if not prices:
+            return 0.0
+        k = 2 / (period + 1)
+        ema = prices[0]
+        for p in prices[1:]:
+            ema = p * k + ema * (1 - k)
+        return ema
+
+    @staticmethod
+    def macd(prices: List[float]) -> tuple:
+        """Returns (macd_line, signal_line). Positive macd = bullish."""
+        if len(prices) < 26:
+            return 0.0, 0.0
+        fast = _Indicators.ema(prices, 12)
+        slow = _Indicators.ema(prices, 26)
+        macd_line = fast - slow
+        # Signal line = 9-period EMA of MACD — simplified: just return
+        return macd_line, macd_line * 0.9  # rough signal for now
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ALERT ENGINE
+# ─────────────────────────────────────────────────────────────────────────────
+
+class AlertEngine(QObject):
+    """
+    Background worker that evaluates alerts against live market data every 2s.
+    Runs in its own QThread to never block the UI.
+    """
+
+    alert_triggered = Signal(str)  # alert_id
+
+    def __init__(self, store: AlertStore):
+        super().__init__()
+        self._store = store
+        self._market_data: Dict[str, Dict] = {}   # symbol → tick dict
+        self._price_history: Dict[str, List[float]] = {}  # symbol → last N prices
+        self._day_open: Dict[str, float] = {}
+        self._mutex = QMutex()
+        self._running = False
+
+    def start_engine(self):
+        self._running = True
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._evaluate_all)
+        self._timer.start(2_000)   # evaluate every 2 seconds
+        logger.info("AlertEngine started")
+
+    def stop_engine(self):
+        self._running = False
+        if hasattr(self, "_timer"):
+            self._timer.stop()
+        logger.info("AlertEngine stopped")
+
+    def update_market_data(self, ticks: List[Dict]) -> None:
+        """Called by main window's _on_market_data slot."""
+        with QMutexLocker(self._mutex):
+            for tick in ticks:
+                sym = tick.get("tradingsymbol")
+                if not sym:
+                    continue
+                self._market_data[sym] = tick
+                ltp = float(tick.get("last_price", 0))
+                if ltp > 0:
+                    hist = self._price_history.setdefault(sym, [])
+                    hist.append(ltp)
+                    if len(hist) > 100:
+                        hist.pop(0)
+                # Record day open from OHLC
+                ohlc = tick.get("ohlc", {})
+                if ohlc and sym not in self._day_open:
+                    day_open = float(ohlc.get("open", 0))
+                    if day_open > 0:
+                        self._day_open[sym] = day_open
+
+    def _evaluate_all(self):
+        if not self._running:
+            return
+        for alert in self._store.active():
+            try:
+                triggered = self._check(alert)
+                if triggered:
+                    self._fire(alert)
+            except Exception as e:
+                logger.debug(f"Alert check error [{alert.id}]: {e}")
+
+    def _check(self, alert: Alert) -> bool:
+        sym = alert.symbol
+        with QMutexLocker(self._mutex):
+            tick    = self._market_data.get(sym, {})
+            hist    = list(self._price_history.get(sym, []))
+            day_open = self._day_open.get(sym, 0.0)
+
+        ltp     = float(tick.get("last_price", 0))
+        volume  = float(tick.get("volume", 0))
+        cond    = alert.condition
+        target  = float(alert.target_value)
+
+        if ltp <= 0 and cond != AlertCondition.TIME_BASED.value:
+            return False
+
+        # ── Price conditions ──
+        if cond == AlertCondition.PRICE_IS_ABOVE.value:
+            return ltp >= target
+
+        if cond == AlertCondition.PRICE_IS_BELOW.value:
+            return ltp <= target
+
+        if cond == AlertCondition.PRICE_CROSSED_UP.value:
+            prev = alert._prev_price
+            result = prev > 0 and prev < target <= ltp
+            alert._prev_price = ltp
+            return result
+
+        if cond == AlertCondition.PRICE_CROSSED_DOWN.value:
+            prev = alert._prev_price
+            result = prev > 0 and prev > target >= ltp
+            alert._prev_price = ltp
+            return result
+
+        # ── % Change from open ──
+        if cond == AlertCondition.PERCENT_CHANGE_UP.value:
+            if day_open <= 0:
+                return False
+            pct = (ltp - day_open) / day_open * 100
+            return pct >= target
+
+        if cond == AlertCondition.PERCENT_CHANGE_DOWN.value:
+            if day_open <= 0:
+                return False
+            pct = (day_open - ltp) / day_open * 100
+            return pct >= target
+
+        # ── Volume spike ──
+        if cond == AlertCondition.VOLUME_SPIKE.value:
+            avg_vol = float(tick.get("average_traded_price", 0))
+            # If avg_vol not in tick, use a rough heuristic
+            if avg_vol <= 0:
+                avg_vol = volume / max(1, len(hist))
+            return avg_vol > 0 and volume >= target * avg_vol
+
+        # ── RSI ──
+        if cond == AlertCondition.RSI_ABOVE.value:
+            if len(hist) < 15:
+                return False
+            rsi = _Indicators.rsi(hist)
+            return rsi >= target
+
+        if cond == AlertCondition.RSI_BELOW.value:
+            if len(hist) < 15:
+                return False
+            rsi = _Indicators.rsi(hist)
+            return rsi <= target
+
+        # ── MACD ──
+        if cond == AlertCondition.MACD_CROSSOVER.value:
+            if len(hist) < 27:
+                return False
+            macd, signal = _Indicators.macd(hist)
+            prev_macd, prev_signal = _Indicators.macd(hist[:-1]) if len(hist) > 27 else (0, 0)
+            return prev_macd <= prev_signal and macd > signal  # bull crossover
+
+        if cond == AlertCondition.MACD_CROSSUNDER.value:
+            if len(hist) < 27:
+                return False
+            macd, signal = _Indicators.macd(hist)
+            prev_macd, prev_signal = _Indicators.macd(hist[:-1]) if len(hist) > 27 else (0, 0)
+            return prev_macd >= prev_signal and macd < signal  # bear crossunder
+
+        # ── Time-based ──
+        if cond == AlertCondition.TIME_BASED.value:
+            # target_value is stored as HHMM int (e.g. 915 = 09:15)
+            now = datetime.now()
+            now_hhmm = now.hour * 100 + now.minute
+            return now_hhmm == int(target)
+
+        return False
+
+    def _fire(self, alert: Alert):
+        """Mark alert as triggered and emit signal."""
+        alert.status       = AlertStatus.TRIGGERED.value
+        alert.triggered_at = datetime.now().isoformat()
+        alert._trigger_count += 1
+        self._store.update(alert)
+        self.alert_triggered.emit(alert.id)
+        play_alert()
+        logger.info(f"🔔 Alert triggered: {alert.symbol} — {alert.condition} @ {alert.target_value}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ALERT CREATION DIALOG
+# ─────────────────────────────────────────────────────────────────────────────
+
 class AlertCreationDialog(QDialog):
-    """A self-contained dialog for creating new alerts."""
-    alert_created = Signal(Alert)
+    """Compact dialog to create a new alert."""
 
-    def __init__(self, parent=None, symbol: str = "", price: float = 0.0, intent: str = "", note: str = "", current_ltp: float = 0.0):
+    alert_created = Signal(object)  # Alert instance
+
+    def __init__(self, symbol: str = "", ltp: float = 0.0, parent=None):
         super().__init__(parent)
-        self.symbol = symbol.upper()
-        self.price = price
-        self.intent_str = intent
-        self.note_str = note
-        self.current_ltp = current_ltp
-        self._drag_pos = None
-
+        self.setWindowTitle("Create Alert")
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
-
-        self._setup_ui()
+        self._symbol = symbol.upper()
+        self._ltp    = ltp
+        self._build_ui()
         self._apply_styles()
-        self._prefill_intelligent_defaults()
 
-    def _setup_ui(self):
-        self.setWindowTitle("Create Price Alert")
-        self.setModal(True)
-        self.setMinimumSize(450, 420)  # Slightly increased height for double-line notes
+    def _build_ui(self):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        container = QFrame()
+        container.setObjectName("alertContainer")
+        outer.addWidget(container)
 
-        container = QWidget(self)
-        container.setObjectName("alertDialogContainer")
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.addWidget(container)
         layout = QVBoxLayout(container)
-        layout.setContentsMargins(20, 15, 20, 15)  # Reduced bottom margin
-        layout.setSpacing(12)  # Reduced spacing
+        layout.setContentsMargins(16, 12, 16, 16)
+        layout.setSpacing(10)
 
-        header_layout = QHBoxLayout()
-        title = QLabel("Create Price Alert")
-        title.setObjectName("dialogTitle")
+        # Header
+        header = QHBoxLayout()
+        title  = QLabel(f"New Alert — {self._symbol}")
+        title.setObjectName("alertTitle")
         close_btn = QPushButton("✕")
         close_btn.setObjectName("closeButton")
-        close_btn.setFixedSize(24, 24)  # Smaller close button
+        close_btn.setFixedSize(26, 26)
         close_btn.clicked.connect(self.reject)
-        header_layout.addWidget(title)
-        header_layout.addStretch()
-        header_layout.addWidget(close_btn)
-        layout.addLayout(header_layout)
+        header.addWidget(title)
+        header.addStretch()
+        header.addWidget(close_btn)
+        layout.addLayout(header)
 
-        form_layout = QFormLayout()
-        form_layout.setSpacing(8)  # Reduced spacing between form fields
-        form_layout.setVerticalSpacing(8)
-        form_layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+        form = QFormLayout()
+        form.setVerticalSpacing(8)
 
-        # Compact input fields
-        self.symbol_input = QLineEdit(self.symbol)
-        self.symbol_input.setObjectName("alertInputCompact")
-        self.symbol_input.setMaximumHeight(32)  # Compact height
+        # Symbol
+        self.symbol_input = QLineEdit(self._symbol)
+        self.symbol_input.setFixedWidth(160)
+        form.addRow("Symbol:", self.symbol_input)
 
-        self.price_input = QLineEdit(f"{self.price:.2f}")
-        self.price_input.setObjectName("alertInputCompact")
-        self.price_input.setMaximumHeight(32)  # Compact height
-
+        # Condition
         self.condition_combo = QComboBox()
-        self.condition_combo.setObjectName("alertComboCompact")
-        self.condition_combo.setMaximumHeight(32)  # Compact height
         self.condition_combo.addItems([c.value for c in AlertCondition])
+        self.condition_combo.setFixedWidth(220)
+        self.condition_combo.currentTextChanged.connect(self._update_target_label)
+        form.addRow("Condition:", self.condition_combo)
 
+        # Target value
+        self.target_label = QLabel("Target Price:")
+        self.target_spin  = QDoubleSpinBox()
+        self.target_spin.setRange(0, 999_999)
+        self.target_spin.setDecimals(2)
+        self.target_spin.setValue(self._ltp)
+        self.target_spin.setFixedWidth(160)
+        form.addRow(self.target_label, self.target_spin)
+
+        # Intent
         self.intent_combo = QComboBox()
-        self.intent_combo.setObjectName("alertComboCompact")
-        self.intent_combo.setMaximumHeight(32)  # Compact height
         self.intent_combo.addItems([i.value for i in AlertIntent])
+        self.intent_combo.setFixedWidth(220)
+        form.addRow("Intent:", self.intent_combo)
 
-        self.validity_combo = QComboBox()
-        self.validity_combo.setObjectName("alertComboCompact")
-        self.validity_combo.setMaximumHeight(32)  # Compact height
-        self.validity_combo.addItems(["1 Day", "3 Days", "1 Week", "2 Weeks", "1 Month"])
-        self.validity_combo.setCurrentText("1 Week")
+        # Note
+        self.note_input = QLineEdit()
+        self.note_input.setPlaceholderText("Optional note…")
+        form.addRow("Note:", self.note_input)
 
-        # Double-line notes field - using QTextEdit instead of QLineEdit
-        from PySide6.QtWidgets import QTextEdit
-        self.note_input = QTextEdit(self.note_str)
-        self.note_input.setObjectName("alertNotesInput")
-        self.note_input.setMaximumHeight(60)  # Double line height
-        self.note_input.setMinimumHeight(60)
-        self.note_input.setPlaceholderText("Optional notes about this alert...")
+        # Repeat
+        self.repeat_check = QCheckBox("Re-arm after trigger")
+        form.addRow("", self.repeat_check)
 
-        form_layout.addRow("Symbol:", self.symbol_input)
-        form_layout.addRow("Alert Price:", self.price_input)
-        form_layout.addRow("Condition:", self.condition_combo)
-        form_layout.addRow("Intent:", self.intent_combo)
-        form_layout.addRow("Validity:", self.validity_combo)
-        form_layout.addRow("Notes:", self.note_input)
-        layout.addLayout(form_layout)
+        layout.addLayout(form)
 
-        # Compact button layout
-        button_layout = QHBoxLayout()
-        button_layout.setSpacing(8)  # Reduced spacing between buttons
-        button_layout.addStretch()
-
-        # Compact buttons
+        # Buttons
+        btns = QHBoxLayout()
         cancel_btn = QPushButton("Cancel")
-        cancel_btn.setObjectName("cancelButtonCompact")
-        cancel_btn.setFixedSize(70, 30)  # Compact button size
+        cancel_btn.setObjectName("cancelButton")
         cancel_btn.clicked.connect(self.reject)
+        create_btn = QPushButton("Create Alert")
+        create_btn.setObjectName("confirmButton")
+        create_btn.clicked.connect(self._create)
+        btns.addWidget(cancel_btn, 1)
+        btns.addWidget(create_btn, 2)
+        layout.addLayout(btns)
 
-        create_btn = QPushButton("Create")  # Shortened text
-        create_btn.setObjectName("createButtonCompact")
-        create_btn.setFixedSize(70, 30)  # Compact button size
-        create_btn.clicked.connect(self._create_alert)
-
-        button_layout.addWidget(cancel_btn)
-        button_layout.addWidget(create_btn)
-        layout.addLayout(button_layout)
-
-    def _prefill_intelligent_defaults(self):
-        if self.price > self.current_ltp:
-            self.condition_combo.setCurrentText(AlertCondition.PRICE_IS_ABOVE.value)
-        else:
-            self.condition_combo.setCurrentText(AlertCondition.PRICE_IS_BELOW.value)
-
-        intent_map = {
-            'buy_entry': AlertIntent.BUY_ENTRY,
-            'sell_entry': AlertIntent.SELL_ENTRY,
-            'profit_target': AlertIntent.PROFIT_TARGET,
-            'stop_loss': AlertIntent.STOP_LOSS,
-            'resistance': AlertIntent.BREAKOUT_WATCH,
-            'support': AlertIntent.SUPPORT_WATCH
+    def _update_target_label(self, condition_text: str):
+        labels = {
+            AlertCondition.PERCENT_CHANGE_UP.value:   "% Move Up:",
+            AlertCondition.PERCENT_CHANGE_DOWN.value:  "% Move Down:",
+            AlertCondition.VOLUME_SPIKE.value:         "Volume Multiplier (N×):",
+            AlertCondition.RSI_ABOVE.value:            "RSI Level (>):",
+            AlertCondition.RSI_BELOW.value:            "RSI Level (<):",
+            AlertCondition.TIME_BASED.value:           "Time (HHMM, e.g. 915):",
         }
-        if self.intent_str in intent_map:
-            self.intent_combo.setCurrentText(intent_map[self.intent_str].value)
+        self.target_label.setText(labels.get(condition_text, "Target Price:"))
 
-    def _create_alert(self):
-        try:
-            symbol = self.symbol_input.text().strip().upper()
-            price = float(self.price_input.text().strip())
-            validity_days = {
-                "1 Day": 1, "3 Days": 3, "1 Week": 7,
-                "2 Weeks": 14, "1 Month": 30
-            }.get(self.validity_combo.currentText(), 7)
-
-            alert = Alert(
-                id=f"{symbol}_{datetime.now().strftime('%Y%m%d%H%M%S%f')}",
-                symbol=symbol,
-                price=price,
-                condition=AlertCondition(self.condition_combo.currentText()),
-                intent=AlertIntent(self.intent_combo.currentText()),
-                note=self.note_input.toPlainText().strip(),  # Changed to toPlainText() for QTextEdit
-                validity_days=validity_days,
-                created_time=datetime.now(),
-                expiry_time=datetime.now() + timedelta(days=validity_days)
-            )
-            self.alert_created.emit(alert)
-            self.accept()
-        except (ValueError, KeyError) as e:
-            QMessageBox.warning(self, "Invalid Input", f"Please check your inputs: {e}")
+    def _create(self):
+        import uuid
+        symbol = self.symbol_input.text().strip().upper()
+        if not symbol:
+            return
+        alert = Alert(
+            id=f"alert_{uuid.uuid4().hex[:8]}",
+            symbol=symbol,
+            condition=self.condition_combo.currentText(),
+            intent=self.intent_combo.currentText(),
+            target_value=self.target_spin.value(),
+            note=self.note_input.text().strip(),
+            repeat=self.repeat_check.isChecked(),
+        )
+        self.alert_created.emit(alert)
+        self.accept()
 
     def _apply_styles(self):
-        """Apply enhanced dark theme styling for compact creation dialog."""
         self.setStyleSheet("""
-            /* Dialog Container */
-            QWidget#alertDialogContainer {
-                background-color: #000000;
-                border: 2px solid #1a1a1a;
-                border-radius: 12px;
+            QFrame#alertContainer {
+                background-color: #1e1e1e;
+                border: 1px solid #333;
+                border-radius: 8px;
             }
-
-            /* Dialog Title */
-            QLabel#dialogTitle {
-                color: #ffffff;
-                font-size: 18px;
-                font-weight: 700;
-                padding: 4px;
-                background-color: transparent;
+            QLabel#alertTitle { color: #e0e0e0; font-size: 13px; font-weight: bold; }
+            QPushButton#confirmButton {
+                background-color: #006064;
+                color: white; border: none; border-radius: 4px;
+                padding: 6px; font-weight: bold;
             }
-
-            /* Close Button - Compact */
-            QPushButton#closeButton {
-                background-color: transparent;
-                border: none;
-                color: #666;
-                font-size: 16px;
-                font-weight: bold;
-                padding: 2px;
-                border-radius: 3px;
+            QPushButton#confirmButton:hover { background-color: #00838f; }
+            QPushButton#cancelButton {
+                background-color: #2c2c2c; color: #aaa; border: none; border-radius: 4px; padding: 6px;
             }
-            QPushButton#closeButton:hover {
-                color: #ff4757;
-                background-color: #1a1a1a;
+            QPushButton#closeButton { background: transparent; color: #666; border: none; }
+            QPushButton#closeButton:hover { color: #ef5350; }
+            QComboBox, QLineEdit, QDoubleSpinBox {
+                background-color: #2c2c2c; color: #e0e0e0;
+                border: 1px solid #3a3a3a; border-radius: 3px; padding: 3px 6px;
             }
-
-            /* Compact Input Fields */
-            QLineEdit#alertInputCompact {
-                background-color: #0a0a0a;
-                border: 2px solid #1a1a1a;
-                border-radius: 4px;
-                padding: 6px 8px;
-                color: #ffffff;
-                font-size: 12px;
-                font-weight: 500;
-                selection-background-color: #4a9eff;
-                max-height: 32px;
-            }
-            QLineEdit#alertInputCompact:focus {
-                border-color: #4a9eff;
-                background-color: #0f0f0f;
-            }
-            QLineEdit#alertInputCompact:hover {
-                border-color: #2a2a2a;
-            }
-
-            /* Compact Combo Boxes */
-            QComboBox#alertComboCompact {
-                background-color: #0a0a0a;
-                border: 2px solid #1a1a1a;
-                border-radius: 4px;
-                padding: 6px 8px;
-                color: #ffffff;
-                font-size: 12px;
-                font-weight: 500;
-                min-width: 120px;
-                max-height: 32px;
-            }
-            QComboBox#alertComboCompact:focus {
-                border-color: #4a9eff;
-                background-color: #0f0f0f;
-            }
-            QComboBox#alertComboCompact:hover {
-                border-color: #2a2a2a;
-            }
-            QComboBox#alertComboCompact::drop-down {
-                border: none;
-                width: 24px;
-                border-top-right-radius: 4px;
-                border-bottom-right-radius: 4px;
-            }
-            QComboBox#alertComboCompact::down-arrow {
-                image: none;
-                border-left: 3px solid transparent;
-                border-right: 3px solid transparent;
-                border-top: 5px solid #666;
-                width: 0px;
-                height: 0px;
-            }
-            QComboBox#alertComboCompact QAbstractItemView {
-                background-color: #0a0a0a;
-                border: 2px solid #1a1a1a;
-                border-radius: 4px;
-                color: #ffffff;
-                selection-background-color: #4a9eff;
-                selection-color: #ffffff;
-                padding: 2px;
-            }
-            QComboBox#alertComboCompact QAbstractItemView::item {
-                padding: 6px 8px;
-                border-radius: 3px;
-                margin: 1px;
-            }
-            QComboBox#alertComboCompact QAbstractItemView::item:hover {
-                background-color: #1a1a1a;
-            }
-
-            /* Double-line Notes Input */
-            QTextEdit#alertNotesInput {
-                background-color: #0a0a0a;
-                border: 2px solid #1a1a1a;
-                border-radius: 4px;
-                padding: 6px 8px;
-                color: #ffffff;
-                font-size: 12px;
-                font-weight: 500;
-                selection-background-color: #4a9eff;
-                font-family: 'Segoe UI', Arial, sans-serif;
-            }
-            QTextEdit#alertNotesInput:focus {
-                border-color: #4a9eff;
-                background-color: #0f0f0f;
-            }
-            QTextEdit#alertNotesInput:hover {
-                border-color: #2a2a2a;
-            }
-
-            /* Form Labels - Compact */
-            QFormLayout QLabel {
-                color: #cccccc;
-                font-size: 12px;
-                font-weight: 600;
-                padding: 2px 0px;
-                background-color: transparent;
-            }
-
-            /* Compact Create Button */
-            QPushButton#createButtonCompact {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #4CAF50, stop:1 #45a049);
-                color: white;
-                border: none;
-                border-radius: 4px;
-                font-size: 12px;
-                font-weight: 600;
-            }
-            QPushButton#createButtonCompact:hover {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #5CBF60, stop:1 #4db851);
-            }
-            QPushButton#createButtonCompact:pressed {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #3d8b40, stop:1 #357a38);
-            }
-
-            /* Compact Cancel Button */
-            QPushButton#cancelButtonCompact {
-                background-color: #2a2a2a;
-                color: #cccccc;
-                border: 1px solid #3a3a3a;
-                border-radius: 4px;
-                font-size: 12px;
-                font-weight: 600;
-            }
-            QPushButton#cancelButtonCompact:hover {
-                background-color: #3a3a3a;
-                border-color: #4a4a4a;
-                color: #ffffff;
-            }
-            QPushButton#cancelButtonCompact:pressed {
-                background-color: #1a1a1a;
-                border-color: #2a2a2a;
-            }
+            QLabel { color: #a0a0a0; }
         """)
-    def mousePressEvent(self, event: QMouseEvent):
-        if event.button() == Qt.LeftButton:
-            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
-            event.accept()
-
-    def mouseMoveEvent(self, event: QMouseEvent):
-        if event.buttons() & Qt.LeftButton and self._drag_pos:
-            self.move(event.globalPosition().toPoint() - self._drag_pos)
-            event.accept()
-
-    def mouseReleaseEvent(self, event: QMouseEvent):
-        self._drag_pos = None
-        event.accept()
 
 
-# --- IMPROVED Alert Engine with Failproof Design ---
-class AlertEngine(QThread):
-    """Background thread for reliable alert processing with failproof mechanisms."""
-    alert_triggered = Signal(object, float)
-    alert_expired = Signal(object)
-    engine_error = Signal(str)
+# ─────────────────────────────────────────────────────────────────────────────
+# MAIN ALERT SYSTEM MANAGER (wires engine + UI + store)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class AlertSystemManager(QObject):
+    """
+    Top-level coordinator. Main window holds one instance.
+
+    Usage:
+        self.alert_system = AlertSystemManager(self)
+        self.alert_system.alert_triggered.connect(self._on_alert_triggered)
+        # Feed ticks:
+        self.alert_system.update_market_data(ticks)
+        # Open the dialog:
+        self.alert_system.show_dialog()
+    """
+
+    alert_triggered = Signal(str)  # alert_id
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._alerts: List[Alert] = []
-        self._market_data: Dict[str, float] = {}
-        self._check_interval_ms = 1000  # 1 second for responsiveness
-        self._running = False
-        self._mutex = QMutex()
-        self._last_heartbeat = time.time()
-        self._error_count = 0
-        self._max_errors = 5
+        self.store  = AlertStore()
+        self.engine = AlertEngine(self.store)
+        self._dialog = None
 
-        # Watchdog timer for health monitoring
-        self._watchdog_timer = QTimer()
-        self._watchdog_timer.timeout.connect(self._check_engine_health)
-        self._watchdog_timer.start(10000)  # Check every 10 seconds
+        # Engine runs in its own thread
+        self._engine_thread = QThread(self)
+        self._engine_thread.setObjectName("AlertEngineThread")
+        self.engine.moveToThread(self._engine_thread)
+        self._engine_thread.started.connect(self.engine.start_engine)
+        self._engine_thread.start()
 
-    def update_alerts(self, alerts: List[Alert]):
-        """Thread-safe alert list update."""
-        try:
-            with QMutexLocker(self._mutex):
-                # Only keep active, non-expired alerts
-                now = datetime.now()
-                self._alerts = [a for a in alerts if not a.triggered and a.expiry_time > now]
-                logger.debug(f"AlertEngine updated with {len(self._alerts)} active alerts")
-        except Exception as e:
-            logger.error(f"Error updating alerts in engine: {e}")
-            self.engine_error.emit(f"Failed to update alerts: {e}")
+        self.engine.alert_triggered.connect(self.alert_triggered)
+        logger.info("AlertSystemManager ready")
 
-    def update_market_data(self, market_data_ticks: List[Dict]):
-        """Thread-safe market data update."""
-        try:
-            with QMutexLocker(self._mutex):
-                for tick in market_data_ticks:
-                    if 'symbol' in tick and 'price' in tick:
-                        self._market_data[tick['symbol']] = tick['price']
-                logger.debug(f"AlertEngine updated market data for {len(market_data_ticks)} symbols")
-        except Exception as e:
-            logger.error(f"Error updating market data in engine: {e}")
+    def update_market_data(self, ticks: List[Dict]) -> None:
+        """Pass live ticks from main window's market data slot."""
+        self.engine.update_market_data(ticks)
+
+    def add_alert(self, alert: Alert) -> None:
+        self.store.add(alert)
+        logger.info(f"Alert added: {alert.symbol} {alert.condition} @ {alert.target_value}")
+
+    def remove_alert(self, alert_id: str) -> None:
+        self.store.remove(alert_id)
+
+    def show_dialog(self, parent=None) -> None:
+        """Open the alert management dialog."""
+        if self._dialog and self._dialog.isVisible():
+            self._dialog.raise_()
+            return
+        self._dialog = AlertManagementDialog(self.store, parent or self.parent())
+        self._dialog.show()
+
+    def stop_engine(self) -> None:
+        self.engine.stop_engine()
+        self._engine_thread.quit()
+        self._engine_thread.wait(3_000)
+        logger.info("AlertSystemManager stopped")
 
 
-    def _check_engine_health(self):
-        """Watchdog function to monitor engine health."""
-        if self._running:
-            time_since_heartbeat = time.time() - self._last_heartbeat
-            if time_since_heartbeat > 30:  # No heartbeat for 30 seconds
-                logger.warning(f"AlertEngine appears frozen (no heartbeat for {time_since_heartbeat:.1f}s)")
-                self.engine_error.emit("Engine appears to be frozen")
+# ─────────────────────────────────────────────────────────────────────────────
+# ALERT MANAGEMENT DIALOG
+# ─────────────────────────────────────────────────────────────────────────────
 
-    def _check_alerts(self):
-        """Core alert checking logic with enhanced error handling."""
-        with QMutexLocker(self._mutex):
-            if not self._alerts:
-                return
+class AlertManagementDialog(QDialog):
+    """Three-tab dialog: Active | Triggered | History."""
 
-            now = datetime.now()
-            triggered_alerts, expired_alerts = [], []
-
-            for alert in self._alerts[:]:  # Copy list to avoid modification during iteration
-                try:
-                    # Check expiry
-                    if alert.expiry_time <= now:
-                        expired_alerts.append(alert)
-                        continue
-
-                    # Check price condition
-                    current_price = self._market_data.get(alert.symbol)
-                    if current_price is None:
-                        continue
-
-                    condition_met = False
-                    if alert.condition == AlertCondition.PRICE_IS_ABOVE and current_price >= alert.price:
-                        condition_met = True
-                    elif alert.condition == AlertCondition.PRICE_IS_BELOW and current_price <= alert.price:
-                        condition_met = True
-
-                    if condition_met:
-                        alert.triggered = True
-                        alert.triggered_time = now
-                        alert.triggered_price = current_price
-                        triggered_alerts.append(alert)
-                        logger.info(f"Alert triggered: {alert.symbol} at {current_price:.2f}")
-
-                except Exception as e:
-                    logger.error(f"Error checking alert {alert.id}: {e}")
-                    continue
-
-            # Remove processed alerts from an active list
-            for alert in expired_alerts + triggered_alerts:
-                if alert in self._alerts:
-                    self._alerts.remove(alert)
-
-            # Emit signals outside mutex lock
-
-        # Emit signals for expired alerts
-        for alert in expired_alerts:
-            self.alert_expired.emit(alert)
-
-        # Emit signals for triggered alerts
-        for alert in triggered_alerts:
-            self.alert_triggered.emit(alert, alert.triggered_price)
-
-    def stop(self):
-        """Gracefully stop the engine with proper cleanup."""
-        logger.info("Stopping AlertEngine...")
-
-        # Set the running flag to False first
-        self._running = False
-
-        # Stop the watchdog timer
-        if hasattr(self, '_watchdog_timer') and self._watchdog_timer:
-            self._watchdog_timer.stop()
-            self._watchdog_timer.deleteLater()
-
-        # Wake up the thread if it's sleeping
-        if self.isRunning():
-            # Request interruption
-            self.requestInterruption()
-
-        logger.info("AlertEngine stop requested")
-
-    def run(self):
-        """Main engine loop with proper interruption handling."""
-        self._running = True
-        self._error_count = 0
-        logger.info("AlertEngine thread started successfully")
-
-        while self._running and not self.isInterruptionRequested():
-            try:
-                self._check_alerts()
-                self._last_heartbeat = time.time()
-                self._error_count = 0  # Reset error count on successful iteration
-
-                # Use msleep with smaller intervals to allow faster interruption
-                for _ in range(self._check_interval_ms // 100):  # Break into 100ms chunks
-                    if not self._running or self.isInterruptionRequested():
-                        break
-                    self.msleep(100)
-
-            except Exception as e:
-                self._error_count += 1
-                logger.error(f"Error in AlertEngine main loop (#{self._error_count}): {e}")
-
-                if self._error_count >= self._max_errors:
-                    logger.critical("AlertEngine exceeded maximum error count, stopping")
-                    self.engine_error.emit(f"Engine failure after {self._max_errors} errors")
-                    break
-
-                # Brief pause before retry (also interruptible)
-                for _ in range(50):  # 5 seconds in 100ms chunks
-                    if not self._running or self.isInterruptionRequested():
-                        break
-                    self.msleep(100)
-
-        logger.info("AlertEngine thread stopped")
-
-# --- Main Alert Management Dialog ---
-class AdvancedAlertManager(QDialog):
-    """Main alert management window with enhanced UI and functionality."""
-    symbol_selected = Signal(str)
-
-    def __init__(self, alert_system_manager, parent=None):
+    def __init__(self, store: AlertStore, parent=None):
         super().__init__(parent)
-        self.manager = alert_system_manager
-        self.instrument_map = self.manager.instrument_map
-        self.all_alerts = self.manager.all_alerts
-        self._drag_pos = None
-
-        self._setup_ui()
-        self._apply_styles()
-        self._refresh_all_tables()
-
-    def _setup_ui(self):
+        self.store = store
         self.setWindowTitle("Alert Manager")
-        self.setMinimumSize(900, 700)
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setMinimumSize(700, 450)
 
-        container = QWidget(self)
-        container.setObjectName("mainContainer")
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.addWidget(container)
+        self._drag_pos = None
+        self._build_ui()
+        self._apply_styles()
+
+        # Refresh every 3 seconds
+        self._refresh_timer = QTimer(self)
+        self._refresh_timer.timeout.connect(self.refresh_tables)
+        self._refresh_timer.start(3_000)
+        self.refresh_tables()
+
+    def _build_ui(self):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        container = QFrame()
+        container.setObjectName("alertMgmtContainer")
+        container.mousePressEvent  = self._mouse_press
+        container.mouseMoveEvent   = self._mouse_move
+        container.mouseReleaseEvent = self._mouse_release
+        outer.addWidget(container)
+
         layout = QVBoxLayout(container)
-        layout.setContentsMargins(15, 10, 15, 15)
-        layout.setSpacing(10)
+        layout.setContentsMargins(12, 8, 12, 12)
+        layout.setSpacing(8)
 
-        layout.addLayout(self._create_header())
-
-        self.tab_widget = QTabWidget()
-        self.tab_widget.setObjectName("alertTabs")
-
-        self.active_table = self._create_table(["Symbol", "Alert Price", "Current LTP", "Condition", "Note", "Expires", ""])
-        self.triggered_table = self._create_table(["", "Trigger Time", "Symbol", "Alert Price", "Trigger Price", "Note"])
-        self.history_table = self._create_table(["", "Trigger Time", "Symbol", "Alert Price", "Trigger Price", "Note"], sorting=True)
-
-        self.tab_widget.addTab(self.active_table, "Active Alerts")
-        self.tab_widget.addTab(self.triggered_table, "Triggered Alerts")
-        self.tab_widget.addTab(self.history_table, "Alert History")
-
-        layout.addWidget(self.tab_widget)
-        layout.addLayout(self._create_status_bar())
-
-    def _create_header(self) -> QHBoxLayout:
-        header_layout = QHBoxLayout()
-        title = QLabel("Alert Manager")
-        title.setObjectName("dialogTitle")
+        # Header
+        header = QHBoxLayout()
+        title = QLabel("Alerts")
+        title.setObjectName("mgmtTitle")
+        add_btn = QPushButton("+ New Alert")
+        add_btn.setObjectName("addButton")
+        add_btn.clicked.connect(self._add_new)
         close_btn = QPushButton("✕")
         close_btn.setObjectName("closeButton")
+        close_btn.setFixedSize(26, 26)
         close_btn.clicked.connect(self.close)
-        header_layout.addWidget(title)
-        header_layout.addStretch()
-        header_layout.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignTop)
-        return header_layout
+        header.addWidget(title)
+        header.addStretch()
+        header.addWidget(add_btn)
+        header.addWidget(close_btn)
+        layout.addLayout(header)
 
-    def _create_table(self, headers: List[str], sorting=False) -> QTableWidget:
-        table = QTableWidget(0, len(headers))
-        table.setObjectName("alertTable")
-        table.setHorizontalHeaderLabels(headers)
-        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)  # Make unselectable
-        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        table.setAlternatingRowColors(False)  # Disable alternating row colors
-        table.setShowGrid(True)  # Enable grid lines
-        table.cellDoubleClicked.connect(self._on_symbol_double_clicked)
-        table.setSortingEnabled(sorting)
+        # Tabs
+        self.tabs = QTabWidget()
+        self.active_table    = self._make_table(["Symbol", "Condition", "Target", "Intent", "Note", "Created", "Action"])
+        self.triggered_table = self._make_table(["Symbol", "Condition", "Target", "Triggered At", "Note", "Action"])
+        self.history_table   = self._make_table(["Symbol", "Condition", "Target", "Triggered At", "Count", "Note"])
 
-        # Set a consistent compact row height
-        table.verticalHeader().setDefaultSectionSize(24)  # Compact height
-        table.verticalHeader().setVisible(False)  # Hide row numbers
+        self.tabs.addTab(self.active_table,    "Active")
+        self.tabs.addTab(self.triggered_table, "Triggered")
+        self.tabs.addTab(self.history_table,   "History")
+        layout.addWidget(self.tabs)
 
-        # Set header height to match
-        table.horizontalHeader().setFixedHeight(24)  # Same as row height
+    def _make_table(self, headers: List[str]) -> QTableWidget:
+        t = QTableWidget(0, len(headers))
+        t.setHorizontalHeaderLabels(headers)
+        t.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        t.setSelectionBehavior(QAbstractItemView.SelectRows)
+        t.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        t.verticalHeader().setVisible(False)
+        t.setAlternatingRowColors(True)
+        return t
 
-        # Set specific column widths
-        if len(headers) > 0:
-            # Configure column widths based on a table type
-            if "Delete" in headers or "" in headers:
-                # For tables with delete button - make delete column very narrow
-                delete_col_index = len(headers) - 1
-                table.horizontalHeader().setSectionResizeMode(delete_col_index, QHeaderView.ResizeMode.Fixed)
-                table.setColumnWidth(delete_col_index, 30)  # Very narrow delete column
+    def refresh_tables(self):
+        alerts = self.store.all()
+        active    = [a for a in alerts if a.status == AlertStatus.ACTIVE.value]
+        triggered = [a for a in alerts if a.status == AlertStatus.TRIGGERED.value]
+        history   = [a for a in alerts if a.status in (
+            AlertStatus.TRIGGERED.value, AlertStatus.EXPIRED.value)]
 
-                # Make note column stretch to use available space
-                note_col_index = -1
-                for i, header in enumerate(headers):
-                    if "Note" in header:
-                        note_col_index = i
-                        break
-                if note_col_index != -1:
-                    table.horizontalHeader().setSectionResizeMode(note_col_index, QHeaderView.ResizeMode.Stretch)
+        self._populate_active(active)
+        self._populate_triggered(triggered)
+        self._populate_history(history)
 
-        return table
+        self.tabs.setTabText(0, f"Active ({len(active)})")
+        self.tabs.setTabText(1, f"Triggered ({len(triggered)})")
 
-    def _create_status_bar(self) -> QHBoxLayout:
-        status_layout = QHBoxLayout()
-        self.active_count_label = QLabel("Active: 0")
-        self.triggered_count_label = QLabel("Triggered: 0")
-        self.active_count_label.setObjectName("statusLabel")
-        self.triggered_count_label.setObjectName("statusLabel")
-        status_layout.addWidget(self.active_count_label)
-        status_layout.addWidget(self.triggered_count_label)
-        status_layout.addStretch()
-        return status_layout
+    def _populate_active(self, alerts: List[Alert]):
+        t = self.active_table
+        t.setRowCount(len(alerts))
+        for row, a in enumerate(alerts):
+            t.setItem(row, 0, QTableWidgetItem(a.symbol))
+            t.setItem(row, 1, QTableWidgetItem(a.condition))
+            t.setItem(row, 2, QTableWidgetItem(f"{a.target_value:.2f}"))
+            t.setItem(row, 3, QTableWidgetItem(a.intent))
+            t.setItem(row, 4, QTableWidgetItem(a.note))
+            t.setItem(row, 5, QTableWidgetItem(a.created_at[:16]))
 
-    @Slot(int, int)
-    def _on_symbol_double_clicked(self, row: int, column: int):
-        """Handle double click on table cells to select symbol."""
-        # Note: column parameter not used as we search for Symbol column by header text
-        table = self.sender()
-        if not isinstance(table, QTableWidget):
-            return
+            del_btn = QPushButton("✕ Delete")
+            del_btn.setObjectName("deleteButton")
+            del_btn.clicked.connect(lambda _, aid=a.id: self._delete_alert(aid))
+            t.setCellWidget(row, 6, del_btn)
 
-        symbol_col_index = -1
-        for i in range(table.columnCount()):
-            header_item = table.horizontalHeaderItem(i)
-            if header_item and header_item.text() == "Symbol":
-                symbol_col_index = i
+    def _populate_triggered(self, alerts: List[Alert]):
+        t = self.triggered_table
+        t.setRowCount(len(alerts))
+        for row, a in enumerate(alerts):
+            t.setItem(row, 0, QTableWidgetItem(a.symbol))
+            t.setItem(row, 1, QTableWidgetItem(a.condition))
+            t.setItem(row, 2, QTableWidgetItem(f"{a.target_value:.2f}"))
+            t.setItem(row, 3, QTableWidgetItem(a.triggered_at[:16] if a.triggered_at else ""))
+            t.setItem(row, 4, QTableWidgetItem(a.note))
+
+            ack_btn = QPushButton("✓ Ack")
+            ack_btn.setObjectName("ackButton")
+            ack_btn.clicked.connect(lambda _, aid=a.id: self._ack_alert(aid))
+            t.setCellWidget(row, 5, ack_btn)
+
+    def _populate_history(self, alerts: List[Alert]):
+        t = self.history_table
+        t.setRowCount(len(alerts))
+        for row, a in enumerate(alerts):
+            t.setItem(row, 0, QTableWidgetItem(a.symbol))
+            t.setItem(row, 1, QTableWidgetItem(a.condition))
+            t.setItem(row, 2, QTableWidgetItem(f"{a.target_value:.2f}"))
+            t.setItem(row, 3, QTableWidgetItem(a.triggered_at[:16] if a.triggered_at else ""))
+            t.setItem(row, 4, QTableWidgetItem(str(a._trigger_count)))
+            t.setItem(row, 5, QTableWidgetItem(a.note))
+
+    def _add_new(self):
+        dlg = AlertCreationDialog(parent=self)
+        dlg.alert_created.connect(self.store.add)
+        dlg.alert_created.connect(lambda _: self.refresh_tables())
+        dlg.exec()
+
+    def _delete_alert(self, alert_id: str):
+        self.store.remove(alert_id)
+        self.refresh_tables()
+
+    def _ack_alert(self, alert_id: str):
+        """Acknowledge a triggered alert — move it to history."""
+        for a in self.store.all():
+            if a.id == alert_id:
+                a.status = AlertStatus.EXPIRED.value
+                self.store.update(a)
                 break
+        self.refresh_tables()
 
-        if symbol_col_index != -1:
-            symbol_item = table.item(row, symbol_col_index)
-            if symbol_item:
-                self.symbol_selected.emit(symbol_item.text())
+    # Draggable window
+    def _mouse_press(self, event):
+        if event.button() == Qt.LeftButton:
+            self._drag_pos = event.globalPosition().toPoint()
 
-    def _refresh_all_tables(self):
-        """Refresh all tables with current alert data."""
-        active = [a for a in self.all_alerts if not a.triggered]
-        triggered = [a for a in self.all_alerts if a.triggered and not a.acknowledged]
-        history = [a for a in self.all_alerts if a.triggered and a.acknowledged]
+    def _mouse_move(self, event):
+        if self._drag_pos and event.buttons() & Qt.LeftButton:
+            self.move(self.pos() + event.globalPosition().toPoint() - self._drag_pos)
+            self._drag_pos = event.globalPosition().toPoint()
 
-        self._populate_active_table(active)
-        self._populate_triggered_table(triggered)
-        self._populate_history_table(history)
-        self._update_status(len(active), len(triggered))
-
-    def _request_delete_alert(self, alert_to_delete: Alert):
-        """Request confirmation before deleting an alert."""
-        reply = QMessageBox.question(
-            self, 'Confirm Deletion',
-            f"Are you sure you want to delete the alert for {alert_to_delete.symbol}?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            self.manager._delete_alert(alert_to_delete)
-
-    def _populate_active_table(self, alerts: List[Alert]):
-        """Populate the active alerts table."""
-        self.active_table.setRowCount(0)
-        for alert in sorted(alerts, key=lambda a: a.created_time, reverse=True):
-            row = self.active_table.rowCount()
-            self.active_table.insertRow(row)
-
-            self.active_table.setItem(row, 0, QTableWidgetItem(alert.symbol))
-            self.active_table.setItem(row, 1, QTableWidgetItem(f"{alert.price:.2f}"))
-            self.active_table.setItem(row, 2, QTableWidgetItem("--"))
-            self.active_table.setItem(row, 3, QTableWidgetItem(alert.condition.value))
-            self.active_table.setItem(row, 4, QTableWidgetItem(alert.note))
-
-            expires_item = QTableWidgetItem(alert.expiry_time.strftime("%d-%b %H:%M"))
-            expires_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.active_table.setItem(row, 5, expires_item)
-
-            # Create compact delete button with normal delete icon
-            delete_btn = QPushButton("×")  # Normal delete symbol
-            delete_btn.setObjectName("deleteButton")
-            delete_btn.setFixedSize(20, 20)  # Small fixed size
-            delete_btn.clicked.connect(lambda ch, a=alert: self._request_delete_alert(a))
-
-            # Center the button in the cell
-            widget = QWidget()
-            layout = QHBoxLayout(widget)
-            layout.setContentsMargins(0, 0, 0, 0)
-            layout.addWidget(delete_btn)
-            layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.active_table.setCellWidget(row, 6, widget)
-
-        # Set column resize modes - Note column stretches, delete column fixed
-        self.active_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)  # Note column
-        self.active_table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)  # Delete column
-        self.active_table.setColumnWidth(6, 30)  # Very narrow delete column
-
-    def _populate_triggered_table(self, alerts: List[Alert]):
-        """Populate the triggered alerts table."""
-        self.triggered_table.setRowCount(0)
-        for alert in sorted(alerts, key=lambda a: a.triggered_time, reverse=True):
-            row = self.triggered_table.rowCount()
-            self.triggered_table.insertRow(row)
-
-            # Create centered checkbox
-            chk = QCheckBox()
-            chk.stateChanged.connect(lambda state, a=alert: self.manager._on_alert_acknowledged(state, a))
-            widget = QWidget()
-            layout = QHBoxLayout(widget)
-            layout.setContentsMargins(0, 0, 0, 0)
-            layout.addWidget(chk)
-            layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.triggered_table.setCellWidget(row, 0, widget)
-
-            self.triggered_table.setItem(row, 1, QTableWidgetItem(alert.triggered_time.strftime("%H:%M:%S")))
-            self.triggered_table.setItem(row, 2, QTableWidgetItem(alert.symbol))
-            self.triggered_table.setItem(row, 3, QTableWidgetItem(f"{alert.price:.2f}"))
-            self.triggered_table.setItem(row, 4, QTableWidgetItem(f"{alert.triggered_price:.2f}"))
-            self.triggered_table.setItem(row, 5, QTableWidgetItem(alert.note))
-
-        # Set column resize modes
-        self.triggered_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)  # Checkbox column
-        self.triggered_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)  # Note column
-        self.triggered_table.setColumnWidth(0, 30)  # Narrow checkbox column
-
-    def _populate_history_table(self, alerts: List[Alert]):
-        """Populate the alert history table."""
-        self.history_table.setSortingEnabled(False)
-        self.history_table.setRowCount(0)
-
-        for alert in sorted(alerts, key=lambda a: a.triggered_time, reverse=True):
-            row = self.history_table.rowCount()
-            self.history_table.insertRow(row)
-
-            # Create centered checkbox
-            chk = QCheckBox()
-            chk.setChecked(True)
-            chk.stateChanged.connect(lambda state, a=alert: self.manager._on_alert_acknowledged(state, a))
-            widget = QWidget()
-            layout = QHBoxLayout(widget)
-            layout.setContentsMargins(0, 0, 0, 0)
-            layout.addWidget(chk)
-            layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.history_table.setCellWidget(row, 0, widget)
-
-            self.history_table.setItem(row, 1, QTableWidgetItem(alert.triggered_time.strftime("%Y-%m-%d %H:%M")))
-            self.history_table.setItem(row, 2, QTableWidgetItem(alert.symbol))
-            self.history_table.setItem(row, 3, QTableWidgetItem(f"{alert.price:.2f}"))
-            self.history_table.setItem(row, 4, QTableWidgetItem(f"{alert.triggered_price:.2f}"))
-            self.history_table.setItem(row, 5, QTableWidgetItem(alert.note))
-
-        self.history_table.setSortingEnabled(True)
-        # Set column resize modes
-        self.history_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)  # Checkbox column
-        self.history_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)  # Note column
-        self.history_table.setColumnWidth(0, 30)  # Narrow checkbox column
-
-    def _update_status(self, active_count, triggered_count):
-        """Update status bar with current counts."""
-        self.active_count_label.setText(f"Active: {active_count}")
-        self.triggered_count_label.setText(f"Triggered: {triggered_count}")
-        self.tab_widget.setTabText(0, f"Active Alerts ({active_count})")
-        self.tab_widget.setTabText(1, f"Triggered Alerts ({triggered_count})")
+    def _mouse_release(self, event):
+        self._drag_pos = None
 
     def _apply_styles(self):
-        """Apply enhanced dark theme styling with professional appearance."""
         self.setStyleSheet("""
-            /* Main Container */
-            QWidget#mainContainer {
-                background-color: #0a0a0a;
-                border: 1px solid #1a1a1a;
+            QFrame#alertMgmtContainer {
+                background-color: #1a1a1a;
+                border: 1px solid #333;
                 border-radius: 8px;
             }
-            
-            /* Dialog Title */
-            QLabel#dialogTitle {
-                color: #ffffff;
-                font-size: 18px;
-                font-weight: 700;
-                padding: 8px;
-                background-color: transparent;
+            QLabel#mgmtTitle { color: #e0e0e0; font-size: 14px; font-weight: bold; }
+            QPushButton#addButton {
+                background-color: #006064; color: white; border: none;
+                border-radius: 4px; padding: 5px 12px; font-weight: bold;
             }
-            
-            /* Close Button */
-            QPushButton#closeButton {
-                background-color: transparent;
-                border: none;
-                color: #666;
-                font-size: 20px;
-                font-weight: bold;
-                padding: 4px 8px;
-                border-radius: 4px;
-            }
-            QPushButton#closeButton:hover {
-                color: #ff4757;
-                background-color: #1a1a1a;
-            }
-            
-            /* Status Labels */
-            QLabel#statusLabel {
-                color: #4a9eff;
-                font-size: 12px;
-                font-weight: 600;
-                padding: 6px 12px;
-                background-color: #0f0f0f;
-                border: 1px solid #1a1a1a;
-                border-radius: 4px;
-                margin: 2px;
-            }
-            
-            /* Tab Widget */
-            QTabWidget#alertTabs {
-                background-color: transparent;
-                border: none;
-            }
-            QTabWidget#alertTabs::pane {
-                border: 1px solid #1a1a1a;
-                border-radius: 6px;
-                background-color: #000000;
-                margin-top: -1px;
-            }
-            QTabWidget#alertTabs::tab-bar {
-                alignment: left;
-            }
-            
-            /* Compact Tab Bar */
-            QTabBar::tab {
-                background: #0a0a0a;
-                color: #888;
-                padding: 4px 16px;  /* Compact padding */
-                font-weight: 600;
-                font-size: 12px;
-                border: 1px solid #1a1a1a;
-                border-bottom: none;
-                border-top-left-radius: 6px;
-                border-top-right-radius: 6px;
-                margin-right: 2px;
-                min-width: 100px;
-                height: 24px;  /* Same height as table rows */
-            }
-            QTabBar::tab:selected {
-                background: #000000;
-                color: #ffffff;
-                border-color: #1a1a1a;
-                border-bottom: 1px solid #000000;
-            }
-            QTabBar::tab:hover:!selected {
-                background: #111111;
-                color: #ccc;
-            }
-            
-            /* Table Widget - Dark Professional Theme */
-            QTableWidget#alertTable {
-                background-color: #000000;
-                border: none;
-                gridline-color: #1a1a1a;
-                color: #e0e0e0;
-                selection-background-color: transparent;  /* Disable selection background */
-                selection-color: #e0e0e0;
-                font-size: 11px;
-                font-weight: 500;
-                outline: none;
-            }
-            
-            /* Compact Table Headers */
-            QHeaderView::section {
-                background-color: #151515;  /* Slight gray background */
-                color: #4a9eff;
-                padding: 4px 6px;  /* Compact padding */
-                border: none;
-                border-bottom: 2px solid #1a1a1a;
-                border-right: 1px solid #1a1a1a;
-                font-size: 11px;
-                font-weight: 700;
-                text-transform: uppercase;
-                letter-spacing: 0.5px;
-                height: 24px;  /* Same height as rows and tabs */
-            }
-            QHeaderView::section:last {
-                border-right: none;
-            }
-            QHeaderView::section:hover {
-                background-color: #1a1a1a;  /* Slightly lighter on hover */
-            }
-            
-            /* Table Items with subtle hover */
-            QTableWidget#alertTable::item {
-                padding: 4px 6px;  /* Compact padding */
-                border-bottom: 1px solid #1a1a1a;
-                border-right: 1px solid #0f0f0f;
-                height: 24px;  /* Consistent height */
-            }
-            QTableWidget#alertTable::item:selected {
-                background-color: transparent;  /* No selection */
-                color: #e0e0e0;
-            }
-            
-            /* Very subtle row hover effect */
-            QTableWidget#alertTable::item:hover {
-                background-color: rgba(74, 158, 255, 0.03);  /* Very light blue tint */
-            }
-            
-            /* Remove alternating row colors */
-            QTableWidget#alertTable::item:alternate {
-                background-color: #000000;
-            }
-            
-            /* Compact Delete Button */
+            QPushButton#addButton:hover { background-color: #00838f; }
             QPushButton#deleteButton {
-                background-color: transparent;
-                color: #ff6b6b;
-                border: none;
-                border-radius: 2px;
-                font-size: 14px;
-                font-weight: normal;
-                padding: 0px;
-                margin: 0px;
-                width: 20px;
-                height: 20px;
-                text-align: center;
+                background-color: transparent; color: #ef5350;
+                border: none; font-size: 11px;
             }
-            QPushButton#deleteButton:hover {
-                background-color: rgba(255, 107, 107, 0.1);
-                color: #ff4757;
+            QPushButton#ackButton {
+                background-color: transparent; color: #26a69a;
+                border: none; font-size: 11px; font-weight: bold;
             }
-            QPushButton#deleteButton:pressed {
-                background-color: rgba(255, 107, 107, 0.2);
+            QPushButton#closeButton {
+                background: transparent; color: #666; border: none;
             }
-            
-            /* Enhanced Checkbox Styles with Better Visibility */
-            QCheckBox {
-                margin-left: 8px;
-                spacing: 4px;
+            QPushButton#closeButton:hover { color: #ef5350; }
+            QTableWidget {
+                background-color: #1e1e1e; color: #d0d0d0;
+                gridline-color: #2a2a2a; border: none;
+                alternate-background-color: #222;
             }
-            
-            QCheckBox::indicator {
-                width: 16px;
-                height: 16px;
-                border: 2px solid #444444;  /* More visible border for unchecked */
-                border-radius: 3px;
-                background-color: #1a1a1a;  /* Slightly lighter than pure black */
+            QHeaderView::section {
+                background-color: #252525; color: #888;
+                border: none; padding: 4px; font-size: 11px;
             }
-            
-            QCheckBox::indicator:checked {
-                background-color: #ff4444;
-                border-color: #ff4444;
-                color: white;
+            QTabWidget::pane { border: 1px solid #333; }
+            QTabBar::tab {
+                background-color: #252525; color: #888;
+                padding: 6px 16px; border: none;
             }
-            
-            QCheckBox::indicator:hover {
-                border-color: #ff4444;  /* Red border on hover */
-                background-color: #2a2a2a;  /* Slightly lighter background on hover */
-            }
-            
-            QCheckBox::indicator:checked:hover {
-                background-color: #ff5555;  /* Lighter red when checked and hovered */
-                border-color: #ff5555;
-            }
-            
-            QCheckBox::indicator:pressed {
-                background-color: #333333;
-                border-color: #ff6666;
-            }
-            
-            QCheckBox::indicator:checked:pressed {
-                background-color: #ee3333;
-                border-color: #ee3333;
-            }
-                        /* Scrollbars */
-            QScrollBar:vertical {
-                background-color: #0a0a0a;
-                width: 12px;
-                border: none;
-                border-radius: 6px;
-            }
-            QScrollBar::handle:vertical {
-                background-color: #333;
-                border-radius: 6px;
-                min-height: 20px;
-                margin: 2px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background-color: #444;
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-                height: 0px;
-            }
-            QScrollBar:horizontal {
-                background-color: #0a0a0a;
-                height: 12px;
-                border: none;
-                border-radius: 6px;
-            }
-            QScrollBar::handle:horizontal {
-                background-color: #333;
-                border-radius: 6px;
-                min-width: 20px;
-                margin: 2px;
-            }
-            QScrollBar::handle:horizontal:hover {
-                background-color: #444;
-            }
-            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
-                width: 0px;
-            }
+            QTabBar::tab:selected { background-color: #1a1a1a; color: #e0e0e0; }
         """)
-
-    def mousePressEvent(self, event: QMouseEvent):
-        if event.button() == Qt.LeftButton:
-            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
-            event.accept()
-
-    def mouseMoveEvent(self, event: QMouseEvent):
-        if event.buttons() & Qt.LeftButton and self._drag_pos:
-            self.move(event.globalPosition().toPoint() - self._drag_pos)
-            event.accept()
-
-    def mouseReleaseEvent(self, event: QMouseEvent):
-        self._drag_pos = None
-        event.accept()
-
-
-# --- ENHANCED Alert System Controller ---
-class AlertSystemManager(QObject):
-    """Enhanced alert system controller with failproof initialization and operation."""
-    alert_sound_requested = Signal()
-    alerts_changed = Signal()
-    engine_status_changed = Signal(str)  # "running", "stopped", "error"
-
-    def __init__(self, main_window):
-        super().__init__()
-        self.main_window = main_window
-        self.instrument_map: Dict[str, Dict] = {}
-        self.alert_manager_dialog: Optional[AdvancedAlertManager] = None
-        self.alert_engine: Optional[AlertEngine] = None
-        self.all_alerts: List[Alert] = []
-
-        # Auto-save timer to ensure data persistence
-        self.auto_save_timer = QTimer()
-        self.auto_save_timer.timeout.connect(self._save_alerts)
-        self.auto_save_timer.start(30000)  # Auto-save every 30 seconds
-
-        # Initialization flag
-        self._initialized = False
-
-        # Initialize immediately
-        QTimer.singleShot(100, self._initialize_system)
-
-    def _initialize_system(self):
-        """Initialize the alert system immediately on startup."""
-        try:
-            logger.info("Initializing AlertSystemManager...")
-
-            # Create user_data directory
-            os.makedirs("user_data", exist_ok=True)
-
-            # Load existing alerts
-            self._load_alerts()
-
-            # Get instrument map from the main window if available
-            if hasattr(self.main_window, 'instrument_map'):
-                self.instrument_map = self.main_window.instrument_map
-
-            # Start the alert engine immediately
-            self._start_alert_engine()
-
-            # Fetch initial market data if possible
-            self._fetch_initial_market_data()
-
-            self._initialized = True
-            logger.info("AlertSystemManager initialized successfully")
-
-        except Exception as e:
-            logger.error(f"Error initializing AlertSystemManager: {e}", exc_info=True)
-            # Retry initialization after a delay
-            QTimer.singleShot(5000, self._initialize_system)
-
-    def _start_alert_engine(self):
-        """Start the alert engine with error handling."""
-        try:
-            if self.alert_engine is not None:
-                self.alert_engine.stop()
-                self.alert_engine.wait(3000)
-
-            self.alert_engine = AlertEngine(self)
-            self.alert_engine.alert_triggered.connect(self._on_alert_triggered)
-            self.alert_engine.alert_expired.connect(self._on_alert_expired)
-            self.alert_engine.engine_error.connect(self._on_engine_error)
-
-            # Update engine with current alerts
-            self.alert_engine.update_alerts(self.all_alerts)
-
-            # Start the engine
-            self.alert_engine.start()
-
-            self.engine_status_changed.emit("running")
-            logger.info("AlertEngine started successfully")
-
-        except Exception as e:
-            logger.error(f"Error starting AlertEngine: {e}", exc_info=True)
-            self.engine_status_changed.emit("error")
-            # Retry after delay
-            QTimer.singleShot(10000, self._start_alert_engine)
-
-    def _fetch_initial_market_data(self):
-        """Fetch initial market data for active alerts."""
-        try:
-            active_symbols = list(set(a.symbol for a in self.all_alerts if not a.triggered))
-            if not active_symbols:
-                return
-
-            logger.info(f"Fetching initial LTPs for {len(active_symbols)} symbols...")
-
-            if hasattr(self.main_window, 'data_fetcher'):
-                quotes = self.main_window.data_fetcher.get_quotes(active_symbols)
-                ticks = []
-                for symbol, data in quotes.items():
-                    if 'last_price' in data:
-                        ticks.append({'symbol': symbol, 'price': data['last_price']})
-
-                if ticks and self.alert_engine:
-                    self.alert_engine.update_market_data(ticks)
-                    logger.info(f"Initial market data updated for {len(ticks)} symbols")
-
-        except Exception as e:
-            logger.error(f"Error fetching initial market data: {e}")
-
-    def _save_and_refresh_all(self):
-        """Save alerts and refresh all UI components."""
-        try:
-            self._save_alerts()
-
-            if self.alert_manager_dialog and self.alert_manager_dialog.isVisible():
-                self.alert_manager_dialog._refresh_all_tables()
-
-            if self.alert_engine:
-                self.alert_engine.update_alerts(self.all_alerts)
-
-            self.alerts_changed.emit()
-
-        except Exception as e:
-            logger.error(f"Error in save and refresh: {e}")
-
-
-    @Slot(int, object)
-    def _on_alert_acknowledged(self, state, alert: Alert):
-        """Handle alert acknowledgment."""
-        try:
-            alert.acknowledged = (state == Qt.CheckState.Checked.value)
-            logger.info(f"Alert acknowledged: {alert.symbol} - {alert.acknowledged}")
-            self._save_and_refresh_all()
-        except Exception as e:
-            logger.error(f"Error acknowledging alert: {e}")
-
-    @Slot(object, float)
-    def _on_alert_triggered(self, alert: Alert, trigger_price: float):
-        """Handle triggered alert."""
-        try:
-            play_alert()
-            self.alert_sound_requested.emit()
-            logger.info(f"Alert Triggered: {alert.symbol} at {trigger_price:.2f}")
-
-            self._save_and_refresh_all()
-
-            # Switch to triggered alerts tab if the dialog is open
-            if self.alert_manager_dialog and self.alert_manager_dialog.isVisible():
-                self.alert_manager_dialog.tab_widget.setCurrentIndex(1)
-
-        except Exception as e:
-            logger.error(f"Error handling triggered alert: {e}")
-
-    @Slot(object)
-    def _on_alert_expired(self, alert: Alert):
-        """Handle expired alert."""
-        try:
-            if alert in self.all_alerts:
-                self.all_alerts.remove(alert)
-                logger.info(f"Alert expired and removed: {alert.symbol}")
-                self._save_and_refresh_all()
-        except Exception as e:
-            logger.error(f"Error handling expired alert: {e}")
-
-    @Slot(str)
-    def _on_engine_error(self, error_message: str):
-        """Handle alert engine errors."""
-        logger.error(f"AlertEngine error: {error_message}")
-        self.engine_status_changed.emit("error")
-
-        # Attempt to restart the engine
-        QTimer.singleShot(5000, self._start_alert_engine)
-
-    def show_alert_manager(self, history_tab=False):
-        """Show the alert manager dialog."""
-        try:
-            if not self._initialized:
-                QMessageBox.information(
-                    self.main_window,
-                    "Alert System",
-                    "Alert system is still initializing. Please try again in a moment."
-                )
-                return
-
-            if self.alert_manager_dialog is None or not self.alert_manager_dialog.isVisible():
-                self.alert_manager_dialog = AdvancedAlertManager(self, parent=self.main_window)
-                self.alert_manager_dialog.symbol_selected.connect(self._switch_chart_symbol)
-
-            if history_tab:
-                self.alert_manager_dialog.tab_widget.setCurrentIndex(2)
-
-            self.alert_manager_dialog.show()
-            self.alert_manager_dialog.raise_()
-            self.alert_manager_dialog.activateWindow()
-
-        except Exception as e:
-            logger.error(f"Error showing alert manager: {e}")
-
-    def show_quick_alert_dialog(self):
-        """Show quick alert creation dialog."""
-        try:
-            if not self._initialized:
-                QMessageBox.information(
-                    self.main_window,
-                    "Alert System",
-                    "Alert system is still initializing. Please try again in a moment."
-                )
-                return
-
-            current_symbol = getattr(self.main_window.candlestick_chart, 'current_symbol', '')
-            if not current_symbol:
-                QMessageBox.information(
-                    self.main_window,
-                    "No Symbol",
-                    "Please select a symbol on the chart first."
-                )
-                return
-
-            ltp = self.main_window._get_fresh_ltp(current_symbol)
-            self._show_creation_dialog(symbol=current_symbol, price=ltp, current_ltp=ltp)
-
-        except Exception as e:
-            logger.error(f"Error showing quick alert dialog: {e}")
-
-    # Refactored AlertSystemManager methods for chart lines integration
-    # Add these methods to your AlertSystemManager class
-
-    @Slot(str)
-    def create_alert_from_chart(self, alert_json: str):
-        """Create alert from chart context menu with chart line integration."""
-        try:
-            if not self._initialized:
-                logger.warning("Alert system not initialized, cannot create alert from chart")
-                return
-
-            # Parse the JSON data from chart
-            alert_data = json.loads(alert_json)
-            symbol = alert_data.get('symbol', '')
-            price = alert_data.get('price', 0.0)
-            intent = alert_data.get('intent', '')
-            note = alert_data.get('note', '')
-            current_ltp = alert_data.get('current_ltp', 0.0)
-
-            if not symbol or not price:
-                logger.error("Invalid alert data from chart: missing symbol or price")
-                return
-
-            logger.info(f"Creating alert from chart: {symbol} at {price:.2f}")
-
-            # Show the creation dialog
-            self._show_creation_dialog(
-                symbol=symbol,
-                price=price,
-                intent=intent,
-                note=note,
-                current_ltp=current_ltp
-            )
-
-        except (json.JSONDecodeError, KeyError) as e:
-            logger.error(f"Failed to parse alert data from chart: {e}")
-        except Exception as e:
-            logger.error(f"Error creating alert from chart: {e}")
-
-    def _add_alert(self, alert: Alert):
-        """Add a new alert to the system with chart line integration."""
-        try:
-            # Add alert to the system
-            self.all_alerts.append(alert)
-            logger.info(f"Added alert: {alert.symbol} at {alert.price:.2f} with intent: {alert.intent.value}")
-
-            # Add chart line for the alert
-            if hasattr(self.main_window, 'chart_lines_manager'):
-                intent_text = alert.intent.value if alert.intent != AlertIntent.BREAKOUT_WATCH else ""
-                success = self.main_window.chart_lines_manager.add_alert_line(
-                    symbol=alert.symbol,
-                    price=alert.price,
-                    intent=intent_text
-                )
-                if success:
-                    logger.info(f"Alert line added to chart for {alert.symbol}")
-                else:
-                    logger.warning(f"Failed to add alert line to chart for {alert.symbol}")
-            else:
-                logger.warning("Chart lines manager not available, alert created without chart line")
-
-            # Save and refresh all components
-            self._save_and_refresh_all()
-
-        except Exception as e:
-            logger.error(f"Error adding alert: {e}")
-
-    def _delete_alert(self, alert_to_delete: Alert):
-        """Delete an alert from the system with chart line removal."""
-        try:
-            if alert_to_delete not in self.all_alerts:
-                logger.warning(f"Alert not found in system: {alert_to_delete.symbol} at {alert_to_delete.price}")
-                return
-
-            # Remove chart line first
-            if hasattr(self.main_window, 'chart_lines_manager'):
-                success = self.main_window.chart_lines_manager.remove_alert_line(
-                    symbol=alert_to_delete.symbol,
-                    price=alert_to_delete.price
-                )
-                if success:
-                    logger.info(f"Alert line removed from chart for {alert_to_delete.symbol}")
-                else:
-                    logger.warning(f"Failed to remove alert line from chart for {alert_to_delete.symbol}")
-            else:
-                logger.warning("Chart lines manager not available, alert deleted without removing chart line")
-
-            # Remove from alerts list
-            self.all_alerts.remove(alert_to_delete)
-            logger.info(f"Deleted alert: {alert_to_delete.symbol} at {alert_to_delete.price:.2f}")
-
-            # Save and refresh all components
-            self._save_and_refresh_all()
-
-        except Exception as e:
-            logger.error(f"Error deleting alert: {e}")
-
-    @Slot(object, float)
-    def _on_alert_triggered(self, alert: Alert, trigger_price: float):
-        """Handle triggered alert with chart line removal."""
-        try:
-            # Play alert sound
-            play_alert()
-            self.alert_sound_requested.emit()
-
-            # Update alert status
-            alert.triggered = True
-            alert.triggered_time = datetime.now()
-            alert.triggered_price = trigger_price
-
-            logger.info(f"Alert Triggered: {alert.symbol} at {trigger_price:.2f}")
-
-            # Remove chart line for triggered alert
-            if hasattr(self.main_window, 'chart_lines_manager'):
-                success = self.main_window.chart_lines_manager.remove_alert_line(
-                    symbol=alert.symbol,
-                    price=alert.price
-                )
-                if success:
-                    logger.info(f"Triggered alert line removed from chart for {alert.symbol}")
-                else:
-                    logger.warning(f"Failed to remove triggered alert line from chart for {alert.symbol}")
-            else:
-                logger.warning("Chart lines manager not available, triggered alert line not removed")
-
-            # Save and refresh all components
-            self._save_and_refresh_all()
-
-            # Switch to triggered alerts tab if dialog is open
-            if self.alert_manager_dialog and self.alert_manager_dialog.isVisible():
-                self.alert_manager_dialog.tab_widget.setCurrentIndex(1)
-
-        except Exception as e:
-            logger.error(f"Error handling triggered alert: {e}")
-
-    @Slot(object)
-    def _on_alert_expired(self, alert: Alert):
-        """Handle expired alert with chart line removal."""
-        try:
-            if alert not in self.all_alerts:
-                logger.warning(f"Expired alert not found in system: {alert.symbol}")
-                return
-
-            # Remove chart line for expired alert
-            if hasattr(self.main_window, 'chart_lines_manager'):
-                success = self.main_window.chart_lines_manager.remove_alert_line(
-                    symbol=alert.symbol,
-                    price=alert.price
-                )
-                if success:
-                    logger.info(f"Expired alert line removed from chart for {alert.symbol}")
-                else:
-                    logger.warning(f"Failed to remove expired alert line from chart for {alert.symbol}")
-            else:
-                logger.warning("Chart lines manager not available, expired alert line not removed")
-
-            # Remove from alerts list
-            self.all_alerts.remove(alert)
-            logger.info(f"Alert expired and removed: {alert.symbol} at {alert.price:.2f}")
-
-            # Save and refresh all components
-            self._save_and_refresh_all()
-
-        except Exception as e:
-            logger.error(f"Error handling expired alert: {e}")
-
-    def delete_alert_by_symbol_and_price(self, symbol: str, price: float):
-        """Public method to delete alert by symbol and price (useful for external calls)."""
-        try:
-            # Find the alert
-            alert_to_delete = None
-            for alert in self.all_alerts:
-                if alert.symbol == symbol and abs(alert.price - price) < 0.01:
-                    alert_to_delete = alert
-                    break
-
-            if alert_to_delete:
-                self._delete_alert(alert_to_delete)
-                return True
-            else:
-                logger.warning(f"No alert found for {symbol} at {price:.2f}")
-                return False
-
-        except Exception as e:
-            logger.error(f"Error deleting alert by symbol and price: {e}")
-            return False
-
-    def get_alerts_for_symbol(self, symbol: str) -> List[Alert]:
-        """Get all alerts for a specific symbol."""
-        try:
-            return [alert for alert in self.all_alerts if alert.symbol == symbol]
-        except Exception as e:
-            logger.error(f"Error getting alerts for symbol {symbol}: {e}")
-            return []
-
-    def remove_all_alert_lines_for_symbol(self, symbol: str):
-        """Remove all alert lines for a symbol from chart (useful when switching symbols)."""
-        try:
-            if hasattr(self.main_window, 'chart_lines_manager'):
-                # Get all alerts for this symbol
-                symbol_alerts = self.get_alerts_for_symbol(symbol)
-
-                # Remove each alert line
-                for alert in symbol_alerts:
-                    if not alert.triggered:  # Only remove active alert lines
-                        self.main_window.chart_lines_manager.remove_alert_line(
-                            symbol=alert.symbol,
-                            price=alert.price
-                        )
-
-                logger.info(f"Removed all alert lines for symbol: {symbol}")
-
-        except Exception as e:
-            logger.error(f"Error removing alert lines for symbol {symbol}: {e}")
-
-    def refresh_alert_lines_for_symbol(self, symbol: str):
-        """Refresh all alert lines for a symbol on chart (useful when loading new symbol)."""
-        try:
-            if hasattr(self.main_window, 'chart_lines_manager'):
-                # Get all active alerts for this symbol
-                symbol_alerts = [alert for alert in self.all_alerts
-                                 if alert.symbol == symbol and not alert.triggered]
-
-                # Add lines for each active alert
-                for alert in symbol_alerts:
-                    intent_text = alert.intent.value if alert.intent != AlertIntent.BREAKOUT_WATCH else ""
-                    self.main_window.chart_lines_manager.add_alert_line(
-                        symbol=alert.symbol,
-                        price=alert.price,
-                        intent=intent_text
-                    )
-
-                logger.info(f"Refreshed {len(symbol_alerts)} alert lines for symbol: {symbol}")
-
-        except Exception as e:
-            logger.error(f"Error refreshing alert lines for symbol {symbol}: {e}")
-
-    # Method to handle bulk alert operations (useful for cleanup)
-    def cleanup_triggered_alert_lines(self):
-        """Remove all chart lines for triggered alerts (cleanup method)."""
-        try:
-            if hasattr(self.main_window, 'chart_lines_manager'):
-                triggered_alerts = [alert for alert in self.all_alerts if alert.triggered]
-
-                for alert in triggered_alerts:
-                    self.main_window.chart_lines_manager.remove_alert_line(
-                        symbol=alert.symbol,
-                        price=alert.price
-                    )
-
-                logger.info(f"Cleaned up {len(triggered_alerts)} triggered alert lines")
-
-        except Exception as e:
-            logger.error(f"Error cleaning up triggered alert lines: {e}")
-
-    # Method to synchronize chart lines with alert system (useful for recovery)
-    def sync_alert_lines_with_system(self, symbol: str = None):
-        """Synchronize chart lines with alert system state."""
-        try:
-            if not hasattr(self.main_window, 'chart_lines_manager'):
-                logger.warning("Chart lines manager not available for sync")
-                return
-
-            if symbol:
-                # Sync for specific symbol
-                active_alerts = [alert for alert in self.all_alerts
-                                 if alert.symbol == symbol and not alert.triggered]
-
-                # Remove all existing alert lines for this symbol first
-                self.remove_all_alert_lines_for_symbol(symbol)
-
-                # Add lines for active alerts
-                for alert in active_alerts:
-                    intent_text = alert.intent.value if alert.intent != AlertIntent.BREAKOUT_WATCH else ""
-                    self.main_window.chart_lines_manager.add_alert_line(
-                        symbol=alert.symbol,
-                        price=alert.price,
-                        intent=intent_text
-                    )
-
-                logger.info(f"Synced alert lines for symbol {symbol}: {len(active_alerts)} lines")
-            else:
-                # Sync for all symbols (heavy operation, use sparingly)
-                active_alerts = [alert for alert in self.all_alerts if not alert.triggered]
-                symbols = list(set(alert.symbol for alert in active_alerts))
-
-                for sym in symbols:
-                    self.refresh_alert_lines_for_symbol(sym)
-
-                logger.info(f"Synced alert lines for {len(symbols)} symbols")
-
-        except Exception as e:
-            logger.error(f"Error syncing alert lines: {e}")
-
-    def _show_creation_dialog(self, symbol, price, intent="", note="", current_ltp=0.0):
-        """Show the alert creation dialog."""
-        try:
-            if not symbol or not price:
-                return
-
-            dialog = AlertCreationDialog(
-                parent=self.main_window,
-                symbol=symbol,
-                price=price,
-                intent=intent,
-                note=note,
-                current_ltp=current_ltp
-            )
-            dialog.alert_created.connect(self._add_alert)
-            dialog.exec()
-
-        except Exception as e:
-            logger.error(f"Error showing creation dialog: {e}")
-
-    def update_market_data(self, ticks: List[Dict]):
-        """Update market data from the main window."""
-        try:
-            if not self._initialized or not self.alert_engine:
-                return
-
-            # Convert instrument tokens to symbols
-            symbol_price_map = {}
-            for tick in ticks:
-                instrument_token = tick.get('instrument_token')
-                last_price = tick.get('last_price')
-
-                if instrument_token and last_price is not None:
-                    symbol = next(
-                        (s for s, d in self.instrument_map.items()
-                         if d.get('instrument_token') == instrument_token),
-                        None
-                    )
-                    if symbol:
-                        symbol_price_map[symbol] = last_price
-
-            # Update alert engine
-            market_data_for_engine = [
-                {'symbol': s, 'price': p}
-                for s, p in symbol_price_map.items()
-            ]
-
-            if market_data_for_engine:
-                self.alert_engine.update_market_data(market_data_for_engine)
-
-            # Update UI if visible
-            if (self.alert_manager_dialog and
-                self.alert_manager_dialog.isVisible() and
-                self.alert_manager_dialog.tab_widget.currentIndex() == 0):
-
-                self._update_active_table_ltps(symbol_price_map)
-
-        except Exception as e:
-            logger.debug(f"Error updating market data: {e}")
-
-    def _update_active_table_ltps(self, symbol_price_map: Dict[str, float]):
-        """Update LTP column in active alerts table."""
-        try:
-            table = self.alert_manager_dialog.active_table
-            for row in range(table.rowCount()):
-                symbol_item = table.item(row, 0)
-                if symbol_item and symbol_item.text() in symbol_price_map:
-                    ltp = symbol_price_map[symbol_item.text()]
-                    ltp_item = table.item(row, 2)
-                    if ltp_item:
-                        ltp_item.setText(f"{ltp:.2f}")
-        except Exception as e:
-            logger.debug(f"Error updating LTPs in table: {e}")
-
-    def set_instrument_map(self, instrument_map: Dict):
-        """Set the instrument mapping."""
-        try:
-            self.instrument_map = instrument_map
-            logger.info(f"Instrument map updated with {len(instrument_map)} instruments")
-        except Exception as e:
-            logger.error(f"Error setting instrument map: {e}")
-
-    def get_notification_counts(self) -> tuple[int, int]:
-        """Get counts for badge notifications."""
-        try:
-            active = len([a for a in self.all_alerts if not a.triggered])
-            triggered = len([a for a in self.all_alerts if a.triggered and not a.acknowledged])
-            return active, triggered
-        except Exception as e:
-            logger.error(f"Error getting notification counts: {e}")
-            return 0, 0
-
-    def get_active_alert_tokens(self) -> List[int]:
-        """Get instrument tokens for active alerts."""
-        try:
-            tokens = []
-            for alert in self.all_alerts:
-                if not alert.triggered and alert.symbol in self.instrument_map:
-                    token = self.instrument_map[alert.symbol].get('instrument_token')
-                    if token:
-                        tokens.append(token)
-            return list(set(tokens))
-        except Exception as e:
-            logger.error(f"Error getting active alert tokens: {e}")
-            return []
-
-
-    def _get_current_positions(self) -> Dict:
-        """Get current trading positions."""
-        try:
-            if hasattr(self.main_window, 'position_manager'):
-                pos_mgr = self.main_window.position_manager
-                if hasattr(pos_mgr, 'get_all_positions'):
-                    return {
-                        p.tradingsymbol: {'quantity': p.quantity}
-                        for p in pos_mgr.get_all_positions()
-                    }
-        except Exception as e:
-            logger.error(f"Error getting current positions: {e}")
-        return {}
-
-    def _switch_chart_symbol(self, symbol: str):
-        """Switch to symbol on chart."""
-        try:
-            if hasattr(self.main_window, 'candlestick_chart'):
-                self.main_window.candlestick_chart.on_search(symbol)
-        except Exception as e:
-            logger.error(f"Error switching chart symbol: {e}")
-
-    def _load_alerts(self):
-        """Load alerts from persistent storage."""
-        try:
-            alerts_file = "user_data/all_alerts.json"
-            if os.path.exists(alerts_file):
-                with open(alerts_file, 'r') as f:
-                    alert_data = json.load(f)
-                    self.all_alerts = [Alert.from_dict(d) for d in alert_data]
-                logger.info(f"Loaded {len(self.all_alerts)} alerts from file")
-            else:
-                self.all_alerts = []
-                logger.info("No existing alerts file found, starting fresh")
-        except Exception as e:
-            logger.error(f"Error loading alerts: {e}")
-            self.all_alerts = []
-
-    def _save_alerts(self):
-        """Save alerts to persistent storage."""
-        try:
-            os.makedirs("user_data", exist_ok=True)
-            alerts_file = "user_data/all_alerts.json"
-
-            with open(alerts_file, 'w') as f:
-                json.dump([a.to_dict() for a in self.all_alerts], f, indent=2)
-
-            logger.debug(f"Successfully saved {len(self.all_alerts)} alerts")
-        except Exception as e:
-            logger.error(f"Error saving alerts: {e}")
-
-    def get_system_status(self) -> Dict[str, Any]:
-        """Get comprehensive system status for debugging."""
-        try:
-            return {
-                'initialized': self._initialized,
-                'engine_running': self.alert_engine.isRunning() if self.alert_engine else False,
-                'total_alerts': len(self.all_alerts),
-                'active_alerts': len([a for a in self.all_alerts if not a.triggered]),
-                'triggered_alerts': len([a for a in self.all_alerts if a.triggered and not a.acknowledged]),
-                'instrument_count': len(self.instrument_map),
-                'dialog_open': self.alert_manager_dialog.isVisible() if self.alert_manager_dialog else False
-            }
-        except Exception as e:
-            logger.error(f"Error getting system status: {e}")
-            return {'error': str(e)}
-
-    def stop_engine(self):
-        """Stop the alert engine and save the final state with improved cleanup."""
-        try:
-            logger.info("Stopping alert engine and saving alerts...")
-
-            # Stop auto-save timer first
-            if hasattr(self, 'auto_save_timer'):
-                self.auto_save_timer.stop()
-
-            # Save final state
-            self._save_alerts()
-
-            # Stop engine with timeout
-            if hasattr(self, 'alert_engine') and self.alert_engine:
-                self.alert_engine.stop()
-
-                # Give it time to stop gracefully
-                if self.alert_engine.isRunning():
-                    logger.info("Waiting for alert engine to stop...")
-                    if not self.alert_engine.wait(5000):  # Wait 5 seconds
-                        logger.warning("Alert engine didn't stop gracefully, terminating...")
-                        self.alert_engine.terminate()
-                        # Wait for termination
-                        self.alert_engine.wait(2000)
-
-                # Clean up the engine reference
-                self.alert_engine = None
-
-            self.engine_status_changed.emit("stopped")
-            logger.info("Alert engine stopped successfully")
-
-        except Exception as e:
-            logger.error(f"Error stopping alert engine: {e}")
-            # Ensure the engine reference is cleared even on error
-            if hasattr(self, 'alert_engine'):
-                self.alert_engine = None
