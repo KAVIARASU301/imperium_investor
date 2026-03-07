@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import time
+import re
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -12,6 +13,71 @@ TEMP_FILE = "user_data/temp_scan_results.json"
 
 # Premium user configuration
 PREMIUM_USER_ID = "570267"
+
+# Cache CSRF token to avoid fetching /screener for every scan.
+_CSRF_TOKEN = None
+_CSRF_TOKEN_TS = 0.0
+_CSRF_TOKEN_TTL_SECONDS = 60 * 15
+
+
+def _get_csrf_token(session: requests.Session, force_refresh: bool = False):
+    """Get Chartink CSRF token with in-process caching for faster scans."""
+    global _CSRF_TOKEN, _CSRF_TOKEN_TS
+
+    now = time.time()
+    if not force_refresh and _CSRF_TOKEN and (now - _CSRF_TOKEN_TS) < _CSRF_TOKEN_TTL_SECONDS:
+        return _CSRF_TOKEN
+
+    logging.info("Fetching screener page for CSRF token...")
+    screener_page = session.get('https://chartink.com/screener', timeout=30)
+    screener_page.raise_for_status()
+
+    csrf_match = re.search(r'<meta name="csrf-token" content="([^"]*)"', screener_page.text)
+    if not csrf_match:
+        csrf_match = re.search(r'csrf-token["\']?\s*:\s*["\']([^"\']+)["\']', screener_page.text)
+
+    if not csrf_match:
+        return None
+
+    _CSRF_TOKEN = csrf_match.group(1)
+    _CSRF_TOKEN_TS = now
+    return _CSRF_TOKEN
+
+
+def get_scan_clause_from_chartink_url(url: str):
+    """Extract scan_clause from a Chartink shared screener URL."""
+    if not url or not url.startswith("http"):
+        logging.error("Invalid URL provided for scan clause extraction")
+        return None
+
+    logging.info(f"Loading scan from URL: {url}")
+    response = requests.get(url, timeout=30)
+    response.raise_for_status()
+
+    match = re.search(r'"scan_clause":"(.*?)"', response.text)
+    if not match:
+        logging.error("Scan clause not found in URL")
+        return None
+
+    try:
+        # Parse escaped JSON string safely.
+        return json.loads(f'"{match.group(1)}"')
+    except json.JSONDecodeError:
+        clause = match.group(1).replace('\\"', '"')
+        return clause
+
+
+def run_chartink_scan(scan_input: str):
+    """Accept either a Chartink URL or a raw scan_clause string."""
+    if not scan_input:
+        logging.error("No scan input provided")
+        return False
+
+    scan_clause = get_scan_clause_from_chartink_url(scan_input) if scan_input.startswith("http") else scan_input
+    if not scan_clause:
+        return False
+
+    return run_direct_xhr_scan(scan_clause)
 
 
 def run_direct_xhr_scan(scan_clause: str):
@@ -27,35 +93,13 @@ def run_direct_xhr_scan(scan_clause: str):
 
     try:
         with requests.Session() as s:
-            # Step 1: Get the main page to establish session and cookies
-            logging.info("Step 1: Getting main chartink page to establish session...")
-            main_page = s.get('https://chartink.com/', timeout=30)
-            main_page.raise_for_status()
-
-            # Step 2: Get the screener page to get CSRF token
-            logging.info("Step 2: Getting screener page for CSRF token...")
-            screener_page = s.get('https://chartink.com/screener', timeout=30)
-            screener_page.raise_for_status()
-
-            # Extract CSRF token from the page
-            csrf_token = None
-            if 'csrf-token' in screener_page.text:
-                import re
-                # Look for meta tag with csrf-token
-                csrf_match = re.search(r'<meta name="csrf-token" content="([^"]*)"', screener_page.text)
-                if csrf_match:
-                    csrf_token = csrf_match.group(1)
-                else:
-                    # Alternative: look for it in JavaScript
-                    csrf_match = re.search(r'csrf-token["\']?\s*:\s*["\']([^"\']+)["\']', screener_page.text)
-                    if csrf_match:
-                        csrf_token = csrf_match.group(1)
+            csrf_token = _get_csrf_token(s)
 
             if not csrf_token:
                 logging.error("Could not extract CSRF token from screener page")
                 return False
 
-            logging.info(f"Step 3: Extracted CSRF token: {csrf_token[:10]}...")
+            logging.info(f"Using CSRF token: {csrf_token[:10]}...")
 
             # Step 3: Prepare the direct XHR request (exactly like browser does)
             xhr_headers = {
@@ -85,13 +129,21 @@ def run_direct_xhr_scan(scan_clause: str):
                 'scan_clause': scan_clause
             }
 
-            logging.info(f"Step 4: Making direct XHR request to process endpoint...")
+            logging.info("Making direct XHR request to process endpoint...")
             logging.info(f"Scan clause: {scan_clause}")
 
             # Step 5: Make the direct POST request to process endpoint
             process_url = 'https://chartink.com/screener/process'
 
             response = s.post(process_url, data=payload, timeout=60)
+
+            if response.status_code == 419:
+                # Token can expire; refresh once and retry.
+                refreshed_token = _get_csrf_token(s, force_refresh=True)
+                if refreshed_token:
+                    s.headers['X-Csrf-Token'] = refreshed_token
+                    response = s.post(process_url, data=payload, timeout=60)
+
             response.raise_for_status()
 
             logging.info(f"XHR request completed with status: {response.status_code}")
@@ -197,7 +249,7 @@ def test_volatility_contraction_scan():
     print(f"Scan clause: {volatility_scan}")
     print("-" * 80)
 
-    success = run_direct_xhr_scan(volatility_scan)
+    success = run_chartink_scan(volatility_scan)
 
     if success:
         print("\n✅ Scan completed successfully!")
@@ -228,7 +280,7 @@ def simple_test_scan():
     simple_scan = "( {57960} ( latest \"close\" > latest \"sma( close , 20 )\" ) )"
 
     print("Testing simple scan first...")
-    success = run_direct_xhr_scan(simple_scan)
+    success = run_chartink_scan(simple_scan)
 
     if success:
         print("✅ Simple scan works!")
