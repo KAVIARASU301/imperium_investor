@@ -1890,13 +1890,13 @@ class CandlestickChart(QWidget):
         <style>
             body {{ margin: 0; padding: 0; background: #0a111d; font-family: 'Segoe UI', sans-serif; overflow: hidden; color: #c9d1e3; }}
             #chartContainer {{ width: 100vw; height: 100vh; position: relative; background: radial-gradient(circle at 15% 10%, #111f33 0%, #0a111d 50%, #080d17 100%); }}
-            #mainCanvas {{ background: transparent; cursor: crosshair; width: 100%; height: calc(100% - 22px); position: absolute; top: 0; left: 0; }}
+            #mainCanvas {{ background: transparent; cursor: crosshair; width: 100%; height: calc(100% - 14px); position: absolute; top: 0; left: 0; }}
             #info {{ position: absolute; top: 8px; left: 10px; color: #c9d1e3; font-size: 12px; pointer-events: none; z-index: 5; text-shadow: 0 1px 2px #000; }}
             #metricsInfo {{ font-weight: 600; margin-bottom: 6px; color: #f0f5ff; }}
             #priceInfo {{ color: #58b4ff; font-weight: 600; }}
-            #timeSlider {{ position: absolute; bottom: 0; left: 0; width: 100%; height: 22px; background: linear-gradient(180deg, #121b2d 0%, #0d1523 100%); border-top: 1px solid #24324a; display: flex; align-items: center; justify-content: center; overflow: hidden; user-select: none; z-index: 10; }}
-            #sliderTrack {{ position: relative; height: 6px; background-color: #223044; border-radius: 999px; width: calc(100% - 26px); margin: 0 13px; box-shadow: inset 0 0 0 1px #2d3d58; }}
-            #sliderThumb {{ position: absolute; width: 70px; height: 14px; background: linear-gradient(180deg, #2b8cff 0%, #1d67c8 100%); border: 1px solid #3d95ff; border-radius: 999px; cursor: grab; display: flex; align-items: center; justify-content: center; color: transparent; font-size: 0; z-index: 12; box-shadow: 0 2px 8px rgba(0,0,0,0.35); }}
+            #timeSlider {{ position: absolute; bottom: 0; left: 0; width: 100%; height: 14px; background: linear-gradient(180deg, #101a2b 0%, #0b1422 100%); border-top: 1px solid #24324a; display: flex; align-items: center; justify-content: center; overflow: hidden; user-select: none; z-index: 10; }}
+            #sliderTrack {{ position: relative; height: 2px; background-color: #223044; border-radius: 999px; width: calc(100% - 16px); margin: 0 8px; box-shadow: inset 0 0 0 1px #2d3d58; }}
+            #sliderThumb {{ position: absolute; width: 70px; height: 6px; background: linear-gradient(180deg, #2b8cff 0%, #1d67c8 100%); border: 1px solid #3d95ff; border-radius: 999px; cursor: grab; display: flex; align-items: center; justify-content: center; color: transparent; font-size: 0; z-index: 12; box-shadow: 0 2px 6px rgba(0,0,0,0.35); }}
         </style>
     </head>
     <body>
@@ -2110,7 +2110,7 @@ class CandlestickChart(QWidget):
                     this.canvas.style.width = this.width + 'px'; this.canvas.style.height = this.height + 'px';
                     this.ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
                     this.padding = {{ top: 12, right: 84, bottom: 30, left: 14 }};
-                    const sliderHeight = 30, spacing = 12, volRatio = this.height > 900 ? 0.18 : 0.16;
+                    const sliderHeight = 14, spacing = 12, volRatio = this.height > 900 ? 0.18 : 0.16;
                     const plotHeight = this.height - this.padding.top - this.padding.bottom - sliderHeight;
                     this.chartArea = {{ x: this.padding.left, y: this.padding.top, width: this.width - this.padding.left - this.padding.right, height: Math.max(50, plotHeight * (1 - volRatio) - spacing) }};
                     this.volumeArea = {{ x: this.padding.left, y: this.chartArea.y + this.chartArea.height + spacing, width: this.chartArea.width, height: Math.max(10, plotHeight * volRatio) }};
