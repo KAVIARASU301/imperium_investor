@@ -1338,10 +1338,13 @@ class CandlestickChart(QWidget):
     @Slot(str)
     def on_search(self, symbol: Optional[str] = None):
         """Enhanced symbol search with immediate subscription"""
-        if not symbol or symbol not in self.instrument_map:
+        resolved_symbol = self._resolve_symbol(symbol)
+        if not resolved_symbol:
             if symbol:
                 self._show_error(f"Symbol '{symbol}' not found")
             return
+
+        symbol = resolved_symbol
 
         # Save current state if switching symbols
         if self.current_symbol and self.chart_view:
@@ -1372,6 +1375,33 @@ class CandlestickChart(QWidget):
 
         # Save this as the last viewed symbol
         self.drawing_storage.save_last_viewed_symbol(symbol, self.current_interval)
+
+    def _resolve_symbol(self, symbol: Optional[str]) -> Optional[str]:
+        """Resolve scanner/watchlist symbol variants to an instrument-map key."""
+        if not symbol:
+            return None
+
+        symbol = symbol.strip()
+        if symbol in self.instrument_map:
+            return symbol
+
+        candidates = [symbol.upper()]
+
+        # Chartink can return symbols as NSE:SBIN or BSE:XYZ
+        if ':' in symbol:
+            candidates.append(symbol.split(':', 1)[1].upper())
+
+        # Some sources include -EQ suffix for cash segment
+        if symbol.upper().endswith('-EQ'):
+            candidates.append(symbol[:-3].upper())
+        else:
+            candidates.append(f"{symbol.upper()}-EQ")
+
+        for candidate in candidates:
+            if candidate in self.instrument_map:
+                return candidate
+
+        return None
 
     def _ensure_immediate_subscription(self):
         """Ensure immediate subscription to current symbol"""
