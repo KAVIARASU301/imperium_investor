@@ -5,8 +5,6 @@ logging/
 logging
 
 # User data
-assets
-assets/
 user_data/
 user_data
 # Byte-compiled / optimized / DLL files
@@ -19,8 +17,7 @@ __pycache__
 .venv
 .venv/
 env/
-assets/icons/
-assets/icons/
+
 /utils/sounds/
 /sounds/
 /sounds/
