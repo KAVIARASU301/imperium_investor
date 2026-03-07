@@ -970,21 +970,24 @@ class ChartinkScannerTable(QWidget):
 
         # Apply color coding based on change %
         table_colors = self._color_theme.get("tables", {})
+        directional_colors_enabled = bool(self._color_theme.get("enable_table_directional_colors", False))
         profit_color = QColor(table_colors.get("positive", "#26a69a"))
         loss_color = QColor(table_colors.get("negative", "#ef5350"))
         neutral_color = QColor(table_colors.get("neutral", "#a9a9a9"))
 
-        color = profit_color if change_pct > 0 else (loss_color if change_pct < 0 else neutral_color)
+        color = neutral_color
+        if directional_colors_enabled:
+            color = profit_color if change_pct > 0 else (loss_color if change_pct < 0 else neutral_color)
 
-        # Color the price and change % columns
+        # Color the LTP and change % columns
         price_item.setForeground(color)
         change_pct_item.setForeground(color)
         volume_item.setForeground(QColor(table_colors.get("volume", "#45d4ff")))
 
         # Subtle directional tint in % change cell (keeps selected-row style readable)
-        if change_pct > 0:
+        if directional_colors_enabled and change_pct > 0:
             change_pct_item.setBackground(QBrush(QColor(18, 55, 34, 140)))
-        elif change_pct < 0:
+        elif directional_colors_enabled and change_pct < 0:
             change_pct_item.setBackground(QBrush(QColor(70, 20, 20, 140)))
         else:
             change_pct_item.setBackground(QBrush(QColor(35, 35, 35, 100)))

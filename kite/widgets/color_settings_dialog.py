@@ -28,6 +28,10 @@ class ColorSettingsDialog(QDialog):
         self.link_checkbox.toggled.connect(self._sync_linked_state)
         layout.addWidget(self.link_checkbox)
 
+        self.table_color_toggle_checkbox = QCheckBox("Enable directional colors in scanner/watchlist/positions tables")
+        self.table_color_toggle_checkbox.setChecked(bool(self._theme.get("enable_table_directional_colors", False)))
+        layout.addWidget(self.table_color_toggle_checkbox)
+
         candle_group = QGroupBox("Candles")
         candle_form = QFormLayout(candle_group)
         candle_form.addRow("Green candle", self._build_color_button("candles.up", self._theme["candles"]["up"]))
@@ -104,4 +108,5 @@ class ColorSettingsDialog(QDialog):
 
     def get_theme(self) -> Dict[str, Any]:
         self._theme["link_all_sections"] = self.link_checkbox.isChecked()
+        self._theme["enable_table_directional_colors"] = self.table_color_toggle_checkbox.isChecked()
         return self._theme

@@ -44,6 +44,11 @@ class TradingTable(QTableWidget):
         self._watchlist_symbols = set()  # Track symbols separately
         self._last_widget_width = 0  # Reset to force update
 
+        self._color_theme = {
+            "enable_table_directional_colors": False,
+            "tables": {"positive": "#26a69a", "negative": "#ef5350", "neutral": "#a9a9a9", "volume": "#45d4ff"}
+        }
+
         self._configure_table()
         self._connect_signals()
         self._setup_data_refresh()
@@ -562,18 +567,21 @@ class TradingTable(QTableWidget):
 
         # Apply colors
         table_colors = self._color_theme.get("tables", {})
+        directional_colors_enabled = bool(self._color_theme.get("enable_table_directional_colors", False))
         profit_color = QColor(table_colors.get("positive", "#26a69a"))
         loss_color = QColor(table_colors.get("negative", "#ef5350"))
         neutral_color = QColor(table_colors.get("neutral", "#a9a9a9"))
-        color = profit_color if change_pct > 0 else (loss_color if change_pct < 0 else neutral_color)
+        color = neutral_color
+        if directional_colors_enabled:
+            color = profit_color if change_pct > 0 else (loss_color if change_pct < 0 else neutral_color)
 
         self.item(row, 1).setForeground(color)
         self.item(row, 3).setForeground(color)
         self.item(row, 2).setForeground(QColor(table_colors.get("volume", "#45d4ff")))
 
-        if change_pct > 0:
+        if directional_colors_enabled and change_pct > 0:
             self.item(row, 3).setBackground(QBrush(QColor(18, 55, 34, 140)))
-        elif change_pct < 0:
+        elif directional_colors_enabled and change_pct < 0:
             self.item(row, 3).setBackground(QBrush(QColor(70, 20, 20, 140)))
         else:
             self.item(row, 3).setBackground(QBrush(QColor(35, 35, 35, 100)))

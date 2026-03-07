@@ -47,6 +47,7 @@ class PositionsTable(QWidget):
         self.symbol_to_row = {}  # symbol -> row_number
         self.is_market_data_subscribed = False
         self._color_theme = {
+            "enable_table_directional_colors": False,
             "tables": {"positive": "#26a69a", "negative": "#ef5350", "neutral": "#a9a9a9"}
         }
 
@@ -263,18 +264,20 @@ class PositionsTable(QWidget):
 
         # Color code P&L
         table_colors = self._color_theme.get("tables", {})
+        directional_colors_enabled = bool(self._color_theme.get("enable_table_directional_colors", False))
         pnl_item = self.table.item(row, 3)
-        if position.pnl > 0:
+        neutral_color = QColor(table_colors.get("neutral", "#a9a9a9"))
+        if directional_colors_enabled and position.pnl > 0:
             pnl_item.setForeground(QColor(table_colors.get("positive", "#26a69a")))
-        elif position.pnl < 0:
+        elif directional_colors_enabled and position.pnl < 0:
             pnl_item.setForeground(QColor(table_colors.get("negative", "#ef5350")))
         else:
-            pnl_item.setForeground(QColor(table_colors.get("neutral", "#a9a9a9")))
+            pnl_item.setForeground(neutral_color)
 
         # Subtle directional tint for P&L cell
-        if position.pnl > 0:
+        if directional_colors_enabled and position.pnl > 0:
             pnl_item.setBackground(QBrush(QColor(18, 55, 34, 140)))
-        elif position.pnl < 0:
+        elif directional_colors_enabled and position.pnl < 0:
             pnl_item.setBackground(QBrush(QColor(70, 20, 20, 140)))
         else:
             pnl_item.setBackground(QBrush(QColor(35, 35, 35, 100)))
@@ -311,7 +314,11 @@ class PositionsTable(QWidget):
 
         # Update P&L with color
         table_colors = self._color_theme.get("tables", {})
-        color = table_colors.get("positive", "#26a69a") if total_pnl >= 0 else table_colors.get("negative", "#ef5350")
+        directional_colors_enabled = bool(self._color_theme.get("enable_table_directional_colors", False))
+        if directional_colors_enabled:
+            color = table_colors.get("positive", "#26a69a") if total_pnl >= 0 else table_colors.get("negative", "#ef5350")
+        else:
+            color = table_colors.get("neutral", "#a9a9a9")
         self.total_pnl_label.setText(f"P&L: ₹{total_pnl:,.2f}")
         self.total_pnl_label.setStyleSheet(f"color: {color}; background-color: transparent; border: none;")
 
@@ -392,6 +399,7 @@ class PositionsTable(QWidget):
         self.table.setRowCount(0)
         self.is_market_data_subscribed = False
         self._color_theme = {
+            "enable_table_directional_colors": False,
             "tables": {"positive": "#26a69a", "negative": "#ef5350", "neutral": "#a9a9a9"}
         }
         self._update_summary()
