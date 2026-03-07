@@ -90,7 +90,7 @@ class TradingTable(QTableWidget):
         # Chg % was getting clipped in narrower layouts, so it gets a little more room.
         self.setColumnWidth(1, 72)  # LTP - enough for "0000.00"
         self.setColumnWidth(2, 72)  # Volume - enough for "999 K" or "9.9 L"
-        self.setColumnWidth(3, 84)  # Change % - enough for values like "+100.00%"
+        self.setColumnWidth(3, 68)  # Change % - compact width for values like "+100.00"
         self.setColumnWidth(4, 24)  # Remove button - minimal
 
         # Row height for compact appearance
@@ -514,7 +514,7 @@ class TradingTable(QTableWidget):
             self.item(row, 0).setText(symbol)
             self.item(row, 1).setText("0.00")
             self.item(row, 2).setText("0")
-            self.item(row, 3).setText("0.00%")
+            self.item(row, 3).setText("0.00")
 
     def _update_row_data(self, row: int, data: Dict):
         """FIXED row data update with proper formatting and sorting preservation"""
@@ -558,7 +558,7 @@ class TradingTable(QTableWidget):
         self.item(row, 2).setToolTip(f"Reported volume: {volume:,.0f}")
 
         # Format change percentage
-        self.item(row, 3).setText(f"{change_pct:+.2f}%" if abs(change_pct) > 0.01 else "0.00%")
+        self.item(row, 3).setText(f"{change_pct:+.2f}" if abs(change_pct) > 0.01 else "0.00")
 
         # Set data for proper sorting
         self.item(row, 0).setData(Qt.ItemDataRole.UserRole, tradingsymbol)
@@ -591,7 +591,7 @@ class TradingTable(QTableWidget):
         self.item(row, 0).setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.item(row, 1).setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.item(row, 2).setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        self.item(row, 3).setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.item(row, 3).setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 
         symbol_font = self.item(row, 0).font()
         symbol_font.setBold(True)

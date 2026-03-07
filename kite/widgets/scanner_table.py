@@ -889,7 +889,9 @@ class ChartinkScannerTable(QWidget):
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+
+        self.table.setColumnWidth(3, 68)
 
         self.table.verticalHeader().setVisible(False)
 
@@ -966,7 +968,7 @@ class ChartinkScannerTable(QWidget):
         if not change_pct_item:
             change_pct_item = QTableWidgetItem()
             self.table.setItem(row, 3, change_pct_item)
-        change_pct_item.setText(f"{change_pct:+.2f}%" if abs(change_pct) > 0.01 else "0.00%")
+        change_pct_item.setText(f"{change_pct:+.2f}" if abs(change_pct) > 0.01 else "0.00")
 
         # Apply color coding based on change %
         table_colors = self._color_theme.get("tables", {})
@@ -996,7 +998,7 @@ class ChartinkScannerTable(QWidget):
         symbol_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         price_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         volume_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        change_pct_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        change_pct_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 
         symbol_font = symbol_item.font()
         symbol_font.setBold(True)
