@@ -86,10 +86,11 @@ class TradingTable(QTableWidget):
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)  # Chg % - fixed width
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)  # Remove button - fixed width
 
-        # FIXED: Set compact fixed widths for right-side columns
-        self.setColumnWidth(1, 70)  # LTP - enough for "0000.00"
-        self.setColumnWidth(2, 70)  # Volume - enough for "999 K" or "9.9 L"
-        self.setColumnWidth(3, 60)  # Change % - enough for "+00.00%"
+        # Keep right-side columns readable while still letting Symbol absorb remaining space.
+        # Chg % was getting clipped in narrower layouts, so it gets a little more room.
+        self.setColumnWidth(1, 72)  # LTP - enough for "0000.00"
+        self.setColumnWidth(2, 72)  # Volume - enough for "999 K" or "9.9 L"
+        self.setColumnWidth(3, 84)  # Change % - enough for values like "+100.00%"
         self.setColumnWidth(4, 24)  # Remove button - minimal
 
         # Row height for compact appearance
