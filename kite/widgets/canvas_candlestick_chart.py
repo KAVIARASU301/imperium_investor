@@ -35,12 +35,28 @@ class ChartState(Enum):
 class TimeframeComboBox(QComboBox):
     """Combo box that reliably opens its popup when clicked."""
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._open_on_release = False
+
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton and self.isEnabled():
-            self.showPopup()
+            # Open on release to avoid Qt immediately closing the popup from
+            # the same click cycle on certain platforms/styles.
+            self._open_on_release = True
             event.accept()
             return
         super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton and self._open_on_release:
+            self._open_on_release = False
+            if self.rect().contains(event.position().toPoint()):
+                self.showPopup()
+            event.accept()
+            return
+        self._open_on_release = False
+        super().mouseReleaseEvent(event)
 
 
 class TextNoteDialog(QDialog):
