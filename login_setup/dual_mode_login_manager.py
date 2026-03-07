@@ -178,14 +178,11 @@ class DualModeLoginManager(QDialog):
         self.kite_api_key = ""
         self.kite_api_secret = ""
         self._drag_pos = None
+        self._active_kite_session: Optional[Dict[str, Any]] = None
+        self._active_kite_creds: Optional[Dict[str, Any]] = None
 
         self._callback_server: Optional[KiteCallbackServer] = None
         self._session_worker: Optional[KiteSessionWorker] = None
-
-        # Auto-login control
-        self._auto_login_timer = QTimer(self)
-        self._auto_login_timer.setSingleShot(True)
-        self._auto_login_cancelled = False
 
         self._setup_window()
         self._setup_ui()
@@ -267,15 +264,10 @@ class DualModeLoginManager(QDialog):
         self.auto_login_status.setObjectName("statusLabel")
         self.auto_login_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.setObjectName("secondaryButton")
-        cancel_btn.clicked.connect(self._cancel_auto_login)
-
         layout.addStretch()
         layout.addWidget(QLabel("Welcome Back", objectName="welcomeTitle"), alignment=Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.auto_login_status, alignment=Qt.AlignmentFlag.AlignCenter)
         layout.addStretch()
-        layout.addWidget(cancel_btn, alignment=Qt.AlignmentFlag.AlignCenter)
         return page
 
     def _try_auto_login(self):
@@ -284,36 +276,14 @@ class DualModeLoginManager(QDialog):
             return
 
         session = self.token_manager.load_broker_session(BrokerMode.INDIA)
-        if not session:
-            self.stacked_widget.setCurrentIndex(1)
-            return
-
         creds = self.token_manager.load_broker_credentials(BrokerMode.INDIA)
-        access_token = session.get("session_data", {}).get("access_token")
+        access_token = (session or {}).get("session_data", {}).get("access_token")
 
-        if creds and creds.get("api_key") and access_token:
-            self.selected_broker = BrokerMode.INDIA
-            self.selected_trading_mode = TradingMode(session.get("trading_mode", "paper"))
-            self.authentication_data = {
-                "broker_mode": self.selected_broker,
-                "trading_mode": self.selected_trading_mode,
-                "api_key": creds["api_key"],
-                "access_token": access_token,
-            }
-            self.auto_login_status.setText("Found existing Kite session. Resuming...")
-            self._auto_login_timer.timeout.connect(self._finalize_auto_login)
-            self._auto_login_timer.start(1500)
-        else:
-            self.stacked_widget.setCurrentIndex(1)
+        if session and creds and creds.get("api_key") and access_token:
+            self._active_kite_session = session
+            self._active_kite_creds = creds
+            self.auto_login_status.setText("Active Kite session found.")
 
-    def _finalize_auto_login(self):
-        if not self._auto_login_cancelled:
-            self.accept()
-
-    def _cancel_auto_login(self):
-        self._auto_login_cancelled = True
-        self._auto_login_timer.stop()
-        self.authentication_data = {}
         self.stacked_widget.setCurrentIndex(1)
 
     # --------------------------------------------------------------------------
@@ -327,6 +297,16 @@ class DualModeLoginManager(QDialog):
         title = QLabel("Select Your Broker")
         title.setObjectName("pageTitle")
 
+        self.session_hint_label = QLabel("")
+        self.session_hint_label.setObjectName("statusLabel")
+        self.session_hint_label.setWordWrap(True)
+        self.session_hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        if self._active_kite_session:
+            self.session_hint_label.setText(
+                "✅ Active Kite session found. Select Kite or IBKR to continue."
+            )
+
         broker_layout = QHBoxLayout()
         self.india_card = self._create_broker_card(BrokerMode.INDIA)
         self.america_card = self._create_broker_card(BrokerMode.AMERICA)
@@ -339,6 +319,7 @@ class DualModeLoginManager(QDialog):
         continue_btn.clicked.connect(self._on_broker_selected)
 
         layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.session_hint_label)
         layout.addLayout(broker_layout)
         layout.addWidget(mode_frame)
         layout.addStretch()
@@ -411,10 +392,32 @@ class DualModeLoginManager(QDialog):
         self.selected_trading_mode = TradingMode.LIVE if self.live_radio.isChecked() else TradingMode.PAPER
 
         if self.selected_broker == BrokerMode.INDIA:
+            if self._use_active_kite_session():
+                return
             self._prefill_kite_credentials()
             self.stacked_widget.setCurrentIndex(2)
         else:
             self.stacked_widget.setCurrentIndex(4)
+
+    def _use_active_kite_session(self) -> bool:
+        """Use existing Kite session only after user explicitly selects Kite."""
+        if not self._active_kite_session or not self._active_kite_creds:
+            return False
+
+        access_token = self._active_kite_session.get("session_data", {}).get("access_token")
+        api_key = self._active_kite_creds.get("api_key")
+
+        if not access_token or not api_key:
+            return False
+
+        self.authentication_data = {
+            "broker_mode": BrokerMode.INDIA,
+            "trading_mode": self.selected_trading_mode,
+            "api_key": api_key,
+            "access_token": access_token,
+        }
+        self.accept()
+        return True
 
     def _prefill_kite_credentials(self):
         creds = self.token_manager.load_broker_credentials(BrokerMode.INDIA)
