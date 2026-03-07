@@ -812,7 +812,7 @@ class CandlestickChart(QWidget):
 
         self.combined_toolbar = QFrame()
         self.combined_toolbar.setObjectName("chartToolbar")
-        self.combined_toolbar.setFixedHeight(40)
+        self.combined_toolbar.setMinimumHeight(40)
 
         toolbar_layout = QHBoxLayout(self.combined_toolbar)
         toolbar_layout.setContentsMargins(10, 5, 10, 5)
@@ -877,7 +877,7 @@ class CandlestickChart(QWidget):
         # Drawing Tools Button
         self.drawing_tools_button = QPushButton("Drawing Tools")
         self.drawing_tools_button.setObjectName("drawingToolsButton")
-        self.drawing_tools_button.setFixedSize(110, 30)
+        self.drawing_tools_button.setMinimumSize(110, 30)
         self.drawing_tools_button.setToolTip("Drawing Tools")
         drawing_menu = QMenu(self)
         drawing_menu.setObjectName("drawingMenu")
@@ -910,7 +910,7 @@ class CandlestickChart(QWidget):
         # Other buttons
         self.order_btn = QPushButton("Order")
         self.order_btn.setObjectName("orderButton")
-        self.order_btn.setFixedSize(70, 30)
+        self.order_btn.setMinimumSize(70, 30)
         self.order_btn.clicked.connect(self._on_order_button_clicked)
         toolbar_layout.addWidget(self.order_btn)
 
@@ -1823,15 +1823,15 @@ class CandlestickChart(QWidget):
         <meta charset="utf-8">
         <title>Professional Trading Chart</title>
         <style>
-            body {{ margin: 0; padding: 0; background-color: #0a0a0a; font-family: 'Segoe UI', sans-serif; overflow: hidden; }}
-            #chartContainer {{ width: 100vw; height: 100vh; position: relative; }}
-            #mainCanvas {{ background-color: #0a0a0a; cursor: crosshair; width: 100%; height: calc(100% - 15px); position: absolute; top: 0; left: 0; }}
-            #info {{ position: absolute; top: 5px; left: 5px; color: #e0e0e0; font-size: 12px; pointer-events: none; z-index: 5; }}
-            #metricsInfo {{ font-weight: bold; margin-bottom: 5px; color: #e0e0e0; }}
-            #priceInfo {{ color: #00bfff; font-weight: bold; }}
-            #timeSlider {{ position: absolute; bottom: 0; left: 0; width: 100%; height: 10px; background-color: #1a1a1a; border-top: 1px solid #333; display: flex; align-items: center; justify-content: center; overflow: hidden; user-select: none; z-index: 10; }}
-            #sliderTrack {{ position: relative; height: 3px; background-color: #333; border-radius: 1.5px; width: calc(100% - 15px); margin: 0 10px; }}
-            #sliderThumb {{ position: absolute; width: 50px; height: 10px; background-color: #0066cc; border: 1px solid #0080ff; border-radius: 2px; cursor: grab; display: flex; align-items: center; justify-content: center; color: transparent; font-size: 0; z-index: 12; }}
+            body {{ margin: 0; padding: 0; background: #0a111d; font-family: 'Segoe UI', sans-serif; overflow: hidden; color: #c9d1e3; }}
+            #chartContainer {{ width: 100vw; height: 100vh; position: relative; background: radial-gradient(circle at 15% 10%, #111f33 0%, #0a111d 50%, #080d17 100%); }}
+            #mainCanvas {{ background: transparent; cursor: crosshair; width: 100%; height: calc(100% - 22px); position: absolute; top: 0; left: 0; }}
+            #info {{ position: absolute; top: 8px; left: 10px; color: #c9d1e3; font-size: 12px; pointer-events: none; z-index: 5; text-shadow: 0 1px 2px #000; }}
+            #metricsInfo {{ font-weight: 600; margin-bottom: 6px; color: #f0f5ff; }}
+            #priceInfo {{ color: #58b4ff; font-weight: 600; }}
+            #timeSlider {{ position: absolute; bottom: 0; left: 0; width: 100%; height: 22px; background: linear-gradient(180deg, #121b2d 0%, #0d1523 100%); border-top: 1px solid #24324a; display: flex; align-items: center; justify-content: center; overflow: hidden; user-select: none; z-index: 10; }}
+            #sliderTrack {{ position: relative; height: 6px; background-color: #223044; border-radius: 999px; width: calc(100% - 26px); margin: 0 13px; box-shadow: inset 0 0 0 1px #2d3d58; }}
+            #sliderThumb {{ position: absolute; width: 70px; height: 14px; background: linear-gradient(180deg, #2b8cff 0%, #1d67c8 100%); border: 1px solid #3d95ff; border-radius: 999px; cursor: grab; display: flex; align-items: center; justify-content: center; color: transparent; font-size: 0; z-index: 12; box-shadow: 0 2px 8px rgba(0,0,0,0.35); }}
         </style>
     </head>
     <body>
@@ -1880,9 +1880,9 @@ class CandlestickChart(QWidget):
                     this.priceChangeAnimation = null;
                     this.animationStartTime = null;
                     this.colors = {{ 
-                        upCandle: upCandleColor || '#26a69a', 
-                        downCandle: downCandleColor || '#ef5350', 
-                        grid: '#1a1a1a', 
+                        upCandle: upCandleColor || '#2ecb85', 
+                        downCandle: downCandleColor || '#ff5f6d', 
+                        grid: '#22324a', 
                         text: '#e0e0e0', 
                         volume: '#555', 
                         volumeUp: 'rgba(38, 166, 154, 0.5)',   // Increased from 0.3
@@ -2044,8 +2044,8 @@ class CandlestickChart(QWidget):
                     this.canvas.width = this.width * window.devicePixelRatio; this.canvas.height = this.height * window.devicePixelRatio;
                     this.canvas.style.width = this.width + 'px'; this.canvas.style.height = this.height + 'px';
                     this.ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-                    this.padding = {{ top: 10, right: 65, bottom: 25, left: 5 }};
-                    const sliderHeight = 15, spacing = 10, volRatio = 0.15;
+                    this.padding = {{ top: 12, right: 84, bottom: 30, left: 14 }};
+                    const sliderHeight = 30, spacing = 12, volRatio = this.height > 900 ? 0.18 : 0.16;
                     const plotHeight = this.height - this.padding.top - this.padding.bottom - sliderHeight;
                     this.chartArea = {{ x: this.padding.left, y: this.padding.top, width: this.width - this.padding.left - this.padding.right, height: Math.max(50, plotHeight * (1 - volRatio) - spacing) }};
                     this.volumeArea = {{ x: this.padding.left, y: this.chartArea.y + this.chartArea.height + spacing, width: this.chartArea.width, height: Math.max(10, plotHeight * volRatio) }};
@@ -3583,28 +3583,68 @@ class CandlestickChart(QWidget):
 
     def _apply_styles(self):
         self.setStyleSheet("""
-            QFrame#chartToolbar { background-color: #1a1a1a; border-bottom: 1px solid #404040; }
-            #symbolFullNameLabel { color: #E0E0E0; font-size: 13px; font-weight: bold; padding-left: 5px; }
-            QComboBox#chartDropdown {
-                background-color: #000000; color: white; border: 1px solid #333333;
-                padding: 4px 6px; border-radius: 3px; font-size: 11px; font-weight: 500;
+            QFrame#chartToolbar {
+                background-color: #0f1728;
+                border-bottom: 1px solid #2b3a56;
             }
-            QComboBox#chartDropdown:hover { border: 1px solid #00d4ff; color: #00d4ff; }
-            QComboBox#chartDropdown::drop-down { border: none; }
-            QComboBox QAbstractItemView { background-color: #2a2a2a; color: #e0e0e0; border: 1px solid #505050; }
-            #chartControlButton, #chartOrderButton {
-                background-color: #000000; color: white; border: 1px solid #333333;
-                padding: 4px 6px; border-radius: 3px; font-size: 11px; font-weight: 500;
+            QLabel#symbolInfoLabel {
+                color: #f2f6ff;
+                font-size: 13px;
+                font-weight: 700;
+                padding: 0 8px;
             }
-            #chartControlButton:hover, #chartOrderButton:hover {
-                background-color: #1a1a1a; border: 1px solid #00d4ff; color: #00d4ff;
+            QComboBox#timeframeDropdown {
+                background-color: #141f34;
+                color: #dce7ff;
+                border: 1px solid #324664;
+                border-radius: 6px;
+                padding: 4px 10px;
+                min-width: 82px;
+                font-size: 11px;
+                font-weight: 600;
             }
-            #chartControlButton:checked { background-color: #0066cc; border: 1px solid #0080ff; }
-            QFrame#drawingToolsFrame { border: 1px solid #404040; border-radius: 4px; }
-            #drawingToolsFrame > QPushButton { border: none; border-radius: 0; padding: 4px; font-size: 14px; }
-            #drawingToolsFrame > QPushButton:checked { background-color: #0066cc; }
-            QMenu { background-color: #2a2a2a; color: #e0e0e0; border: 1px solid #505050; }
-            QMenu::item:selected { background-color: #0066cc; }
+            QComboBox#timeframeDropdown:hover {
+                border: 1px solid #4e86c8;
+                background-color: #1a2740;
+            }
+            QComboBox#timeframeDropdown::drop-down { border: none; }
+            QComboBox QAbstractItemView {
+                background-color: #131d30;
+                color: #dce7ff;
+                border: 1px solid #324664;
+                outline: 0;
+            }
+            QPushButton#controlButton,
+            QPushButton#orderButton,
+            QPushButton#drawingToolsButton {
+                background-color: #141f34;
+                color: #dce7ff;
+                border: 1px solid #324664;
+                border-radius: 6px;
+                padding: 4px 10px;
+                font-size: 11px;
+                font-weight: 600;
+            }
+            QPushButton#controlButton:hover,
+            QPushButton#orderButton:hover,
+            QPushButton#drawingToolsButton:hover {
+                background-color: #1b2942;
+                border: 1px solid #4e86c8;
+                color: #ffffff;
+            }
+            QPushButton#controlButton:checked {
+                background-color: #1f62bc;
+                border: 1px solid #4b9cff;
+                color: #ffffff;
+            }
+            QMenu {
+                background-color: #121c2f;
+                color: #dbe7ff;
+                border: 1px solid #334969;
+            }
+            QMenu::item:selected {
+                background-color: #1f62bc;
+            }
         """)
 
 
