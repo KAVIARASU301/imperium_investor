@@ -86,6 +86,7 @@ class CandlestickChart(QWidget):
         self.current_state = ChartState.IDLE
         self.last_df:    Optional[pd.DataFrame] = None
         self._active_load_key: Optional[str] = None
+        self.instrument_map: Dict[str, Dict[str, Any]] = {}
 
         # ── Drawing style ──
         self.current_drawing_color = "#FFD700"
@@ -175,6 +176,68 @@ class CandlestickChart(QWidget):
                  f"upVolumeColor:'{self._current_volume_up_color}',"
                  f"downVolumeColor:'{self._current_volume_down_color}'"
                  "});")
+
+    def set_instrument_list(self, instruments: Any) -> None:
+        """Compatibility API used by `kite.core.main_window`.
+
+        Stores a tradingsymbol → instrument payload map that is later used by
+        `on_search` to resolve symbols emitted by watchlist/scanner widgets.
+        """
+        if not instruments:
+            self.instrument_map = {}
+            return
+
+        instrument_map: Dict[str, Dict[str, Any]] = {}
+        for instrument in instruments:
+            if not isinstance(instrument, dict):
+                continue
+            symbol = str(instrument.get("tradingsymbol", "")).strip().upper()
+            token = instrument.get("instrument_token")
+            if symbol and token:
+                instrument_map[symbol] = instrument
+
+        self.instrument_map = instrument_map
+
+    @Slot(str)
+    def on_search(self, symbol: Optional[str] = None) -> None:
+        """Compatibility API used by UI symbol-selection signals."""
+        resolved_symbol = self._resolve_symbol(symbol)
+        if not resolved_symbol:
+            if symbol:
+                self._show_error(f"Symbol '{symbol}' not found")
+            return
+
+        if self.current_symbol and self.chart_view and resolved_symbol != self.current_symbol:
+            self._save_current_state_sync()
+
+        instrument = self.instrument_map.get(resolved_symbol, {})
+        token = int(instrument.get("instrument_token") or 0)
+        exchange = instrument.get("exchange")
+        self.load_symbol(resolved_symbol, exchange, token)
+
+        self.drawing_storage.save_last_viewed_symbol(resolved_symbol, self.current_interval)
+
+    def _resolve_symbol(self, symbol: Optional[str]) -> Optional[str]:
+        if not symbol:
+            return None
+
+        value = str(symbol).strip().upper()
+        if value in self.instrument_map:
+            return value
+
+        candidates = [value]
+        if ":" in value:
+            candidates.append(value.split(":", 1)[1])
+
+        if value.endswith("-EQ"):
+            candidates.append(value[:-3])
+        else:
+            candidates.append(f"{value}-EQ")
+
+        for candidate in candidates:
+            if candidate in self.instrument_map:
+                return candidate
+        return None
 
     # ═══════════════════════════════════════════════════════════════════════
     # BUILD UI
