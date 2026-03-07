@@ -46,6 +46,9 @@ class PositionsTable(QWidget):
         self.positions_data = {}  # symbol -> SimplePosition
         self.symbol_to_row = {}  # symbol -> row_number
         self.is_market_data_subscribed = False
+        self._color_theme = {
+            "tables": {"positive": "#26a69a", "negative": "#ef5350", "neutral": "#a9a9a9"}
+        }
 
         self._setup_ui()
         self._apply_consistent_styles()
@@ -146,6 +149,14 @@ class PositionsTable(QWidget):
 
         footer_layout.addStretch()
         return footer_frame
+
+    def apply_color_theme(self, theme: Dict):
+        self._color_theme = theme or self._color_theme
+        for symbol, row in self.symbol_to_row.items():
+            position = self.positions_data.get(symbol)
+            if position:
+                self._update_single_row_data(row, position)
+        self._update_summary()
 
     # ===========================================================================
     # MAIN METHOD: RECEIVE POSITIONS FROM MANAGER (ONCE)
@@ -251,13 +262,14 @@ class PositionsTable(QWidget):
         self.table.item(row, 3).setText(f"{position.pnl:+,.2f}")
 
         # Color code P&L
+        table_colors = self._color_theme.get("tables", {})
         pnl_item = self.table.item(row, 3)
         if position.pnl > 0:
-            pnl_item.setForeground(QColor(60, 179, 113))  # Green
+            pnl_item.setForeground(QColor(table_colors.get("positive", "#26a69a")))
         elif position.pnl < 0:
-            pnl_item.setForeground(QColor(220, 20, 60))  # Red
+            pnl_item.setForeground(QColor(table_colors.get("negative", "#ef5350")))
         else:
-            pnl_item.setForeground(QColor(169, 169, 169))  # Gray
+            pnl_item.setForeground(QColor(table_colors.get("neutral", "#a9a9a9")))
 
         # Subtle directional tint for P&L cell
         if position.pnl > 0:
@@ -298,7 +310,8 @@ class PositionsTable(QWidget):
         total_investment = sum(abs(pos.quantity * pos.avg_price) for pos in self.positions_data.values())
 
         # Update P&L with color
-        color = "#26a69a" if total_pnl >= 0 else "#ef5350"
+        table_colors = self._color_theme.get("tables", {})
+        color = table_colors.get("positive", "#26a69a") if total_pnl >= 0 else table_colors.get("negative", "#ef5350")
         self.total_pnl_label.setText(f"P&L: ₹{total_pnl:,.2f}")
         self.total_pnl_label.setStyleSheet(f"color: {color}; background-color: transparent; border: none;")
 
@@ -378,6 +391,9 @@ class PositionsTable(QWidget):
         self.symbol_to_row.clear()
         self.table.setRowCount(0)
         self.is_market_data_subscribed = False
+        self._color_theme = {
+            "tables": {"positive": "#26a69a", "negative": "#ef5350", "neutral": "#a9a9a9"}
+        }
         self._update_summary()
         logger.info("Positions table cleared")
 

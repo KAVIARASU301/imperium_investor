@@ -18,6 +18,7 @@ from kite.widgets.positions_table import PositionsTable
 from kite.widgets.watchlist_table import TabbedWatchlistWidget
 from kite.widgets.canvas_candlestick_chart import CandlestickChart as ChartWindow
 from kite.widgets.header_toolbar import HeaderToolbar
+from kite.widgets.color_settings_dialog import ColorSettingsDialog
 
 from kite.widgets.order_dialog import OrderDialog
 from kite.widgets.order_history_dialog import OrderHistoryDialog
@@ -46,6 +47,7 @@ from kite.widgets.status_bar import (
     status  # Global status manager
 )
 from kite.utils.sounds import play_alert, play_error
+from kite.utils.color_system import get_color_theme_manager
 
 
 logger = logging.getLogger(__name__)
@@ -86,6 +88,7 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.api_key = api_key
         self.access_token = access_token
         self.config_manager = ConfigManager()
+        self.color_theme_manager = get_color_theme_manager()
         paper_trader = self._get_paper_trading_manager()
         self.trading_mode = 'paper' if paper_trader else 'live'
         self.trade_logger = TradeLogger(
@@ -122,6 +125,7 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self._init_alert_system()
         self._init_background_workers()
         self._connect_signals()
+        self.color_theme_manager.theme_changed.connect(self._on_color_theme_changed)
         self._connect_chart_signals()
         self._setup_watchlist_shortcuts()
 
@@ -166,6 +170,7 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         # HEADER TOOLBAR WITH STATUS BAR INTEGRATION
         self.header_toolbar = HeaderToolbar(self.trader, self)
+        self.header_toolbar.color_settings_requested.connect(self._open_color_settings_dialog)
         main_layout.addWidget(self.header_toolbar)
 
         # Initialize global status manager with header toolbar's status bar
@@ -186,6 +191,12 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             self.candlestick_chart.data_cache._cache = self.candlestick_chart.data_cache._store
         self.watchlist = TabbedWatchlistWidget()
         self.positions_table = PositionsTable(parent=self)
+
+        initial_theme = self.color_theme_manager.get_theme()
+        self.chartink_scanner.apply_color_theme(initial_theme)
+        self.watchlist.apply_color_theme(initial_theme)
+        self.positions_table.apply_color_theme(initial_theme)
+        self.candlestick_chart.apply_color_theme(initial_theme)
 
         # Create right panel splitter
         right_panel_splitter = QSplitter(Qt.Orientation.Vertical)
@@ -258,6 +269,18 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         title_bar.mouseMoveEvent = self._title_bar_mouse_move
         title_bar.mouseDoubleClickEvent = self._title_bar_double_click
         return title_bar
+
+    @Slot(dict)
+    def _on_color_theme_changed(self, theme: Dict[str, Any]):
+        self.chartink_scanner.apply_color_theme(theme)
+        self.watchlist.apply_color_theme(theme)
+        self.positions_table.apply_color_theme(theme)
+        self.candlestick_chart.apply_color_theme(theme)
+
+    def _open_color_settings_dialog(self):
+        dialog = ColorSettingsDialog(self.color_theme_manager.get_theme(), self)
+        if dialog.exec():
+            self.color_theme_manager.update_theme(dialog.get_theme())
 
     def _init_alert_system(self):
         try:

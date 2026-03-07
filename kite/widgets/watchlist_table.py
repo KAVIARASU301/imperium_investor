@@ -561,14 +561,15 @@ class TradingTable(QTableWidget):
         self.item(row, 3).setData(Qt.ItemDataRole.UserRole, change_pct)
 
         # Apply colors
-        profit_color = QColor(60, 179, 113)
-        loss_color = QColor(220, 20, 60)
-        neutral_color = QColor(169, 169, 169)
+        table_colors = self._color_theme.get("tables", {})
+        profit_color = QColor(table_colors.get("positive", "#26a69a"))
+        loss_color = QColor(table_colors.get("negative", "#ef5350"))
+        neutral_color = QColor(table_colors.get("neutral", "#a9a9a9"))
         color = profit_color if change_pct > 0 else (loss_color if change_pct < 0 else neutral_color)
 
         self.item(row, 1).setForeground(color)
         self.item(row, 3).setForeground(color)
-        self.item(row, 2).setForeground(QColor("#45d4ff"))
+        self.item(row, 2).setForeground(QColor(table_colors.get("volume", "#45d4ff")))
 
         if change_pct > 0:
             self.item(row, 3).setBackground(QBrush(QColor(18, 55, 34, 140)))
@@ -586,6 +587,12 @@ class TradingTable(QTableWidget):
         symbol_font = self.item(row, 0).font()
         symbol_font.setBold(True)
         self.item(row, 0).setFont(symbol_font)
+
+    def apply_color_theme(self, theme: Dict):
+        self._color_theme = theme or self._color_theme
+        for symbol, row in self._symbol_to_row.items():
+            if symbol in self._watchlist_data:
+                self._update_row_data(row, self._watchlist_data[symbol])
 
     def _refresh_display(self):
         """Periodic refresh of display data"""
@@ -825,6 +832,10 @@ class TabbedWatchlistWidget(QWidget):
         self._setup_ui()
         self._apply_styles()
         self._load_all_watchlists()
+
+    def apply_color_theme(self, theme: Dict):
+        for table in self._tables.values():
+            table.apply_color_theme(theme)
 
     def _setup_ui(self):
         """Sets up the main UI layout with tabs."""

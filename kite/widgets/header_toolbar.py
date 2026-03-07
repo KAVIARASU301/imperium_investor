@@ -67,6 +67,7 @@ class HeaderToolbar(QToolBar):
     timeframe_changed = Signal(str)
     buy_order_requested = Signal(str)
     sell_order_requested = Signal(str)
+    color_settings_requested = Signal()
 
     def __init__(self, trader: Union[KiteConnect, Any], parent=None):
         super().__init__(parent)
@@ -236,6 +237,12 @@ class HeaderToolbar(QToolBar):
         self.performance_btn.clicked.connect(self.performance_dashboard_requested.emit)
         self.performance_btn.setFixedSize(85, 24)
         actions_layout.addWidget(self.performance_btn)
+
+        self.color_settings_btn = QPushButton("Colors")
+        self.color_settings_btn.setObjectName("tradingActionButton")
+        self.color_settings_btn.clicked.connect(self.color_settings_requested.emit)
+        self.color_settings_btn.setFixedSize(60, 24)
+        actions_layout.addWidget(self.color_settings_btn)
 
         self.addWidget(actions_widget)
 

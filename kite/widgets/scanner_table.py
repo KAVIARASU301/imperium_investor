@@ -730,6 +730,9 @@ class ChartinkScannerTable(QWidget):
         self._symbol_data: Dict[str, Dict] = {}
         self._symbol_to_row: Dict[str, int] = {}
         self._current_symbol_index = 0  # Track current symbol for spacebar navigation
+        self._color_theme = {
+            "tables": {"positive": "#26a69a", "negative": "#ef5350", "neutral": "#a9a9a9", "volume": "#45d4ff"}
+        }
 
         self._setup_ui()
         self._apply_enhanced_styles()
@@ -770,6 +773,13 @@ class ChartinkScannerTable(QWidget):
         # for context-aware navigation. This method is kept for potential
         # future scanner-specific shortcuts.
         logger.info("Scanner table ready for context-aware navigation")
+
+    def apply_color_theme(self, theme: Dict):
+        self._color_theme = theme or self._color_theme
+        for symbol, row in self._symbol_to_row.items():
+            data = self._symbol_data.get(symbol)
+            if data is not None:
+                self._update_row_data(row, data)
 
     def _next_symbol(self):
         """Navigate to the next symbol in the scanner list."""
@@ -959,16 +969,17 @@ class ChartinkScannerTable(QWidget):
         change_pct_item.setText(f"{change_pct:+.2f}%" if abs(change_pct) > 0.01 else "0.00%")
 
         # Apply color coding based on change %
-        profit_color = QColor(60, 179, 113)  # Medium Sea Green
-        loss_color = QColor(220, 20, 60)  # Crimson
-        neutral_color = QColor(169, 169, 169)  # DarkGray
+        table_colors = self._color_theme.get("tables", {})
+        profit_color = QColor(table_colors.get("positive", "#26a69a"))
+        loss_color = QColor(table_colors.get("negative", "#ef5350"))
+        neutral_color = QColor(table_colors.get("neutral", "#a9a9a9"))
 
         color = profit_color if change_pct > 0 else (loss_color if change_pct < 0 else neutral_color)
 
         # Color the price and change % columns
         price_item.setForeground(color)
         change_pct_item.setForeground(color)
-        volume_item.setForeground(QColor("#45d4ff"))
+        volume_item.setForeground(QColor(table_colors.get("volume", "#45d4ff")))
 
         # Subtle directional tint in % change cell (keeps selected-row style readable)
         if change_pct > 0:

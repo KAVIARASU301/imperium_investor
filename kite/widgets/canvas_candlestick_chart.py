@@ -225,7 +225,9 @@ class DrawingStorage:
                 "candle_spacing": 3,
                 "default_visible_candles": 100,
                 "up_candle_color": "#26a69a",
-                "down_candle_color": "#ef5350"
+                "down_candle_color": "#ef5350",
+                "up_volume_color": "#26a69a",
+                "down_volume_color": "#ef5350"
             }
         except Exception as e:
             logger.error(f"Failed to load global chart settings: {e}")
@@ -235,7 +237,9 @@ class DrawingStorage:
                 "candle_spacing": 3,
                 "default_visible_candles": 100,
                 "up_candle_color": "#26a69a",
-                "down_candle_color": "#ef5350"
+                "down_candle_color": "#ef5350",
+                "up_volume_color": "#26a69a",
+                "down_volume_color": "#ef5350"
             }
 
     def save_last_viewed_symbol(self, symbol: str, interval: str):
@@ -737,6 +741,8 @@ class CandlestickChart(QWidget):
         self._current_candle_spacing: int = self.global_chart_settings["candle_spacing"]
         self._current_up_color: str = self.global_chart_settings["up_candle_color"]
         self._current_down_color: str = self.global_chart_settings["down_candle_color"]
+        self._current_volume_up_color: str = self.global_chart_settings.get("up_volume_color", self._current_up_color)
+        self._current_volume_down_color: str = self.global_chart_settings.get("down_volume_color", self._current_down_color)
 
         # EMA data storage
         self.ema_data = {'ema10': [], 'ema20': [], 'ema50': []}
@@ -1930,7 +1936,7 @@ class CandlestickChart(QWidget):
         <script>
             class FixedTradingChart {{
                 constructor(canvasId, data, volumeData, initialVisibleCandleCount,
-                            initialCandleWidth, initialCandleSpacing, upCandleColor, downCandleColor,
+                            initialCandleWidth, initialCandleSpacing, upCandleColor, downCandleColor, upVolumeColor, downVolumeColor,
                             emaData, initialADR, percentageChanges, currentInterval, currentSymbol, initialDrawingsJson) {{
                     this.canvas = document.getElementById(canvasId);
                     this.ctx = this.canvas.getContext('2d');
@@ -1963,8 +1969,8 @@ class CandlestickChart(QWidget):
                         grid: '#22324a', 
                         text: '#e0e0e0', 
                         volume: '#555', 
-                        volumeUp: 'rgba(38, 166, 154, 0.5)',   // Increased from 0.3
-                        volumeDown: 'rgba(239, 83, 80, 0.5)',  // Increased from 0.3
+                        volumeUp: upVolumeColor || upCandleColor || '#26a69a',
+                        volumeDown: downVolumeColor || downCandleColor || '#ef5350',
                         background: '#0a0a0a', 
                         crosshair: 'rgba(160, 192, 255, 0.4)', 
                         livePrice: '#00BFFF' 
@@ -2434,13 +2440,11 @@ class CandlestickChart(QWidget):
                             const barTop = this.volumeArea.y + this.volumeArea.height - height;
                             const opacity = Math.min(0.95, Math.max(0.35, 0.35 + heightRatio * 0.6));
 
-                            this.ctx.fillStyle = isUp
-                                ? `rgba(46, 204, 172, ${{opacity}})`
-                                : `rgba(255, 107, 107, ${{opacity}})`;
+                            this.ctx.fillStyle = this.hexToRgba(isUp ? this.colors.volumeUp : this.colors.volumeDown, opacity);
                             this.ctx.fillRect(x, barTop, this.candleWidth, height);
 
                             // Subtle bright top edge for better bar separation/visibility
-                            this.ctx.fillStyle = isUp ? 'rgba(161, 255, 233, 0.7)' : 'rgba(255, 185, 185, 0.7)';
+                            this.ctx.fillStyle = this.hexToRgba(isUp ? this.colors.volumeUp : this.colors.volumeDown, 0.8);
                             this.ctx.fillRect(x, barTop, this.candleWidth, 1);
                         }}
                         
@@ -2956,11 +2960,11 @@ class CandlestickChart(QWidget):
                         ctx.strokeRect(rectX, rectY, labelWidth, labelHeight);
                     
                         // === Text color based on price direction ===
-                        let textColor = '#26a69a';  // Default green for neutral/up
+                        let textColor = this.colors.upCandle;
                         if (this.lastPriceDirection === 'up' || this.lastPriceDirection === 'neutral') {{
-                            textColor = '#26a69a';  // Green
+                            textColor = this.colors.upCandle;
                         }} else if (this.lastPriceDirection === 'down') {{
-                            textColor = '#ef5350';  // Red
+                            textColor = this.colors.downCandle;
                         }}
                     
                         ctx.fillStyle = textColor;
@@ -3436,6 +3440,8 @@ class CandlestickChart(QWidget):
                         this.candleSpacing = settings.candleSpacing || this.candleSpacing; 
                         this.colors.upCandle = settings.upCandleColor || this.colors.upCandle; 
                         this.colors.downCandle = settings.downCandleColor || this.colors.downCandle; 
+                        this.colors.volumeUp = settings.upVolumeColor || this.colors.volumeUp;
+                        this.colors.volumeDown = settings.downVolumeColor || this.colors.volumeDown;
                         this.calculateBounds(); 
                         this.draw(); 
                     }} 
@@ -3514,7 +3520,7 @@ class CandlestickChart(QWidget):
                                     : 'Live';
                                 
                                 priceInfoEl.textContent = `${{dateStr}} | LIVE: ₹${{ltp.toFixed(2)}} | ${{changeStr}}`;
-                                priceInfoEl.style.color = changeFromOpen >= 0 ? '#26a69a' : '#ef5350';
+                                priceInfoEl.style.color = changeFromOpen >= 0 ? this.colors.upCandle : this.colors.downCandle;
                             }}
                         }} catch (error) {{
                             console.error('Error updating symbol info live:', error);
@@ -3546,6 +3552,16 @@ class CandlestickChart(QWidget):
                         console.error('Error adding new candle:', error);
                     }}
                 }}                
+                hexToRgba(hex, alpha) {{
+                    if (!hex || typeof hex !== 'string' || !hex.startsWith('#')) return `rgba(128,128,128,${{alpha}})`;
+                    const h = hex.replace('#', '');
+                    const full = h.length === 3 ? h.split('').map(c => c + c).join('') : h;
+                    const r = parseInt(full.substring(0, 2), 16);
+                    const g = parseInt(full.substring(2, 4), 16);
+                    const b = parseInt(full.substring(4, 6), 16);
+                    return `rgba(${{r}}, ${{g}}, ${{b}}, ${{alpha}})`;
+                }}
+
                 clearAllDrawings() {{ this.drawings = {{ lines: [], rectangles: [], notes: [], horizontal_lines: [] }}; this.draw(); this.notifyDrawingsChange(); }}
                 
                 deleteSelectedDrawing() {{ 
@@ -3574,6 +3590,7 @@ class CandlestickChart(QWidget):
             window.globalChartSettings = window.globalChartSettings || {{ visibleCandleCount: {initial_visible_candle_count}, candleWidth: {initial_candle_width}, candleSpacing: {initial_candle_spacing} }};
             const candlestickData = {candlestick_json}, volumeData = {volume_json}, emaData = {ema_json}, initialADR = {adr_json}, percentageChanges = {percentage_changes_json};
             const upCandleColor = '{up_candle_color}', downCandleColor = '{down_candle_color}';
+            const upVolumeColor = '{self._current_volume_up_color}', downVolumeColor = '{self._current_volume_down_color}';
             const currentInterval = {current_interval_js}, currentSymbol = {current_symbol_js};
             const initialDrawingsJson = `{safe_initial_drawings}`;
             let chartInitialized = false;
@@ -3581,7 +3598,7 @@ class CandlestickChart(QWidget):
             function initChart() {{
                 if (chartInitialized) return; chartInitialized = true;
                 try {{
-                    const chart = new FixedTradingChart('mainCanvas', candlestickData, volumeData, window.globalChartSettings.visibleCandleCount, window.globalChartSettings.candleWidth, window.globalChartSettings.candleSpacing, upCandleColor, downCandleColor, emaData, initialADR, percentageChanges, currentInterval, currentSymbol, initialDrawingsJson);
+                    const chart = new FixedTradingChart('mainCanvas', candlestickData, volumeData, window.globalChartSettings.visibleCandleCount, window.globalChartSettings.candleWidth, window.globalChartSettings.candleSpacing, upCandleColor, downCandleColor, upVolumeColor, downVolumeColor, emaData, initialADR, percentageChanges, currentInterval, currentSymbol, initialDrawingsJson);
                     window.chart = chart; window.autoScale = () => chart.autoScale();
                     chart.updateGlobalSettings = function(count) {{ window.globalChartSettings.visibleCandleCount = count; }};
                 }} catch (error) {{
@@ -3598,6 +3615,30 @@ class CandlestickChart(QWidget):
             """
         return html
 
+    def apply_color_theme(self, theme: Dict[str, Any]):
+        candles = theme.get("candles", {}) if isinstance(theme, dict) else {}
+        volume = theme.get("volume", {}) if isinstance(theme, dict) else {}
+        self._current_up_color = candles.get("up", self._current_up_color)
+        self._current_down_color = candles.get("down", self._current_down_color)
+        self._current_volume_up_color = volume.get("up", self._current_up_color)
+        self._current_volume_down_color = volume.get("down", self._current_down_color)
+
+        self.global_chart_settings["up_candle_color"] = self._current_up_color
+        self.global_chart_settings["down_candle_color"] = self._current_down_color
+        self.global_chart_settings["up_volume_color"] = self._current_volume_up_color
+        self.global_chart_settings["down_volume_color"] = self._current_volume_down_color
+        self.drawing_storage.save_global_settings(self.global_chart_settings)
+
+        if self.chart_view and self.current_state == ChartState.LOADED:
+            js_code = (
+                "if (window.chart) {"
+                f"window.chart.setChartSettings({{upCandleColor: '{self._current_up_color}', downCandleColor: '{self._current_down_color}', "
+                f"upVolumeColor: '{self._current_volume_up_color}', downVolumeColor: '{self._current_volume_down_color}'}});"
+                "window.chart.draw();"
+                "}"
+            )
+            self.chart_view.page().runJavaScript(js_code)
+
     def _auto_scale_chart(self):
         if self.chart_view: self.chart_view.page().runJavaScript("if (window.autoScale) window.autoScale();")
 
@@ -3605,7 +3646,7 @@ class CandlestickChart(QWidget):
         current_settings = {"candle_width": self._current_candle_width,
                             "candle_spacing": self._current_candle_spacing,
                             "default_visible_candles": self.current_visible_candle_count,
-                            "up_candle_color": self._current_up_color, "down_candle_color": self._current_down_color}
+                            "up_candle_color": self._current_up_color, "down_candle_color": self._current_down_color, "up_volume_color": self._current_volume_up_color, "down_volume_color": self._current_volume_down_color}
         dialog = ChartSettingsDialog(current_settings, self)
         dialog.settings_changed.connect(self._apply_chart_settings)
         dialog.exec()
@@ -3617,13 +3658,15 @@ class CandlestickChart(QWidget):
         self.current_visible_candle_count = new_settings["default_visible_candles"]
         self._current_up_color = new_settings["up_candle_color"]
         self._current_down_color = new_settings["down_candle_color"]
+        self._current_volume_up_color = new_settings.get("up_volume_color", self._current_up_color)
+        self._current_volume_down_color = new_settings.get("down_volume_color", self._current_down_color)
         self.drawing_storage.save_global_settings(new_settings)
         if self.chart_view and self.current_state == ChartState.LOADED:
             js_code = f"""
             if (window.chart) {{
                 window.chart.setChartSettings({{
                     candleWidth: {self._current_candle_width}, candleSpacing: {self._current_candle_spacing},
-                    upCandleColor: '{self._current_up_color}', downCandleColor: '{self._current_down_color}'
+                    upCandleColor: '{self._current_up_color}', downCandleColor: '{self._current_down_color}', upVolumeColor: '{self._current_volume_up_color}', downVolumeColor: '{self._current_volume_down_color}'
                 }});
                 window.chart.setVisibleCandleCount({self.current_visible_candle_count});
                 window.chart.autoScale();
