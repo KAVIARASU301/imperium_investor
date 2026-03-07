@@ -2468,118 +2468,66 @@ class CandlestickChart(QWidget):
                 }}
                 
                 drawAxes() {{
-                    this.ctx.fillStyle = this.colors.text; 
-                    this.ctx.font = '11px monospace'; 
-                
-                    // === PRICE SCALE ===
-                    const priceRange = this.maxPrice - this.minPrice; 
+                    this.ctx.fillStyle = this.colors.text;
+                    this.ctx.textBaseline = 'middle';
+
+                    // === PRICE SCALE (dense but non-overlapping) ===
+                    const priceRange = this.maxPrice - this.minPrice;
                     if (priceRange <= 0) return;
-                
-                    const niceStep = this.getNicePriceStep(priceRange);
+
+                    const minPriceGapPx = 26;
+                    const targetTicks = Math.max(6, Math.floor(this.chartArea.height / minPriceGapPx));
+                    const niceStep = this.getNicePriceStep(priceRange / targetTicks);
                     const minRounded = Math.floor(this.minPrice / niceStep) * niceStep;
                     const maxRounded = Math.ceil(this.maxPrice / niceStep) * niceStep;
-                
-                    this.ctx.textAlign = 'left';
-                
-                    for (let price = minRounded; price <= maxRounded; price += niceStep) {{
-                        const y = this.priceToY(price);
-                
-                        if (y < this.chartArea.y + 10 || y > this.chartArea.y + this.chartArea.height - 10) continue;
-                
-                        const label = '₹' + price.toFixed(2);
-                        const labelX = this.chartArea.x + this.chartArea.width + 6;
-                
-                        this.ctx.fillText(label, labelX, y + 4);
-                    }}
-                
-                    // === TIME SCALE ===
-                    const visibleCandles = this.viewPortEnd - this.viewPortStart + 1;
-                    this.ctx.textAlign = 'center';
-                
-                    const tf = this.currentInterval || 'day';
-                    let prevDate = null;
-                
-                    for (let i = this.viewPortStart; i <= this.viewPortEnd; i++) {{
-                        const data = this.data[i];
-                        if (!data) continue;
-                
-                        const date = new Date(data.time);
-                
-                        if ((["1minute", "3minute", "5minute"].includes(tf)) &&
-                            date.getHours() === 15 && date.getMinutes() === 15) {{
-                            continue;
-                        }}
-                
-                        const isStartOfDay = !prevDate || (
-                            date.getDate() !== prevDate.getDate() ||
-                            date.getMonth() !== prevDate.getMonth()
-                        );
-                
-                        let showLabel = false;
-                
-                        // Update the timeframe labeling logic to include viewport checks:
+                    const priceDecimals = this.getPriceDecimals(niceStep);
 
-                        if (["1minute", "3minute", "5minute"].includes(tf)) {{
-                            const mins = date.getHours() * 60 + date.getMinutes();
-                            
-                            // For start of day, show only the date (no time)
-                            if (isStartOfDay) {{
-                                showLabel = (date.getHours() === 9 && date.getMinutes() === 15);
-                            }} else {{
-                                // Show labels every 1 hour: 10:15, 11:15, 12:15, 13:15, 14:15, 15:15
-                                showLabel = (mins % 60 === 15);
-                            }}
-                        }} else if (["15minute", "30minute"].includes(tf)) {{
-                            // Only show start of day labels if they're not at the very beginning of viewport
-                            showLabel = isStartOfDay && (i > this.viewPortStart + 2);
-                        }} else if (tf === "60minute") {{
-                            // Only show labels if they're not at the very beginning of viewport
-                            showLabel = isStartOfDay && (i > this.viewPortStart + 2) && (
-                                !prevDate || (Math.floor(date.getTime() / (24 * 60 * 60 * 1000)) % 2 === 0)
-                            );
-                        }} else if (["week"].includes(tf)) {{
-                            // Only show quarter labels if they have enough space from the left edge
-                            showLabel = this.shouldLabelTime(tf, date, prevDate) && (i > this.viewPortStart + 5);
-                        }} else if (["month"].includes(tf)) {{
-                            showLabel = this.shouldLabelTime(tf, date, prevDate);
-                        }}
-                                        
-                        if (showLabel) {{
-                            const x = this.candleToX(i) + this.candleWidth / 2;
-                            const label = this.formatTimeLabelDynamic(date, tf, isStartOfDay);
-                            this.ctx.fillText(label, x, this.volumeArea.y + this.volumeArea.height + 20);
-                        }}
-                
-                        prevDate = date;
-                    }}
-                
-                    // === FIXED MONTH MARKERS for DAILY TF ===
-                    if (tf === "day") {{
-                        const seenMonths = new Set();
-                    
-                        for (let i = 0; i < this.data.length; i++) {{
-                            const date = new Date(this.data[i].time);
-                            const key = date.getFullYear() + '-' + date.getMonth();
-                    
-                            if (!seenMonths.has(key)) {{
-                                seenMonths.add(key);
-                    
-                                if (i >= this.viewPortStart && i <= this.viewPortEnd) {{
-                                    const x = this.candleToX(i) + this.candleWidth / 2;
-                                    // Updated to include year
-                                    const year = date.getFullYear().toString().slice(-2);
-                                    const label = date.toLocaleString('default', {{ month: 'short' }}) + ` '${{year}}`;  // "Jan '25"
-                                    this.ctx.fillText(label, x, this.volumeArea.y + this.volumeArea.height + 20);
-                                }}
-                            }}
-                        }}
-                    }}
-                                    
+                    this.ctx.font = this.getAxisFont(11, 500);
                     this.ctx.textAlign = 'left';
+
+                    let previousY = -Infinity;
+                    for (let price = minRounded; price <= maxRounded + (niceStep * 0.5); price += niceStep) {{
+                        const y = this.priceToY(price);
+                        if (y < this.chartArea.y + 8 || y > this.chartArea.y + this.chartArea.height - 8) continue;
+                        if (Math.abs(y - previousY) < minPriceGapPx) continue;
+
+                        const label = '₹' + price.toFixed(priceDecimals);
+                        this.ctx.fillText(label, this.chartArea.x + this.chartArea.width + 6, y);
+                        previousY = y;
+                    }}
+
+                    // === TIME SCALE (adaptive spacing) ===
+                    this.ctx.font = this.getAxisFont(10, 500);
+                    this.ctx.textAlign = 'center';
+                    this.ctx.textBaseline = 'alphabetic';
+
+                    const tf = this.currentInterval || 'day';
+                    const candidates = this.buildTimeAxisCandidates(tf);
+                    const labelY = this.volumeArea.y + this.volumeArea.height + 20;
+                    const minEdgePadding = 8;
+                    let lastRightEdge = this.chartArea.x - 99999;
+
+                    for (const point of candidates) {{
+                        const x = this.candleToX(point.index) + this.candleWidth / 2;
+                        if (x < this.chartArea.x + minEdgePadding || x > this.chartArea.x + this.chartArea.width - minEdgePadding) continue;
+
+                        const textWidth = this.ctx.measureText(point.label).width;
+                        const halfWidth = (textWidth / 2) + 6;
+                        const leftEdge = x - halfWidth;
+                        const rightEdge = x + halfWidth;
+
+                        if (leftEdge <= lastRightEdge) continue;
+
+                        this.ctx.fillText(point.label, x, labelY);
+                        lastRightEdge = rightEdge;
+                    }}
+
+                    this.ctx.textAlign = 'left';
+                    this.ctx.textBaseline = 'middle';
                 }}
-    
+
                 getNicePriceStep(range) {{
-                    const rough = range / 8;
+                    const rough = Math.max(range, Number.EPSILON);
                     const pow10 = Math.pow(10, Math.floor(Math.log10(rough)));
                     const niceSteps = [1, 2, 2.5, 5, 10];
                     for (let step of niceSteps) {{
@@ -2588,7 +2536,16 @@ class CandlestickChart(QWidget):
                     }}
                     return 10 * pow10;
                 }}
-                
+
+                getPriceDecimals(step) {{
+                    if (step >= 1) return 2;
+                    return Math.min(4, Math.max(2, Math.ceil(-Math.log10(step)) + 1));
+                }}
+
+                getAxisFont(size = 11, weight = 500) {{
+                    return `${{weight}} ${{size}}px 'Inter', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif`;
+                }}
+
                 getTimeStepForInterval(interval) {{
                     switch (interval) {{
                         case "1minute": return 6;        // every 30 mins (6 × 5min candles)
@@ -2603,67 +2560,92 @@ class CandlestickChart(QWidget):
                         default: return 6;
                     }}
                 }}
-                
+
                 shouldLabelTime(interval, date, prevDate) {{
                     switch (interval) {{
                         case "week":
-                            // Only show labels at quarter boundaries (every 3 months) to prevent overlapping
                             if (!prevDate) return true;
-                            
-                            // Check if we've crossed into a new quarter
+
                             const currentQuarter = Math.floor(date.getMonth() / 3);
                             const prevQuarter = Math.floor(prevDate.getMonth() / 3);
                             const currentYear = date.getFullYear();
                             const prevYear = prevDate.getFullYear();
-                            
+
                             return (currentYear !== prevYear) || (currentQuarter !== prevQuarter);
-                            
+
                         case "month":
-                            // For monthly timeframe, show labels every 3 months (quarterly)
                             return date.getMonth() % 3 === 0;
-                            
+
                         default:
                             return false;
                     }}
                 }}
-                
-                // Update the formatTimeLabelDynamic function:
+
+                buildTimeAxisCandidates(tf) {{
+                    const candidates = [];
+                    let prevDate = null;
+
+                    for (let i = this.viewPortStart; i <= this.viewPortEnd; i++) {{
+                        const item = this.data[i];
+                        if (!item) continue;
+
+                        const date = new Date(item.time);
+                        const isStartOfDay = !prevDate || date.getDate() !== prevDate.getDate() || date.getMonth() !== prevDate.getMonth() || date.getFullYear() !== prevDate.getFullYear();
+
+                        let showLabel = false;
+                        if (["1minute", "3minute", "5minute"].includes(tf)) {{
+                            const mins = date.getHours() * 60 + date.getMinutes();
+                            showLabel = isStartOfDay ? (date.getHours() === 9 && date.getMinutes() === 15) : (mins % 60 === 15);
+                        }} else if (["15minute", "30minute", "60minute"].includes(tf)) {{
+                            showLabel = isStartOfDay;
+                        }} else if (tf === "day") {{
+                            showLabel = isStartOfDay || date.getDate() <= 3;
+                        }} else if (["week", "month"].includes(tf)) {{
+                            showLabel = this.shouldLabelTime(tf, date, prevDate);
+                        }}
+
+                        if (showLabel) {{
+                            candidates.push({{ index: i, label: this.formatTimeLabelDynamic(date, tf, isStartOfDay) }});
+                        }}
+
+                        prevDate = date;
+                    }}
+
+                    return candidates;
+                }}
 
                 formatTimeLabelDynamic(date, interval, isStartOfDay = false) {{
                     const pad = (v) => v.toString().padStart(2, '0');
                     const timeStr = pad(date.getHours()) + ':' + pad(date.getMinutes());
-                
+
                     if (["1minute", "3minute", "5minute"].includes(interval)) {{
                         if (isStartOfDay) {{
-                            // Show only date for start of day, no time
-                            const dateStr = pad(date.getDate()) + '-' + pad(date.getMonth() + 1) + '-' + date.getFullYear();
-                            return dateStr;
+                            return date.toLocaleDateString('en-GB', {{ day: '2-digit', month: 'short' }});
                         }}
                         return timeStr;
                     }}
-                
+
                     if (["15minute", "30minute", "60minute"].includes(interval)) {{
-                        return pad(date.getDate()) + '-' + pad(date.getMonth() + 1) + '-' + date.getFullYear();
+                        return date.toLocaleDateString('en-GB', {{ day: '2-digit', month: 'short' }});
                     }}
-                
+
                     if (interval === "day") {{
                         const year = date.getFullYear().toString().slice(-2);
-                        return date.toLocaleString('default', {{ month: 'short' }}) + ` '${{year}}`;  // "Jan '25"
+                        return date.toLocaleString('default', {{ month: 'short' }}) + ` '${{year}}`;
                     }}
-                
+
                     if (interval === "week") {{
-                        // For weekly timeframe, show first month of each quarter (e.g., "Jan '25", "Apr '25")
                         const quarter = Math.floor(date.getMonth() / 3);
-                        const quarterStartMonth = quarter * 3; // 0, 3, 6, 9 for Q1, Q2, Q3, Q4
+                        const quarterStartMonth = quarter * 3;
                         const quarterDate = new Date(date.getFullYear(), quarterStartMonth, 1);
                         const year = date.getFullYear().toString().slice(-2);
                         return quarterDate.toLocaleString('default', {{ month: 'short' }}) + ` '${{year}}`;
                     }}
-                
+
                     if (interval === "month") {{
                         return date.toLocaleString('default', {{ month: 'short', year: '2-digit' }});
                     }}
-                
+
                     return date.toLocaleDateString();
                 }}
 
