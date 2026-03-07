@@ -562,11 +562,12 @@ class FixedTradingChart {
                 const label = `${key.toUpperCase()} ${lastVis.value.toFixed(1)}`;
                 ctx.font      = '9px "Segoe UI", sans-serif';
                 ctx.textAlign = 'left';
+                ctx.textBaseline = 'middle';
                 ctx.fillStyle = color;
-                const lx = this.chartArea.x + this.chartArea.width + 4;
+                const lx = this.chartArea.x + this.chartArea.width + 5;
                 // Tiny colored dot
                 ctx.fillRect(lx, lastVis.y - 2, 4, 4);
-                ctx.fillText(label, lx + 7, lastVis.y + 3);
+                ctx.fillText(label, lx + 7, lastVis.y);
             }
         }
     }
@@ -594,11 +595,12 @@ class FixedTradingChart {
         const last = this.vwapData[this.vwapData.length - 1];
         if (last) {
             const y = this._priceToY(last.value);
-            const lx = this.chartArea.x + this.chartArea.width + 4;
+            const lx = this.chartArea.x + this.chartArea.width + 5;
             ctx.font = '9px "Segoe UI", sans-serif';
             ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
             ctx.fillStyle = this.colors.vwap;
-            ctx.fillText(`VWAP ${last.value.toFixed(1)}`, lx, y + 3);
+            ctx.fillText(`VWAP ${last.value.toFixed(1)}`, lx, y);
         }
     }
 
@@ -728,7 +730,7 @@ class FixedTradingChart {
         if (this.crosshairX === null || this.isDrawing) return;
         const ctx = this.ctx;
         const x   = this.crosshairX;
-        const y   = this.crosshairY;
+        const y   = Math.max(this.chartArea.y, Math.min(this.crosshairY, this.chartArea.y + this.chartArea.height));
 
         ctx.strokeStyle = this.colors.crosshair;
         ctx.lineWidth   = 0.7;
