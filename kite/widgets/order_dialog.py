@@ -16,7 +16,7 @@ Changes from original:
 import logging
 from typing import Dict, Any, Optional
 
-from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtCore import Qt, Signal, Slot, QPoint
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QFrame,
     QLabel, QPushButton, QComboBox, QSpinBox, QDoubleSpinBox,
@@ -87,6 +87,8 @@ class OrderDialog(QDialog):
         self._lot_size     = int(self.instrument.get("lot_size") or 1)
         self._tick_size    = float(self.instrument.get("tick_size") or 0.05)
         self._default_qty  = int(order_details.get("quantity") or self._lot_size)
+        self._drag_active = False
+        self._drag_offset = QPoint()
 
         self._setup_ui()
         self._apply_styles()
@@ -464,10 +466,25 @@ class OrderDialog(QDialog):
                 border: 1px solid #3a3a3a;
                 border-radius: 8px;
             }
-            QLabel#orderSymbolLabel { color: #e0e0e0; }
-            QLabel#orderLTPLabel    { color: #00bcd4; font-size: 11px; }
-            QFrame#summaryBar       { background-color: #252525; border-radius: 4px; }
-            QLabel#summaryLabel     { color: #888; font-size: 11px; }
+            QLabel#orderSymbolLabel {
+                color: #e0e0e0;
+                background-color: transparent;
+            }
+            QLabel#orderLTPLabel {
+                color: #00bcd4;
+                font-size: 11px;
+                background-color: transparent;
+            }
+            QFrame#summaryBar {
+                background-color: transparent;
+                border: 1px solid #313131;
+                border-radius: 4px;
+            }
+            QLabel#summaryLabel {
+                color: #b0b0b0;
+                font-size: 11px;
+                background-color: transparent;
+            }
             QPushButton#confirmButton {
                 background-color: #1565c0;
                 color: white;
@@ -507,3 +524,36 @@ class OrderDialog(QDialog):
                 font-size: 11px;
             }
         """)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # DRAG SUPPORT (FRAMELESS WINDOW)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _is_interactive_widget(self, widget: Optional[QWidget]) -> bool:
+        """Prevent drag-start when user interacts with input controls/buttons."""
+        interactive_types = (QPushButton, QComboBox, QSpinBox, QDoubleSpinBox, QCheckBox)
+        while widget:
+            if isinstance(widget, interactive_types):
+                return True
+            widget = widget.parentWidget()
+        return False
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton and not self._is_interactive_widget(self.childAt(event.pos())):
+            self._drag_active = True
+            self._drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._drag_active and (event.buttons() & Qt.LeftButton):
+            self.move(event.globalPosition().toPoint() - self._drag_offset)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._drag_active = False
+        super().mouseReleaseEvent(event)

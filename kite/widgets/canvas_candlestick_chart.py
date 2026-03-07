@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
                                QFrame, QMessageBox, QColorDialog, QDialog,
                                QFormLayout, QSpinBox, QComboBox, QMenu,
                                QTextEdit, QDialogButtonBox, QApplication)
-from PySide6.QtGui import QFont, QKeySequence, QShortcut, QColor, QAction
+from PySide6.QtGui import QFont, QKeySequence, QShortcut, QColor, QAction, QActionGroup
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebChannel import QWebChannel
 from kiteconnect import KiteConnect
@@ -745,6 +745,7 @@ class CandlestickChart(QWidget):
         # Drawing state
         self.current_drawing_color = "#FF0000"
         self.current_line_width = 1
+        self.current_drawing_tool: str = ""
 
         # QtWebChannel setup
         self.chart_bridge = ChartBridge(parent=self)
@@ -761,6 +762,8 @@ class CandlestickChart(QWidget):
         self.channel: Optional[QWebChannel] = None
         self.timeframe_dropdown: Optional[QComboBox] = None
         self.drawing_tools_button: Optional[QPushButton] = None
+        self.drawing_tool_actions: Dict[str, QAction] = {}
+        self.drawing_tool_action_group: Optional[QActionGroup] = None
         self.auto_scale_btn: Optional[QPushButton] = None
         self.refresh_button: Optional[QPushButton] = None
         self.settings_btn: Optional[QPushButton] = None
@@ -865,44 +868,55 @@ class CandlestickChart(QWidget):
         self.timeframe_dropdown.activated.connect(self._on_timeframe_selected)
         toolbar_layout.addWidget(self.timeframe_dropdown)
 
-        # After self.color_btn
-        self.measure_tool_btn = QPushButton("📏")
-        self.measure_tool_btn.setObjectName("controlButton")
-        self.measure_tool_btn.setFixedSize(30, 30)
-        self.measure_tool_btn.setToolTip("Measuring Tool (Ctrl+M)")
+        # Measuring tool
+        self.measure_tool_btn = QPushButton("Measure")
+        self.measure_tool_btn.setObjectName("chartToolButton")
+        self.measure_tool_btn.setFixedHeight(28)
+        self.measure_tool_btn.setToolTip("Measure distance and price difference (Ctrl+M)")
         self.measure_tool_btn.setCheckable(True)
         self.measure_tool_btn.clicked.connect(self._toggle_measure_tool)
         toolbar_layout.addWidget(self.measure_tool_btn)
 
-        # Drawing Tools Button
-        self.drawing_tools_button = QPushButton("Drawing Tools")
-        self.drawing_tools_button.setObjectName("drawingToolsButton")
-        self.drawing_tools_button.setFixedSize(110, 30)
-        self.drawing_tools_button.setToolTip("Drawing Tools")
+        # Drawing tools menu with compact labels + proper selected-state handling
+        self.drawing_tools_button = QPushButton("Draw ▾")
+        self.drawing_tools_button.setObjectName("chartToolButton")
+        self.drawing_tools_button.setFixedHeight(28)
+        self.drawing_tools_button.setToolTip("Choose drawing tool")
         drawing_menu = QMenu(self)
         drawing_menu.setObjectName("drawingMenu")
+        self.drawing_tool_action_group = QActionGroup(self)
+        self.drawing_tool_action_group.setExclusive(True)
+
         drawing_tools = [
-            ("/", "line", "Trend Line"),
-            ("-", "horizontal_line", "Horizontal Line"),
-            ("→", "horizontal_ray", "Horizontal Ray"),
-            ("➚", "arrow_line", "Arrow Line"),
-            ("T", "note", "Text Note"),
-            ("□", "rectangle", "Rectangle")
+            ("📈 Trend Line", "line", "Trend Line"),
+            ("🧭 Horizontal Line", "horizontal_line", "Horizontal Line"),
+            ("➡️ Horizontal Ray", "horizontal_ray", "Horizontal Ray"),
+            ("↗️ Arrow Line", "arrow_line", "Arrow Line"),
+            ("📝 Text Note", "note", "Text Note"),
+            ("▭ Rectangle", "rectangle", "Rectangle")
         ]
-        for icon, tool_id, tooltip in drawing_tools:
-            action = QAction(icon, self)
+        for label, tool_id, tooltip in drawing_tools:
+            action = QAction(label, self)
+            action.setCheckable(True)
             action.setData(tool_id)
             action.setToolTip(tooltip)
-            action.triggered.connect(lambda checked=False, t=tool_id: self._toggle_drawing_tool(t, True))
+            action.triggered.connect(lambda checked=False, t=tool_id: self._activate_drawing_tool(t))
+            self.drawing_tool_action_group.addAction(action)
+            self.drawing_tool_actions[tool_id] = action
             drawing_menu.addAction(action)
+
+        drawing_menu.addSeparator()
+        clear_tool_action = QAction("Clear Selection", self)
+        clear_tool_action.triggered.connect(self._clear_active_tool_selection)
+        drawing_menu.addAction(clear_tool_action)
 
         self.drawing_tools_button.setMenu(drawing_menu)
         toolbar_layout.addWidget(self.drawing_tools_button)
 
         # Color picker button
-        self.color_btn = QPushButton("🎨")
-        self.color_btn.setObjectName("controlButton")
-        self.color_btn.setFixedSize(30, 30)
+        self.color_btn = QPushButton("Color")
+        self.color_btn.setObjectName("chartToolButton")
+        self.color_btn.setFixedHeight(28)
         self.color_btn.setToolTip("Change drawing color")
         self.color_btn.clicked.connect(self._choose_drawing_color)
         toolbar_layout.addWidget(self.color_btn)
@@ -910,27 +924,27 @@ class CandlestickChart(QWidget):
         # Other buttons
         self.order_btn = QPushButton("Order")
         self.order_btn.setObjectName("orderButton")
-        self.order_btn.setFixedSize(70, 30)
+        self.order_btn.setFixedHeight(28)
         self.order_btn.clicked.connect(self._on_order_button_clicked)
         toolbar_layout.addWidget(self.order_btn)
 
-        self.auto_scale_btn = QPushButton("A")
-        self.auto_scale_btn.setObjectName("controlButton")
-        self.auto_scale_btn.setFixedSize(30, 30)
+        self.auto_scale_btn = QPushButton("Auto")
+        self.auto_scale_btn.setObjectName("chartToolButton")
+        self.auto_scale_btn.setFixedHeight(28)
         self.auto_scale_btn.setToolTip("Auto Scale (Ctrl+A)")
         self.auto_scale_btn.clicked.connect(self._auto_scale_chart)
         toolbar_layout.addWidget(self.auto_scale_btn)
 
-        self.refresh_button = QPushButton("⟳")
+        self.refresh_button = QPushButton("Refresh")
         self.refresh_button.setObjectName("refreshButton")
-        self.refresh_button.setFixedSize(30, 30)
+        self.refresh_button.setFixedHeight(28)
         self.refresh_button.setToolTip("Refresh Data (F5)")
         self.refresh_button.clicked.connect(self._force_refresh)
         toolbar_layout.addWidget(self.refresh_button)
 
-        self.settings_btn = QPushButton("⚙️")
-        self.settings_btn.setObjectName("controlButton")
-        self.settings_btn.setFixedSize(30, 30)
+        self.settings_btn = QPushButton("Settings")
+        self.settings_btn.setObjectName("chartToolButton")
+        self.settings_btn.setFixedHeight(28)
         self.settings_btn.setToolTip("Chart Settings")
         self.settings_btn.clicked.connect(self._open_settings_dialog)
         toolbar_layout.addWidget(self.settings_btn)
@@ -1088,10 +1102,61 @@ class CandlestickChart(QWidget):
                 js_code = f"if (window.chart) window.chart.updateTextNote({json.dumps(note_data)});"
                 self.chart_view.page().runJavaScript(js_code)
 
+    def _activate_drawing_tool(self, tool_id: str):
+        """Activate a drawing tool and update toolbar selected-state visuals."""
+        if not tool_id:
+            return
+        self.current_drawing_tool = tool_id
+        self.measure_tool_btn.setChecked(False)
+        self.drawing_tools_button.setProperty("active", True)
+        self.drawing_tools_button.setText(f"Draw: {self._tool_display_name(tool_id)} ▾")
+        self.drawing_tools_button.style().unpolish(self.drawing_tools_button)
+        self.drawing_tools_button.style().polish(self.drawing_tools_button)
+        self._toggle_drawing_tool(tool_id, True)
+
+    def _clear_active_tool_selection(self):
+        """Clear drawing/measure tool selection and restore neutral button state."""
+        self.current_drawing_tool = ""
+        self.measure_tool_btn.setChecked(False)
+        self.drawing_tools_button.setProperty("active", False)
+        self.drawing_tools_button.setText("Draw ▾")
+        if self.drawing_tool_action_group:
+            self.drawing_tool_action_group.setExclusive(False)
+            for action in self.drawing_tool_action_group.actions():
+                action.setChecked(False)
+            self.drawing_tool_action_group.setExclusive(True)
+        self.drawing_tools_button.style().unpolish(self.drawing_tools_button)
+        self.drawing_tools_button.style().polish(self.drawing_tools_button)
+        self._toggle_drawing_tool("", False)
+
+    def _tool_display_name(self, tool_id: str) -> str:
+        tool_names = {
+            "line": "Trend",
+            "horizontal_line": "H-Line",
+            "horizontal_ray": "H-Ray",
+            "arrow_line": "Arrow",
+            "note": "Note",
+            "rectangle": "Rect"
+        }
+        return tool_names.get(tool_id, "Draw")
+
     def _toggle_measure_tool(self, checked: bool):
-        # Deactivate other drawing tools when measure tool is activated
         if checked:
-            self._toggle_drawing_tool("", False)  # Pass empty string instead of None
+            self.current_drawing_tool = "measure"
+            if self.drawing_tool_action_group:
+                self.drawing_tool_action_group.setExclusive(False)
+                for action in self.drawing_tool_action_group.actions():
+                    action.setChecked(False)
+                self.drawing_tool_action_group.setExclusive(True)
+            self.drawing_tools_button.setProperty("active", False)
+            self.drawing_tools_button.setText("Draw ▾")
+            self._toggle_drawing_tool("", False)
+        else:
+            if self.current_drawing_tool == "measure":
+                self.current_drawing_tool = ""
+        self.drawing_tools_button.style().unpolish(self.drawing_tools_button)
+        self.drawing_tools_button.style().polish(self.drawing_tools_button)
+
         if self.chart_view and self.current_state == ChartState.LOADED:
             js_code = f"if (window.chart) window.chart.setDrawingTool('measure', {str(checked).lower()});"
             self.chart_view.page().runJavaScript(js_code)
@@ -3585,26 +3650,35 @@ class CandlestickChart(QWidget):
         self.setStyleSheet("""
             QFrame#chartToolbar { background-color: #1a1a1a; border-bottom: 1px solid #404040; }
             #symbolFullNameLabel { color: #E0E0E0; font-size: 13px; font-weight: bold; padding-left: 5px; }
-            QComboBox#chartDropdown {
-                background-color: #000000; color: white; border: 1px solid #333333;
-                padding: 4px 6px; border-radius: 3px; font-size: 11px; font-weight: 500;
+            QComboBox#timeframeDropdown {
+                background-color: #000000; color: #f1f1f1; border: 1px solid #333333;
+                padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;
+                min-width: 60px;
             }
-            QComboBox#chartDropdown:hover { border: 1px solid #00d4ff; color: #00d4ff; }
-            QComboBox#chartDropdown::drop-down { border: none; }
+            QComboBox#timeframeDropdown:hover { border: 1px solid #00d4ff; color: #00d4ff; }
+            QComboBox#timeframeDropdown::drop-down { border: none; }
             QComboBox QAbstractItemView { background-color: #2a2a2a; color: #e0e0e0; border: 1px solid #505050; }
-            #chartControlButton, #chartOrderButton {
-                background-color: #000000; color: white; border: 1px solid #333333;
-                padding: 4px 6px; border-radius: 3px; font-size: 11px; font-weight: 500;
+
+            QPushButton#chartToolButton, QPushButton#orderButton, QPushButton#refreshButton {
+                background-color: #101010; color: #f1f1f1; border: 1px solid #343434;
+                padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;
             }
-            #chartControlButton:hover, #chartOrderButton:hover {
-                background-color: #1a1a1a; border: 1px solid #00d4ff; color: #00d4ff;
+            QPushButton#chartToolButton:hover, QPushButton#orderButton:hover, QPushButton#refreshButton:hover {
+                border: 1px solid #00d4ff; color: #00d4ff;
             }
-            #chartControlButton:checked { background-color: #0066cc; border: 1px solid #0080ff; }
-            QFrame#drawingToolsFrame { border: 1px solid #404040; border-radius: 4px; }
-            #drawingToolsFrame > QPushButton { border: none; border-radius: 0; padding: 4px; font-size: 14px; }
-            #drawingToolsFrame > QPushButton:checked { background-color: #0066cc; }
-            QMenu { background-color: #2a2a2a; color: #e0e0e0; border: 1px solid #505050; }
-            QMenu::item:selected { background-color: #0066cc; }
+            QPushButton#chartToolButton:checked, QPushButton#chartToolButton[active="true"] {
+                background-color: #0f3f6a; border: 1px solid #1d8cd9; color: #cbeaff;
+            }
+            QPushButton#orderButton {
+                background-color: #12381f; border: 1px solid #1f5b35; color: #dcffea;
+                min-width: 58px;
+            }
+            QPushButton#refreshButton { min-width: 64px; }
+
+            QMenu#drawingMenu { background-color: #242424; color: #e8e8e8; border: 1px solid #4a4a4a; }
+            QMenu#drawingMenu::item { padding: 6px 14px; }
+            QMenu#drawingMenu::item:selected { background-color: #0f3f6a; color: #d6eeff; }
+            QMenu#drawingMenu::item:checked { background-color: #15568d; color: #ffffff; }
         """)
 
 
