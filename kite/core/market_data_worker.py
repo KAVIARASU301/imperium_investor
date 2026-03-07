@@ -20,6 +20,7 @@ from PySide6.QtCore import QObject, Signal, QTimer
 from kiteconnect import KiteTicker
 
 logger = logging.getLogger(__name__)
+ticker_logger = logging.getLogger("kiteconnect.ticker")
 
 
 class MarketDataWorker(QObject):
@@ -48,12 +49,14 @@ class MarketDataWorker(QObject):
         self.is_running        = False
         self.subscribed_tokens: Set[int] = set()
         self._shutdown_requested = False
+        self._ticker_log_level_before_shutdown: Optional[int] = None
 
     # ─────────────────────────────────────────────────────────────────────────
     # LIFECYCLE
     # ─────────────────────────────────────────────────────────────────────────
 
     def start(self):
+        self._restore_ticker_logger_level()
         if self.is_running:
             logger.warning("MarketDataWorker already running")
             return
@@ -89,6 +92,13 @@ class MarketDataWorker(QObject):
         logger.info("MarketDataWorker stopping…")
         self._shutdown_requested = True
         self.is_running = False
+
+        # KiteTicker logs close callbacks as errors when websocket closes with
+        # empty code/reason during an intentional app shutdown. Temporarily
+        # suppress those expected close-noise logs.
+        if self._ticker_log_level_before_shutdown is None:
+            self._ticker_log_level_before_shutdown = ticker_logger.level
+        ticker_logger.setLevel(logging.CRITICAL)
 
         if self.kws:
             try:
@@ -220,7 +230,10 @@ class MarketDataWorker(QObject):
         self.connection_established.emit()
 
     def _on_close(self, ws: KiteTicker, code: int, reason: str) -> None:
-        logger.warning(f"WebSocket closed — code: {code}, reason: {reason}")
+        if self._shutdown_requested:
+            logger.info(f"WebSocket closed during shutdown — code: {code}, reason: {reason}")
+        else:
+            logger.warning(f"WebSocket closed — code: {code}, reason: {reason}")
         self.is_running = False
         self.connection_closed.emit()
 
@@ -230,6 +243,7 @@ class MarketDataWorker(QObject):
             QTimer.singleShot(5_000, self._retry_connection)
         elif self._shutdown_requested:
             logger.info("Shutdown in progress — not reconnecting")
+            self._restore_ticker_logger_level()
 
     def _on_error(self, ws: KiteTicker, code: int, reason: str) -> None:
         logger.error(f"WebSocket error — code: {code}, reason: {reason}")
@@ -244,3 +258,9 @@ class MarketDataWorker(QObject):
             self.start()
         elif self._shutdown_requested:
             logger.info("Shutdown in progress — cancelling reconnection")
+
+    def _restore_ticker_logger_level(self) -> None:
+        if self._ticker_log_level_before_shutdown is None:
+            return
+        ticker_logger.setLevel(self._ticker_log_level_before_shutdown)
+        self._ticker_log_level_before_shutdown = None
