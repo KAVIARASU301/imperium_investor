@@ -32,6 +32,17 @@ class ChartState(Enum):
     LOADED = "loaded"
 
 
+class TimeframeComboBox(QComboBox):
+    """Combo box that reliably opens its popup when clicked."""
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton and self.isEnabled():
+            self.showPopup()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+
 class TextNoteDialog(QDialog):
     """Custom dialog for entering text notes on the chart."""
 
@@ -908,7 +919,7 @@ class CandlestickChart(QWidget):
         toolbar_layout.addStretch()
 
         # Timeframe Dropdown
-        self.timeframe_dropdown = QComboBox()
+        self.timeframe_dropdown = TimeframeComboBox()
         self.timeframe_dropdown.setObjectName("timeframeDropdown")
         # self.timeframe_dropdown.setFixedWidth(55)
         self.timeframe_dropdown.setFixedHeight(30)
