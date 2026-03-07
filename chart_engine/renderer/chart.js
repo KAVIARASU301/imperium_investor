@@ -1025,6 +1025,12 @@ class FixedTradingChart {
 
         if (['line', 'arrow_line', 'fibonacci'].includes(this.currentTool)) {
             ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.stroke();
+        } else if (this.currentTool === 'measure') {
+            ctx.beginPath();
+            ctx.moveTo(sx, sy);
+            ctx.lineTo(ex, ey);
+            ctx.stroke();
+            this._drawMeasurementInfo(sx, sy, ex, ey);
         } else if (this.currentTool === 'rectangle') {
             ctx.strokeRect(Math.min(sx, ex), Math.min(sy, ey),
                            Math.abs(ex - sx), Math.abs(ey - sy));
@@ -1036,6 +1042,55 @@ class FixedTradingChart {
             ctx.lineTo(this.chartArea.x + this.chartArea.width, sy); ctx.stroke();
         }
         ctx.setLineDash([]);
+    }
+
+    _drawMeasurementInfo(sx, sy, ex, ey) {
+        const ctx = this.ctx;
+        const startPrice = this._yToPrice(sy);
+        const endPrice = this._yToPrice(ey);
+        const priceChange = endPrice - startPrice;
+        const pctChange = startPrice !== 0 ? (priceChange / startPrice) * 100 : 0;
+
+        const startIndex = this._xToCandle(sx);
+        const endIndex = this._xToCandle(ex);
+        const bars = endIndex - startIndex;
+
+        const startTime = this._xToTime(sx);
+        const endTime = this._xToTime(ex);
+        const dayCount = Math.floor(Math.abs(endTime - startTime) / 86400000);
+
+        const sign = priceChange >= 0 ? '+' : '';
+        const infoText = [
+            `${sign}₹${priceChange.toFixed(2)} (${sign}${pctChange.toFixed(2)}%)`,
+            `${bars >= 0 ? '+' : ''}${bars} bars, ${dayCount} days`
+        ];
+
+        ctx.save();
+        ctx.font = this._axisFont(12, 600);
+        const textWidth = Math.max(ctx.measureText(infoText[0]).width, ctx.measureText(infoText[1]).width);
+        const boxW = textWidth + 20;
+        const boxH = 44;
+
+        let boxX = ex + 12;
+        let boxY = ey;
+        const rightEdge = this.chartArea.x + this.chartArea.width;
+        const bottomEdge = this.chartArea.y + this.chartArea.height;
+        if (boxX + boxW > rightEdge) boxX = ex - boxW - 12;
+        if (boxY + boxH > bottomEdge) boxY = bottomEdge - boxH;
+        if (boxY < this.chartArea.y) boxY = this.chartArea.y;
+
+        ctx.fillStyle = 'rgba(12, 16, 24, 0.92)';
+        ctx.strokeStyle = this.drawingColor;
+        ctx.lineWidth = 1;
+        ctx.fillRect(boxX, boxY, boxW, boxH);
+        ctx.strokeRect(boxX, boxY, boxW, boxH);
+
+        ctx.fillStyle = '#e8effa';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(infoText[0], boxX + 10, boxY + 14);
+        ctx.fillText(infoText[1], boxX + 10, boxY + 31);
+        ctx.restore();
     }
 
     // ═══════════════════════════════════════════════════════════════════════
