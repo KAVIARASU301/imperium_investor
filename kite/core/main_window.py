@@ -24,11 +24,13 @@ from kite.widgets.order_history_dialog import OrderHistoryDialog
 from kite.widgets.performance_dialog import PerformanceDialog
 from kite.core.alert_management_system import AlertSystemManager
 from kite.core.chart_lines_manager import ChartLinesManager
+from kite.core.data_cache import MarketAwareDataCache
 
 from kite.core.position_manager import PositionManager
+from kite.core.shutdown_manager import CleanShutdownMixin
 
 from kite.core.market_data_worker import MarketDataWorker
-from kite.utils.paper_trading_manager import PaperTradingManager
+from kite.utils.paper_trading_manager import PaperTradingManager, integrate_paper_trading
 from kite.utils.config_manager import ConfigManager
 from kite.core.instrument_loader import InstrumentLoader
 from kite.core.trade_logger import TradeLogger
@@ -45,7 +47,7 @@ from kite.utils.sounds import play_alert, play_error
 logger = logging.getLogger(__name__)
 
 
-class SwingTraderWindow(QMainWindow):
+class SwingTraderWindow(CleanShutdownMixin, QMainWindow):
     """
     SIMPLIFIED Main Window with LED-style status bar instead of popup notifications:
     - Simple Position Manager (only works when tracking orders)
@@ -82,7 +84,10 @@ class SwingTraderWindow(QMainWindow):
         self.config_manager = ConfigManager()
         paper_trader = self._get_paper_trading_manager()
         self.trading_mode = 'paper' if paper_trader else 'live'
-        self.trade_logger = TradeLogger(mode=self.trading_mode)
+        self.trade_logger = TradeLogger(
+            broker="kite",
+            mode=self.trading_mode,
+        )
 
         # SIMPLIFIED MANAGERS - NO NOTIFICATION SYSTEM
         self.position_manager = PositionManager(self.trader, main_window=self)
@@ -99,6 +104,7 @@ class SwingTraderWindow(QMainWindow):
         if paper_trader:
             paper_trader.set_trade_logger(self.trade_logger)
             paper_trader.set_main_window(self)
+            integrate_paper_trading(self, paper_trader)
 
         # --- Window Dragging Variables ---
         self._drag_pos = None
@@ -170,6 +176,10 @@ class SwingTraderWindow(QMainWindow):
         # Create components
         self.chartink_scanner = ChartinkScannerTable()
         self.candlestick_chart = ChartWindow(self.real_kite_client)
+        self.candlestick_chart.data_cache = MarketAwareDataCache(parent=self.candlestick_chart)
+        # Backward-compat for force-refresh path still using `_cache`.
+        if not hasattr(self.candlestick_chart.data_cache, '_cache'):
+            self.candlestick_chart.data_cache._cache = self.candlestick_chart.data_cache._store
         self.watchlist = TabbedWatchlistWidget()
         self.positions_table = PositionsTable(parent=self)
 
@@ -352,6 +362,10 @@ class SwingTraderWindow(QMainWindow):
 
         # SIMPLIFIED: Position Manager → Positions Table (direct connection)
         self.position_manager.positions_updated.connect(self.positions_table.update_positions)
+        if hasattr(self, 'market_data_worker') and self.market_data_worker:
+            self.market_data_worker.order_update.connect(self.position_manager.on_ws_order_update)
+            self.market_data_worker.connection_established.connect(self.position_manager.on_ws_connected)
+            self.market_data_worker.connection_closed.connect(self.position_manager.on_ws_disconnected)
         # NO MORE NOTIFICATION SIGNALS - Position manager uses global status directly
 
         # SIMPLIFIED: Positions Table → Main Window
@@ -440,6 +454,8 @@ class SwingTraderWindow(QMainWindow):
         paper_trader = self._get_paper_trading_manager()
         if paper_trader:
             paper_trader.set_instrument_data(instruments)
+            paper_trader.set_instrument_map(self.instrument_map)
+            logger.info("Paper trader instrument map updated")
         if self.alert_system:
             self.alert_system.set_instrument_map(self.instrument_map)
 
@@ -754,7 +770,8 @@ class SwingTraderWindow(QMainWindow):
         default_qty = self.config_manager.load_settings().get('default_quantity', 1)
         order_details = {'tradingsymbol': symbol, 'ltp': ltp, 'transaction_type': 'BUY', 'quantity': default_qty}
 
-        dialog = OrderDialog(self, symbol, ltp, order_details)
+        instrument = self.instrument_map.get(symbol, {})
+        dialog = OrderDialog(self, symbol, ltp, order_details, instrument=instrument)
         dialog.order_placed.connect(self._handle_order_placement)
         dialog.show()
 
@@ -763,7 +780,8 @@ class SwingTraderWindow(QMainWindow):
         symbol = order_data.get('tradingsymbol')
         if symbol:
             ltp = self._get_fresh_ltp(symbol)
-            dialog = OrderDialog(self, symbol, ltp, order_data)
+            instrument = self.instrument_map.get(symbol, {})
+            dialog = OrderDialog(self, symbol, ltp, order_data, instrument=instrument)
             dialog.order_placed.connect(self._handle_order_placement)
             dialog.show()
 
@@ -781,7 +799,8 @@ class SwingTraderWindow(QMainWindow):
         default_qty = self.config_manager.load_settings().get('default_quantity', 1)
         order_details = {'tradingsymbol': symbol, 'ltp': ltp, 'transaction_type': 'SELL', 'quantity': default_qty}
 
-        dialog = OrderDialog(self, symbol, ltp, order_details)
+        instrument = self.instrument_map.get(symbol, {})
+        dialog = OrderDialog(self, symbol, ltp, order_details, instrument=instrument)
         dialog.order_placed.connect(self._handle_order_placement)
         dialog.show()
 
@@ -805,7 +824,8 @@ class SwingTraderWindow(QMainWindow):
             "ltp": ltp
         }
 
-        dialog = OrderDialog(self, symbol, ltp, exit_order)
+        instrument = self.instrument_map.get(symbol, {})
+        dialog = OrderDialog(self, symbol, ltp, exit_order, instrument=instrument)
         dialog.order_placed.connect(self._handle_order_placement)
         dialog.show()
 
@@ -1506,64 +1526,3 @@ class SwingTraderWindow(QMainWindow):
         input_types = (QLineEdit, QTextEdit, QPlainTextEdit, QSpinBox, QDoubleSpinBox)
         return isinstance(focused_widget, input_types)
 
-    def closeEvent(self, event):
-        """Handle application close event with comprehensive cleanup"""
-        logger.info("Close event triggered. Saving state and stopping workers...")
-
-        # Prevent multiple cleanup calls
-        if hasattr(self, '_cleanup_in_progress') and self._cleanup_in_progress:
-            logger.info("Cleanup already in progress, accepting close event")
-            event.accept()
-            return
-
-        self._cleanup_in_progress = True
-
-        try:
-            # 1. Save window state first
-            self.save_window_state()
-
-            # 2. Stop market data worker FIRST with a shutdown flag
-            if hasattr(self, 'market_data_worker') and self.market_data_worker:
-                logger.info("Stopping market data worker...")
-                # 🟢 SET SHUTDOWN FLAG TO PREVENT RECONNECTION
-                if hasattr(self.market_data_worker, '_shutdown_requested'):
-                    self.market_data_worker._shutdown_requested = True
-                self.market_data_worker.stop()
-
-            # 3. Stop all other timers to prevent new operations
-            if hasattr(self, 'alert_update_timer') and self.alert_update_timer:
-                self.alert_update_timer.stop()
-
-            # 4. Stop TradeLogger worker thread
-            if hasattr(self, 'trade_logger') and self.trade_logger:
-                logger.info("Stopping trade logger...")
-                self.trade_logger.cleanup()
-
-            # 5. Stop chart operations and threads
-            if hasattr(self, 'candlestick_chart') and self.candlestick_chart:
-                logger.info("Stopping chart operations...")
-                if hasattr(self.candlestick_chart, '_stop_current_operations'):
-                    self.candlestick_chart._stop_current_operations()
-
-            # 6. Stop alert system
-            if hasattr(self, 'alert_system') and self.alert_system:
-                logger.info("Stopping alert system...")
-                self.alert_system.stop_engine()
-
-            # 7. Stop position manager
-            if hasattr(self, 'position_manager') and self.position_manager:
-                logger.info("Stopping position manager...")
-                if hasattr(self.position_manager, 'stop_tracking'):
-                    self.position_manager.stop_tracking()
-
-            # 8. Stop any remaining timers
-            for child in self.findChildren(QTimer):
-                if child.isActive():
-                    child.stop()
-
-            logger.info("Application shut down gracefully.")
-            event.accept()
-
-        except Exception as e:
-            logger.error(f"Error during application shutdown: {e}")
-            event.accept()  # Accept anyway to avoid hanging
