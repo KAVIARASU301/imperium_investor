@@ -28,7 +28,7 @@ from urllib.parse import urlparse, parse_qs
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QMessageBox, QWidget, QStackedWidget, QCheckBox, QFrame,
-    QRadioButton, QComboBox, QSpinBox, QTextEdit
+    QRadioButton, QComboBox, QSpinBox, QTextEdit, QButtonGroup
 )
 from PySide6.QtCore import Qt, QTimer, Signal, QThread
 from PySide6.QtGui import QMouseEvent
@@ -199,7 +199,7 @@ class DualModeLoginManager(QDialog):
 
     def _setup_window(self):
         self.setWindowTitle("Swing Trader - Login")
-        self.setMinimumSize(560, 700)
+        self.setMinimumSize(500, 560)
         self.setModal(True)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
@@ -216,10 +216,9 @@ class DualModeLoginManager(QDialog):
         main_layout.addWidget(container)
 
         container_layout = QVBoxLayout(container)
-        container_layout.setContentsMargins(24, 16, 24, 20)
-        container_layout.setSpacing(12)
+        container_layout.setContentsMargins(18, 12, 18, 14)
+        container_layout.setSpacing(8)
         container_layout.addLayout(self._create_header())
-        container_layout.addWidget(self._create_path_overview())
 
         self.stacked_widget = QStackedWidget()
         self.stacked_widget.currentChanged.connect(self._on_page_changed)
@@ -236,27 +235,6 @@ class DualModeLoginManager(QDialog):
         self.stacked_widget.addWidget(self._create_kite_credentials_page())
         self.stacked_widget.addWidget(self._create_kite_token_page())
         self.stacked_widget.addWidget(self._create_ibkr_connection_page())
-
-    def _create_path_overview(self) -> QFrame:
-        frame = QFrame()
-        frame.setObjectName("pathOverview")
-        layout = QHBoxLayout(frame)
-        layout.setContentsMargins(10, 8, 10, 8)
-        layout.setSpacing(8)
-
-        self.path_labels = []
-        for name in ["BROKER", "CREDENTIALS", "AUTH", "CONNECT"]:
-            label = QLabel(name)
-            label.setObjectName("pathStep")
-            layout.addWidget(label)
-            self.path_labels.append(label)
-
-        self.path_status = QLabel("Idle")
-        self.path_status.setObjectName("pathStatus")
-        self.path_status.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        layout.addStretch()
-        layout.addWidget(self.path_status)
-        return frame
 
     def _create_header(self) -> QHBoxLayout:
         layout = QHBoxLayout()
@@ -311,19 +289,7 @@ class DualModeLoginManager(QDialog):
         self.stacked_widget.setCurrentIndex(1)
 
     def _on_page_changed(self, index: int):
-        states = {
-            0: (0, "Checking existing session"),
-            1: (0, "Select broker and mode"),
-            2: (1, "Enter Kite API credentials"),
-            3: (2, "Authorize and capture request token"),
-            4: (3, "Connect to TWS / IB Gateway"),
-        }
-        active, status = states.get(index, (0, "Ready"))
-        self.path_status.setText(status)
-        for i, label in enumerate(self.path_labels):
-            label.setProperty("state", "active" if i == active else "")
-            label.style().unpolish(label)
-            label.style().polish(label)
+        _ = index
 
     # --------------------------------------------------------------------------
     # Page 1: Broker + Mode Selection
@@ -336,10 +302,6 @@ class DualModeLoginManager(QDialog):
         title = QLabel("Select Your Broker")
         title.setObjectName("pageTitle")
 
-        subtitle = QLabel("Market routing + execution profile")
-        subtitle.setObjectName("pageSubtitle")
-        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
         self.session_hint_label = QLabel("")
         self.session_hint_label.setObjectName("statusLabel")
         self.session_hint_label.setWordWrap(True)
@@ -351,10 +313,16 @@ class DualModeLoginManager(QDialog):
             )
 
         broker_layout = QHBoxLayout()
+        broker_layout.setSpacing(10)
         self.india_card = self._create_broker_card(BrokerMode.INDIA)
         self.america_card = self._create_broker_card(BrokerMode.AMERICA)
         broker_layout.addWidget(self.india_card)
         broker_layout.addWidget(self.america_card)
+
+        self.broker_group = QButtonGroup(self)
+        self.broker_group.setExclusive(True)
+        self.broker_group.addButton(self.india_radio)
+        self.broker_group.addButton(self.america_radio)
 
         mode_frame = self._create_trading_mode_selector()
         continue_btn = QPushButton("Continue")
@@ -362,7 +330,6 @@ class DualModeLoginManager(QDialog):
         continue_btn.clicked.connect(self._on_broker_selected)
 
         layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(subtitle)
         layout.addWidget(self.session_hint_label)
         layout.addLayout(broker_layout)
         layout.addWidget(mode_frame)
@@ -377,23 +344,18 @@ class DualModeLoginManager(QDialog):
         card = QFrame()
         card.setObjectName("brokerCard")
         card.setCursor(Qt.PointingHandCursor)
-        card.setFixedHeight(160)
+        card.setFixedHeight(126)
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(14, 12, 14, 12)
-        layout.setSpacing(6)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(4)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         flag = QLabel(display_cfg.get("flag_emoji", ""))
-        flag.setStyleSheet("font-size: 30px; background: transparent;")
+        flag.setStyleSheet("font-size: 26px; background: transparent;")
         flag.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         radio = QRadioButton(broker_cfg.display_name)
         radio.setObjectName("brokerRadio")
-
-        description = QLabel(display_cfg.get("description", ""))
-        description.setObjectName("brokerDescription")
-        description.setWordWrap(True)
-        description.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         market_label = QLabel(broker_cfg.market)
         market_label.setObjectName("brokerMarket")
@@ -402,28 +364,33 @@ class DualModeLoginManager(QDialog):
         layout.addWidget(flag)
         layout.addWidget(market_label)
         layout.addWidget(radio, alignment=Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(description)
 
         if broker_mode == BrokerMode.INDIA:
             self.india_radio = radio
             if not KITE_AVAILABLE:
                 radio.setEnabled(False)
-                description.setText("kiteconnect not installed")
+                market_label.setText("kiteconnect not installed")
         else:
             self.america_radio = radio
             if not is_ibkr_available():
                 radio.setEnabled(False)
-                description.setText("ib_insync not installed")
+                market_label.setText("ib_insync not installed")
+
+        radio.toggled.connect(lambda checked, c=card: self._set_card_selected(c, checked))
 
         card.mousePressEvent = lambda e: radio.setChecked(True)
         return card
+
+    def _set_card_selected(self, card: QFrame, selected: bool):
+        card.setProperty("selected", selected)
+        card.style().unpolish(card)
+        card.style().polish(card)
 
     def _create_trading_mode_selector(self) -> QFrame:
         frame = QFrame()
         frame.setObjectName("modeFrame")
         layout = QHBoxLayout(frame)
-        layout.setContentsMargins(12, 10, 12, 10)
-        layout.addWidget(QLabel("Trading Mode:"))
+        layout.setContentsMargins(12, 8, 12, 8)
         self.paper_radio = QRadioButton("Paper")
         self.live_radio = QRadioButton("Live")
         self.paper_radio.setChecked(True)
@@ -488,10 +455,6 @@ class DualModeLoginManager(QDialog):
         title = QLabel("Kite API Credentials")
         title.setObjectName("pageTitle")
 
-        subtitle = QLabel("Secure API setup")
-        subtitle.setObjectName("pageSubtitle")
-        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
         creds_panel = QFrame()
         creds_panel.setObjectName("inputPanel")
         creds_layout = QVBoxLayout(creds_panel)
@@ -526,7 +489,6 @@ class DualModeLoginManager(QDialog):
         creds_layout.addWidget(self.save_kite_creds)
 
         layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(subtitle)
         layout.addWidget(creds_panel)
         layout.addWidget(redirect_hint)
         layout.addStretch()
@@ -543,10 +505,6 @@ class DualModeLoginManager(QDialog):
 
         title = QLabel("Complete Kite Login")
         title.setObjectName("pageTitle")
-
-        subtitle = QLabel("Browser callback + manual fallback")
-        subtitle.setObjectName("pageSubtitle")
-        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.capture_status_label = QLabel("⏳ Waiting for browser login...")
         self.capture_status_label.setObjectName("statusLabel")
@@ -569,7 +527,6 @@ class DualModeLoginManager(QDialog):
         nav.addWidget(self.generate_session_btn)
 
         layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(subtitle)
         layout.addWidget(self.capture_status_label)
         layout.addSpacing(20)
         layout.addWidget(separator)
@@ -685,21 +642,15 @@ class DualModeLoginManager(QDialog):
         title = QLabel("Interactive Brokers")
         title.setObjectName("pageTitle")
 
-        subtitle = QLabel("TWS / Gateway execution bridge")
-        subtitle.setObjectName("pageSubtitle")
-        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
         # Settings row
         settings_layout = QHBoxLayout()
 
         host_col = QVBoxLayout()
-        host_col.addWidget(QLabel("Host"))
         self.ibkr_host_combo = QComboBox()
         self.ibkr_host_combo.addItems(["::1 (IPv6 / localhost)", "127.0.0.1 (IPv4 / localhost)"])
         host_col.addWidget(self.ibkr_host_combo)
 
         client_id_col = QVBoxLayout()
-        client_id_col.addWidget(QLabel("Client ID"))
         self.ibkr_client_id_input = QSpinBox()
         self.ibkr_client_id_input.setRange(1, 100)
         self.ibkr_client_id_input.setValue(1)
@@ -725,7 +676,6 @@ class DualModeLoginManager(QDialog):
         nav.addWidget(self.connect_ibkr_btn)
 
         layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(subtitle)
         layout.addLayout(settings_layout)
         layout.addWidget(self.ibkr_status_display)
         layout.addStretch()
@@ -829,38 +779,11 @@ class DualModeLoginManager(QDialog):
                 border-radius: 4px;
             }
             #closeButton:hover { color: #e5edf8; background: #17202c; }
-            #pathOverview {
-                background: #0d121a;
-                border: 1px solid #1f2733;
-                border-radius: 6px;
-            }
-            #pathStep {
-                color: #637084;
-                font-size: 10px;
-                font-weight: 700;
-                letter-spacing: 0.8px;
-                padding: 2px 6px;
-                border-radius: 3px;
-            }
-            #pathStep[state="active"] {
-                color: #8fe6b5;
-                background: #112019;
-            }
-            #pathStatus {
-                color: #9ca8ba;
-                font-size: 11px;
-            }
             #pageTitle, #welcomeTitle {
-                font-size: 18px;
+                font-size: 16px;
                 font-weight: 700;
                 color: #e5edf8;
                 margin-bottom: 2px;
-            }
-            #pageSubtitle {
-                color: #7d8798;
-                font-size: 11px;
-                letter-spacing: 0.4px;
-                margin-bottom: 8px;
             }
             #inputPanel {
                 background: #0d121a;
@@ -905,17 +828,14 @@ class DualModeLoginManager(QDialog):
                 background: #0d121a;
                 border: 1px solid #1f2733;
                 border-radius: 7px;
-                padding: 12px;
+                padding: 8px;
             }
             #brokerCard:hover { border-color: #52d894; }
+            #brokerCard[selected="true"] { border-color: #52d894; background: #101824; }
             #brokerMarket {
                 color: #7c8ba2;
                 font-size: 10px;
                 letter-spacing: 0.8px;
-            }
-            #brokerDescription {
-                color: #9ba9bc;
-                font-size: 11px;
             }
             #statusLabel {
                 color: #9ba9bc;
