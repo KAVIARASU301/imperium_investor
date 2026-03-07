@@ -353,7 +353,7 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 # Force chart to reload current symbol's drawings
                 current_symbol = getattr(self.candlestick_chart, 'current_symbol', '')
                 if current_symbol:
-                    self.candlestick_chart.load_symbol_with_fresh_drawings(current_symbol)
+                    self.chart_lines_manager.load_symbol_with_fresh_drawings(current_symbol)
         except Exception as e:
             logger.error(f"Error refreshing chart drawings: {e}")
 

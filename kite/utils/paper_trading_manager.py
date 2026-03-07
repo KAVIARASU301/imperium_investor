@@ -229,8 +229,8 @@ class PaperTradingMixin:
         try:
             status = order_data.get("status", "")
             if status == "COMPLETE":
-                if hasattr(self, "positions_table"):
-                    self.positions_table.refresh_data()
+                if hasattr(self, "position_manager") and self.position_manager:
+                    self.position_manager.fetch_positions_from_kite("paper_order_update")
             elif status == "REJECTED":
                 from kite.widgets.status_bar import show_error
                 show_error(f"Paper order rejected: {order_data.get('status_message', '')}")

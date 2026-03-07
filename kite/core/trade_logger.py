@@ -358,6 +358,55 @@ class TradeLogger(QObject):
             logger.error(f"get_all_trades failed: {e}")
             return []
 
+    def get_all_orders(self, limit: int = 2_000,
+                       broker: Optional[str] = None,
+                       mode: Optional[str] = None) -> List[Dict]:
+        """
+        Return all orders (not just completed trades). Defaults to this logger's
+        broker/mode, matching the existing get_all_trades filtering behavior.
+        """
+        try:
+            conn = sqlite3.connect(self.db_path, timeout=5.0)
+            cursor = conn.cursor()
+
+            conditions = ["1=1"]
+            params: List[Any] = []
+
+            b = broker if broker is not None else self.broker
+            m = mode if mode is not None else self.mode
+
+            if b:
+                conditions.append("broker = ?")
+                params.append(b)
+            if m:
+                conditions.append("mode = ?")
+                params.append(m)
+
+            where = " AND ".join(conditions)
+            params.append(limit)
+
+            cursor.execute(f"""
+                SELECT order_id, tradingsymbol, transaction_type, quantity,
+                       order_type, product, exchange, variety, validity,
+                       price, trigger_price, average_price,
+                       filled_quantity, pending_quantity, cancelled_quantity,
+                       status, status_message, tag, order_source,
+                       broker, mode, order_timestamp, update_timestamp, execution_timestamp
+                FROM orders
+                WHERE {where}
+                ORDER BY order_timestamp DESC
+                LIMIT ?
+            """, params)
+
+            cols = [d[0] for d in cursor.description]
+            orders = [dict(zip(cols, row)) for row in cursor.fetchall()]
+            conn.close()
+            return orders
+
+        except Exception as e:
+            logger.error(f"get_all_orders failed: {e}")
+            return []
+
     def get_performance_metrics(self, broker: Optional[str] = None,
                                  mode: Optional[str] = None) -> Dict[str, Any]:
         """Compute metrics via PnLCalculator (single source of truth)."""
