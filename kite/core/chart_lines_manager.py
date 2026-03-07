@@ -149,6 +149,15 @@ class ChartLinesManager(QObject):
             state = self._load_symbol_drawings(symbol)
             # We don't use current_time parameter anymore since it's calculated in helper functions
 
+            # Prevent duplicate alert lines for the same price from accumulating.
+            # This can happen when the chart repeatedly emits symbol change events
+            # and alert sync attempts to redraw the same alert line.
+            drawings = state["drawings"]
+            if self._has_existing_alert_drawings(drawings, price):
+                logger.debug(f"Alert line already exists for {symbol} at {price:.2f}; skipping redraw")
+                return True
+            self._remove_existing_alert_drawings(drawings, price)
+
             # Create alert text (no intent)
             alert_text = f"Alert @ {price:.2f}"
 
@@ -184,30 +193,49 @@ class ChartLinesManager(QObject):
             logger.error(f"Error adding alert line: {e}")
             return False
 
+    def _has_existing_alert_drawings(self, drawings: Dict, price: float) -> bool:
+        """Return True if a yellow alert line + note already exist for a price."""
+        has_ray = any(
+            ray.get("type") == "horizontal_ray" and
+            abs(ray.get("startPrice", 0) - price) < 0.01 and
+            ray.get("color") == "#FFD700"
+            for ray in drawings.get("horizontal_rays", [])
+        )
+        has_note = any(
+            note.get("type") == "note" and
+            abs(note.get("price", 0) - price - 0.5) < 0.01 and
+            "Alert @" in note.get("text", "") and
+            note.get("color") == "#FFD700"
+            for note in drawings.get("notes", [])
+        )
+        return has_ray and has_note
+
+    def _remove_existing_alert_drawings(self, drawings: Dict, price: float) -> None:
+        """Remove existing yellow alert line + note for a price from in-memory drawings."""
+        drawings["horizontal_rays"] = [
+            ray for ray in drawings["horizontal_rays"]
+            if not (ray.get("type") == "horizontal_ray" and
+                    abs(ray.get("startPrice", 0) - price) < 0.01 and
+                    ray.get("color") == "#FFD700")
+        ]
+
+        drawings["notes"] = [
+            note for note in drawings["notes"]
+            if not (note.get("type") == "note" and
+                    abs(note.get("price", 0) - price - 0.5) < 0.01 and
+                    "Alert @" in note.get("text", "") and
+                    note.get("color") == "#FFD700")
+        ]
+
     def remove_alert_line(self, symbol: str, price: float) -> bool:
         """Remove alert line by price (with tolerance for floating point comparison)"""
         try:
             state = self._load_symbol_drawings(symbol)
             drawings = state["drawings"]
 
-            # Remove horizontal rays matching the price (yellow alert lines)
             original_ray_count = len(drawings["horizontal_rays"])
-            drawings["horizontal_rays"] = [
-                ray for ray in drawings["horizontal_rays"]
-                if not (ray.get("type") == "horizontal_ray" and
-                        abs(ray.get("startPrice", 0) - price) < 0.01 and
-                        ray.get("color") == "#FFD700")
-            ]
-
-            # Remove corresponding notes
             original_note_count = len(drawings["notes"])
-            drawings["notes"] = [
-                note for note in drawings["notes"]
-                if not (note.get("type") == "note" and
-                        abs(note.get("price", 0) - price - 0.5) < 0.01 and
-                        "Alert @" in note.get("text", "") and
-                        note.get("color") == "#FFD700")
-            ]
+            self._remove_existing_alert_drawings(drawings, price)
 
             removed_items = (original_ray_count - len(drawings["horizontal_rays"])) + \
                             (original_note_count - len(drawings["notes"]))
@@ -539,4 +567,3 @@ class ChartLinesManager(QObject):
 
         except Exception as e:
             logger.error(f"Error during alert cleanup: {e}")
-
