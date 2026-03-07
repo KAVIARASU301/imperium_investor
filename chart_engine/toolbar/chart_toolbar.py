@@ -57,6 +57,9 @@ DRAWING_TOOLS: List[Tuple[str, str, str]] = [
     ("note", "T", "Text Note"),
 ]
 
+# Backward-compatible display name lookup for callers importing TOOL_DISPLAY.
+TOOL_DISPLAY: Dict[str, str] = {tool_id: label for tool_id, _icon, label in DRAWING_TOOLS}
+
 TIMEFRAMES: List[Tuple[str, str]] = [
     ("1m", "minute"),
     ("3m", "3minute"),
@@ -135,14 +138,14 @@ class ChartToolbar(QFrame):
         self._clear_action = QAction("Clear Selection", self)
         draw_menu.addAction(self._clear_action)
 
-        self.measure_btn = QPushButton("⚖")
+        self.measure_btn = QPushButton("//")
         self.measure_btn.setObjectName("chartToolButton")
         self.measure_btn.setFixedSize(22, 22)
         self.measure_btn.setCheckable(True)
         self.measure_btn.setToolTip("Measure (price/time)")
         layout.addWidget(self.measure_btn)
 
-        self.color_btn = QPushButton("●")
+        self.color_btn = QPushButton("🖌")
         self.color_btn.setObjectName("chartToolButton")
         self.color_btn.setFixedSize(22, 22)
         self.color_btn.setToolTip("Drawing color")
