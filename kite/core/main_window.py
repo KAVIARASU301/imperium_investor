@@ -16,7 +16,7 @@ from PySide6.QtGui import QMouseEvent, QKeySequence, QShortcut, QKeyEvent
 from kite.widgets.scanner_table import ChartinkScannerTable
 from kite.widgets.positions_table import PositionsTable
 from kite.widgets.watchlist_table import TabbedWatchlistWidget
-from kite.widgets.canvas_candlestick_chart import CandlestickChart as ChartWindow
+from kite.chart_engine import CandlestickChart as ChartWindow
 from kite.widgets.header_toolbar import HeaderToolbar
 from kite.widgets.color_settings_dialog import ColorSettingsDialog
 
