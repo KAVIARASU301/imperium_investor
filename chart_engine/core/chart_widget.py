@@ -301,13 +301,16 @@ class CandlestickChart(QWidget):
             action.triggered.connect(
                 lambda _checked=False, tid=tool_id: self._activate_drawing_tool(tid)
             )
+            button = tb.get_tool_button(tool_id)
+            if button:
+                button.clicked.connect(
+                    lambda _checked=False, tid=tool_id: self._activate_drawing_tool(tid)
+                )
         tb.get_clear_action().triggered.connect(self._clear_active_tool)
         tb.measure_btn.toggled.connect(self._toggle_measure_tool)
 
         # Buttons
         tb.color_btn.clicked.connect(self._choose_drawing_color)
-        tb.auto_scale_btn.clicked.connect(self._auto_scale)
-        tb.save_btn.clicked.connect(self._save_drawings)
         tb.clear_drawings_btn.clicked.connect(
             lambda: self._js("if(window.chart) window.chart.clearAllDrawings();")
         )
@@ -559,9 +562,6 @@ class CandlestickChart(QWidget):
         def _cb(state_data):
             if state_data and self.current_symbol:
                 self.drawing_storage.save_state(self.current_symbol, self.current_interval, state_data)
-                original = self.toolbar.save_btn.text()
-                self.toolbar.save_btn.setText("✓")
-                QTimer.singleShot(1200, lambda: self.toolbar.save_btn.setText(original))
 
         self.chart_view.page().runJavaScript(
             "(function(){ if(window.chart) return {"
