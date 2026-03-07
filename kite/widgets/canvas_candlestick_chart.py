@@ -844,6 +844,12 @@ class CandlestickChart(QWidget):
         self.timeframe_dropdown.setObjectName("timeframeDropdown")
         # self.timeframe_dropdown.setFixedWidth(55)
         self.timeframe_dropdown.setFixedHeight(30)
+        self.timeframe_dropdown.setEditable(True)
+        self.timeframe_dropdown.lineEdit().setReadOnly(True)
+        self.timeframe_dropdown.lineEdit().setAlignment(Qt.AlignCenter)
+        self.timeframe_dropdown.lineEdit().setCursor(Qt.ArrowCursor)
+        # Keep the dropdown interactive: let combo handle clicks instead of the read-only line edit.
+        self.timeframe_dropdown.lineEdit().setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.timeframe_dropdown.setStyleSheet("""
             QComboBox::drop-down {
                 width: 0px;
@@ -851,9 +857,8 @@ class CandlestickChart(QWidget):
             }
             QComboBox {
                 padding-right: 0px;
-                padding-left: 2px;
-
-
+                padding-left: 0px;
+                text-align: center;
             }
         """)
         timeframes = [
@@ -879,7 +884,7 @@ class CandlestickChart(QWidget):
         toolbar_layout.addWidget(self.measure_tool_btn)
 
         # Drawing tools menu with compact labels + proper selected-state handling
-        self.drawing_tools_button = QPushButton("Draw ▾")
+        self.drawing_tools_button = QPushButton("Draw")
         self.drawing_tools_button.setObjectName("chartToolButton")
         self.drawing_tools_button.setFixedHeight(28)
         self.drawing_tools_button.setToolTip("Choose drawing tool")
@@ -922,13 +927,6 @@ class CandlestickChart(QWidget):
         self.color_btn.clicked.connect(self._choose_drawing_color)
         toolbar_layout.addWidget(self.color_btn)
 
-        # Other buttons
-        self.order_btn = QPushButton("Order")
-        self.order_btn.setObjectName("orderButton")
-        self.order_btn.setFixedHeight(28)
-        self.order_btn.clicked.connect(self._on_order_button_clicked)
-        toolbar_layout.addWidget(self.order_btn)
-
         self.auto_scale_btn = QPushButton("Auto")
         self.auto_scale_btn.setObjectName("chartToolButton")
         self.auto_scale_btn.setFixedHeight(28)
@@ -936,19 +934,26 @@ class CandlestickChart(QWidget):
         self.auto_scale_btn.clicked.connect(self._auto_scale_chart)
         toolbar_layout.addWidget(self.auto_scale_btn)
 
-        self.refresh_button = QPushButton("Refresh")
+        self.refresh_button = QPushButton("⟳")
         self.refresh_button.setObjectName("refreshButton")
         self.refresh_button.setFixedHeight(28)
         self.refresh_button.setToolTip("Refresh Data (F5)")
         self.refresh_button.clicked.connect(self._force_refresh)
         toolbar_layout.addWidget(self.refresh_button)
 
-        self.settings_btn = QPushButton("Settings")
+        self.settings_btn = QPushButton("⚙")
         self.settings_btn.setObjectName("chartToolButton")
         self.settings_btn.setFixedHeight(28)
         self.settings_btn.setToolTip("Chart Settings")
         self.settings_btn.clicked.connect(self._open_settings_dialog)
         toolbar_layout.addWidget(self.settings_btn)
+
+        # Keep order placement button on the far right
+        self.order_btn = QPushButton("Order")
+        self.order_btn.setObjectName("orderButton")
+        self.order_btn.setFixedHeight(28)
+        self.order_btn.clicked.connect(self._on_order_button_clicked)
+        toolbar_layout.addWidget(self.order_btn)
 
         main_layout.addWidget(self.combined_toolbar)
 
@@ -3667,6 +3672,7 @@ class CandlestickChart(QWidget):
             QPushButton#chartToolButton, QPushButton#orderButton, QPushButton#refreshButton {
                 background-color: #101010; color: #f1f1f1; border: 1px solid #343434;
                 padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;
+                text-align: center;
             }
             QPushButton#chartToolButton:hover, QPushButton#orderButton:hover, QPushButton#refreshButton:hover {
                 border: 1px solid #00d4ff; color: #00d4ff;
@@ -3678,7 +3684,7 @@ class CandlestickChart(QWidget):
                 background-color: #12381f; border: 1px solid #1f5b35; color: #dcffea;
                 min-width: 58px;
             }
-            QPushButton#refreshButton { min-width: 64px; }
+            QPushButton#refreshButton { min-width: 28px; font-size: 13px; }
 
             QMenu#drawingMenu { background-color: #242424; color: #e8e8e8; border: 1px solid #4a4a4a; }
             QMenu#drawingMenu::item { padding: 6px 14px; }
