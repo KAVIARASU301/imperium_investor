@@ -428,10 +428,8 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         # Alert System
         if self.alert_system:
-            self.header_toolbar.add_alert_requested.connect(lambda: self.alert_system.show_quick_alert_dialog(self))
             self.header_toolbar.alert_manager_requested.connect(lambda: self.alert_system.show_alert_manager(self))
         else:
-            self.header_toolbar.add_alert_requested.connect(self._alert_system_unavailable)
             self.header_toolbar.alert_manager_requested.connect(self._alert_system_unavailable)
 
         # Alert update timer

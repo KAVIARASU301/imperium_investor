@@ -185,27 +185,16 @@ class HeaderToolbar(QToolBar):
         alert_layout.setContentsMargins(4, 2, 4, 2)
         alert_layout.setSpacing(2)
 
-        # Quick Alert Button with badge
-        quick_alert_container = QWidget()
-        quick_alert_container.setFixedSize(60, 24)
-        self.quick_alert_button = QPushButton("Alert", quick_alert_container)
-        self.quick_alert_button.setObjectName("alertActionButton")
-        self.quick_alert_button.clicked.connect(self.add_alert_requested.emit)
-        self.quick_alert_button.setGeometry(0, 0, 60, 24)
-        self.active_badge = NotificationBadge(quick_alert_container)
-        self.active_badge.move(46, -2)
-        alert_layout.addWidget(quick_alert_container)
-
-        # Alert Manager Button with badge
-        manager_container = QWidget()
-        manager_container.setFixedSize(95, 24)
-        self.alert_manager_button = QPushButton("Alert Manager", manager_container)
-        self.alert_manager_button.setObjectName("alertActionButton")
-        self.alert_manager_button.clicked.connect(self.alert_manager_requested.emit)
-        self.alert_manager_button.setGeometry(0, 0, 95, 24)
-        self.triggered_badge = NotificationBadge(manager_container)
-        self.triggered_badge.move(81, -2)
-        alert_layout.addWidget(manager_container)
+        # Unified Alerts button with a single badge
+        alerts_container = QWidget()
+        alerts_container.setFixedSize(70, 24)
+        self.alerts_button = QPushButton("Alerts", alerts_container)
+        self.alerts_button.setObjectName("alertActionButton")
+        self.alerts_button.clicked.connect(self.alert_manager_requested.emit)
+        self.alerts_button.setGeometry(0, 0, 70, 24)
+        self.alerts_badge = NotificationBadge(alerts_container)
+        self.alerts_badge.move(56, -2)
+        alert_layout.addWidget(alerts_container)
 
         self.addWidget(alert_widget)
 
@@ -343,8 +332,7 @@ class HeaderToolbar(QToolBar):
 
     def update_alert_counts(self, active_count: int, triggered_today: int):
         """Update alert badge counts."""
-        self.active_badge.set_count(active_count)
-        self.triggered_badge.set_count(triggered_today)
+        self.alerts_badge.set_count(active_count + triggered_today)
 
     def set_current_symbol(self, symbol: str):
         """Set the current symbol in the search input."""
