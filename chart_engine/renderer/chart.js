@@ -176,7 +176,7 @@ class FixedTradingChart {
     }
 
     _updateChartAreas() {
-        const pad = { top: 32, right: 82, bottom: 20, left: 8 };
+        const pad = { top: 32, right: this._computeRightAxisWidth(), bottom: 20, left: 8 };
         const volumeRatio = 0.18;    // volume pane = 18% of chart height
         const innerH = this.height - pad.top - pad.bottom - 16; // 16 for time axis
         const chartH  = Math.floor(innerH * (1 - volumeRatio));
@@ -194,6 +194,41 @@ class FixedTradingChart {
             width:  this.width - pad.left - pad.right,
             height: volH,
         };
+
+        this.rightAxisWidth = pad.right;
+    }
+
+    _computeRightAxisWidth() {
+        const minAxisWidth = 48;
+        const maxAxisWidth = 120;
+        const fallbackWidth = 82;
+        if (!this.ctx) return fallbackWidth;
+
+        const priceRange = this.maxPrice - this.minPrice;
+        if (!Number.isFinite(priceRange) || priceRange <= 0) return fallbackWidth;
+
+        const minGapPx = 26;
+        const chartHeight = this.chartArea?.height || Math.max(120, this.height * 0.75);
+        const ticks = Math.max(6, Math.floor(chartHeight / minGapPx));
+        const step = this._niceStep(priceRange / ticks);
+        const minR = Math.floor(this.minPrice / step) * step;
+        const maxR = Math.ceil(this.maxPrice / step) * step;
+        const decimals = this._priceDecimals(step);
+
+        const prevFont = this.ctx.font;
+        this.ctx.font = this._axisFont(10, 500);
+
+        let maxTextWidth = 0;
+        for (let p = minR; p <= maxR + step * 0.5; p += step) {
+            const label = '₹' + p.toFixed(decimals);
+            maxTextWidth = Math.max(maxTextWidth, this.ctx.measureText(label).width);
+        }
+
+        this.ctx.font = prevFont;
+
+        // 4px tick + ~4px inner gap + 4px right padding + 10px breathing room.
+        const dynamicWidth = Math.ceil(maxTextWidth + 22);
+        return Math.max(minAxisWidth, Math.min(maxAxisWidth, dynamicWidth));
     }
 
     _initDrawings(json) {
@@ -1509,6 +1544,14 @@ class FixedTradingChart {
         const range = this.maxPrice - this.minPrice;
         if (range === 0) { this.minPrice -= 1; this.maxPrice += 1; }
         else { this.minPrice -= range * 0.04; this.maxPrice += range * 0.06; }
+
+        const prevAxisWidth = this.rightAxisWidth || 0;
+        this._updateChartAreas();
+
+        // One more pass when width changes because candle spacing alters bounds slightly.
+        if (Math.abs((this.rightAxisWidth || 0) - prevAxisWidth) > 0.5) {
+            this._updateChartAreas();
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════
