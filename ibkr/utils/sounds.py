@@ -71,12 +71,13 @@ class SoundManager(QObject):
                 result = subprocess.run(['which', name], capture_output=True, timeout=2)
                 if result.returncode == 0:
                     self.audio_players.append((name, cmd))
-                    logger.info(f"Found audio player: {name}")
+                    logger.debug(f"Found audio player: {name}")
             except Exception:
                 continue
 
         if self.audio_players:
-            logger.info(f"Available audio players: {[p[0] for p in self.audio_players]}")
+            logger.info(f"Audio fallback ready with {len(self.audio_players)} player(s)")
+            logger.debug(f"Available audio players: {[p[0] for p in self.audio_players]}")
         else:
             logger.warning("No system audio players found")
 
@@ -138,7 +139,7 @@ class SoundManager(QObject):
             logger.info(f"Script location: {os.path.dirname(os.path.abspath(__file__))}")
             return
 
-        logger.info(f"✅ Using assets directory: {assets_dir}")
+        logger.debug(f"Using assets directory: {assets_dir}")
 
         for sound_name, filename in self.sound_files.items():
             sound_path = self._find_sound_file(filename, assets_dir)
@@ -153,12 +154,12 @@ class SoundManager(QObject):
         # Log sound loading status
         loaded_count = sum(1 for path in self.sound_files_paths.values() if path)
         total_count = len(self.sound_files)
-        logger.info(f"Sound files found: {loaded_count}/{total_count}")
+        logger.info(f"Sound assets ready: {loaded_count}/{total_count} file(s) available")
 
         # Debug info
         for name, path in self.sound_files_paths.items():
             if path:
-                logger.info(f"  ✅ {name}: {path}")
+                logger.debug(f"Sound file ready for {name}: {path}")
             else:
                 logger.warning(f"  ❌ {name}: NOT FOUND")
 
@@ -188,7 +189,7 @@ class SoundManager(QObject):
         for file_to_try in possible_files:
             sound_file_path = os.path.join(assets_dir, file_to_try)
             if os.path.exists(sound_file_path):
-                logger.info(f"✓ Found sound file: {sound_file_path}")
+                logger.debug(f"Found sound file: {sound_file_path}")
                 return os.path.abspath(sound_file_path)
 
         logger.warning(f"✗ Sound file not found: {filename}")
