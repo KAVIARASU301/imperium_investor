@@ -147,7 +147,11 @@ class CandlestickChart(QWidget):
         if not symbol:
             return
         self.current_symbol           = symbol
-        self.current_instrument_token = instrument_token
+        token = int(instrument_token or 0)
+        if not token:
+            instrument = self.instrument_map.get(symbol, {})
+            token = int(instrument.get("instrument_token") or 0)
+        self.current_instrument_token = token
         if interval:
             self.current_interval = interval
             self.toolbar.set_timeframe(interval)
@@ -197,6 +201,16 @@ class CandlestickChart(QWidget):
                 instrument_map[symbol] = instrument
 
         self.instrument_map = instrument_map
+
+        # If startup attempted to restore a symbol before instruments were ready,
+        # retry once we can resolve a valid token.
+        if self.current_symbol and not self.current_instrument_token:
+            current = self.instrument_map.get(self.current_symbol, {})
+            token = int(current.get("instrument_token") or 0)
+            if token:
+                logger.info("Resolved token for restored symbol %s after instrument load", self.current_symbol)
+                self.current_instrument_token = token
+                self._load_chart_data()
 
     @Slot(str)
     def on_search(self, symbol: Optional[str] = None) -> None:
