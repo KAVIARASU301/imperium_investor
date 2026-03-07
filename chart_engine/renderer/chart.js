@@ -112,6 +112,7 @@ class FixedTradingChart {
             position: cfg.watermarkPosition || 'mid_center',
             fontSize: cfg.watermarkFontSize || 0,
         };
+        this.indicatorScaleLabelsEnabled = cfg.indicatorScaleLabelsEnabled === true;
 
         // ── Computed VWAP ──
         this.vwapData = [];
@@ -593,7 +594,7 @@ class FixedTradingChart {
             ctx.stroke();
 
             // Right-edge EMA label
-            if (lastVis) {
+            if (this.indicatorScaleLabelsEnabled && lastVis) {
                 const label = `${key.toUpperCase()} ${lastVis.value.toFixed(1)}`;
                 ctx.font      = '9px "Segoe UI", sans-serif';
                 ctx.textAlign = 'left';
@@ -628,7 +629,7 @@ class FixedTradingChart {
 
         // Right-edge VWAP label
         const last = this.vwapData[this.vwapData.length - 1];
-        if (last) {
+        if (this.indicatorScaleLabelsEnabled && last) {
             const y = this._priceToY(last.value);
             const lx = this.chartArea.x + this.chartArea.width + 5;
             ctx.font = '9px "Segoe UI", sans-serif';
@@ -1789,6 +1790,7 @@ class FixedTradingChart {
         if (cfg.watermarkOpacity  !== undefined) this.watermark.opacity  = cfg.watermarkOpacity;
         if (cfg.watermarkPosition) this.watermark.position = cfg.watermarkPosition;
         if (cfg.watermarkFontSize !== undefined) this.watermark.fontSize = cfg.watermarkFontSize;
+        if (cfg.indicatorScaleLabelsEnabled !== undefined) this.indicatorScaleLabelsEnabled = cfg.indicatorScaleLabelsEnabled === true;
         this.requestDraw();
     }
 

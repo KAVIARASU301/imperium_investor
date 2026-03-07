@@ -44,6 +44,7 @@ class ChartHtmlConfig:
     watermark_opacity:       float = 0.06
     watermark_position:      str  = "mid_center"
     watermark_font_size:     int  = 0
+    indicator_scale_labels_enabled: bool = False
     qwebchannel_src:         str  = "qrc:///qtwebchannel/qwebchannel.js"
 
 
@@ -99,6 +100,7 @@ def build_chart_html(cfg: ChartHtmlConfig) -> str:
         "watermarkOpacity":          float(max(0.0, min(1.0, cfg.watermark_opacity))),
         "watermarkPosition":         cfg.watermark_position,
         "watermarkFontSize":         int(max(0, cfg.watermark_font_size)),
+        "indicatorScaleLabelsEnabled": bool(cfg.indicator_scale_labels_enabled),
     }
 
     data_json = json.dumps(data_obj)

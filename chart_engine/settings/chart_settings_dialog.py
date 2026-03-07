@@ -32,7 +32,7 @@ class ChartSettingsDialog(QDialog):
     def __init__(self, current_settings: Dict[str, Any], parent=None):
         super().__init__(parent)
         self.setWindowTitle("Chart Settings")
-        self.setFixedSize(360, 400)
+        self.setFixedSize(360, 440)
         self._s = dict(current_settings)          # working copy
         self._color_btns: Dict[str, QPushButton] = {}
         self._build_ui()
@@ -92,6 +92,11 @@ class ChartSettingsDialog(QDialog):
                 break
         layout.addRow("Watermark Position:", self.wm_position)
 
+        # ── Indicator labels ──
+        self.indicator_scale_labels_enabled = QCheckBox("Show indicator labels on price scale")
+        self.indicator_scale_labels_enabled.setChecked(self._s.get("indicator_scale_labels_enabled", False))
+        layout.addRow("Indicator Labels:", self.indicator_scale_labels_enabled)
+
         self.wm_font_size = QSpinBox()
         self.wm_font_size.setRange(0, 300)
         self.wm_font_size.setValue(self._s.get("watermark_font_size", 0))
@@ -143,6 +148,7 @@ class ChartSettingsDialog(QDialog):
             "watermark_opacity": self.wm_opacity.value(),
             "watermark_position": self.wm_position.currentData(),
             "watermark_font_size": self.wm_font_size.value(),
+            "indicator_scale_labels_enabled": self.indicator_scale_labels_enabled.isChecked(),
         }
         self.settings_changed.emit(new)
         self.accept()

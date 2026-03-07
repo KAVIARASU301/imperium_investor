@@ -108,6 +108,7 @@ class CandlestickChart(QWidget):
         self._watermark_opacity         = self.global_chart_settings.get("watermark_opacity",  0.06)
         self._watermark_position        = self.global_chart_settings.get("watermark_position", "mid_center")
         self._watermark_font_size       = self.global_chart_settings.get("watermark_font_size", 0)
+        self._indicator_scale_labels_enabled = self.global_chart_settings.get("indicator_scale_labels_enabled", False)
         self.current_visible_candle_count = self.global_chart_settings.get("default_visible_candles", 100)
 
         self.data_fetcher = DataFetcher(kite_client)
@@ -435,6 +436,7 @@ class CandlestickChart(QWidget):
             watermark_opacity      = self._watermark_opacity,
             watermark_position     = self._watermark_position,
             watermark_font_size    = self._watermark_font_size,
+            indicator_scale_labels_enabled = self._indicator_scale_labels_enabled,
         )
 
         self._render_html(cfg)
@@ -613,6 +615,7 @@ class CandlestickChart(QWidget):
             "watermark_opacity":      self._watermark_opacity,
             "watermark_position":     self._watermark_position,
             "watermark_font_size":    self._watermark_font_size,
+            "indicator_scale_labels_enabled": self._indicator_scale_labels_enabled,
         }
         dlg = ChartSettingsDialog(current, self)
         dlg.settings_changed.connect(self._apply_chart_settings)
@@ -632,6 +635,7 @@ class CandlestickChart(QWidget):
         self._watermark_opacity          = s.get("watermark_opacity",  self._watermark_opacity)
         self._watermark_position         = s.get("watermark_position", self._watermark_position)
         self._watermark_font_size        = int(s.get("watermark_font_size", self._watermark_font_size))
+        self._indicator_scale_labels_enabled = s.get("indicator_scale_labels_enabled", self._indicator_scale_labels_enabled)
         self.drawing_storage.save_global_settings(s)
 
         if self.chart_view and self.current_state == ChartState.LOADED:
@@ -647,6 +651,7 @@ class CandlestickChart(QWidget):
                 "watermarkOpacity": self._watermark_opacity,
                 "watermarkPosition":self._watermark_position,
                 "watermarkFontSize":self._watermark_font_size,
+                "indicatorScaleLabelsEnabled": self._indicator_scale_labels_enabled,
             })
             self._js(f"if(window.chart){{ window.chart.setChartSettings({payload});"
                      f"window.chart.setVisibleCandleCount({self.current_visible_candle_count});"
