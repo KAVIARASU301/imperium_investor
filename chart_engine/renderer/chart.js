@@ -1270,6 +1270,7 @@ class FixedTradingChart {
         this.isDrawing  = false;
         this.startPoint = null;
         this.endPoint   = null;
+        this._clearTool();
         this._notifyDrawingsChange();
         this.requestDraw();
     }
@@ -1688,11 +1689,15 @@ class FixedTradingChart {
     }
 
     _clearTool() {
+        const hadActiveTool = Boolean(this.currentTool);
         this.currentTool = null;
         this.isDrawing   = false;
         this.startPoint  = null;
         this.endPoint    = null;
         this.canvas.style.cursor = 'default';
+        if (hadActiveTool) {
+            this._notifyDrawingToolCleared();
+        }
     }
 
     updateLivePrice(price) {
@@ -1805,6 +1810,16 @@ class FixedTradingChart {
         if (!this.chartBridge || !this.webChannelInitialized) return;
         try { this.chartBridge.notify_zoom_changed(this.visibleCandleCount); }
         catch (e) { console.error('notify_zoom_changed error:', e); }
+    }
+
+    _notifyDrawingToolCleared() {
+        if (!this.chartBridge || !this.webChannelInitialized) {
+            this._notifyQueue.push(() => this._notifyDrawingToolCleared());
+            this._scheduleFlush();
+            return;
+        }
+        try { this.chartBridge.notify_drawing_tool_cleared(); }
+        catch (e) { console.error('notify_drawing_tool_cleared error:', e); }
     }
 
     _scheduleFlush() {

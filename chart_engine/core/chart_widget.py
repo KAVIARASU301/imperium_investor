@@ -472,6 +472,7 @@ class CandlestickChart(QWidget):
         self.chart_bridge.visible_candle_count_changed.connect(self._on_zoom_changed)
         self.chart_bridge.text_note_requested.connect(self._open_text_note_dialog)
         self.chart_bridge.text_note_edit_requested.connect(self._open_text_note_edit_dialog)
+        self.chart_bridge.drawing_tool_cleared.connect(self._clear_active_tool_ui)
         self.chart_bridge.alert_creation_requested.connect(self.alert_creation_requested)
         self.chart_bridge.order_dialog_requested.connect(self.order_dialog_requested)
 
@@ -538,6 +539,11 @@ class CandlestickChart(QWidget):
         self.toolbar.measure_btn.setChecked(False)
         self.toolbar.reset_draw_btn()
         self._js("if(window.chart) window.chart.setDrawingTool('', false);")
+
+    def _clear_active_tool_ui(self) -> None:
+        self.current_drawing_tool = ""
+        self.toolbar.measure_btn.setChecked(False)
+        self.toolbar.reset_draw_btn()
 
     def _toggle_measure_tool(self, checked: bool) -> None:
         if checked:

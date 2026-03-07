@@ -12,6 +12,7 @@
 #   chartBridge.notify_alert_creation_requested(json)— right-click → set alert
 #   chartBridge.notify_order_dialog_requested(json)  — right-click → place order
 #   chartBridge.notify_zoom_changed(count)           — user scrolled / zoomed
+#   chartBridge.notify_drawing_tool_cleared()        — active tool was canceled/consumed
 
 import json
 import logging
@@ -36,6 +37,7 @@ class ChartBridge(QObject):
     order_dialog_requested = Signal(str)    # order JSON
     text_note_requested = Signal(str)       # mouse-pos JSON
     text_note_edit_requested = Signal(str)  # note JSON
+    drawing_tool_cleared = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -99,6 +101,11 @@ class ChartBridge(QObject):
             return
         if self._valid_json(order_json, "order_dialog_requested"):
             self.order_dialog_requested.emit(order_json)
+
+    @Slot()
+    def notify_drawing_tool_cleared(self) -> None:
+        if self.webChannelInitialized:
+            self.drawing_tool_cleared.emit()
 
     # ─── Helpers ─────────────────────────────────────────────────────────────
 
