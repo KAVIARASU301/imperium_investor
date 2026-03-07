@@ -12,7 +12,7 @@ import json
 import os
 import uuid
 import random
-from abc import ABC, abstractmethod
+from abc import ABC, ABCMeta, abstractmethod
 from datetime import datetime
 from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Optional, Any, Tuple
@@ -95,7 +95,11 @@ class PaperOrder:
 # BASE CLASS
 # ─────────────────────────────────────────────────────────────────────────────
 
-class BasePaperTrader(QObject, ABC):
+class QObjectABCMeta(type(QObject), ABCMeta):
+    """Metaclass to allow combining Qt QObject with Python ABC."""
+
+
+class BasePaperTrader(QObject, ABC, metaclass=QObjectABCMeta):
     """
     Abstract base for paper trading. Provides:
       - Balance + position management
