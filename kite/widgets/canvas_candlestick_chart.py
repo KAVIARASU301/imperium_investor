@@ -730,6 +730,7 @@ class CandlestickChart(QWidget):
         self.current_ltp: float = 0.0
         self.current_instrument_token: int = 0
         self.current_visible_candle_count: int = self.global_chart_settings["default_visible_candles"]
+        self._active_load_key: str = ""
 
         # Chart rendering properties
         self._current_candle_width: int = self.global_chart_settings["candle_width"]
@@ -1420,7 +1421,6 @@ class CandlestickChart(QWidget):
             self.chart_view.page().runJavaScript("if (window.chart) window.chart.setDrawingTool(null, false);")
 
         # Set new symbol data
-        old_symbol = self.current_symbol
         self.current_symbol = symbol
         self.current_instrument_token = self.instrument_map[symbol]['instrument_token']
 
@@ -1434,7 +1434,6 @@ class CandlestickChart(QWidget):
         saved_state = self.drawing_storage.load_state(self.current_symbol, self.current_interval)
         self.current_visible_candle_count = saved_state.get("visible_candle_count",
                                                             self.global_chart_settings["default_visible_candles"])
-        self._set_state(ChartState.IDLE)
         self._load_chart_data()
         self.symbol_loaded.emit(symbol)
 
@@ -1540,9 +1539,9 @@ class CandlestickChart(QWidget):
 
     def _load_chart_data(self, force_refresh: bool = False):
         if not self.current_symbol or self.current_symbol not in self.instrument_map: return
+        self._active_load_key = f"{self.current_symbol}_{self.current_interval}"
         if force_refresh:
-            cache_key = f"{self.current_symbol}_{self.current_interval}"
-            self.data_cache._cache.pop(cache_key, None)
+            self.data_cache._cache.pop(self._active_load_key, None)
         self._stop_current_operations()
         self._set_state(ChartState.LOADING)
         self.progress_bar.show()
@@ -1552,7 +1551,9 @@ class CandlestickChart(QWidget):
         self.data_loader_thread = ChartDataLoaderThread(self.data_fetcher, instrument_token, self.current_symbol,
                                                         self.current_interval, self.data_cache)
         self.data_loader_thread.data_loaded.connect(self._on_data_loaded)
-        self.data_loader_thread.load_error.connect(self._on_load_error)
+        self.data_loader_thread.load_error.connect(
+            lambda error_message, request_key=self._active_load_key: self._on_load_error(error_message, request_key)
+        )
         self.data_loader_thread.load_progress.connect(self._on_load_progress)
         self.data_loader_thread.finished.connect(self._on_thread_finished)
         self.data_loader_thread.start()
@@ -1628,6 +1629,10 @@ class CandlestickChart(QWidget):
     @Slot(pd.DataFrame, str)
     def _on_data_loaded(self, df: pd.DataFrame, cache_key: str):
         try:
+            if cache_key != self._active_load_key:
+                logger.info(f"Ignoring stale chart payload for {cache_key}; active request is {self._active_load_key}")
+                return
+
             if df.empty:
                 self._show_error("No data available")
                 return
@@ -1701,7 +1706,10 @@ class CandlestickChart(QWidget):
             logger.error(f"Error applying saved drawings and zoom: {e}")
 
     @Slot(str)
-    def _on_load_error(self, error_message: str):
+    def _on_load_error(self, error_message: str, request_key: Optional[str] = None):
+        if request_key and request_key != self._active_load_key:
+            logger.info(f"Ignoring stale load error for {request_key}; active request is {self._active_load_key}")
+            return
         logger.error(f"Data loading failed: {error_message}")
         self._show_error(error_message)
 
