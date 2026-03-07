@@ -2117,7 +2117,7 @@ class CandlestickChart(QWidget):
                     this.canvas.width = this.width * window.devicePixelRatio; this.canvas.height = this.height * window.devicePixelRatio;
                     this.canvas.style.width = this.width + 'px'; this.canvas.style.height = this.height + 'px';
                     this.ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-                    this.padding = {{ top: 12, right: 84, bottom: 30, left: 14 }};
+                    this.padding = {{ top: 12, right: 64, bottom: 30, left: 14 }};
                     const sliderHeight = 14, spacing = 12, volRatio = this.height > 900 ? 0.18 : 0.16;
                     const plotHeight = this.height - this.padding.top - this.padding.bottom - sliderHeight;
                     this.chartArea = {{ x: this.padding.left, y: this.padding.top, width: this.width - this.padding.left - this.padding.right, height: Math.max(50, plotHeight * (1 - volRatio) - spacing) }};
@@ -2388,9 +2388,17 @@ class CandlestickChart(QWidget):
                             const height = heightRatio * this.volumeArea.height;
                             
                             const isUp = candle.close >= candle.open;
-                            // Increased opacity from 0.3 to 0.5 for better visibility
-                            this.ctx.fillStyle = isUp ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)';
-                            this.ctx.fillRect(x, this.volumeArea.y + this.volumeArea.height - height, this.candleWidth, height);
+                            const barTop = this.volumeArea.y + this.volumeArea.height - height;
+                            const opacity = Math.min(0.95, Math.max(0.35, 0.35 + heightRatio * 0.6));
+
+                            this.ctx.fillStyle = isUp
+                                ? `rgba(46, 204, 172, ${{opacity}})`
+                                : `rgba(255, 107, 107, ${{opacity}})`;
+                            this.ctx.fillRect(x, barTop, this.candleWidth, height);
+
+                            // Subtle bright top edge for better bar separation/visibility
+                            this.ctx.fillStyle = isUp ? 'rgba(161, 255, 233, 0.7)' : 'rgba(255, 185, 185, 0.7)';
+                            this.ctx.fillRect(x, barTop, this.candleWidth, 1);
                         }}
                         
                         // Draw volume scale
@@ -2401,7 +2409,7 @@ class CandlestickChart(QWidget):
                         this.ctx.strokeStyle = this.colors.grid;
                         this.ctx.fillStyle = this.colors.text;
                         this.ctx.font = '10px monospace';
-                        this.ctx.textAlign = 'left';
+                        this.ctx.textAlign = 'right';
                     
                         const levels = 5;
                         const logMaxVol = Math.log(1 + this.maxVolume);
@@ -2432,13 +2440,19 @@ class CandlestickChart(QWidget):
                     
                                 const currentLabel = this.formatVolumeK(currentVolume);
                                 const textMetrics = this.ctx.measureText(currentLabel);
-                                const labelX = this.volumeArea.x + this.volumeArea.width + 4;
+                                const labelWidth = textMetrics.width + 8;
+                                const labelHeight = 14;
+                                const labelX = this.width - 4;
+                                const rectX = this.width - labelWidth - 2;
                                 const labelY = y + 3;
-                    
-                                this.ctx.fillStyle = '#FF0000';
-                                this.ctx.fillRect(labelX - 2, labelY - 10, textMetrics.width + 4, 12);
-                    
-                                this.ctx.fillStyle = 'white';
+
+                                this.ctx.fillStyle = '#1f2632';
+                                this.ctx.fillRect(rectX, labelY - labelHeight + 1, labelWidth, labelHeight);
+                                this.ctx.strokeStyle = '#3c4b63';
+                                this.ctx.lineWidth = 0.5;
+                                this.ctx.strokeRect(rectX, labelY - labelHeight + 1, labelWidth, labelHeight);
+
+                                this.ctx.fillStyle = '#d9e8ff';
                                 this.ctx.fillText(currentLabel, labelX, labelY);
                             }}
                         }}
@@ -2483,7 +2497,7 @@ class CandlestickChart(QWidget):
                     const priceDecimals = this.getPriceDecimals(niceStep);
 
                     this.ctx.font = this.getAxisFont(11, 500);
-                    this.ctx.textAlign = 'left';
+                    this.ctx.textAlign = 'right';
 
                     let previousY = -Infinity;
                     for (let price = minRounded; price <= maxRounded + (niceStep * 0.5); price += niceStep) {{
@@ -2492,7 +2506,7 @@ class CandlestickChart(QWidget):
                         if (Math.abs(y - previousY) < minPriceGapPx) continue;
 
                         const label = '₹' + price.toFixed(priceDecimals);
-                        this.ctx.fillText(label, this.chartArea.x + this.chartArea.width + 6, y);
+                        this.ctx.fillText(label, this.width - 4, y);
                         previousY = y;
                     }}
 
@@ -2824,9 +2838,9 @@ class CandlestickChart(QWidget):
                             const priceText = '₹' + this.yToPrice(this.crosshairY).toFixed(2);
                             this.ctx.font = 'bold 12px monospace'; 
                             const textMetrics = this.ctx.measureText(priceText);
-                            const rectX = this.chartArea.x + this.chartArea.width;
                             const rectY = this.crosshairY - 8;
                             const rectWidth = textMetrics.width + 10;
+                            const rectX = this.width - rectWidth - 2;
                             const rectHeight = 16;
                             
                             // Much darker background for price label
@@ -2885,17 +2899,18 @@ class CandlestickChart(QWidget):
                         const textWidth = ctx.measureText(priceText).width;
                         const labelHeight = 16;
                     
-                        const rectX = this.chartArea.x + this.chartArea.width + 6;
+                        const labelWidth = textWidth + 8;
+                        const rectX = this.width - labelWidth - 2;
                         const rectY = y - labelHeight / 2;
                     
                         // === Background box (always black) ===
                         ctx.fillStyle = '#000000';
-                        ctx.fillRect(rectX, rectY, textWidth + 8, labelHeight);
+                        ctx.fillRect(rectX, rectY, labelWidth, labelHeight);
                     
                         // === Gray border ===
                         ctx.strokeStyle = '#555555';
                         ctx.lineWidth = 0.5;
-                        ctx.strokeRect(rectX, rectY, textWidth + 8, labelHeight);
+                        ctx.strokeRect(rectX, rectY, labelWidth, labelHeight);
                     
                         // === Text color based on price direction ===
                         let textColor = '#26a69a';  // Default green for neutral/up
