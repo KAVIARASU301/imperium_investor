@@ -557,10 +557,10 @@ class AlertCreationDialog(QDialog):
 
 class AlertSystemManager(QObject):
     """
-    Top-level coordinator. Main window holds one instance.
+    Top-level coordinator.  Main window holds one instance.
 
     Usage:
-        self.alert_system = AlertSystemManager(self)
+        self.alert_system = AlertSystemManager(self)   # parent = main_window
         self.alert_system.alert_triggered.connect(self._on_alert_triggered)
         # Feed ticks:
         self.alert_system.update_market_data(ticks)
@@ -568,10 +568,10 @@ class AlertSystemManager(QObject):
         self.alert_system.show_dialog()
     """
 
-    alert_triggered = Signal(str)  # alert_id
+    alert_triggered      = Signal(str)   # alert_id
     alert_sound_requested = Signal()
     engine_status_changed = Signal(str)
-    _request_engine_stop = Signal()
+    _request_engine_stop  = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -591,25 +591,81 @@ class AlertSystemManager(QObject):
         self.engine_status_changed.emit("running")
         logger.info("AlertSystemManager ready")
 
+        # FIX #8: Restore chart lines for alerts loaded from disk.
+        # Use a short delay so the chart and chart_lines_manager are fully
+        # initialised before we try to draw.
+        QTimer.singleShot(2000, self._restore_chart_lines_on_startup)
+
+    # ──────────────────────────────────────────────────────────────
+    # MARKET DATA
+    # ──────────────────────────────────────────────────────────────
+
     def update_market_data(self, ticks: List[Dict]) -> None:
-        """Pass live ticks from main window's market data slot."""
+        """Pass live ticks from main window's _on_market_data slot."""
         self.engine.update_market_data(ticks)
 
+    # ──────────────────────────────────────────────────────────────
+    # ALERT CRUD  (all chart-line side-effects live here)
+    # ──────────────────────────────────────────────────────────────
+
     def add_alert(self, alert: Alert) -> None:
+        """Add alert to store AND draw the corresponding chart line."""
         self.store.add(alert)
         logger.info(f"Alert added: {alert.symbol} {alert.condition} @ {alert.target_value}")
+        # FIX #1: draw chart line immediately after saving
+        self._add_chart_line(alert)
+        # FIX #7: subscribe alert symbol to WS so engine gets price ticks
+        self._ensure_alert_symbol_subscribed(alert.symbol)
+        # Refresh open dialog if visible
+        self._refresh_dialog_if_open()
 
     def remove_alert(self, alert_id: str) -> None:
+        """Remove alert from store AND erase the corresponding chart line."""
+        # FIX #2: look up alert *before* removing so we know the price/symbol
+        alert = next((a for a in self.store.all() if a.id == alert_id), None)
         self.store.remove(alert_id)
+        if alert:
+            self._remove_chart_line(alert)
+        self._refresh_dialog_if_open()
+
+    # ──────────────────────────────────────────────────────────────
+    # ENGINE CALLBACK
+    # ──────────────────────────────────────────────────────────────
+
+    @Slot(str)
+    def _on_engine_alert_triggered(self, alert_id: str) -> None:
+        """FIX #3: Remove chart line when alert fires, then notify."""
+        alert = next((a for a in self.store.all() if a.id == alert_id), None)
+        if alert:
+            self._remove_chart_line(alert)
+        self.alert_triggered.emit(alert_id)
+        self.alert_sound_requested.emit()
+        # Refresh open dialog so it moves the row to Triggered tab
+        self._refresh_dialog_if_open()
+
+    # ──────────────────────────────────────────────────────────────
+    # DIALOG
+    # ──────────────────────────────────────────────────────────────
 
     def show_dialog(self, parent=None) -> None:
         """Open the alert management dialog."""
         if self._dialog and self._dialog.isVisible():
             self._dialog.raise_()
             return
-        self._dialog = AlertManagementDialog(self.store, parent or self.parent())
+        # FIX #4 / #10: pass *self* (AlertSystemManager) not self.store so the
+        # dialog can call add_alert / remove_alert with full chart integration.
+        self._dialog = AlertManagementDialog(self, parent or self.parent())
         self._dialog.show()
 
+    def show_quick_alert_dialog(self, parent=None) -> None:
+        self.show_dialog(parent=parent)
+
+    def show_alert_manager(self, parent=None) -> None:
+        self.show_dialog(parent=parent)
+
+    # ──────────────────────────────────────────────────────────────
+    # CHART → ALERT  (called from chart bridge signal)
+    # ──────────────────────────────────────────────────────────────
 
     @Slot(str)
     def create_alert_from_chart(self, alert_json: str) -> None:
@@ -639,17 +695,23 @@ class AlertSystemManager(QObject):
             "crosses_below": AlertCondition.PRICE_CROSSED_DOWN.value,
         }
         intent_map = {
-            "buy_entry": AlertIntent.BUY_ENTRY.value,
-            "sell_entry": AlertIntent.SELL_ENTRY.value,
+            "buy_entry":     AlertIntent.BUY_ENTRY.value,
+            "sell_entry":    AlertIntent.SELL_ENTRY.value,
             "profit_target": AlertIntent.PROFIT_TARGET.value,
-            "stop_loss": AlertIntent.STOP_LOSS.value,
-            "breakout": AlertIntent.BREAKOUT.value,
-            "support": AlertIntent.SUPPORT.value,
-            "info": AlertIntent.INFO.value,
+            "stop_loss":     AlertIntent.STOP_LOSS.value,
+            "breakout":      AlertIntent.BREAKOUT.value,
+            "support":       AlertIntent.SUPPORT.value,
+            "info":          AlertIntent.INFO.value,
         }
 
-        condition = condition_map.get(str(data.get("condition", "")).lower(), AlertCondition.PRICE_IS_ABOVE.value)
-        intent = intent_map.get(str(data.get("intent", "")).lower(), AlertIntent.INFO.value)
+        condition = condition_map.get(
+            str(data.get("condition", "")).lower(),
+            AlertCondition.PRICE_CROSSED_UP.value
+        )
+        intent = intent_map.get(
+            str(data.get("intent", "")).lower(),
+            AlertIntent.INFO.value
+        )
 
         alert = Alert(
             id=f"alert_{uuid.uuid4().hex[:8]}",
@@ -659,33 +721,152 @@ class AlertSystemManager(QObject):
             target_value=target_value,
             note=str(data.get("note", "")).strip(),
         )
+        # add_alert() now also draws the chart line (FIX #1)
         self.add_alert(alert)
         logger.info(f"Alert created from chart: {symbol} {condition} @ {target_value}")
 
+    # ──────────────────────────────────────────────────────────────
+    # CHART-LINE HELPERS
+    # ──────────────────────────────────────────────────────────────
+
+    def _clm(self):
+        """Return chart_lines_manager from the parent main window, or None."""
+        p = self.parent()
+        return getattr(p, 'chart_lines_manager', None) if p else None
+
+    def _add_chart_line(self, alert: Alert) -> None:
+        """Draw a yellow horizontal ray on the chart for this alert."""
+        clm = self._clm()
+        if clm:
+            try:
+                clm.add_alert_line(
+                    symbol=alert.symbol,
+                    price=alert.target_value,
+                    intent=alert.intent,
+                )
+                logger.debug(f"Chart line added for {alert.symbol} @ {alert.target_value}")
+            except Exception as e:
+                logger.error(f"Failed to add chart line for {alert.symbol}: {e}")
+
+    def _remove_chart_line(self, alert: Alert) -> None:
+        """Erase the yellow horizontal ray from the chart for this alert."""
+        clm = self._clm()
+        if clm:
+            try:
+                clm.remove_alert_line(
+                    symbol=alert.symbol,
+                    price=alert.target_value,
+                )
+                logger.debug(f"Chart line removed for {alert.symbol} @ {alert.target_value}")
+            except Exception as e:
+                logger.error(f"Failed to remove chart line for {alert.symbol}: {e}")
+
+    # FIX #9: called by main_window when the chart switches symbol
     @Slot(str)
-    def _on_engine_alert_triggered(self, alert_id: str) -> None:
-        self.alert_triggered.emit(alert_id)
-        self.alert_sound_requested.emit()
+    def sync_chart_lines_for_symbol(self, symbol: str) -> None:
+        """
+        Draw all active alert lines for *symbol* onto the chart.
+        Called whenever the chart changes symbol so lines are always visible.
+        """
+        clm = self._clm()
+        if not clm or not symbol:
+            return
+        active = [a for a in self.store.active() if a.symbol == symbol]
+        for alert in active:
+            try:
+                clm.add_alert_line(
+                    symbol=alert.symbol,
+                    price=alert.target_value,
+                    intent=alert.intent,
+                )
+            except Exception as e:
+                logger.error(f"sync_chart_lines: error for {symbol}: {e}")
+        if active:
+            logger.info(f"Synced {len(active)} alert line(s) for {symbol}")
+
+    # FIX #8: restore chart lines for all active alerts loaded from disk
+    def _restore_chart_lines_on_startup(self) -> None:
+        """Draw chart lines for every active alert persisted to disk."""
+        clm = self._clm()
+        if not clm:
+            logger.warning("_restore_chart_lines_on_startup: chart_lines_manager not ready yet")
+            return
+        active = self.store.active()
+        for alert in active:
+            try:
+                clm.add_alert_line(
+                    symbol=alert.symbol,
+                    price=alert.target_value,
+                    intent=alert.intent,
+                )
+            except Exception as e:
+                logger.error(f"Startup restore: failed for {alert.symbol}: {e}")
+        logger.info(f"Restored chart lines for {len(active)} active alert(s) on startup")
+
+    # ──────────────────────────────────────────────────────────────
+    # WS SUBSCRIPTION  (FIX #7)
+    # ──────────────────────────────────────────────────────────────
+
+    def _ensure_alert_symbol_subscribed(self, symbol: str) -> None:
+        """Subscribe an alert symbol to the live WS feed if not already."""
+        try:
+            p = self.parent()
+            if not p:
+                return
+            imap = getattr(p, 'instrument_map', {})
+            inst = imap.get(symbol)
+            if not inst:
+                return
+            token = inst.get('instrument_token')
+            if not token:
+                return
+            worker = getattr(p, 'market_data_worker', None)
+            if worker and worker.is_connected():
+                worker.add_instruments([token])
+                logger.info(f"Alert subscription: added token {token} for {symbol}")
+        except Exception as e:
+            logger.error(f"Failed to subscribe alert symbol {symbol}: {e}")
+
+    def get_active_alert_tokens(self) -> List[int]:
+        """
+        FIX #7 (was always returning []).
+        Return instrument tokens for all active-alert symbols so they get
+        subscribed to the live WS feed in _on_watchlist_changed.
+        """
+        p = self.parent()
+        if not p:
+            return []
+        imap = getattr(p, 'instrument_map', {})
+        tokens: set = set()
+        for alert in self.store.active():
+            inst = imap.get(alert.symbol)
+            if inst:
+                token = inst.get('instrument_token')
+                if token:
+                    tokens.add(token)
+        return list(tokens)
+
+    # ──────────────────────────────────────────────────────────────
+    # MISC COMPAT
+    # ──────────────────────────────────────────────────────────────
 
     def set_instrument_map(self, instrument_map: Dict[str, Dict]) -> None:
-        """Compatibility API; map is not required by current alert engine."""
-        self._instrument_map = instrument_map
+        """Compatibility shim — instrument_map lives on the main window."""
+        pass   # No-op; we access it via self.parent().instrument_map
 
-    def show_quick_alert_dialog(self, parent=None) -> None:
-        self.show_dialog(parent=parent)
-
-    def show_alert_manager(self, parent=None) -> None:
-        self.show_dialog(parent=parent)
-
-    def get_notification_counts(self) -> tuple[int, int]:
+    def get_notification_counts(self) -> tuple:
         alerts = self.store.all()
-        active = sum(1 for a in alerts if a.status == AlertStatus.ACTIVE.value)
+        active    = sum(1 for a in alerts if a.status == AlertStatus.ACTIVE.value)
         triggered = sum(1 for a in alerts if a.status == AlertStatus.TRIGGERED.value)
         return active, triggered
 
-    def get_active_alert_tokens(self) -> List[int]:
-        # Alerts are symbol-based; token extraction is not available here.
-        return []
+    def _refresh_dialog_if_open(self) -> None:
+        """Refresh the open dialog's tables, if it exists and is visible."""
+        if self._dialog and self._dialog.isVisible():
+            try:
+                self._dialog.refresh_tables()
+            except Exception:
+                pass
 
     def stop_engine(self) -> None:
         self._request_engine_stop.emit()
@@ -695,16 +876,16 @@ class AlertSystemManager(QObject):
         logger.info("AlertSystemManager stopped")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# ALERT MANAGEMENT DIALOG
-# ─────────────────────────────────────────────────────────────────────────────
-
 class AlertManagementDialog(QDialog):
     """Three-tab dialog: Active | Triggered | History."""
 
-    def __init__(self, store: AlertStore, parent=None):
+    def __init__(self, manager: "AlertSystemManager", parent=None):
         super().__init__(parent)
-        self.store = store
+        # FIX #4 / #10: Accept the full manager (not just store) so that
+        # add / delete operations go through chart-line integration.
+        self.manager = manager
+        self.store   = manager.store   # kept for read-only queries
+
         self.setWindowTitle("Alert Manager")
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
@@ -725,8 +906,8 @@ class AlertManagementDialog(QDialog):
         outer.setContentsMargins(0, 0, 0, 0)
         container = QFrame()
         container.setObjectName("alertMgmtContainer")
-        container.mousePressEvent  = self._mouse_press
-        container.mouseMoveEvent   = self._mouse_move
+        container.mousePressEvent   = self._mouse_press
+        container.mouseMoveEvent    = self._mouse_move
         container.mouseReleaseEvent = self._mouse_release
         outer.addWidget(container)
 
@@ -734,7 +915,7 @@ class AlertManagementDialog(QDialog):
         layout.setContentsMargins(12, 8, 12, 12)
         layout.setSpacing(8)
 
-        # Header
+        # Header row
         header = QHBoxLayout()
         title = QLabel("Alerts")
         title.setObjectName("mgmtTitle")
@@ -753,9 +934,12 @@ class AlertManagementDialog(QDialog):
 
         # Tabs
         self.tabs = QTabWidget()
-        self.active_table    = self._make_table(["Symbol", "Condition", "Target", "Intent", "Note", "Created", "Action"])
-        self.triggered_table = self._make_table(["Symbol", "Condition", "Target", "Triggered At", "Note", "Action"])
-        self.history_table   = self._make_table(["Symbol", "Condition", "Target", "Triggered At", "Count", "Note"])
+        self.active_table    = self._make_table(
+            ["Symbol", "Condition", "Target", "Intent", "Note", "Created", "Action"])
+        self.triggered_table = self._make_table(
+            ["Symbol", "Condition", "Target", "Triggered At", "Note", "Action"])
+        self.history_table   = self._make_table(
+            ["Symbol", "Condition", "Target", "Triggered At", "Count", "Note"])
 
         self.tabs.addTab(self.active_table,    "Active")
         self.tabs.addTab(self.triggered_table, "Triggered")
@@ -773,7 +957,7 @@ class AlertManagementDialog(QDialog):
         return t
 
     def refresh_tables(self):
-        alerts = self.store.all()
+        alerts    = self.store.all()
         active    = [a for a in alerts if a.status == AlertStatus.ACTIVE.value]
         triggered = [a for a in alerts if a.status == AlertStatus.TRIGGERED.value]
         history   = [a for a in alerts if a.status in (
@@ -799,6 +983,7 @@ class AlertManagementDialog(QDialog):
 
             del_btn = QPushButton("✕ Delete")
             del_btn.setObjectName("deleteButton")
+            # FIX #5 / #6: route through manager so chart line is also removed
             del_btn.clicked.connect(lambda _, aid=a.id: self._delete_alert(aid))
             t.setCellWidget(row, 6, del_btn)
 
@@ -830,16 +1015,18 @@ class AlertManagementDialog(QDialog):
 
     def _add_new(self):
         dlg = AlertCreationDialog(parent=self)
-        dlg.alert_created.connect(self.store.add)
+        # FIX #5: route through manager.add_alert() so chart line is drawn
+        dlg.alert_created.connect(self.manager.add_alert)
         dlg.alert_created.connect(lambda _: self.refresh_tables())
         dlg.exec()
 
     def _delete_alert(self, alert_id: str):
-        self.store.remove(alert_id)
+        # FIX #6: route through manager.remove_alert() so chart line is removed
+        self.manager.remove_alert(alert_id)
         self.refresh_tables()
 
     def _ack_alert(self, alert_id: str):
-        """Acknowledge a triggered alert — move it to history."""
+        """Acknowledge triggered alert — move it to expired/history."""
         for a in self.store.all():
             if a.id == alert_id:
                 a.status = AlertStatus.EXPIRED.value
@@ -847,15 +1034,14 @@ class AlertManagementDialog(QDialog):
                 break
         self.refresh_tables()
 
-    # Draggable window
+    # ── drag support ──
     def _mouse_press(self, event):
         if event.button() == Qt.LeftButton:
-            self._drag_pos = event.globalPosition().toPoint()
+            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
 
     def _mouse_move(self, event):
-        if self._drag_pos and event.buttons() & Qt.LeftButton:
-            self.move(self.pos() + event.globalPosition().toPoint() - self._drag_pos)
-            self._drag_pos = event.globalPosition().toPoint()
+        if event.buttons() & Qt.LeftButton and self._drag_pos:
+            self.move(event.globalPosition().toPoint() - self._drag_pos)
 
     def _mouse_release(self, event):
         self._drag_pos = None
@@ -863,41 +1049,44 @@ class AlertManagementDialog(QDialog):
     def _apply_styles(self):
         self.setStyleSheet("""
             QFrame#alertMgmtContainer {
-                background-color: #1a1a1a;
+                background-color: #111;
                 border: 1px solid #333;
                 border-radius: 8px;
             }
             QLabel#mgmtTitle { color: #e0e0e0; font-size: 14px; font-weight: bold; }
             QPushButton#addButton {
                 background-color: #006064; color: white; border: none;
-                border-radius: 4px; padding: 5px 12px; font-weight: bold;
+                border-radius: 4px; padding: 4px 10px; font-weight: bold;
             }
             QPushButton#addButton:hover { background-color: #00838f; }
-            QPushButton#deleteButton {
-                background-color: transparent; color: #ef5350;
-                border: none; font-size: 11px;
-            }
-            QPushButton#ackButton {
-                background-color: transparent; color: #26a69a;
-                border: none; font-size: 11px; font-weight: bold;
-            }
             QPushButton#closeButton {
-                background: transparent; color: #666; border: none;
+                background: transparent; color: #666; border: none; font-size: 14px;
             }
             QPushButton#closeButton:hover { color: #ef5350; }
+            QPushButton#deleteButton {
+                background-color: transparent; color: #ff6b6b; border: none;
+            }
+            QPushButton#deleteButton:hover { color: #ef5350; }
+            QPushButton#ackButton {
+                background-color: #1b5e20; color: #a5d6a7; border: none;
+                border-radius: 3px; padding: 2px 6px;
+            }
+            QPushButton#ackButton:hover { background-color: #2e7d32; }
             QTableWidget {
-                background-color: #1e1e1e; color: #d0d0d0;
-                gridline-color: #2a2a2a; border: none;
-                alternate-background-color: #222;
+                background-color: #0d0d0d; color: #ccc;
+                gridline-color: #222; border: none;
             }
+            QTableWidget::item { padding: 3px 6px; }
+            QTableWidget::item:selected { background-color: #1e3a5f; }
             QHeaderView::section {
-                background-color: #252525; color: #888;
-                border: none; padding: 4px; font-size: 11px;
+                background-color: #1a1a1a; color: #888;
+                border: none; font-size: 11px; font-weight: 700;
+                padding: 4px;
             }
-            QTabWidget::pane { border: 1px solid #333; }
+            QTabWidget::pane { border: none; }
             QTabBar::tab {
-                background-color: #252525; color: #888;
-                padding: 6px 16px; border: none;
+                background: #1a1a1a; color: #888;
+                padding: 4px 12px; border: none;
             }
-            QTabBar::tab:selected { background-color: #1a1a1a; color: #e0e0e0; }
+            QTabBar::tab:selected { background: #0d0d0d; color: #e0e0e0; }
         """)

@@ -317,6 +317,11 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         if self.candlestick_chart:
             self.candlestick_chart.symbol_loaded.connect(self._on_chart_symbol_changed)
             self.candlestick_chart.data_request_for_symbol.connect(self._ensure_chart_subscription)
+            # FIX #9: redraw alert lines whenever the chart switches symbol
+            if self.alert_system:
+                self.candlestick_chart.symbol_loaded.connect(
+                    self.alert_system.sync_chart_lines_for_symbol
+                )
 
     @Slot(str)
     def _on_chart_symbol_changed(self, symbol: str):
