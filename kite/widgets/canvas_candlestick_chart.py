@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
                                QStackedWidget, QLabel, QPushButton, QProgressBar,
                                QFrame, QMessageBox, QColorDialog, QDialog,
                                QFormLayout, QSpinBox, QComboBox, QMenu,
+                               QCheckBox, QDoubleSpinBox,
                                QTextEdit, QDialogButtonBox, QApplication)
 from PySide6.QtGui import QFont, QKeySequence, QShortcut, QColor, QAction, QActionGroup
 from PySide6.QtWebEngineWidgets import QWebEngineView
@@ -227,7 +228,10 @@ class DrawingStorage:
                 "up_candle_color": "#26a69a",
                 "down_candle_color": "#ef5350",
                 "up_volume_color": "#26a69a",
-                "down_volume_color": "#ef5350"
+                "down_volume_color": "#ef5350",
+                "watermark_enabled": True,
+                "watermark_color": "#ffffff",
+                "watermark_opacity": 0.08
             }
         except Exception as e:
             logger.error(f"Failed to load global chart settings: {e}")
@@ -239,7 +243,10 @@ class DrawingStorage:
                 "up_candle_color": "#26a69a",
                 "down_candle_color": "#ef5350",
                 "up_volume_color": "#26a69a",
-                "down_volume_color": "#ef5350"
+                "down_volume_color": "#ef5350",
+                "watermark_enabled": True,
+                "watermark_color": "#ffffff",
+                "watermark_opacity": 0.08
             }
 
     def save_last_viewed_symbol(self, symbol: str, interval: str):
@@ -459,7 +466,7 @@ class ChartSettingsDialog(QDialog):
     def __init__(self, current_settings: Dict[str, Any], parent=None):
         super().__init__(parent)
         self.setWindowTitle("Chart Settings")
-        self.setFixedSize(300, 300)
+        self.setFixedSize(340, 380)
         self.current_settings = current_settings
         self.color_buttons: Dict[str, QPushButton] = {}
 
@@ -514,6 +521,28 @@ class ChartSettingsDialog(QDialog):
         layout.addRow("Down Candle Color:", down_color_layout)
         self.color_buttons['down_candle_color'] = self.down_candle_color_button
 
+        self.watermark_enabled_checkbox = QCheckBox("Show center symbol watermark")
+        self.watermark_enabled_checkbox.setChecked(self.current_settings.get("watermark_enabled", True))
+        layout.addRow("Symbol Watermark:", self.watermark_enabled_checkbox)
+
+        watermark_color_layout = QHBoxLayout()
+        self.watermark_color_button = QPushButton("")
+        self.watermark_color_button.setFixedSize(30, 20)
+        self.watermark_color_button.setStyleSheet(
+            f"background-color: {self.current_settings.get('watermark_color', '#ffffff')}; border: 1px solid #555;")
+        self.watermark_color_button.clicked.connect(lambda: self._choose_color('watermark_color'))
+        watermark_color_layout.addWidget(self.watermark_color_button)
+        watermark_color_layout.addStretch()
+        layout.addRow("Watermark Color:", watermark_color_layout)
+        self.color_buttons['watermark_color'] = self.watermark_color_button
+
+        self.watermark_opacity_spinbox = QDoubleSpinBox()
+        self.watermark_opacity_spinbox.setRange(0.0, 1.0)
+        self.watermark_opacity_spinbox.setSingleStep(0.05)
+        self.watermark_opacity_spinbox.setDecimals(2)
+        self.watermark_opacity_spinbox.setValue(self.current_settings.get("watermark_opacity", 0.08))
+        layout.addRow("Watermark Opacity:", self.watermark_opacity_spinbox)
+
         # Apply and Cancel Buttons
         button_layout = QHBoxLayout()
         self.apply_button = QPushButton("Apply")
@@ -538,7 +567,12 @@ class ChartSettingsDialog(QDialog):
             "candle_spacing": self.candle_spacing_spinbox.value(),
             "default_visible_candles": self.default_visible_candles_spinbox.value(),
             "up_candle_color": self.current_settings["up_candle_color"],
-            "down_candle_color": self.current_settings["down_candle_color"]
+            "down_candle_color": self.current_settings["down_candle_color"],
+            "up_volume_color": self.current_settings.get("up_volume_color", self.current_settings["up_candle_color"]),
+            "down_volume_color": self.current_settings.get("down_volume_color", self.current_settings["down_candle_color"]),
+            "watermark_enabled": self.watermark_enabled_checkbox.isChecked(),
+            "watermark_color": self.current_settings.get("watermark_color", "#ffffff"),
+            "watermark_opacity": self.watermark_opacity_spinbox.value()
         }
         self.settings_changed.emit(new_settings)
         self.accept()
@@ -743,6 +777,9 @@ class CandlestickChart(QWidget):
         self._current_down_color: str = self.global_chart_settings["down_candle_color"]
         self._current_volume_up_color: str = self.global_chart_settings.get("up_volume_color", self._current_up_color)
         self._current_volume_down_color: str = self.global_chart_settings.get("down_volume_color", self._current_down_color)
+        self._watermark_enabled: bool = self.global_chart_settings.get("watermark_enabled", True)
+        self._watermark_color: str = self.global_chart_settings.get("watermark_color", "#ffffff")
+        self._watermark_opacity: float = self.global_chart_settings.get("watermark_opacity", 0.08)
 
         # EMA data storage
         self.ema_data = {'ema10': [], 'ema20': [], 'ema50': []}
@@ -1868,7 +1905,9 @@ class CandlestickChart(QWidget):
                                                          self._current_up_color, self._current_down_color,
                                                          self.ema_data, self.current_adr, self.percentage_changes,
                                                          self.current_interval, self.current_symbol,
-                                                         initial_drawings_json)
+                                                         initial_drawings_json,
+                                                         self._watermark_enabled, self._watermark_color,
+                                                         self._watermark_opacity)
             self.chart_view.setHtml(html_content)
             logger.info(f"Chart rendered successfully for {self.current_symbol}")
         except Exception as e:
@@ -1883,7 +1922,10 @@ class CandlestickChart(QWidget):
                                  percentage_changes: Dict[str, float],
                                  current_interval: str,
                                  current_symbol: str,
-                                 initial_drawings_json: str):
+                                 initial_drawings_json: str,
+                                 watermark_enabled: bool,
+                                 watermark_color: str,
+                                 watermark_opacity: float):
         candlestick_json = json.dumps(candlestick_data)
         volume_json = json.dumps(volume_data)
         ema_json = json.dumps(ema_data)
@@ -1891,6 +1933,9 @@ class CandlestickChart(QWidget):
         percentage_changes_json = json.dumps(percentage_changes)
         current_interval_js = json.dumps(current_interval)
         current_symbol_js = json.dumps(current_symbol)
+        watermark_enabled_js = "true" if watermark_enabled else "false"
+        watermark_color_js = json.dumps(watermark_color)
+        watermark_opacity_js = float(max(0.0, min(1.0, watermark_opacity)))
         safe_initial_drawings = json.dumps(
             json.loads(initial_drawings_json)) if isinstance(initial_drawings_json, str) else json.dumps(
             initial_drawings_json)
@@ -1937,7 +1982,8 @@ class CandlestickChart(QWidget):
             class FixedTradingChart {{
                 constructor(canvasId, data, volumeData, initialVisibleCandleCount,
                             initialCandleWidth, initialCandleSpacing, upCandleColor, downCandleColor, upVolumeColor, downVolumeColor,
-                            emaData, initialADR, percentageChanges, currentInterval, currentSymbol, initialDrawingsJson) {{
+                            emaData, initialADR, percentageChanges, currentInterval, currentSymbol, initialDrawingsJson,
+                            watermarkEnabled, watermarkColor, watermarkOpacity) {{
                     this.canvas = document.getElementById(canvasId);
                     this.ctx = this.canvas.getContext('2d');
                     this.data = data || [];
@@ -1980,6 +2026,11 @@ class CandlestickChart(QWidget):
                     this.percentageChanges = percentageChanges || {{}};
                     this.currentInterval = currentInterval || 'day';
                     this.currentSymbol = currentSymbol || '';
+                    this.watermark = {{
+                        enabled: watermarkEnabled !== false,
+                        color: watermarkColor || '#ffffff',
+                        opacity: Number.isFinite(watermarkOpacity) ? Math.max(0, Math.min(1, watermarkOpacity)) : 0.08
+                    }};
                     this.isSliderDragging = false; this.sliderLastX = 0;
                     this.chartBridge = null; this.webChannelInitialized = false;
                     this.isLoadingState = false; this.notificationQueue = [];
@@ -2292,6 +2343,7 @@ class CandlestickChart(QWidget):
                         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
                         this.ctx.fillStyle = this.colors.background;
                         this.ctx.fillRect(0, 0, this.width, this.height);
+                        this.drawSymbolWatermark();
                         
                         if (this.data.length === 0) {{
                             this.ctx.fillStyle = this.colors.text;
@@ -2346,6 +2398,18 @@ class CandlestickChart(QWidget):
                         const price = this.minPrice + (priceStep * i), y = this.priceToY(price);
                         this.ctx.beginPath(); this.ctx.moveTo(this.chartArea.x, y); this.ctx.lineTo(this.chartArea.x + this.chartArea.width, y); this.ctx.stroke();
                     }}
+                }}
+
+                drawSymbolWatermark() {{
+                    if (!this.watermark.enabled || !this.currentSymbol) return;
+                    this.ctx.save();
+                    this.ctx.globalAlpha = this.watermark.opacity;
+                    this.ctx.fillStyle = this.watermark.color;
+                    this.ctx.textAlign = 'center';
+                    this.ctx.textBaseline = 'middle';
+                    this.ctx.font = `700 ${{Math.max(36, Math.round(this.chartArea.width * 0.09))}}px 'Segoe UI', sans-serif`;
+                    this.ctx.fillText(this.currentSymbol, this.chartArea.x + (this.chartArea.width / 2), this.chartArea.y + (this.chartArea.height / 2));
+                    this.ctx.restore();
                 }}
 
                 drawCandlesticks() {{
@@ -3442,6 +3506,9 @@ class CandlestickChart(QWidget):
                         this.colors.downCandle = settings.downCandleColor || this.colors.downCandle; 
                         this.colors.volumeUp = settings.upVolumeColor || this.colors.volumeUp;
                         this.colors.volumeDown = settings.downVolumeColor || this.colors.volumeDown;
+                        if (typeof settings.watermarkEnabled === 'boolean') this.watermark.enabled = settings.watermarkEnabled;
+                        if (settings.watermarkColor) this.watermark.color = settings.watermarkColor;
+                        if (typeof settings.watermarkOpacity === 'number') this.watermark.opacity = Math.max(0, Math.min(1, settings.watermarkOpacity));
                         this.calculateBounds(); 
                         this.draw(); 
                     }} 
@@ -3592,13 +3659,16 @@ class CandlestickChart(QWidget):
             const upCandleColor = '{up_candle_color}', downCandleColor = '{down_candle_color}';
             const upVolumeColor = '{self._current_volume_up_color}', downVolumeColor = '{self._current_volume_down_color}';
             const currentInterval = {current_interval_js}, currentSymbol = {current_symbol_js};
+            const watermarkEnabled = {watermark_enabled_js};
+            const watermarkColor = {watermark_color_js};
+            const watermarkOpacity = {watermark_opacity_js};
             const initialDrawingsJson = `{safe_initial_drawings}`;
             let chartInitialized = false;
 
             function initChart() {{
                 if (chartInitialized) return; chartInitialized = true;
                 try {{
-                    const chart = new FixedTradingChart('mainCanvas', candlestickData, volumeData, window.globalChartSettings.visibleCandleCount, window.globalChartSettings.candleWidth, window.globalChartSettings.candleSpacing, upCandleColor, downCandleColor, upVolumeColor, downVolumeColor, emaData, initialADR, percentageChanges, currentInterval, currentSymbol, initialDrawingsJson);
+                    const chart = new FixedTradingChart('mainCanvas', candlestickData, volumeData, window.globalChartSettings.visibleCandleCount, window.globalChartSettings.candleWidth, window.globalChartSettings.candleSpacing, upCandleColor, downCandleColor, upVolumeColor, downVolumeColor, emaData, initialADR, percentageChanges, currentInterval, currentSymbol, initialDrawingsJson, watermarkEnabled, watermarkColor, watermarkOpacity);
                     window.chart = chart; window.autoScale = () => chart.autoScale();
                     chart.updateGlobalSettings = function(count) {{ window.globalChartSettings.visibleCandleCount = count; }};
                 }} catch (error) {{
@@ -3646,7 +3716,8 @@ class CandlestickChart(QWidget):
         current_settings = {"candle_width": self._current_candle_width,
                             "candle_spacing": self._current_candle_spacing,
                             "default_visible_candles": self.current_visible_candle_count,
-                            "up_candle_color": self._current_up_color, "down_candle_color": self._current_down_color, "up_volume_color": self._current_volume_up_color, "down_volume_color": self._current_volume_down_color}
+                            "up_candle_color": self._current_up_color, "down_candle_color": self._current_down_color, "up_volume_color": self._current_volume_up_color, "down_volume_color": self._current_volume_down_color,
+                            "watermark_enabled": self._watermark_enabled, "watermark_color": self._watermark_color, "watermark_opacity": self._watermark_opacity}
         dialog = ChartSettingsDialog(current_settings, self)
         dialog.settings_changed.connect(self._apply_chart_settings)
         dialog.exec()
@@ -3660,13 +3731,17 @@ class CandlestickChart(QWidget):
         self._current_down_color = new_settings["down_candle_color"]
         self._current_volume_up_color = new_settings.get("up_volume_color", self._current_up_color)
         self._current_volume_down_color = new_settings.get("down_volume_color", self._current_down_color)
+        self._watermark_enabled = new_settings.get("watermark_enabled", self._watermark_enabled)
+        self._watermark_color = new_settings.get("watermark_color", self._watermark_color)
+        self._watermark_opacity = new_settings.get("watermark_opacity", self._watermark_opacity)
         self.drawing_storage.save_global_settings(new_settings)
         if self.chart_view and self.current_state == ChartState.LOADED:
             js_code = f"""
             if (window.chart) {{
                 window.chart.setChartSettings({{
                     candleWidth: {self._current_candle_width}, candleSpacing: {self._current_candle_spacing},
-                    upCandleColor: '{self._current_up_color}', downCandleColor: '{self._current_down_color}', upVolumeColor: '{self._current_volume_up_color}', downVolumeColor: '{self._current_volume_down_color}'
+                    upCandleColor: '{self._current_up_color}', downCandleColor: '{self._current_down_color}', upVolumeColor: '{self._current_volume_up_color}', downVolumeColor: '{self._current_volume_down_color}',
+                    watermarkEnabled: {str(self._watermark_enabled).lower()}, watermarkColor: '{self._watermark_color}', watermarkOpacity: {self._watermark_opacity}
                 }});
                 window.chart.setVisibleCandleCount({self.current_visible_candle_count});
                 window.chart.autoScale();
