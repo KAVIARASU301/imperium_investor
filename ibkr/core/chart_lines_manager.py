@@ -108,13 +108,13 @@ class ChartLinesManager(QObject):
             return False
 
     def _create_horizontal_ray_line(self, price: float, color: str, start_time: float,
-                                    text: str) -> Dict:
+                                    text: str, metadata: Optional[Dict[str, Any]] = None) -> Dict:
         """Create a horizontal ray line structure matching existing format"""
         current_time = datetime.now().timestamp() * 1000  # JavaScript timestamp format
         # Set start time to 10 days ago so text appears fully on chart
         ten_days_ago = (datetime.now().timestamp() - (10 * 24 * 60 * 60)) * 1000
 
-        return {
+        line = {
             "id": current_time + (price * 1000),  # Unique ID
             "type": "horizontal_ray",
             "startTime": ten_days_ago,  # Start 10 days ago
@@ -123,6 +123,9 @@ class ChartLinesManager(QObject):
             "lineWidth": 1,
             "timestamp": current_time
         }
+        if metadata:
+            line.update(metadata)
+        return line
 
     def _create_text_note(self, price: float, start_time: float, text: str,
                           color: str = "#FFFFFF") -> Dict:
@@ -144,39 +147,33 @@ class ChartLinesManager(QObject):
 
     # Alert Line Management
     def add_alert_line(self, symbol: str, price: float, intent: str = "") -> bool:
-        """Add an alert line with text"""
+        """Add an alert line (line only, no text label)."""
         try:
             state = self._load_symbol_drawings(symbol)
-            # We don't use current_time parameter anymore since it's calculated in helper functions
+            drawings = state["drawings"]
 
-            # Create alert text (no intent)
-            alert_text = f"Alert @ {price:.2f}"
+            # Prevent duplicate alert lines for the same price from accumulating.
+            if self._has_existing_alert_drawings(drawings, price):
+                logger.debug(f"Alert line already exists for {symbol} at {price:.2f}; skipping redraw")
+                return True
+            self._remove_existing_alert_drawings(drawings, price)
 
             # Create horizontal ray line (yellow color) - starts 10 days ago
             line = self._create_horizontal_ray_line(
                 price=price,
                 color="#FFD700",  # Yellow
                 start_time=0,  # Not used anymore, calculated inside function
-                text=alert_text
+                text="",
+                metadata={"lineCategory": "alert"}
             )
 
-            # Create text note above the line - starts 10 days ago
-            note = self._create_text_note(
-                price=price,
-                start_time=0,  # Not used anymore, calculated inside function
-                text=alert_text,
-                color="#FFD700"
-            )
-
-            # Add to drawings
+            # Add only the line to drawings (no note text)
             state["drawings"]["horizontal_rays"].append(line)
-            state["drawings"]["notes"].append(note)
 
-            # Save and refresh
             success = self._save_symbol_drawings(symbol, state)
             if success:
                 self._refresh_chart()
-                logger.info(f"Added alert line for {symbol} at {price:.2f} (starts 10 days ago)")
+                logger.info(f"Added alert line for {symbol} at {price:.2f}")
 
             return success
 
@@ -184,30 +181,54 @@ class ChartLinesManager(QObject):
             logger.error(f"Error adding alert line: {e}")
             return False
 
+    def _has_existing_alert_drawings(self, drawings: Dict, price: float) -> bool:
+        """Return True if an alert line already exists for a price."""
+        has_ray = any(
+            ray.get("type") == "horizontal_ray" and
+            abs(ray.get("startPrice", 0) - price) < 0.01 and
+            (ray.get("lineCategory") == "alert" or ray.get("color") == "#FFD700")
+            for ray in drawings.get("horizontal_rays", [])
+        )
+        has_legacy_note = any(
+            note.get("type") == "note" and
+            abs(note.get("price", 0) - price - 0.5) < 0.01 and
+            "Alert @" in note.get("text", "") and
+            note.get("color") == "#FFD700"
+            for note in drawings.get("notes", [])
+        )
+        return has_ray or has_legacy_note
+
+    def _remove_existing_alert_drawings(self, drawings: Dict, price: float) -> None:
+        """Remove existing alert drawings for a price from in-memory drawings."""
+        drawings["horizontal_rays"] = [
+            ray for ray in drawings["horizontal_rays"]
+            if not (
+                ray.get("type") == "horizontal_ray" and
+                abs(ray.get("startPrice", 0) - price) < 0.01 and
+                (ray.get("lineCategory") == "alert" or ray.get("color") == "#FFD700")
+            )
+        ]
+
+        # Remove legacy note-based alert labels, if present
+        drawings["notes"] = [
+            note for note in drawings["notes"]
+            if not (
+                note.get("type") == "note" and
+                abs(note.get("price", 0) - price - 0.5) < 0.01 and
+                "Alert @" in note.get("text", "") and
+                note.get("color") == "#FFD700"
+            )
+        ]
+
     def remove_alert_line(self, symbol: str, price: float) -> bool:
         """Remove alert line by price (with tolerance for floating point comparison)"""
         try:
             state = self._load_symbol_drawings(symbol)
             drawings = state["drawings"]
 
-            # Remove horizontal rays matching the price (yellow alert lines)
             original_ray_count = len(drawings["horizontal_rays"])
-            drawings["horizontal_rays"] = [
-                ray for ray in drawings["horizontal_rays"]
-                if not (ray.get("type") == "horizontal_ray" and
-                        abs(ray.get("startPrice", 0) - price) < 0.01 and
-                        ray.get("color") == "#FFD700")
-            ]
-
-            # Remove corresponding notes
             original_note_count = len(drawings["notes"])
-            drawings["notes"] = [
-                note for note in drawings["notes"]
-                if not (note.get("type") == "note" and
-                        abs(note.get("price", 0) - price - 0.5) < 0.01 and
-                        "Alert @" in note.get("text", "") and
-                        note.get("color") == "#FFD700")
-            ]
+            self._remove_existing_alert_drawings(drawings, price)
 
             removed_items = (original_ray_count - len(drawings["horizontal_rays"])) + \
                             (original_note_count - len(drawings["notes"]))
@@ -229,7 +250,7 @@ class ChartLinesManager(QObject):
     # Position Line Management
     def add_position_line(self, symbol: str, order_type: str, quantity: int,
                           avg_price: float, timestamp: float = None) -> bool:
-        """Add a position line with text showing total position"""
+        """Add or update a position line (line only, no text label)."""
         try:
             state = self._load_symbol_drawings(symbol)
 
@@ -265,9 +286,8 @@ class ChartLinesManager(QObject):
 
                     # Determine final order type and price
                     if total_quantity > 0:
-                        final_order_type = "BUY" if existing_type.upper() == "BUY" else "BUY"
+                        final_order_type = "BUY"
                         if order_type.upper() == "BUY":
-                            final_order_type = "BUY"
                             final_avg_price = avg_price
                         else:
                             final_order_type = existing_type
@@ -292,39 +312,35 @@ class ChartLinesManager(QObject):
                     logger.info(f"Position closed for {symbol}, line removed")
                 return success
 
-            # Determine colors and text based on final order type and total quantity
             if final_order_type.upper() == "BUY":
                 color = "#00FF00"  # Green
-                text = f"Bought {total_quantity} @{final_avg_price:.2f}"
-            else:  # SELL/SHORT
+                normalized_order_type = "BUY"
+            else:
                 color = "#FF0000"  # Red
-                text = f"Shorted {total_quantity} @{final_avg_price:.2f}"
+                normalized_order_type = "SELL"
 
-            # Create horizontal ray line - starts 10 days ago
             line = self._create_horizontal_ray_line(
                 price=final_avg_price,
                 color=color,
-                start_time=0,  # Not used anymore, calculated inside function
-                text=text
+                start_time=0,
+                text="",
+                metadata={
+                    "lineCategory": "position",
+                    "quantity": int(total_quantity),
+                    "orderType": normalized_order_type,
+                    "avgPrice": float(final_avg_price)
+                }
             )
 
-            # Create text note above the line - starts 10 days ago
-            note = self._create_text_note(
-                price=final_avg_price,
-                start_time=0,  # Not used anymore, calculated inside function
-                text=text,
-                color=color
-            )
-
-            # Add to drawings
             state["drawings"]["horizontal_rays"].append(line)
-            state["drawings"]["notes"].append(note)
 
-            # Save and refresh
             success = self._save_symbol_drawings(symbol, state)
             if success:
                 self._refresh_chart()
-                logger.info(f"Updated position line for {symbol}: {text} (total position)")
+                logger.info(
+                    f"Updated position line for {symbol}: {normalized_order_type} "
+                    f"{total_quantity} @ {final_avg_price:.2f}"
+                )
 
             return success
 
@@ -363,24 +379,38 @@ class ChartLinesManager(QObject):
             return False
 
     def _get_existing_position_info(self, drawings: Dict) -> Optional[Dict]:
-        """Extract existing position information from current drawings"""
+        """Extract existing position information from current drawings."""
         try:
-            # Look for existing position lines (green or red horizontal rays)
+            # Prefer metadata stored on position rays (new format).
+            for ray in drawings.get("horizontal_rays", []):
+                if ray.get("type") != "horizontal_ray" or ray.get("lineCategory") != "position":
+                    continue
+
+                quantity = ray.get("quantity")
+                order_type = ray.get("orderType")
+                avg_price = ray.get("avgPrice", ray.get("startPrice"))
+                if quantity is None or not order_type:
+                    continue
+
+                return {
+                    'quantity': int(quantity),
+                    'avg_price': float(avg_price),
+                    'order_type': str(order_type).upper()
+                }
+
+            # Backward-compatible fallback: parse legacy notes.
             for ray in drawings.get("horizontal_rays", []):
                 if (ray.get("type") == "horizontal_ray" and
                         ray.get("color") in ["#00FF00", "#FF0000"]):
 
-                    # Look for corresponding note to extract quantity and price info
                     for note in drawings.get("notes", []):
                         if (note.get("type") == "note" and
                                 note.get("color") == ray.get("color") and
                                 any(keyword in note.get("text", "") for keyword in ["Bought", "Shorted"])):
 
-                            # Parse the text to extract quantity and price
                             text = note.get("text", "")
                             try:
                                 if "Bought" in text:
-                                    # Extract from "Bought 100 @150.25"
                                     parts = text.replace("Bought ", "").split(" @")
                                     quantity = int(parts[0])
                                     price = float(parts[1])
@@ -389,8 +419,7 @@ class ChartLinesManager(QObject):
                                         'avg_price': price,
                                         'order_type': 'BUY'
                                     }
-                                elif "Shorted" in text:
-                                    # Extract from "Shorted 50 @145.50"
+                                if "Shorted" in text:
                                     parts = text.replace("Shorted ", "").split(" @")
                                     quantity = int(parts[0])
                                     price = float(parts[1])
@@ -410,15 +439,16 @@ class ChartLinesManager(QObject):
             return None
 
     def _remove_existing_position_lines(self, drawings: Dict):
-        """Helper to remove existing position lines from drawings"""
-        # Remove position rays (green or red colored, but not yellow alert lines)
+        """Helper to remove existing position lines from drawings."""
         drawings["horizontal_rays"] = [
             ray for ray in drawings["horizontal_rays"]
-            if not (ray.get("type") == "horizontal_ray" and
-                    ray.get("color") in ["#00FF00", "#FF0000"])
+            if not (
+                ray.get("type") == "horizontal_ray" and
+                (ray.get("lineCategory") == "position" or ray.get("color") in ["#00FF00", "#FF0000"])
+            )
         ]
 
-        # Remove position notes (containing "Bought" or "Shorted", but not "Alert @")
+        # Remove legacy position notes if any old state files still contain them.
         drawings["notes"] = [
             note for note in drawings["notes"]
             if not (note.get("type") == "note" and
@@ -539,4 +569,3 @@ class ChartLinesManager(QObject):
 
         except Exception as e:
             logger.error(f"Error during alert cleanup: {e}")
-
