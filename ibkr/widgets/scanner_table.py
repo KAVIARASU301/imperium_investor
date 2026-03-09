@@ -739,7 +739,9 @@ class ScanWorker(QThread):
 
 class ChartinkScannerTable(QWidget):
     """FIXED EOD scanner table with proper row selection and highlighting."""
-    symbol_selected = Signal(str)
+    symbol_selected     = Signal(str)
+    scan_results_changed = Signal()   # emitted when scan completes → triggers re-subscription
+    visible_rows_changed = Signal()   # emitted when scroll changes visible rows
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -747,8 +749,15 @@ class ChartinkScannerTable(QWidget):
         self.scan_thread: ScanWorker = None
         self._symbol_data: Dict[str, Dict] = {}
         self._symbol_to_row: Dict[str, int] = {}
+        self._instrument_map: Dict[str, Dict] = {}
+        self._token_to_symbol: Dict[int, str] = {}
         self._dropdown_scan_indices: List[int] = []
         self._current_symbol_index = 0  # Track current symbol for spacebar navigation
+        self._last_visible_tokens: set = set()  # track to avoid redundant re-subs
+        self._color_theme = {
+            "enable_volume_strength_indicator": False,
+            "tables": {"positive": "#26a69a", "negative": "#ef5350", "neutral": "#a9a9a9", "volume": "#45d4ff"}
+        }
 
         self._setup_ui()
         self._apply_enhanced_styles()
@@ -780,6 +789,9 @@ class ChartinkScannerTable(QWidget):
         # Add focus out event to clear selection (from positions table pattern)
         self.table.focusOutEvent = self._on_table_focus_out
 
+        # Emit visible_rows_changed on scroll so main_window can re-evaluate subscriptions
+        self.table.verticalScrollBar().valueChanged.connect(self._on_scroll_changed)
+
         # ADDED: Setup spacebar shortcut for symbol navigation
         self._setup_keyboard_shortcuts()
 
@@ -789,6 +801,13 @@ class ChartinkScannerTable(QWidget):
         # for context-aware navigation. This method is kept for potential
         # future scanner-specific shortcuts.
         logger.info("Scanner table ready for context-aware navigation")
+
+    def apply_color_theme(self, theme: Dict):
+        self._color_theme = theme or self._color_theme
+        for symbol, row in self._symbol_to_row.items():
+            data = self._symbol_data.get(symbol)
+            if data is not None:
+                self._update_row_data(row, data)
 
     def _next_symbol(self):
         """Navigate to the next symbol in the scanner list."""
@@ -939,14 +958,16 @@ class ChartinkScannerTable(QWidget):
     def _configure_table(self):
         """FIXED table configuration with proper row selection."""
         self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["Symbol", "Price", "Vol", "%Chg"])
+        self.table.setHorizontalHeaderLabels(["Symbol", "Price", "Vol", "%CHG"])
 
         self.table.horizontalHeader().setVisible(True)
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+
+        self.table.setColumnWidth(3, 68)
 
         self.table.verticalHeader().setVisible(False)
 
@@ -954,8 +975,16 @@ class ChartinkScannerTable(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setShowGrid(False)
+        self.table.setShowGrid(True)
         self.table.setAlternatingRowColors(True)
+        self.table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+
+        # TC2000-inspired compact table density
+        self.table.verticalHeader().setDefaultSectionSize(24)
+        header_font = QFont("Segoe UI", 10)
+        header_font.setBold(True)
+        self.table.horizontalHeader().setFont(header_font)
 
         # FIXED: Add focus policy for better behavior (from positions table)
         self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -971,6 +1000,7 @@ class ChartinkScannerTable(QWidget):
             symbol_item = QTableWidgetItem()
             self.table.setItem(row, 0, symbol_item)
         symbol_item.setText(data['symbol'])
+        symbol_item.setToolTip(f"Open chart for {data['symbol']}")
 
         # Price column (EOD closing price)
         price = data.get('price', 0.0)
@@ -978,7 +1008,7 @@ class ChartinkScannerTable(QWidget):
         if not price_item:
             price_item = QTableWidgetItem()
             self.table.setItem(row, 1, price_item)
-        price_item.setText(f"{price:.2f}" if price > 0 else "-")
+        price_item.setText(f"{price:,.2f}" if price > 0 else "-")
 
         # Volume column
         volume = data.get('volume', 0)
@@ -996,7 +1026,20 @@ class ChartinkScannerTable(QWidget):
             volume_text = str(volume)
         else:
             volume_text = "-"
-        volume_item.setText(volume_text)
+        show_volume_strength = bool(self._color_theme.get("enable_volume_strength_indicator", False))
+        if show_volume_strength:
+            if volume >= 5_000_000:
+                strength = "3pt"
+            elif volume >= 1_000_000:
+                strength = "2pt"
+            elif volume >= 250_000:
+                strength = "1pt"
+            else:
+                strength = "0pt"
+            volume_item.setText(f"{strength} {volume_text}")
+        else:
+            volume_item.setText(volume_text)
+        volume_item.setToolTip(f"Reported volume: {volume:,.0f}")
 
         # Change % column
         change_pct = data.get('change_pct', 0.0)
@@ -1004,25 +1047,41 @@ class ChartinkScannerTable(QWidget):
         if not change_pct_item:
             change_pct_item = QTableWidgetItem()
             self.table.setItem(row, 3, change_pct_item)
-        change_pct_item.setText(f"{change_pct:.2f}%" if abs(change_pct) > 0.01 else "-")
+        change_pct_item.setText(f"{change_pct:+.2f}" if abs(change_pct) > 0.01 else "0.00")
 
         # Apply color coding based on change %
-        profit_color = QColor(60, 179, 113)  # Medium Sea Green
-        loss_color = QColor(220, 20, 60)  # Crimson
-        neutral_color = QColor(169, 169, 169)  # DarkGray
+        table_colors = self._color_theme.get("tables", {})
+        directional_colors_enabled = bool(self._color_theme.get("enable_table_directional_colors", False))
+        profit_color = QColor(table_colors.get("positive", "#26a69a"))
+        loss_color = QColor(table_colors.get("negative", "#ef5350"))
+        neutral_color = QColor(table_colors.get("neutral", "#a9a9a9"))
 
-        color = profit_color if change_pct > 0 else (loss_color if change_pct < 0 else neutral_color)
+        color = neutral_color
+        if directional_colors_enabled:
+            color = profit_color if change_pct > 0 else (loss_color if change_pct < 0 else neutral_color)
 
-        # Color the price and change % columns
+        # Color the LTP and change % columns
         price_item.setForeground(color)
         change_pct_item.setForeground(color)
-        volume_item.setForeground(neutral_color)
+        volume_item.setForeground(QColor(table_colors.get("volume", "#45d4ff")))
+
+        # Subtle directional tint in % change cell (keeps selected-row style readable)
+        if directional_colors_enabled and change_pct > 0:
+            change_pct_item.setBackground(QBrush(QColor(18, 55, 34, 140)))
+        elif directional_colors_enabled and change_pct < 0:
+            change_pct_item.setBackground(QBrush(QColor(70, 20, 20, 140)))
+        else:
+            change_pct_item.setBackground(QBrush(QColor(35, 35, 35, 100)))
 
         # Set text alignments
         symbol_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        price_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
-        volume_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
-        change_pct_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
+        price_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        volume_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        change_pct_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        symbol_font = symbol_item.font()
+        symbol_font.setBold(True)
+        symbol_item.setFont(symbol_font)
 
     @Slot(list)
     def _on_scan_complete(self, scan_results: List[Dict]):
@@ -1072,6 +1131,15 @@ class ChartinkScannerTable(QWidget):
 
                 # Reset symbol index when new scan results arrive
                 self._current_symbol_index = 0
+
+        # Build token map so update_data() can push live ticks immediately
+        self._rebuild_token_map()
+
+        # Reset visible-token cache so next subscription call forces a fresh diff
+        self._last_visible_tokens = set()
+
+        # Notify main_window to re-evaluate the subscription universe
+        self.scan_results_changed.emit()
 
         logger.info(f"EOD Scanner table updated with {len(scan_results)} symbols.")
         self.scan_dropdown.setEnabled(True)
@@ -1266,6 +1334,77 @@ class ChartinkScannerTable(QWidget):
         except Exception as e:
             logger.warning(f"Could not get symbol from clicked row {row}: {e}")
 
+    # ─────────────────────────────────────────────────────────────────────
+    # VIEWPORT-AWARE SYMBOL ACCESS  (institutional grade: subscribe only
+    # what the trader can actually see — zero wasted API tokens)
+    # ─────────────────────────────────────────────────────────────────────
+
+    def get_visible_symbols(self, buffer: int = 5) -> List[str]:
+        """
+        Return symbols for rows currently visible in the scroll viewport,
+        plus a small look-ahead buffer above/below for smooth scrolling.
+        Falls back to ALL symbols if viewport geometry is unavailable.
+        """
+        if not self._symbol_data:
+            return []
+
+        vp = self.table.viewport()
+        if vp is None or vp.height() == 0:
+            return list(self._symbol_data.keys())
+
+        top_row    = self.table.rowAt(0)
+        bottom_row = self.table.rowAt(vp.height() - 1)
+
+        # rowAt returns -1 when the table is shorter than the viewport
+        if top_row == -1:
+            top_row = 0
+        if bottom_row == -1:
+            bottom_row = self.table.rowCount() - 1
+
+        # Apply buffer rows for smooth pre-subscribe on scroll
+        first = max(0, top_row - buffer)
+        last  = min(self.table.rowCount() - 1, bottom_row + buffer)
+
+        symbols = []
+        for row in range(first, last + 1):
+            item = self.table.item(row, 0)
+            if item:
+                sym = item.text()
+                if sym and sym in self._symbol_data:
+                    symbols.append(sym)
+        return symbols
+
+    def get_visible_tokens(self) -> List[int]:
+        """
+        Return instrument tokens for VISIBLE rows only.
+        Called by main_window._get_scanner_visible_tokens() to build
+        the subscription universe — never subscribes the full scan result.
+        """
+        tokens = []
+        for sym in self.get_visible_symbols():
+            inst = self._instrument_map.get(sym)
+            if inst:
+                token = inst.get('instrument_token')
+                if token is not None:
+                    try:
+                        tokens.append(int(token))
+                    except (TypeError, ValueError):
+                        pass
+        return tokens
+
+    def _on_scroll_changed(self, _value: int) -> None:
+        """
+        Scroll event: check whether the visible token set actually changed.
+        Only emit visible_rows_changed (→ re-subscription) when it did.
+        Debounces itself: identical token sets don't fire the signal.
+        """
+        new_tokens = set(self.get_visible_tokens())
+        if new_tokens != self._last_visible_tokens:
+            self._last_visible_tokens = new_tokens
+            self.visible_rows_changed.emit()
+
+    # ─────────────────────────────────────────────────────────────────────
+
     def get_current_symbols(self) -> List[str]:
         """Get list of current symbols in the table."""
         return list(self._symbol_data.keys())
@@ -1273,6 +1412,79 @@ class ChartinkScannerTable(QWidget):
     def get_symbol_data(self, symbol: str) -> Optional[Dict]:
         """Get complete data for a specific symbol."""
         return self._symbol_data.get(symbol)
+
+    def set_instrument_map(self, instrument_map: dict) -> None:
+        """Store instrument metadata so scanner symbols can be mapped to tokens."""
+        self._instrument_map = instrument_map
+        self._rebuild_token_map()
+        logger.debug(f"Scanner instrument map set — {len(instrument_map)} instruments")
+
+    def _rebuild_token_map(self) -> None:
+        """Rebuild token -> symbol mapping for current scanner results."""
+        self._token_to_symbol = {}
+        for symbol in self._symbol_data:
+            inst = self._instrument_map.get(symbol)
+            if inst:
+                token = inst.get('instrument_token')
+                if token is not None:
+                    try:
+                        self._token_to_symbol[int(token)] = symbol
+                    except (TypeError, ValueError):
+                        pass
+
+        logger.debug(
+            f"Scanner token map rebuilt — {len(self._token_to_symbol)} of "
+            f"{len(self._symbol_data)} symbols resolved"
+        )
+
+    def update_data(self, ticks: list) -> None:
+        """Apply live tick updates to scanner rows for price, volume and change %."""
+        if not ticks or not self._token_to_symbol:
+            return
+
+        for tick in ticks:
+            try:
+                raw_token = tick.get('instrument_token')
+                if raw_token is None:
+                    continue
+                token = int(raw_token)
+
+                symbol = self._token_to_symbol.get(token)
+                if not symbol or symbol not in self._symbol_data:
+                    continue
+
+                data = self._symbol_data[symbol]
+
+                ltp = tick.get('last_price')
+                if ltp is not None:
+                    data['price'] = float(ltp)
+
+                for vol_field in ('volume_traded', 'volume'):
+                    vol = tick.get(vol_field)
+                    if vol is not None:
+                        try:
+                            v = int(vol)
+                            if v > 0:
+                                data['volume'] = v
+                                break
+                        except (TypeError, ValueError):
+                            pass
+
+                chg = tick.get('change_percent') or tick.get('net_change_percent')
+                if chg is not None:
+                    data['change_pct'] = float(chg)
+                else:
+                    ohlc = tick.get('ohlc') or {}
+                    prev_close = ohlc.get('close', 0.0) if isinstance(ohlc, dict) else 0.0
+                    if prev_close and prev_close > 0 and data.get('price', 0) > 0:
+                        data['change_pct'] = ((data['price'] - prev_close) / prev_close) * 100.0
+
+                row = self._symbol_to_row.get(symbol)
+                if row is not None:
+                    self._update_row_data(row, data)
+
+            except Exception as e:
+                logger.debug(f"Scanner tick error: {e}")
 
     def cleanup(self):
         """Clean up scanner table threads"""
@@ -1360,7 +1572,7 @@ class ChartinkScannerTable(QWidget):
         """FIXED dark theme styling with proper alternate row selection."""
         self.setStyleSheet("""
             QWidget {
-                background-color: #0a0a0a;
+                background-color: #05070b;
                 color: #e0e0e0;
                 font-family: "Segoe UI", Arial, sans-serif;
                 font-size: 13px;
@@ -1368,22 +1580,22 @@ class ChartinkScannerTable(QWidget):
 
             /* Header Container */
             QWidget#headerContainer {
-                background-color: #1a1a1a;
-                border-bottom: 1px solid #303030;
+                background-color: #0b1019;
+                border-bottom: 1px solid #1f2c3f;
                 padding: 5px;
             }
 
             /* Scan Label */
             QLabel#scanLabel {
-                color: #a0c0ff;
+                color: #6ec8ff;
                 font-weight: 600;
                 font-size: 11px;
             }
 
             /* Dropdown */
             QComboBox#minimalDropdown {
-                background-color: #1a1a1a;
-                border: 1px solid #303030;
+                background-color: #0a111b;
+                border: 1px solid #24354d;
                 color: #ffffff;
                 padding: 3px 6px;
                 border-radius: 2px;
@@ -1444,17 +1656,17 @@ class ChartinkScannerTable(QWidget):
 
             /* Settings Button */
             QPushButton#settingsMinimalButton {
-                background-color: #2a2a2a;
-                color: #a0c0ff;
+                background-color: #111b2a;
+                color: #6ec8ff;
                 font-size: 11px;
                 font-weight: 500;
                 border-radius: 3px;
-                border: 1px solid #303030;
+                border: 1px solid #223651;
                 padding: 3px 7px;
             }
             QPushButton#settingsMinimalButton:hover {
-                background-color: #3a3a3a;
-                border-color: #505050;
+                background-color: #16253a;
+                border-color: #365783;
             }
             QPushButton#settingsMinimalButton:pressed {
                 background-color: #1a1a1a;
@@ -1468,11 +1680,11 @@ class ChartinkScannerTable(QWidget):
 
             /* FIXED Table Styling with Proper Alternate Row Selection */
             QTableWidget {
-                background-color: #0a0a0a;
-                border: none;
-                gridline-color: #2a2a2a;
-                selection-background-color: #1e3a5f;
-                alternate-background-color: #0f0f0f;
+                background-color: #03060c;
+                border: 1px solid #1a2536;
+                gridline-color: #162131;
+                selection-background-color: #234b73;
+                alternate-background-color: #070b12;
                 outline: none;
                 show-decoration-selected: 0;
                 font-size: 12px;
@@ -1480,14 +1692,14 @@ class ChartinkScannerTable(QWidget):
             }
 
             QTableWidget::item {
-                padding: 5px 8px;
-                border-bottom: 1px solid #1a1a1a;
+                padding: 3px 8px;
+                border-bottom: 1px solid #101926;
                 background-color: transparent;
                 font-size: 12px;
             }
 
             QTableWidget::item:selected {
-                background-color: #1e3a5f !important;
+                background-color: #234b73 !important;
                 outline: none;
                 border: none;
                 color: #ffffff;
@@ -1516,14 +1728,15 @@ class ChartinkScannerTable(QWidget):
 
             /* Header Styling */
             QHeaderView::section {
-                background-color: #1a1a1a;
-                color: #a0c0ff;
+                background-color: #0b1019;
+                color: #7fd4ff;
                 padding: 3px 10px;
                 border: none;
-                border-bottom: 1px solid #303030;
-                border-right: 1px solid #101010;
+                border-bottom: 1px solid #24344c;
+                border-right: 1px solid #121c2b;
                 font-weight: 600;
                 font-size: 11px;
+                text-transform: uppercase;
             }
             QHeaderView::section:last {
                 border-right: none;
@@ -1534,7 +1747,7 @@ class ChartinkScannerTable(QWidget):
 
             /* Enhanced Scrollbars */
             QScrollBar:vertical {
-                background-color: #0a0a0a;
+                background-color: #05070b;
                 width: 8px;
                 border: none;
                 margin: 0px;
