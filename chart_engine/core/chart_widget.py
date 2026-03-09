@@ -36,6 +36,14 @@ from chart_engine.toolbar.chart_toolbar import ChartToolbar
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_INDICATOR_VISIBILITY = {
+    "ema10": True,
+    "ema20": True,
+    "ema50": True,
+    "ema200": True,
+    "vwap": True,
+}
+
 # ChartState is used internally to manage the stacked-widget visibility.
 from enum import Enum
 
@@ -110,6 +118,7 @@ class CandlestickChart(QWidget):
         self._watermark_font_size       = self.global_chart_settings.get("watermark_font_size", 0)
         self._indicator_scale_labels_enabled = self.global_chart_settings.get("indicator_scale_labels_enabled", False)
         self.current_visible_candle_count = self.global_chart_settings.get("default_visible_candles", 100)
+        self._indicator_visibility = dict(DEFAULT_INDICATOR_VISIBILITY)
 
         self.data_fetcher = DataFetcher(kite_client)
         self.data_cache   = DataCache()
@@ -425,6 +434,12 @@ class CandlestickChart(QWidget):
         saved_state = self.drawing_storage.load_state(self.current_symbol, self.current_interval)
         initial_zoom = saved_state.get("visible_candle_count",
                                        self.current_visible_candle_count)
+        initial_indicator_visibility = {
+            **DEFAULT_INDICATOR_VISIBILITY,
+            **saved_state.get("indicator_visibility", {}),
+        }
+        self._indicator_visibility = initial_indicator_visibility
+        self._apply_indicator_toolbar_state(initial_indicator_visibility)
         drawings_json = json.dumps(saved_state.get("drawings", {}))
 
         cfg = ChartHtmlConfig(
@@ -449,6 +464,7 @@ class CandlestickChart(QWidget):
             watermark_position     = self._watermark_position,
             watermark_font_size    = self._watermark_font_size,
             indicator_scale_labels_enabled = self._indicator_scale_labels_enabled,
+            initial_indicator_visibility = initial_indicator_visibility,
         )
 
         self._render_html(cfg)
@@ -577,7 +593,16 @@ class CandlestickChart(QWidget):
             self._js(f"if(window.chart) window.chart.updateDrawingStyle('{self.current_drawing_color}', {self.current_line_width});")
 
     def _toggle_indicator(self, key: str, visible: bool) -> None:
+        self._indicator_visibility[key] = visible
         self._js(f"if(window.chart) window.chart.setIndicatorVisibility('{key}', {str(visible).lower()});")
+        if self.current_symbol and self.current_state == ChartState.LOADED:
+            state = self.drawing_storage.load_state(self.current_symbol, self.current_interval)
+            state["indicator_visibility"] = {
+                **DEFAULT_INDICATOR_VISIBILITY,
+                **state.get("indicator_visibility", {}),
+                key: visible,
+            }
+            self.drawing_storage.save_state(self.current_symbol, self.current_interval, state)
 
     def _save_drawings(self) -> None:
         if not (self.chart_view and self.current_symbol):
@@ -590,7 +615,8 @@ class CandlestickChart(QWidget):
         self.chart_view.page().runJavaScript(
             "(function(){ if(window.chart) return {"
             "  drawings: window.chart.getAllDrawings(),"
-            "  visible_candle_count: window.chart.getVisibleCandleCount()"
+            "  visible_candle_count: window.chart.getVisibleCandleCount(),"
+            "  indicator_visibility: window.chart.getIndicatorVisibility()"
             "}; return null; })()", _cb
         )
 
@@ -677,9 +703,11 @@ class CandlestickChart(QWidget):
 
     def _change_timeframe(self, interval: str) -> None:
         if interval and interval != self.current_interval:
-            self.current_interval = interval
             if self.current_symbol:
                 self._save_current_state_sync()
+            self.current_interval = interval
+            if self.current_symbol:
+                self.drawing_storage.save_last_viewed_symbol(self.current_symbol, self.current_interval)
                 self._load_chart_data()
 
     def _auto_scale(self) -> None:
@@ -687,6 +715,7 @@ class CandlestickChart(QWidget):
 
     def _force_refresh(self) -> None:
         if self.current_symbol:
+            self._save_current_state_sync()
             self._load_chart_data(force_refresh=True)
 
     def _retry_load(self) -> None:
@@ -750,8 +779,18 @@ class CandlestickChart(QWidget):
         self.chart_view.page().runJavaScript(
             "(function(){ if(!window.chart) return null;"
             "return { drawings: window.chart.getAllDrawings(),"
-            "         visible_candle_count: window.chart.getVisibleCandleCount() }; })()", _cb
+            "         visible_candle_count: window.chart.getVisibleCandleCount(),"
+            "         indicator_visibility: window.chart.getIndicatorVisibility() }; })()", _cb
         )
+
+    def _apply_indicator_toolbar_state(self, visibility: Dict[str, bool]) -> None:
+        for key, action in self.toolbar.indicator_actions.items():
+            target = bool(visibility.get(key, True))
+            if action.isChecked() == target:
+                continue
+            action.blockSignals(True)
+            action.setChecked(target)
+            action.blockSignals(False)
 
     # ── Thread cleanup ────────────────────────────────────────────────────
 

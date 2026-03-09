@@ -41,6 +41,14 @@ _DEFAULT_DRAWINGS: Dict[str, list] = {
     "fibonacci": [],
 }
 
+_DEFAULT_INDICATOR_VISIBILITY: Dict[str, bool] = {
+    "ema10": True,
+    "ema20": True,
+    "ema50": True,
+    "ema200": True,
+    "vwap": True,
+}
+
 
 def _validate_drawings(drawings: Any) -> Dict[str, list]:
     """Ensure the drawings dict is structurally valid."""
@@ -50,6 +58,17 @@ def _validate_drawings(drawings: Any) -> Dict[str, list]:
     for key in _DEFAULT_DRAWINGS:
         val = drawings.get(key, [])
         result[key] = val if isinstance(val, list) else []
+    return result
+
+
+def _validate_indicator_visibility(visibility: Any) -> Dict[str, bool]:
+    """Ensure indicator visibility payload has all known keys and bool values."""
+    result = dict(_DEFAULT_INDICATOR_VISIBILITY)
+    if not isinstance(visibility, dict):
+        return result
+    for key in _DEFAULT_INDICATOR_VISIBILITY:
+        if key in visibility:
+            result[key] = bool(visibility[key])
     return result
 
 
@@ -76,6 +95,9 @@ class DrawingStorage:
             state["drawings"] = _validate_drawings(state["drawings"])
         else:
             state["drawings"] = dict(_DEFAULT_DRAWINGS)
+        state["indicator_visibility"] = _validate_indicator_visibility(
+            state.get("indicator_visibility", {})
+        )
 
         filepath = self._state_path(symbol, interval)
         try:
@@ -100,6 +122,9 @@ class DrawingStorage:
                 return self._default_state()
             state["drawings"] = _validate_drawings(state.get("drawings", {}))
             state.setdefault("visible_candle_count", 100)
+            state["indicator_visibility"] = _validate_indicator_visibility(
+                state.get("indicator_visibility", {})
+            )
             logger.info(
                 "Loaded state for %s (%s) — %d drawings",
                 symbol, interval, self._count_drawings(state["drawings"]),
@@ -110,7 +135,11 @@ class DrawingStorage:
             return self._default_state()
 
     def _default_state(self) -> Dict[str, Any]:
-        return {"drawings": dict(_DEFAULT_DRAWINGS), "visible_candle_count": 100}
+        return {
+            "drawings": dict(_DEFAULT_DRAWINGS),
+            "visible_candle_count": 100,
+            "indicator_visibility": dict(_DEFAULT_INDICATOR_VISIBILITY),
+        }
 
     def _state_path(self, symbol: str, interval: str) -> str:
         safe = symbol.replace("/", "_").replace(":", "_")

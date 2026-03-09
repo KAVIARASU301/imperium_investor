@@ -119,7 +119,8 @@ class FixedTradingChart {
 
         // ── Indicator visibility (toggled from toolbar) ──
         this.indicatorVisibility = {
-            ema10: true, ema20: true, ema50: true, ema200: true, vwap: true
+            ema10: true, ema20: true, ema50: true, ema200: true, vwap: true,
+            ...(cfg.initialIndicatorVisibility || {}),
         };
 
         // ── Computed VWAP ──
@@ -2012,8 +2013,11 @@ class FixedTradingChart {
     }
 
     setIndicatorVisibility(key, visible) {
-        this.indicatorVisibility[key] = visible;
+        this.indicatorVisibility[key] = visible === true;
         this.requestDraw();
+    }
+    getIndicatorVisibility() {
+        return { ...this.indicatorVisibility };
     }
     getAllDrawings()         { return this.drawings; }
     getVisibleCandleCount() { return this.visibleCandleCount; }
