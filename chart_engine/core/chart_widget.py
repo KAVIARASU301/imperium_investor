@@ -292,11 +292,9 @@ class CandlestickChart(QWidget):
     def _wire_toolbar(self) -> None:
         tb = self.toolbar
 
-        # Timeframe — inline buttons replace the old combo
-        for interval, btn in tb._tf_buttons.items():
-            btn.clicked.connect(
-                lambda _checked=False, iv=interval: self._change_timeframe(iv)
-            )
+        # Timeframe dropdown
+        if tb.timeframe_dropdown:
+            tb.timeframe_dropdown.currentIndexChanged.connect(self._on_timeframe_selected)
 
         # Drawing tools
         for tool_id, action in tb._drawing_actions.items():
@@ -311,11 +309,9 @@ class CandlestickChart(QWidget):
         tb.get_clear_action().triggered.connect(self._clear_active_tool)
         tb.measure_btn.toggled.connect(self._toggle_measure_tool)
 
-        # Indicator toggles
-        for key, btn in tb.indicator_buttons.items():
-            btn.toggled.connect(
-                lambda checked, k=key: self._toggle_indicator(k, checked)
-            )
+        # Indicator multi-select dropdown actions
+        for key, action in tb.indicator_actions.items():
+            action.toggled.connect(lambda checked, k=key: self._toggle_indicator(k, checked))
 
         # Action buttons
         tb.color_btn.clicked.connect(self._choose_drawing_color)
@@ -352,6 +348,14 @@ class CandlestickChart(QWidget):
         lay.addWidget(self.error_label)
         lay.addWidget(retry_btn)
         return w
+
+    @Slot(int)
+    def _on_timeframe_selected(self, index: int) -> None:
+        if not self.toolbar.timeframe_dropdown:
+            return
+        interval = self.toolbar.timeframe_dropdown.itemData(index)
+        if interval:
+            self._change_timeframe(interval)
 
     def _setup_shortcuts(self) -> None:
         QShortcut(QKeySequence("Ctrl+A"), self).activated.connect(self._auto_scale)

@@ -10,12 +10,14 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QActionGroup
 from PySide6.QtWidgets import (
     QButtonGroup,
+    QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
     QMenu,
     QPushButton,
     QSizePolicy,
+    QToolButton,
 )
 
 
@@ -76,9 +78,9 @@ class ChartToolbar(QFrame):
         self._drawing_actions: Dict[str, QAction] = {}
         self._tool_button_group: Optional[QButtonGroup] = None
         self._tool_buttons: Dict[str, QPushButton] = {}
-        self._tf_buttons: Dict[str, QPushButton] = {}
-        self._tf_button_group: Optional[QButtonGroup] = None
-        self.indicator_buttons: Dict[str, QPushButton] = {}
+        self.timeframe_dropdown: Optional[QComboBox] = None
+        self.indicator_actions: Dict[str, QAction] = {}
+        self.indicator_menu_button: Optional[QToolButton] = None
         self._drawing_color = "#FFD700"
 
         self._build()
@@ -101,37 +103,45 @@ class ChartToolbar(QFrame):
         layout.addWidget(_vsep())
         layout.addSpacing(2)
 
-        # 2 ── Timeframe strip ───────────────────────────────────────────────
-        self._tf_button_group = QButtonGroup(self)
-        self._tf_button_group.setExclusive(True)
+        # 2 ── Compact timeframe dropdown ────────────────────────────────────
+        self.timeframe_dropdown = QComboBox()
+        self.timeframe_dropdown.setObjectName("timeframeDropdown")
+        self.timeframe_dropdown.setFixedSize(46, 22)
+        self.timeframe_dropdown.setEditable(True)
+        self.timeframe_dropdown.lineEdit().setReadOnly(True)
+        self.timeframe_dropdown.lineEdit().setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.timeframe_dropdown.lineEdit().setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.timeframe_dropdown.lineEdit().setCursor(Qt.CursorShape.ArrowCursor)
+        self.timeframe_dropdown.view().setMinimumWidth(74)
         for display, data in TIMEFRAMES:
-            w = 30 if len(display) <= 2 else 36
-            btn = QPushButton(display)
-            btn.setObjectName("tfButton")
-            btn.setCheckable(True)
-            btn.setFixedSize(w, 22)
-            btn.setToolTip(data)
-            self._tf_buttons[data] = btn
-            self._tf_button_group.addButton(btn)
-            layout.addWidget(btn)
-            if display == "D":
-                btn.setChecked(True)
+            self.timeframe_dropdown.addItem(display, data)
+        self.set_timeframe("day")
+        layout.addWidget(self.timeframe_dropdown)
 
         layout.addSpacing(2)
         layout.addWidget(_vsep())
         layout.addSpacing(2)
 
-        # 3 ── Indicator toggles ─────────────────────────────────────────────
-        for key, label, color in INDICATORS:
-            w = 30 if len(label) <= 3 else 40
-            btn = QPushButton(label)
-            btn.setObjectName(f"indBtn_{key}")
-            btn.setCheckable(True)
-            btn.setChecked(True)
-            btn.setFixedSize(w, 22)
-            btn.setToolTip(f"Toggle {label}")
-            self.indicator_buttons[key] = btn
-            layout.addWidget(btn)
+        # 3 ── Indicator multi-select dropdown ──────────────────────────────
+        indicator_menu = QMenu(self)
+        indicator_menu.setObjectName("indicatorMenu")
+        self.indicator_menu_button = QToolButton()
+        self.indicator_menu_button.setObjectName("indicatorMenuButton")
+        self.indicator_menu_button.setText("IN")
+        self.indicator_menu_button.setToolTip("Indicators")
+        self.indicator_menu_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.indicator_menu_button.setFixedSize(30, 22)
+
+        for key, label, _color in INDICATORS:
+            action = QAction(label, self)
+            action.setCheckable(True)
+            action.setChecked(True)
+            action.setData(key)
+            indicator_menu.addAction(action)
+            self.indicator_actions[key] = action
+
+        self.indicator_menu_button.setMenu(indicator_menu)
+        layout.addWidget(self.indicator_menu_button)
 
         layout.addSpacing(2)
         layout.addWidget(_vsep())
@@ -230,12 +240,17 @@ class ChartToolbar(QFrame):
         self.symbol_label.setText(text)
 
     def set_timeframe(self, interval: str) -> None:
-        btn = self._tf_buttons.get(interval)
-        if btn:
-            btn.setChecked(True)
+        if not self.timeframe_dropdown:
+            return
+        for i in range(self.timeframe_dropdown.count()):
+            if self.timeframe_dropdown.itemData(i) == interval:
+                self.timeframe_dropdown.setCurrentIndex(i)
+                return
 
-    def get_timeframe_button(self, interval: str) -> Optional[QPushButton]:
-        return self._tf_buttons.get(interval)
+    def get_timeframe_value(self) -> Optional[str]:
+        if not self.timeframe_dropdown:
+            return None
+        return self.timeframe_dropdown.currentData()
 
     def get_drawing_action(self, tool_id: str) -> Optional[QAction]:
         return self._drawing_actions.get(tool_id)
@@ -309,23 +324,55 @@ class ChartToolbar(QFrame):
                 border-radius: 3px;
             }
 
-            /* Timeframes */
-            QPushButton#tfButton {
-                background: transparent;
-                color: #4e5a70;
-                border: none;
+            /* Timeframe dropdown */
+            QComboBox#timeframeDropdown {
+                background: rgba(255,255,255,0.03);
+                color: #9db4cf;
+                border: 1px solid #253146;
                 border-radius: 3px;
                 font-size: 10px;
                 font-weight: 700;
+                padding: 0;
             }
-            QPushButton#tfButton:hover {
-                color: #c0cce0;
-                background: rgba(255,255,255,0.05);
+            QComboBox#timeframeDropdown:hover {
+                color: #c0d8ef;
+                border-color: #3a5478;
             }
-            QPushButton#tfButton:checked {
-                color: #4fc3f7;
-                background: rgba(79,195,247,0.1);
-                border: 1px solid rgba(79,195,247,0.25);
+            QComboBox#timeframeDropdown::drop-down {
+                width: 0px;
+                border: none;
+            }
+            QComboBox#timeframeDropdown::down-arrow {
+                image: none;
+                width: 0;
+                height: 0;
+            }
+
+            QMenu#indicatorMenu {
+                background: #141820;
+                color: #c0cad8;
+                border: 1px solid #2a3245;
+                padding: 2px;
+            }
+            QMenu#indicatorMenu::item { padding: 4px 16px; font-size: 11px; }
+            QMenu#indicatorMenu::item:selected { background: #1d3a6e; color: #a8d0ff; }
+            QMenu#indicatorMenu::indicator { width: 12px; height: 12px; }
+
+            QToolButton#indicatorMenuButton {
+                background: rgba(255,255,255,0.03);
+                color: #9db4cf;
+                border: 1px solid #253146;
+                border-radius: 3px;
+                font-size: 10px;
+                font-weight: 800;
+            }
+            QToolButton#indicatorMenuButton:hover {
+                color: #c0d8ef;
+                border-color: #3a5478;
+            }
+            QToolButton#indicatorMenuButton::menu-indicator {
+                image: none;
+                width: 0;
             }
 
             /* Drawing tools + measure */
@@ -394,23 +441,4 @@ class ChartToolbar(QFrame):
             QMenu#drawingMenu::item:selected { background: #1d3a6e; color: #a8d0ff; }
         """)
 
-        # Per-indicator dynamic style (each gets its own accent color)
-        for key, label, color in INDICATORS:
-            btn = self.indicator_buttons.get(key)
-            if not btn:
-                continue
-            btn.setStyleSheet(
-                f"QPushButton{{"
-                f"  color:#2a3245; background:rgba(255,255,255,0.02);"
-                f"  border:1px solid #1c2535; border-radius:3px;"
-                f"  font-size:9px; font-weight:800; letter-spacing:0.4px;"
-                f"}}"
-                f"QPushButton:hover{{"
-                f"  color:{color}; border:1px solid {color}55;"
-                f"  background:{color}10;"
-                f"}}"
-                f"QPushButton:checked{{"
-                f"  color:{color}; border:1px solid {color}60;"
-                f"  background:{color}18;"
-                f"}}"
-            )
+        # Indicator colors are shown within the chart; toolbar uses unified compact style.
