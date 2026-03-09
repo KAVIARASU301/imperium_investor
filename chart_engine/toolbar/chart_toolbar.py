@@ -1,8 +1,8 @@
 # chart_engine/toolbar/chart_toolbar.py
 #
-# The horizontal toolbar that lives above the chart canvas.
-# Contains: symbol info label, compact timeframe selector, drawing tool strip,
-#           measure/color/clear/refresh/settings/order controls.
+# Compact TC2000-style toolbar for swing trading:
+#   Symbol badge | Timeframe strip | ── | Indicator toggles | ── |
+#   Drawing tools | Color · Clear   <stretch>  AutoScale · Refresh · Settings · Order
 
 from typing import Dict, List, Optional, Tuple
 
@@ -10,106 +10,134 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QActionGroup
 from PySide6.QtWidgets import (
     QButtonGroup,
-    QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
     QMenu,
     QPushButton,
+    QSizePolicy,
 )
 
 
-class TimeframeComboBox(QComboBox):
-    """
-    QComboBox that reliably opens its popup on mouse release, preventing the
-    popup from immediately closing on certain platform / style combinations.
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._open_on_release = False
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton and self.isEnabled():
-            self._open_on_release = True
-            event.accept()
-            return
-        super().mousePressEvent(event)
-
-    def mouseReleaseEvent(self, event):
-        if event.button() == Qt.LeftButton and self._open_on_release:
-            self._open_on_release = False
-            if self.rect().contains(event.position().toPoint()):
-                self.showPopup()
-            event.accept()
-            return
-        self._open_on_release = False
-        super().mouseReleaseEvent(event)
-
+# ─── Metadata ────────────────────────────────────────────────────────────────
 
 DRAWING_TOOLS: List[Tuple[str, str, str]] = [
-    ("line", "╱", "Trend Line"),
-    ("horizontal_line", "─", "Horizontal Line"),
-    ("horizontal_ray", "→", "Horizontal Ray"),
-    ("arrow_line", "➤", "Arrow Line"),
-    ("rectangle", "▭", "Rectangle"),
-    ("fibonacci", "ϟ", "Fibonacci Retracement"),
-    ("note", "T", "Text Note"),
+    ("line",             "╱",  "Trend Line"),
+    ("horizontal_line",  "─",  "Horizontal Line"),
+    ("horizontal_ray",   "→",  "Horizontal Ray"),
+    ("rectangle",        "▭",  "Rectangle"),
+    ("fibonacci",        "⌇",  "Fibonacci Retracement"),
+    ("arrow_line",       "↗",  "Arrow"),
+    ("note",             "T",  "Text Note"),
 ]
 
-# Backward-compatible display name lookup for callers importing TOOL_DISPLAY.
-TOOL_DISPLAY: Dict[str, str] = {tool_id: label for tool_id, _icon, label in DRAWING_TOOLS}
+TOOL_DISPLAY: Dict[str, str] = {tid: label for tid, _, label in DRAWING_TOOLS}
 
 TIMEFRAMES: List[Tuple[str, str]] = [
-    ("1m", "minute"),
-    ("3m", "3minute"),
-    ("5m", "5minute"),
+    ("1m",  "minute"),
+    ("3m",  "3minute"),
+    ("5m",  "5minute"),
     ("15m", "15minute"),
     ("30m", "30minute"),
-    ("1h", "60minute"),
-    ("D", "day"),
-    ("W", "week"),
-    ("M", "month"),
+    ("1h",  "60minute"),
+    ("D",   "day"),
+    ("W",   "week"),
+    ("M",   "month"),
 ]
+
+# (key, display_label, accent_color)
+INDICATORS: List[Tuple[str, str, str]] = [
+    ("ema10",  "E10",  "#2962ff"),
+    ("ema20",  "E20",  "#9c27b0"),
+    ("ema50",  "E50",  "#f06204"),
+    ("ema200", "E200", "#e91e63"),
+    ("vwap",   "VWAP", "#ff9e42"),
+]
+
+
+def _vsep() -> QFrame:
+    sep = QFrame()
+    sep.setFrameShape(QFrame.Shape.VLine)
+    sep.setFixedWidth(1)
+    sep.setFixedHeight(16)
+    sep.setStyleSheet("background: #232b3a; border: none;")
+    return sep
 
 
 class ChartToolbar(QFrame):
-    """Self-contained compact toolbar QFrame."""
+    """Compact swing-trading toolbar."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("chartToolbar")
-        self.setMaximumHeight(34)
+        self.setFixedHeight(32)
 
         self._drawing_action_group: Optional[QActionGroup] = None
         self._drawing_actions: Dict[str, QAction] = {}
         self._tool_button_group: Optional[QButtonGroup] = None
         self._tool_buttons: Dict[str, QPushButton] = {}
+        self._tf_buttons: Dict[str, QPushButton] = {}
+        self._tf_button_group: Optional[QButtonGroup] = None
+        self.indicator_buttons: Dict[str, QPushButton] = {}
+        self._drawing_color = "#FFD700"
 
         self._build()
         self._apply_styles()
 
+    # ─────────────────────────────────────────────────────────────────────────
+
     def _build(self) -> None:
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 2, 6, 2)
+        layout.setContentsMargins(8, 0, 8, 0)
         layout.setSpacing(2)
 
+        # 1 ── Symbol badge ──────────────────────────────────────────────────
         self.symbol_label = QLabel("—")
-        self.symbol_label.setObjectName("symbolFullNameLabel")
+        self.symbol_label.setObjectName("symbolBadge")
+        self.symbol_label.setFixedHeight(22)
+        self.symbol_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         layout.addWidget(self.symbol_label)
-        layout.addSpacing(6)
-
-        self.timeframe_combo = TimeframeComboBox()
-        self.timeframe_combo.setObjectName("timeframeDropdown")
-        self.timeframe_combo.setFixedHeight(22)
-        self.timeframe_combo.setMinimumWidth(40)
-        for display, data in TIMEFRAMES:
-            self.timeframe_combo.addItem(display, data)
-        self.timeframe_combo.setCurrentIndex(6)
-        layout.addWidget(self.timeframe_combo)
-
+        layout.addSpacing(4)
+        layout.addWidget(_vsep())
         layout.addSpacing(2)
 
+        # 2 ── Timeframe strip ───────────────────────────────────────────────
+        self._tf_button_group = QButtonGroup(self)
+        self._tf_button_group.setExclusive(True)
+        for display, data in TIMEFRAMES:
+            w = 30 if len(display) <= 2 else 36
+            btn = QPushButton(display)
+            btn.setObjectName("tfButton")
+            btn.setCheckable(True)
+            btn.setFixedSize(w, 22)
+            btn.setToolTip(data)
+            self._tf_buttons[data] = btn
+            self._tf_button_group.addButton(btn)
+            layout.addWidget(btn)
+            if display == "D":
+                btn.setChecked(True)
+
+        layout.addSpacing(2)
+        layout.addWidget(_vsep())
+        layout.addSpacing(2)
+
+        # 3 ── Indicator toggles ─────────────────────────────────────────────
+        for key, label, color in INDICATORS:
+            w = 30 if len(label) <= 3 else 40
+            btn = QPushButton(label)
+            btn.setObjectName(f"indBtn_{key}")
+            btn.setCheckable(True)
+            btn.setChecked(True)
+            btn.setFixedSize(w, 22)
+            btn.setToolTip(f"Toggle {label}")
+            self.indicator_buttons[key] = btn
+            layout.addWidget(btn)
+
+        layout.addSpacing(2)
+        layout.addWidget(_vsep())
+        layout.addSpacing(2)
+
+        # 4 ── Drawing tools ─────────────────────────────────────────────────
         self._tool_button_group = QButtonGroup(self)
         self._tool_button_group.setExclusive(True)
 
@@ -118,66 +146,96 @@ class ChartToolbar(QFrame):
         self._drawing_action_group = QActionGroup(self)
         self._drawing_action_group.setExclusive(True)
 
-        for tool_id, icon_text, label in DRAWING_TOOLS:
+        for tool_id, icon, label in DRAWING_TOOLS:
             action = QAction(label, self)
             action.setCheckable(True)
             self._drawing_action_group.addAction(action)
             self._drawing_actions[tool_id] = action
             draw_menu.addAction(action)
 
-            btn = QPushButton(icon_text)
-            btn.setObjectName("toolIconButton")
+            btn = QPushButton(icon)
+            btn.setObjectName("toolButton")
             btn.setCheckable(True)
-            btn.setFixedSize(22, 22)
+            btn.setFixedSize(24, 22)
             btn.setToolTip(label)
             self._tool_button_group.addButton(btn)
             self._tool_buttons[tool_id] = btn
             layout.addWidget(btn)
 
         draw_menu.addSeparator()
-        self._clear_action = QAction("Clear Selection", self)
+        self._clear_action = QAction("Deselect Tool", self)
         draw_menu.addAction(self._clear_action)
 
-        self.measure_btn = QPushButton("//")
-        self.measure_btn.setObjectName("chartToolButton")
-        self.measure_btn.setFixedSize(22, 22)
+        # Measure
+        self.measure_btn = QPushButton("⤢")
+        self.measure_btn.setObjectName("toolButton")
+        self.measure_btn.setFixedSize(24, 22)
         self.measure_btn.setCheckable(True)
-        self.measure_btn.setToolTip("Measure (price/time)")
+        self.measure_btn.setToolTip("Measure price/time range")
         layout.addWidget(self.measure_btn)
 
-        self.color_btn = QPushButton("🖌")
-        self.color_btn.setObjectName("chartToolButton")
-        self.color_btn.setFixedSize(22, 22)
+        layout.addSpacing(2)
+        layout.addWidget(_vsep())
+        layout.addSpacing(2)
+
+        # 5 ── Style controls ────────────────────────────────────────────────
+        self.color_btn = QPushButton("●")
+        self.color_btn.setObjectName("colorPickerButton")
+        self.color_btn.setFixedSize(24, 22)
         self.color_btn.setToolTip("Drawing color")
+        self._refresh_color_btn()
         layout.addWidget(self.color_btn)
 
         self.clear_drawings_btn = QPushButton("✕")
-        self.clear_drawings_btn.setObjectName("chartToolButton")
-        self.clear_drawings_btn.setFixedSize(22, 22)
+        self.clear_drawings_btn.setObjectName("actionButton")
+        self.clear_drawings_btn.setFixedSize(24, 22)
         self.clear_drawings_btn.setToolTip("Clear all drawings")
         layout.addWidget(self.clear_drawings_btn)
 
+        # stretch
         layout.addStretch()
 
+        # 6 ── Right cluster ──────────────────────────────────────────────────
+        self.autoscale_btn = QPushButton("⊡")
+        self.autoscale_btn.setObjectName("actionButton")
+        self.autoscale_btn.setFixedSize(24, 22)
+        self.autoscale_btn.setToolTip("Auto-scale  Ctrl+A")
+        layout.addWidget(self.autoscale_btn)
+
         self.refresh_btn = QPushButton("⟳")
-        self.refresh_btn.setObjectName("refreshButton")
-        self.refresh_btn.setFixedSize(22, 22)
-        self.refresh_btn.setToolTip("Refresh Data (F5)")
+        self.refresh_btn.setObjectName("actionButton")
+        self.refresh_btn.setFixedSize(24, 22)
+        self.refresh_btn.setToolTip("Refresh data  F5")
         layout.addWidget(self.refresh_btn)
 
         self.settings_btn = QPushButton("⚙")
-        self.settings_btn.setObjectName("chartToolButton")
-        self.settings_btn.setFixedSize(22, 22)
-        self.settings_btn.setToolTip("Chart Settings")
+        self.settings_btn.setObjectName("actionButton")
+        self.settings_btn.setFixedSize(24, 22)
+        self.settings_btn.setToolTip("Chart settings")
         layout.addWidget(self.settings_btn)
 
-        self.order_btn = QPushButton("Order")
+        layout.addSpacing(4)
+
+        self.order_btn = QPushButton("⚡ Order")
         self.order_btn.setObjectName("orderButton")
         self.order_btn.setFixedHeight(22)
+        self.order_btn.setMinimumWidth(64)
         layout.addWidget(self.order_btn)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # PUBLIC API
+    # ─────────────────────────────────────────────────────────────────────────
 
     def set_symbol_text(self, text: str) -> None:
         self.symbol_label.setText(text)
+
+    def set_timeframe(self, interval: str) -> None:
+        btn = self._tf_buttons.get(interval)
+        if btn:
+            btn.setChecked(True)
+
+    def get_timeframe_button(self, interval: str) -> Optional[QPushButton]:
+        return self._tf_buttons.get(interval)
 
     def get_drawing_action(self, tool_id: str) -> Optional[QAction]:
         return self._drawing_actions.get(tool_id)
@@ -209,88 +267,150 @@ class ChartToolbar(QFrame):
         grp = self._drawing_action_group
         if grp:
             grp.setExclusive(False)
-            for action in grp.actions():
-                action.setChecked(False)
+            for a in grp.actions():
+                a.setChecked(False)
             grp.setExclusive(True)
 
-    def set_timeframe(self, interval: str) -> None:
-        for i in range(self.timeframe_combo.count()):
-            if self.timeframe_combo.itemData(i) == interval:
-                self.timeframe_combo.setCurrentIndex(i)
-                return
+    def set_drawing_color(self, color: str) -> None:
+        self._drawing_color = color
+        self._refresh_color_btn()
+
+    def _refresh_color_btn(self) -> None:
+        c = self._drawing_color
+        self.color_btn.setStyleSheet(
+            f"QPushButton#colorPickerButton{{"
+            f"color:{c};background:#0e1118;border:1px solid #252e40;"
+            f"border-radius:3px;font-size:14px;}}"
+            f"QPushButton#colorPickerButton:hover{{border-color:#3a7bd5;}}"
+        )
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # STYLES
+    # ─────────────────────────────────────────────────────────────────────────
 
     def _apply_styles(self) -> None:
         self.setStyleSheet("""
             QFrame#chartToolbar {
-                background-color: #111318;
-                border-bottom: 1px solid #2a2e38;
+                background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
+                    stop:0 #131720, stop:1 #0e1118);
+                border-bottom: 1px solid #1c2230;
             }
 
-            #symbolFullNameLabel {
-                color: #c8cfe0;
+            /* Symbol */
+            QLabel#symbolBadge {
+                color: #4fc3f7;
+                font-family: "Segoe UI", sans-serif;
+                font-size: 13px;
+                font-weight: 800;
+                letter-spacing: 1.4px;
+                padding: 0 8px;
+                background: rgba(79,195,247,0.07);
+                border: 1px solid rgba(79,195,247,0.16);
+                border-radius: 3px;
+            }
+
+            /* Timeframes */
+            QPushButton#tfButton {
+                background: transparent;
+                color: #4e5a70;
+                border: none;
+                border-radius: 3px;
+                font-size: 10px;
+                font-weight: 700;
+            }
+            QPushButton#tfButton:hover {
+                color: #c0cce0;
+                background: rgba(255,255,255,0.05);
+            }
+            QPushButton#tfButton:checked {
+                color: #4fc3f7;
+                background: rgba(79,195,247,0.1);
+                border: 1px solid rgba(79,195,247,0.25);
+            }
+
+            /* Drawing tools + measure */
+            QPushButton#toolButton {
+                background: transparent;
+                color: #4e5a70;
+                border: none;
+                border-radius: 3px;
                 font-size: 12px;
                 font-weight: 700;
-                padding-left: 4px;
+            }
+            QPushButton#toolButton:hover {
+                color: #a0b8d0;
+                background: rgba(255,255,255,0.06);
+            }
+            QPushButton#toolButton:checked {
+                color: #7ec8ff;
+                background: rgba(60,130,220,0.16);
+                border: 1px solid rgba(60,130,220,0.3);
             }
 
-            QComboBox#timeframeDropdown {
-                background-color: #0e1118;
-                color: #d4d9e8;
-                border: 1px solid #2a3040;
-                padding: 0 6px;
+            /* Action buttons (clear, autoscale, refresh, settings) */
+            QPushButton#actionButton {
+                background: transparent;
+                color: #4e5a70;
+                border: none;
                 border-radius: 3px;
-                font-size: 10px;
+                font-size: 13px;
                 font-weight: 700;
-                min-width: 38px;
             }
-            QComboBox#timeframeDropdown:hover {
-                border-color: #3a7bd5;
-                color: #a8c8ff;
+            QPushButton#actionButton:hover {
+                color: #a0b8d0;
+                background: rgba(255,255,255,0.06);
             }
-            QComboBox#timeframeDropdown::drop-down { border: none; width: 10px; }
-            QComboBox QAbstractItemView {
-                background-color: #1a1e28;
-                color: #d4d9e8;
-                border: 1px solid #3a3e50;
-                selection-background-color: #1d4080;
+            QPushButton#actionButton:pressed {
+                color: #7ec8ff;
+                background: rgba(60,130,220,0.12);
             }
 
-            QPushButton#chartToolButton,
-            QPushButton#refreshButton,
-            QPushButton#toolIconButton {
-                background-color: #0e1118;
-                color: #c0c8da;
-                border: 1px solid #282e3a;
-                border-radius: 3px;
-                font-size: 10px;
-                font-weight: 700;
-                padding: 0;
-            }
-            QPushButton#chartToolButton:hover,
-            QPushButton#refreshButton:hover,
-            QPushButton#toolIconButton:hover {
-                border-color: #3a7bd5;
-                color: #a8c8ff;
-            }
-            QPushButton#chartToolButton:checked,
-            QPushButton#toolIconButton:checked {
-                background-color: #0d2d5c;
-                border-color: #2060bb;
-                color: #c0e0ff;
-            }
-
+            /* Order */
             QPushButton#orderButton {
-                background-color: #0d2f17;
-                border: 1px solid #1a5930;
-                color: #8dffc2;
-                padding: 1px 9px;
+                background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
+                    stop:0 #0d3d1c, stop:1 #08260f);
+                border: 1px solid #1a6030;
+                color: #3dffaa;
                 border-radius: 3px;
                 font-size: 10px;
-                font-weight: 700;
+                font-weight: 800;
+                letter-spacing: 0.5px;
             }
             QPushButton#orderButton:hover {
-                background-color: #133d1f;
-                border-color: #22803e;
-                color: #b0ffe0;
+                background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
+                    stop:0 #124a24, stop:1 #0c3218);
+                border-color: #22a050;
+                color: #80ffc8;
             }
+
+            /* Drawing menu */
+            QMenu#drawingMenu {
+                background: #141820;
+                color: #c0cad8;
+                border: 1px solid #2a3245;
+                padding: 2px;
+            }
+            QMenu#drawingMenu::item { padding: 4px 18px; font-size: 11px; }
+            QMenu#drawingMenu::item:selected { background: #1d3a6e; color: #a8d0ff; }
         """)
+
+        # Per-indicator dynamic style (each gets its own accent color)
+        for key, label, color in INDICATORS:
+            btn = self.indicator_buttons.get(key)
+            if not btn:
+                continue
+            btn.setStyleSheet(
+                f"QPushButton{{"
+                f"  color:#2a3245; background:rgba(255,255,255,0.02);"
+                f"  border:1px solid #1c2535; border-radius:3px;"
+                f"  font-size:9px; font-weight:800; letter-spacing:0.4px;"
+                f"}}"
+                f"QPushButton:hover{{"
+                f"  color:{color}; border:1px solid {color}55;"
+                f"  background:{color}10;"
+                f"}}"
+                f"QPushButton:checked{{"
+                f"  color:{color}; border:1px solid {color}60;"
+                f"  background:{color}18;"
+                f"}}"
+            )

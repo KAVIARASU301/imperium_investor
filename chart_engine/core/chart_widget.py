@@ -292,10 +292,11 @@ class CandlestickChart(QWidget):
     def _wire_toolbar(self) -> None:
         tb = self.toolbar
 
-        # Timeframe
-        tb.timeframe_combo.currentIndexChanged.connect(
-            lambda idx: self._change_timeframe(tb.timeframe_combo.itemData(idx))
-        )
+        # Timeframe — inline buttons replace the old combo
+        for interval, btn in tb._tf_buttons.items():
+            btn.clicked.connect(
+                lambda _checked=False, iv=interval: self._change_timeframe(iv)
+            )
 
         # Drawing tools
         for tool_id, action in tb._drawing_actions.items():
@@ -310,11 +311,18 @@ class CandlestickChart(QWidget):
         tb.get_clear_action().triggered.connect(self._clear_active_tool)
         tb.measure_btn.toggled.connect(self._toggle_measure_tool)
 
-        # Buttons
+        # Indicator toggles
+        for key, btn in tb.indicator_buttons.items():
+            btn.toggled.connect(
+                lambda checked, k=key: self._toggle_indicator(k, checked)
+            )
+
+        # Action buttons
         tb.color_btn.clicked.connect(self._choose_drawing_color)
         tb.clear_drawings_btn.clicked.connect(
             lambda: self._js("if(window.chart) window.chart.clearAllDrawings();")
         )
+        tb.autoscale_btn.clicked.connect(self._auto_scale)
         tb.refresh_btn.clicked.connect(self._force_refresh)
         tb.settings_btn.clicked.connect(self._open_settings_dialog)
         tb.order_btn.clicked.connect(self._on_order_btn_clicked)
@@ -494,7 +502,7 @@ class CandlestickChart(QWidget):
             return
 
         self.current_ltp = float(price)
-        self.toolbar.set_symbol_text(f"{self.current_symbol} • ₹{self.current_ltp:.2f}")
+        self.toolbar.set_symbol_text(self.current_symbol)
 
         if self.chart_view and self.current_state == ChartState.LOADED:
             self._js(f"if(window.chart) window.chart.updateLivePrice({price});")
@@ -561,7 +569,11 @@ class CandlestickChart(QWidget):
         color = QColorDialog.getColor(QColor(self.current_drawing_color), self)
         if color.isValid():
             self.current_drawing_color = color.name()
+            self.toolbar.set_drawing_color(self.current_drawing_color)
             self._js(f"if(window.chart) window.chart.updateDrawingStyle('{self.current_drawing_color}', {self.current_line_width});")
+
+    def _toggle_indicator(self, key: str, visible: bool) -> None:
+        self._js(f"if(window.chart) window.chart.setIndicatorVisibility('{key}', {str(visible).lower()});")
 
     def _save_drawings(self) -> None:
         if not (self.chart_view and self.current_symbol):
@@ -690,7 +702,7 @@ class CandlestickChart(QWidget):
             return
         last_close = float(df.iloc[-1]["close"])
         self.current_ltp = last_close
-        self.toolbar.set_symbol_text(f"{self.current_symbol} • ₹{last_close:.2f}")
+        self.toolbar.set_symbol_text(self.current_symbol)
 
     # ── State management ──────────────────────────────────────────────────
 

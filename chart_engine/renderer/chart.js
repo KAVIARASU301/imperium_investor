@@ -114,6 +114,11 @@ class FixedTradingChart {
         };
         this.indicatorScaleLabelsEnabled = cfg.indicatorScaleLabelsEnabled === true;
 
+        // ── Indicator visibility (toggled from toolbar) ──
+        this.indicatorVisibility = {
+            ema10: true, ema20: true, ema50: true, ema200: true, vwap: true
+        };
+
         // ── Computed VWAP ──
         this.vwapData = [];
         this._computeVWAP();
@@ -574,6 +579,7 @@ class FixedTradingChart {
 
         for (const [key, emaList] of Object.entries(this.emaData)) {
             if (!emaList || emaList.length === 0) continue;
+            if (this.indicatorVisibility[key] === false) continue;
             const color = this.colors.ema[key] || '#aaa';
 
             ctx.strokeStyle = color;
@@ -610,6 +616,7 @@ class FixedTradingChart {
 
     _drawVWAP() {
         if (this.vwapData.length === 0 || !this.currentInterval.includes('minute')) return;
+        if (this.indicatorVisibility.vwap === false) return;
         const ctx = this.ctx;
         ctx.strokeStyle = this.colors.vwap;
         ctx.lineWidth   = 1.5;
@@ -1916,6 +1923,11 @@ class FixedTradingChart {
     }
 
     autoScale()             { this.calculateBounds(); this.requestDraw(); this.updateSlider(); }
+
+    setIndicatorVisibility(key, visible) {
+        this.indicatorVisibility[key] = visible;
+        this.requestDraw();
+    }
     getAllDrawings()         { return this.drawings; }
     getVisibleCandleCount() { return this.visibleCandleCount; }
 
