@@ -118,35 +118,58 @@ class PositionManager(QObject):
     @Slot(dict)
     def on_ws_order_update(self, order_dict: dict):
         """
-        Called by KiteTicker's on_order_update callback (via MarketDataWorker).
+        Called by:
+          - KiteTicker on_order_update (live) via MarketDataWorker.order_update
+          - BasePaperTrader.order_update (paper) via integrate_paper_trading
 
-        Kite pushes order postbacks over the same WebSocket channel.
-        Format mirrors the REST /orders response.
+        Both modes use this single pipeline.
         """
         order_id = order_dict.get("order_id") or order_dict.get("id")
         if not order_id:
             return
 
         if order_id in self._confirmed:
-            return  # already handled
+            return  # already handled — idempotent
 
         tracked = self._tracked.get(order_id)
         if not tracked:
-            # Not one of ours — ignore silently
+            # Not one of ours (e.g. GTT, bracket leg) — ignore silently
             return
 
         tracked.ws_confirmed = True
-        status = order_dict.get("status", "").upper()
+        order_status = order_dict.get("status", "").upper()
 
-        logger.info(f"WS order update: {order_id} → {status}")
+        logger.info(f"Order update: {order_id} → {order_status}")
 
-        if status in ("COMPLETE", "FILLED"):
-            self._handle_completion(order_id, order_dict, status)
-        elif status in ("REJECTED", "CANCELLED"):
-            self._handle_failure(order_id, order_dict, status)
-        elif status in ("OPEN", "TRIGGER PENDING"):
-            pass  # still in flight — wait for next update
-        # PENDING / AMO REQ / UPDATE REQ etc — wait
+        if order_status in ("COMPLETE", "FILLED"):
+            self._handle_completion(order_id, order_dict, order_status)
+
+        elif order_status in ("REJECTED", "CANCELLED"):
+            self._handle_failure(order_id, order_dict, order_status)
+
+        elif order_status == "OPEN":
+            # ── PARTIAL FILL DETECTION ──
+            # Kite sends status=OPEN while an order is live in the market.
+            # filled_quantity > 0 means we have a partial fill — alert the trader.
+            filled_qty = int(order_dict.get("filled_quantity") or 0)
+            pending_qty = int(order_dict.get("pending_quantity") or 0)
+
+            if filled_qty > 0 and pending_qty > 0:
+                symbol = order_dict.get("tradingsymbol", "")
+                avg_fill = float(order_dict.get("average_price") or 0)
+                tx_type = order_dict.get("transaction_type", "")
+
+                self.show_notification.emit(
+                    f"⚠ Partial fill: {tx_type} {filled_qty}/{filled_qty + pending_qty} "
+                    f"{symbol} @ ₹{avg_fill:.2f} — {pending_qty} pending",
+                    "warning",
+                )
+                logger.info(
+                    f"[PARTIAL] {symbol}: {filled_qty} filled, {pending_qty} pending @ ₹{avg_fill:.2f}"
+                )
+            # else: OPEN with 0 filled = order just accepted (normal), no notification needed
+
+        # PENDING / TRIGGER PENDING / AMO REQ etc → wait for next update
 
     # ─────────────────────────────────────────────────────────────────────────
     # FALLBACK PATH: REST polling (only when WS not available or timed out)
@@ -257,37 +280,70 @@ class PositionManager(QObject):
             return
         self._confirmed.add(order_id)
 
-        symbol         = order_dict.get("tradingsymbol", "")
-        filled_qty     = int(order_dict.get("filled_quantity")
-                             or order_dict.get("quantity", 0))
-        avg_price      = float(order_dict.get("average_price", 0))
-        tx_type        = order_dict.get("transaction_type", "")
+        symbol = order_dict.get("tradingsymbol", "")
+        filled_qty = int(order_dict.get("filled_quantity") or order_dict.get("quantity", 0))
+        avg_price = float(order_dict.get("average_price") or 0)
+        tx_type = order_dict.get("transaction_type", "").upper()
+
+        # Original tracked order carries our _is_exit_order flag
+        tracked = self._tracked.get(order_id)
+        is_exit = (
+            (tracked and tracked.order_data.get("_is_exit_order"))
+            or tx_type == "SELL"   # fallback: SELL = reducing/closing long
+        )
 
         show_order_completed(symbol, "")
 
-        # Add/update position line on chart
+        # ── Chart line management ──
         if self.main_window and hasattr(self.main_window, "chart_lines_manager"):
-            if filled_qty and avg_price:
-                self.main_window.chart_lines_manager.add_position_line(
-                    symbol=symbol,
-                    order_type=tx_type,
-                    quantity=filled_qty,
-                    avg_price=avg_price,
-                )
+            clm = self.main_window.chart_lines_manager
+
+            if is_exit:
+                # EXIT — remove position line so chart stays clean
+                if filled_qty and avg_price:
+                    clm.remove_position_line(symbol)
+                    logger.info(f"[EXIT COMPLETE] Removed chart line for {symbol}")
+            else:
+                # ENTRY — add / update position line
+                if filled_qty and avg_price:
+                    clm.add_position_line(
+                        symbol=symbol,
+                        order_type=tx_type,
+                        quantity=filled_qty,
+                        avg_price=avg_price,
+                    )
+                    logger.info(
+                        f"[ENTRY COMPLETE] Chart line added: {symbol} "
+                        f"{tx_type} {filled_qty} @ ₹{avg_price:.2f}"
+                    )
 
         # Refresh positions
         self.fetch_positions_from_kite("order_completed")
         del self._tracked[order_id]
-        logger.info(f"✅ Order complete: {order_id} | {tx_type} {filled_qty} {symbol} @ ₹{avg_price}")
+        logger.info(
+            f"✅ Order complete: {order_id} | {tx_type} {filled_qty} {symbol} @ ₹{avg_price:.2f}"
+        )
 
     def _handle_failure(self, order_id: str, order_dict: dict, status: str):
         if order_id in self._confirmed:
             return
         self._confirmed.add(order_id)
 
-        show_order_failed(f"Order {status.lower()}")
+        symbol = order_dict.get("tradingsymbol", "?")
+        reason = (
+            order_dict.get("status_message")
+            or order_dict.get("reject_reason")
+            or "Unknown reason"
+        )
+        tx_type = order_dict.get("transaction_type", "")
+
+        ui_msg = f"{symbol} {status.lower()}: {reason}"
+        show_order_failed(ui_msg)
+
         del self._tracked[order_id]
-        logger.warning(f"⚠️ Order {status}: {order_id}")
+        logger.warning(
+            f"⚠️ Order {status}: {order_id} | {tx_type} {symbol} | Reason: {reason}"
+        )
 
     # ─────────────────────────────────────────────────────────────────────────
     # POSITION FETCH

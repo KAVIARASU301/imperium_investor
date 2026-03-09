@@ -185,25 +185,49 @@ class PaperTradingManager(BasePaperTrader):
 # Integration helpers for SwingTraderWindow
 # ─────────────────────────────────────────────────────────────────────────────
 
-def integrate_paper_trading(swing_trader_window, trader: PaperTradingManager) -> None:
+def integrate_paper_trading(swing_trader_window, trader) -> None:
     """
     Wire paper trading signals into SwingTraderWindow.
-    Call once during SwingTraderWindow.__init__ when in paper mode.
+
+    KEY CHANGE: paper order_update now routes through
+    position_manager.on_ws_order_update — the same pipeline
+    as live WS postbacks. This gives us unified tracking, chart
+    lines, and partial-fill detection in both modes.
     """
     try:
+        # Execution notifications (margin warnings, rejections from RMS)
         trader.execution_notification.connect(
             lambda msg, level: swing_trader_window._show_paper_notification(msg, level)
         )
+
+        # Balance display updates
         trader.balance_update.connect(
             lambda balance: swing_trader_window._update_balance_display(balance)
         )
+
+        # ── UNIFIED ORDER PIPELINE ──
+        # Route paper order postbacks through position_manager.on_ws_order_update
+        # exactly like live WS postbacks come from MarketDataWorker.
+        # _on_paper_order_update is now the FALLBACK for edge cases only.
+        trader.order_update.connect(
+            swing_trader_window.position_manager.on_ws_order_update
+        )
+        # Secondary hook: catches anything position_manager doesn't (e.g. untracked orders)
         trader.order_update.connect(
             lambda order: swing_trader_window._on_paper_order_update(order)
         )
+
+        # PnL display updates
         trader.daily_pnl_update.connect(
             lambda pnl: swing_trader_window._on_daily_pnl_update(pnl)
         )
-        logger.info("KitePaperTradingManager integrated successfully")
+
+        # Mark WS as "available" so position_manager uses its normal completion path
+        # (paper trader emits synchronously, so there's no 60s WS timeout needed)
+        swing_trader_window.position_manager.on_ws_connected()
+
+        logger.info("KitePaperTradingManager integrated — unified order pipeline active")
+
     except Exception as e:
         logger.error(f"Failed to integrate paper trading: {e}")
 
@@ -211,7 +235,15 @@ def integrate_paper_trading(swing_trader_window, trader: PaperTradingManager) ->
 class PaperTradingMixin:
     """
     Mixin for SwingTraderWindow — handles paper trading UI callbacks.
-    Keeps the main window clean of paper-trading-specific branching.
+
+    _on_paper_order_update is now a SAFETY NET for orders that slipped
+    through position_manager tracking (e.g. placed before tracking started,
+    or duplicate signal delivery). The primary path is:
+
+        paper_trader.order_update → position_manager.on_ws_order_update
+
+    This mirrors exactly how live orders work:
+        kite_ticker.on_order_update → market_data_worker.order_update → position_manager.on_ws_order_update
     """
 
     def _show_paper_notification(self, message: str, level: str) -> None:
@@ -225,17 +257,40 @@ class PaperTradingMixin:
         if hasattr(self, "header_toolbar") and hasattr(self.header_toolbar, "update_balance"):
             self.header_toolbar.update_balance(balance)
 
-    def _on_paper_order_update(self, order_data: Dict) -> None:
+    def _on_paper_order_update(self, order_data: dict) -> None:
+        """
+        Safety-net callback for paper order updates.
+
+        Only acts on orders NOT already handled by position_manager
+        (position_manager sets order_id in self._confirmed once handled).
+        Typical use-case: RMS-level rejections or orders placed outside
+        the normal dialog flow.
+        """
         try:
-            status = order_data.get("status", "")
-            if status == "COMPLETE":
-                if hasattr(self, "position_manager") and self.position_manager:
-                    self.position_manager.fetch_positions_from_kite("paper_order_update")
-            elif status == "REJECTED":
-                from kite.widgets.status_bar import show_error
-                show_error(f"Paper order rejected: {order_data.get('status_message', '')}")
+            order_id = order_data.get("order_id") or order_data.get("id", "")
+            pm = getattr(self, "position_manager", None)
+
+            # If position_manager already confirmed this order, nothing to do.
+            if pm and order_id in getattr(pm, "_confirmed", set()):
+                return
+
+            order_status = order_data.get("status", "")
+
+            if order_status == "REJECTED":
+                # Untracked rejection — show prominently
+                reason = order_data.get("status_message") or order_data.get("reject_reason", "Unknown reason")
+                symbol = order_data.get("tradingsymbol", "?")
+                from kite.widgets.status_bar import show_order_rejected
+                show_order_rejected(f"[PAPER] {symbol} rejected — {reason}")
+                logger.warning(f"[PAPER] Untracked rejection: {symbol} — {reason}")
+
+            elif order_status == "COMPLETE" and pm:
+                # Fallback: if somehow missed by position_manager, refresh positions
+                logger.debug(f"[PAPER] Fallback complete for order {order_id} — refreshing positions")
+                pm.fetch_positions_from_kite("paper_fallback_complete")
+
         except Exception as e:
-            logger.error(f"Error handling paper order update: {e}")
+            logger.error(f"[PAPER] Error in safety-net order update handler: {e}")
 
     def _on_daily_pnl_update(self, pnl: float) -> None:
         if hasattr(self, "header_toolbar") and hasattr(self.header_toolbar, "update_pnl"):

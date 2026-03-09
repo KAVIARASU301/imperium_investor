@@ -893,7 +893,7 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
     @Slot(str)
     def _handle_exit_position_request(self, symbol: str):
-        """Handle position exit request - simplified"""
+        """Handle position exit request from positions table."""
         position = self.positions_table.get_position_by_symbol(symbol)
         if not position:
             show_error(f"Position not found: {symbol}")
@@ -908,48 +908,118 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             "quantity": abs(position.quantity),
             "order_type": "MARKET",
             "product": position.product,
-            "ltp": ltp
+            "ltp": ltp,
         }
 
         instrument = self.instrument_map.get(symbol, {})
         dialog = OrderDialog(self, symbol, ltp, exit_order, instrument=instrument)
-        dialog.order_placed.connect(self._handle_order_placement)
+        dialog.order_placed.connect(self._handle_exit_order_placement)
         dialog.show()
 
     def _handle_order_placement(self, order_data: Dict[str, Any]):
-        """CLEAN order placement handler - sounds via status bar only"""
+        """
+        Entry order placement handler.
+        Called via OrderDialog.order_placed signal for BUY (and short-SELL) entries.
+
+        Flow:
+          1. Validate
+          2. Submit to broker (live or paper)
+          3. On success → status bar + start tracking
+          4. On failure → status bar with reason (no popup)
+        """
         try:
-            logger.info(f"Placing order: {order_data}")
+            logger.info(f"[ENTRY] Placing order: {order_data}")
 
             if not self._validate_order_data(order_data):
-                show_error("Order validation failed")  # Sound plays automatically
+                show_error("Order validation failed — check qty/price")
                 return
 
-            symbol = order_data.get('tradingsymbol', '')
+            symbol = order_data.get("tradingsymbol", "")
+            tx_type = order_data.get("transaction_type", "BUY")
+            qty = order_data.get("quantity", 0)
+            status.set_message(
+                f"Submitting {tx_type} {qty} {symbol}…", 3000, level="action"
+            )
 
-            # ONLY status call - sound plays automatically
-            show_order_placed(symbol)
-
-            if hasattr(self.trader, 'place_order'):
-                order_id = self.trader.place_order(**order_data)
-            else:
-                logger.error("No order placement method available")
-                show_error("Order placement system offline")  # Sound plays automatically
-                return
+            order_id = self.trader.place_order(**order_data)
 
             if order_id:
-                order_data['order_id'] = order_id
-                order_data['status'] = 'PENDING'
+                order_data["order_id"] = order_id
+                order_data["status"] = "PENDING"
+
+                show_order_placed(symbol)
                 self.position_manager.start_tracking_order(order_id, order_data)
                 self._log_order_placement_immediate(order_data, order_id)
-                logger.info(f"Order placed and tracking started: {order_id}")
+                logger.info(f"[ENTRY] Order accepted by broker: {order_id}")
             else:
-                show_order_failed("No order ID returned")  # Sound plays automatically
+                show_order_failed(f"{symbol} — no order ID returned (possible rejection)")
+                logger.warning(f"[ENTRY] Broker returned no order_id for {symbol}")
 
         except Exception as e:
-            error_msg = f"Order placement failed: {str(e)}"
-            logger.error(error_msg, exc_info=True)
-            show_order_failed(str(e))
+            raw = str(e)
+            if "margin" in raw.lower():
+                ui_msg = f"{order_data.get('tradingsymbol', '?')} — Insufficient margin"
+            elif "circuit" in raw.lower():
+                ui_msg = f"{order_data.get('tradingsymbol', '?')} — Price circuit limit"
+            elif "quantity" in raw.lower():
+                ui_msg = f"{order_data.get('tradingsymbol', '?')} — Invalid quantity"
+            else:
+                ui_msg = f"Order failed: {raw[:80]}"
+
+            show_order_failed(ui_msg)
+            logger.error(f"[ENTRY] Order placement exception: {e}", exc_info=True)
+
+    def _handle_exit_order_placement(self, order_data: Dict[str, Any]):
+        """
+        Exit / position-close handler.
+        Functionally identical to entry but:
+          - Uses exit-specific status messages
+          - On COMPLETE: position line removed from chart (not added)
+          - Logged with [EXIT] prefix for easy filtering
+
+        Called via OrderDialog.order_placed signal for exit dialogs.
+        """
+        try:
+            logger.info(f"[EXIT] Closing position: {order_data}")
+
+            if not self._validate_order_data(order_data):
+                show_error("Exit validation failed — check qty/price")
+                return
+
+            symbol = order_data.get("tradingsymbol", "")
+            tx_type = order_data.get("transaction_type", "SELL")
+            qty = order_data.get("quantity", 0)
+
+            status.set_message(
+                f"Submitting exit {tx_type} {qty} {symbol}…", 3000, level="action"
+            )
+
+            order_id = self.trader.place_order(**order_data)
+
+            if order_id:
+                order_data["order_id"] = order_id
+                order_data["status"] = "PENDING"
+                order_data["_is_exit_order"] = True
+
+                show_order_placed(f"{symbol} (exit)")
+                self.position_manager.start_tracking_order(order_id, order_data)
+                self._log_order_placement_immediate(order_data, order_id)
+                logger.info(f"[EXIT] Exit order accepted: {order_id}")
+            else:
+                show_order_failed(f"{symbol} exit — no order ID returned")
+                logger.warning(f"[EXIT] Broker returned no order_id for exit {symbol}")
+
+        except Exception as e:
+            raw = str(e)
+            if "margin" in raw.lower():
+                ui_msg = f"{order_data.get('tradingsymbol', '?')} exit — Margin error"
+            elif "quantity" in raw.lower():
+                ui_msg = f"{order_data.get('tradingsymbol', '?')} exit — Invalid quantity"
+            else:
+                ui_msg = f"Exit failed: {raw[:80]}"
+
+            show_order_failed(ui_msg)
+            logger.error(f"[EXIT] Exit placement exception: {e}", exc_info=True)
 
     def _log_order_placement_immediate(self, order_data: Dict[str, Any], order_id: str):
         """
