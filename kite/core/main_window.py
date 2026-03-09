@@ -414,6 +414,7 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         # Scanner & Watchlist → Chart
         self.chartink_scanner.symbol_selected.connect(self.candlestick_chart.on_search)
+        self.chartink_scanner.symbol_selected.connect(self._on_scanner_symbol_selected)
         self.watchlist.symbol_selected.connect(self.candlestick_chart.on_search)
         self.watchlist.subscribe_tokens_requested.connect(self._subscribe_to_tokens)
         self.watchlist.place_order_requested.connect(self._show_order_dialog_from_dict)
@@ -577,6 +578,13 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         except Exception as e:
             logger.error(f"Error processing market data: {e}")
+
+    @Slot(str)
+    def _on_scanner_symbol_selected(self, symbol: str):
+        """Ensure scanner-selected symbols are subscribed immediately."""
+        token = self.instrument_map.get(symbol, {}).get('instrument_token')
+        if token:
+            self._subscribe_to_tokens([token])
 
     def _filter_ticks_by_exchange_preference(self, ticks: List[Dict]) -> List[Dict]:
         """Filter ticks to prefer NSE over BSE for same symbols"""
@@ -755,14 +763,33 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         all_tokens.update(watchlist_tokens)
         logger.info(f"Added {len(watchlist_tokens)} watchlist tokens")
 
-        # Priority 4: Alert tokens
+        # Priority 4: Scanner-visible symbols
+        scanner_tokens = self._get_scanner_visible_tokens()
+        all_tokens.update(scanner_tokens)
+        logger.info(f"Added {len(scanner_tokens)} scanner tokens")
+
+        # Priority 5: Alert tokens
         alert_tokens = self._get_alert_tokens()
         all_tokens.update(alert_tokens)
 
-        # Subscribe to all tokens
-        if self.market_data_worker and all_tokens:
+        # Subscribe to all tokens (or clear when empty)
+        if self.market_data_worker:
             self.market_data_worker.set_instruments(list(all_tokens))
-            logger.info(f"Updated subscription to {len(all_tokens)} tokens")
+            self._subscribed_tokens = set(all_tokens)
+            logger.info(f"Updated subscription universe to {len(all_tokens)} tokens")
+
+    def _get_scanner_visible_tokens(self) -> List[int]:
+        """Return instrument tokens for symbols currently visible in scanner table."""
+        if not hasattr(self, 'chartink_scanner') or not hasattr(self, 'instrument_map'):
+            return []
+
+        symbols = self.chartink_scanner.get_current_symbols()
+        tokens = []
+        for symbol in symbols:
+            token = self.instrument_map.get(symbol, {}).get('instrument_token')
+            if token:
+                tokens.append(token)
+        return tokens
 
     @Slot(list)
     def _subscribe_to_tokens(self, tokens: List[int]):

@@ -46,6 +46,7 @@ class PositionsTable(QWidget):
         self.positions_data = {}  # symbol -> SimplePosition
         self.symbol_to_row = {}  # symbol -> row_number
         self.is_market_data_subscribed = False
+        self._subscribed_position_tokens = set()
         self._color_theme = {
             "enable_table_directional_colors": False,
             "tables": {"positive": "#26a69a", "negative": "#ef5350", "neutral": "#a9a9a9"}
@@ -218,13 +219,24 @@ class PositionsTable(QWidget):
         self.exit_position_requested.emit(symbol)
 
     def _subscribe_to_market_data_once(self, positions_list: List[Position]):
-        """Subscribe to market data ONCE for all position tokens"""
-        if not self.is_market_data_subscribed and positions_list:
-            tokens = [pos.token for pos in positions_list if pos.token > 0]
-            if tokens:
-                self.subscribe_to_market_data.emit(tokens)
-                self.is_market_data_subscribed = True
-                logger.info(f"📡 Subscribed to market data for {len(tokens)} tokens")
+        """Subscribe to market data for new/changed position tokens."""
+        current_tokens = {pos.token for pos in positions_list if pos.token > 0}
+
+        if not current_tokens:
+            self.is_market_data_subscribed = False
+            self._subscribed_position_tokens.clear()
+            return
+
+        new_tokens = list(current_tokens - self._subscribed_position_tokens)
+        if new_tokens:
+            self.subscribe_to_market_data.emit(new_tokens)
+            self._subscribed_position_tokens.update(new_tokens)
+            self.is_market_data_subscribed = True
+            logger.info(f"📡 Subscribed to market data for {len(new_tokens)} new position tokens")
+
+        stale_tokens = self._subscribed_position_tokens - current_tokens
+        if stale_tokens:
+            self._subscribed_position_tokens = set(current_tokens)
 
     # ===========================================================================
     # LOCAL PNL CALCULATION: UPDATE ONLY AFFECTED ROWS
@@ -398,6 +410,7 @@ class PositionsTable(QWidget):
         self.symbol_to_row.clear()
         self.table.setRowCount(0)
         self.is_market_data_subscribed = False
+        self._subscribed_position_tokens.clear()
         self._color_theme = {
             "enable_table_directional_colors": False,
             "tables": {"positive": "#26a69a", "negative": "#ef5350", "neutral": "#a9a9a9"}
