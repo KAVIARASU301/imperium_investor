@@ -25,9 +25,11 @@ logger = logging.getLogger(__name__)
 # ─── Date range config per interval ───────────────────────────────────────────
 # How many calendar days back to fetch for each timeframe.
 _DAYS_BACK: Dict[str, int] = {
-    "day": 365,
-    "week": 1095,
-    "month": 3650,
+    # Daily charts are commonly used for multi-year backtests, so request a
+    # much deeper window than the default 1-year lookback.
+    "day": 2000,  # ~25 years
+    "week": 2000,
+    "month": 2000,
     "60minute": 90,
     "30minute": 60,
     "15minute": 45,
