@@ -883,7 +883,7 @@ class ChartinkScannerTable(QWidget):
     def _configure_table(self):
         """FIXED table configuration with proper row selection."""
         self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["Symbol", "Price", "Volume", "%CHG"])
+        self.table.setHorizontalHeaderLabels(["Symbol", "Price", "Vol", "%CHG"])
 
         self.table.horizontalHeader().setVisible(True)
         header = self.table.horizontalHeader()
