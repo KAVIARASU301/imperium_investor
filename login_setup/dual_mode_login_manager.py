@@ -285,6 +285,8 @@ class DualModeLoginManager(QDialog):
             self._active_kite_session = session
             self._active_kite_creds = creds
             self.auto_login_status.setText("Active Kite session found.")
+            self.session_hint_label.setText("✅ Active session found.")
+            self.cancel_active_session_btn.setVisible(True)
 
         self.stacked_widget.setCurrentIndex(1)
 
@@ -308,9 +310,12 @@ class DualModeLoginManager(QDialog):
         self.session_hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         if self._active_kite_session:
-            self.session_hint_label.setText(
-                "✅ Active Kite session found. Select Kite or IBKR to continue."
-            )
+            self.session_hint_label.setText("✅ Active session found.")
+
+        self.cancel_active_session_btn = QPushButton("Cancel active session")
+        self.cancel_active_session_btn.setObjectName("subtleActionButton")
+        self.cancel_active_session_btn.clicked.connect(self._clear_active_kite_session)
+        self.cancel_active_session_btn.setVisible(bool(self._active_kite_session))
 
         broker_layout = QHBoxLayout()
         broker_layout.setSpacing(10)
@@ -331,6 +336,7 @@ class DualModeLoginManager(QDialog):
 
         layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.session_hint_label)
+        layout.addWidget(self.cancel_active_session_btn, alignment=Qt.AlignmentFlag.AlignCenter)
         layout.addLayout(broker_layout)
         layout.addWidget(mode_frame)
         layout.addStretch()
@@ -412,41 +418,12 @@ class DualModeLoginManager(QDialog):
 
         if self.selected_broker == BrokerMode.INDIA:
             if self._active_kite_session and self._active_kite_creds:
-                choice = self._prompt_kite_session_choice()
-                if choice == "use_active" and self._use_active_kite_session():
-                    return
-                if choice == "relogin":
-                    self._clear_active_kite_session()
-                else:
+                if self._use_active_kite_session():
                     return
             self._prefill_kite_credentials()
             self.stacked_widget.setCurrentIndex(2)
         else:
             self.stacked_widget.setCurrentIndex(4)
-
-    def _prompt_kite_session_choice(self) -> str:
-        """Ask user whether to continue with active session or login again."""
-        msg = QMessageBox(self)
-        msg.setIcon(QMessageBox.Icon.Question)
-        msg.setWindowTitle("Active Kite Session")
-        msg.setText("An active Kite session was found.")
-        msg.setInformativeText(
-            "You can continue instantly using it, or cancel this session and login again "
-            "with same or different API keys."
-        )
-
-        use_active_btn = msg.addButton("Use Active Session", QMessageBox.ButtonRole.AcceptRole)
-        relogin_btn = msg.addButton("Re-login", QMessageBox.ButtonRole.DestructiveRole)
-        msg.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
-
-        msg.exec()
-        clicked = msg.clickedButton()
-
-        if clicked == use_active_btn:
-            return "use_active"
-        if clicked == relogin_btn:
-            return "relogin"
-        return "cancel"
 
     def _clear_active_kite_session(self):
         """Clear persisted active Kite session so user can generate a fresh login."""
@@ -454,6 +431,7 @@ class DualModeLoginManager(QDialog):
         self._active_kite_session = None
         self._active_kite_creds = None
         self.session_hint_label.setText("ℹ️ Previous Kite session cleared. Login again to continue.")
+        self.cancel_active_session_btn.setVisible(False)
         self.auto_login_status.setText("No active Kite session.")
 
     def _use_active_kite_session(self) -> bool:
@@ -862,6 +840,15 @@ class DualModeLoginManager(QDialog):
                 min-height: 32px;
             }
             #secondaryButton:hover { color: #e5edf8; border-color: #4f6078; }
+            #subtleActionButton {
+                background: transparent;
+                border: none;
+                color: #7f8fa5;
+                font-size: 11px;
+                text-decoration: underline;
+                padding: 2px;
+            }
+            #subtleActionButton:hover { color: #a2b2c9; }
             #brokerCard {
                 background: #0d121a;
                 border: 1px solid #1f2733;
