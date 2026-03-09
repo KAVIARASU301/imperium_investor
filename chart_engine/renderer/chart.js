@@ -100,11 +100,14 @@ class FixedTradingChart {
         this.drawings = this._initDrawings(cfg.initialDrawingsJson);
         this.currentTool = null;
         this.isDrawing = false;
+        this.isDragMovingDrawing = false;
         this.startPoint = null;
         this.endPoint   = null;
         this.drawingColor  = '#FFD700';
         this.lineWidth     = 1.5;
         this.selectedDrawingId = null;
+        this.dragDrawingRef = null;
+        this.dragLastPoint = null;
         this.activeContextMenu = null;
 
         // ── Watermark ──
@@ -1299,6 +1302,18 @@ class FixedTradingChart {
     _onMouseMove(e) {
         const pos = this._mousePos(e);
 
+        // ── Drag selected drawing ──
+        if (this.isDragMovingDrawing && this.dragDrawingRef && this.dragLastPoint) {
+            const dx = pos.x - this.dragLastPoint.x;
+            const dy = pos.y - this.dragLastPoint.y;
+            if (dx !== 0 || dy !== 0) {
+                this._shiftDrawing(this.dragDrawingRef, dx, dy);
+                this.dragLastPoint = pos;
+                this.requestDraw();
+            }
+            return;
+        }
+
         // ── Panning ──
         if (this.isDragging) {
             const dx    = pos.x - this.lastMouseX;
@@ -1336,7 +1351,8 @@ class FixedTradingChart {
             const isInPricePane = pos.y >= this.chartArea.y && pos.y <= this.chartArea.y + this.chartArea.height;
             this.crosshairY = isInPricePane ? this._snapCrosshairY(pos.y, candleIndex) : pos.y;
             this._updateCandleDetail(pos.x);
-            this.canvas.style.cursor = this.currentTool ? 'crosshair' : 'default';
+            const hit = this._hitTest(pos);
+            this.canvas.style.cursor = this.currentTool ? 'crosshair' : (hit ? 'grab' : 'default');
         } else {
             this.crosshairX = null;
             this.crosshairY = null;
@@ -1355,12 +1371,20 @@ class FixedTradingChart {
             this.startPoint = { x: pos.x, y: pos.y, time: this._xToTime(pos.x), price: this._yToPrice(pos.y) };
             this.endPoint   = pos;
         } else {
-            this.isDragging = true;
-            this.lastMouseX = pos.x;
-            this.canvas.style.cursor = 'grabbing';
             // Selection hit-test
             const hit = this._hitTest(pos);
-            this.selectedDrawingId = hit;
+            this.selectedDrawingId = hit ? hit.id : null;
+
+            if (hit) {
+                this.isDragMovingDrawing = true;
+                this.dragDrawingRef = hit;
+                this.dragLastPoint = pos;
+                this.canvas.style.cursor = 'grabbing';
+            } else {
+                this.isDragging = true;
+                this.lastMouseX = pos.x;
+                this.canvas.style.cursor = 'grabbing';
+            }
             this.requestDraw();
         }
     }
@@ -1373,13 +1397,23 @@ class FixedTradingChart {
             this._finalizeDrawing(pos);
         }
 
+        if (this.isDragMovingDrawing) {
+            this._notifyDrawingsChange();
+        }
+
         this.isDragging = false;
+        this.isDragMovingDrawing = false;
+        this.dragDrawingRef = null;
+        this.dragLastPoint = null;
         this.isDrawing  = false;
         this.canvas.style.cursor = this.currentTool ? 'crosshair' : 'default';
     }
 
     _onMouseLeave() {
         this.isDragging = false;
+        this.isDragMovingDrawing = false;
+        this.dragDrawingRef = null;
+        this.dragLastPoint = null;
         this.crosshairX = null;
         this.crosshairY = null;
         this._displayLatestCandleDetails();
@@ -1796,31 +1830,49 @@ class FixedTradingChart {
         for (const line of this.drawings.lines) {
             const sx = this._timeToX(line.startTime), sy = this._priceToY(line.startPrice);
             const ex = this._timeToX(line.endTime),   ey = this._priceToY(line.endPrice);
-            if (this._nearLine(pos.x, pos.y, sx, sy, ex, ey, tol)) return line.id;
+            if (this._nearLine(pos.x, pos.y, sx, sy, ex, ey, tol)) return line;
         }
         for (const hl of this.drawings.horizontal_lines) {
-            if (Math.abs(pos.y - this._priceToY(hl.price)) <= tol) return hl.id;
+            if (Math.abs(pos.y - this._priceToY(hl.price)) <= tol) return hl;
         }
         for (const hr of this.drawings.horizontal_rays) {
             const sx = this._timeToX(hr.startTime), y = this._priceToY(hr.startPrice);
-            if (Math.abs(pos.y - y) <= tol && pos.x >= sx - tol) return hr.id;
+            if (Math.abs(pos.y - y) <= tol && pos.x >= sx - tol) return hr;
         }
         for (const arrow of this.drawings.arrow_lines) {
             const sx = this._timeToX(arrow.startTime), sy = this._priceToY(arrow.startPrice);
             const ex = this._timeToX(arrow.endTime),   ey = this._priceToY(arrow.endPrice);
-            if (this._nearLine(pos.x, pos.y, sx, sy, ex, ey, tol)) return arrow.id;
+            if (this._nearLine(pos.x, pos.y, sx, sy, ex, ey, tol)) return arrow;
         }
         for (const rect of this.drawings.rectangles) {
             const sx = this._timeToX(rect.startTime), sy = this._priceToY(rect.startPrice);
             const ex = this._timeToX(rect.endTime),   ey = this._priceToY(rect.endPrice);
             const x = Math.min(sx,ex), y = Math.min(sy,ey), w = Math.abs(ex-sx), h = Math.abs(ey-sy);
-            if (pos.x>=x-tol && pos.x<=x+w+tol && pos.y>=y-tol && pos.y<=y+h+tol) return rect.id;
+            if (pos.x>=x-tol && pos.x<=x+w+tol && pos.y>=y-tol && pos.y<=y+h+tol) return rect;
+        }
+        for (const fib of this.drawings.fibonacci) {
+            const sx = this._timeToX(fib.startTime), sy = this._priceToY(fib.startPrice);
+            const ex = this._timeToX(fib.endTime),   ey = this._priceToY(fib.endPrice);
+            if (this._nearLine(pos.x, pos.y, sx, sy, ex, ey, tol)) return fib;
         }
         for (const note of this.drawings.notes) {
             const nx = this._timeToX(note.time), ny = this._priceToY(note.price);
-            if (Math.abs(pos.x - nx) <= tol && Math.abs(pos.y - ny) <= tol) return note.id;
+            if (Math.abs(pos.x - nx) <= tol && Math.abs(pos.y - ny) <= tol) return note;
         }
         return null;
+    }
+
+    _shiftDrawing(drawing, dx, dy) {
+        const toShiftedTime = time => this._xToTime(this._timeToX(time) + dx);
+        const toShiftedPrice = price => this._yToPrice(this._priceToY(price) + dy);
+
+        if ('startTime' in drawing) drawing.startTime = toShiftedTime(drawing.startTime);
+        if ('endTime' in drawing) drawing.endTime = toShiftedTime(drawing.endTime);
+        if ('time' in drawing) drawing.time = toShiftedTime(drawing.time);
+
+        if ('startPrice' in drawing) drawing.startPrice = toShiftedPrice(drawing.startPrice);
+        if ('endPrice' in drawing) drawing.endPrice = toShiftedPrice(drawing.endPrice);
+        if ('price' in drawing) drawing.price = toShiftedPrice(drawing.price);
     }
 
     _nearLine(px, py, x1, y1, x2, y2, tol) {
