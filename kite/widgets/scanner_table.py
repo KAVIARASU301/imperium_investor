@@ -925,10 +925,10 @@ class ChartinkScannerTable(QWidget):
         header_layout.addWidget(self.scan_dropdown, 1)
 
         # Settings button
-        self.manage_btn = QPushButton("⚙ Manage")
+        self.manage_btn = QPushButton("⚙")
         self.manage_btn.setObjectName("settingsMinimalButton")
         self.manage_btn.setToolTip("Manage Scans")
-        self.manage_btn.setFixedSize(70, 28)
+        self.manage_btn.setFixedSize(32, 28)
         self.manage_btn.clicked.connect(self._manage_scans)
         header_layout.addWidget(self.manage_btn)
 
@@ -1300,7 +1300,7 @@ class ChartinkScannerTable(QWidget):
             if not self.scans:
                 self.table.setRowCount(0)
                 self.table.insertRow(0)
-                item = QTableWidgetItem("No scans configured. Click '⚙ Manage' to add a scan.")
+                item = QTableWidgetItem("No scans configured. Click the ⚙ button to add a scan.")
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
                 self.table.setItem(0, 0, item)
                 for col in range(1, 4):
