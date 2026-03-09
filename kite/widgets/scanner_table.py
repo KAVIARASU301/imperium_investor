@@ -99,9 +99,10 @@ class ModernAddScanDialog(QDialog):
         # Scan tag/group
         tag_label = QLabel("Tag / Group")
         tag_label.setObjectName("fieldLabel")
-        self.tag_input = QLineEdit()
+        self.tag_input = QComboBox()
         self.tag_input.setObjectName("minimalInput")
-        self.tag_input.setPlaceholderText("Momentum Breakouts / Episodic Pivot / Parabolic / Others")
+        self.tag_input.addItems(SCAN_GROUP_ORDER)
+        self.tag_input.setCurrentText("Others")
 
         form_layout.addWidget(tag_label)
         form_layout.addWidget(self.tag_input)
@@ -169,7 +170,7 @@ class ModernAddScanDialog(QDialog):
         return {
             "name": self.name_input.text().strip(),
             "url": self.url_input.toPlainText().strip(),
-            "tag": self.tag_input.text().strip() or "Others"
+            "tag": self.tag_input.currentText().strip() or "Others"
         }
 
     def mousePressEvent(self, event):
@@ -257,7 +258,7 @@ class ModernAddScanDialog(QDialog):
                 margin-bottom: 2px;
             }
 
-            QLineEdit#minimalInput, QTextEdit#minimalTextArea {
+            QLineEdit#minimalInput, QTextEdit#minimalTextArea, QComboBox#minimalInput {
                 background-color: #0d0d0d;
                 border: 1px solid #303030;
                 border-radius: 3px;
@@ -270,7 +271,7 @@ class ModernAddScanDialog(QDialog):
             QTextEdit#minimalTextArea {
                 font-family: "Consolas", "Monaco", monospace;
             }
-            QLineEdit#minimalInput:focus, QTextEdit#minimalTextArea:focus {
+            QLineEdit#minimalInput:focus, QTextEdit#minimalTextArea:focus, QComboBox#minimalInput:focus {
                 border-color: #6a9cff;
                 background-color: #1a1a1a;
             }
