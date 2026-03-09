@@ -726,6 +726,124 @@ class AlertSystemManager(QObject):
         logger.info(f"Alert created from chart: {symbol} {condition} @ {target_value}")
 
     # ──────────────────────────────────────────────────────────────
+    # ALERT LINE DRAG  (chart → Python price sync)
+    # ──────────────────────────────────────────────────────────────
+
+    @Slot(str)
+    def update_alert_price_from_chart(self, payload: str) -> None:
+        """
+        Called when user drags an alert line to a new price on the chart.
+        Payload (JSON): {"symbol": str, "old_price": float, "new_price": float}
+
+        Institutional contract:
+          1. Locate the alert by (symbol, old_price) with a small tolerance.
+          2. Remove the old chart line at old_price.
+          3. Update target_value, condition, note on the alert object.
+          4. Persist the alert store.
+          5. Re-draw the chart line at new_price.
+          6. Refresh the alert dialog if open.
+        """
+        try:
+            data = json.loads(payload)
+            symbol = str(data.get("symbol", "")).strip().upper()
+            old_price = float(data.get("old_price", 0.0))
+            new_price = float(data.get("new_price", 0.0))
+        except (json.JSONDecodeError, ValueError, TypeError) as e:
+            logger.error(f"update_alert_price_from_chart: bad payload — {e}")
+            return
+
+        if not symbol or old_price <= 0 or new_price <= 0:
+            logger.warning("update_alert_price_from_chart: invalid data, skipping")
+            return
+
+        if abs(new_price - old_price) < 0.001:
+            return  # no meaningful change
+
+        self._update_alert_price(symbol, old_price, new_price)
+
+    def _update_alert_price(self, symbol: str, old_price: float, new_price: float) -> None:
+        """
+        Core mutation: find alert, update price, persist, sync chart line.
+        Tolerance for float comparison: 0.5 (matches chart_lines_manager).
+        """
+        # ── 1. Find the alert ──
+        tolerance = 0.5
+        target = next(
+            (
+                a
+                for a in self.store.active()
+                if a.symbol == symbol and abs(a.target_value - old_price) <= tolerance
+            ),
+            None,
+        )
+
+        if target is None:
+            logger.warning(
+                f"_update_alert_price: no active alert for {symbol} @ {old_price:.2f}"
+                f" (tolerance={tolerance})"
+            )
+            return
+
+        logger.info(f"Updating alert price: {symbol} {old_price:.2f} → {new_price:.2f}")
+
+        # ── 2. Remove old chart line ──
+        self._remove_chart_line(target)
+
+        # ── 3. Mutate the alert in-place ──
+        # Re-evaluate condition based on current LTP
+        ltp = self._get_current_ltp(symbol)
+        if ltp > 0:
+            if new_price > ltp:
+                target.condition = AlertCondition.PRICE_CROSSED_UP.value
+            else:
+                target.condition = AlertCondition.PRICE_CROSSED_DOWN.value
+        # else keep old condition; we don't want to silently corrupt it
+
+        target.target_value = new_price
+        target.note = (
+            f"[Moved] Alert at ₹{new_price:.2f} "
+            f"({'above' if new_price > ltp else 'below'} LTP ₹{ltp:.2f})"
+            if ltp > 0
+            else f"[Moved] Alert at ₹{new_price:.2f}"
+        )
+
+        # ── 4. Persist ──
+        self.store.update(target)
+
+        # ── 5. Re-draw chart line at new price ──
+        self._add_chart_line(target)
+
+        # ── 6. Refresh dialog ──
+        self._refresh_dialog_if_open()
+
+        logger.info(f"Alert price updated successfully: {symbol} → ₹{new_price:.2f}")
+
+    def _get_current_ltp(self, symbol: str) -> float:
+        """
+        Best-effort LTP retrieval. Checks the parent main_window's chart LTP
+        first (fastest), then watchlist, then falls back to 0.0.
+        """
+        try:
+            parent = self.parent()
+            # Chart widget is the most up-to-date source
+            if parent and hasattr(parent, 'candlestick_chart'):
+                chart = parent.candlestick_chart
+                if getattr(chart, 'current_symbol', '') == symbol:
+                    ltp = getattr(chart, 'current_ltp', 0.0)
+                    if ltp > 0:
+                        return float(ltp)
+            # Watchlist fallback
+            if parent and hasattr(parent, 'watchlist_manager'):
+                wm = parent.watchlist_manager
+                if hasattr(wm, 'get_ltp'):
+                    ltp = wm.get_ltp(symbol)
+                    if ltp and ltp > 0:
+                        return float(ltp)
+        except Exception as e:
+            logger.debug(f"_get_current_ltp fallback for {symbol}: {e}")
+        return 0.0
+
+    # ──────────────────────────────────────────────────────────────
     # CHART-LINE HELPERS
     # ──────────────────────────────────────────────────────────────
 

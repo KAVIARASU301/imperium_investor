@@ -10,6 +10,7 @@
 #   chartBridge.notify_text_note_requested(json)     — user clicked "add note" tool
 #   chartBridge.notify_text_note_edit_requested(json)— user double-clicked a note
 #   chartBridge.notify_alert_creation_requested(json)— right-click → set alert
+#   chartBridge.notify_alert_price_updated(json)     — alert line dragged to new price
 #   chartBridge.notify_order_dialog_requested(json)  — right-click → place order
 #   chartBridge.notify_zoom_changed(count)           — user scrolled / zoomed
 #   chartBridge.notify_drawing_tool_cleared()        — active tool was canceled/consumed
@@ -34,6 +35,7 @@ class ChartBridge(QObject):
     drawings_changed = Signal(str)          # drawings JSON
     visible_candle_count_changed = Signal(int)
     alert_creation_requested = Signal(str)  # alert JSON
+    alert_price_updated = Signal(str)       # {symbol, old_price, new_price} — alert drag
     order_dialog_requested = Signal(str)    # order JSON
     text_note_requested = Signal(str)       # mouse-pos JSON
     text_note_edit_requested = Signal(str)  # note JSON
@@ -94,6 +96,24 @@ class ChartBridge(QObject):
             return
         if self._valid_json(alert_json, "alert_creation_requested"):
             self.alert_creation_requested.emit(alert_json)
+
+    @Slot(str)
+    def notify_alert_price_updated(self, payload: str) -> None:
+        """
+        Called by JS when an alert line (lineCategory==='alert') is dragged
+        to a new Y position. Payload: {"symbol", "old_price", "new_price"}
+        """
+        if not self.webChannelInitialized:
+            self._pending.append(("notify_alert_price_updated", payload))
+            return
+        try:
+            json.loads(payload)
+            self.alert_price_updated.emit(payload)
+            logger.info(f"ChartBridge: alert price updated from chart: {payload}")
+        except json.JSONDecodeError as e:
+            logger.error(f"ChartBridge: invalid alert_price_updated JSON: {e}")
+        except Exception as e:
+            logger.error(f"ChartBridge: error in notify_alert_price_updated: {e}")
 
     @Slot(str)
     def notify_order_dialog_requested(self, order_json: str) -> None:

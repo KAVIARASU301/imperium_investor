@@ -345,6 +345,11 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 self.candlestick_chart.symbol_loaded.connect(
                     self.alert_system.sync_chart_lines_for_symbol
                 )
+                # ALERT DRAG SYNC: chart line drag → alert manager price update
+                if hasattr(self.candlestick_chart, 'alert_price_updated'):
+                    self.candlestick_chart.alert_price_updated.connect(
+                        self.alert_system.update_alert_price_from_chart
+                    )
 
     @Slot(str)
     def _on_chart_symbol_changed(self, symbol: str):

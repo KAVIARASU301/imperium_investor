@@ -72,6 +72,7 @@ class CandlestickChart(QWidget):
     symbol_loaded              = Signal(str)
     order_button_clicked       = Signal(str, float)
     alert_creation_requested   = Signal(str)
+    alert_price_updated        = Signal(str)   # {symbol, old_price, new_price} — alert drag
     order_dialog_requested     = Signal(str)
     data_request_for_symbol    = Signal(str)
 
@@ -504,6 +505,7 @@ class CandlestickChart(QWidget):
         self.chart_bridge.text_note_edit_requested.connect(self._open_text_note_edit_dialog)
         self.chart_bridge.drawing_tool_cleared.connect(self._clear_active_tool_ui)
         self.chart_bridge.alert_creation_requested.connect(self.alert_creation_requested)
+        self.chart_bridge.alert_price_updated.connect(self._on_alert_price_updated)
         self.chart_bridge.order_dialog_requested.connect(self.order_dialog_requested)
 
         self.chart_layout.addWidget(self.chart_view)
@@ -554,6 +556,15 @@ class CandlestickChart(QWidget):
             state = self.drawing_storage.load_state(self.current_symbol, self.current_interval)
             state["visible_candle_count"] = count
             self.drawing_storage.save_state(self.current_symbol, self.current_interval, state)
+
+    @Slot(str)
+    def _on_alert_price_updated(self, payload: str) -> None:
+        """
+        Relay alert drag event from bridge outward.
+        main_window connects this → alert_system.update_alert_price_from_chart.
+        """
+        logger.info(f"CandlestickChart: alert price updated from chart: {payload}")
+        self.alert_price_updated.emit(payload)
 
     # ── Drawing tool methods ──────────────────────────────────────────────
 
