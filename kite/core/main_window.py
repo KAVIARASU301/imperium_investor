@@ -415,6 +415,9 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         # Scanner & Watchlist → Chart
         self.chartink_scanner.symbol_selected.connect(self.candlestick_chart.on_search)
         self.chartink_scanner.symbol_selected.connect(self._on_scanner_symbol_selected)
+        # Re-evaluate subscription universe whenever scan results refresh or user scrolls
+        self.chartink_scanner.scan_results_changed.connect(self._on_watchlist_changed)
+        self.chartink_scanner.visible_rows_changed.connect(self._on_watchlist_changed)
         self.watchlist.symbol_selected.connect(self.candlestick_chart.on_search)
         self.watchlist.subscribe_tokens_requested.connect(self._subscribe_to_tokens)
         self.watchlist.place_order_requested.connect(self._show_order_dialog_from_dict)
@@ -809,17 +812,14 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             logger.info(f"Updated subscription universe to {len(all_tokens)} tokens")
 
     def _get_scanner_visible_tokens(self) -> List[int]:
-        """Return instrument tokens for symbols currently visible in scanner table."""
-        if not hasattr(self, 'chartink_scanner') or not hasattr(self, 'instrument_map'):
+        """
+        Return instrument tokens for rows VISIBLE in the scanner viewport.
+        Includes a ±5 row scroll buffer (handled inside get_visible_tokens).
+        Never subscribes the full scan result set — only what the trader sees.
+        """
+        if not hasattr(self, 'chartink_scanner'):
             return []
-
-        symbols = self.chartink_scanner.get_current_symbols()
-        tokens = []
-        for symbol in symbols:
-            token = self.instrument_map.get(symbol, {}).get('instrument_token')
-            if token:
-                tokens.append(token)
-        return tokens
+        return self.chartink_scanner.get_visible_tokens()
 
     @Slot(list)
     def _subscribe_to_tokens(self, tokens: List[int]):

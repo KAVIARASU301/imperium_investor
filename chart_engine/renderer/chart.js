@@ -227,8 +227,8 @@ class FixedTradingChart {
 
         this.ctx.font = prevFont;
 
-        // 4px tick + ~4px inner gap + 4px right padding + 10px breathing room.
-        const dynamicWidth = Math.ceil(maxTextWidth + 22);
+        // 5px tick + 6px gap after tick + label + 6px right padding
+        const dynamicWidth = Math.ceil(maxTextWidth + 5 + 6 + 6);
         return Math.max(minAxisWidth, Math.min(maxAxisWidth, dynamicWidth));
     }
 
@@ -654,33 +654,64 @@ class FixedTradingChart {
         const priceRange = this.maxPrice - this.minPrice;
         if (priceRange <= 0) return;
 
-        const minGapPx = 26;
+        const axisX    = this.chartArea.x + this.chartArea.width;
+        const axisW    = this.rightAxisWidth;
+        const axisTop  = this.chartArea.y;
+        const axisBot  = this.volumeArea.y + this.volumeArea.height;
+
+        // ── Axis panel background ──────────────────────────────────────────
+        const panelGrad = ctx.createLinearGradient(axisX, 0, axisX + axisW, 0);
+        panelGrad.addColorStop(0, 'rgba(15,20,32,0.98)');
+        panelGrad.addColorStop(1, 'rgba(11,15,24,0.95)');
+        ctx.fillStyle = panelGrad;
+        ctx.fillRect(axisX, axisTop, axisW, axisBot - axisTop);
+
+        // ── Left border line of axis panel ────────────────────────────────
+        ctx.strokeStyle = 'rgba(40,60,100,0.7)';
+        ctx.lineWidth   = 1;
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.moveTo(axisX, axisTop);
+        ctx.lineTo(axisX, axisBot);
+        ctx.stroke();
+
+        // ── Price ticks & labels ──────────────────────────────────────────
+        const minGapPx = 28;
         const ticks    = Math.max(6, Math.floor(this.chartArea.height / minGapPx));
         const step     = this._niceStep(priceRange / ticks);
         const minR     = Math.floor(this.minPrice / step) * step;
         const maxR     = Math.ceil(this.maxPrice  / step) * step;
         const decimals = this._priceDecimals(step);
 
-        ctx.font      = this._axisFont(10, 500);
-        ctx.textAlign = 'right';
+        ctx.font         = this._axisFont(10, 500);
+        ctx.textAlign    = 'right';
         ctx.textBaseline = 'middle';
 
         let lastY = -Infinity;
         for (let p = minR; p <= maxR + step * 0.5; p += step) {
             const y = this._priceToY(p);
-            if (y < this.chartArea.y + 6 || y > this.chartArea.y + this.chartArea.height - 6) continue;
+            if (y < axisTop + 8 || y > this.chartArea.y + this.chartArea.height - 8) continue;
             if (Math.abs(y - lastY) < minGapPx) continue;
 
-            // Tick mark
-            ctx.strokeStyle = this.colors.grid;
+            // Grid line echo — a very faint horizontal rule inside the axis panel
+            ctx.strokeStyle = 'rgba(40,60,100,0.25)';
             ctx.lineWidth   = 0.5;
             ctx.beginPath();
-            ctx.moveTo(this.chartArea.x + this.chartArea.width,     y);
-            ctx.lineTo(this.chartArea.x + this.chartArea.width + 4, y);
+            ctx.moveTo(axisX, y);
+            ctx.lineTo(axisX + axisW, y);
             ctx.stroke();
 
-            ctx.fillStyle = this.colors.text;
-            ctx.fillText('₹' + p.toFixed(decimals), this.width - 4, y);
+            // Tick mark — clean 5px inward from axis border
+            ctx.strokeStyle = 'rgba(80,110,160,0.8)';
+            ctx.lineWidth   = 1;
+            ctx.beginPath();
+            ctx.moveTo(axisX,     y);
+            ctx.lineTo(axisX + 5, y);
+            ctx.stroke();
+
+            // Label — right-aligned with 6px right padding
+            ctx.fillStyle = this.colors.textBright;
+            ctx.fillText('₹' + p.toFixed(decimals), axisX + axisW - 6, y);
             lastY = y;
         }
     }
@@ -727,35 +758,48 @@ class FixedTradingChart {
         const y = this._priceToY(price);
         if (y < this.chartArea.y || y > this.chartArea.y + this.chartArea.height) return;
 
-        const ctx = this.ctx;
+        const ctx   = this.ctx;
+        const axisX = this.chartArea.x + this.chartArea.width;
+        const axisW = this.rightAxisWidth;
+
         const prevClose = this.data.length > 1 ? this.data[this.data.length - 2].close : this.data[0]?.open ?? price;
         const isUp      = price >= prevClose;
         const col       = isUp ? this.colors.upCandle : this.colors.downCandle;
 
-        // Dashed price line
+        // Dashed price line across chart
         ctx.strokeStyle = col;
         ctx.lineWidth   = 0.8;
         ctx.setLineDash([3, 3]);
         ctx.beginPath();
         ctx.moveTo(this.chartArea.x, y);
-        ctx.lineTo(this.chartArea.x + this.chartArea.width, y);
+        ctx.lineTo(axisX, y);
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // Price label pill on right axis
+        // ── Full-width pill label on axis ──────────────────────────────────
         const label  = '₹' + price.toFixed(2);
-        ctx.font     = 'bold 10px "Segoe UI Mono", monospace';
-        ctx.textAlign = 'left';
-        const tw     = ctx.measureText(label).width;
-        const lw = tw + 10, lh = 16;
-        const lx = this.chartArea.x + this.chartArea.width + 1;
-        const ly = y - lh / 2;
+        const lh     = 17;
+        const lx     = axisX;                  // start flush with axis border
+        const lw     = axisW;                  // span the entire axis width
+        const ly     = Math.round(y - lh / 2);
 
-        ctx.fillStyle   = col;
-        ctx.fillRect(lx, ly, lw, lh);
-        ctx.fillStyle   = '#000';
+        // Pointer triangle (left edge chevron pointing into chart)
+        ctx.fillStyle = col;
+        ctx.beginPath();
+        ctx.moveTo(lx,     y);
+        ctx.lineTo(lx + 5, ly);
+        ctx.lineTo(lx + lw, ly);
+        ctx.lineTo(lx + lw, ly + lh);
+        ctx.lineTo(lx + 5, ly + lh);
+        ctx.closePath();
+        ctx.fill();
+
+        // Label text — centered inside pill
+        ctx.font         = 'bold 10px "Segoe UI Mono", monospace';
+        ctx.textAlign    = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(label, lx + 5, y);
+        ctx.fillStyle    = '#000000';
+        ctx.fillText(label, lx + 5 + (lw - 5) / 2, y);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -768,57 +812,95 @@ class FixedTradingChart {
         const x   = this.crosshairX;
         const y   = Math.max(this.chartArea.y, Math.min(this.crosshairY, this.chartArea.y + this.chartArea.height));
 
+        const axisX = this.chartArea.x + this.chartArea.width;
+        const axisW = this.rightAxisWidth;
+
+        // Crosshair lines
         ctx.strokeStyle = this.colors.crosshair;
         ctx.lineWidth   = 0.7;
         ctx.setLineDash([4, 4]);
 
-        // Vertical
         ctx.beginPath();
         ctx.moveTo(x, this.chartArea.y);
         ctx.lineTo(x, this.volumeArea.y + this.volumeArea.height);
         ctx.stroke();
 
-        // Horizontal
         ctx.beginPath();
         ctx.moveTo(this.chartArea.x, y);
-        ctx.lineTo(this.chartArea.x + this.chartArea.width, y);
+        ctx.lineTo(axisX, y);
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // Price label on axis
+        // ── Crosshair price label — full-width, matching axis panel ────────
         const price  = this._yToPrice(y);
         const plabel = '₹' + price.toFixed(2);
-        ctx.font      = 'bold 10px "Segoe UI Mono", monospace';
-        ctx.textAlign = 'left';
-        const tw = ctx.measureText(plabel).width;
-        const lw = tw + 10, lh = 16;
-        const lx = this.chartArea.x + this.chartArea.width + 1;
-        const ly = y - lh / 2;
-        ctx.fillStyle = '#1a2535';
-        ctx.fillRect(lx, ly, lw, lh);
-        ctx.strokeStyle = 'rgba(140,170,220,0.4)';
-        ctx.lineWidth = 0.5;
-        ctx.strokeRect(lx, ly, lw, lh);
-        ctx.fillStyle = '#c0d4f0';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(plabel, lx + 5, y);
+        const lh     = 17;
+        const lx     = axisX;
+        const lw     = axisW;
+        const ly     = Math.round(y - lh / 2);
 
-        // Time label at bottom
+        // Background: full axis width with left pointer chevron
+        ctx.fillStyle = '#1e2d45';
+        ctx.beginPath();
+        ctx.moveTo(lx,      y);
+        ctx.lineTo(lx + 5,  ly);
+        ctx.lineTo(lx + lw, ly);
+        ctx.lineTo(lx + lw, ly + lh);
+        ctx.lineTo(lx + 5,  ly + lh);
+        ctx.closePath();
+        ctx.fill();
+
+        // Border
+        ctx.strokeStyle = 'rgba(120,165,230,0.55)';
+        ctx.lineWidth   = 0.8;
+        ctx.beginPath();
+        ctx.moveTo(lx,      y);
+        ctx.lineTo(lx + 5,  ly);
+        ctx.lineTo(lx + lw, ly);
+        ctx.lineTo(lx + lw, ly + lh);
+        ctx.lineTo(lx + 5,  ly + lh);
+        ctx.closePath();
+        ctx.stroke();
+
+        // Label text — centered
+        ctx.font         = 'bold 10px "Segoe UI Mono", monospace';
+        ctx.textAlign    = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle    = '#d4e6ff';
+        ctx.fillText(plabel, lx + 5 + (lw - 5) / 2, y);
+
+        // ── Time label at bottom ────────────────────────────────────────────
         const ci = this._xToCandle(x);
         if (ci >= 0 && ci < this.data.length) {
             const tlabel = this._fmtTimeLabel(new Date(this.data[ci].time));
             ctx.font      = 'bold 10px "Segoe UI", sans-serif';
             ctx.textAlign = 'center';
             const ttw = ctx.measureText(tlabel).width;
-            const tlw = ttw + 10, tlh = 15;
+            const tlw = ttw + 14, tlh = 15;
             const tlx = x - tlw / 2;
             const tly = this.volumeArea.y + this.volumeArea.height + 1;
-            ctx.fillStyle = '#1a2535';
-            ctx.fillRect(tlx, tly, tlw, tlh);
-            ctx.strokeStyle = 'rgba(140,170,220,0.3)';
-            ctx.lineWidth = 0.5;
-            ctx.strokeRect(tlx, tly, tlw, tlh);
-            ctx.fillStyle = '#c0d4f0';
+
+            // Rounded rect for time label
+            ctx.fillStyle = '#1e2d45';
+            ctx.beginPath();
+            const r = 3;
+            ctx.moveTo(tlx + r, tly);
+            ctx.lineTo(tlx + tlw - r, tly);
+            ctx.quadraticCurveTo(tlx + tlw, tly, tlx + tlw, tly + r);
+            ctx.lineTo(tlx + tlw, tly + tlh - r);
+            ctx.quadraticCurveTo(tlx + tlw, tly + tlh, tlx + tlw - r, tly + tlh);
+            ctx.lineTo(tlx + r, tly + tlh);
+            ctx.quadraticCurveTo(tlx, tly + tlh, tlx, tly + tlh - r);
+            ctx.lineTo(tlx, tly + r);
+            ctx.quadraticCurveTo(tlx, tly, tlx + r, tly);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.strokeStyle = 'rgba(120,165,230,0.4)';
+            ctx.lineWidth   = 0.7;
+            ctx.stroke();
+
+            ctx.fillStyle    = '#c0d4f0';
             ctx.textBaseline = 'middle';
             ctx.fillText(tlabel, x, tly + tlh / 2);
         }

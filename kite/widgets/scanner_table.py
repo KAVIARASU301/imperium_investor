@@ -721,7 +721,9 @@ class ScanWorker(QThread):
 
 class ChartinkScannerTable(QWidget):
     """FIXED EOD scanner table with proper row selection and highlighting."""
-    symbol_selected = Signal(str)
+    symbol_selected     = Signal(str)
+    scan_results_changed = Signal()   # emitted when scan completes → triggers re-subscription
+    visible_rows_changed = Signal()   # emitted when scroll changes visible rows
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -732,6 +734,7 @@ class ChartinkScannerTable(QWidget):
         self._instrument_map: Dict[str, Dict] = {}
         self._token_to_symbol: Dict[int, str] = {}
         self._current_symbol_index = 0  # Track current symbol for spacebar navigation
+        self._last_visible_tokens: set = set()  # track to avoid redundant re-subs
         self._color_theme = {
             "enable_volume_strength_indicator": False,
             "tables": {"positive": "#26a69a", "negative": "#ef5350", "neutral": "#a9a9a9", "volume": "#45d4ff"}
@@ -766,6 +769,9 @@ class ChartinkScannerTable(QWidget):
 
         # Add focus out event to clear selection (from positions table pattern)
         self.table.focusOutEvent = self._on_table_focus_out
+
+        # Emit visible_rows_changed on scroll so main_window can re-evaluate subscriptions
+        self.table.verticalScrollBar().valueChanged.connect(self._on_scroll_changed)
 
         # ADDED: Setup spacebar shortcut for symbol navigation
         self._setup_keyboard_shortcuts()
@@ -1062,6 +1068,12 @@ class ChartinkScannerTable(QWidget):
         # Build token map so update_data() can push live ticks immediately
         self._rebuild_token_map()
 
+        # Reset visible-token cache so next subscription call forces a fresh diff
+        self._last_visible_tokens = set()
+
+        # Notify main_window to re-evaluate the subscription universe
+        self.scan_results_changed.emit()
+
         logger.info(f"EOD Scanner table updated with {len(scan_results)} symbols.")
         self.scan_dropdown.setEnabled(True)
         self.manage_btn.setEnabled(True)
@@ -1216,6 +1228,77 @@ class ChartinkScannerTable(QWidget):
                     self.symbol_selected.emit(symbol_text)
         except Exception as e:
             logger.warning(f"Could not get symbol from clicked row {row}: {e}")
+
+    # ─────────────────────────────────────────────────────────────────────
+    # VIEWPORT-AWARE SYMBOL ACCESS  (institutional grade: subscribe only
+    # what the trader can actually see — zero wasted API tokens)
+    # ─────────────────────────────────────────────────────────────────────
+
+    def get_visible_symbols(self, buffer: int = 5) -> List[str]:
+        """
+        Return symbols for rows currently visible in the scroll viewport,
+        plus a small look-ahead buffer above/below for smooth scrolling.
+        Falls back to ALL symbols if viewport geometry is unavailable.
+        """
+        if not self._symbol_data:
+            return []
+
+        vp = self.table.viewport()
+        if vp is None or vp.height() == 0:
+            return list(self._symbol_data.keys())
+
+        top_row    = self.table.rowAt(0)
+        bottom_row = self.table.rowAt(vp.height() - 1)
+
+        # rowAt returns -1 when the table is shorter than the viewport
+        if top_row == -1:
+            top_row = 0
+        if bottom_row == -1:
+            bottom_row = self.table.rowCount() - 1
+
+        # Apply buffer rows for smooth pre-subscribe on scroll
+        first = max(0, top_row - buffer)
+        last  = min(self.table.rowCount() - 1, bottom_row + buffer)
+
+        symbols = []
+        for row in range(first, last + 1):
+            item = self.table.item(row, 0)
+            if item:
+                sym = item.text()
+                if sym and sym in self._symbol_data:
+                    symbols.append(sym)
+        return symbols
+
+    def get_visible_tokens(self) -> List[int]:
+        """
+        Return instrument tokens for VISIBLE rows only.
+        Called by main_window._get_scanner_visible_tokens() to build
+        the subscription universe — never subscribes the full scan result.
+        """
+        tokens = []
+        for sym in self.get_visible_symbols():
+            inst = self._instrument_map.get(sym)
+            if inst:
+                token = inst.get('instrument_token')
+                if token is not None:
+                    try:
+                        tokens.append(int(token))
+                    except (TypeError, ValueError):
+                        pass
+        return tokens
+
+    def _on_scroll_changed(self, _value: int) -> None:
+        """
+        Scroll event: check whether the visible token set actually changed.
+        Only emit visible_rows_changed (→ re-subscription) when it did.
+        Debounces itself: identical token sets don't fire the signal.
+        """
+        new_tokens = set(self.get_visible_tokens())
+        if new_tokens != self._last_visible_tokens:
+            self._last_visible_tokens = new_tokens
+            self.visible_rows_changed.emit()
+
+    # ─────────────────────────────────────────────────────────────────────
 
     def get_current_symbols(self) -> List[str]:
         """Get list of current symbols in the table."""
