@@ -107,11 +107,10 @@ class ChartToolbar(QFrame):
         self.timeframe_dropdown = QComboBox()
         self.timeframe_dropdown.setObjectName("timeframeDropdown")
         self.timeframe_dropdown.setFixedSize(46, 22)
-        self.timeframe_dropdown.setEditable(True)
-        self.timeframe_dropdown.lineEdit().setReadOnly(True)
-        self.timeframe_dropdown.lineEdit().setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.timeframe_dropdown.lineEdit().setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        self.timeframe_dropdown.lineEdit().setCursor(Qt.CursorShape.ArrowCursor)
+        # Keep this non-editable so clicking anywhere opens the popup.
+        # Editable mode requires the drop-down button hit area; our compact style
+        # hides that control which made timeframe switching inaccessible.
+        self.timeframe_dropdown.setEditable(False)
         self.timeframe_dropdown.view().setMinimumWidth(74)
         for display, data in TIMEFRAMES:
             self.timeframe_dropdown.addItem(display, data)
