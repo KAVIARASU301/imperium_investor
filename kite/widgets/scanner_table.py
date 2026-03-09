@@ -729,6 +729,8 @@ class ChartinkScannerTable(QWidget):
         self.scan_thread: ScanWorker = None
         self._symbol_data: Dict[str, Dict] = {}
         self._symbol_to_row: Dict[str, int] = {}
+        self._instrument_map: Dict[str, Dict] = {}
+        self._token_to_symbol: Dict[int, str] = {}
         self._current_symbol_index = 0  # Track current symbol for spacebar navigation
         self._color_theme = {
             "enable_volume_strength_indicator": False,
@@ -1057,6 +1059,9 @@ class ChartinkScannerTable(QWidget):
                 # Reset symbol index when new scan results arrive
                 self._current_symbol_index = 0
 
+        # Build token map so update_data() can push live ticks immediately
+        self._rebuild_token_map()
+
         logger.info(f"EOD Scanner table updated with {len(scan_results)} symbols.")
         self.scan_dropdown.setEnabled(True)
         self.manage_btn.setEnabled(True)
@@ -1219,6 +1224,79 @@ class ChartinkScannerTable(QWidget):
     def get_symbol_data(self, symbol: str) -> Optional[Dict]:
         """Get complete data for a specific symbol."""
         return self._symbol_data.get(symbol)
+
+    def set_instrument_map(self, instrument_map: dict) -> None:
+        """Store instrument metadata so scanner symbols can be mapped to tokens."""
+        self._instrument_map = instrument_map
+        self._rebuild_token_map()
+        logger.debug(f"Scanner instrument map set — {len(instrument_map)} instruments")
+
+    def _rebuild_token_map(self) -> None:
+        """Rebuild token -> symbol mapping for current scanner results."""
+        self._token_to_symbol = {}
+        for symbol in self._symbol_data:
+            inst = self._instrument_map.get(symbol)
+            if inst:
+                token = inst.get('instrument_token')
+                if token is not None:
+                    try:
+                        self._token_to_symbol[int(token)] = symbol
+                    except (TypeError, ValueError):
+                        pass
+
+        logger.debug(
+            f"Scanner token map rebuilt — {len(self._token_to_symbol)} of "
+            f"{len(self._symbol_data)} symbols resolved"
+        )
+
+    def update_data(self, ticks: list) -> None:
+        """Apply live tick updates to scanner rows for price, volume and change %."""
+        if not ticks or not self._token_to_symbol:
+            return
+
+        for tick in ticks:
+            try:
+                raw_token = tick.get('instrument_token')
+                if raw_token is None:
+                    continue
+                token = int(raw_token)
+
+                symbol = self._token_to_symbol.get(token)
+                if not symbol or symbol not in self._symbol_data:
+                    continue
+
+                data = self._symbol_data[symbol]
+
+                ltp = tick.get('last_price')
+                if ltp is not None:
+                    data['price'] = float(ltp)
+
+                for vol_field in ('volume_traded', 'volume'):
+                    vol = tick.get(vol_field)
+                    if vol is not None:
+                        try:
+                            v = int(vol)
+                            if v > 0:
+                                data['volume'] = v
+                                break
+                        except (TypeError, ValueError):
+                            pass
+
+                chg = tick.get('change_percent') or tick.get('net_change_percent')
+                if chg is not None:
+                    data['change_pct'] = float(chg)
+                else:
+                    ohlc = tick.get('ohlc') or {}
+                    prev_close = ohlc.get('close', 0.0) if isinstance(ohlc, dict) else 0.0
+                    if prev_close and prev_close > 0 and data.get('price', 0) > 0:
+                        data['change_pct'] = ((data['price'] - prev_close) / prev_close) * 100.0
+
+                row = self._symbol_to_row.get(symbol)
+                if row is not None:
+                    self._update_row_data(row, data)
+
+            except Exception as e:
+                logger.debug(f"Scanner tick error: {e}")
 
     def cleanup(self):
         """Clean up scanner table threads"""

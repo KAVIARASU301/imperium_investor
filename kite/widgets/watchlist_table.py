@@ -39,6 +39,7 @@ class TradingTable(QTableWidget):
         self._instrument_map: Dict[str, Dict] = {}
         self._watchlist_data: Dict[str, Dict] = {}
         self._symbol_to_row: Dict[str, int] = {}
+        self._token_to_symbol: Dict[int, str] = {}   # O(1) reverse map
         self._data_update_timer = QTimer()
 
         # Initialize empty watchlist data
@@ -292,6 +293,8 @@ class TradingTable(QTableWidget):
             else:
                 logger.warning(f"Symbol {symbol} not found in instrument map")
 
+        self._rebuild_token_map()
+
     def _calculate_change_percentage(self, symbol: str):
         """Calculate change percentage for a symbol"""
         if symbol not in self._watchlist_data:
@@ -313,6 +316,19 @@ class TradingTable(QTableWidget):
             if prev_close <= 0:
                 logger.warning(f"Invalid prev_close for {symbol}: {prev_close}")
 
+
+    def _rebuild_token_map(self):
+        """Build a token -> symbol reverse map for O(1) tick lookups."""
+        self._token_to_symbol = {}
+        for symbol, data in self._watchlist_data.items():
+            token = data.get('instrument_token')
+            if token is not None:
+                try:
+                    self._token_to_symbol[int(token)] = symbol
+                except (TypeError, ValueError):
+                    pass
+        logger.debug(f"[{self.category}] token map rebuilt - {len(self._token_to_symbol)} entries")
+
     @staticmethod
     def _normalize_token(token) -> Optional[int]:
         """Normalize incoming instrument tokens for robust comparisons."""
@@ -330,14 +346,8 @@ class TradingTable(QTableWidget):
             if token is None:
                 continue
 
-            # Find symbol by token
-            symbol_found = None
-            for symbol, data in self._watchlist_data.items():
-                data_token = self._normalize_token(data.get('instrument_token'))
-                if data_token == token:
-                    symbol_found = symbol
-                    break
-
+            # O(1) reverse-map lookup - replaces the O(n) linear scan
+            symbol_found = self._token_to_symbol.get(token)
             if not symbol_found:
                 continue
 
@@ -474,6 +484,7 @@ class TradingTable(QTableWidget):
 
         # Calculate initial change percentage
         self._calculate_change_percentage(symbol)
+        self._rebuild_token_map()
 
         # Repopulate table
         self._populate_full_table()
@@ -489,6 +500,7 @@ class TradingTable(QTableWidget):
             self._watchlist_symbols.remove(symbol)
             if symbol in self._watchlist_data:
                 del self._watchlist_data[symbol]
+            self._rebuild_token_map()
             self._populate_full_table()
             logger.info(f"Removed {symbol} from {self.category} watchlist")
             self.watchlist_symbols_changed.emit()

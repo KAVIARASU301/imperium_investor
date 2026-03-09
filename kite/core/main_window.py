@@ -487,6 +487,7 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.header_toolbar.set_instrument_data(instruments)
         self.candlestick_chart.set_instrument_list(instruments)
         self.watchlist.set_instrument_map(self.instrument_map)
+        self.chartink_scanner.set_instrument_map(self.instrument_map)
 
         paper_trader = self._get_paper_trading_manager()
         if paper_trader:
@@ -577,6 +578,7 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 paper_trader.update_market_data(filtered_ticks)
 
             self.watchlist.update_data(filtered_ticks)
+            self.chartink_scanner.update_data(filtered_ticks)
 
             if self.alert_system:
                 self.alert_system.update_market_data(filtered_ticks)

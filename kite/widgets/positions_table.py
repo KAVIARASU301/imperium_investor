@@ -44,7 +44,8 @@ class PositionsTable(QWidget):
 
         # Simple data storage
         self.positions_data = {}  # symbol -> SimplePosition
-        self.symbol_to_row = {}  # symbol -> row_number
+        self.symbol_to_row = {}          # symbol -> row_number
+        self._token_to_symbol: dict = {} # token -> symbol  O(1) lookup
         self.is_market_data_subscribed = False
         self._subscribed_position_tokens = set()
         self._color_theme = {
@@ -178,9 +179,12 @@ class PositionsTable(QWidget):
         # Clear and populate table ONCE
         self.table.setRowCount(len(positions_list))
         self.symbol_to_row = {}
+        self._token_to_symbol = {}
 
         for row, position in enumerate(positions_list):
             self.symbol_to_row[position.symbol] = row
+            if position.token > 0:
+                self._token_to_symbol[position.token] = position.symbol
             self._populate_row_once(row, position)
 
         # Subscribe to market data ONCE
@@ -248,16 +252,22 @@ class PositionsTable(QWidget):
         Update LTP and recalculate PnL locally
         ONLY UPDATES AFFECTED ROWS - NO TABLE RECREATION
         """
-        for symbol, position in self.positions_data.items():
-            if position.token == token:
-                # Update position data locally
-                position.ltp = ltp
-                position.pnl = (ltp - position.avg_price) * position.quantity
+        symbol = self._token_to_symbol.get(token)
+        if symbol is None:
+            return
 
-                # Update ONLY this row - NO FULL TABLE REFRESH
-                row = self.symbol_to_row.get(symbol)
-                if row is not None:
-                    self._update_single_row_data(row, position)
+        position = self.positions_data.get(symbol)
+        if position is None:
+            return
+
+        # Update position data locally
+        position.ltp = ltp
+        position.pnl = (ltp - position.avg_price) * position.quantity
+
+        # Update ONLY this row - NO FULL TABLE REFRESH
+        row = self.symbol_to_row.get(symbol)
+        if row is not None:
+            self._update_single_row_data(row, position)
 
         # Update summary
         self._update_summary()
@@ -408,6 +418,7 @@ class PositionsTable(QWidget):
         """Clear all positions - used when no positions"""
         self.positions_data.clear()
         self.symbol_to_row.clear()
+        self._token_to_symbol.clear()
         self.table.setRowCount(0)
         self.is_market_data_subscribed = False
         self._subscribed_position_tokens.clear()
