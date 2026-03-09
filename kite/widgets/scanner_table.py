@@ -24,9 +24,12 @@ SCAN_GROUP_ORDER = ["Momentum Breakouts", "Episodic Pivot", "Parabolic", "Others
 class ModernAddScanDialog(QDialog):
     """Enhanced dialog for adding new Chartink scans with modern styling."""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, initial_scan: Optional[Dict[str, str]] = None, is_edit: bool = False):
         super().__init__(parent)
-        self.setWindowTitle("Add New Chartink Scan")
+        self.initial_scan = initial_scan or {}
+        self.is_edit = is_edit
+
+        self.setWindowTitle("Edit Chartink Scan" if self.is_edit else "Add New Chartink Scan")
         self.setModal(True)
         self.setFixedSize(600, 500)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
@@ -55,7 +58,7 @@ class ModernAddScanDialog(QDialog):
         # Header with title and close button
         header_layout = QHBoxLayout()
 
-        title_label = QLabel("Add New Scan")
+        title_label = QLabel("Edit Scan" if self.is_edit else "Add New Scan")
         title_label.setObjectName("dialogTitle")
 
         close_btn = QPushButton("✕")
@@ -139,7 +142,7 @@ class ModernAddScanDialog(QDialog):
         cancel_btn.setObjectName("secondaryMinimalButton")
         cancel_btn.clicked.connect(self.reject)
 
-        self.save_btn = QPushButton("Add Scan")
+        self.save_btn = QPushButton("Save Changes" if self.is_edit else "Add Scan")
         self.save_btn.setObjectName("primaryMinimalButton")
         self.save_btn.clicked.connect(self.accept)
         self.save_btn.setEnabled(False)
@@ -150,9 +153,16 @@ class ModernAddScanDialog(QDialog):
 
         container_layout.addLayout(button_layout)
 
+        # Pre-fill values for edit mode
+        if self.initial_scan:
+            self.name_input.setText(self.initial_scan.get("name", ""))
+            self.url_input.setPlainText(self.initial_scan.get("url", ""))
+            self.tag_input.setCurrentText(self.initial_scan.get("tag", "Others"))
+
         # Connect validation
         self.name_input.textChanged.connect(self._validate_inputs)
         self.url_input.textChanged.connect(self._validate_inputs)
+        self._validate_inputs()
 
         # Enable dragging
         main_container.mousePressEvent = self.mousePressEvent
@@ -450,13 +460,27 @@ class ModernManageScansDialog(QDialog):
             preview_item.setFont(QFont("Consolas", 8))
             self.scans_table.setItem(row, 2, preview_item)
 
-            # Actions button
+            # Actions buttons
+            actions_widget = QWidget()
+            actions_layout = QHBoxLayout(actions_widget)
+            actions_layout.setContentsMargins(0, 0, 0, 0)
+            actions_layout.setSpacing(6)
+
+            edit_btn = QPushButton("✎")
+            edit_btn.setObjectName("editMinimalButton")
+            edit_btn.setFixedSize(24, 24)
+            edit_btn.setToolTip("Edit this scan")
+            edit_btn.clicked.connect(lambda checked, r=row: self._edit_scan(r))
+            actions_layout.addWidget(edit_btn)
+
             delete_btn = QPushButton("🗑")  # Just the delete icon, no text
             delete_btn.setObjectName("deleteMinimalButton")
             delete_btn.setFixedSize(24, 24)  # Small square button
             delete_btn.setToolTip("Delete this scan")  # Helpful tooltip
             delete_btn.clicked.connect(lambda checked, r=row: self._delete_scan(r))
-            self.scans_table.setCellWidget(row, 3, delete_btn)
+            actions_layout.addWidget(delete_btn)
+
+            self.scans_table.setCellWidget(row, 3, actions_widget)
 
         # Adjust row heights
         for row in range(len(self.scans)):
@@ -473,6 +497,16 @@ class ModernManageScansDialog(QDialog):
             info_label = self.findChild(QLabel, "infoLabel")
             if info_label:
                 info_label.setText(f"📊 {len(self.scans)} scans configured")
+
+    def _edit_scan(self, row: int):
+        """Edit an existing scan at the given row."""
+        if not (0 <= row < len(self.scans)):
+            return
+
+        dialog = ModernAddScanDialog(self, initial_scan=self.scans[row], is_edit=True)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.scans[row] = dialog.get_scan_data()
+            self._populate_scans()
 
     def _delete_scan(self, row: int):
         """Delete a scan at the given row."""
@@ -537,6 +571,17 @@ class ModernManageScansDialog(QDialog):
             }
             QPushButton#addMinimalButton:hover {
                 background-color: #246b43;
+            }
+
+            QPushButton#editMinimalButton {
+                background-color: #3a3a3a;
+                color: #d8d8d8;
+                border: none;
+                border-radius: 3px;
+                font-size: 11px;
+            }
+            QPushButton#editMinimalButton:hover {
+                background-color: #505050;
             }
 
             QPushButton#closeButton {
