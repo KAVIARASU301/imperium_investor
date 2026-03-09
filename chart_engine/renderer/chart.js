@@ -259,6 +259,18 @@ class FixedTradingChart {
         if (this.data.length === 0) return;
         let cumTPV = 0, cumVol = 0;
         this.vwapData = this.data.map((c, i) => {
+            if (i > 0) {
+                const prev = new Date(this.data[i - 1].time);
+                const curr = new Date(c.time);
+                const isNewSession =
+                    prev.getFullYear() !== curr.getFullYear() ||
+                    prev.getMonth() !== curr.getMonth() ||
+                    prev.getDate() !== curr.getDate();
+                if (isNewSession) {
+                    cumTPV = 0;
+                    cumVol = 0;
+                }
+            }
             const tp  = (c.high + c.low + c.close) / 3;
             const vol = (this.volumeData[i] || {}).value || 0;
             cumTPV += tp * vol;
@@ -913,6 +925,29 @@ class FixedTradingChart {
         }
     }
 
+    _snapCrosshairY(mouseY, candleIndex) {
+        if (candleIndex < 0 || candleIndex >= this.data.length) return mouseY;
+
+        const candle = this.data[candleIndex];
+        const levels = [candle.open, candle.high, candle.low, candle.close]
+            .filter(v => Number.isFinite(v))
+            .map(price => ({ price, y: this._priceToY(price) }));
+
+        if (levels.length === 0) return mouseY;
+
+        let nearest = levels[0].y;
+        let minDist = Math.abs(mouseY - nearest);
+        for (let i = 1; i < levels.length; i++) {
+            const dist = Math.abs(mouseY - levels[i].y);
+            if (dist < minDist) {
+                minDist = dist;
+                nearest = levels[i].y;
+            }
+        }
+
+        return nearest;
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     // WATERMARK
     // ═══════════════════════════════════════════════════════════════════════
@@ -1274,7 +1309,9 @@ class FixedTradingChart {
 
         if (inChart) {
             this.crosshairX = pos.x;
-            this.crosshairY = pos.y;
+            const candleIndex = this._xToCandle(pos.x);
+            const isInPricePane = pos.y >= this.chartArea.y && pos.y <= this.chartArea.y + this.chartArea.height;
+            this.crosshairY = isInPricePane ? this._snapCrosshairY(pos.y, candleIndex) : pos.y;
             this._updateCandleDetail(pos.x);
             this.canvas.style.cursor = this.currentTool ? 'crosshair' : 'default';
         } else {
