@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView, QPushButton, QHBoxLayout, QLabel, QComboBox, QMessageBox,
     QDialog, QLineEdit, QFormLayout, QGroupBox, QFrame, QTextEdit
 )
-from PySide6.QtGui import QColor, QFont, QBrush, QCursor
+from PySide6.QtGui import QColor, QFont, QBrush, QCursor, QFontMetrics
 from PySide6.QtCore import QItemSelectionModel
 
 logger = logging.getLogger(__name__)
@@ -962,11 +962,14 @@ class ChartinkScannerTable(QWidget):
 
         self.table.horizontalHeader().setVisible(True)
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        # Keep symbol column compact: enough room for ~10-character symbols.
+        symbol_width = QFontMetrics(self.table.font()).horizontalAdvance("W" * 10) + 20
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
 
+        self.table.setColumnWidth(0, symbol_width)
         self.table.setColumnWidth(3, 68)
 
         self.table.verticalHeader().setVisible(False)
