@@ -379,11 +379,6 @@ class CandlestickChart(QWidget):
     def _load_chart_data(self, force_refresh: bool = False) -> None:
         if not self.current_symbol:
             return
-        self._stop_loader()
-        self._set_state(ChartState.LOADING)
-        self.progress_bar.setValue(0)
-        self.progress_bar.show()
-        self.loading_label.setText(f"Loading {self.current_symbol}…")
 
         token = self.current_instrument_token
         if not token and self.instrument_loader:
@@ -392,8 +387,25 @@ class CandlestickChart(QWidget):
                 self.current_instrument_token = token
             except Exception as exc:
                 logger.error("Instrument lookup failed: %s", exc)
-                self._show_error(f"Instrument not found: {self.current_symbol}")
+
+        if not token:
+            if not self.instrument_map:
+                logger.info(
+                    "Deferring chart load for %s until instruments are available",
+                    self.current_symbol,
+                )
+                self.progress_bar.hide()
+                self._set_state(ChartState.IDLE)
                 return
+
+            self._show_error(f"Instrument token unavailable for {self.current_symbol}")
+            return
+
+        self._stop_loader()
+        self._set_state(ChartState.LOADING)
+        self.progress_bar.setValue(0)
+        self.progress_bar.show()
+        self.loading_label.setText(f"Loading {self.current_symbol}…")
 
         load_key = f"{self.current_symbol}_{self.current_interval}"
         self._active_load_key = load_key
