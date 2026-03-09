@@ -2,7 +2,7 @@
 import logging
 import json
 import os
-from typing import List, Dict
+from typing import List, Dict, Optional
 from functools import partial
 
 from PySide6.QtWidgets import (
@@ -313,19 +313,28 @@ class TradingTable(QTableWidget):
             if prev_close <= 0:
                 logger.warning(f"Invalid prev_close for {symbol}: {prev_close}")
 
+    @staticmethod
+    def _normalize_token(token) -> Optional[int]:
+        """Normalize incoming instrument tokens for robust comparisons."""
+        try:
+            return int(token)
+        except (TypeError, ValueError):
+            return None
+
     def update_data(self, ticks: List[Dict]):
         """FIXED data update from WebSocket ticks with proper field handling"""
         updated_symbols = set()
 
         for tick in ticks:
-            token = tick.get('instrument_token')
-            if not token:
+            token = self._normalize_token(tick.get('instrument_token'))
+            if token is None:
                 continue
 
             # Find symbol by token
             symbol_found = None
             for symbol, data in self._watchlist_data.items():
-                if data.get('instrument_token') == token:
+                data_token = self._normalize_token(data.get('instrument_token'))
+                if data_token == token:
                     symbol_found = symbol
                     break
 

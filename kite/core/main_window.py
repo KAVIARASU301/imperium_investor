@@ -477,6 +477,11 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         # BUILD INSTRUMENT MAP WITH NSE PREFERENCE
         self.instrument_map = self._build_instrument_map_with_nse_preference(instruments)
+        self._token_to_symbol = {
+            int(inst.get('instrument_token')): symbol
+            for symbol, inst in self.instrument_map.items()
+            if inst.get('instrument_token') is not None
+        }
 
         # Set instrument data in components
         self.header_toolbar.set_instrument_data(instruments)
@@ -595,6 +600,8 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         symbol_ticks = {}
         token_to_symbol = {}
 
+        passthrough_ticks = []
+
         for tick in ticks:
             # Get symbol from tick or resolve from token
             symbol = tick.get('tradingsymbol')
@@ -613,6 +620,10 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
                 if token:
                     token_to_symbol[token] = symbol
+            else:
+                # Keep unresolved ticks so token-based consumers (watchlist/positions)
+                # continue to update even if symbol resolution fails.
+                passthrough_ticks.append(tick)
 
         # Filter to prefer NSE over BSE for each symbol
         filtered_ticks = []
@@ -646,11 +657,19 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 else:
                     filtered_ticks.extend(other_ticks)
 
+        filtered_ticks.extend(passthrough_ticks)
         logger.debug(f"Filtered {len(ticks)} ticks to {len(filtered_ticks)} (NSE preference applied)")
         return filtered_ticks
 
     def _resolve_symbol_from_token(self, token: int) -> Optional[str]:
         """Resolve trading symbol from instrument token with NSE preference"""
+        normalized_token = self._normalize_token(token)
+        if normalized_token is None:
+            return None
+
+        if hasattr(self, '_token_to_symbol') and normalized_token in self._token_to_symbol:
+            return self._token_to_symbol[normalized_token]
+
         if not hasattr(self, 'instrument_map'):
             return None
 
@@ -660,7 +679,8 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         other_symbol = None
 
         for symbol, instrument in self.instrument_map.items():
-            if instrument.get('instrument_token') == token:
+            instrument_token = self._normalize_token(instrument.get('instrument_token'))
+            if instrument_token == normalized_token:
                 exchange = instrument.get('exchange', '')
                 if exchange == 'NSE':
                     nse_symbol = symbol
@@ -671,6 +691,14 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         # Return in preference order
         return nse_symbol or bse_symbol or other_symbol
+
+    @staticmethod
+    def _normalize_token(token) -> Optional[int]:
+        """Normalize instrument token values for reliable comparisons."""
+        try:
+            return int(token)
+        except (TypeError, ValueError):
+            return None
 
     def _get_exchange_for_tick(self, tick: Dict, symbol: str) -> str:
         """Get exchange for a tick, with lookup in an instrument map if needed"""
