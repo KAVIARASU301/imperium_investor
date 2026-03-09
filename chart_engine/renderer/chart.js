@@ -72,12 +72,15 @@ class FixedTradingChart {
         };
 
         // ── Viewport ──
+        // Model: candleWidth + candleSpacing are FIXED (user-set).
+        // visibleCount is DERIVED from chartArea.width / slotW — never set directly.
+        // On resize: more/fewer candles appear automatically, no stretching.
         this.rightBufferCandles = 5;
-        this.candleWidth = cfg.initialCandleWidth || 4;
-        this.candleSpacing = cfg.initialCandleSpacing || 2;
-        this.visibleCandleCount = cfg.initialVisibleCandleCount || 100;
+        this.candleWidth   = cfg.initialCandleWidth   || 8;   // body+wick pixel width — user control
+        this.candleSpacing = cfg.initialCandleSpacing || 2;   // gap between candles in px
+        this.visibleCandleCount = 100;                         // computed — don't use cfg value
         this.viewPortEnd   = Math.max(0, this.data.length - 1 + this.rightBufferCandles);
-        this.viewPortStart = Math.max(0, this.viewPortEnd - this.visibleCandleCount + 1);
+        this.viewPortStart = 0;                                // recalculated in _updateViewport()
 
         // ── Bounds ──
         this.minPrice = 0; this.maxPrice = 0;
@@ -138,6 +141,7 @@ class FixedTradingChart {
 
     async _init() {
         this._setupCanvas();
+        this._updateViewport();   // derive visibleCount + viewPortStart from fixed slot width
         this._setupSlider();
         this.calculateBounds();
         this._setupEventListeners();
@@ -176,6 +180,8 @@ class FixedTradingChart {
         this.width  = w;
         this.height = h;
         this._updateChartAreas();
+        // Fixed slot width → more/fewer candles fit automatically, no stretching.
+        this._updateViewport();
         this.calculateBounds();
         this.requestDraw();
         this.updateSlider();
@@ -202,6 +208,24 @@ class FixedTradingChart {
         };
 
         this.rightAxisWidth = pad.right;
+    }
+
+    // ── Slot geometry helpers ────────────────────────────────────────────────
+
+    _slotW() {
+        // Total pixels per candle slot: body + gap.  This is the ONE number that
+        // controls density.  candleWidth is fixed; slotW drives everything else.
+        return this.candleWidth + this.candleSpacing;
+    }
+
+    _updateViewport() {
+        // Derive how many candles fit given the current chartArea width and slot size.
+        // viewPortEnd is the anchor (panned position); viewPortStart follows.
+        if (!this.chartArea) return;
+        const slotW = this._slotW();
+        const vis   = Math.max(1, Math.floor(this.chartArea.width / slotW));
+        this.visibleCandleCount = vis;
+        this.viewPortStart = Math.max(0, this.viewPortEnd - vis + 1);
     }
 
     _computeRightAxisWidth() {
@@ -429,13 +453,11 @@ class FixedTradingChart {
     // ═══════════════════════════════════════════════════════════════════════
 
     _drawCandlesticks() {
-        const ctx = this.ctx;
+        const ctx      = this.ctx;
         const visCount = this.viewPortEnd - this.viewPortStart + 1;
         if (visCount <= 0) return;
 
-        const candleSpace = this.chartArea.width / visCount;
-        this.candleWidth  = Math.max(1.5, candleSpace - this.candleSpacing);
-
+        // candleWidth is user-fixed — never recalculate to fill space.
         const bodyInset = this.candleWidth >= 8 ? 0.5 : 0.25;
         const bodyW     = Math.max(1, this.candleWidth - bodyInset * 2);
         const wickW     = this.candleWidth >= 7 ? 1.5 : 1;
@@ -1278,12 +1300,12 @@ class FixedTradingChart {
 
         // ── Panning ──
         if (this.isDragging) {
-            const dx = pos.x - this.lastMouseX;
-            const visCount = this.viewPortEnd - this.viewPortStart + 1;
-            const shift = Math.round(dx / (this.chartArea.width / visCount));
+            const dx    = pos.x - this.lastMouseX;
+            const shift = Math.round(dx / this._slotW());   // slot-width → exact candle count
             if (shift !== 0) {
+                const vis = this.visibleCandleCount;
                 this.viewPortStart = Math.max(0, this.viewPortStart - shift);
-                this.viewPortEnd   = this.viewPortStart + visCount - 1;
+                this.viewPortEnd   = this.viewPortStart + vis - 1;
                 this.calculateBounds();
                 this.updateSlider();
                 this.lastMouseX = pos.x;
@@ -1365,23 +1387,31 @@ class FixedTradingChart {
 
     _onWheel(e) {
         e.preventDefault();
-        const delta = e.deltaY || e.deltaX;
+        const delta  = e.deltaY || e.deltaX;
         const zoomIn = delta < 0;
-        const visCount = this.viewPortEnd - this.viewPortStart + 1;
-        const factor = zoomIn ? 0.88 : 1.12;
-        const newCount = Math.max(20, Math.min(this.data.length + this.rightBufferCandles,
-                                               Math.round(visCount * factor)));
-        if (newCount === visCount) return;
 
-        // Zoom around mouse position
-        const pos   = this._mousePos(e);
-        const frac  = (pos.x - this.chartArea.x) / this.chartArea.width;
-        const anchor = this.viewPortStart + frac * visCount;
-        const newStart = Math.max(0, Math.round(anchor - frac * newCount));
+        // ── Fixed-width zoom model ──────────────────────────────────────────
+        // Zoom = change candleWidth in px. visibleCount adjusts automatically.
+        // Smooth multiplicative step; clamp to [2, 60] px.
+        const factor  = zoomIn ? 1.10 : 0.91;
+        const newW    = Math.max(2, Math.min(60, this.candleWidth * factor));
+        if (Math.abs(newW - this.candleWidth) < 0.05) return;
 
-        this.viewPortStart      = Math.min(newStart, this.data.length + this.rightBufferCandles - newCount);
-        this.viewPortEnd        = this.viewPortStart + newCount - 1;
-        this.visibleCandleCount = newCount;
+        // Anchor the candle under the mouse so it stays in place after zoom.
+        const pos          = this._mousePos(e);
+        const anchorCandle = this._xToCandle(pos.x);   // index before resize
+        const anchorFrac   = (pos.x - this.chartArea.x) / this.chartArea.width;
+
+        this.candleWidth = newW;
+
+        // Recompute how many candles now fit, then position viewport so that
+        // anchorCandle stays at anchorFrac of the chart width.
+        const vis      = Math.max(1, Math.floor(this.chartArea.width / this._slotW()));
+        const newStart = Math.round(anchorCandle - anchorFrac * vis);
+        this.viewPortStart      = Math.max(0, Math.min(newStart,
+                                    this.data.length + this.rightBufferCandles - vis));
+        this.viewPortEnd        = this.viewPortStart + vis - 1;
+        this.visibleCandleCount = vis;
 
         this.calculateBounds();
         this.requestDraw();
@@ -1696,16 +1726,14 @@ class FixedTradingChart {
     }
 
     _candleToX(index) {
-        const vis = this.viewPortEnd - this.viewPortStart + 1;
-        const space = this.chartArea.width / vis;
-        return this.chartArea.x + (index - this.viewPortStart) * space;
+        // Fixed slot-width model: each candle occupies exactly _slotW() px.
+        return this.chartArea.x + (index - this.viewPortStart) * this._slotW();
     }
 
     _xToCandle(x) {
-        const vis = this.viewPortEnd - this.viewPortStart + 1;
-        const space = this.chartArea.width / vis;
-        if (space <= 0) return -1;
-        return this.viewPortStart + Math.floor((x - this.chartArea.x) / space);
+        const slotW = this._slotW();
+        if (slotW <= 0) return -1;
+        return this.viewPortStart + Math.floor((x - this.chartArea.x) / slotW);
     }
 
     _timeToX(time) {
@@ -1713,7 +1741,7 @@ class FixedTradingChart {
         if (idx === -1) {
             const last = this.data.length - 1;
             if (last < 0) return this.chartArea.x;
-            return Math.min(this._candleToX(last) + this.candleWidth,
+            return Math.min(this._candleToX(last) + this._slotW(),
                             this.chartArea.x + this.chartArea.width);
         }
         if (idx === 0 && time < this.data[0].time) return this.chartArea.x;
@@ -1885,9 +1913,11 @@ class FixedTradingChart {
     addNewCandle(candle) {
         this.data.push(candle);
         this.volumeData.push({ time: candle.time, value: candle.volume || 0 });
-        this.viewPortEnd = this.data.length - 1 + this.rightBufferCandles;
-        if (this.visibleCandleCount) {
-            this.viewPortStart = Math.max(0, this.viewPortEnd - this.visibleCandleCount + 1);
+        // Keep viewport anchored to latest candle if user hasn't panned away.
+        const wasAtEnd = this.viewPortEnd >= this.data.length - 2 + this.rightBufferCandles;
+        if (wasAtEnd) {
+            this.viewPortEnd = this.data.length - 1 + this.rightBufferCandles;
+            this._updateViewport();
         }
         this._computeVWAP();
         this.calculateBounds();
@@ -1896,9 +1926,14 @@ class FixedTradingChart {
     }
 
     setVisibleCandleCount(count) {
-        this.visibleCandleCount = count;
-        this.viewPortEnd   = Math.max(0, this.data.length - 1 + this.rightBufferCandles);
-        this.viewPortStart = Math.max(0, this.viewPortEnd - count + 1);
+        // Legacy API — convert requested count to the nearest candleWidth that
+        // would show that many candles in the current chart area.
+        if (count > 0 && this.chartArea) {
+            const targetW = Math.max(2, Math.floor(this.chartArea.width / count) - this.candleSpacing);
+            this.candleWidth = Math.max(2, Math.min(60, targetW));
+        }
+        this.viewPortEnd = Math.max(0, this.data.length - 1 + this.rightBufferCandles);
+        this._updateViewport();
         this.calculateBounds();
         this.requestDraw();
         this.updateSlider();
@@ -1909,14 +1944,23 @@ class FixedTradingChart {
         if (cfg.downCandleColor) this.colors.downCandle = cfg.downCandleColor;
         if (cfg.upVolumeColor)   this.colors.volumeUp   = cfg.upVolumeColor;
         if (cfg.downVolumeColor) this.colors.volumeDown = cfg.downVolumeColor;
-        if (cfg.candleWidth)     this.candleWidth    = cfg.candleWidth;
-        if (cfg.candleSpacing)   this.candleSpacing  = cfg.candleSpacing;
+        const slotChanged = (cfg.candleWidth && cfg.candleWidth !== this.candleWidth) ||
+                            (cfg.candleSpacing !== undefined && cfg.candleSpacing !== this.candleSpacing);
+        if (cfg.candleWidth)                    this.candleWidth   = cfg.candleWidth;
+        if (cfg.candleSpacing !== undefined)    this.candleSpacing = cfg.candleSpacing;
         if (cfg.watermarkEnabled  !== undefined) this.watermark.enabled  = cfg.watermarkEnabled;
         if (cfg.watermarkColor)   this.watermark.color   = cfg.watermarkColor;
         if (cfg.watermarkOpacity  !== undefined) this.watermark.opacity  = cfg.watermarkOpacity;
         if (cfg.watermarkPosition) this.watermark.position = cfg.watermarkPosition;
         if (cfg.watermarkFontSize !== undefined) this.watermark.fontSize = cfg.watermarkFontSize;
-        if (cfg.indicatorScaleLabelsEnabled !== undefined) this.indicatorScaleLabelsEnabled = cfg.indicatorScaleLabelsEnabled === true;
+        if (cfg.indicatorScaleLabelsEnabled !== undefined)
+            this.indicatorScaleLabelsEnabled = cfg.indicatorScaleLabelsEnabled === true;
+        // If slot dimensions changed, recalculate how many candles fit.
+        if (slotChanged) {
+            this.viewPortEnd = Math.max(0, this.data.length - 1 + this.rightBufferCandles);
+            this._updateViewport();
+            this.calculateBounds();
+        }
         this.requestDraw();
     }
 
@@ -1959,7 +2003,13 @@ class FixedTradingChart {
         this.requestDraw(); this._notifyDrawingsChange();
     }
 
-    autoScale()             { this.calculateBounds(); this.requestDraw(); this.updateSlider(); }
+    autoScale() {
+        this.viewPortEnd = Math.max(0, this.data.length - 1 + this.rightBufferCandles);
+        this._updateViewport();
+        this.calculateBounds();
+        this.requestDraw();
+        this.updateSlider();
+    }
 
     setIndicatorVisibility(key, visible) {
         this.indicatorVisibility[key] = visible;
