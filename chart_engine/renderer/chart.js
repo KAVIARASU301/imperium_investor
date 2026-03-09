@@ -250,7 +250,7 @@ class FixedTradingChart {
 
         let maxTextWidth = 0;
         for (let p = minR; p <= maxR + step * 0.5; p += step) {
-            const label = '₹' + p.toFixed(decimals);
+            const label = p.toFixed(decimals);
             maxTextWidth = Math.max(maxTextWidth, this.ctx.measureText(label).width);
         }
 
@@ -752,7 +752,7 @@ class FixedTradingChart {
 
             // Label — right-aligned with 6px right padding
             ctx.fillStyle = this.colors.textBright;
-            ctx.fillText('₹' + p.toFixed(decimals), axisX + axisW - 6, y);
+            ctx.fillText(p.toFixed(decimals), axisX + axisW - 6, y);
             lastY = y;
         }
     }
@@ -818,7 +818,7 @@ class FixedTradingChart {
         ctx.setLineDash([]);
 
         // ── Full-width pill label on axis ──────────────────────────────────
-        const label  = '₹' + price.toFixed(2);
+        const label  = price.toFixed(2);
         const lh     = 17;
         const lx     = axisX;                  // start flush with axis border
         const lw     = axisW;                  // span the entire axis width
@@ -874,7 +874,7 @@ class FixedTradingChart {
 
         // ── Crosshair price label — full-width, matching axis panel ────────
         const price  = this._yToPrice(y);
-        const plabel = '₹' + price.toFixed(2);
+        const plabel = price.toFixed(2);
         const lh     = 17;
         const lx     = axisX;
         const lw     = axisW;

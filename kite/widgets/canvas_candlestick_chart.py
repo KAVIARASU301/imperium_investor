@@ -2683,7 +2683,7 @@ class CandlestickChart(QWidget):
                         if (y < this.chartArea.y + 8 || y > this.chartArea.y + this.chartArea.height - 8) continue;
                         if (Math.abs(y - previousY) < minPriceGapPx) continue;
 
-                        const label = '₹' + price.toFixed(priceDecimals);
+                        const label = price.toFixed(priceDecimals);
                         this.ctx.fillText(label, this.width - 4, y);
                         previousY = y;
                     }}
@@ -3013,7 +3013,7 @@ class CandlestickChart(QWidget):
                             this.ctx.stroke();
                             
                             // Price label with darker background
-                            const priceText = '₹' + this.yToPrice(this.crosshairY).toFixed(2);
+                            const priceText = this.yToPrice(this.crosshairY).toFixed(2);
                             this.ctx.font = 'bold 12px monospace'; 
                             const textMetrics = this.ctx.measureText(priceText);
                             const rectY = this.crosshairY - 8;
@@ -3071,7 +3071,7 @@ class CandlestickChart(QWidget):
                         ctx.setLineDash([]);
                     
                         // === Price label ===
-                        const priceText = '₹' + this.livePrice.toFixed(2);
+                        const priceText = this.livePrice.toFixed(2);
                     
                         ctx.font = '10px monospace';
                         const textWidth = ctx.measureText(priceText).width;
