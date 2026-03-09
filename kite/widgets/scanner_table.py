@@ -18,6 +18,7 @@ from PySide6.QtCore import QItemSelectionModel
 logger = logging.getLogger(__name__)
 SCAN_URL_FILE = os.path.join(os.path.expanduser("~/.swing_trader"), "chartink_scans.json")
 SETTINGS_FILE = os.path.join(os.path.expanduser("~/.swing_trader"), "scanner_settings.json")
+SCAN_GROUP_ORDER = ["Momentum Breakouts", "Episodic Pivot", "Parabolic", "Others"]
 
 
 class ModernAddScanDialog(QDialog):
@@ -95,6 +96,16 @@ class ModernAddScanDialog(QDialog):
         form_layout.addWidget(clause_label)
         form_layout.addWidget(self.url_input)
 
+        # Scan tag/group
+        tag_label = QLabel("Tag / Group")
+        tag_label.setObjectName("fieldLabel")
+        self.tag_input = QLineEdit()
+        self.tag_input.setObjectName("minimalInput")
+        self.tag_input.setPlaceholderText("Momentum Breakouts / Episodic Pivot / Parabolic / Others")
+
+        form_layout.addWidget(tag_label)
+        form_layout.addWidget(self.tag_input)
+
         container_layout.addWidget(form_group)
 
         # Help section
@@ -157,7 +168,8 @@ class ModernAddScanDialog(QDialog):
         """Returns the scan data entered by user."""
         return {
             "name": self.name_input.text().strip(),
-            "url": self.url_input.toPlainText().strip()
+            "url": self.url_input.toPlainText().strip(),
+            "tag": self.tag_input.text().strip() or "Others"
         }
 
     def mousePressEvent(self, event):
@@ -366,14 +378,15 @@ class ModernManageScansDialog(QDialog):
         # Scans table
         self.scans_table = QTableWidget()
         self.scans_table.setObjectName("minimalTable")
-        self.scans_table.setColumnCount(3)
-        self.scans_table.setHorizontalHeaderLabels(["Scan Name", "Clause Preview", "Actions"])
+        self.scans_table.setColumnCount(4)
+        self.scans_table.setHorizontalHeaderLabels(["Scan Name", "Tag", "Clause Preview", "Actions"])
 
         # Configure table
         header = self.scans_table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
 
         self.scans_table.verticalHeader().setVisible(False)
         self.scans_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -425,12 +438,16 @@ class ModernManageScansDialog(QDialog):
             name_item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
             self.scans_table.setItem(row, 0, name_item)
 
+            # Tag
+            tag_item = QTableWidgetItem(scan.get("tag", "Others"))
+            self.scans_table.setItem(row, 1, tag_item)
+
             # URL preview (truncated)
             url = scan.get("url", "")
             preview = url[:60] + "..." if len(url) > 60 else url
             preview_item = QTableWidgetItem(preview)
             preview_item.setFont(QFont("Consolas", 8))
-            self.scans_table.setItem(row, 1, preview_item)
+            self.scans_table.setItem(row, 2, preview_item)
 
             # Actions button
             delete_btn = QPushButton("🗑")  # Just the delete icon, no text
@@ -438,7 +455,7 @@ class ModernManageScansDialog(QDialog):
             delete_btn.setFixedSize(24, 24)  # Small square button
             delete_btn.setToolTip("Delete this scan")  # Helpful tooltip
             delete_btn.clicked.connect(lambda checked, r=row: self._delete_scan(r))
-            self.scans_table.setCellWidget(row, 2, delete_btn)
+            self.scans_table.setCellWidget(row, 3, delete_btn)
 
         # Adjust row heights
         for row in range(len(self.scans)):
@@ -733,6 +750,7 @@ class ChartinkScannerTable(QWidget):
         self._symbol_to_row: Dict[str, int] = {}
         self._instrument_map: Dict[str, Dict] = {}
         self._token_to_symbol: Dict[int, str] = {}
+        self._dropdown_scan_indices: List[int] = []
         self._current_symbol_index = 0  # Track current symbol for spacebar navigation
         self._last_visible_tokens: set = set()  # track to avoid redundant re-subs
         self._color_theme = {
@@ -747,7 +765,7 @@ class ChartinkScannerTable(QWidget):
             last_selected = self._load_last_selected_scan()
             if 0 <= last_selected < len(self.scans):
                 self.scan_dropdown.blockSignals(True)
-                self.scan_dropdown.setCurrentIndex(last_selected)
+                self._set_dropdown_to_scan_index(last_selected)
                 self.scan_dropdown.blockSignals(False)
             self._run_current_scan()
 
@@ -871,14 +889,62 @@ class ChartinkScannerTable(QWidget):
         self._update_scan_dropdown()
         return header_container
 
+    def _normalize_scan_tag(self, tag: Optional[str]) -> str:
+        """Normalize user-entered scan tags into known scan sections."""
+        raw_tag = (tag or "").strip()
+        if not raw_tag:
+            return "Others"
+
+        lower_tag = raw_tag.lower()
+        for group in SCAN_GROUP_ORDER:
+            if lower_tag == group.lower():
+                return group
+
+        aliases = {
+            "momentum": "Momentum Breakouts",
+            "momentum breakout": "Momentum Breakouts",
+            "breakout": "Momentum Breakouts",
+            "episodic": "Episodic Pivot",
+            "pivot": "Episodic Pivot",
+            "episodic pivot": "Episodic Pivot",
+            "parabolic move": "Parabolic",
+            "other": "Others",
+        }
+        return aliases.get(lower_tag, raw_tag)
+
+    def _get_sorted_scans_with_indices(self):
+        """Return scans sorted by group and name with source index mapping."""
+        decorated = []
+        for idx, scan in enumerate(self.scans):
+            tag = self._normalize_scan_tag(scan.get("tag"))
+            scan["tag"] = tag
+            rank = SCAN_GROUP_ORDER.index(tag) if tag in SCAN_GROUP_ORDER else len(SCAN_GROUP_ORDER)
+            name = scan.get("name", f"Scan {idx + 1}")
+            decorated.append((rank, tag.lower(), name.lower(), idx, scan))
+
+        decorated.sort(key=lambda item: (item[0], item[1], item[2]))
+        return [(idx, scan) for _, _, _, idx, scan in decorated]
+
     def _update_scan_dropdown(self):
-        """Update the scan dropdown with current scans."""
+        """Update the scan dropdown with grouped scan sections."""
         self.scan_dropdown.blockSignals(True)
         self.scan_dropdown.clear()
+        self._dropdown_scan_indices = []
 
         if self.scans:
-            scan_names = [scan.get("name", f"Scan {i + 1}") for i, scan in enumerate(self.scans)]
-            self.scan_dropdown.addItems(scan_names)
+            sorted_scans = self._get_sorted_scans_with_indices()
+            current_group = None
+            for scan_index, scan in sorted_scans:
+                tag = self._normalize_scan_tag(scan.get("tag"))
+                if tag != current_group:
+                    self.scan_dropdown.addItem(f"── {tag} ──")
+                    self.scan_dropdown.setItemData(self.scan_dropdown.count() - 1, False, Qt.ItemDataRole.UserRole - 1)
+                    current_group = tag
+
+                display_name = scan.get("name", f"Scan {scan_index + 1}")
+                self.scan_dropdown.addItem(display_name)
+                self._dropdown_scan_indices.append(scan_index)
+
             self.scan_dropdown.setEnabled(True)
             self.manage_btn.setEnabled(True)
         else:
@@ -1094,14 +1160,52 @@ class ChartinkScannerTable(QWidget):
         self.scan_dropdown.setEnabled(True)
         self.manage_btn.setEnabled(True)
 
+    def _set_dropdown_to_scan_index(self, scan_index: int):
+        """Select the dropdown item for a given scan index."""
+        if scan_index is None:
+            return
+
+        non_header = -1
+        for dropdown_idx in range(self.scan_dropdown.count()):
+            label = self.scan_dropdown.itemText(dropdown_idx).strip()
+            if label.startswith("──"):
+                continue
+            non_header += 1
+            if non_header < len(self._dropdown_scan_indices) and self._dropdown_scan_indices[non_header] == scan_index:
+                self.scan_dropdown.setCurrentIndex(dropdown_idx)
+                return
+
     def _on_scan_selection_changed(self):
         """Handle scan selection changes."""
         if self.scan_dropdown.signalsBlocked():
             return
 
-        current_index = self.scan_dropdown.currentIndex()
-        self._save_last_selected_scan(current_index)
+        selected_scan_index = self._get_selected_scan_index()
+        if selected_scan_index is None:
+            return
+
+        self._save_last_selected_scan(selected_scan_index)
         self._run_current_scan()
+
+    def _get_selected_scan_index(self) -> Optional[int]:
+        """Map dropdown selection to actual self.scans index, skipping section headers."""
+        current_index = self.scan_dropdown.currentIndex()
+        if current_index < 0:
+            return None
+
+        item_text = self.scan_dropdown.currentText().strip()
+        if item_text.startswith("──"):
+            return None
+
+        scan_counter = -1
+        for dropdown_idx in range(current_index + 1):
+            text = self.scan_dropdown.itemText(dropdown_idx).strip()
+            if text and not text.startswith("──"):
+                scan_counter += 1
+
+        if 0 <= scan_counter < len(self._dropdown_scan_indices):
+            return self._dropdown_scan_indices[scan_counter]
+        return None
 
     def _save_last_selected_scan(self, index: int):
         """Save the last selected scan index."""
@@ -1135,13 +1239,13 @@ class ChartinkScannerTable(QWidget):
             self._save_scans()
 
             self.scan_dropdown.blockSignals(True)
-            current_index = self.scan_dropdown.currentIndex()
+            selected_scan_index = self._get_selected_scan_index()
             self._update_scan_dropdown()
 
-            if current_index < self.scan_dropdown.count() and current_index >= 0:
-                self.scan_dropdown.setCurrentIndex(current_index)
+            if selected_scan_index is not None:
+                self._set_dropdown_to_scan_index(selected_scan_index)
             else:
-                self.scan_dropdown.setCurrentIndex(0)
+                self.scan_dropdown.setCurrentIndex(1 if self.scan_dropdown.count() > 1 else 0)
             self.scan_dropdown.blockSignals(False)
 
             if not self.scans:
@@ -1174,11 +1278,11 @@ class ChartinkScannerTable(QWidget):
         if not self.scans:
             return
 
-        current_index = self.scan_dropdown.currentIndex()
-        if current_index < 0 or current_index >= len(self.scans):
+        selected_scan_index = self._get_selected_scan_index()
+        if selected_scan_index is None or selected_scan_index < 0 or selected_scan_index >= len(self.scans):
             return
 
-        selected_scan = self.scans[current_index]
+        selected_scan = self.scans[selected_scan_index]
         selected_scan_url = selected_scan.get("url")
 
         if not selected_scan_url:
@@ -1413,7 +1517,8 @@ class ChartinkScannerTable(QWidget):
             default_scans = [
                 {
                     "name": "Example: Above 20 SMA",
-                    "url": "( {57960} ( latest \"close\" > latest \"sma( close , 20 )\" ) )"
+                    "url": "( {57960} ( latest \"close\" > latest \"sma( close , 20 )\" ) )",
+                    "tag": "Others"
                 }
             ]
             self._save_scans_to_file(default_scans)
@@ -1432,6 +1537,7 @@ class ChartinkScannerTable(QWidget):
                 if isinstance(scan, dict) and 'url' in scan:
                     if 'name' not in scan:
                         scan['name'] = f"Scan {i + 1}"
+                    scan['tag'] = self._normalize_scan_tag(scan.get('tag', 'Others'))
                     valid_scans.append(scan)
                 else:
                     logger.warning(f"Invalid scan configuration at index {i}: {scan}")
