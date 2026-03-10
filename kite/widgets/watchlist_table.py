@@ -7,10 +7,10 @@ from functools import partial
 
 from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QPushButton, QVBoxLayout, QWidget,
-    QHeaderView, QAbstractItemView, QMenu, QTabWidget
+    QHeaderView, QAbstractItemView, QMenu, QComboBox, QStackedWidget
 )
 from PySide6.QtCore import Qt, Signal, Slot, QPoint, QTimer
-from PySide6.QtGui import QColor, QCursor, QAction, QResizeEvent, QFont, QBrush, QFontMetrics
+from PySide6.QtGui import QColor, QCursor, QAction, QFont, QBrush
 
 logger = logging.getLogger(__name__)
 
@@ -853,7 +853,7 @@ class TradingTable(QTableWidget):
 
 class TabbedWatchlistWidget(QWidget):
     """
-    Enhanced tabbed watchlist widget with dynamic width calculation.
+    Watchlist widget with a category dropdown and stacked tables.
     """
     symbol_selected = Signal(str)
     subscribe_tokens_requested = Signal(list)
@@ -876,30 +876,20 @@ class TabbedWatchlistWidget(QWidget):
             table.apply_color_theme(theme)
 
     def _setup_ui(self):
-        """Sets up the main UI layout with tabs."""
+        """Sets up the main UI layout with dropdown category selector."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
         self.setMinimumWidth(350)
 
-        self.tab_widget = QTabWidget()
-        self.tab_widget.setObjectName("tradingTabs")
+        self.category_dropdown = QComboBox()
+        self.category_dropdown.setObjectName("watchlistCategoryDropdown")
+        self.table_stack = QStackedWidget()
+        self.table_stack.setObjectName("watchlistTableStack")
+        self._categories: List[str] = ["Breakouts", "EP", "Parabolic"]
 
-        # Initialize tab width tracking variables
-        self._last_widget_width = 0
-        self._last_calculated_tab_width = 0
-        self._resize_timer = QTimer()
-        self._resize_timer.setSingleShot(True)
-        self._resize_timer.timeout.connect(self._update_tab_widths)
-
-        tab_bar = self.tab_widget.tabBar()
-        tab_bar.setUsesScrollButtons(False)
-        tab_bar.setExpanding(False)  # Set to False for manual control
-        tab_bar.setDrawBase(False)  # Prevents visual glitches
-
-        categories = ["Breakouts", "EP", "Parabolic"]
-        for category in categories:
+        for category in self._categories:
             table = TradingTable(category)
             self._tables[category] = table
 
@@ -912,143 +902,73 @@ class TabbedWatchlistWidget(QWidget):
                 lambda c=category: self._handle_watchlist_symbols_changed(c)
             )
 
-            self.tab_widget.addTab(table, category.upper())
+            self.category_dropdown.addItem(category.upper(), category)
+            self.table_stack.addWidget(table)
 
-        layout.addWidget(self.tab_widget)
+        self.category_dropdown.currentIndexChanged.connect(self.table_stack.setCurrentIndex)
+        self.table_stack.currentChanged.connect(self.category_dropdown.setCurrentIndex)
+
+        layout.addWidget(self.category_dropdown)
+        layout.addWidget(self.table_stack)
 
     def _handle_watchlist_symbols_changed(self, category: str):
         """Persist symbol list changes immediately for the given category."""
         self._save_watchlist(category)
         self.watchlist_changed.emit()
 
-    def _update_tab_widths(self):
-        """Enhanced tab width calculation with glitch prevention."""
-        if not hasattr(self, 'tab_widget') or not self.isVisible():
-            return
-
-        tab_bar = self.tab_widget.tabBar()
-        tab_count = tab_bar.count()
-
-        if tab_count == 0:
-            return
-
-        # Get current widget width
-        current_width = self.width()
-
-        # Prevent updates if width hasn't changed significantly (prevents glitches)
-        if abs(current_width - self._last_widget_width) < 10:
-            return
-
-        self._last_widget_width = current_width
-
-        # Calculate available width for tabs
-        # Account for tab bar margins, borders, and container padding
-        tab_bar_margins = 4  # Total left and right margins
-        tab_borders = (tab_count - 1) * 1  # 1px border between tabs
-        container_padding = 2  # Container padding
-        # Increase scrollbar_reserve to 20 to ensure the 'X' column stays visible
-        scrollbar_reserve = 20  # Increased from 15
-        usable_width = current_width - tab_bar_margins - tab_borders - container_padding - scrollbar_reserve
-        # Ensure minimum tab width
-        min_tab_width = 50
-        max_usable_width = max(usable_width, tab_count * min_tab_width)
-
-        # Calculate equal tab width
-        calculated_tab_width = max_usable_width // tab_count
-
-        # Only update if the change is significant (prevents constant updates)
-        if abs(calculated_tab_width - self._last_calculated_tab_width) > 8:
-            self._last_calculated_tab_width = calculated_tab_width
-            self._apply_dynamic_tab_styles(calculated_tab_width)
-
-            logger.debug(f"Updated tab width: {calculated_tab_width}px for widget width: {current_width}px")
-
-    def _apply_dynamic_tab_styles(self, tab_width: int):
-        """Apply styles with dynamic tab width, preventing visual glitches."""
-        # Use exact pixel values to prevent rounding issues
-        tab_width_px = f"{tab_width}px"
-
-        # Create stylesheet with fixed tab widths
-        dynamic_stylesheet = f"""
+    def _apply_dynamic_styles(self):
+        """Apply styles for dropdown and table stack."""
+        dynamic_stylesheet = """
             /* Main Widget */
-            TabbedWatchlistWidget {{
+            TabbedWatchlistWidget {
                 background-color: #05070b;
                 color: #e0e0e0;
                 font-family: "Segoe UI", Arial, sans-serif;
                 font-size: 13px;
-            }}
+            }
 
-            /* Tab Widget Styling */
-            QTabWidget#tradingTabs {{
+            QComboBox#watchlistCategoryDropdown {
                 background-color: #05070b;
                 border: 1px solid #1a2536;
-            }}
-
-            QTabWidget#tradingTabs::pane {{
-                border: 1px solid #202020;
-                background-color: #05070b;
-                border-radius: 0px;
-                border-top: none;
-            }}
-
-            QTabWidget#tradingTabs::tab-bar {{
-                alignment: left;
-            }}
-
-            /* Completely hide scroll buttons */
-            QTabBar::scroller {{
-                width: 0px;
-                height: 0px;
-            }}
-
-            QTabBar QToolButton {{
-                width: 0px;
-                height: 0px;
-                border: none;
-                background: transparent;
-            }}
-
-            /* Dynamic Tab Styling - Equal Width Distribution */
-            QTabBar::tab {{
-                background-color: #0b1019;
-                color: #8892b0;
-                padding: 6px 2px;
-                margin: 0px;
-                border: 1px solid #202020;
-                border-bottom: none;
-                border-right: 1px solid #202020;
-                font-size: 10px;
+                color: #7fd4ff;
+                font-size: 11px;
                 font-weight: 600;
-                letter-spacing: 0.5px;
-                text-align: center;
-                width: {tab_width_px};
-                min-width: {tab_width_px};
-                max-width: {tab_width_px};
-            }}
+                padding: 4px 8px;
+                margin: 0px;
+                min-height: 24px;
+            }
 
-            QTabBar::tab:last {{
-                border-right: 1px solid #202020;
-            }}
-
-            QTabBar::tab:selected {{
-                background-color: #05070b;
-                color: #6ec8ff;
-                border-bottom: 2px solid #6ec8ff;
-                width: {tab_width_px};
-                min-width: {tab_width_px};
-                max-width: {tab_width_px};
-            }}
-
-            QTabBar::tab:hover:!selected {{
-                background-color: #16253a;
+            QComboBox#watchlistCategoryDropdown:hover {
+                background-color: #0b1019;
                 color: #dbe9ff;
-                width: {tab_width_px};
-                min-width: {tab_width_px};
-                max-width: {tab_width_px};
-            }}
+            }
+
+            QComboBox#watchlistCategoryDropdown::drop-down {
+                border: none;
+                width: 20px;
+            }
+
+            QComboBox#watchlistCategoryDropdown::down-arrow {
+                width: 10px;
+                height: 10px;
+            }
+
+            QComboBox#watchlistCategoryDropdown QAbstractItemView {
+                background-color: #05070b;
+                color: #dbe9ff;
+                selection-background-color: #234b73;
+                border: 1px solid #1a2536;
+                outline: none;
+            }
+
+            QStackedWidget#watchlistTableStack {
+                border: 1px solid #202020;
+                border-top: none;
+                background-color: #05070b;
+            }
 
             /* Table Styling - EXACT match to scanner table */
-            TradingTable {{
+            TradingTable {
                 background-color: #05070b;
                 border: 1px solid #1a2536;
                 gridline-color: #162131;
@@ -1058,45 +978,45 @@ class TabbedWatchlistWidget(QWidget):
                 show-decoration-selected: 0;
                 font-size: 12px;
                 border-radius: 0px;
-            }}
+            }
 
-            TradingTable::item {{
+            TradingTable::item {
                 padding: 1px 5px;
                 border-bottom: 1px solid #101926;
                 background-color: transparent;
                 font-size: 12px;
-            }}
+            }
 
-            TradingTable::item:selected {{
+            TradingTable::item:selected {
                 background-color: #234b73 !important;
                 outline: none;
                 border: none;
                 color: #ffffff;
                 font-weight: 600;
-            }}
+            }
 
-            TradingTable::item:focus {{
+            TradingTable::item:focus {
                 background-color: #234b73 !important;
                 outline: none;
                 border: none;
-            }}
+            }
 
-            TradingTable::item:hover {{
+            TradingTable::item:hover {
                 background-color: transparent;
-            }}
+            }
 
-            TradingTable::item:alternate {{
+            TradingTable::item:alternate {
                 background-color: #070b12;
-            }}
+            }
 
-            TradingTable::item:alternate:selected {{
+            TradingTable::item:alternate:selected {
                 background-color: #234b73 !important;
                 color: #ffffff;
                 font-weight: 600;
-            }}
+            }
 
             /* Header Styling - EXACT match to scanner table */
-            QHeaderView::section {{
+            QHeaderView::section {
                 background-color: #0b1019;
                 color: #7fd4ff;
                 padding: 2px 5px;
@@ -1105,41 +1025,41 @@ class TabbedWatchlistWidget(QWidget):
                 border-right: 1px solid #121c2b;
                 font-weight: 600;
                 font-size: 11px;
-            }}
-            QHeaderView {{
+            }
+            QHeaderView {
                 background-color: #0b1019;
                 border: none;
                 margin: 0px;
-            }}
-            QHeaderView::section:last {{
+            }
+            QHeaderView::section:last {
                 border-right: none;
-            }}
+            }
 
-            QHeaderView::section:hover {{
+            QHeaderView::section:hover {
                 background-color: #16253a;
                 color: #dbe9ff;
-            }}
+            }
 
-            QHeaderView::down-arrow {{
+            QHeaderView::down-arrow {
                 color: #6ec8ff;
                 width: 8px;
                 height: 8px;
                 subcontrol-position: center right;
                 subcontrol-origin: margin;
                 margin-right: 2px;
-            }}
+            }
 
-            QHeaderView::up-arrow {{
+            QHeaderView::up-arrow {
                 color: #6ec8ff;
                 width: 8px;
                 height: 8px;
                 subcontrol-position: center right;
                 subcontrol-origin: margin;
                 margin-right: 2px;
-            }}
+            }
 
             /* Remove Button Styling */
-            QPushButton#removeButton {{
+            QPushButton#removeButton {
                 background-color: transparent;
                 color: #cc4444;
                 border: none;
@@ -1148,119 +1068,69 @@ class TabbedWatchlistWidget(QWidget):
                 border-radius: 8px;
                 padding: 0px;
                 margin: 0px;
-            }}
+            }
 
-            QPushButton#removeButton:hover {{
+            QPushButton#removeButton:hover {
                 color: #ff6666;
                 background-color: #2a1f1f;
-            }}
+            }
 
             /* Enhanced Scrollbars */
-            QScrollBar:vertical {{
+            QScrollBar:vertical {
                 background-color: #05070b;
                 width: 8px;
                 border: none;
                 margin: 0px;
-            }}
+            }
 
-            QScrollBar::handle:vertical {{
+            QScrollBar::handle:vertical {
                 background-color: #424242;
                 border-radius: 4px;
                 min-height: 20px;
                 margin: 2px;
-            }}
+            }
 
-            QScrollBar::handle:vertical:hover {{
+            QScrollBar::handle:vertical:hover {
                 background-color: #616161;
-            }}
+            }
 
-            QScrollBar:horizontal {{
+            QScrollBar:horizontal {
                 background-color: #05070b;
                 height: 8px;
                 border: none;
                 margin: 0px;
-            }}
+            }
 
-            QScrollBar::handle:horizontal {{
+            QScrollBar::handle:horizontal {
                 background-color: #424242;
                 border-radius: 4px;
                 min-width: 20px;
                 margin: 2px;
-            }}
+            }
 
-            QScrollBar::handle:horizontal:hover {{
+            QScrollBar::handle:horizontal:hover {
                 background-color: #616161;
-            }}
+            }
 
-            QScrollBar::add-line, QScrollBar::sub-line {{
+            QScrollBar::add-line, QScrollBar::sub-line {
                 border: none;
                 background: none;
                 width: 0px;
                 height: 0px;
                 margin: 0px;
-            }}
-        """
-
-        # Apply the stylesheet in a thread-safe manner
-        self.setStyleSheet(dynamic_stylesheet)
-
-    def resizeEvent(self, event: QResizeEvent):
-        """Enhanced resize event handling with debouncing to prevent glitches."""
-        super().resizeEvent(event)
-
-        # Stop any pending resize updates
-        if hasattr(self, '_resize_timer'):
-            self._resize_timer.stop()
-
-        # Start timer with longer delay to debounce rapid resize events
-        self._resize_timer.start(100)  # 100 ms delay for smoother resizing
-
-    def showEvent(self, event):
-        """Initialize tab widths when widget is first shown."""
-        super().showEvent(event)
-
-        # Use QTimer.singleShot to ensure the widget is fully rendered
-        QTimer.singleShot(50, self._initial_tab_width_setup)
-
-    def _initial_tab_width_setup(self):
-        """Initial setup of tab widths after widget is fully rendered."""
-        if self.isVisible() and self.width() > 0:
-            self._update_tab_widths()
-
-    def _apply_styles(self):
-        """Initial style application - basic styles without tab widths."""
-        # Tab widths will be set dynamically by _apply_dynamic_tab_styles()
-        # This ensures the widget has basic styling before dynamic updates
-        basic_stylesheet = """
-            TabbedWatchlistWidget {
-                background-color: #05070b;
-                color: #e0e0e0;
-                font-family: "Segoe UI", Arial, sans-serif;
-                font-size: 13px;
             }
         """
-        self.setStyleSheet(basic_stylesheet)
 
-    # Additional helper method for debugging tab width issues
-    def _debug_tab_dimensions(self):
-        """Debug method to log current tab dimensions."""
-        if not hasattr(self, 'tab_widget'):
-            return
+        self.setStyleSheet(dynamic_stylesheet)
 
-        tab_bar = self.tab_widget.tabBar()
-        widget_width = self.width()
-        tab_count = tab_bar.count()
-
-        logger.debug(f"Widget width: {widget_width}, Tab count: {tab_count}")
-
-        for i in range(tab_count):
-            tab_rect = tab_bar.tabRect(i)
-            logger.debug(f"Tab {i} rect: {tab_rect.width()}x{tab_rect.height()}")
+    def _apply_styles(self):
+        """Apply full watchlist widget styles."""
+        self._apply_dynamic_styles()
 
     # Method to force tab width recalculation (useful for external calls)
     def force_update_tab_widths(self):
-        """Force an immediate update of tab widths."""
-        self._update_tab_widths()
+        """Kept for backward compatibility. Styles are static with dropdown layout."""
+        self._apply_dynamic_styles()
 
     def set_instrument_map(self, instrument_map: Dict[str, Dict]):
         """Enhanced instrument map setting with proper propagation"""
@@ -1296,8 +1166,8 @@ class TabbedWatchlistWidget(QWidget):
     def add_symbol(self, symbol: str, category: str = None) -> bool:
         """Enhanced symbol addition with proper persistence"""
         if category is None:
-            current_index = self.tab_widget.currentIndex()
-            category = list(self._tables.keys())[current_index]
+            current_index = self.table_stack.currentIndex()
+            category = self._categories[current_index]
 
         if category in self._tables:
             success = self._tables[category].add_symbol(symbol)
@@ -1315,8 +1185,8 @@ class TabbedWatchlistWidget(QWidget):
 
     def get_current_category(self) -> str:
         """Returns the currently selected category."""
-        current_index = self.tab_widget.currentIndex()
-        return list(self._tables.keys())[current_index]
+        current_index = self.table_stack.currentIndex()
+        return self._categories[current_index]
 
     def get_all_tokens(self) -> List[int]:
         """Returns a list of all instrument tokens from all watchlists."""
