@@ -1976,7 +1976,7 @@ class FixedTradingChart {
     // ═══════════════════════════════════════════════════════════════════════
 
     _renderPriceInfo(c, dateStr) {
-        const el = document.getElementById('priceInfo');
+        const el = document.getElementById('metricsInfo');
         if (!el) return;
 
         const prevClose = Number(c.prevClose || c.previousClose || c.open || 0);
@@ -1986,15 +1986,28 @@ class FixedTradingChart {
         const daySign = dayChange >= 0 ? '+' : '';
         const volume = Number((this.volumeData?.find(v => v.time === c.time)?.value) ?? c.volume ?? 0);
 
-        const sep = '<span style="color:#2a3650;margin:0 6px;">·</span>';
+        const sep = '<span style="color:#26354d;margin:0 4px;">·</span>';
+        const dot = '<span style="color:#223149;margin:0 4px;">·</span>';
+        const adrStr = this.currentADR?.value > 0
+            ? `<span style="color:#5b85b0;">ADR</span><span style="color:#6f8fb4;margin-left:2px;">₹${this.currentADR.value.toFixed(2)}</span><span style="color:#496784;margin-left:2px;">(${this.currentADR.percent.toFixed(2)}%)</span>`
+            : '<span style="color:#405a77;">ADR N/A</span>';
+        const perf = ['Monthly','3M','6M','1Y'].map(p => {
+            const v = this.percentageChanges?.[p];
+            if (v == null) return `<span style="color:#354b66;">${p} N/A</span>`;
+            const valCol = v >= 0 ? '#3a9e72' : '#c45a6a';
+            return `<span style="color:#425a78;">${p}</span><span style="color:${valCol};margin-left:2px;">${v >= 0 ? '+' : ''}${v.toFixed(2)}%</span>`;
+        }).join(dot);
+
         el.innerHTML = [
-            `<span style="color:#4a5a78;font-size:11px;letter-spacing:0.02em;">${dateStr}</span>`,
-            `<span style="color:#38475f;font-size:11px;">O</span><span style="color:#7a8fa8;font-size:11px;margin-left:3px;">₹${c.open.toFixed(2)}</span>`,
-            `<span style="color:#38475f;font-size:11px;">H</span><span style="color:#7a8fa8;font-size:11px;margin-left:3px;">₹${c.high.toFixed(2)}</span>`,
-            `<span style="color:#38475f;font-size:11px;">L</span><span style="color:#7a8fa8;font-size:11px;margin-left:3px;">₹${c.low.toFixed(2)}</span>`,
-            `<span style="color:#38475f;font-size:11px;">C</span><span style="color:#7a8fa8;font-size:11px;margin-left:3px;">₹${c.close.toFixed(2)}</span>`,
-            `<span style="color:${dayColor};font-size:11px;">${daySign}₹${dayChange.toFixed(2)} (${daySign}${dayPct.toFixed(2)}%)</span>`,
-            `<span style="color:#38475f;font-size:11px;">Vol</span><span style="color:#7a8fa8;font-size:11px;margin-left:3px;">${Math.round(volume).toLocaleString('en-IN')}</span>`
+            adrStr,
+            perf,
+            `<span style="color:#556887;">${dateStr}</span>`,
+            `<span style="color:#3c4f6d;">O</span><span style="color:#8fa3bf;margin-left:2px;">₹${c.open.toFixed(2)}</span>`,
+            `<span style="color:#3c4f6d;">H</span><span style="color:#8fa3bf;margin-left:2px;">₹${c.high.toFixed(2)}</span>`,
+            `<span style="color:#3c4f6d;">L</span><span style="color:#8fa3bf;margin-left:2px;">₹${c.low.toFixed(2)}</span>`,
+            `<span style="color:#3c4f6d;">C</span><span style="color:#8fa3bf;margin-left:2px;">₹${c.close.toFixed(2)}</span>`,
+            `<span style="color:${dayColor};">Chg ${daySign}₹${dayChange.toFixed(2)} (${daySign}${dayPct.toFixed(2)}%)</span>`,
+            `<span style="color:#3c4f6d;">Vol</span><span style="color:#8fa3bf;margin-left:2px;">${Math.round(volume).toLocaleString('en-IN')}</span>`
         ].join(sep);
     }
 
@@ -2006,7 +2019,7 @@ class FixedTradingChart {
     }
 
     _displayLatestCandleDetails() {
-        const el = document.getElementById('priceInfo');
+        const el = document.getElementById('metricsInfo');
         if (!el) return;
         if (this.data.length === 0) { el.textContent = 'No data'; return; }
         const c = this.data[this.data.length - 1];
@@ -2015,19 +2028,7 @@ class FixedTradingChart {
     }
 
     _updateMetricsDisplay() {
-        const el = document.getElementById('metricsInfo');
-        if (!el) return;
-        const dot = '<span style="color:#1e2d45;margin:0 5px;">·</span>';
-        const adrStr = this.currentADR?.value > 0
-            ? `<span style="font-size:10.5px;font-weight:600;color:#5b85b0;letter-spacing:0.03em;">ADR</span><span style="font-size:10.5px;color:#4e6a87;margin-left:4px;">&#8377;${this.currentADR.value.toFixed(2)}</span><span style="font-size:10px;color:#3a5270;margin-left:3px;">(${this.currentADR.percent.toFixed(2)}%)</span>`
-            : '<span style="font-size:10.5px;color:#304560;">ADR N/A</span>';
-        const changes = ['Monthly','3M','6M','1Y'].map(p => {
-            const v = this.percentageChanges?.[p];
-            if (v == null) return `<span style="font-size:10px;color:#2a3a52;">${p} N/A</span>`;
-            const valCol = v >= 0 ? '#3a9e72' : '#c45a6a';
-            return `<span style="font-size:10px;color:#334c66;">${p}</span><span style="font-size:10px;color:${valCol};margin-left:3px;">${v >= 0 ? '+' : ''}${v.toFixed(2)}%</span>`;
-        });
-        el.innerHTML = `${adrStr}${dot}${changes.join(dot)}`;
+        this._displayLatestCandleDetails();
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -2330,7 +2331,7 @@ function initChart() {
         window.autoScale = () => chart.autoScale();
     } catch (e) {
         console.error('Chart init error:', e);
-        const el = document.getElementById('priceInfo');
+        const el = document.getElementById('metricsInfo');
         if (el) el.textContent = 'Error: ' + e.message;
     }
 }
