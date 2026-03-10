@@ -10,7 +10,7 @@ from typing import List, Dict, Union, Any, Optional
 
 from PySide6.QtCore import Qt, QByteArray, QTimer, Slot, Signal, QEvent
 from PySide6.QtWidgets import QMainWindow, QSplitter, QWidget, QVBoxLayout, QHBoxLayout, \
-    QPushButton, QLabel, QApplication, QMessageBox, QMenuBar
+    QPushButton, QLabel, QApplication, QMessageBox, QMenuBar, QSizePolicy
 from PySide6.QtGui import QMouseEvent, QKeySequence, QShortcut, QKeyEvent, QAction
 
 from kite.widgets.scanner_table import ChartinkScannerTable
@@ -240,6 +240,10 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         """Create a classic top-level menu bar for quick access to key actions."""
         menu_bar = QMenuBar(self)
         menu_bar.setObjectName("mainMenuBar")
+        # Keep the menu rendered inside our custom title bar.
+        # Without this, some desktop environments may move it to a system/global
+        # menubar, making it appear missing from the app window.
+        menu_bar.setNativeMenuBar(False)
 
         file_menu = menu_bar.addMenu("File")
         file_menu.addAction("Order History", self._show_order_history_dialog)
@@ -417,9 +421,13 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         self.menu_bar.setParent(title_bar)
         self.menu_bar.setFixedHeight(24)
-        layout.addWidget(self.menu_bar)
+        # Ensure menu entries remain visible in the custom title bar by
+        # reserving enough horizontal space for top-level items.
+        self.menu_bar.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+        self.menu_bar.setMinimumWidth(self.menu_bar.sizeHint().width() + 12)
+        layout.addWidget(self.menu_bar, 0, Qt.AlignmentFlag.AlignVCenter)
 
-        layout.addStretch()
+        layout.addStretch(1)
 
         title_label = QLabel("Kristjan Qullamaggie")
         title_label.setObjectName("appTitle")
