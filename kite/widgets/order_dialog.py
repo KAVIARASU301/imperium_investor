@@ -457,7 +457,8 @@ class OrderDialog(QDialog):
         super().__init__(parent)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.setMinimumSize(880, 540)
+        # Slightly increase dialog depth to prevent control clipping/overlap.
+        self.setMinimumSize(880, 570)
 
         self.symbol     = symbol.strip().upper()
         self.ltp        = max(0.0, float(ltp))

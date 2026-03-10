@@ -325,6 +325,27 @@ class GlobalStatusManager:
         if self._status_bar:
             self._status_bar.set_api_status(status)
 
+    def set_message(self, message: str, timeout: int = 3000, level: str = "info"):
+        """
+        Backward-compatible generic status API.
+
+        Some call sites still use the older `set_message(message, timeout, level)`
+        contract. Route those calls to the current LED status methods.
+        """
+        normalized_level = (level or "info").lower()
+        if normalized_level in {"error", "danger"}:
+            self.show_error(message)
+        elif normalized_level in {"warning", "warn"}:
+            self.show_order_rejected(message)
+        elif normalized_level in {"action", "success", "info"}:
+            self.show_info(message)
+        else:
+            self.show_info(message)
+
+        if self._status_bar and timeout and timeout > 0:
+            self._status_bar.clear_timer.stop()
+            self._status_bar.clear_timer.start(timeout)
+
     def set_ready(self):
         """Set ready status globally"""
         if self._status_bar:
