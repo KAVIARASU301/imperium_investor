@@ -1001,25 +1001,26 @@ class ChartinkScannerTable(QWidget):
         self.scan_dropdown.blockSignals(False)
 
     def _configure_table(self):
-        """FIXED table configuration with proper row selection."""
+        """TC2000 style compact table configuration."""
         self.table.setColumnCount(4)
         self.table.setHorizontalHeaderLabels(["Symbol", "Price", "Vol", "%CHG"])
 
         self.table.horizontalHeader().setVisible(True)
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
 
-        self._column_ratios = [0.40, 0.20, 0.20, 0.20]
-        self._symbol_compact_min_width = 70
+        # THE FIX: Native Qt sizing for ultimate density
+        # Symbol absorbs empty space and shrinks first. Data columns perfectly fit contents.
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
 
-        self._adjust_symbol_column_width()
+        # Prevent columns from disappearing entirely if crushed
+        header.setMinimumSectionSize(35)
+        header.setStretchLastSection(False)
 
         self.table.verticalHeader().setVisible(False)
 
-        # FIXED: Use proper selection behavior - SelectRows not individual cells
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -1028,56 +1029,15 @@ class ChartinkScannerTable(QWidget):
         self.table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
 
-        # TC2000-inspired compact table density
-        self.table.verticalHeader().setDefaultSectionSize(24)
-        header_font = QFont("Segoe UI", 10)
+        # Ultra-compact row heights (TC2000 style)
+        self.table.verticalHeader().setDefaultSectionSize(22)
+
+        header_font = QFont("Segoe UI", 9)
         header_font.setBold(True)
         self.table.horizontalHeader().setFont(header_font)
 
-        # FIXED: Add focus policy for better behavior (from positions table)
         self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
-    def _adjust_symbol_column_width(self):
-        """Keep symbol column compact using ~70% of the longest visible symbol length."""
-        metrics = QFontMetrics(self.table.font())
-        longest_symbol_len = 0
-
-        for row in range(self.table.rowCount()):
-            symbol_item = self.table.item(row, 0)
-            if not symbol_item:
-                continue
-            longest_symbol_len = max(longest_symbol_len, len(symbol_item.text().strip()))
-
-        if longest_symbol_len > 0:
-            target_chars = max(4, int(round(longest_symbol_len * 0.7)))
-        else:
-            target_chars = 6
-
-        compact_width = metrics.horizontalAdvance("W" * target_chars) + 18
-        header_width = metrics.horizontalAdvance("Symbol") + 20
-        max_compact_width = metrics.horizontalAdvance("W" * 10) + 22
-        self._symbol_compact_min_width = min(max(compact_width, header_width), max_compact_width)
-        self._apply_proportional_column_widths()
-
-    def _apply_proportional_column_widths(self):
-        """Use proportional widths to fill free space on both compression and expansion."""
-        viewport_width = max(0, self.table.viewport().width())
-        available = max(0, viewport_width)
-
-        ratio_sum = sum(self._column_ratios) or 1
-        widths = [int(available * (ratio / ratio_sum)) for ratio in self._column_ratios]
-        remainder = available - sum(widths)
-        for i in range(remainder):
-            widths[i % len(widths)] += 1
-
-        widths[0] = max(widths[0], self._symbol_compact_min_width)
-
-        for col, width in enumerate(widths):
-            self.table.setColumnWidth(col, width)
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._apply_proportional_column_widths()
 
     def _update_row_data(self, row: int, data: Dict):
         """Updates the display for a single row with EOD data."""
@@ -1230,9 +1190,6 @@ class ChartinkScannerTable(QWidget):
 
         # Notify main_window to re-evaluate the subscription universe
         self.scan_results_changed.emit()
-
-        # Keep symbol column flexible + compact after each scan refresh.
-        self._adjust_symbol_column_width()
 
         logger.info(f"EOD Scanner table updated with {len(scan_results)} symbols.")
         self.scan_dropdown.setEnabled(True)
@@ -1785,7 +1742,7 @@ class ChartinkScannerTable(QWidget):
             }
 
             QTableWidget::item {
-                padding: 3px 8px;
+                padding: 1px 5px; /* Tighter vertical/horizontal margins */
                 border-bottom: 1px solid #101926;
                 background-color: transparent;
                 font-size: 12px;
@@ -1823,7 +1780,7 @@ class ChartinkScannerTable(QWidget):
             QHeaderView::section {
                 background-color: #0b1019;
                 color: #7fd4ff;
-                padding: 3px 10px;
+                padding: 2px 5px;
                 border: none;
                 border-bottom: 1px solid #24344c;
                 border-right: 1px solid #121c2b;

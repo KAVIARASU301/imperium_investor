@@ -77,7 +77,7 @@ class PositionsTable(QWidget):
         self.table.customContextMenuRequested.connect(self._show_context_menu)
 
     def _configure_table(self):
-        """Configure table once"""
+        """TC2000 style compact table configuration."""
         self.table.setColumnCount(5)
         self.table.setHorizontalHeaderLabels([
             "Symbol", "Qty", "Avg", "P&L", ""
@@ -95,66 +95,25 @@ class PositionsTable(QWidget):
         self.table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
 
-        # Column sizing
+        # THE FIX: Native Qt sizing for ultimate density
         header = self.table.horizontalHeader()
         header.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)  # Symbol
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)  # Qty
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)  # Avg
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)  # P&L
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)  # Exit
 
-        self._column_ratios = [0.40, 0.20, 0.20, 0.20]
-        self._symbol_compact_min_width = 70
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)  # Symbol stretches
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)  # Qty fits digits
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)  # Avg fits digits
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)  # P&L fits digits
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)  # Exit fits icon
 
-        self._adjust_symbol_column_width()
-        self.table.setColumnWidth(4, 24)  # Exit button
+        header.setMinimumSectionSize(35)
+        self.table.setColumnWidth(4, 24)  # Lock exit button width
 
-        self.table.verticalHeader().setDefaultSectionSize(24)
+        # Compact Row Height
+        self.table.verticalHeader().setDefaultSectionSize(22)
 
-        header_font = QFont("Segoe UI", 10)
+        header_font = QFont("Segoe UI", 9)
         header_font.setBold(True)
         header.setFont(header_font)
-
-
-    def _adjust_symbol_column_width(self):
-        """Keep symbol column compact using ~70% of the longest visible symbol length."""
-        metrics = QFontMetrics(self.table.font())
-        longest_symbol_len = 0
-
-        for row in range(self.table.rowCount()):
-            symbol_item = self.table.item(row, 0)
-            if not symbol_item:
-                continue
-            longest_symbol_len = max(longest_symbol_len, len(symbol_item.text().strip()))
-
-        target_chars = max(4, int(round(longest_symbol_len * 0.7))) if longest_symbol_len > 0 else 6
-        compact_width = metrics.horizontalAdvance("W" * target_chars) + 18
-        header_width = metrics.horizontalAdvance("Symbol") + 20
-        max_compact_width = metrics.horizontalAdvance("W" * 10) + 22
-        self._symbol_compact_min_width = min(max(compact_width, header_width), max_compact_width)
-        self._apply_proportional_column_widths()
-
-    def _apply_proportional_column_widths(self):
-        """Distribute available space proportionally for compact, consistent columns."""
-        viewport_width = max(0, self.table.viewport().width())
-        fixed_width = self.table.columnWidth(4)
-        available = max(0, viewport_width - fixed_width)
-
-        ratio_sum = sum(self._column_ratios) or 1
-        widths = [int(available * (ratio / ratio_sum)) for ratio in self._column_ratios]
-        remainder = available - sum(widths)
-        for i in range(remainder):
-            widths[i % len(widths)] += 1
-
-        widths[0] = max(widths[0], self._symbol_compact_min_width)
-
-        for col, width in enumerate(widths):
-            self.table.setColumnWidth(col, width)
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._apply_proportional_column_widths()
 
     def _create_minimal_footer(self) -> QFrame:
         """Create minimal footer"""
@@ -233,8 +192,6 @@ class PositionsTable(QWidget):
 
         # Update summary
         self._update_summary()
-
-        self._adjust_symbol_column_width()
 
         logger.info(f"✅ Positions table updated with {len(positions_list)} positions")
 
@@ -498,7 +455,7 @@ class PositionsTable(QWidget):
             }
 
             QTableWidget::item {
-                padding: 3px 8px;
+                padding: 1px 5px;
                 border-bottom: 1px solid #101926;
                 background-color: transparent;
                 font-size: 12px;
@@ -536,7 +493,7 @@ class PositionsTable(QWidget):
             QHeaderView::section {
                 background-color: #0b1019;
                 color: #7fd4ff;
-                padding: 3px 10px;
+                padding: 2px 5px;
                 border: none;
                 border-bottom: 1px solid #24344c;
                 border-right: 1px solid #121c2b;

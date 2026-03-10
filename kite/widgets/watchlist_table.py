@@ -57,16 +57,28 @@ class TradingTable(QTableWidget):
         self._setup_data_refresh()
 
     def _configure_table(self):
-        """FIXED table configuration with proper column sizing matching scanner."""
+        """TC2000 style compact table configuration."""
         self.setColumnCount(5)
         self.setHorizontalHeaderLabels(["Symbol", "LTP", "Vol", "Chg %", ""])
 
         self.verticalHeader().setVisible(False)
         self.horizontalHeader().setVisible(True)
 
-        # Set header style for better visibility
+        # THE FIX: Native Qt sizing for ultimate density
         header = self.horizontalHeader()
-        header.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
+
+        # ADD THIS: Ensure the table doesn't think it's wider than the widget
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        header.setStretchLastSection(False)
+        self.setColumnWidth(4, 25)  # Give the X button slightly more breathing room
+
+        # Prevent columns from disappearing entirely if crushed
+        header.setMinimumSectionSize(35)
 
         # Table behavior
         self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -74,79 +86,27 @@ class TradingTable(QTableWidget):
         self.setShowGrid(True)
         self.setAlternatingRowColors(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerItem)
         self.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+
+        # Ensure the horizontal scrollbar never appears and takes up space
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         # Enable sorting
         self.setSortingEnabled(True)
         header.sectionClicked.connect(self._on_header_clicked)
         header.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
-        # Compact + proportional column sizing so all free space is consumed on splitter drag.
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)  # Symbol
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)  # LTP - fixed width
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)  # Volume - fixed width
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)  # Chg % - fixed width
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)  # Remove button - fixed width
+        # Ultra-compact row heights (TC2000 style)
+        self.verticalHeader().setDefaultSectionSize(22)
 
-        self._column_ratios = [0.40, 0.20, 0.20, 0.20]
-        self._symbol_compact_min_width = 70
-
-        # Keep right-side columns readable while still letting Symbol absorb remaining space.
-        # Chg % was getting clipped in narrower layouts, so it gets a little more room.
-        self._adjust_symbol_column_width()
-        self.setColumnWidth(4, 24)  # Remove button - minimal
-
-        # Row height for compact appearance
-        self.verticalHeader().setDefaultSectionSize(24)
-
-        header_font = QFont("Segoe UI", 10)
+        header_font = QFont("Segoe UI", 9)
         header_font.setBold(True)
         header.setFont(header_font)
 
         # Initialize sorting state
         self._sort_column = -1
         self._sort_order = Qt.SortOrder.AscendingOrder
-
-
-    def _adjust_symbol_column_width(self):
-        """Keep symbol column compact using ~70% of the longest visible symbol length."""
-        metrics = QFontMetrics(self.font())
-        longest_symbol_len = 0
-
-        for row in range(self.rowCount()):
-            symbol_item = self.item(row, 0)
-            if not symbol_item:
-                continue
-            longest_symbol_len = max(longest_symbol_len, len(symbol_item.text().strip()))
-
-        target_chars = max(4, int(round(longest_symbol_len * 0.7))) if longest_symbol_len > 0 else 6
-        compact_width = metrics.horizontalAdvance("W" * target_chars) + 18
-        header_width = metrics.horizontalAdvance("Symbol") + 20
-        max_compact_width = metrics.horizontalAdvance("W" * 10) + 22
-        self._symbol_compact_min_width = min(max(compact_width, header_width), max_compact_width)
-        self._apply_proportional_column_widths()
-
-    def _apply_proportional_column_widths(self):
-        """Distribute table width proportionally across columns for dense + aligned layout."""
-        viewport_width = max(0, self.viewport().width())
-        fixed_width = self.columnWidth(4)
-        available = max(0, viewport_width - fixed_width)
-
-        ratio_sum = sum(self._column_ratios) or 1
-        widths = [int(available * (ratio / ratio_sum)) for ratio in self._column_ratios]
-        remainder = available - sum(widths)
-        for i in range(remainder):
-            widths[i % len(widths)] += 1
-
-        widths[0] = max(widths[0], self._symbol_compact_min_width)
-
-        for col, width in enumerate(widths):
-            self.setColumnWidth(col, width)
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._apply_proportional_column_widths()
 
     def _connect_signals(self):
         """Connect table signals."""
@@ -256,8 +216,6 @@ class TradingTable(QTableWidget):
 
         # Re-enable sorting
         self.setSortingEnabled(True)
-
-        self._adjust_symbol_column_width()
 
         logger.debug(f"Sorted {self.category} watchlist by column {column} ({'DESC' if reverse else 'ASC'})")
 
@@ -564,8 +522,6 @@ class TradingTable(QTableWidget):
         for row, symbol in enumerate(sorted_symbols):
             self._symbol_to_row[symbol] = row
             self._populate_row(row, symbol)
-
-        self._adjust_symbol_column_width()
 
     def _populate_row(self, row: int, symbol: str):
         """Enhanced row population with proper data"""
@@ -990,11 +946,9 @@ class TabbedWatchlistWidget(QWidget):
         tab_bar_margins = 4  # Total left and right margins
         tab_borders = (tab_count - 1) * 1  # 1px border between tabs
         container_padding = 2  # Container padding
-        scrollbar_width = 15  # Reserve space for potential scrollbar
-
-        # Calculate usable width
-        usable_width = current_width - tab_bar_margins - tab_borders - container_padding - scrollbar_width
-
+        # Increase scrollbar_reserve to 20 to ensure the 'X' column stays visible
+        scrollbar_reserve = 20  # Increased from 15
+        usable_width = current_width - tab_bar_margins - tab_borders - container_padding - scrollbar_reserve
         # Ensure minimum tab width
         min_tab_width = 50
         max_usable_width = max(usable_width, tab_count * min_tab_width)
@@ -1107,7 +1061,7 @@ class TabbedWatchlistWidget(QWidget):
             }}
 
             TradingTable::item {{
-                padding: 3px 8px;
+                padding: 1px 5px;
                 border-bottom: 1px solid #101926;
                 background-color: transparent;
                 font-size: 12px;
@@ -1145,14 +1099,18 @@ class TabbedWatchlistWidget(QWidget):
             QHeaderView::section {{
                 background-color: #0b1019;
                 color: #7fd4ff;
-                padding: 3px 10px;
+                padding: 2px 5px;
                 border: none;
                 border-bottom: 1px solid #24344c;
                 border-right: 1px solid #121c2b;
                 font-weight: 600;
                 font-size: 11px;
             }}
-
+            QHeaderView {{
+                background-color: #0b1019;
+                border: none;
+                margin: 0px;
+            }}
             QHeaderView::section:last {{
                 border-right: none;
             }}
