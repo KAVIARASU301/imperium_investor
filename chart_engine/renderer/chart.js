@@ -1303,8 +1303,11 @@ class FixedTradingChart {
         ctx.save();
         ctx.font = this._axisFont(12, 600);
         const textWidth = Math.max(ctx.measureText(infoText[0]).width, ctx.measureText(infoText[1]).width);
-        const boxW = textWidth + 20;
-        const boxH = 44;
+        const rowPaddingX = 8;
+        const rowHeight = 16;
+        const rowGap = 3;
+        const boxW = textWidth + (rowPaddingX * 2);
+        const boxH = (rowHeight * 2) + rowGap;
 
         let boxX = ex + 12;
         let boxY = ey;
@@ -1314,17 +1317,16 @@ class FixedTradingChart {
         if (boxY + boxH > bottomEdge) boxY = bottomEdge - boxH;
         if (boxY < this.chartArea.y) boxY = this.chartArea.y;
 
-        ctx.fillStyle = 'rgba(12, 16, 24, 0.92)';
-        ctx.strokeStyle = this.drawingColor;
-        ctx.lineWidth = 1;
-        ctx.fillRect(boxX, boxY, boxW, boxH);
-        ctx.strokeRect(boxX, boxY, boxW, boxH);
+        const rowBg = 'rgba(15, 22, 33, 0.46)';
+        ctx.fillStyle = rowBg;
+        ctx.fillRect(boxX, boxY, boxW, rowHeight);
+        ctx.fillRect(boxX, boxY + rowHeight + rowGap, boxW, rowHeight);
 
-        ctx.fillStyle = '#e8effa';
+        ctx.fillStyle = 'rgba(233, 241, 252, 0.86)';
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
-        ctx.fillText(infoText[0], boxX + 10, boxY + 14);
-        ctx.fillText(infoText[1], boxX + 10, boxY + 31);
+        ctx.fillText(infoText[0], boxX + rowPaddingX, boxY + (rowHeight / 2) + 0.5);
+        ctx.fillText(infoText[1], boxX + rowPaddingX, boxY + rowHeight + rowGap + (rowHeight / 2) + 0.5);
         ctx.restore();
     }
 
@@ -1978,18 +1980,33 @@ class FixedTradingChart {
     // DISPLAY HELPERS
     // ═══════════════════════════════════════════════════════════════════════
 
+    _renderPriceInfo(c, dateStr) {
+        const el = document.getElementById('priceInfo');
+        if (!el) return;
+
+        const prevClose = Number(c.prevClose || c.previousClose || c.open || 0);
+        const dayChange = c.close - prevClose;
+        const dayPct = prevClose !== 0 ? ((dayChange / prevClose) * 100) : 0;
+        const dayColor = dayChange >= 0 ? '#2dd4a7' : '#ff6b7f';
+        const daySign = dayChange >= 0 ? '+' : '';
+        const volume = Number((this.volumeData?.find(v => v.time === c.time)?.value) ?? c.volume ?? 0);
+
+        el.innerHTML = [
+            `<span class="pill"><span class="label">Date</span><span class="value">${dateStr}</span></span>`,
+            `<span class="pill"><span class="label">O</span><span class="value">₹${c.open.toFixed(2)}</span></span>`,
+            `<span class="pill"><span class="label">H</span><span class="value">₹${c.high.toFixed(2)}</span></span>`,
+            `<span class="pill"><span class="label">L</span><span class="value">₹${c.low.toFixed(2)}</span></span>`,
+            `<span class="pill"><span class="label">C</span><span class="value">₹${c.close.toFixed(2)}</span></span>`,
+            `<span class="pill"><span class="label">Chg</span><span class="value" style="color:${dayColor};">${daySign}₹${dayChange.toFixed(2)} (${daySign}${dayPct.toFixed(2)}%)</span></span>`,
+            `<span class="pill"><span class="label">Vol</span><span class="value">${Math.round(volume).toLocaleString('en-IN')}</span></span>`
+        ].join('');
+    }
+
     _updateCandleDetail(x) {
         const idx = this._xToCandle(x);
         if (idx < 0 || idx >= this.data.length) { this._displayLatestCandleDetails(); return; }
-        const c      = this.data[idx];
-        const change = c.close - c.open;
-        const pct    = c.open !== 0 ? ((change / c.open) * 100).toFixed(2) : '0.00';
-        const sign   = change >= 0 ? '+' : '';
-        const chStr  = `${sign}₹${change.toFixed(2)} (${sign}${pct}%)`;
-        const dateStr = this._fmtTimeLabel(new Date(c.time));
-        const el = document.getElementById('priceInfo');
-        if (el) el.textContent =
-            `${dateStr}  O:₹${c.open.toFixed(2)}  H:₹${c.high.toFixed(2)}  L:₹${c.low.toFixed(2)}  C:₹${c.close.toFixed(2)}  ${chStr}`;
+        const c = this.data[idx];
+        this._renderPriceInfo(c, this._fmtTimeLabel(new Date(c.time)));
     }
 
     _displayLatestCandleDetails() {
@@ -1997,26 +2014,23 @@ class FixedTradingChart {
         if (!el) return;
         if (this.data.length === 0) { el.textContent = 'No data'; return; }
         const c = this.data[this.data.length - 1];
-        const change = c.close - c.open;
-        const pct    = c.open !== 0 ? ((change / c.open) * 100).toFixed(2) : '0.00';
-        const sign   = change >= 0 ? '+' : '';
         const dateStr = new Date(c.time).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' });
-        el.textContent = `${dateStr}  O:₹${c.open.toFixed(2)}  H:₹${c.high.toFixed(2)}  L:₹${c.low.toFixed(2)}  C:₹${c.close.toFixed(2)}  ${sign}₹${change.toFixed(2)} (${sign}${pct}%)`;
+        this._renderPriceInfo(c, dateStr);
     }
 
     _updateMetricsDisplay() {
         const el = document.getElementById('metricsInfo');
         if (!el) return;
         const adrStr = this.currentADR?.value > 0
-            ? `ADR ₹${this.currentADR.value.toFixed(2)} (${this.currentADR.percent.toFixed(2)}%)`
-            : 'ADR N/A';
-        const changes = ['Weekly','Monthly','3M','6M','1Y'].map(p => {
+            ? `<span style="font-size:15px;font-weight:800;color:#8bd3ff;">ADR ₹${this.currentADR.value.toFixed(2)}</span> <span style="font-size:13px;color:#c7d6ee;">(${this.currentADR.percent.toFixed(2)}%)</span>`
+            : '<span style="font-size:15px;font-weight:800;color:#8da2c2;">ADR N/A</span>';
+        const changes = ['Monthly','3M','6M','1Y'].map(p => {
             const v = this.percentageChanges?.[p];
-            if (v == null) return `<span style="color:#5a7090">${p} N/A</span>`;
-            const col = v >= 0 ? '#26a69a' : '#ef5350';
-            return `<span style="color:${col}">${p}: ${v >= 0 ? '+' : ''}${v.toFixed(2)}%</span>`;
+            if (v == null) return `<span style="color:#667d9f">${p}: N/A</span>`;
+            const col = v >= 0 ? '#2dd4a7' : '#ff6b7f';
+            return `<span style="color:${col};font-weight:700;">${p}: ${v >= 0 ? '+' : ''}${v.toFixed(2)}%</span>`;
         });
-        el.innerHTML = `${adrStr}&ensp;|&ensp;${changes.join('&ensp;|&ensp;')}`;
+        el.innerHTML = `${adrStr} <span style="color:#5f7396;padding:0 6px;">|</span> ${changes.join('<span style="color:#5f7396;padding:0 6px;">|</span>')}`;
     }
 
     // ═══════════════════════════════════════════════════════════════════════

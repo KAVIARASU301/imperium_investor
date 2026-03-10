@@ -140,15 +140,50 @@ def build_chart_html(cfg: ChartHtmlConfig) -> str:
         /* ── OHLC / metrics overlay ── */
         #info {{
             position: absolute;
-            top: 6px; left: 10px;
-            color: #8a98b8;
-            font-size: 11px;
+            top: 8px; left: 10px;
+            color: #b9c7e4;
+            font-size: 12px;
             pointer-events: none;
             z-index: 5;
-            line-height: 1.5;
+            line-height: 1.35;
+            background: rgba(9, 14, 24, 0.55);
+            border: 1px solid rgba(77, 97, 140, 0.35);
+            border-radius: 8px;
+            padding: 6px 10px;
+            backdrop-filter: blur(2px);
         }}
-        #metricsInfo {{ font-size: 10.5px; margin-bottom: 3px; color: #6a7898; }}
-        #priceInfo   {{ font-size: 11px;   color: #a0b8d8; font-variant-numeric: tabular-nums; }}
+        #metricsInfo {{
+            font-size: 13px;
+            margin-bottom: 6px;
+            color: #b4c3df;
+            font-weight: 600;
+            font-family: "Inter", "Segoe UI", "Helvetica Neue", sans-serif;
+            font-variant-numeric: tabular-nums;
+        }}
+        #priceInfo {{
+            font-size: 12px;
+            color: #d0dcf2;
+            font-family: "Inter", "Segoe UI", "Helvetica Neue", sans-serif;
+            font-variant-numeric: tabular-nums;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }}
+        #priceInfo .pill {{
+            padding: 2px 7px;
+            border-radius: 6px;
+            background: rgba(120, 140, 180, 0.12);
+            border: 1px solid rgba(120, 150, 210, 0.24);
+            white-space: nowrap;
+        }}
+        #priceInfo .value {{
+            color: #f4f8ff;
+            font-weight: 700;
+        }}
+        #priceInfo .label {{
+            color: #93a6c8;
+            margin-right: 3px;
+        }}
 
         /* ── Time slider ── */
         #timeSlider {{
