@@ -4,12 +4,10 @@ Dual-mode login manager for Kite (India) and IBKR (America).
 
 Kite flow:
   1. User enters API key + secret → click "Get Request Token"
-  2. A local HTTP server starts on port 8765 to auto-capture the redirect
+  2. Local HTTP callback server(s) start to auto-capture the redirect
   3. Browser opens Kite login page
-  4. On successful Kite login, Kite redirects to http://127.0.0.1:8765/
+  4. On successful Kite login, Kite redirects to your configured localhost URL
   5. Server captures the request_token automatically → session is generated
-
-  NOTE: In Kite Developer Console, set Redirect URL to: http://127.0.0.1:8765/
 
 IBKR flow:
   1. User selects host + client ID → click "Connect"
@@ -17,12 +15,14 @@ IBKR flow:
 """
 
 import logging
+import os
 import re
 import socketserver
+import threading
 import webbrowser
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from urllib.parse import urlparse, parse_qs
 
 from PySide6.QtWidgets import (
@@ -45,7 +45,28 @@ from login_setup.ibkr_auth import IBKRAuth, is_ibkr_available
 
 logger = logging.getLogger(__name__)
 
-KITE_CALLBACK_PORT = 8765
+DEFAULT_KITE_CALLBACK_PORTS = (8765, 5678)
+
+
+def _resolve_callback_ports() -> List[int]:
+    """Resolve callback ports from env, with safe defaults for local login flows."""
+    raw_ports = os.getenv("KITE_CALLBACK_PORTS", "")
+    if not raw_ports.strip():
+        return list(DEFAULT_KITE_CALLBACK_PORTS)
+
+    parsed: List[int] = []
+    for part in raw_ports.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if not part.isdigit():
+            logger.warning(f"Ignoring invalid callback port entry: {part}")
+            continue
+        value = int(part)
+        if 1 <= value <= 65535:
+            parsed.append(value)
+
+    return parsed or list(DEFAULT_KITE_CALLBACK_PORTS)
 
 
 # ==============================================================================
@@ -54,16 +75,19 @@ KITE_CALLBACK_PORT = 8765
 
 class KiteCallbackServer(QThread):
     """
-    Spins up a one-shot local HTTP server on 127.0.0.1:KITE_CALLBACK_PORT.
+    Spins up a one-shot local HTTP server on 127.0.0.1:<port>.
     Waits for Kite to redirect back after login, extracts the request_token,
     and emits it so the UI can auto-generate the session.
     """
-    token_captured = Signal(str)
-    capture_failed = Signal(str)
+    token_captured = Signal(int, str)
+    capture_failed = Signal(int, str)
 
-    def __init__(self):
+    def __init__(self, port: int):
         super().__init__()
+        self.port = port
         self._server: Optional[socketserver.TCPServer] = None
+        self._stopped_manually = False
+        self._stop_requested = threading.Event()
 
     def run(self):
         captured = {"token": None}
@@ -117,21 +141,27 @@ class KiteCallbackServer(QThread):
                 pass  # Suppress default request logging
 
         try:
-            with socketserver.TCPServer(("127.0.0.1", KITE_CALLBACK_PORT), _Handler) as server:
+            with socketserver.TCPServer(("127.0.0.1", self.port), _Handler) as server:
                 server.allow_reuse_address = True
                 self._server = server
+                if self._stop_requested.is_set():
+                    return
                 server.serve_forever(poll_interval=0.2)
         except Exception as e:
-            logger.error(f"Callback server error: {e}")
-            parent.capture_failed.emit(f"Could not start local server: {e}")
+            if self._stop_requested.is_set():
+                return
+            logger.error(f"Callback server error on port {self.port}: {e}")
+            parent.capture_failed.emit(self.port, f"Could not start local server: {e}")
             return
 
         if captured["token"]:
-            parent.token_captured.emit(captured["token"])
-        else:
-            parent.capture_failed.emit("Login was cancelled or failed in the browser.")
+            parent.token_captured.emit(self.port, captured["token"])
+        elif not self._stopped_manually:
+            parent.capture_failed.emit(self.port, "Login was cancelled or failed in the browser.")
 
     def stop(self):
+        self._stopped_manually = True
+        self._stop_requested.set()
         if self._server:
             self._server.shutdown()
 
@@ -181,7 +211,9 @@ class DualModeLoginManager(QDialog):
         self._active_kite_session: Optional[Dict[str, Any]] = None
         self._active_kite_creds: Optional[Dict[str, Any]] = None
 
-        self._callback_server: Optional[KiteCallbackServer] = None
+        self._callback_servers: List[KiteCallbackServer] = []
+        self._callback_failure_reasons: Dict[int, str] = {}
+        self._token_auto_captured = False
         self._session_worker: Optional[KiteSessionWorker] = None
 
         self._setup_window()
@@ -489,7 +521,7 @@ class DualModeLoginManager(QDialog):
 
         redirect_hint = QLabel(
             f'<small>Set Redirect URL in Kite Console to: '
-            f'<b>http://127.0.0.1:{KITE_CALLBACK_PORT}/</b></small>'
+            f'<b>http://127.0.0.1:{_resolve_callback_ports()[0]}/</b></small>'
         )
         redirect_hint.setTextFormat(Qt.RichText)
         redirect_hint.setObjectName("hintLabel")
@@ -590,35 +622,85 @@ class DualModeLoginManager(QDialog):
 
     def _start_callback_server(self):
         self._stop_callback_server()
-        self._callback_server = KiteCallbackServer()
-        self._callback_server.token_captured.connect(self._on_token_auto_captured)
-        self._callback_server.capture_failed.connect(self._on_token_capture_failed)
-        self._callback_server.start()
-        logger.info(f"Kite callback server started on port {KITE_CALLBACK_PORT}")
+        self._callback_failure_reasons.clear()
+        self._token_auto_captured = False
+
+        callback_ports = _resolve_callback_ports()
+        for port in callback_ports:
+            server = KiteCallbackServer(port)
+            server.token_captured.connect(self._on_token_auto_captured)
+            server.capture_failed.connect(self._on_token_capture_failed)
+            server.start()
+            self._callback_servers.append(server)
+
+        logger.info(f"Kite callback server started on ports {callback_ports}")
 
     def _stop_callback_server(self):
-        if self._callback_server and self._callback_server.isRunning():
-            self._callback_server.stop()
-            self._callback_server.wait(1000)
-        self._callback_server = None
+        for server in self._callback_servers:
+            server.stop()
 
-    def _on_token_auto_captured(self, token: str):
+        for server in self._callback_servers:
+            if server.isRunning() and not server.wait(3000):
+                logger.warning(f"Kite callback server on port {server.port} did not stop in time.")
+
+        self._callback_servers = []
+
+    def _on_token_auto_captured(self, port: int, token: str):
         """Token was captured automatically from the browser redirect."""
+        if self._token_auto_captured:
+            return
+        self._token_auto_captured = True
         logger.info("Request token auto-captured from browser callback.")
-        self.capture_status_label.setText("✅ Token captured! Generating session...")
+        self.capture_status_label.setText(f"✅ Token captured on port {port}! Generating session...")
         self.request_token_input.setText(token)
         self.generate_session_btn.setEnabled(False)
         self._run_session_worker(token)
 
-    def _on_token_capture_failed(self, reason: str):
-        self.capture_status_label.setText(f"⚠️ Auto-capture failed: {reason}\nPaste the token manually.")
+    def _on_token_capture_failed(self, port: int, reason: str):
+        if self._token_auto_captured:
+            return
+        self._callback_failure_reasons[port] = reason
+
+        if len(self._callback_failure_reasons) < len(self._callback_servers):
+            return
+
+        reasons = "; ".join(
+            [f"{failed_port}: {msg}" for failed_port, msg in sorted(self._callback_failure_reasons.items())]
+        )
+        self.capture_status_label.setText(
+            f"⚠️ Auto-capture failed ({reasons}).\nPaste the token or callback URL manually."
+        )
+
+    @staticmethod
+    def _extract_request_token(value: str) -> str:
+        """Extract request_token from either a raw token or a full callback URL."""
+        text = (value or "").strip()
+        if not text:
+            return ""
+
+        if "request_token=" in text:
+            try:
+                parsed = urlparse(text)
+                params = parse_qs(parsed.query)
+                token = params.get("request_token", [""])[0].strip()
+                if token:
+                    return token
+            except Exception:
+                pass
+
+            match = re.search(r"request_token=([^&\s]+)", text)
+            if match:
+                return match.group(1).strip()
+
+        return text
 
     def _complete_kite_login(self):
         """Manual path: user pasted the token themselves."""
-        token = self.request_token_input.text().strip()
+        token = self._extract_request_token(self.request_token_input.text())
         if not token:
-            QMessageBox.warning(self, "Input Required", "Please paste the request_token.")
+            QMessageBox.warning(self, "Input Required", "Please paste the request_token or callback URL.")
             return
+        self.request_token_input.setText(token)
         self.generate_session_btn.setEnabled(False)
         self.generate_session_btn.setText("Generating...")
         self._run_session_worker(token)
