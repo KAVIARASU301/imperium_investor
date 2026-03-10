@@ -6,8 +6,8 @@ from typing import List, Dict, Optional
 from functools import partial
 
 from PySide6.QtWidgets import (
-    QTableWidget, QTableWidgetItem, QPushButton, QVBoxLayout, QWidget,
-    QHeaderView, QAbstractItemView, QMenu, QComboBox, QStackedWidget
+    QTableWidget, QTableWidgetItem, QPushButton, QVBoxLayout, QHBoxLayout,
+    QWidget, QLabel, QFrame, QHeaderView, QAbstractItemView, QMenu, QComboBox, QStackedWidget
 )
 from PySide6.QtCore import Qt, Signal, Slot, QPoint, QTimer
 from PySide6.QtGui import QColor, QCursor, QAction, QFont, QBrush
@@ -57,34 +57,27 @@ class TradingTable(QTableWidget):
         self._setup_data_refresh()
 
     def _configure_table(self):
-        """TC2000 style compact table configuration."""
+        """TC2000-style compact table — mirrors positions_table exactly."""
         self.setColumnCount(5)
         self.setHorizontalHeaderLabels(["Symbol", "LTP", "Vol", "Chg %", ""])
 
         self.verticalHeader().setVisible(False)
         self.horizontalHeader().setVisible(True)
 
-        # Match Positions/Scanner table resize behavior for consistent drag/sizing feel.
         header = self.horizontalHeader()
         header.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        # NOTE: ResizeToContents on multiple live-updating numeric columns can force
-        # the fixed remove column to look inset under narrow widths. Keep these
-        # compact and stable like positions, and let Symbol absorb residual space.
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
 
-        # Keep remove button width consistent with positions table.
+        # FIX: set minimum ONCE, FIRST — then lock col4 at 24 px (mirrors positions_table)
+        # Double setMinimumSectionSize can force Fixed col4 to 35 on some Qt versions.
+        header.setMinimumSectionSize(35)           # floor for Stretch / RTC columns
         header.setStretchLastSection(False)
-        self.setColumnWidth(1, 78)
-        self.setColumnWidth(2, 86)
-        self.setColumnWidth(3, 62)
-        self.setColumnWidth(4, 24)
 
-        # Prevent columns from disappearing entirely if crushed
-        header.setMinimumSectionSize(35)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)           # Symbol absorbs space
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)  # LTP fits digits
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)  # Vol fits text
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)  # Chg% fits digits
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)             # Remove btn locked
+        self.setColumnWidth(4, 24)  # called AFTER minimum so Fixed 24 overrides floor
 
         # Table behavior
         self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -241,6 +234,16 @@ class TradingTable(QTableWidget):
         """Setup periodic data refresh for better responsiveness"""
         self._data_update_timer.timeout.connect(self._refresh_display)
         self._data_update_timer.start(1000)  # Refresh every second
+
+    def resizeEvent(self, event):
+        """Re-lock col4 at 24 px on every resize so it never overflows the edge.
+        ResizeToContents mode does NOT auto-shrink on widget resize — it only grows.
+        Without this, a sort-indicator expansion on cols 1-3 can push col4 off-screen
+        once col0 (Stretch) hits its 35 px floor and can no longer absorb the overflow."""
+        super().resizeEvent(event)
+        # Re-apply Fixed width after the resize so the header geometry is current.
+        self.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
+        self.setColumnWidth(4, 24)
 
     def set_instrument_map(self, instrument_map: Dict[str, Dict]):
         """Enhanced instrument map setting with proper data initialization"""
@@ -880,15 +883,34 @@ class TabbedWatchlistWidget(QWidget):
             table.apply_color_theme(theme)
 
     def _setup_ui(self):
-        """Sets up the main UI layout with dropdown category selector."""
+        """Sets up the main UI layout with scanner-style header and dropdown."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self.setMinimumWidth(350)
+        self.setMinimumWidth(280)  # matches right_panel_splitter.setMinimumWidth(280)
+
+        # ── Header bar (mirrors scanner's _create_header) ──────────────────────
+        header_container = QWidget()
+        header_container.setObjectName("watchlistHeaderContainer")
+        header_layout = QHBoxLayout(header_container)
+        header_layout.setContentsMargins(6, 6, 6, 6)
+        header_layout.setSpacing(8)
+
+        watchlist_label = QLabel("WATCHLIST:")
+        watchlist_label.setObjectName("watchlistLabel")
+        watchlist_label.setStyleSheet("QLabel#watchlistLabel { background-color: transparent; }")
+        watchlist_label.setFixedWidth(72)
+        header_layout.addWidget(watchlist_label)
 
         self.category_dropdown = QComboBox()
-        self.category_dropdown.setObjectName("watchlistCategoryDropdown")
+        self.category_dropdown.setObjectName("minimalDropdown")
+        self.category_dropdown.setMinimumHeight(28)
+        header_layout.addWidget(self.category_dropdown, 1)
+
+        layout.addWidget(header_container)
+
+        # ── Stacked table area ──────────────────────────────────────────────────
         self.table_stack = QStackedWidget()
         self.table_stack.setObjectName("watchlistTableStack")
         self._categories: List[str] = ["Breakouts", "EP", "Parabolic"]
@@ -913,9 +935,11 @@ class TabbedWatchlistWidget(QWidget):
         self.table_stack.currentChanged.connect(self.category_dropdown.setCurrentIndex)
         self.table_stack.currentChanged.connect(self._refresh_current_table_sizing)
 
-        layout.addWidget(self.category_dropdown)
         layout.addWidget(self.table_stack)
-        self._refresh_current_table_sizing()
+        # Defer initial sizing to after the event loop has given the widget real geometry.
+        # Calling synchronously here means viewport width = 0 → columns sized wrong.
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(0, self._refresh_current_table_sizing)
 
     def _refresh_current_table_sizing(self):
         """Re-apply current-table sizing after stacked-widget view switches."""
@@ -925,13 +949,10 @@ class TabbedWatchlistWidget(QWidget):
 
         header = current_table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
-        current_table.setColumnWidth(1, 78)
-        current_table.setColumnWidth(2, 86)
-        current_table.setColumnWidth(3, 62)
         current_table.setColumnWidth(4, 24)
 
     def _handle_watchlist_symbols_changed(self, category: str):
@@ -940,7 +961,7 @@ class TabbedWatchlistWidget(QWidget):
         self.watchlist_changed.emit()
 
     def _apply_dynamic_styles(self):
-        """Apply styles for dropdown and table stack."""
+        """Apply styles for header, dropdown and table stack."""
         dynamic_stylesheet = """
             /* Main Widget */
             TabbedWatchlistWidget {
@@ -950,44 +971,81 @@ class TabbedWatchlistWidget(QWidget):
                 font-size: 13px;
             }
 
-            QComboBox#watchlistCategoryDropdown {
-                background-color: #05070b;
-                border: 1px solid #1a2536;
-                color: #7fd4ff;
-                font-size: 11px;
-                font-weight: 600;
-                padding: 4px 8px;
-                margin: 0px;
-                min-height: 24px;
-                combobox-popup: 0;
-            }
-
-            QComboBox#watchlistCategoryDropdown:hover {
+            /* Header Container - matches scanner headerContainer */
+            QWidget#watchlistHeaderContainer {
                 background-color: #0b1019;
-                color: #dbe9ff;
+                border-bottom: 1px solid #1f2c3f;
             }
 
-            QComboBox#watchlistCategoryDropdown::drop-down {
-                border: none;
-                width: 20px;
+            /* WATCHLIST label - matches scanner scanLabel */
+            QLabel#watchlistLabel {
+                color: #6ec8ff;
+                font-weight: 600;
+                font-size: 11px;
             }
 
-            QComboBox#watchlistCategoryDropdown::down-arrow {
-                width: 10px;
-                height: 10px;
+            /* Dropdown - identical to scanner minimalDropdown */
+            QComboBox#minimalDropdown {
+                background-color: #0a111b;
+                border: 1px solid #24354d;
+                color: #ffffff;
+                padding: 3px 6px;
+                border-radius: 2px;
+                font-size: 12px;
+                /* combobox-popup: 0 REMOVED — embedded popup is occluded by the
+                   QStackedWidget sibling (higher Z-order). Native popup window
+                   always floats on top regardless of widget Z-order. */
             }
-
-            QComboBox#watchlistCategoryDropdown QAbstractItemView {
-                background-color: #05070b;
-                color: #dbe9ff;
-                selection-background-color: #234b73;
-                border: 1px solid #1a2536;
+            QComboBox#minimalDropdown:hover {
+                border-color: #505050;
+            }
+            QComboBox#minimalDropdown:focus {
+                border-color: #6a9cff;
                 outline: none;
+            }
+            QComboBox#minimalDropdown::drop-down {
+                border: none;
+                width: 18px;
+            }
+            QComboBox#minimalDropdown::down-arrow {
+                image: none;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 4px solid #808080;
+            }
+            QComboBox#minimalDropdown::down-arrow:hover {
+                border-top-color: #ffffff;
+            }
+            QComboBox#minimalDropdown QAbstractItemView {
+                background-color: #1a1a1a;
+                border: 1px solid #6a9cff;
+                border-radius: 2px;
+                color: #ffffff;
+                selection-background-color: rgba(74, 122, 191, 0.2);
+                selection-color: #ffffff;
+                padding: 1px;
+                outline: none;
+            }
+            QComboBox#minimalDropdown QAbstractItemView::item {
+                padding: 5px 8px;
+                border: none;
+                border-radius: 1px;
+                margin: 0px 1px;
+                font-size: 12px;
+            }
+            QComboBox#minimalDropdown QAbstractItemView::item:hover {
+                background-color: #2a2a2a;
+            }
+            QComboBox#minimalDropdown QAbstractItemView::item:selected {
+                background-color: rgba(74, 122, 191, 0.2);
+                color: #ffffff;
             }
 
             QStackedWidget#watchlistTableStack {
-                border: 1px solid #202020;
-                border-top: none;
+                /* border REMOVED — QWidget CSS border sets contentRect 2 px narrower
+                   without QFrame frame machinery, stealing viewport width from
+                   TradingTable. TradingTable already has its own 1 px frame border. */
+                border: none;
                 background-color: #05070b;
             }
 
