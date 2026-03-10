@@ -1303,7 +1303,7 @@ class FixedTradingChart {
         ctx.save();
         ctx.font = this._axisFont(12, 600);
         const textWidth = Math.max(ctx.measureText(infoText[0]).width, ctx.measureText(infoText[1]).width);
-        const rowPaddingX = 8;
+        const rowPaddingX = 0;
         const rowHeight = 16;
         const rowGap = 3;
         const boxW = textWidth + (rowPaddingX * 2);
@@ -1316,11 +1316,6 @@ class FixedTradingChart {
         if (boxX + boxW > rightEdge) boxX = ex - boxW - 12;
         if (boxY + boxH > bottomEdge) boxY = bottomEdge - boxH;
         if (boxY < this.chartArea.y) boxY = this.chartArea.y;
-
-        const rowBg = 'rgba(15, 22, 33, 0.46)';
-        ctx.fillStyle = rowBg;
-        ctx.fillRect(boxX, boxY, boxW, rowHeight);
-        ctx.fillRect(boxX, boxY + rowHeight + rowGap, boxW, rowHeight);
 
         ctx.fillStyle = 'rgba(233, 241, 252, 0.86)';
         ctx.textAlign = 'left';
