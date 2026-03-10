@@ -64,18 +64,18 @@ class TradingTable(QTableWidget):
         self.verticalHeader().setVisible(False)
         self.horizontalHeader().setVisible(True)
 
-        # THE FIX: Native Qt sizing for ultimate density
+        # Match Positions table resize behavior for consistent drag/sizing feel.
         header = self.horizontalHeader()
+        header.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
 
-        # ADD THIS: Ensure the table doesn't think it's wider than the widget
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # Keep remove button width consistent with positions table.
         header.setStretchLastSection(False)
-        self.setColumnWidth(4, 25)  # Give the X button slightly more breathing room
+        self.setColumnWidth(4, 24)
 
         # Prevent columns from disappearing entirely if crushed
         header.setMinimumSectionSize(35)
@@ -86,7 +86,7 @@ class TradingTable(QTableWidget):
         self.setShowGrid(True)
         self.setAlternatingRowColors(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerItem)
+        self.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
 
         # Ensure the horizontal scrollbar never appears and takes up space
