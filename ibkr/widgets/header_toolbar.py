@@ -106,13 +106,13 @@ class HeaderToolbar(QToolBar):
         # Buy and Sell buttons
         self.buy_button = QPushButton("BUY")
         self.buy_button.setObjectName("buyButton")
-        self.buy_button.setFixedSize(45, 24)
+        self.buy_button.setFixedSize(42, 20)
         self.buy_button.clicked.connect(self._on_buy_clicked)
         self.addWidget(self.buy_button)
 
         self.sell_button = QPushButton("SELL")
         self.sell_button.setObjectName("sellButton")
-        self.sell_button.setFixedSize(45, 24)
+        self.sell_button.setFixedSize(42, 20)
         self.sell_button.clicked.connect(self._on_sell_clicked)
         self.addWidget(self.sell_button)
 
@@ -187,13 +187,13 @@ class HeaderToolbar(QToolBar):
 
         # Unified Alerts button with a single badge
         alerts_container = QWidget()
-        alerts_container.setFixedSize(70, 24)
+        alerts_container.setFixedSize(64, 20)
         self.alerts_button = QPushButton("Alerts", alerts_container)
         self.alerts_button.setObjectName("alertActionButton")
         self.alerts_button.clicked.connect(self.alert_manager_requested.emit)
-        self.alerts_button.setGeometry(0, 0, 70, 24)
+        self.alerts_button.setGeometry(0, 0, 64, 20)
         self.alerts_badge = NotificationBadge(alerts_container)
-        self.alerts_badge.move(56, -2)
+        self.alerts_badge.move(50, -3)
         alert_layout.addWidget(alerts_container)
 
         self.addWidget(alert_widget)
@@ -216,14 +216,14 @@ class HeaderToolbar(QToolBar):
         self.order_history_btn = QPushButton("Order History")
         self.order_history_btn.setObjectName("tradingActionButton")
         self.order_history_btn.clicked.connect(self.order_history_requested.emit)
-        self.order_history_btn.setFixedSize(95, 24)
+        self.order_history_btn.setFixedSize(84, 20)
         actions_layout.addWidget(self.order_history_btn)
 
         # Performance Dashboard Button
         self.performance_btn = QPushButton("Performance")
         self.performance_btn.setObjectName("tradingActionButton")
         self.performance_btn.clicked.connect(self.performance_dashboard_requested.emit)
-        self.performance_btn.setFixedSize(85, 24)
+        self.performance_btn.setFixedSize(76, 20)
         actions_layout.addWidget(self.performance_btn)
 
         self.addWidget(actions_widget)
@@ -238,8 +238,8 @@ class HeaderToolbar(QToolBar):
         self.account_info_widget = QWidget()
         self.account_info_widget.setObjectName("accountInfoWidget")
         account_layout = QHBoxLayout(self.account_info_widget)
-        account_layout.setContentsMargins(8, 2, 8, 2)
-        account_layout.setSpacing(8)
+        account_layout.setContentsMargins(6, 1, 6, 1)
+        account_layout.setSpacing(6)
 
         self.user_id_label = QLabel("KE6286")
         self.user_id_label.setObjectName("userIdLabel")
@@ -393,10 +393,11 @@ class HeaderToolbar(QToolBar):
         self.setStyleSheet("""
             QToolBar#enhancedHeaderToolbar {
                 background-color: #1a1a1a;
-                border-bottom: 3px solid #404040;
-                padding: 2px 8px;
-                spacing: 8px;
-                max-height: 40px;
+                border-bottom: 2px solid #404040;
+                padding: 1px 6px;
+                spacing: 6px;
+                min-height: 28px;
+                max-height: 30px;
             }
             #centerSpacer {
                 background-color: transparent;
@@ -404,23 +405,23 @@ class HeaderToolbar(QToolBar):
             #symbolLabel { 
                 background-color: #1a1a1a; 
                 color: #ffffff; 
-                font-size: 12px; 
+                font-size: 11px; 
                 font-weight: 900; 
                 text-transform: uppercase;
                 letter-spacing: 1px;
-                padding-right: 8px;
+                padding-right: 6px;
             }
             #enhancedSymbolSearch {
                 background-color: #000000;
                 border: 1px solid #333333; 
                 color: #ffffff; 
-                padding: 6px 12px; 
+                padding: 3px 8px; 
                 border-radius: 3px;
-                font-size: 10px; 
+                font-size: 9px; 
                 font-weight: 500;
-                min-width: 90px; 
-                max-width: 110px; 
-                max-height: 24px;
+                min-width: 84px; 
+                max-width: 100px; 
+                max-height: 20px;
             }
             #enhancedSymbolSearch:focus { 
                 border: 1px solid #00d4ff; 
@@ -430,9 +431,9 @@ class HeaderToolbar(QToolBar):
                 background-color: #000000;
                 color: white;
                 border: 1px solid #333333;
-                padding: 6px 8px;
+                padding: 3px 6px;
                 border-radius: 3px;
-                font-size: 10px;
+                font-size: 9px;
                 font-weight: 600;
                 text-transform: uppercase;
             }
@@ -445,9 +446,9 @@ class HeaderToolbar(QToolBar):
                 background-color: #000000;
                 color: white;
                 border: 1px solid #333333;
-                padding: 6px 8px;
+                padding: 3px 6px;
                 border-radius: 3px;
-                font-size: 10px;
+                font-size: 9px;
                 font-weight: 600;
                 text-transform: uppercase;
             }
@@ -472,7 +473,7 @@ class HeaderToolbar(QToolBar):
             #marketStatusText { 
                 background-color: #1a1a1a;
                 color: #cccccc; 
-                font-size: 10px; 
+                font-size: 9px; 
                 font-weight: 600; 
             }
             #marketStatusWidget { 
@@ -491,7 +492,7 @@ class HeaderToolbar(QToolBar):
             #marketStatusText { 
                 background-color: #1a1a1a;
                 color: #cccccc; 
-                font-size: 10px; 
+                font-size: 9px; 
                 font-weight: 600; 
             }
             #alertActionWidget, #tradingActionWidget {
@@ -501,9 +502,9 @@ class HeaderToolbar(QToolBar):
                 background-color: #000000;
                 color: white;
                 border: 1px solid #333333;
-                padding: 6px 8px;
+                padding: 3px 6px;
                 border-radius: 3px;
-                font-size: 10px;
+                font-size: 9px;
                 font-weight: 500;
             }
             #alertActionButton:hover, #tradingActionButton:hover {
@@ -514,19 +515,19 @@ class HeaderToolbar(QToolBar):
             #accountInfoWidget {
                 background-color: #1a1a1a;
                 border: 1px solid #333333; 
-                border-radius: 6px; 
-                padding: 4px 8px;
+                border-radius: 5px; 
+                padding: 2px 6px;
             }
             #userIdLabel { 
                 background-color: #1a1a1a;
                 color: #00d4ff; 
-                font-size: 11px; 
+                font-size: 10px; 
                 font-weight: 700; 
             }
             #balanceLabel { 
                 background-color: #1a1a1a;
                 color: #4aff4a; 
-                font-size: 11px; 
+                font-size: 10px; 
                 font-weight: 600; 
             }
             #separatorDot { 
@@ -537,7 +538,7 @@ class HeaderToolbar(QToolBar):
             #sectionSeparator { 
                 background-color: #404040; 
                 max-width: 1px; 
-                margin: 4px 2px; 
+                margin: 3px 1px; 
             }
         """)
 

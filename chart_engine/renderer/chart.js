@@ -10,6 +10,7 @@
  *   - Candle rendering: TC2000-style body + wick + subtle border
  *   - Volume bars: 90th-percentile normalised + opacity proportional to size
  *   - Overlays: EMA10/20/50/200 with right-edge price labels
+ *   - ATR Trend Reversal markers (3.01 ATR distance from EMA21)
  *   - VWAP line (institutional standard, calculated from cumulative TPV/Vol)
  *   - Magnetic crosshair that snaps to OHLC values
  *   - Live price ray with animated label
@@ -69,6 +70,8 @@ class FixedTradingChart {
             volumeDown:  cfg.downVolumeColor || '#ef5350',
             vwap:        '#ff9e42',
             ema: { ema10: '#2962ff', ema20: '#9c27b0', ema50: '#f06204', ema200: '#e91e63' },
+            atrReversalAbove: '#ff4d4f',
+            atrReversalBelow: '#52c41a',
         };
 
         // ── Viewport ──
@@ -122,13 +125,15 @@ class FixedTradingChart {
 
         // ── Indicator visibility (toggled from toolbar) ──
         this.indicatorVisibility = {
-            ema10: true, ema20: true, ema50: true, ema200: true, vwap: true,
+            ema10: true, ema20: true, ema50: true, ema200: true, atrTrendReversal: true, vwap: true,
             ...(cfg.initialIndicatorVisibility || {}),
         };
 
         // ── Computed VWAP ──
         this.vwapData = [];
         this._computeVWAP();
+        this.atrTrendReversal = [];
+        this._computeATRTrendReversal();
 
         // ── Bridge ──
         this.chartBridge = null;
@@ -348,6 +353,7 @@ class FixedTradingChart {
             this._drawVWAP();
             this._drawEMAs();
             this._drawCandlesticks();
+            this._drawATRTrendReversal();
             this._drawAxes();
             this._drawAllDrawings();
             this._drawWatermark();
@@ -682,6 +688,47 @@ class FixedTradingChart {
             ctx.textBaseline = 'middle';
             ctx.fillStyle = this.colors.vwap;
             ctx.fillText(`VWAP ${last.value.toFixed(1)}`, lx, y);
+        }
+    }
+
+    _drawATRTrendReversal() {
+        if (this.indicatorVisibility.atrTrendReversal === false) return;
+        if (!this.atrTrendReversal || this.atrTrendReversal.length === 0) return;
+
+        const ctx = this.ctx;
+        const triHalf = 4;
+        const triHeight = 6;
+        const yPad = 5;
+        const start = Math.max(0, this.viewPortStart);
+        const end = Math.min(this.data.length - 1, this.viewPortEnd);
+
+        for (let i = start; i <= end; i++) {
+            const signal = this.atrTrendReversal[i];
+            if (!signal) continue;
+            const candle = this.data[i];
+            const x = this._candleToX(i) + this.candleWidth / 2;
+
+            if (signal.above) {
+                const y = this._priceToY(candle.high) - yPad;
+                ctx.fillStyle = this.colors.atrReversalAbove;
+                ctx.beginPath();
+                ctx.moveTo(x - triHalf, y - triHeight);
+                ctx.lineTo(x + triHalf, y - triHeight);
+                ctx.lineTo(x, y);
+                ctx.closePath();
+                ctx.fill();
+            }
+
+            if (signal.below) {
+                const y = this._priceToY(candle.low) + yPad;
+                ctx.fillStyle = this.colors.atrReversalBelow;
+                ctx.beginPath();
+                ctx.moveTo(x - triHalf, y + triHeight);
+                ctx.lineTo(x + triHalf, y + triHeight);
+                ctx.lineTo(x, y);
+                ctx.closePath();
+                ctx.fill();
+            }
         }
     }
 
@@ -1746,6 +1793,51 @@ class FixedTradingChart {
         }
     }
 
+    _computeATRTrendReversal() {
+        const atrPeriod = 14;
+        const emaPeriod = 21;
+        const threshold = 3.01;
+        const k = 2 / (emaPeriod + 1);
+
+        this.atrTrendReversal = this.data.map(() => ({ above: false, below: false }));
+        if (this.data.length === 0) return;
+
+        let ema21 = this.data[0].close;
+        let atr = null;
+        let trSum = 0;
+
+        for (let i = 0; i < this.data.length; i++) {
+            const candle = this.data[i];
+            const prevClose = i > 0 ? this.data[i - 1].close : candle.close;
+            const tr = Math.max(
+                candle.high - candle.low,
+                Math.abs(candle.high - prevClose),
+                Math.abs(candle.low - prevClose),
+            );
+
+            if (i === 0) {
+                ema21 = candle.close;
+            } else {
+                ema21 = (candle.close - ema21) * k + ema21;
+            }
+
+            if (i < atrPeriod) {
+                trSum += tr;
+                if (i === atrPeriod - 1) atr = trSum / atrPeriod;
+            } else if (atr !== null) {
+                atr = ((atr * (atrPeriod - 1)) + tr) / atrPeriod;
+            }
+
+            if (atr && atr > 0) {
+                const distance = Math.abs(candle.close - ema21) / atr;
+                this.atrTrendReversal[i] = {
+                    above: distance >= threshold && candle.close > ema21,
+                    below: distance >= threshold && candle.close < ema21,
+                };
+            }
+        }
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     // COORDINATE TRANSFORMS
     // ═══════════════════════════════════════════════════════════════════════
@@ -1959,6 +2051,7 @@ class FixedTradingChart {
             last.high  = Math.max(last.high, price);
             last.low   = Math.min(last.low,  price);
         }
+        this._computeATRTrendReversal();
         this.calculateBounds();
         this.requestDraw();
     }
@@ -1973,6 +2066,7 @@ class FixedTradingChart {
             this._updateViewport();
         }
         this._computeVWAP();
+        this._computeATRTrendReversal();
         this.calculateBounds();
         this.requestDraw();
         this.updateSlider();

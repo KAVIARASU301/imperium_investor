@@ -41,6 +41,7 @@ DEFAULT_INDICATOR_VISIBILITY = {
     "ema20": True,
     "ema50": True,
     "ema200": True,
+    "atrTrendReversal": True,
     "vwap": True,
 }
 
@@ -631,9 +632,11 @@ class CandlestickChart(QWidget):
         if not (self.chart_view and self.current_symbol):
             return
 
+        symbol = self.current_symbol
+        interval = self.current_interval
+
         def _cb(state_data):
-            if state_data and self.current_symbol:
-                self.drawing_storage.save_state(self.current_symbol, self.current_interval, state_data)
+            self._persist_state_snapshot(symbol, interval, state_data)
 
         self.chart_view.page().runJavaScript(
             "(function(){ if(window.chart) return {"
@@ -795,9 +798,11 @@ class CandlestickChart(QWidget):
         if not (self.chart_view and self.current_symbol):
             return
 
+        symbol = self.current_symbol
+        interval = self.current_interval
+
         def _cb(data):
-            if data and self.current_symbol:
-                self.drawing_storage.save_state(self.current_symbol, self.current_interval, data)
+            self._persist_state_snapshot(symbol, interval, data)
 
         self.chart_view.page().runJavaScript(
             "(function(){ if(!window.chart) return null;"
@@ -805,6 +810,25 @@ class CandlestickChart(QWidget):
             "         visible_candle_count: window.chart.getVisibleCandleCount(),"
             "         indicator_visibility: window.chart.getIndicatorVisibility() }; })()", _cb
         )
+
+    def _persist_state_snapshot(self, symbol: str, interval: str, snapshot: Any) -> None:
+        """Persist chart snapshot for a specific symbol/interval without cross-symbol bleed."""
+        if not symbol or not isinstance(snapshot, dict):
+            return
+
+        state = self.drawing_storage.load_state(symbol, interval)
+        if "drawings" in snapshot:
+            state["drawings"] = snapshot["drawings"]
+        if "visible_candle_count" in snapshot:
+            state["visible_candle_count"] = snapshot["visible_candle_count"]
+        if "indicator_visibility" in snapshot and isinstance(snapshot["indicator_visibility"], dict):
+            state["indicator_visibility"] = {
+                **DEFAULT_INDICATOR_VISIBILITY,
+                **state.get("indicator_visibility", {}),
+                **snapshot["indicator_visibility"],
+            }
+
+        self.drawing_storage.save_state(symbol, interval, state)
 
     def _apply_indicator_toolbar_state(self, visibility: Dict[str, bool]) -> None:
         for key, action in self.toolbar.indicator_actions.items():

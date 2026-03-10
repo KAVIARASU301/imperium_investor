@@ -53,6 +53,7 @@ INDICATORS: List[Tuple[str, str, str]] = [
     ("ema20",  "E20",  "#9c27b0"),
     ("ema50",  "E50",  "#f06204"),
     ("ema200", "E200", "#e91e63"),
+    ("atrTrendReversal", "ATR-TR", "#ff5252"),
     ("vwap",   "VWAP", "#ff9e42"),
 ]
 
