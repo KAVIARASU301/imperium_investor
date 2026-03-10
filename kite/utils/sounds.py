@@ -7,7 +7,7 @@ import subprocess
 import threading
 from typing import Optional, Dict
 from PySide6.QtMultimedia import QSoundEffect
-from PySide6.QtCore import QUrl, QObject, QTimer
+from PySide6.QtCore import QUrl, QObject, QTimer, Signal, Slot, QThread
 from PySide6.QtWidgets import QApplication
 
 logger = logging.getLogger(__name__)
@@ -21,6 +21,7 @@ class SoundManager(QObject):
 
     _instance: Optional['SoundManager'] = None
     _initialized: bool = False
+    _play_sound_requested = Signal(str)
 
     def __new__(cls) -> 'SoundManager':
         if cls._instance is None:
@@ -50,8 +51,21 @@ class SoundManager(QObject):
 
         self._detect_audio_system()
         self._load_sound_file_paths()  # CHANGED: Only load file paths, not Qt sounds
+        self._play_sound_requested.connect(self._play_sound_on_qt_thread)
         self._initialized = True
         logger.info("SoundManager initialized successfully")
+
+    def _is_qt_main_thread(self) -> bool:
+        """Return True when running in the QApplication thread."""
+        app = QApplication.instance()
+        if app is None:
+            return True
+        return QThread.currentThread() == app.thread()
+
+    @Slot(str)
+    def _play_sound_on_qt_thread(self, sound_name: str):
+        """Handle queued playback requests on the Qt thread."""
+        self._play_sound_safe(sound_name)
 
     def _detect_audio_system(self):
         """Detect available audio systems"""
@@ -295,6 +309,12 @@ class SoundManager(QObject):
         if sound_name not in self.sounds:
             logger.warning(f"Unknown sound: {sound_name}")
             return False
+
+        # Ensure QtMultimedia is only touched from the QApplication thread.
+        # Background threads queue playback back to this object's Qt thread.
+        if not self._is_qt_main_thread():
+            self._play_sound_requested.emit(sound_name)
+            return True
 
         # Try Qt audio first
         if self._play_with_qt(sound_name):
