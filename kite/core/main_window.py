@@ -253,19 +253,19 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         scanner_action = QAction("Scanner", self)
         scanner_action.setCheckable(True)
         scanner_action.setChecked(True)
-        scanner_action.toggled.connect(self.chartink_scanner.setVisible)
+        scanner_action.toggled.connect(self._set_scanner_visible)
         view_menu.addAction(scanner_action)
 
         watchlist_action = QAction("Watchlist", self)
         watchlist_action.setCheckable(True)
         watchlist_action.setChecked(True)
-        watchlist_action.toggled.connect(self.watchlist.setVisible)
+        watchlist_action.toggled.connect(self._set_watchlist_visible)
         view_menu.addAction(watchlist_action)
 
         positions_action = QAction("Positions", self)
         positions_action.setCheckable(True)
         positions_action.setChecked(True)
-        positions_action.toggled.connect(self.positions_table.setVisible)
+        positions_action.toggled.connect(self._set_positions_visible)
         view_menu.addAction(positions_action)
 
         tools_menu = menu_bar.addMenu("Tools")
@@ -306,12 +306,15 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         left, center, right = sizes
         total = max(1, left + center + right)
 
-        left_min = 200
-        right_min = 280
+        left_visible = self.chartink_scanner.isVisible()
+        right_visible = self.right_panel_splitter.isVisible()
+
+        left_min = 200 if left_visible else 0
+        right_min = 280 if right_visible else 0
         center_min = max(520, int(splitter_width * 0.45))
 
-        left_max = int(splitter_width * 0.3)
-        right_max = int(splitter_width * 0.34)
+        left_max = int(splitter_width * 0.3) if left_visible else 0
+        right_max = int(splitter_width * 0.34) if right_visible else 0
 
         # Start from user ratio if available, then clamp side columns.
         left = max(left_min, min(left, left_max))
@@ -360,6 +363,23 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             self.main_splitter.setSizes([left, center, right])
         finally:
             self._is_adjusting_splitter = False
+
+    def _set_scanner_visible(self, visible: bool):
+        self.chartink_scanner.setVisible(visible)
+        self._apply_intelligent_main_splitter_layout()
+
+    def _set_watchlist_visible(self, visible: bool):
+        self.watchlist.setVisible(visible)
+        self._sync_right_panel_visibility()
+
+    def _set_positions_visible(self, visible: bool):
+        self.positions_table.setVisible(visible)
+        self._sync_right_panel_visibility()
+
+    def _sync_right_panel_visibility(self):
+        right_visible = self.watchlist.isVisible() or self.positions_table.isVisible()
+        self.right_panel_splitter.setVisible(right_visible)
+        self._apply_intelligent_main_splitter_layout()
 
     def _on_main_splitter_moved(self, _pos: int, _index: int):
         """Prevent one pane from taking all width when dragging splitter handles."""
