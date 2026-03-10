@@ -379,6 +379,22 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     def _sync_right_panel_visibility(self):
         right_visible = self.watchlist.isVisible() or self.positions_table.isVisible()
         self.right_panel_splitter.setVisible(right_visible)
+
+        if right_visible:
+            # Recover splitter sizes after both right-side panes were hidden.
+            pane_sizes = self.right_panel_splitter.sizes()
+            if len(pane_sizes) == 2:
+                watchlist_visible = self.watchlist.isVisible()
+                positions_visible = self.positions_table.isVisible()
+
+                if watchlist_visible and positions_visible:
+                    if pane_sizes[0] == 0 and pane_sizes[1] == 0:
+                        self.right_panel_splitter.setSizes([320, 220])
+                elif watchlist_visible:
+                    self.right_panel_splitter.setSizes([1, 0])
+                elif positions_visible:
+                    self.right_panel_splitter.setSizes([0, 1])
+
         self._apply_intelligent_main_splitter_layout()
 
     def _on_main_splitter_moved(self, _pos: int, _index: int):
