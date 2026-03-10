@@ -64,17 +64,23 @@ class TradingTable(QTableWidget):
         self.verticalHeader().setVisible(False)
         self.horizontalHeader().setVisible(True)
 
-        # Match Positions table resize behavior for consistent drag/sizing feel.
+        # Match Positions/Scanner table resize behavior for consistent drag/sizing feel.
         header = self.horizontalHeader()
         header.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        # NOTE: ResizeToContents on multiple live-updating numeric columns can force
+        # the fixed remove column to look inset under narrow widths. Keep these
+        # compact and stable like positions, and let Symbol absorb residual space.
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
 
         # Keep remove button width consistent with positions table.
         header.setStretchLastSection(False)
+        self.setColumnWidth(1, 78)
+        self.setColumnWidth(2, 86)
+        self.setColumnWidth(3, 62)
         self.setColumnWidth(4, 24)
 
         # Prevent columns from disappearing entirely if crushed
@@ -82,15 +88,13 @@ class TradingTable(QTableWidget):
 
         # Table behavior
         self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.setShowGrid(True)
         self.setAlternatingRowColors(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
-
-        # Ensure the horizontal scrollbar never appears and takes up space
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         # Enable sorting
         self.setSortingEnabled(True)
@@ -619,7 +623,7 @@ class TradingTable(QTableWidget):
         # Set alignments
         self.item(row, 0).setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.item(row, 1).setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self.item(row, 2).setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self.item(row, 2).setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.item(row, 3).setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 
         symbol_font = self.item(row, 0).font()
@@ -907,9 +911,28 @@ class TabbedWatchlistWidget(QWidget):
 
         self.category_dropdown.currentIndexChanged.connect(self.table_stack.setCurrentIndex)
         self.table_stack.currentChanged.connect(self.category_dropdown.setCurrentIndex)
+        self.table_stack.currentChanged.connect(self._refresh_current_table_sizing)
 
         layout.addWidget(self.category_dropdown)
         layout.addWidget(self.table_stack)
+        self._refresh_current_table_sizing()
+
+    def _refresh_current_table_sizing(self):
+        """Re-apply current-table sizing after stacked-widget view switches."""
+        current_table = self.table_stack.currentWidget()
+        if not isinstance(current_table, TradingTable):
+            return
+
+        header = current_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
+        current_table.setColumnWidth(1, 78)
+        current_table.setColumnWidth(2, 86)
+        current_table.setColumnWidth(3, 62)
+        current_table.setColumnWidth(4, 24)
 
     def _handle_watchlist_symbols_changed(self, category: str):
         """Persist symbol list changes immediately for the given category."""
@@ -936,6 +959,7 @@ class TabbedWatchlistWidget(QWidget):
                 padding: 4px 8px;
                 margin: 0px;
                 min-height: 24px;
+                combobox-popup: 0;
             }
 
             QComboBox#watchlistCategoryDropdown:hover {
