@@ -104,10 +104,10 @@ class PositionsTable(QWidget):
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)  # P&L
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)  # Exit
 
+        self._column_ratios = [0.40, 0.20, 0.20, 0.20]
+        self._symbol_compact_min_width = 70
+
         self._adjust_symbol_column_width()
-        self.table.setColumnWidth(1, 50)  # Qty
-        self.table.setColumnWidth(2, 70)  # Avg
-        self.table.setColumnWidth(3, 80)  # P&L
         self.table.setColumnWidth(4, 24)  # Exit button
 
         self.table.verticalHeader().setDefaultSectionSize(24)
@@ -132,9 +132,29 @@ class PositionsTable(QWidget):
         compact_width = metrics.horizontalAdvance("W" * target_chars) + 18
         header_width = metrics.horizontalAdvance("Symbol") + 20
         max_compact_width = metrics.horizontalAdvance("W" * 10) + 22
-        symbol_width = min(max(compact_width, header_width), max_compact_width)
+        self._symbol_compact_min_width = min(max(compact_width, header_width), max_compact_width)
+        self._apply_proportional_column_widths()
 
-        self.table.setColumnWidth(0, symbol_width)
+    def _apply_proportional_column_widths(self):
+        """Distribute available space proportionally for compact, consistent columns."""
+        viewport_width = max(0, self.table.viewport().width())
+        fixed_width = self.table.columnWidth(4)
+        available = max(0, viewport_width - fixed_width)
+
+        ratio_sum = sum(self._column_ratios) or 1
+        widths = [int(available * (ratio / ratio_sum)) for ratio in self._column_ratios]
+        remainder = available - sum(widths)
+        for i in range(remainder):
+            widths[i % len(widths)] += 1
+
+        widths[0] = max(widths[0], self._symbol_compact_min_width)
+
+        for col, width in enumerate(widths):
+            self.table.setColumnWidth(col, width)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._apply_proportional_column_widths()
 
     def _create_minimal_footer(self) -> QFrame:
         """Create minimal footer"""

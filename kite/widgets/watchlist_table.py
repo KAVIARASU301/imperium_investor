@@ -82,19 +82,19 @@ class TradingTable(QTableWidget):
         header.sectionClicked.connect(self._on_header_clicked)
         header.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
-        # FIXED: Column sizing EXACTLY matching scanner table - Symbol stretches, others fixed
+        # Compact + proportional column sizing so all free space is consumed on splitter drag.
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)  # Symbol
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)  # LTP - fixed width
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)  # Volume - fixed width
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)  # Chg % - fixed width
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)  # Remove button - fixed width
 
+        self._column_ratios = [0.40, 0.20, 0.20, 0.20]
+        self._symbol_compact_min_width = 70
+
         # Keep right-side columns readable while still letting Symbol absorb remaining space.
         # Chg % was getting clipped in narrower layouts, so it gets a little more room.
         self._adjust_symbol_column_width()
-        self.setColumnWidth(1, 72)  # LTP - enough for "0000.00"
-        self.setColumnWidth(2, 72)  # Volume - enough for "999 K" or "9.9 L"
-        self.setColumnWidth(3, 68)  # Change % - compact width for values like "+100.00"
         self.setColumnWidth(4, 24)  # Remove button - minimal
 
         # Row height for compact appearance
@@ -124,9 +124,29 @@ class TradingTable(QTableWidget):
         compact_width = metrics.horizontalAdvance("W" * target_chars) + 18
         header_width = metrics.horizontalAdvance("Symbol") + 20
         max_compact_width = metrics.horizontalAdvance("W" * 10) + 22
-        symbol_width = min(max(compact_width, header_width), max_compact_width)
+        self._symbol_compact_min_width = min(max(compact_width, header_width), max_compact_width)
+        self._apply_proportional_column_widths()
 
-        self.setColumnWidth(0, symbol_width)
+    def _apply_proportional_column_widths(self):
+        """Distribute table width proportionally across columns for dense + aligned layout."""
+        viewport_width = max(0, self.viewport().width())
+        fixed_width = self.columnWidth(4)
+        available = max(0, viewport_width - fixed_width)
+
+        ratio_sum = sum(self._column_ratios) or 1
+        widths = [int(available * (ratio / ratio_sum)) for ratio in self._column_ratios]
+        remainder = available - sum(widths)
+        for i in range(remainder):
+            widths[i % len(widths)] += 1
+
+        widths[0] = max(widths[0], self._symbol_compact_min_width)
+
+        for col, width in enumerate(widths):
+            self.setColumnWidth(col, width)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._apply_proportional_column_widths()
 
     def _connect_signals(self):
         """Connect table signals."""

@@ -17,11 +17,10 @@ IBKR flow:
 import logging
 import os
 import re
-import socketserver
 import threading
 import webbrowser
 from datetime import datetime
-from http.server import BaseHTTPRequestHandler
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Optional, Dict, Any, List
 from urllib.parse import urlparse, parse_qs
 
@@ -73,97 +72,65 @@ def _resolve_callback_ports() -> List[int]:
 # BACKGROUND WORKERS
 # ==============================================================================
 
-class KiteCallbackServer(QThread):
-    """
-    Spins up a one-shot local HTTP server on 127.0.0.1:<port>.
-    Waits for Kite to redirect back after login, extracts the request_token,
-    and emits it so the UI can auto-generate the session.
-    """
-    token_captured = Signal(int, str)
-    capture_failed = Signal(int, str)
+class KiteRequestTokenServer(QThread):
+    """One-shot local HTTP callback server for automatic request_token capture."""
+    token_received = Signal(int, str)
+    error = Signal(int, str)
 
-    def __init__(self, port: int):
+    def __init__(self, host: str = "127.0.0.1", port: int = 5678):
         super().__init__()
+        self.host = host
         self.port = port
-        self._server: Optional[socketserver.TCPServer] = None
-        self._stopped_manually = False
         self._stop_requested = threading.Event()
+        self._token_emitted = False
+        self._httpd: Optional[HTTPServer] = None
 
     def run(self):
-        captured = {"token": None}
-        parent = self
+        outer_self = self
 
-        class _Handler(BaseHTTPRequestHandler):
+        class Handler(BaseHTTPRequestHandler):
             def do_GET(self):
-                parsed = urlparse(self.path)
-                params = parse_qs(parsed.query)
-                token = params.get("request_token", [None])[0]
+                try:
+                    parsed = urlparse(self.path)
+                    qs = parse_qs(parsed.query)
+                    token = qs.get("request_token", [None])[0]
 
-                if token:
-                    captured["token"] = token
-                    self._respond(200, self._success_html(token))
-                else:
-                    status = params.get("status", ["unknown"])[0]
-                    self._respond(400, self._error_html(status))
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(
+                        b"<html><body style='font-family:Segoe UI,sans-serif;background:#111;color:#eee;text-align:center;padding-top:40px;'>"
+                        b"<h2>Login successful</h2>"
+                        b"<p>You can now return to Swing Trader.</p>"
+                        b"</body></html>"
+                    )
 
-                # Signal the server to stop after this one request
-                QTimer.singleShot(0, self.server.shutdown)
-
-            def _respond(self, code: int, body: str):
-                encoded = body.encode("utf-8")
-                self.send_response(code)
-                self.send_header("Content-Type", "text/html; charset=utf-8")
-                self.send_header("Content-Length", str(len(encoded)))
-                self.end_headers()
-                self.wfile.write(encoded)
-
-            @staticmethod
-            def _success_html(token: str) -> str:
-                return f"""<!DOCTYPE html><html><head><title>Login Successful</title>
-                <style>body{{font-family:sans-serif;background:#0d0d0d;color:#e0e0e0;
-                display:flex;align-items:center;justify-content:center;height:100vh;margin:0}}
-                .box{{text-align:center;padding:40px;background:#1a1a1a;border-radius:12px}}
-                h2{{color:#4ade80}}p{{color:#888;font-size:13px}}</style></head>
-                <body><div class="box"><h2>✅ Login Successful</h2>
-                <p>Token captured. You can close this tab.</p></div></body></html>"""
-
-            @staticmethod
-            def _error_html(status: str) -> str:
-                return f"""<!DOCTYPE html><html><head><title>Login Failed</title>
-                <style>body{{font-family:sans-serif;background:#0d0d0d;color:#e0e0e0;
-                display:flex;align-items:center;justify-content:center;height:100vh;margin:0}}
-                .box{{text-align:center;padding:40px;background:#1a1a1a;border-radius:12px}}
-                h2{{color:#f87171}}p{{color:#888;font-size:13px}}</style></head>
-                <body><div class="box"><h2>❌ Login Failed</h2>
-                <p>Status: {status}. Please close this tab and try again.</p></div></body></html>"""
+                    if token and not outer_self._token_emitted:
+                        outer_self._token_emitted = True
+                        outer_self.token_received.emit(outer_self.port, token)
+                        outer_self._stop_requested.set()
+                except Exception as e:
+                    outer_self.error.emit(outer_self.port, str(e))
 
             def log_message(self, fmt, *args):
-                pass  # Suppress default request logging
+                return
 
         try:
-            with socketserver.TCPServer(("127.0.0.1", self.port), _Handler) as server:
-                server.allow_reuse_address = True
-                self._server = server
-                if self._stop_requested.is_set():
-                    return
-                server.serve_forever(poll_interval=0.2)
+            httpd = HTTPServer((self.host, self.port), Handler)
+            httpd.timeout = 0.2
+            self._httpd = httpd
+            while not self._stop_requested.is_set() and not self._token_emitted:
+                httpd.handle_request()
         except Exception as e:
-            if self._stop_requested.is_set():
-                return
-            logger.error(f"Callback server error on port {self.port}: {e}")
-            parent.capture_failed.emit(self.port, f"Could not start local server: {e}")
-            return
-
-        if captured["token"]:
-            parent.token_captured.emit(self.port, captured["token"])
-        elif not self._stopped_manually:
-            parent.capture_failed.emit(self.port, "Login was cancelled or failed in the browser.")
+            if not self._stop_requested.is_set():
+                self.error.emit(self.port, str(e))
+        finally:
+            if self._httpd:
+                self._httpd.server_close()
+                self._httpd = None
 
     def stop(self):
-        self._stopped_manually = True
         self._stop_requested.set()
-        if self._server:
-            self._server.shutdown()
 
 
 class KiteSessionWorker(QThread):
@@ -211,7 +178,7 @@ class DualModeLoginManager(QDialog):
         self._active_kite_session: Optional[Dict[str, Any]] = None
         self._active_kite_creds: Optional[Dict[str, Any]] = None
 
-        self._callback_servers: List[KiteCallbackServer] = []
+        self._request_token_servers: List[KiteRequestTokenServer] = []
         self._callback_failure_reasons: Dict[int, str] = {}
         self._token_auto_captured = False
         self._session_worker: Optional[KiteSessionWorker] = None
@@ -282,7 +249,8 @@ class DualModeLoginManager(QDialog):
         return layout
 
     def _on_close(self):
-        self._stop_callback_server()
+        self._stop_request_token_server()
+        self._stop_request_timeout_timer()
         self.reject()
 
     # --------------------------------------------------------------------------
@@ -584,7 +552,8 @@ class DualModeLoginManager(QDialog):
         return page
 
     def _on_kite_token_back(self):
-        self._stop_callback_server()
+        self._stop_request_token_server()
+        self._stop_request_timeout_timer()
         self.stacked_widget.setCurrentIndex(2)
 
     # --------------------------------------------------------------------------
@@ -612,38 +581,59 @@ class DualModeLoginManager(QDialog):
         self.generate_session_btn.setText("Generate Session")
 
         # Start the callback server before opening the browser
-        self._start_callback_server()
+        self._start_request_token_server()
+        self._start_request_timeout_timer()
 
         try:
             kite = KiteConnect(api_key=self.kite_api_key)
             webbrowser.open_new(kite.login_url())
         except Exception as e:
+            self._stop_request_token_server()
+            self._stop_request_timeout_timer()
             self.capture_status_label.setText(f"❌ Could not open browser: {e}")
 
-    def _start_callback_server(self):
-        self._stop_callback_server()
+    def _start_request_token_server(self):
+        self._stop_request_token_server()
         self._callback_failure_reasons.clear()
         self._token_auto_captured = False
 
         callback_ports = _resolve_callback_ports()
         for port in callback_ports:
-            server = KiteCallbackServer(port)
-            server.token_captured.connect(self._on_token_auto_captured)
-            server.capture_failed.connect(self._on_token_capture_failed)
+            server = KiteRequestTokenServer(port=port)
+            server.token_received.connect(self._on_token_auto_captured)
+            server.error.connect(self._on_token_server_error)
             server.start()
-            self._callback_servers.append(server)
+            self._request_token_servers.append(server)
 
-        logger.info(f"Kite callback server started on ports {callback_ports}")
+        logger.info(f"Kite request token server started on ports {callback_ports}")
 
-    def _stop_callback_server(self):
-        for server in self._callback_servers:
+    def _stop_request_token_server(self):
+        for server in self._request_token_servers:
             server.stop()
 
-        for server in self._callback_servers:
-            if server.isRunning() and not server.wait(3000):
-                logger.warning(f"Kite callback server on port {server.port} did not stop in time.")
+        for server in self._request_token_servers:
+            if server.isRunning() and not server.wait(1000):
+                logger.warning(f"Kite request token server on port {server.port} did not stop in time.")
 
-        self._callback_servers = []
+        self._request_token_servers = []
+
+    def _start_request_timeout_timer(self):
+        self._stop_request_timeout_timer()
+        self._token_timeout_timer = QTimer(self)
+        self._token_timeout_timer.setSingleShot(True)
+        self._token_timeout_timer.timeout.connect(self._on_request_timeout)
+        self._token_timeout_timer.start(5 * 60 * 1000)
+
+    def _stop_request_timeout_timer(self):
+        if hasattr(self, "_token_timeout_timer") and self._token_timeout_timer.isActive():
+            self._token_timeout_timer.stop()
+
+    def _on_request_timeout(self):
+        if self.request_token_input.text().strip():
+            return
+        self.capture_status_label.setText(
+            "⚠️ No token was captured automatically. Paste the token or callback URL manually."
+        )
 
     def _on_token_auto_captured(self, port: int, token: str):
         """Token was captured automatically from the browser redirect."""
@@ -651,25 +641,28 @@ class DualModeLoginManager(QDialog):
             return
         self._token_auto_captured = True
         logger.info("Request token auto-captured from browser callback.")
+        self._stop_request_timeout_timer()
         self.capture_status_label.setText(f"✅ Token captured on port {port}! Generating session...")
         self.request_token_input.setText(token)
         self.generate_session_btn.setEnabled(False)
         self._run_session_worker(token)
 
-    def _on_token_capture_failed(self, port: int, reason: str):
+    def _on_token_server_error(self, port: int, reason: str):
         if self._token_auto_captured:
             return
-        self._callback_failure_reasons[port] = reason
 
-        if len(self._callback_failure_reasons) < len(self._callback_servers):
+        self._callback_failure_reasons[port] = reason
+        if len(self._callback_failure_reasons) < len(self._request_token_servers):
             return
 
         reasons = "; ".join(
             [f"{failed_port}: {msg}" for failed_port, msg in sorted(self._callback_failure_reasons.items())]
         )
-        self.capture_status_label.setText(
-            f"⚠️ Auto-capture failed ({reasons}).\nPaste the token or callback URL manually."
-        )
+        logger.error(f"Request token server error: {reasons}")
+        if self.stacked_widget.currentIndex() == 3:
+            self.capture_status_label.setText(
+                f"⚠️ Auto-capture failed ({reasons}).\nPaste the token or callback URL manually."
+            )
 
     @staticmethod
     def _extract_request_token(value: str) -> str:
@@ -696,6 +689,7 @@ class DualModeLoginManager(QDialog):
 
     def _complete_kite_login(self):
         """Manual path: user pasted the token themselves."""
+        self._stop_request_timeout_timer()
         token = self._extract_request_token(self.request_token_input.text())
         if not token:
             QMessageBox.warning(self, "Input Required", "Please paste the request_token or callback URL.")
@@ -706,7 +700,8 @@ class DualModeLoginManager(QDialog):
         self._run_session_worker(token)
 
     def _run_session_worker(self, token: str):
-        self._stop_callback_server()  # No longer needed once we have the token
+        self._stop_request_token_server()  # No longer needed once we have the token
+        self._stop_request_timeout_timer()
         self._session_worker = KiteSessionWorker(self.kite_api_key, self.kite_api_secret, token)
         self._session_worker.success.connect(self._on_kite_login_success)
         self._session_worker.error.connect(self._on_kite_login_error)
@@ -834,7 +829,8 @@ class DualModeLoginManager(QDialog):
         return self.authentication_data
 
     def closeEvent(self, event):
-        self._stop_callback_server()
+        self._stop_request_token_server()
+        self._stop_request_timeout_timer()
         super().closeEvent(event)
 
     # --------------------------------------------------------------------------
