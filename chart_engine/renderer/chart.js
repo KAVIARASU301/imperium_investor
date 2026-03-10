@@ -1998,9 +1998,12 @@ class FixedTradingChart {
             return `<span style="color:#425a78;">${p}</span><span style="color:${valCol};margin-left:2px;">${v >= 0 ? '+' : ''}${v.toFixed(2)}%</span>`;
         }).join(dot);
 
-        el.innerHTML = [
+        const metricsRow = [
             adrStr,
-            perf,
+            perf
+        ].join(sep);
+
+        const priceRow = [
             `<span style="color:#556887;">${dateStr}</span>`,
             `<span style="color:#3c4f6d;">O</span><span style="color:#8fa3bf;margin-left:2px;">₹${c.open.toFixed(2)}</span>`,
             `<span style="color:#3c4f6d;">H</span><span style="color:#8fa3bf;margin-left:2px;">₹${c.high.toFixed(2)}</span>`,
@@ -2009,6 +2012,8 @@ class FixedTradingChart {
             `<span style="color:${dayColor};">Chg ${daySign}₹${dayChange.toFixed(2)} (${daySign}${dayPct.toFixed(2)}%)</span>`,
             `<span style="color:#3c4f6d;">Vol</span><span style="color:#8fa3bf;margin-left:2px;">${Math.round(volume).toLocaleString('en-IN')}</span>`
         ].join(sep);
+
+        el.innerHTML = `<div class="info-row metrics-row">${metricsRow}</div><div class="info-row price-row">${priceRow}</div>`;
     }
 
     _updateCandleDetail(x) {
