@@ -181,6 +181,7 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         # Create the main splitter
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
         main_layout.addWidget(self.main_splitter, 1)
+        self._is_adjusting_splitter = False
 
         # Create components
         self.chartink_scanner = ChartinkScannerTable()
@@ -213,6 +214,11 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.watchlist.setMinimumHeight(150)
         self.positions_table.setMinimumHeight(100)
 
+        # Keep side panels compact while preserving readability.
+        self.chartink_scanner.setMinimumWidth(220)
+        right_panel_splitter.setMinimumWidth(280)
+        self.candlestick_chart.setMinimumWidth(520)
+
         # Add to the main splitter
         self.main_splitter.addWidget(self.chartink_scanner)
         self.main_splitter.addWidget(self.candlestick_chart)
@@ -220,12 +226,95 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         self.main_splitter.setChildrenCollapsible(False)
         self.main_splitter.setHandleWidth(1)
-        self.main_splitter.setStretchFactor(0, 0)
-        self.main_splitter.setStretchFactor(1, 1)
-        self.main_splitter.setStretchFactor(2, 0)
-        self.main_splitter.setSizes([250, 600, 300])
+        self.main_splitter.setStretchFactor(0, 1)
+        self.main_splitter.setStretchFactor(1, 5)
+        self.main_splitter.setStretchFactor(2, 2)
+        self.main_splitter.setSizes([220, 900, 320])
+        self.main_splitter.splitterMoved.connect(self._on_main_splitter_moved)
 
         self.right_panel_splitter = right_panel_splitter
+        self._apply_intelligent_main_splitter_layout()
+
+    def _apply_intelligent_main_splitter_layout(self, preferred_sizes=None):
+        """Keep scanner/watchlist compact and protect chart space during resize/drag."""
+        if self._is_adjusting_splitter:
+            return
+
+        splitter_width = self.main_splitter.size().width()
+        if splitter_width <= 0:
+            return
+
+        sizes = preferred_sizes or self.main_splitter.sizes()
+        if len(sizes) != 3:
+            return
+
+        left, center, right = sizes
+        total = max(1, left + center + right)
+
+        left_min = 200
+        right_min = 280
+        center_min = max(520, int(splitter_width * 0.45))
+
+        left_max = int(splitter_width * 0.3)
+        right_max = int(splitter_width * 0.34)
+
+        # Start from user ratio if available, then clamp side columns.
+        left = max(left_min, min(left, left_max))
+        right = max(right_min, min(right, right_max))
+
+        if left + right >= total:
+            center = center_min
+            remainder = max(0, total - center)
+            left = max(left_min, int(remainder * 0.42))
+            right = max(right_min, remainder - left)
+        else:
+            center = total - left - right
+
+        # Guarantee minimum chart width by borrowing proportionally from side panels.
+        if center < center_min:
+            deficit = center_min - center
+            left_spare = max(0, left - left_min)
+            right_spare = max(0, right - right_min)
+            spare = left_spare + right_spare
+
+            if spare > 0:
+                take_left = min(left_spare, int(round(deficit * (left_spare / spare))))
+                take_right = min(right_spare, deficit - take_left)
+                leftover = deficit - (take_left + take_right)
+                if leftover > 0 and left_spare - take_left > 0:
+                    extra = min(left_spare - take_left, leftover)
+                    take_left += extra
+                    leftover -= extra
+                if leftover > 0 and right_spare - take_right > 0:
+                    take_right += min(right_spare - take_right, leftover)
+
+                left -= take_left
+                right -= take_right
+                center = total - left - right
+
+        # Final sanity pass.
+        left = max(left_min, left)
+        right = max(right_min, right)
+        center = max(center_min, total - left - right)
+
+        if left + center + right != total:
+            center = max(center_min, total - left - right)
+
+        self._is_adjusting_splitter = True
+        try:
+            self.main_splitter.setSizes([left, center, right])
+        finally:
+            self._is_adjusting_splitter = False
+
+    def _on_main_splitter_moved(self, _pos: int, _index: int):
+        """Prevent one pane from taking all width when dragging splitter handles."""
+        self._apply_intelligent_main_splitter_layout()
+
+    def resizeEvent(self, event):
+        """Re-balance pane widths when the window geometry changes."""
+        super().resizeEvent(event)
+        if hasattr(self, 'main_splitter'):
+            self._apply_intelligent_main_splitter_layout()
 
     def _create_custom_title_bar(self) -> QWidget:
         """Creates a custom title bar for the frameless window."""
@@ -1441,9 +1530,9 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                         self.main_splitter.restoreState(QByteArray.fromBase64(state['main_splitter'].encode('utf-8')))
                     except Exception as e:
                         logger.warning(f"Failed to restore main splitter state: {e}")
-                        self.main_splitter.setSizes([250, 600, 300])
+                        self.main_splitter.setSizes([220, 900, 320])
                 else:
-                    self.main_splitter.setSizes([250, 600, 300])
+                    self.main_splitter.setSizes([220, 900, 320])
 
                 if hasattr(self, 'right_panel_splitter') and 'right_panel_splitter' in state:
                     try:
@@ -1451,30 +1540,33 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                             QByteArray.fromBase64(state['right_panel_splitter'].encode('utf-8')))
                     except Exception as e:
                         logger.warning(f"Failed to restore right panel splitter state: {e}")
-                        self.right_panel_splitter.setSizes([300, 200])
+                        self.right_panel_splitter.setSizes([320, 220])
                 elif hasattr(self, 'right_panel_splitter'):
-                    self.right_panel_splitter.setSizes([300, 200])
+                    self.right_panel_splitter.setSizes([320, 220])
 
                 if state.get('is_maximized', False):
                     self.showMaximized()
                     self.max_btn.setText("❐")
 
+                self._apply_intelligent_main_splitter_layout()
                 logger.info("Window state restored")
             else:
                 # Default state
                 self.showMaximized()
                 self.max_btn.setText("❐")
-                self.main_splitter.setSizes([250, 600, 300])
+                self.main_splitter.setSizes([220, 900, 320])
                 if hasattr(self, 'right_panel_splitter'):
-                    self.right_panel_splitter.setSizes([300, 200])
+                    self.right_panel_splitter.setSizes([320, 220])
+                self._apply_intelligent_main_splitter_layout()
 
         except Exception as e:
             logger.error(f"Failed to restore window state: {e}")
             # Safe fallback
             self.showMaximized()
-            self.main_splitter.setSizes([250, 600, 300])
+            self.main_splitter.setSizes([220, 900, 320])
             if hasattr(self, 'right_panel_splitter'):
-                self.right_panel_splitter.setSizes([300, 200])
+                self.right_panel_splitter.setSizes([320, 220])
+            self._apply_intelligent_main_splitter_layout()
 
 
     # ==============================================================================
