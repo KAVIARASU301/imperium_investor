@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
     QWidget, QHeaderView, QFrame, QHBoxLayout, QAbstractItemView, QMenu
 )
 from PySide6.QtCore import Qt, Signal, Slot
-from PySide6.QtGui import QColor, QCursor, QAction, QFont, QBrush
+from PySide6.QtGui import QColor, QCursor, QAction, QFont, QBrush, QFontMetrics
 from functools import partial
 
 logger = logging.getLogger(__name__)
@@ -98,12 +98,13 @@ class PositionsTable(QWidget):
         # Column sizing
         header = self.table.horizontalHeader()
         header.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)  # Symbol
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)  # Symbol
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)  # Qty
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)  # Avg
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)  # P&L
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)  # Exit
 
+        self._adjust_symbol_column_width()
         self.table.setColumnWidth(1, 50)  # Qty
         self.table.setColumnWidth(2, 70)  # Avg
         self.table.setColumnWidth(3, 80)  # P&L
@@ -114,6 +115,26 @@ class PositionsTable(QWidget):
         header_font = QFont("Segoe UI", 10)
         header_font.setBold(True)
         header.setFont(header_font)
+
+
+    def _adjust_symbol_column_width(self):
+        """Keep symbol column compact using ~70% of the longest visible symbol length."""
+        metrics = QFontMetrics(self.table.font())
+        longest_symbol_len = 0
+
+        for row in range(self.table.rowCount()):
+            symbol_item = self.table.item(row, 0)
+            if not symbol_item:
+                continue
+            longest_symbol_len = max(longest_symbol_len, len(symbol_item.text().strip()))
+
+        target_chars = max(4, int(round(longest_symbol_len * 0.7))) if longest_symbol_len > 0 else 6
+        compact_width = metrics.horizontalAdvance("W" * target_chars) + 18
+        header_width = metrics.horizontalAdvance("Symbol") + 20
+        max_compact_width = metrics.horizontalAdvance("W" * 10) + 22
+        symbol_width = min(max(compact_width, header_width), max_compact_width)
+
+        self.table.setColumnWidth(0, symbol_width)
 
     def _create_minimal_footer(self) -> QFrame:
         """Create minimal footer"""
@@ -192,6 +213,8 @@ class PositionsTable(QWidget):
 
         # Update summary
         self._update_summary()
+
+        self._adjust_symbol_column_width()
 
         logger.info(f"✅ Positions table updated with {len(positions_list)} positions")
 

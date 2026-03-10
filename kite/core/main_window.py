@@ -208,7 +208,7 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         right_panel_splitter.setStretchFactor(0, 3)
         right_panel_splitter.setStretchFactor(1, 2)
         right_panel_splitter.setChildrenCollapsible(False)
-        right_panel_splitter.setHandleWidth(4)
+        right_panel_splitter.setHandleWidth(1)
 
         self.watchlist.setMinimumHeight(150)
         self.positions_table.setMinimumHeight(100)
@@ -219,7 +219,7 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.main_splitter.addWidget(right_panel_splitter)
 
         self.main_splitter.setChildrenCollapsible(False)
-        self.main_splitter.setHandleWidth(4)
+        self.main_splitter.setHandleWidth(1)
         self.main_splitter.setStretchFactor(0, 0)
         self.main_splitter.setStretchFactor(1, 1)
         self.main_splitter.setStretchFactor(2, 0)
@@ -1552,17 +1552,15 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             }
 
             QSplitter::handle:horizontal { 
-                width: 4px; 
+                width: 1px; 
                 background-color: #1a1a1a;
-                border-left: 1px solid #0a0a0a;
-                border-right: 1px solid #0a0a0a;
+                border: none;
             }
 
             QSplitter::handle:vertical { 
-                height: 4px; 
+                height: 1px; 
                 background-color: #1a1a1a;
-                border-top: 1px solid #0a0a0a;
-                border-bottom: 1px solid #0a0a0a;
+                border: none;
             }
 
             QSplitter::handle:hover { 
@@ -1575,7 +1573,7 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
             QSplitter#rightPanelSplitter::handle:vertical {
                 background-color: #2a2a2a;
-                height: 4px;
+                height: 1px;
             }
 
             QSplitter#rightPanelSplitter::handle:vertical:hover {

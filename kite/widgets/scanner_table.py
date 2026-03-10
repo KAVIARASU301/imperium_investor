@@ -1007,14 +1007,12 @@ class ChartinkScannerTable(QWidget):
 
         self.table.horizontalHeader().setVisible(True)
         header = self.table.horizontalHeader()
-        # Keep symbol column compact: enough room for ~10-character symbols.
-        symbol_width = QFontMetrics(self.table.font()).horizontalAdvance("W" * 10) + 20
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
 
-        self.table.setColumnWidth(0, symbol_width)
+        self._adjust_symbol_column_width()
         self.table.setColumnWidth(3, 68)
 
         self.table.verticalHeader().setVisible(False)
@@ -1036,6 +1034,29 @@ class ChartinkScannerTable(QWidget):
 
         # FIXED: Add focus policy for better behavior (from positions table)
         self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+    def _adjust_symbol_column_width(self):
+        """Keep symbol column compact using ~70% of the longest visible symbol length."""
+        metrics = QFontMetrics(self.table.font())
+        longest_symbol_len = 0
+
+        for row in range(self.table.rowCount()):
+            symbol_item = self.table.item(row, 0)
+            if not symbol_item:
+                continue
+            longest_symbol_len = max(longest_symbol_len, len(symbol_item.text().strip()))
+
+        if longest_symbol_len > 0:
+            target_chars = max(4, int(round(longest_symbol_len * 0.7)))
+        else:
+            target_chars = 6
+
+        compact_width = metrics.horizontalAdvance("W" * target_chars) + 18
+        header_width = metrics.horizontalAdvance("Symbol") + 20
+        max_compact_width = metrics.horizontalAdvance("W" * 10) + 22
+        symbol_width = min(max(compact_width, header_width), max_compact_width)
+
+        self.table.setColumnWidth(0, symbol_width)
 
     def _update_row_data(self, row: int, data: Dict):
         """Updates the display for a single row with EOD data."""
@@ -1188,6 +1209,9 @@ class ChartinkScannerTable(QWidget):
 
         # Notify main_window to re-evaluate the subscription universe
         self.scan_results_changed.emit()
+
+        # Keep symbol column flexible + compact after each scan refresh.
+        self._adjust_symbol_column_width()
 
         logger.info(f"EOD Scanner table updated with {len(scan_results)} symbols.")
         self.scan_dropdown.setEnabled(True)
