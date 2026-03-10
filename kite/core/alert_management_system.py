@@ -107,6 +107,7 @@ class Alert:
     # Runtime state (not persisted)
     _prev_price:         float = field(default=0.0, repr=False, compare=False)
     _trigger_count:      int   = field(default=0,   repr=False, compare=False)
+    _last_state:         bool  = field(default=False, repr=False, compare=False)
 
     def to_dict(self) -> Dict:
         d = asdict(self)
@@ -246,6 +247,7 @@ class AlertEngine(QObject):
         self._store = store
         self._market_data: Dict[str, Dict] = {}   # symbol → tick dict
         self._price_history: Dict[str, List[float]] = {}  # symbol → last N prices
+        self._volume_history: Dict[str, List[float]] = {}  # symbol → last N volume prints
         self._day_open: Dict[str, float] = {}
         self._mutex = QMutex()
         self._running = False
@@ -279,6 +281,13 @@ class AlertEngine(QObject):
                     hist.append(ltp)
                     if len(hist) > 100:
                         hist.pop(0)
+
+                vol = float(tick.get("volume", 0))
+                if vol > 0:
+                    vhist = self._volume_history.setdefault(sym, [])
+                    vhist.append(vol)
+                    if len(vhist) > 100:
+                        vhist.pop(0)
                 # Record day open from OHLC
                 ohlc = tick.get("ohlc", {})
                 if ohlc and sym not in self._day_open:
@@ -292,7 +301,12 @@ class AlertEngine(QObject):
         for alert in self._store.active():
             try:
                 triggered = self._check(alert)
-                if triggered:
+                if alert.repeat:
+                    if triggered and not alert._last_state:
+                        self._fire(alert)
+                    alert._last_state = triggered
+                    self._store.update(alert)
+                elif triggered:
                     self._fire(alert)
             except Exception as e:
                 logger.debug(f"Alert check error [{alert.id}]: {e}")
@@ -302,6 +316,7 @@ class AlertEngine(QObject):
         with QMutexLocker(self._mutex):
             tick    = self._market_data.get(sym, {})
             hist    = list(self._price_history.get(sym, []))
+            vol_hist = list(self._volume_history.get(sym, []))
             day_open = self._day_open.get(sym, 0.0)
 
         ltp     = float(tick.get("last_price", 0))
@@ -346,10 +361,9 @@ class AlertEngine(QObject):
 
         # ── Volume spike ──
         if cond == AlertCondition.VOLUME_SPIKE.value:
-            avg_vol = float(tick.get("average_traded_price", 0))
-            # If avg_vol not in tick, use a rough heuristic
-            if avg_vol <= 0:
-                avg_vol = volume / max(1, len(hist))
+            avg_vol = 0.0
+            if len(vol_hist) >= 5:
+                avg_vol = sum(vol_hist[:-1]) / max(1, len(vol_hist) - 1)
             return avg_vol > 0 and volume >= target * avg_vol
 
         # ── RSI ──
@@ -391,7 +405,8 @@ class AlertEngine(QObject):
 
     def _fire(self, alert: Alert):
         """Mark alert as triggered and emit signal."""
-        alert.status       = AlertStatus.TRIGGERED.value
+        if not alert.repeat:
+            alert.status = AlertStatus.TRIGGERED.value
         alert.triggered_at = datetime.now().isoformat()
         alert._trigger_count += 1
         self._store.update(alert)
@@ -691,6 +706,10 @@ class AlertSystemManager(QObject):
             return
 
         condition_map = {
+            "above": AlertCondition.PRICE_IS_ABOVE.value,
+            "below": AlertCondition.PRICE_IS_BELOW.value,
+            "price_above": AlertCondition.PRICE_IS_ABOVE.value,
+            "price_below": AlertCondition.PRICE_IS_BELOW.value,
             "crosses_above": AlertCondition.PRICE_CROSSED_UP.value,
             "crosses_below": AlertCondition.PRICE_CROSSED_DOWN.value,
         }
@@ -706,7 +725,7 @@ class AlertSystemManager(QObject):
 
         condition = condition_map.get(
             str(data.get("condition", "")).lower(),
-            AlertCondition.PRICE_CROSSED_UP.value
+            AlertCondition.PRICE_IS_ABOVE.value
         )
         intent = intent_map.get(
             str(data.get("intent", "")).lower(),

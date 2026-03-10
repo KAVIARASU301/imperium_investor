@@ -165,6 +165,7 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         main_layout.setContentsMargins(0, 0, 0, 5)
         main_layout.setSpacing(0)
 
+        self.menu_bar = self._create_menu_bar()
         self.title_bar = self._create_custom_title_bar()
         main_layout.addWidget(self.title_bar)
 
@@ -234,9 +235,6 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         self.right_panel_splitter = right_panel_splitter
         self._apply_intelligent_main_splitter_layout()
-
-        self.menu_bar = self._create_menu_bar()
-        main_layout.insertWidget(1, self.menu_bar)
 
     def _create_menu_bar(self) -> QMenuBar:
         """Create a classic top-level menu bar for quick access to key actions."""
@@ -417,6 +415,12 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         layout.setContentsMargins(8, 0, 4, 0)
         layout.setSpacing(4)
 
+        self.menu_bar.setParent(title_bar)
+        self.menu_bar.setFixedHeight(24)
+        layout.addWidget(self.menu_bar)
+
+        layout.addStretch()
+
         title_label = QLabel("Kristjan Qullamaggie")
         title_label.setObjectName("appTitle")
         layout.addWidget(title_label)
@@ -424,8 +428,6 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         mode_label = QLabel(f"[{self.trading_mode.upper()}]")
         mode_label.setObjectName("tradingModeLabel")
         layout.addWidget(mode_label)
-
-        layout.addStretch()
 
         min_btn = QPushButton("−")
         min_btn.setObjectName("titleBarButton")
@@ -445,10 +447,31 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         close_btn.clicked.connect(self.close)
         layout.addWidget(close_btn)
 
+        self._drag_widgets = [title_bar, title_label, mode_label]
+        for widget in self._drag_widgets:
+            widget.installEventFilter(self)
+
         title_bar.mousePressEvent = self._title_bar_mouse_press
         title_bar.mouseMoveEvent = self._title_bar_mouse_move
+        title_bar.mouseReleaseEvent = self._title_bar_mouse_release
         title_bar.mouseDoubleClickEvent = self._title_bar_double_click
         return title_bar
+
+    def eventFilter(self, obj, event):
+        if obj in getattr(self, '_drag_widgets', []):
+            if event.type() == QEvent.Type.MouseButtonPress:
+                self._title_bar_mouse_press(event)
+                return True
+            if event.type() == QEvent.Type.MouseMove:
+                self._title_bar_mouse_move(event)
+                return True
+            if event.type() == QEvent.Type.MouseButtonRelease:
+                self._title_bar_mouse_release(event)
+                return True
+            if event.type() == QEvent.Type.MouseButtonDblClick:
+                self._title_bar_double_click(event)
+                return True
+        return super().eventFilter(obj, event)
 
     @Slot(dict)
     def _on_color_theme_changed(self, theme: Dict[str, Any]):
@@ -635,9 +658,12 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
 
     def _title_bar_mouse_move(self, event: QMouseEvent):
-        if event.buttons() == Qt.MouseButton.LeftButton and self._drag_pos:
+        if event.buttons() == Qt.MouseButton.LeftButton and self._drag_pos is not None:
             if not self.isMaximized():
                 self.move(event.globalPosition().toPoint() - self._drag_pos)
+
+    def _title_bar_mouse_release(self, _event: QMouseEvent):
+        self._drag_pos = None
 
     def _title_bar_double_click(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -1675,6 +1701,28 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             #customTitleBar { 
                 background-color: #0a0a0a; 
                 border-bottom: 1px solid #202020; 
+            }
+
+            #mainMenuBar {
+                background-color: transparent;
+                color: #d6d6d6;
+                border: none;
+                padding: 0px;
+            }
+
+            #mainMenuBar::item {
+                background: transparent;
+                padding: 4px 8px;
+                margin: 0px 1px;
+            }
+
+            #mainMenuBar::item:selected {
+                background: #2a2a2a;
+                border-radius: 2px;
+            }
+
+            #mainMenuBar::item:pressed {
+                background: #1f1f1f;
             }
 
             #appTitle { 
