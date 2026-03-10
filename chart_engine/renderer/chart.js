@@ -1991,15 +1991,16 @@ class FixedTradingChart {
         const daySign = dayChange >= 0 ? '+' : '';
         const volume = Number((this.volumeData?.find(v => v.time === c.time)?.value) ?? c.volume ?? 0);
 
+        const sep = '<span style="color:#2a3650;margin:0 6px;">·</span>';
         el.innerHTML = [
-            `<span class="pill"><span class="label">Date</span><span class="value">${dateStr}</span></span>`,
-            `<span class="pill"><span class="label">O</span><span class="value">₹${c.open.toFixed(2)}</span></span>`,
-            `<span class="pill"><span class="label">H</span><span class="value">₹${c.high.toFixed(2)}</span></span>`,
-            `<span class="pill"><span class="label">L</span><span class="value">₹${c.low.toFixed(2)}</span></span>`,
-            `<span class="pill"><span class="label">C</span><span class="value">₹${c.close.toFixed(2)}</span></span>`,
-            `<span class="pill"><span class="label">Chg</span><span class="value" style="color:${dayColor};">${daySign}₹${dayChange.toFixed(2)} (${daySign}${dayPct.toFixed(2)}%)</span></span>`,
-            `<span class="pill"><span class="label">Vol</span><span class="value">${Math.round(volume).toLocaleString('en-IN')}</span></span>`
-        ].join('');
+            `<span style="color:#4a5a78;font-size:11px;letter-spacing:0.02em;">${dateStr}</span>`,
+            `<span style="color:#38475f;font-size:11px;">O</span><span style="color:#7a8fa8;font-size:11px;margin-left:3px;">₹${c.open.toFixed(2)}</span>`,
+            `<span style="color:#38475f;font-size:11px;">H</span><span style="color:#7a8fa8;font-size:11px;margin-left:3px;">₹${c.high.toFixed(2)}</span>`,
+            `<span style="color:#38475f;font-size:11px;">L</span><span style="color:#7a8fa8;font-size:11px;margin-left:3px;">₹${c.low.toFixed(2)}</span>`,
+            `<span style="color:#38475f;font-size:11px;">C</span><span style="color:#7a8fa8;font-size:11px;margin-left:3px;">₹${c.close.toFixed(2)}</span>`,
+            `<span style="color:${dayColor};font-size:11px;">${daySign}₹${dayChange.toFixed(2)} (${daySign}${dayPct.toFixed(2)}%)</span>`,
+            `<span style="color:#38475f;font-size:11px;">Vol</span><span style="color:#7a8fa8;font-size:11px;margin-left:3px;">${Math.round(volume).toLocaleString('en-IN')}</span>`
+        ].join(sep);
     }
 
     _updateCandleDetail(x) {
@@ -2021,16 +2022,17 @@ class FixedTradingChart {
     _updateMetricsDisplay() {
         const el = document.getElementById('metricsInfo');
         if (!el) return;
+        const dot = '<span style="color:#1e2d45;margin:0 5px;">·</span>';
         const adrStr = this.currentADR?.value > 0
-            ? `<span style="font-size:15px;font-weight:800;color:#8bd3ff;">ADR ₹${this.currentADR.value.toFixed(2)}</span> <span style="font-size:13px;color:#c7d6ee;">(${this.currentADR.percent.toFixed(2)}%)</span>`
-            : '<span style="font-size:15px;font-weight:800;color:#8da2c2;">ADR N/A</span>';
+            ? `<span style="font-size:10.5px;font-weight:600;color:#5b85b0;letter-spacing:0.03em;">ADR</span><span style="font-size:10.5px;color:#4e6a87;margin-left:4px;">&#8377;${this.currentADR.value.toFixed(2)}</span><span style="font-size:10px;color:#3a5270;margin-left:3px;">(${this.currentADR.percent.toFixed(2)}%)</span>`
+            : '<span style="font-size:10.5px;color:#304560;">ADR N/A</span>';
         const changes = ['Monthly','3M','6M','1Y'].map(p => {
             const v = this.percentageChanges?.[p];
-            if (v == null) return `<span style="color:#667d9f">${p}: N/A</span>`;
-            const col = v >= 0 ? '#2dd4a7' : '#ff6b7f';
-            return `<span style="color:${col};font-weight:700;">${p}: ${v >= 0 ? '+' : ''}${v.toFixed(2)}%</span>`;
+            if (v == null) return `<span style="font-size:10px;color:#2a3a52;">${p} N/A</span>`;
+            const valCol = v >= 0 ? '#3a9e72' : '#c45a6a';
+            return `<span style="font-size:10px;color:#334c66;">${p}</span><span style="font-size:10px;color:${valCol};margin-left:3px;">${v >= 0 ? '+' : ''}${v.toFixed(2)}%</span>`;
         });
-        el.innerHTML = `${adrStr} <span style="color:#5f7396;padding:0 6px;">|</span> ${changes.join('<span style="color:#5f7396;padding:0 6px;">|</span>')}`;
+        el.innerHTML = `${adrStr}${dot}${changes.join(dot)}`;
     }
 
     // ═══════════════════════════════════════════════════════════════════════
