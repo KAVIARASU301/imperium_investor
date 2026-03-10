@@ -1988,8 +1988,10 @@ class FixedTradingChart {
 
         const sep = '<span style="color:#26354d;margin:0 4px;">·</span>';
         const dot = '<span style="color:#223149;margin:0 4px;">·</span>';
+        const adrPercent = Number(this.currentADR?.percent ?? 0);
+        const adrPctColor = adrPercent > 4 ? '#22c55e' : (adrPercent >= 2 ? '#f8fafc' : '#ef4444');
         const adrStr = this.currentADR?.value > 0
-            ? `<span style="color:#5b85b0;">ADR</span><span style="color:#6f8fb4;margin-left:2px;">₹${this.currentADR.value.toFixed(2)}</span><span style="color:#496784;margin-left:2px;">(${this.currentADR.percent.toFixed(2)}%)</span>`
+            ? `<span style="color:#93c5fd;">ADR</span><span style="color:#bfdbfe;margin-left:2px;">₹${this.currentADR.value.toFixed(2)}</span><span style="color:${adrPctColor};margin-left:2px;font-weight:700;">(${adrPercent.toFixed(2)}%)</span>`
             : '<span style="color:#405a77;">ADR N/A</span>';
         const perf = ['Monthly','3M','6M','1Y'].map(p => {
             const v = this.percentageChanges?.[p];

@@ -142,16 +142,19 @@ def build_chart_html(cfg: ChartHtmlConfig) -> str:
             position: absolute;
             top: 8px; left: 10px;
             color: #b9c7e4;
-            font-size: 11px;
+            font-size: 12px;
             pointer-events: none;
             z-index: 5;
-            line-height: 1.2;
+            line-height: 1.35;
+            font-family: "Inter", "Segoe UI", "Roboto", "Helvetica Neue", Arial, sans-serif;
+            font-weight: 500;
+            letter-spacing: 0.1px;
         }}
         #metricsInfo {{
-            font-size: 11px;
+            font-size: 12px;
             color: #b4c3df;
             font-weight: 500;
-            font-family: "SFMono-Regular", "Consolas", "Liberation Mono", monospace;
+            font-family: "Inter", "Segoe UI", "Roboto", "Helvetica Neue", Arial, sans-serif;
             font-variant-numeric: tabular-nums;
             white-space: nowrap;
         }}
