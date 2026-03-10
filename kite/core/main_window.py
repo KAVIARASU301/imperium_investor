@@ -10,8 +10,8 @@ from typing import List, Dict, Union, Any, Optional
 
 from PySide6.QtCore import Qt, QByteArray, QTimer, Slot, Signal, QEvent
 from PySide6.QtWidgets import QMainWindow, QSplitter, QWidget, QVBoxLayout, QHBoxLayout, \
-    QPushButton, QLabel, QApplication
-from PySide6.QtGui import QMouseEvent, QKeySequence, QShortcut, QKeyEvent
+    QPushButton, QLabel, QApplication, QMessageBox, QMenuBar
+from PySide6.QtGui import QMouseEvent, QKeySequence, QShortcut, QKeyEvent, QAction
 
 from kite.widgets.scanner_table import ChartinkScannerTable
 from kite.widgets.positions_table import PositionsTable
@@ -234,6 +234,61 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         self.right_panel_splitter = right_panel_splitter
         self._apply_intelligent_main_splitter_layout()
+
+        self.menu_bar = self._create_menu_bar()
+        main_layout.insertWidget(1, self.menu_bar)
+
+    def _create_menu_bar(self) -> QMenuBar:
+        """Create a classic top-level menu bar for quick access to key actions."""
+        menu_bar = QMenuBar(self)
+        menu_bar.setObjectName("mainMenuBar")
+
+        file_menu = menu_bar.addMenu("File")
+        file_menu.addAction("Order History", self._show_order_history_dialog)
+        file_menu.addAction("Performance", self._show_performance_dialog)
+        file_menu.addSeparator()
+        file_menu.addAction("Exit", self.close)
+
+        view_menu = menu_bar.addMenu("View")
+        scanner_action = QAction("Scanner", self)
+        scanner_action.setCheckable(True)
+        scanner_action.setChecked(True)
+        scanner_action.toggled.connect(self.chartink_scanner.setVisible)
+        view_menu.addAction(scanner_action)
+
+        watchlist_action = QAction("Watchlist", self)
+        watchlist_action.setCheckable(True)
+        watchlist_action.setChecked(True)
+        watchlist_action.toggled.connect(self.watchlist.setVisible)
+        view_menu.addAction(watchlist_action)
+
+        positions_action = QAction("Positions", self)
+        positions_action.setCheckable(True)
+        positions_action.setChecked(True)
+        positions_action.toggled.connect(self.positions_table.setVisible)
+        view_menu.addAction(positions_action)
+
+        tools_menu = menu_bar.addMenu("Tools")
+        tools_menu.addAction("Color Settings", self._open_color_settings_dialog)
+        tools_menu.addAction("Open Order Dialog", self._show_order_dialog)
+
+        about_menu = menu_bar.addMenu("About")
+        about_menu.addAction("About Swing Trader", self._show_about_dialog)
+
+        return menu_bar
+
+    def _show_about_dialog(self):
+        """Display application summary information."""
+        QMessageBox.information(
+            self,
+            "About Swing Trader",
+            (
+                "Swing Trader\n"
+                "\n"
+                "A desktop swing-trading workspace with scanner, chart, watchlist, "
+                "and position monitoring tools."
+            )
+        )
 
     def _apply_intelligent_main_splitter_layout(self, preferred_sizes=None):
         """Keep scanner/watchlist compact and protect chart space during resize/drag."""
