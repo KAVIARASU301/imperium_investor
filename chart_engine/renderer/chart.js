@@ -152,7 +152,7 @@ class FixedTradingChart {
         // localStorage is global (not per-symbol) so user's choices stick forever.
         const _pythonDefaults = {
             ema10: true, ema20: true, ema50: true, ema200: true,
-            atrTrendReversal: true, vwap: true, cvd: true, volume: true,
+            atrTrendReversal: true, vwap: true, cvd: true, volume: true, rsi: true,
             ...(cfg.initialIndicatorVisibility || {}),
         };
         this.indicatorVisibility = _loadIndicatorState(_pythonDefaults);
@@ -168,6 +168,10 @@ class FixedTradingChart {
         // ── Computed CVD ──
         this.cvdData = [];
         this._computeCVD();
+
+        // ── Computed RSI (Wilder 14-period smoothed) ──
+        this.rsiData = [];
+        this._computeRSI();
 
         // ── Bridge ──
         this.chartBridge = null;
@@ -233,38 +237,32 @@ class FixedTradingChart {
 
     _updateChartAreas() {
         const pad = { top: 32, right: this._computeRightAxisWidth(), bottom: 20, left: 8 };
-        const volumeRatio = 0.14;    // volume pane  = 14% of inner height
-        const cvdRatio    = 0.16;    // CVD pane     = 16% of inner height
+        const volumeRatio = 0.13;    // volume pane
+        const cvdRatio    = 0.14;    // CVD pane
+        const rsiRatio    = 0.13;    // RSI pane
         const volOn = this.indicatorVisibility && this.indicatorVisibility.volume !== false;
-        const cvdOn = this.indicatorVisibility && this.indicatorVisibility.cvd !== false;
-        const innerH = this.height - pad.top - pad.bottom - 16;
-        const usedRatio = (volOn ? volumeRatio : 0) + (cvdOn ? cvdRatio : 0);
-        const chartH  = Math.floor(innerH * (1 - usedRatio));
-        const volH    = volOn ? Math.floor(innerH * volumeRatio) : 0;
-        const cvdH    = cvdOn ? Math.floor(innerH * cvdRatio)    : 0;
-        const paneW   = this.width - pad.left - pad.right;
+        const cvdOn = this.indicatorVisibility && this.indicatorVisibility.cvd    !== false;
+        const rsiOn = this.indicatorVisibility && this.indicatorVisibility.rsi    !== false;
+        const innerH    = this.height - pad.top - pad.bottom - 16;
+        const usedRatio = (volOn ? volumeRatio : 0) + (cvdOn ? cvdRatio : 0) + (rsiOn ? rsiRatio : 0);
+        const chartH = Math.floor(innerH * (1 - usedRatio));
+        const volH   = volOn ? Math.floor(innerH * volumeRatio) : 0;
+        const cvdH   = cvdOn ? Math.floor(innerH * cvdRatio)    : 0;
+        const rsiH   = rsiOn ? Math.floor(innerH * rsiRatio)    : 0;
+        const paneW  = this.width - pad.left - pad.right;
+        const GAP    = 4;
 
-        this.chartArea = {
-            x: pad.left,
-            y: pad.top,
-            width:  paneW,
-            height: chartH,
-        };
-        // Volume pane sits directly below price chart (gap 4px); null when off
+        this.chartArea = { x: pad.left, y: pad.top, width: paneW, height: chartH };
+
         this.volumeArea = volOn ? {
-            x:      pad.left,
-            y:      pad.top + chartH + 4,
-            width:  paneW,
-            height: volH,
+            x: pad.left, y: pad.top + chartH + GAP, width: paneW, height: volH,
         } : null;
-        // CVD pane sits below volume (or price if volume off)
-        const cvdTopY = pad.top + chartH + 4 + (volOn ? volH + 4 : 0);
-        this.cvdArea = cvdOn ? {
-            x:      pad.left,
-            y:      cvdTopY,
-            width:  paneW,
-            height: cvdH,
-        } : null;
+
+        const cvdTopY = pad.top + chartH + GAP + (volOn ? volH + GAP : 0);
+        this.cvdArea  = cvdOn ? { x: pad.left, y: cvdTopY,  width: paneW, height: cvdH } : null;
+
+        const rsiTopY = cvdTopY + (cvdOn ? cvdH + GAP : 0);
+        this.rsiArea  = rsiOn ? { x: pad.left, y: rsiTopY,  width: paneW, height: rsiH } : null;
 
         this.rightAxisWidth = pad.right;
     }
@@ -402,6 +400,207 @@ class FixedTradingChart {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
+    // RSI  (Relative Strength Index — Wilder 14-period smoothed)
+    // ═══════════════════════════════════════════════════════════════════════
+    //
+    // Wilder's method (the institutional standard):
+    //   Seed: simple average of first `period` gains & losses
+    //   Then: avgGain = (prevAvgGain × (period-1) + gain) / period  ← RMA/SMMA
+    //         avgLoss = (prevAvgLoss × (period-1) + loss) / period
+    //   RS  = avgGain / avgLoss
+    //   RSI = 100 - (100 / (1 + RS))
+    //
+    // First (period-1) bars yield null — not enough data.
+    // ────────────────────────────────────────────────────────────────────────
+    _computeRSI(period = 14) {
+        this.rsiPeriod = period;
+        if (this.data.length < period + 1) { this.rsiData = []; return; }
+
+        const rsi = new Array(this.data.length).fill(null);
+        let avgGain = 0, avgLoss = 0;
+
+        // Seed: first period changes
+        for (let i = 1; i <= period; i++) {
+            const chg = this.data[i].close - this.data[i - 1].close;
+            if (chg > 0) avgGain += chg; else avgLoss -= chg;
+        }
+        avgGain /= period;
+        avgLoss /= period;
+        rsi[period] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+
+        // Wilder smoothing (RMA) for the rest
+        for (let i = period + 1; i < this.data.length; i++) {
+            const chg  = this.data[i].close - this.data[i - 1].close;
+            const gain = chg > 0 ? chg : 0;
+            const loss = chg < 0 ? -chg : 0;
+            avgGain = (avgGain * (period - 1) + gain) / period;
+            avgLoss = (avgLoss * (period - 1) + loss) / period;
+            rsi[i]  = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+        }
+
+        this.rsiData = rsi;
+    }
+
+    _drawRSI() {
+        if (!this.rsiArea || !this.rsiData || this.rsiData.length === 0) return;
+        if (this.indicatorVisibility.rsi === false) return;
+
+        const ctx  = this.ctx;
+        const area = this.rsiArea;
+        const OB   = 70, OS = 30, MID = 50;   // overbought / oversold / midline
+
+        // ── RSI value → Y pixel (fixed 0–100 scale) ───────────────────────
+        const _toY = v => area.y + area.height - (v / 100) * area.height;
+
+        // ── Panel background ──────────────────────────────────────────────
+        ctx.fillStyle = 'rgba(8,10,20,0.93)';
+        ctx.fillRect(area.x, area.y, area.width, area.height);
+
+        // ── Top separator ─────────────────────────────────────────────────
+        ctx.strokeStyle = 'rgba(38,52,85,0.8)';
+        ctx.lineWidth   = 0.8;
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.moveTo(area.x,              area.y - 2);
+        ctx.lineTo(area.x + area.width, area.y - 2);
+        ctx.stroke();
+
+        // ── Overbought zone fill (70–100) ─────────────────────────────────
+        const obY  = _toY(OB);
+        const topY = _toY(100);
+        ctx.fillStyle = 'rgba(239,83,80,0.06)';
+        ctx.fillRect(area.x, topY, area.width, obY - topY);
+
+        // ── Oversold zone fill (0–30) ─────────────────────────────────────
+        const osY  = _toY(OS);
+        const botY = _toY(0);
+        ctx.fillStyle = 'rgba(38,166,154,0.06)';
+        ctx.fillRect(area.x, osY, area.width, botY - osY);
+
+        // ── Horizontal reference lines ────────────────────────────────────
+        const _hline = (level, color, dash) => {
+            const y = _toY(level);
+            ctx.strokeStyle = color;
+            ctx.lineWidth   = 0.7;
+            ctx.setLineDash(dash);
+            ctx.beginPath();
+            ctx.moveTo(area.x,              y);
+            ctx.lineTo(area.x + area.width, y);
+            ctx.stroke();
+        };
+        _hline(OB,  'rgba(239,83,80,0.45)',   []);          // OB solid
+        _hline(OS,  'rgba(38,166,154,0.45)',   []);          // OS solid
+        _hline(MID, 'rgba(180,180,180,0.12)',  [3, 4]);      // midline dashed
+        ctx.setLineDash([]);
+
+        // ── Right-axis level labels (70 / 50 / 30) ───────────────────────
+        const axX = area.x + area.width;
+        const axW = this.rightAxisWidth;
+        ctx.font         = '9px "Segoe UI", sans-serif';
+        ctx.textAlign    = 'right';
+        ctx.textBaseline = 'middle';
+        [
+            { level: OB,  color: 'rgba(239,83,80,0.6)'  },
+            { level: MID, color: 'rgba(150,150,150,0.4)' },
+            { level: OS,  color: 'rgba(38,166,154,0.6)'  },
+        ].forEach(({ level, color }) => {
+            ctx.fillStyle = color;
+            ctx.fillText(String(level), axX + axW - 4, _toY(level));
+        });
+
+        // ── Pane label ────────────────────────────────────────────────────
+        ctx.font         = '700 9px "Segoe UI", sans-serif';
+        ctx.textAlign    = 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillStyle    = 'rgba(179,136,255,0.45)';
+        ctx.fillText(`RSI (${this.rsiPeriod})`, area.x + 4, area.y + 3);
+
+        // ── RSI line ──────────────────────────────────────────────────────
+        // Collect visible non-null points
+        const start = Math.max(0, this.viewPortStart);
+        const end   = Math.min(this.data.length - 1, this.viewPortEnd);
+
+        // Glow pass
+        ctx.lineWidth   = 3;
+        ctx.strokeStyle = 'rgba(179,136,255,0.10)';
+        ctx.beginPath();
+        let first = true;
+        for (let i = start; i <= end; i++) {
+            if (this.rsiData[i] === null) { first = true; continue; }
+            const x = this._candleToX(i) + this.candleWidth / 2;
+            const y = _toY(this.rsiData[i]);
+            if (first) { ctx.moveTo(x, y); first = false; } else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+
+        // Sharp line — color shifts: red above 70, green below 30, purple otherwise
+        ctx.lineWidth = 1.5;
+        first = true;
+        let prevX = 0, prevY = 0, prevVal = null;
+        for (let i = start; i <= end; i++) {
+            const val = this.rsiData[i];
+            if (val === null) { first = true; prevVal = null; continue; }
+            const x = this._candleToX(i) + this.candleWidth / 2;
+            const y = _toY(val);
+            if (!first && prevVal !== null) {
+                ctx.strokeStyle = val >= OB ? '#ef5350'
+                                : val <= OS ? '#26a69a'
+                                :             '#b388ff';
+                ctx.beginPath();
+                ctx.moveTo(prevX, prevY);
+                ctx.lineTo(x, y);
+                ctx.stroke();
+            }
+            prevX = x; prevY = y; prevVal = val;
+            first = false;
+        }
+
+        // ── Right-axis live RSI pill ──────────────────────────────────────
+        const lastIdx = Math.min(end, this.rsiData.length - 1);
+        let lastRsi = null;
+        for (let i = lastIdx; i >= start; i--) {
+            if (this.rsiData[i] !== null) { lastRsi = this.rsiData[i]; break; }
+        }
+        if (lastRsi !== null) {
+            const ly   = _toY(lastRsi);
+            if (ly >= area.y && ly <= area.y + area.height) {
+                // Dashed ray
+                ctx.strokeStyle = 'rgba(179,136,255,0.30)';
+                ctx.lineWidth   = 0.6;
+                ctx.setLineDash([2, 3]);
+                ctx.beginPath();
+                ctx.moveTo(axX - 10, ly);
+                ctx.lineTo(axX, ly);
+                ctx.stroke();
+                ctx.setLineDash([]);
+
+                const pillColor = lastRsi >= OB ? '#ef5350'
+                                : lastRsi <= OS ? '#26a69a'
+                                :                 '#b388ff';
+                const lbl  = lastRsi.toFixed(1);
+                const lh   = 14, lw = axW;
+                const lTop = Math.round(ly - lh / 2);
+
+                ctx.fillStyle = pillColor;
+                ctx.beginPath();
+                ctx.moveTo(axX,      ly);
+                ctx.lineTo(axX + 4,  lTop);
+                ctx.lineTo(axX + lw, lTop);
+                ctx.lineTo(axX + lw, lTop + lh);
+                ctx.lineTo(axX + 4,  lTop + lh);
+                ctx.closePath();
+                ctx.fill();
+
+                ctx.font         = 'bold 9px "Segoe UI Mono", monospace';
+                ctx.textAlign    = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillStyle    = '#000';
+                ctx.fillText(lbl, axX + 4 + (lw - 4) / 2, ly);
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
     // RENDER LOOP  (dirty-flag + rAF)
     // ═══════════════════════════════════════════════════════════════════════
 
@@ -440,6 +639,7 @@ class FixedTradingChart {
             this._drawGaps();
             this._drawVolume();
             this._drawCVD();
+            this._drawRSI();
             this._drawVWAP();
             this._drawEMAs();
             this._drawCandlesticks();
@@ -2105,6 +2305,7 @@ class FixedTradingChart {
     // Returns the bottom pixel of the lowest visible pane.
     // Priority: CVD → Volume → Price (chart area itself as fallback).
     _paneBottom() {
+        if (this.rsiArea)    return this.rsiArea.y    + this.rsiArea.height;
         if (this.cvdArea)    return this.cvdArea.y    + this.cvdArea.height;
         if (this.volumeArea) return this.volumeArea.y + this.volumeArea.height;
         return this.chartArea.y + this.chartArea.height;
@@ -2343,6 +2544,7 @@ class FixedTradingChart {
         }
         this._computeATRTrendReversal();
         this._computeCVD();
+        this._computeRSI();
         this.calculateBounds();
         this.requestDraw();
     }
@@ -2359,6 +2561,7 @@ class FixedTradingChart {
         this._computeVWAP();
         this._computeATRTrendReversal();
         this._computeCVD();
+        this._computeRSI();
         this.calculateBounds();
         this.requestDraw();
         this.updateSlider();
@@ -2454,8 +2657,8 @@ class FixedTradingChart {
         this.indicatorVisibility[key] = visible === true;
         // Persist immediately — survives any symbol/timeframe reload
         _saveIndicatorState(this.indicatorVisibility);
-        // Volume and CVD toggles change pane layout — recalculate geometry
-        if (key === 'cvd' || key === 'volume') {
+        // Volume, CVD, and RSI toggles change pane layout — recalculate geometry
+        if (key === 'cvd' || key === 'volume' || key === 'rsi') {
             this._updateChartAreas();
             this._updateViewport();
             this.calculateBounds();
@@ -2476,7 +2679,7 @@ class FixedTradingChart {
         try { localStorage.removeItem(_IND_STORE_KEY); } catch (e) {}
         this.indicatorVisibility = {
             ema10: true, ema20: true, ema50: true, ema200: true,
-            atrTrendReversal: true, vwap: true, cvd: true, volume: true,
+            atrTrendReversal: true, vwap: true, cvd: true, volume: true, rsi: true,
         };
         _saveIndicatorState(this.indicatorVisibility);
         this._syncIndicatorPanel();
@@ -2501,14 +2704,15 @@ class FixedTradingChart {
 
         // ── Panel definition (label, key, color dot) ──────────────────────
         const INDICATORS = [
-            { key: 'ema10',          label: 'EMA 10',         color: '#2962ff' },
-            { key: 'ema20',          label: 'EMA 20',         color: '#9c27b0' },
-            { key: 'ema50',          label: 'EMA 50',         color: '#f06204' },
-            { key: 'ema200',         label: 'EMA 200',        color: '#e91e63' },
-            { key: 'vwap',           label: 'VWAP',           color: '#ff9e42' },
-            { key: 'atrTrendReversal', label: 'ATR Reversal', color: '#52c41a' },
-            { key: 'volume',         label: 'Volume',         color: '#4a7fa5' },
-            { key: 'cvd',            label: 'CVD',            color: '#00bfff' },
+            { key: 'ema10',           label: 'EMA 10',        color: '#2962ff' },
+            { key: 'ema20',           label: 'EMA 20',        color: '#9c27b0' },
+            { key: 'ema50',           label: 'EMA 50',        color: '#f06204' },
+            { key: 'ema200',          label: 'EMA 200',       color: '#e91e63' },
+            { key: 'vwap',            label: 'VWAP',          color: '#ff9e42' },
+            { key: 'atrTrendReversal',label: 'ATR Reversal',  color: '#52c41a' },
+            { key: 'volume',          label: 'Volume',        color: '#4a7fa5' },
+            { key: 'cvd',             label: 'CVD',           color: '#00bfff' },
+            { key: 'rsi',             label: 'RSI (14)',       color: '#b388ff' },
         ];
 
         // ── Toggle button ─────────────────────────────────────────────────
