@@ -46,6 +46,17 @@ class ChartHtmlConfig:
     watermark_font_size:     int  = 0
     indicator_scale_labels_enabled: bool = False
     initial_indicator_visibility: Dict[str, bool] = field(default_factory=dict)
+    # ^^^ This is a FALLBACK only for brand-new installs (empty localStorage).
+    #     chart.js always prefers its localStorage state over this value.
+    #     Your Python ChartBridge should implement:
+    #
+    #       @Slot(str)
+    #       def notify_indicator_visibility_changed(self, json_str: str):
+    #           self._indicator_visibility = json.loads(json_str)
+    #
+    #     and pass self._indicator_visibility as initial_indicator_visibility
+    #     on every build_chart_html() call.  The JS localStorage is the primary
+    #     persistence store; Python persistence is a secondary safety net.
     qwebchannel_src:         str  = "qrc:///qtwebchannel/qwebchannel.js"
 
 

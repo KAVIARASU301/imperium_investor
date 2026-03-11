@@ -36,6 +36,30 @@ const FIB_LEVELS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0];
 const FIB_COLORS = ['#FFD700', '#FF9800', '#4CAF50', '#2196F3', '#9C27B0', '#F44336', '#FFD700'];
 const FIB_LABELS = ['0%', '23.6%', '38.2%', '50%', '61.8%', '78.6%', '100%'];
 
+// ─── Indicator persistence key (global — intentionally not per-symbol) ────────
+// User toggles apply across ALL symbols, timeframes, and sessions.
+// Python-passed initialIndicatorVisibility is used ONLY when localStorage has
+// no record yet (i.e. first-ever launch).  After that, localStorage always wins.
+const _IND_STORE_KEY = 'tc2k_indicator_vis_v1';
+
+function _loadIndicatorState(pythonDefaults) {
+    try {
+        const raw = localStorage.getItem(_IND_STORE_KEY);
+        if (raw) {
+            const stored = JSON.parse(raw);
+            // Merge: stored overrides python defaults, but any brand-new key
+            // not yet in storage falls back to pythonDefaults (then to true).
+            return { ...pythonDefaults, ...stored };
+        }
+    } catch (e) { /* corrupt storage — fall through to defaults */ }
+    return { ...pythonDefaults };
+}
+
+function _saveIndicatorState(state) {
+    try { localStorage.setItem(_IND_STORE_KEY, JSON.stringify(state)); }
+    catch (e) { /* quota or security error — non-fatal */ }
+}
+
 // ─── FixedTradingChart ───────────────────────────────────────────────────────
 
 class FixedTradingChart {
@@ -123,17 +147,27 @@ class FixedTradingChart {
         };
         this.indicatorScaleLabelsEnabled = cfg.indicatorScaleLabelsEnabled === true;
 
-        // ── Indicator visibility (toggled from toolbar) ──
-        this.indicatorVisibility = {
-            ema10: true, ema20: true, ema50: true, ema200: true, atrTrendReversal: true, vwap: true,
+        // ── Indicator visibility — persistent across symbol/timeframe changes ──
+        // Priority chain: localStorage (user prefs) → pythonDefaults → true
+        // localStorage is global (not per-symbol) so user's choices stick forever.
+        const _pythonDefaults = {
+            ema10: true, ema20: true, ema50: true, ema200: true,
+            atrTrendReversal: true, vwap: true, cvd: true, volume: true,
             ...(cfg.initialIndicatorVisibility || {}),
         };
+        this.indicatorVisibility = _loadIndicatorState(_pythonDefaults);
+        this._indicatorPanel      = null;   // DOM reference (built in _init)
+        this._indicatorPanelOpen  = false;
 
         // ── Computed VWAP ──
         this.vwapData = [];
         this._computeVWAP();
         this.atrTrendReversal = [];
         this._computeATRTrendReversal();
+
+        // ── Computed CVD ──
+        this.cvdData = [];
+        this._computeCVD();
 
         // ── Bridge ──
         this.chartBridge = null;
@@ -155,6 +189,7 @@ class FixedTradingChart {
         this.calculateBounds();
         this._setupEventListeners();
         this._setupWebChannel();
+        this._buildIndicatorPanel();  // build persistent indicator overlay
         this.requestDraw();
         this.updateSlider();
         this._displayLatestCandleDetails();
@@ -198,23 +233,38 @@ class FixedTradingChart {
 
     _updateChartAreas() {
         const pad = { top: 32, right: this._computeRightAxisWidth(), bottom: 20, left: 8 };
-        const volumeRatio = 0.18;    // volume pane = 18% of chart height
-        const innerH = this.height - pad.top - pad.bottom - 16; // 16 for time axis
-        const chartH  = Math.floor(innerH * (1 - volumeRatio));
-        const volH    = Math.floor(innerH * volumeRatio);
+        const volumeRatio = 0.14;    // volume pane  = 14% of inner height
+        const cvdRatio    = 0.16;    // CVD pane     = 16% of inner height
+        const volOn = this.indicatorVisibility && this.indicatorVisibility.volume !== false;
+        const cvdOn = this.indicatorVisibility && this.indicatorVisibility.cvd !== false;
+        const innerH = this.height - pad.top - pad.bottom - 16;
+        const usedRatio = (volOn ? volumeRatio : 0) + (cvdOn ? cvdRatio : 0);
+        const chartH  = Math.floor(innerH * (1 - usedRatio));
+        const volH    = volOn ? Math.floor(innerH * volumeRatio) : 0;
+        const cvdH    = cvdOn ? Math.floor(innerH * cvdRatio)    : 0;
+        const paneW   = this.width - pad.left - pad.right;
 
         this.chartArea = {
             x: pad.left,
             y: pad.top,
-            width:  this.width  - pad.left - pad.right,
+            width:  paneW,
             height: chartH,
         };
-        this.volumeArea = {
+        // Volume pane sits directly below price chart (gap 4px); null when off
+        this.volumeArea = volOn ? {
             x:      pad.left,
             y:      pad.top + chartH + 4,
-            width:  this.width - pad.left - pad.right,
+            width:  paneW,
             height: volH,
-        };
+        } : null;
+        // CVD pane sits below volume (or price if volume off)
+        const cvdTopY = pad.top + chartH + 4 + (volOn ? volH + 4 : 0);
+        this.cvdArea = cvdOn ? {
+            x:      pad.left,
+            y:      cvdTopY,
+            width:  paneW,
+            height: cvdH,
+        } : null;
 
         this.rightAxisWidth = pad.right;
     }
@@ -313,6 +363,45 @@ class FixedTradingChart {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
+    // CVD  (Cumulative Volume Delta)  —  Steidlmayer bar-level estimation
+    // ═══════════════════════════════════════════════════════════════════════
+    //
+    //   buy_frac  = (close - low)  / (high - low)   ← where in the range close sits
+    //   sell_frac = (high - close) / (high - low)
+    //   delta[i]  = vol × (buy_frac − sell_frac)    ← signed net volume per bar
+    //   CVD[i]    = Σ delta[0..i]                   ← running cumulative sum
+    //
+    // Doji/inside bars (high == low): delta = 0 (conservative — no guess).
+    // On intraday charts CVD resets at every session open (as per reference).
+    // ────────────────────────────────────────────────────────────────────────
+    _computeCVD() {
+        if (this.data.length === 0) { this.cvdData = []; return; }
+        let cumDelta = 0;
+        this.cvdData = this.data.map((c, i) => {
+            // Intraday session reset
+            if (i > 0 && this.currentInterval && this.currentInterval.includes('minute')) {
+                const prev = new Date(this.data[i - 1].time);
+                const curr = new Date(c.time);
+                if (prev.getDate() !== curr.getDate() ||
+                    prev.getMonth() !== curr.getMonth() ||
+                    prev.getFullYear() !== curr.getFullYear()) {
+                    cumDelta = 0;
+                }
+            }
+            const vol   = (this.volumeData[i] || {}).value || 0;
+            const range = c.high - c.low;
+            let delta   = 0;
+            if (range > 1e-9) {
+                const buyFrac  = (c.close - c.low)  / range;
+                const sellFrac = (c.high  - c.close) / range;
+                delta = vol * (buyFrac - sellFrac);
+            }
+            cumDelta += delta;
+            return { time: c.time, delta, cumulative: cumDelta };
+        });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
     // RENDER LOOP  (dirty-flag + rAF)
     // ═══════════════════════════════════════════════════════════════════════
 
@@ -350,6 +439,7 @@ class FixedTradingChart {
             this._drawSessionSeparators();
             this._drawGaps();
             this._drawVolume();
+            this._drawCVD();
             this._drawVWAP();
             this._drawEMAs();
             this._drawCandlesticks();
@@ -392,20 +482,22 @@ class FixedTradingChart {
             ctx.stroke();
         }
 
-        // Volume divider
-        ctx.strokeStyle = this.colors.grid;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(this.chartArea.x, this.volumeArea.y);
-        ctx.lineTo(this.chartArea.x + this.chartArea.width, this.volumeArea.y);
-        ctx.stroke();
+        // Volume divider — only draw when volume pane is visible
+        if (this.volumeArea) {
+            ctx.strokeStyle = this.colors.grid;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(this.chartArea.x, this.volumeArea.y);
+            ctx.lineTo(this.chartArea.x + this.chartArea.width, this.volumeArea.y);
+            ctx.stroke();
+        }
 
         // Right-side price axis border
         ctx.strokeStyle = this.colors.grid;
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(this.chartArea.x + this.chartArea.width, this.chartArea.y);
-        ctx.lineTo(this.chartArea.x + this.chartArea.width, this.volumeArea.y + this.volumeArea.height);
+        ctx.lineTo(this.chartArea.x + this.chartArea.width, this._paneBottom());
         ctx.stroke();
     }
 
@@ -424,7 +516,7 @@ class FixedTradingChart {
                 const x = this._candleToX(i) + this.candleWidth / 2;
                 ctx.beginPath();
                 ctx.moveTo(x, this.chartArea.y);
-                ctx.lineTo(x, this.volumeArea.y + this.volumeArea.height);
+                ctx.lineTo(x, this._paneBottom());
                 ctx.stroke();
             }
         }
@@ -543,10 +635,180 @@ class FixedTradingChart {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
+    // CVD PANE
+    // ═══════════════════════════════════════════════════════════════════════
+
+    _drawCVD() {
+        if (!this.cvdArea || !this.cvdData || this.cvdData.length === 0) return;
+        // Guard: indicatorVisibility.cvd controls both pane and _updateChartAreas
+        if (this.indicatorVisibility.cvd === false) return;
+
+        const ctx  = this.ctx;
+        const area = this.cvdArea;
+
+        const start = Math.max(0, this.viewPortStart);
+        const end   = Math.min(this.data.length - 1, this.viewPortEnd);
+        if (start > end) return;
+
+        // ── Collect visible CVD slice ─────────────────────────────────────
+        const visSlice = this.cvdData.slice(start, end + 1);
+        const visCum   = visSlice.map(d => d.cumulative);
+        const visDelta = visSlice.map(d => d.delta);
+
+        const cumMin  = Math.min(...visCum);
+        const cumMax  = Math.max(...visCum);
+        const cumSpan = cumMax - cumMin || 1;
+
+        // ── Panel background ──────────────────────────────────────────────
+        ctx.fillStyle = 'rgba(8,12,22,0.92)';
+        ctx.fillRect(area.x, area.y, area.width, area.height);
+
+        // ── Top separator rule ────────────────────────────────────────────
+        ctx.strokeStyle = 'rgba(38,58,95,0.8)';
+        ctx.lineWidth   = 0.8;
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.moveTo(area.x,              area.y - 2);
+        ctx.lineTo(area.x + area.width, area.y - 2);
+        ctx.stroke();
+
+        // ── Pane label ────────────────────────────────────────────────────
+        ctx.font         = '700 9px "Segoe UI", sans-serif';
+        ctx.textAlign    = 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillStyle    = 'rgba(0,191,255,0.45)';
+        ctx.fillText('CVD', area.x + 4, area.y + 3);
+
+        // ── Y helpers ─────────────────────────────────────────────────────
+        const cvdPad = 0.06;
+        const yMin   = cumMin - cumSpan * cvdPad;
+        const yMax   = cumMax + cumSpan * cvdPad;
+        const _toY   = v => area.y + area.height - ((v - yMin) / (yMax - yMin)) * area.height;
+
+        // ── Zero line ─────────────────────────────────────────────────────
+        const zeroY = _toY(0);
+        if (zeroY >= area.y && zeroY <= area.y + area.height) {
+            ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+            ctx.lineWidth   = 0.7;
+            ctx.setLineDash([3, 4]);
+            ctx.beginPath();
+            ctx.moveTo(area.x,              zeroY);
+            ctx.lineTo(area.x + area.width, zeroY);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        // ── Delta histogram — per-bar buy/sell imbalance ──────────────────
+        const maxAbsDelta = Math.max(...visDelta.map(d => Math.abs(d)), 1);
+        for (let i = start; i <= end; i++) {
+            const d = this.cvdData[i];
+            if (!d) continue;
+            const x      = this._candleToX(i);
+            const ratio  = Math.abs(d.delta) / maxAbsDelta;
+            const barH   = ratio * (area.height * 0.38);
+            const isBull = d.delta >= 0;
+            const alpha  = 0.22 + ratio * 0.48;
+            ctx.fillStyle = isBull
+                ? `rgba(38,198,218,${alpha})`
+                : `rgba(239,83,80,${alpha})`;
+            ctx.fillRect(x, area.y + area.height - barH, this.candleWidth, barH);
+            // bright top edge
+            ctx.fillStyle = isBull ? `rgba(38,198,218,${alpha + 0.2})` : `rgba(239,83,80,${alpha + 0.2})`;
+            ctx.fillRect(x, area.y + area.height - barH, this.candleWidth, 1);
+        }
+
+        // ── CVD cumulative line (glow + sharp pass) ───────────────────────
+        ctx.setLineDash([]);
+        const _stroke = (lw, color) => {
+            ctx.lineWidth   = lw;
+            ctx.strokeStyle = color;
+            ctx.beginPath();
+            let first = true;
+            for (let i = start; i <= end; i++) {
+                const d = this.cvdData[i];
+                if (!d) continue;
+                const x = this._candleToX(i) + this.candleWidth / 2;
+                const y = _toY(d.cumulative);
+                if (y < area.y - 2 || y > area.y + area.height + 2) { first = true; continue; }
+                if (first) { ctx.moveTo(x, y); first = false; } else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+        };
+        _stroke(3.5, 'rgba(0,191,255,0.10)');  // soft glow halo
+        _stroke(1.4, '#00bfff');               // sharp line
+
+        // ── Right-axis: live CVD label ────────────────────────────────────
+        const lastD = this.cvdData[Math.min(end, this.cvdData.length - 1)];
+        if (lastD) {
+            const cv  = lastD.cumulative;
+            const axX = area.x + area.width;
+            const axW = this.rightAxisWidth;
+            const ly  = _toY(cv);
+
+            if (ly >= area.y && ly <= area.y + area.height) {
+                // Dashed ray to axis
+                ctx.strokeStyle = 'rgba(0,191,255,0.30)';
+                ctx.lineWidth   = 0.6;
+                ctx.setLineDash([2, 3]);
+                ctx.beginPath();
+                ctx.moveTo(axX - 10, ly);
+                ctx.lineTo(axX, ly);
+                ctx.stroke();
+                ctx.setLineDash([]);
+
+                // Pill label
+                const raw  = Math.abs(cv);
+                const sign = cv >= 0 ? '+' : '-';
+                const lbl  = raw >= 1e6 ? `${sign}${(raw/1e6).toFixed(2)}M`
+                           : raw >= 1e3 ? `${sign}${(raw/1e3).toFixed(1)}K`
+                           :              `${sign}${raw.toFixed(0)}`;
+                const lh   = 14, lw = axW;
+                const lTop = Math.round(ly - lh / 2);
+
+                ctx.fillStyle = cv >= 0 ? 'rgba(0,191,255,0.85)' : 'rgba(239,83,80,0.85)';
+                ctx.beginPath();
+                ctx.moveTo(axX,      ly);
+                ctx.lineTo(axX + 4,  lTop);
+                ctx.lineTo(axX + lw, lTop);
+                ctx.lineTo(axX + lw, lTop + lh);
+                ctx.lineTo(axX + 4,  lTop + lh);
+                ctx.closePath();
+                ctx.fill();
+
+                ctx.font         = 'bold 9px "Segoe UI Mono", monospace';
+                ctx.textAlign    = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillStyle    = '#000';
+                ctx.fillText(lbl, axX + 4 + (lw - 4) / 2, ly);
+            }
+
+            // Axis tick labels (3 levels)
+            ctx.font         = '9px "Segoe UI", sans-serif';
+            ctx.textAlign    = 'right';
+            ctx.textBaseline = 'middle';
+            const ticks = [yMin + (yMax - yMin) * 0.1, 0, yMin + (yMax - yMin) * 0.9];
+            for (const tv of ticks) {
+                const ty = _toY(tv);
+                if (ty < area.y + 6 || ty > area.y + area.height - 6) continue;
+                const raw2 = Math.abs(tv), s2 = tv >= 0 ? '' : '-';
+                const tlbl = raw2 >= 1e6 ? `${s2}${(raw2/1e6).toFixed(1)}M`
+                           : raw2 >= 1e3 ? `${s2}${(raw2/1e3).toFixed(0)}K`
+                           :               `${s2}${raw2.toFixed(0)}`;
+                ctx.fillStyle = 'rgba(100,130,170,0.65)';
+                ctx.fillText(tlbl, axX + axW - 4, ty);
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
     // VOLUME
     // ═══════════════════════════════════════════════════════════════════════
 
     _drawVolume() {
+        // Visibility + pane guard — both must be present
+        if (this.indicatorVisibility.volume === false) return;
+        if (!this.volumeArea) return;
+
         const ctx = this.ctx;
         const visVols = [];
         for (let i = this.viewPortStart; i <= this.viewPortEnd && i < this.volumeData.length; i++) {
@@ -584,6 +846,7 @@ class FixedTradingChart {
     }
 
     _drawCurrentVolLabel() {
+        if (!this.volumeArea) return;
         if (this.data.length === 0) return;
         const lastI = this.data.length - 1;
         if (lastI < this.viewPortStart || lastI > this.viewPortEnd) return;
@@ -749,7 +1012,7 @@ class FixedTradingChart {
         const axisX    = this.chartArea.x + this.chartArea.width;
         const axisW    = this.rightAxisWidth;
         const axisTop  = this.chartArea.y;
-        const axisBot  = this.volumeArea.y + this.volumeArea.height;
+        const axisBot  = this._paneBottom();
 
         // ── Axis panel background ──────────────────────────────────────────
         const panelGrad = ctx.createLinearGradient(axisX, 0, axisX + axisW, 0);
@@ -812,7 +1075,7 @@ class FixedTradingChart {
         const ctx = this.ctx;
         const tf  = this.currentInterval || 'day';
         const candidates = this._buildTimeCandidates(tf);
-        const labelY     = this.volumeArea.y + this.volumeArea.height + 14;
+        const labelY     = this._paneBottom() + 14;
 
         ctx.font          = this._axisFont(10, 500);
         ctx.textAlign     = 'center';
@@ -831,7 +1094,7 @@ class FixedTradingChart {
             ctx.lineWidth   = 0.5;
             ctx.beginPath();
             ctx.moveTo(x, this.chartArea.y);
-            ctx.lineTo(x, this.volumeArea.y + this.volumeArea.height);
+            ctx.lineTo(x, this._paneBottom());
             ctx.stroke();
 
             ctx.fillText(pt.label, x, labelY);
@@ -914,7 +1177,7 @@ class FixedTradingChart {
 
         ctx.beginPath();
         ctx.moveTo(x, this.chartArea.y);
-        ctx.lineTo(x, this.volumeArea.y + this.volumeArea.height);
+        ctx.lineTo(x, this._paneBottom());
         ctx.stroke();
 
         ctx.beginPath();
@@ -970,7 +1233,7 @@ class FixedTradingChart {
             const ttw = ctx.measureText(tlabel).width;
             const tlw = ttw + 14, tlh = 15;
             const tlx = x - tlw / 2;
-            const tly = this.volumeArea.y + this.volumeArea.height + 1;
+            const tly = this._paneBottom() + 1;
 
             // Rounded rect for time label
             ctx.fillStyle = '#1e2d45';
@@ -1387,7 +1650,7 @@ class FixedTradingChart {
         const inChart = pos.x >= this.chartArea.x &&
                         pos.x <= this.chartArea.x + this.chartArea.width &&
                         pos.y >= this.chartArea.y &&
-                        pos.y <= this.volumeArea.y + this.volumeArea.height;
+                        pos.y <= this._paneBottom();
 
         if (inChart) {
             this.crosshairX = pos.x;
@@ -1839,6 +2102,14 @@ class FixedTradingChart {
     // COORDINATE TRANSFORMS
     // ═══════════════════════════════════════════════════════════════════════
 
+    // Returns the bottom pixel of the lowest visible pane.
+    // Priority: CVD → Volume → Price (chart area itself as fallback).
+    _paneBottom() {
+        if (this.cvdArea)    return this.cvdArea.y    + this.cvdArea.height;
+        if (this.volumeArea) return this.volumeArea.y + this.volumeArea.height;
+        return this.chartArea.y + this.chartArea.height;
+    }
+
     _priceToY(price) {
         const ratio = (price - this.minPrice) / (this.maxPrice - this.minPrice);
         return this.chartArea.y + this.chartArea.height - ratio * this.chartArea.height;
@@ -2071,6 +2342,7 @@ class FixedTradingChart {
             last.low   = Math.min(last.low,  price);
         }
         this._computeATRTrendReversal();
+        this._computeCVD();
         this.calculateBounds();
         this.requestDraw();
     }
@@ -2086,6 +2358,7 @@ class FixedTradingChart {
         }
         this._computeVWAP();
         this._computeATRTrendReversal();
+        this._computeCVD();
         this.calculateBounds();
         this.requestDraw();
         this.updateSlider();
@@ -2179,10 +2452,250 @@ class FixedTradingChart {
 
     setIndicatorVisibility(key, visible) {
         this.indicatorVisibility[key] = visible === true;
+        // Persist immediately — survives any symbol/timeframe reload
+        _saveIndicatorState(this.indicatorVisibility);
+        // Volume and CVD toggles change pane layout — recalculate geometry
+        if (key === 'cvd' || key === 'volume') {
+            this._updateChartAreas();
+            this._updateViewport();
+            this.calculateBounds();
+        }
+        // Sync panel checkbox if panel is open
+        this._syncIndicatorPanel();
+        // Notify Python bridge so its own state stays in sync
+        this._notifyIndicatorVisibilityChanged();
         this.requestDraw();
     }
+
     getIndicatorVisibility() {
         return { ...this.indicatorVisibility };
+    }
+
+    // ─── Python-callable: hard-reset all visibility to defaults ──────────────
+    resetIndicatorVisibility() {
+        try { localStorage.removeItem(_IND_STORE_KEY); } catch (e) {}
+        this.indicatorVisibility = {
+            ema10: true, ema20: true, ema50: true, ema200: true,
+            atrTrendReversal: true, vwap: true, cvd: true, volume: true,
+        };
+        _saveIndicatorState(this.indicatorVisibility);
+        this._syncIndicatorPanel();
+        this.requestDraw();
+    }
+
+    toggleIndicatorPanel() {
+        if (this._indicatorPanelOpen) {
+            this._closeIndicatorPanel();
+        } else {
+            this._openIndicatorPanel();
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // INDICATOR PANEL  (floating HTML overlay — TC2000-style)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    _buildIndicatorPanel() {
+        // Remove stale panel if reinitialised
+        if (this._indicatorPanel) { this._indicatorPanel.remove(); }
+
+        // ── Panel definition (label, key, color dot) ──────────────────────
+        const INDICATORS = [
+            { key: 'ema10',          label: 'EMA 10',         color: '#2962ff' },
+            { key: 'ema20',          label: 'EMA 20',         color: '#9c27b0' },
+            { key: 'ema50',          label: 'EMA 50',         color: '#f06204' },
+            { key: 'ema200',         label: 'EMA 200',        color: '#e91e63' },
+            { key: 'vwap',           label: 'VWAP',           color: '#ff9e42' },
+            { key: 'atrTrendReversal', label: 'ATR Reversal', color: '#52c41a' },
+            { key: 'volume',         label: 'Volume',         color: '#4a7fa5' },
+            { key: 'cvd',            label: 'CVD',            color: '#00bfff' },
+        ];
+
+        // ── Toggle button ─────────────────────────────────────────────────
+        const btn = document.createElement('div');
+        btn.id = 'indicatorToggleBtn';
+        btn.title = 'Indicators';
+        btn.innerHTML = `
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:middle;margin-right:5px;">
+              <rect x="1" y="3" width="4" height="10" rx="1" fill="currentColor" opacity="0.5"/>
+              <rect x="6" y="1" width="4" height="12" rx="1" fill="currentColor" opacity="0.7"/>
+              <rect x="11" y="5" width="4" height="8" rx="1" fill="currentColor"/>
+            </svg>Indicators`;
+        btn.style.cssText = `
+            position:absolute; top:6px; right:8px;
+            background:#101624; border:1px solid #1e2d44;
+            border-radius:5px; padding:4px 10px;
+            font-family:"Segoe UI",sans-serif; font-size:11px; font-weight:600;
+            color:#7a9abf; cursor:pointer; user-select:none;
+            display:flex; align-items:center; gap:2px;
+            z-index:200; transition:border-color 0.15s,color 0.15s;
+            letter-spacing:0.2px;`;
+        btn.addEventListener('mouseenter', () => {
+            btn.style.borderColor = '#3a6090'; btn.style.color = '#b0ccee';
+        });
+        btn.addEventListener('mouseleave', () => {
+            if (!this._indicatorPanelOpen) {
+                btn.style.borderColor = '#1e2d44'; btn.style.color = '#7a9abf';
+            }
+        });
+        btn.addEventListener('click', (e) => { e.stopPropagation(); this.toggleIndicatorPanel(); });
+        this._indicatorToggleBtn = btn;
+
+        // ── Panel container ───────────────────────────────────────────────
+        const panel = document.createElement('div');
+        panel.id = 'indicatorPanel';
+        panel.style.cssText = `
+            position:absolute; top:34px; right:8px;
+            background:#0c1220; border:1px solid #1e2d44;
+            border-radius:6px; padding:8px 0; z-index:300;
+            font-family:"Segoe UI",sans-serif; font-size:12px;
+            box-shadow:0 8px 28px rgba(0,0,0,0.7); min-width:176px;
+            display:none; user-select:none;`;
+
+        // Header
+        const hdr = document.createElement('div');
+        hdr.style.cssText = `
+            padding:4px 14px 8px; font-size:9px; font-weight:700;
+            letter-spacing:1.2px; color:#2e4060; text-transform:uppercase;
+            border-bottom:1px solid #141e30; margin-bottom:4px;`;
+        hdr.textContent = 'INDICATORS';
+        panel.appendChild(hdr);
+
+        // Rows
+        INDICATORS.forEach(ind => {
+            const row = document.createElement('div');
+            row.dataset.key = ind.key;
+            row.style.cssText = `
+                display:flex; align-items:center; gap:0; padding:0;
+                cursor:pointer; transition:background 0.1s;`;
+            row.addEventListener('mouseenter', () => row.style.background = '#111c2e');
+            row.addEventListener('mouseleave', () => row.style.background = 'transparent');
+
+            const isOn = this.indicatorVisibility[ind.key] !== false;
+
+            // Checkbox-style toggle
+            const check = document.createElement('div');
+            check.className = 'ind-check';
+            check.style.cssText = `
+                width:13px; height:13px; border-radius:3px; margin:0 10px 0 14px;
+                border:1.5px solid ${ind.color}; flex-shrink:0;
+                background:${isOn ? ind.color : 'transparent'};
+                transition:background 0.12s;
+                display:flex; align-items:center; justify-content:center;`;
+            if (isOn) {
+                check.innerHTML = `<svg width="8" height="8" viewBox="0 0 8 8"><polyline points="1,4 3,6 7,2" stroke="#000" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+            }
+
+            // Color dot
+            const dot = document.createElement('div');
+            dot.style.cssText = `
+                width:6px; height:6px; border-radius:50%;
+                background:${ind.color}; margin-right:8px; flex-shrink:0;
+                opacity:${isOn ? 1 : 0.25}; transition:opacity 0.12s;`;
+
+            const lbl = document.createElement('span');
+            lbl.style.cssText = `
+                color:${isOn ? '#b8cce0' : '#3a5070'};
+                font-weight:${isOn ? '600' : '400'};
+                font-size:12px; transition:color 0.12s;`;
+            lbl.textContent = ind.label;
+
+            row.appendChild(check);
+            row.appendChild(dot);
+            row.appendChild(lbl);
+            panel.appendChild(row);
+
+            row.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const nowOn = this.indicatorVisibility[ind.key] !== false;
+                const next  = !nowOn;
+                this.setIndicatorVisibility(ind.key, next);
+                // Visual update
+                check.style.background = next ? ind.color : 'transparent';
+                check.innerHTML = next
+                    ? `<svg width="8" height="8" viewBox="0 0 8 8"><polyline points="1,4 3,6 7,2" stroke="#000" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+                    : '';
+                dot.style.opacity    = next ? '1' : '0.25';
+                lbl.style.color      = next ? '#b8cce0' : '#3a5070';
+                lbl.style.fontWeight = next ? '600' : '400';
+            });
+        });
+
+        // Divider + Reset
+        const divider = document.createElement('div');
+        divider.style.cssText = 'height:1px; background:#141e30; margin:6px 0;';
+        panel.appendChild(divider);
+
+        const resetRow = document.createElement('div');
+        resetRow.style.cssText = `
+            padding:6px 14px; cursor:pointer; color:#2e4060; font-size:11px;
+            font-weight:600; letter-spacing:0.3px; transition:color 0.1s;`;
+        resetRow.textContent = '↺  Reset to defaults';
+        resetRow.addEventListener('mouseenter', () => { resetRow.style.color = '#6a90b8'; resetRow.style.background = '#111c2e'; });
+        resetRow.addEventListener('mouseleave', () => { resetRow.style.color = '#2e4060'; resetRow.style.background = 'transparent'; });
+        resetRow.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.resetIndicatorVisibility();
+            this._closeIndicatorPanel();
+        });
+        panel.appendChild(resetRow);
+
+        this._indicatorPanel = panel;
+        this._indicatorPanelDefs = INDICATORS;
+
+        // Attach to chart container
+        const container = this.canvas.parentElement || document.body;
+        container.appendChild(btn);
+        container.appendChild(panel);
+
+        // Close on outside click
+        document.addEventListener('click', (e) => {
+            if (this._indicatorPanelOpen &&
+                !panel.contains(e.target) &&
+                !btn.contains(e.target)) {
+                this._closeIndicatorPanel();
+            }
+        });
+    }
+
+    _openIndicatorPanel() {
+        if (!this._indicatorPanel) return;
+        this._indicatorPanel.style.display = 'block';
+        this._indicatorPanelOpen = true;
+        this._indicatorToggleBtn.style.borderColor = '#3a6090';
+        this._indicatorToggleBtn.style.color = '#b0ccee';
+        this._indicatorToggleBtn.style.background = '#131e30';
+    }
+
+    _closeIndicatorPanel() {
+        if (!this._indicatorPanel) return;
+        this._indicatorPanel.style.display = 'none';
+        this._indicatorPanelOpen = false;
+        this._indicatorToggleBtn.style.borderColor = '#1e2d44';
+        this._indicatorToggleBtn.style.color = '#7a9abf';
+        this._indicatorToggleBtn.style.background = '#101624';
+    }
+
+    _syncIndicatorPanel() {
+        // Re-sync checkbox states in panel without rebuilding it
+        if (!this._indicatorPanel || !this._indicatorPanelDefs) return;
+        this._indicatorPanelDefs.forEach(ind => {
+            const row = this._indicatorPanel.querySelector(`[data-key="${ind.key}"]`);
+            if (!row) return;
+            const isOn   = this.indicatorVisibility[ind.key] !== false;
+            const check  = row.querySelector('.ind-check');
+            const dot    = row.children[1];
+            const lbl    = row.children[2];
+            if (check) {
+                check.style.background = isOn ? ind.color : 'transparent';
+                check.innerHTML = isOn
+                    ? `<svg width="8" height="8" viewBox="0 0 8 8"><polyline points="1,4 3,6 7,2" stroke="#000" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+                    : '';
+            }
+            if (dot)  { dot.style.opacity    = isOn ? '1' : '0.25'; }
+            if (lbl)  { lbl.style.color      = isOn ? '#b8cce0' : '#3a5070';
+                        lbl.style.fontWeight = isOn ? '600' : '400'; }
+        });
     }
     getAllDrawings()         { return this.drawings; }
     getVisibleCandleCount() { return this.visibleCandleCount; }
@@ -2199,6 +2712,17 @@ class FixedTradingChart {
         }
         try { this.chartBridge.notify_drawings_changed(JSON.stringify(this.drawings)); }
         catch (e) { console.error('notify_drawings_changed error:', e); }
+    }
+
+    // Notify Python so its own Dict[str,bool] stays in sync.
+    // Python should persist this and pass it back as initial_indicator_visibility
+    // on the NEXT chart load — but localStorage is the primary persistence layer.
+    _notifyIndicatorVisibilityChanged() {
+        if (!this.chartBridge || !this.webChannelInitialized) return;
+        try {
+            this.chartBridge.notify_indicator_visibility_changed(
+                JSON.stringify(this.indicatorVisibility));
+        } catch (e) { /* bridge not connected — localStorage already saved */ }
     }
 
     _notifyZoomChange() {
