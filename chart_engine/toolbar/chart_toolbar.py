@@ -63,6 +63,8 @@ INDICATORS: List[Tuple[str, str, str, str]] = [
     ("ema200",          "E200", "#e91e63", "EMA 200"),
     ("vwap",            "VWAP", "#ff9e42", "VWAP — Volume Weighted Avg Price"),
     ("atrTrendReversal","ATR",  "#ff5252", "ATR Trend Reversal"),
+    ("cvd",             "CVD",  "#00bcd4", "Cumulative Volume Delta"),
+    ("rsi",             "RSI",  "#8bc34a", "Relative Strength Index"),
 ]
 
 CHART_TYPES: List[Tuple[str, str]] = [
@@ -274,6 +276,7 @@ class ChartToolbar(QFrame):
         self._vol_action.setChecked(True)     # volume on by default
         self._vol_action.setData("volume")
         self._indicator_menu.addAction(self._vol_action)
+        self.indicator_actions["volume"] = self._vol_action
         # keep vol_btn as a shim so old chart_widget refs don't break
         self.vol_btn = QPushButton()
         self.vol_btn.setVisible(False)
