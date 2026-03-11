@@ -148,16 +148,16 @@ class FixedTradingChart {
         this.indicatorScaleLabelsEnabled = cfg.indicatorScaleLabelsEnabled === true;
 
         // ── Indicator visibility — persistent across symbol/timeframe changes ──
-        // Priority chain: localStorage (user prefs) → pythonDefaults → true
+        // Priority chain: localStorage (user prefs) → pythonDefaults → false
+        // No indicators are on by default; only what the user explicitly enables.
         // localStorage is global (not per-symbol) so user's choices stick forever.
         const _pythonDefaults = {
-            ema10: true, ema20: true, ema50: true, ema200: true,
-            atrTrendReversal: true, vwap: true, cvd: true, volume: true, rsi: true,
+            ema10: false, ema20: false, ema50: false, ema200: false,
+            atrTrendReversal: false, vwap: false, cvd: false, volume: true, rsi: false,
             ...(cfg.initialIndicatorVisibility || {}),
         };
         this.indicatorVisibility = _loadIndicatorState(_pythonDefaults);
-        this._indicatorPanel      = null;   // DOM reference (built in _init)
-        this._indicatorPanelOpen  = false;
+        // indicator panel removed — toggles live in the Python toolbar (IND ▾)
 
         // ── Computed VWAP ──
         this.vwapData = [];
@@ -193,7 +193,6 @@ class FixedTradingChart {
         this.calculateBounds();
         this._setupEventListeners();
         this._setupWebChannel();
-        this._buildIndicatorPanel();  // build persistent indicator overlay
         this.requestDraw();
         this.updateSlider();
         this._displayLatestCandleDetails();
@@ -2663,8 +2662,6 @@ class FixedTradingChart {
             this._updateViewport();
             this.calculateBounds();
         }
-        // Sync panel checkbox if panel is open
-        this._syncIndicatorPanel();
         // Notify Python bridge so its own state stays in sync
         this._notifyIndicatorVisibilityChanged();
         this.requestDraw();
@@ -2674,234 +2671,20 @@ class FixedTradingChart {
         return { ...this.indicatorVisibility };
     }
 
-    // ─── Python-callable: hard-reset all visibility to defaults ──────────────
+    // ─── Python-callable: hard-reset all visibility to defaults (all off) ────
     resetIndicatorVisibility() {
         try { localStorage.removeItem(_IND_STORE_KEY); } catch (e) {}
         this.indicatorVisibility = {
-            ema10: true, ema20: true, ema50: true, ema200: true,
-            atrTrendReversal: true, vwap: true, cvd: true, volume: true, rsi: true,
+            ema10: false, ema20: false, ema50: false, ema200: false,
+            atrTrendReversal: false, vwap: false, cvd: false, volume: true, rsi: false,
         };
         _saveIndicatorState(this.indicatorVisibility);
-        this._syncIndicatorPanel();
         this.requestDraw();
     }
 
-    toggleIndicatorPanel() {
-        if (this._indicatorPanelOpen) {
-            this._closeIndicatorPanel();
-        } else {
-            this._openIndicatorPanel();
-        }
-    }
+    // Indicator panel removed — toggle via toolbar IND ▾ menu
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // INDICATOR PANEL  (floating HTML overlay — TC2000-style)
-    // ═══════════════════════════════════════════════════════════════════════
-
-    _buildIndicatorPanel() {
-        // Remove stale panel if reinitialised
-        if (this._indicatorPanel) { this._indicatorPanel.remove(); }
-
-        // ── Panel definition (label, key, color dot) ──────────────────────
-        const INDICATORS = [
-            { key: 'ema10',           label: 'EMA 10',        color: '#2962ff' },
-            { key: 'ema20',           label: 'EMA 20',        color: '#9c27b0' },
-            { key: 'ema50',           label: 'EMA 50',        color: '#f06204' },
-            { key: 'ema200',          label: 'EMA 200',       color: '#e91e63' },
-            { key: 'vwap',            label: 'VWAP',          color: '#ff9e42' },
-            { key: 'atrTrendReversal',label: 'ATR Reversal',  color: '#52c41a' },
-            { key: 'volume',          label: 'Volume',        color: '#4a7fa5' },
-            { key: 'cvd',             label: 'CVD',           color: '#00bfff' },
-            { key: 'rsi',             label: 'RSI (14)',       color: '#b388ff' },
-        ];
-
-        // ── Toggle button ─────────────────────────────────────────────────
-        const btn = document.createElement('div');
-        btn.id = 'indicatorToggleBtn';
-        btn.title = 'Indicators';
-        btn.innerHTML = `
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:middle;margin-right:5px;">
-              <rect x="1" y="3" width="4" height="10" rx="1" fill="currentColor" opacity="0.5"/>
-              <rect x="6" y="1" width="4" height="12" rx="1" fill="currentColor" opacity="0.7"/>
-              <rect x="11" y="5" width="4" height="8" rx="1" fill="currentColor"/>
-            </svg>Indicators`;
-        btn.style.cssText = `
-            position:absolute; top:6px; right:8px;
-            background:#101624; border:1px solid #1e2d44;
-            border-radius:5px; padding:4px 10px;
-            font-family:"Segoe UI",sans-serif; font-size:11px; font-weight:600;
-            color:#7a9abf; cursor:pointer; user-select:none;
-            display:flex; align-items:center; gap:2px;
-            z-index:200; transition:border-color 0.15s,color 0.15s;
-            letter-spacing:0.2px;`;
-        btn.addEventListener('mouseenter', () => {
-            btn.style.borderColor = '#3a6090'; btn.style.color = '#b0ccee';
-        });
-        btn.addEventListener('mouseleave', () => {
-            if (!this._indicatorPanelOpen) {
-                btn.style.borderColor = '#1e2d44'; btn.style.color = '#7a9abf';
-            }
-        });
-        btn.addEventListener('click', (e) => { e.stopPropagation(); this.toggleIndicatorPanel(); });
-        this._indicatorToggleBtn = btn;
-
-        // ── Panel container ───────────────────────────────────────────────
-        const panel = document.createElement('div');
-        panel.id = 'indicatorPanel';
-        panel.style.cssText = `
-            position:absolute; top:34px; right:8px;
-            background:#0c1220; border:1px solid #1e2d44;
-            border-radius:6px; padding:8px 0; z-index:300;
-            font-family:"Segoe UI",sans-serif; font-size:12px;
-            box-shadow:0 8px 28px rgba(0,0,0,0.7); min-width:176px;
-            display:none; user-select:none;`;
-
-        // Header
-        const hdr = document.createElement('div');
-        hdr.style.cssText = `
-            padding:4px 14px 8px; font-size:9px; font-weight:700;
-            letter-spacing:1.2px; color:#2e4060; text-transform:uppercase;
-            border-bottom:1px solid #141e30; margin-bottom:4px;`;
-        hdr.textContent = 'INDICATORS';
-        panel.appendChild(hdr);
-
-        // Rows
-        INDICATORS.forEach(ind => {
-            const row = document.createElement('div');
-            row.dataset.key = ind.key;
-            row.style.cssText = `
-                display:flex; align-items:center; gap:0; padding:0;
-                cursor:pointer; transition:background 0.1s;`;
-            row.addEventListener('mouseenter', () => row.style.background = '#111c2e');
-            row.addEventListener('mouseleave', () => row.style.background = 'transparent');
-
-            const isOn = this.indicatorVisibility[ind.key] !== false;
-
-            // Checkbox-style toggle
-            const check = document.createElement('div');
-            check.className = 'ind-check';
-            check.style.cssText = `
-                width:13px; height:13px; border-radius:3px; margin:0 10px 0 14px;
-                border:1.5px solid ${ind.color}; flex-shrink:0;
-                background:${isOn ? ind.color : 'transparent'};
-                transition:background 0.12s;
-                display:flex; align-items:center; justify-content:center;`;
-            if (isOn) {
-                check.innerHTML = `<svg width="8" height="8" viewBox="0 0 8 8"><polyline points="1,4 3,6 7,2" stroke="#000" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-            }
-
-            // Color dot
-            const dot = document.createElement('div');
-            dot.style.cssText = `
-                width:6px; height:6px; border-radius:50%;
-                background:${ind.color}; margin-right:8px; flex-shrink:0;
-                opacity:${isOn ? 1 : 0.25}; transition:opacity 0.12s;`;
-
-            const lbl = document.createElement('span');
-            lbl.style.cssText = `
-                color:${isOn ? '#b8cce0' : '#3a5070'};
-                font-weight:${isOn ? '600' : '400'};
-                font-size:12px; transition:color 0.12s;`;
-            lbl.textContent = ind.label;
-
-            row.appendChild(check);
-            row.appendChild(dot);
-            row.appendChild(lbl);
-            panel.appendChild(row);
-
-            row.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const nowOn = this.indicatorVisibility[ind.key] !== false;
-                const next  = !nowOn;
-                this.setIndicatorVisibility(ind.key, next);
-                // Visual update
-                check.style.background = next ? ind.color : 'transparent';
-                check.innerHTML = next
-                    ? `<svg width="8" height="8" viewBox="0 0 8 8"><polyline points="1,4 3,6 7,2" stroke="#000" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`
-                    : '';
-                dot.style.opacity    = next ? '1' : '0.25';
-                lbl.style.color      = next ? '#b8cce0' : '#3a5070';
-                lbl.style.fontWeight = next ? '600' : '400';
-            });
-        });
-
-        // Divider + Reset
-        const divider = document.createElement('div');
-        divider.style.cssText = 'height:1px; background:#141e30; margin:6px 0;';
-        panel.appendChild(divider);
-
-        const resetRow = document.createElement('div');
-        resetRow.style.cssText = `
-            padding:6px 14px; cursor:pointer; color:#2e4060; font-size:11px;
-            font-weight:600; letter-spacing:0.3px; transition:color 0.1s;`;
-        resetRow.textContent = '↺  Reset to defaults';
-        resetRow.addEventListener('mouseenter', () => { resetRow.style.color = '#6a90b8'; resetRow.style.background = '#111c2e'; });
-        resetRow.addEventListener('mouseleave', () => { resetRow.style.color = '#2e4060'; resetRow.style.background = 'transparent'; });
-        resetRow.addEventListener('click', (e) => {
-            e.stopPropagation();
-            this.resetIndicatorVisibility();
-            this._closeIndicatorPanel();
-        });
-        panel.appendChild(resetRow);
-
-        this._indicatorPanel = panel;
-        this._indicatorPanelDefs = INDICATORS;
-
-        // Attach to chart container
-        const container = this.canvas.parentElement || document.body;
-        container.appendChild(btn);
-        container.appendChild(panel);
-
-        // Close on outside click
-        document.addEventListener('click', (e) => {
-            if (this._indicatorPanelOpen &&
-                !panel.contains(e.target) &&
-                !btn.contains(e.target)) {
-                this._closeIndicatorPanel();
-            }
-        });
-    }
-
-    _openIndicatorPanel() {
-        if (!this._indicatorPanel) return;
-        this._indicatorPanel.style.display = 'block';
-        this._indicatorPanelOpen = true;
-        this._indicatorToggleBtn.style.borderColor = '#3a6090';
-        this._indicatorToggleBtn.style.color = '#b0ccee';
-        this._indicatorToggleBtn.style.background = '#131e30';
-    }
-
-    _closeIndicatorPanel() {
-        if (!this._indicatorPanel) return;
-        this._indicatorPanel.style.display = 'none';
-        this._indicatorPanelOpen = false;
-        this._indicatorToggleBtn.style.borderColor = '#1e2d44';
-        this._indicatorToggleBtn.style.color = '#7a9abf';
-        this._indicatorToggleBtn.style.background = '#101624';
-    }
-
-    _syncIndicatorPanel() {
-        // Re-sync checkbox states in panel without rebuilding it
-        if (!this._indicatorPanel || !this._indicatorPanelDefs) return;
-        this._indicatorPanelDefs.forEach(ind => {
-            const row = this._indicatorPanel.querySelector(`[data-key="${ind.key}"]`);
-            if (!row) return;
-            const isOn   = this.indicatorVisibility[ind.key] !== false;
-            const check  = row.querySelector('.ind-check');
-            const dot    = row.children[1];
-            const lbl    = row.children[2];
-            if (check) {
-                check.style.background = isOn ? ind.color : 'transparent';
-                check.innerHTML = isOn
-                    ? `<svg width="8" height="8" viewBox="0 0 8 8"><polyline points="1,4 3,6 7,2" stroke="#000" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`
-                    : '';
-            }
-            if (dot)  { dot.style.opacity    = isOn ? '1' : '0.25'; }
-            if (lbl)  { lbl.style.color      = isOn ? '#b8cce0' : '#3a5070';
-                        lbl.style.fontWeight = isOn ? '600' : '400'; }
-        });
-    }
-    getAllDrawings()         { return this.drawings; }
+        getAllDrawings()         { return this.drawings; }
     getVisibleCandleCount() { return this.visibleCandleCount; }
 
     // ═══════════════════════════════════════════════════════════════════════

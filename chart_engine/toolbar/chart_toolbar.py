@@ -259,7 +259,7 @@ class ChartToolbar(QFrame):
             self._ind_colors[key] = color
             action = QAction(pill_label, self)
             action.setCheckable(True)
-            action.setChecked(True)
+            action.setChecked(False)          # off by default; widget restores saved state
             action.setData(key)
             action.setToolTip(tip)
             self._indicator_menu.addAction(action)
@@ -271,7 +271,7 @@ class ChartToolbar(QFrame):
         self._indicator_menu.addSeparator()
         self._vol_action = QAction("Volume Bars", self)
         self._vol_action.setCheckable(True)
-        self._vol_action.setChecked(True)
+        self._vol_action.setChecked(True)     # volume on by default
         self._vol_action.setData("volume")
         self._indicator_menu.addAction(self._vol_action)
         # keep vol_btn as a shim so old chart_widget refs don't break

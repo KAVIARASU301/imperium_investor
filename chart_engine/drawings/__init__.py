@@ -1,4 +1,4 @@
-# chart_engine/drawings/drawing_storage.py
+# chart_engine/drawings/__init__.py
 #
 # Manages persistent storage of chart drawings, zoom level, and global settings.
 # Saves one JSON file per (symbol, interval) pair in a user_data directory.
@@ -41,12 +41,18 @@ _DEFAULT_DRAWINGS: Dict[str, list] = {
     "fibonacci": [],
 }
 
+# All indicators OFF by default — user explicitly enables what they want.
+# volume is the only exception (on by default so the chart isn't empty).
 _DEFAULT_INDICATOR_VISIBILITY: Dict[str, bool] = {
-    "ema10": True,
-    "ema20": True,
-    "ema50": True,
-    "ema200": True,
-    "vwap": True,
+    "ema10": False,
+    "ema20": False,
+    "ema50": False,
+    "ema200": False,
+    "vwap": False,
+    "atrTrendReversal": False,
+    "volume": True,
+    "cvd": False,
+    "rsi": False,
 }
 
 
@@ -62,13 +68,23 @@ def _validate_drawings(drawings: Any) -> Dict[str, list]:
 
 
 def _validate_indicator_visibility(visibility: Any) -> Dict[str, bool]:
-    """Ensure indicator visibility payload has all known keys and bool values."""
+    """
+    Validate indicator visibility payload.
+    Returns saved values as-is; only fills in MISSING keys with defaults.
+    Never overrides an explicit False that the user saved.
+    """
+    # Start with defaults (all False except volume)
     result = dict(_DEFAULT_INDICATOR_VISIBILITY)
     if not isinstance(visibility, dict):
         return result
+    # Overwrite defaults only for keys that exist in the saved payload
     for key in _DEFAULT_INDICATOR_VISIBILITY:
         if key in visibility:
             result[key] = bool(visibility[key])
+    # Also preserve any extra keys not in defaults (future indicators)
+    for key, val in visibility.items():
+        if key not in result:
+            result[key] = bool(val)
     return result
 
 
@@ -90,7 +106,6 @@ class DrawingStorage:
         if not isinstance(state, dict):
             logger.warning("save_state: invalid state type %s for %s", type(state), symbol)
             return
-        # Normalise drawings structure before saving
         if "drawings" in state:
             state["drawings"] = _validate_drawings(state["drawings"])
         else:
@@ -166,7 +181,6 @@ class DrawingStorage:
         try:
             with open(self.global_settings_file, "r") as f:
                 settings = json.load(f)
-            # Fill any missing keys with defaults (backward compatibility)
             result = dict(_DEFAULT_GLOBAL_SETTINGS)
             result.update(settings)
             logger.info("Loaded global chart settings.")
@@ -183,8 +197,7 @@ class DrawingStorage:
             with open(path, "w") as f:
                 json.dump(
                     {"symbol": symbol, "interval": interval, "timestamp": datetime.now().isoformat()},
-                    f,
-                    indent=2,
+                    f, indent=2,
                 )
         except Exception as exc:
             logger.error("Failed to save last viewed symbol: %s", exc)
