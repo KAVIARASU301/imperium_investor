@@ -167,8 +167,8 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         main_layout.setSpacing(0)
 
         self.menu_bar = self._create_menu_bar()
-        self.title_bar = self._create_custom_title_bar()
-        main_layout.addWidget(self.title_bar)
+        self.top_bar = self._create_top_bar()
+        main_layout.addWidget(self.top_bar)
 
         # HEADER TOOLBAR WITH STATUS BAR INTEGRATION
         self.header_toolbar = HeaderToolbar(self.trader, self)
@@ -416,69 +416,78 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         super().showEvent(event)
         self._update_title_bar_compact_state()
 
-    def _create_custom_title_bar(self) -> QWidget:
-        """Creates a custom title bar for the frameless window."""
-        title_bar = QWidget()
-        title_bar.setObjectName("customTitleBar")
-        title_bar.setFixedHeight(28)
+    def _create_top_bar(self) -> QWidget:
+        """Create a two-part top bar: menu pane on the left and title controls on the right."""
+        top_bar = QWidget()
+        top_bar.setObjectName("customTitleBar")
+        top_bar.setFixedHeight(30)
 
-        layout = QHBoxLayout(title_bar)
-        layout.setContentsMargins(8, 0, 4, 0)
-        layout.setSpacing(4)
+        root_layout = QHBoxLayout(top_bar)
+        root_layout.setContentsMargins(8, 0, 4, 0)
+        root_layout.setSpacing(8)
 
+        self.menu_container = QWidget()
+        menu_layout = QHBoxLayout(self.menu_container)
+        menu_layout.setContentsMargins(0, 0, 0, 0)
+        menu_layout.setSpacing(0)
         self.menu_bar.setFixedHeight(24)
-        # Keep File/View/Tools/About as first-class top-level entries.
-        self.menu_bar.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        # `setSizeAdjustPolicy` is not available in all PySide6 builds.
-        # Use it only when present so startup remains compatible.
+        self.menu_bar.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Fixed)
         if hasattr(self.menu_bar, "setSizeAdjustPolicy"):
             self.menu_bar.setSizeAdjustPolicy(QMenuBar.SizeAdjustPolicy.AdjustToContents)
-        layout.addWidget(self.menu_bar, 1, Qt.AlignmentFlag.AlignVCenter)
+        menu_layout.addWidget(self.menu_bar)
 
+        self.title_container = QWidget()
+        title_layout = QHBoxLayout(self.title_container)
+        title_layout.setContentsMargins(0, 0, 0, 0)
+        title_layout.setSpacing(4)
 
-        self.title_label = QLabel("Kristjan Qullamaggie")
+        self.title_label = QLabel("Swing Trader")
         self.title_label.setObjectName("appTitle")
-        layout.addWidget(self.title_label)
+        title_layout.addWidget(self.title_label)
 
         self.mode_label = QLabel(f"[{self.trading_mode.upper()}]")
         self.mode_label.setObjectName("tradingModeLabel")
-        layout.addWidget(self.mode_label)
+        title_layout.addWidget(self.mode_label)
+        title_layout.addStretch(1)
 
         min_btn = QPushButton("−")
         min_btn.setObjectName("titleBarButton")
         min_btn.setFixedSize(24, 24)
         min_btn.clicked.connect(self.showMinimized)
-        layout.addWidget(min_btn)
+        title_layout.addWidget(min_btn)
 
         self.max_btn = QPushButton("□")
         self.max_btn.setObjectName("titleBarButton")
         self.max_btn.setFixedSize(24, 24)
         self.max_btn.clicked.connect(self._toggle_maximize)
-        layout.addWidget(self.max_btn)
+        title_layout.addWidget(self.max_btn)
 
         close_btn = QPushButton("✕")
         close_btn.setObjectName("closeTitleBarButton")
         close_btn.setFixedSize(24, 24)
         close_btn.clicked.connect(self.close)
-        layout.addWidget(close_btn)
+        title_layout.addWidget(close_btn)
 
-        self._drag_widgets = [title_bar, self.title_label, self.mode_label]
+        root_layout.addWidget(self.menu_container, 3)
+        root_layout.addWidget(self.title_container, 2)
+
+        self._drag_widgets = [top_bar, self.title_container, self.title_label, self.mode_label]
         for widget in self._drag_widgets:
             widget.installEventFilter(self)
 
-        title_bar.mousePressEvent = self._title_bar_mouse_press
-        title_bar.mouseMoveEvent = self._title_bar_mouse_move
-        title_bar.mouseReleaseEvent = self._title_bar_mouse_release
-        title_bar.mouseDoubleClickEvent = self._title_bar_double_click
+        top_bar.mousePressEvent = self._title_bar_mouse_press
+        top_bar.mouseMoveEvent = self._title_bar_mouse_move
+        top_bar.mouseReleaseEvent = self._title_bar_mouse_release
+        top_bar.mouseDoubleClickEvent = self._title_bar_double_click
         self._update_title_bar_compact_state()
-        return title_bar
+        return top_bar
 
     def _update_title_bar_compact_state(self):
         """Keep menu labels visible and collapse non-critical title labels on narrow windows."""
         if not hasattr(self, "title_label") or not hasattr(self, "mode_label"):
             return
 
-        compact = self.width() < 1180
+        compact = self.width() < 1280
         self.title_label.setVisible(not compact)
         self.mode_label.setVisible(not compact)
 
@@ -1737,7 +1746,7 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
             #mainMenuBar::item {
                 background: transparent;
-                padding: 4px 8px;
+                padding: 3px 6px;
                 margin: 0px 1px;
             }
 
