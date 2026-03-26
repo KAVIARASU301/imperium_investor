@@ -1041,38 +1041,178 @@ class FixedTradingChart {
             ctx.fillRect(x, barTop, this.candleWidth, 1);
         }
 
+        this._drawVolumeScale();
         this._drawCurrentVolLabel();
     }
 
+    _volumeToY(vol) {
+        if (!this.volumeArea) return 0;
+        const max = Math.max(1, this.maxVolume || 1);
+        const clamped = Math.max(0, Math.min(vol, max));
+        const ratio = clamped / max;
+        return this.volumeArea.y + this.volumeArea.height - (ratio * this.volumeArea.height);
+    }
+
+    _drawVolumeScale() {
+        // ── TradingView-style volume axis ──────────────────────────────────
+        // All labels and ticks live INSIDE the right axis panel, never over
+        // the chart or volume bars.  Matches the visual language of _drawPriceAxis.
+        if (!this.volumeArea) return;
+        const ctx   = this.ctx;
+        const axisX = this.chartArea.x + this.chartArea.width;   // left edge of axis panel
+        const axisW = this.rightAxisWidth;
+        const area  = this.volumeArea;
+
+        // ── 1. Axis panel background (same dark fill as price axis) ─────────
+        const panelGrad = ctx.createLinearGradient(axisX, 0, axisX + axisW, 0);
+        panelGrad.addColorStop(0, 'rgba(15,20,32,0.98)');
+        panelGrad.addColorStop(1, 'rgba(11,15,24,0.95)');
+        ctx.fillStyle = panelGrad;
+        ctx.fillRect(axisX, area.y, axisW, area.height);
+
+        // ── 2. Top separator rule (volume pane top) ─────────────────────────
+        ctx.strokeStyle = 'rgba(40,60,100,0.7)';
+        ctx.lineWidth   = 1;
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.moveTo(axisX, area.y);
+        ctx.lineTo(axisX + axisW, area.y);
+        ctx.stroke();
+
+        // ── 3. Left border of the axis panel ────────────────────────────────
+        ctx.strokeStyle = 'rgba(40,60,100,0.7)';
+        ctx.lineWidth   = 1;
+        ctx.beginPath();
+        ctx.moveTo(axisX, area.y);
+        ctx.lineTo(axisX, area.y + area.height);
+        ctx.stroke();
+
+        // ── 4. Compute a nice set of tick values ─────────────────────────────
+        // Pick 2-3 human-friendly volume levels using a "nice step" approach,
+        // similar to how the price axis works.  Skip the 0 tick — it sits at
+        // the bottom border and is self-evident.
+        const maxV   = this.maxVolume || 1;
+        const rough  = maxV / 2;                    // aim for ~2-3 ticks
+        const nice   = this._niceVolStep(rough);
+        const ticks  = [];
+        for (let v = nice; v < maxV * 0.98; v += nice) ticks.push(v);
+        // Always add the top tick (≈ max visible volume)
+        if (ticks.length === 0 || ticks[ticks.length - 1] < maxV * 0.85) {
+            // snap top tick to a round number just below maxV
+            const topTick = Math.floor(maxV / nice) * nice;
+            if (topTick > 0 && (ticks.length === 0 || topTick !== ticks[ticks.length - 1])) {
+                ticks.push(topTick);
+            }
+        }
+
+        const minGapPx = 18;
+        let lastTickY  = Infinity;
+
+        ctx.font         = this._axisFont(10, 500);
+        ctx.textAlign    = 'right';
+        ctx.textBaseline = 'middle';
+
+        for (const v of ticks) {
+            const y = this._volumeToY(v);
+            if (y < area.y + 6 || y > area.y + area.height - 4) continue;
+            if (Math.abs(y - lastTickY) < minGapPx) continue;
+
+            // Faint horizontal grid echo inside axis panel
+            ctx.strokeStyle = 'rgba(40,60,100,0.25)';
+            ctx.lineWidth   = 0.5;
+            ctx.beginPath();
+            ctx.moveTo(axisX, y);
+            ctx.lineTo(axisX + axisW, y);
+            ctx.stroke();
+
+            // 5-px tick mark at the panel left edge (same as price axis)
+            ctx.strokeStyle = 'rgba(80,110,160,0.8)';
+            ctx.lineWidth   = 1;
+            ctx.beginPath();
+            ctx.moveTo(axisX,     y);
+            ctx.lineTo(axisX + 5, y);
+            ctx.stroke();
+
+            // Label — right-aligned with 6 px right padding
+            ctx.fillStyle = 'rgba(122,168,216,0.80)';
+            ctx.fillText(this._fmtVol(v), axisX + axisW - 6, y);
+
+            lastTickY = y;
+        }
+    }
+
     _drawCurrentVolLabel() {
+        // ── Live volume pill in right axis panel — matches live price pill ──
+        // Renders at the top of the last visible bar using the same chevron-
+        // pill shape as the live price label, fully contained in the axis panel.
         if (!this.volumeArea) return;
         if (this.data.length === 0) return;
         const lastI = this.data.length - 1;
         if (lastI < this.viewPortStart || lastI > this.viewPortEnd) return;
+
         const vol = (this.volumeData[lastI] || {}).value || 0;
-        if (!this.maxVolume) return;
-        const ratio  = Math.min(1, vol / this.maxVolume);
-        const logMax = Math.log(1 + this.maxVolume);
-        const logVol = Math.log(1 + vol);
-        const y      = this.volumeArea.y + this.volumeArea.height - (logVol / logMax * this.volumeArea.height);
+        if (!this.maxVolume || vol <= 0) return;
+
+        const y = this._volumeToY(vol);
+
+        // Clamp pill centre so it never overflows the volume pane
+        const area   = this.volumeArea;
+        const lh     = 14;
+        const clampedY = Math.max(area.y + lh / 2 + 1,
+                          Math.min(area.y + area.height - lh / 2 - 1, y));
 
         const ctx    = this.ctx;
+        const axisX  = this.chartArea.x + this.chartArea.width;
+        const axisW  = this.rightAxisWidth;
         const label  = this._fmtVol(vol);
-        ctx.font     = '10px monospace';
-        ctx.textAlign = 'right';
-        const tw     = ctx.measureText(label).width;
-        const lw = tw + 8, lh = 14;
-        const rx = this.width - 84;  // inside axis area
-        const ry = y + 2;
 
-        ctx.fillStyle   = '#141c28';
-        ctx.strokeStyle = '#2a3a58';
-        ctx.lineWidth   = 0.5;
-        ctx.fillRect(rx, ry - lh + 2, lw, lh);
-        ctx.strokeRect(rx, ry - lh + 2, lw, lh);
+        const lw = axisW;  // pill spans full axis width (same as price pill)
 
-        ctx.fillStyle = '#7aa8d8';
-        ctx.fillText(label, rx + lw - 4, ry);
+        // Chevron pointing left into chart
+        ctx.fillStyle = 'rgba(30,45,70,0.92)';
+        ctx.beginPath();
+        ctx.moveTo(axisX,          clampedY);
+        ctx.lineTo(axisX + 5,      clampedY - lh / 2);
+        ctx.lineTo(axisX + lw,     clampedY - lh / 2);
+        ctx.lineTo(axisX + lw,     clampedY + lh / 2);
+        ctx.lineTo(axisX + 5,      clampedY + lh / 2);
+        ctx.closePath();
+        ctx.fill();
+
+        // Subtle border
+        ctx.strokeStyle = 'rgba(80,120,180,0.55)';
+        ctx.lineWidth   = 0.8;
+        ctx.stroke();
+
+        // Short dashed ray from bar top to axis
+        ctx.strokeStyle = 'rgba(122,168,216,0.28)';
+        ctx.lineWidth   = 0.6;
+        ctx.setLineDash([2, 3]);
+        ctx.beginPath();
+        ctx.moveTo(axisX - 10, y);
+        ctx.lineTo(axisX,      y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Label text
+        ctx.font         = 'bold 9px "Segoe UI Mono", monospace';
+        ctx.textAlign    = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle    = '#a8c8e8';
+        ctx.fillText(label, axisX + 5 + (lw - 5) / 2, clampedY);
+    }
+
+    _niceVolStep(rough) {
+        // Like _niceStep but tuned for volume (integer magnitudes, no sub-1 values)
+        if (rough <= 0) return 1;
+        const pow10 = Math.pow(10, Math.floor(Math.log10(rough)));
+        const frac  = rough / pow10;
+        let nice;
+        if      (frac < 1.5) nice = 1;
+        else if (frac < 3.5) nice = 2;
+        else if (frac < 7.5) nice = 5;
+        else                 nice = 10;
+        return nice * pow10;
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -2765,10 +2905,14 @@ class FixedTradingChart {
     }
 
     _fmtVol(vol) {
-        if (vol >= 1e7) return (vol / 1e7).toFixed(1) + 'Cr';
-        if (vol >= 1e5) return (vol / 1e5).toFixed(1) + 'L';
-        if (vol >= 1e3) return (vol / 1e3).toFixed(0) + 'K';
-        return String(vol);
+        if (vol >= 1e9) return (vol / 1e9).toFixed(2).replace(/\.00$/, '') + 'B';
+        if (vol >= 1e6) return (vol / 1e6).toFixed(2).replace(/\.00$/, '') + 'M';
+        if (vol >= 1e3) return (vol / 1e3).toFixed(1).replace(/\.0$/, '') + 'K';
+        return Math.round(vol).toString();
+    }
+
+    _fmtVolExact(vol) {
+        return Math.round(vol).toLocaleString('en-US');
     }
 
     _fmtTimeLabel(date) {
