@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import List, Dict, Union, Any, Optional
 
 from PySide6.QtCore import Qt, QByteArray, QTimer, Slot, Signal, QEvent
-from PySide6.QtWidgets import QMainWindow, QSplitter, QWidget, QVBoxLayout, QHBoxLayout, \
+from PySide6.QtWidgets import QMainWindow, QSplitter, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, \
     QPushButton, QLabel, QApplication, QMessageBox, QMenuBar, QSizePolicy
 from PySide6.QtGui import QMouseEvent, QKeySequence, QShortcut, QKeyEvent, QAction
 
@@ -417,14 +417,15 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self._update_title_bar_compact_state()
 
     def _create_top_bar(self) -> QWidget:
-        """Create a two-part top bar: menu pane on the left and title controls on the right."""
+        """Create a top bar with centered app title/mode and anchored menu/window controls."""
         top_bar = QWidget()
         top_bar.setObjectName("customTitleBar")
         top_bar.setFixedHeight(30)
 
-        root_layout = QHBoxLayout(top_bar)
+        root_layout = QGridLayout(top_bar)
         root_layout.setContentsMargins(8, 0, 4, 0)
-        root_layout.setSpacing(8)
+        root_layout.setHorizontalSpacing(8)
+        root_layout.setVerticalSpacing(0)
 
         self.menu_container = QWidget()
         menu_layout = QHBoxLayout(self.menu_container)
@@ -448,28 +449,36 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.mode_label = QLabel(f"[{self.trading_mode.upper()}]")
         self.mode_label.setObjectName("tradingModeLabel")
         title_layout.addWidget(self.mode_label)
-        title_layout.addStretch(1)
+
+        self.window_controls = QWidget()
+        controls_layout = QHBoxLayout(self.window_controls)
+        controls_layout.setContentsMargins(0, 0, 0, 0)
+        controls_layout.setSpacing(4)
 
         min_btn = QPushButton("−")
         min_btn.setObjectName("titleBarButton")
         min_btn.setFixedSize(24, 24)
         min_btn.clicked.connect(self.showMinimized)
-        title_layout.addWidget(min_btn)
+        controls_layout.addWidget(min_btn)
 
         self.max_btn = QPushButton("□")
         self.max_btn.setObjectName("titleBarButton")
         self.max_btn.setFixedSize(24, 24)
         self.max_btn.clicked.connect(self._toggle_maximize)
-        title_layout.addWidget(self.max_btn)
+        controls_layout.addWidget(self.max_btn)
 
         close_btn = QPushButton("✕")
         close_btn.setObjectName("closeTitleBarButton")
         close_btn.setFixedSize(24, 24)
         close_btn.clicked.connect(self.close)
-        title_layout.addWidget(close_btn)
+        controls_layout.addWidget(close_btn)
 
-        root_layout.addWidget(self.menu_container, 3)
-        root_layout.addWidget(self.title_container, 2)
+        root_layout.addWidget(self.menu_container, 0, 0, alignment=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        root_layout.addWidget(self.title_container, 0, 1, alignment=Qt.AlignmentFlag.AlignCenter)
+        root_layout.addWidget(self.window_controls, 0, 2, alignment=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        root_layout.setColumnStretch(0, 1)
+        root_layout.setColumnStretch(1, 0)
+        root_layout.setColumnStretch(2, 1)
 
         self._drag_widgets = [top_bar, self.title_container, self.title_label, self.mode_label]
         for widget in self._drag_widgets:

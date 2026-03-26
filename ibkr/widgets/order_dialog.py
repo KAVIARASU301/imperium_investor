@@ -457,7 +457,8 @@ class OrderDialog(QDialog):
         super().__init__(parent)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.setMinimumSize(880, 540)
+        # Single-panel layout without market depth; keep a realistic trading-form canvas.
+        self.setMinimumSize(760, 570)
 
         self.symbol     = symbol.strip().upper()
         self.ltp        = max(0.0, float(ltp))
@@ -529,8 +530,7 @@ class OrderDialog(QDialog):
         body = QHBoxLayout()
         body.setContentsMargins(0, 0, 0, 0)
         body.setSpacing(0)
-        body.addWidget(self._build_form_panel())
-        body.addWidget(self._build_depth_panel())
+        body.addWidget(self._build_form_panel(), 1)
         root.addLayout(body)
 
         root.addWidget(self._build_status_bar())
@@ -661,10 +661,9 @@ class OrderDialog(QDialog):
     def _build_form_panel(self) -> QFrame:
         f = QFrame()
         f.setObjectName("formPanel")
-        f.setFixedWidth(310)
         lay = QVBoxLayout(f)
         lay.setContentsMargins(14, 12, 14, 12)
-        lay.setSpacing(10)
+        lay.setSpacing(8)
 
         # BUY / SELL
         self._side_group = _SegGroup(["BUY", "SELL"],
@@ -677,17 +676,31 @@ class OrderDialog(QDialog):
         self._side_group.currentChanged.connect(self._on_side_changed)
         lay.addWidget(self._side_group)
 
-        # PRODUCT
-        lay.addWidget(self._section_label("PRODUCT"))
+        # PRODUCT / VALIDITY / ORDER TYPE (compact grid to save vertical space)
         self._product_seg = _SegGroup(VALID_PRODUCTS, self._product_type)
         self._product_seg.currentChanged.connect(self._update_summary)
-        lay.addWidget(self._product_seg)
 
-        # ORDER TYPE
-        lay.addWidget(self._section_label("ORDER TYPE"))
+        self._validity_seg = _SegGroup(VALID_VALIDITY, "DAY")
+
         self._otype_seg = _SegGroup(VALID_ORDER_TYPES, self._order_type)
         self._otype_seg.currentChanged.connect(self._refresh_fields_visibility)
-        lay.addWidget(self._otype_seg)
+
+        top_grid = QGridLayout()
+        top_grid.setContentsMargins(0, 0, 0, 0)
+        top_grid.setHorizontalSpacing(10)
+        top_grid.setVerticalSpacing(6)
+        top_grid.addWidget(self._labeled_block("PRODUCT", self._product_seg), 0, 0)
+        top_grid.addWidget(self._labeled_block("ORDER TYPE", self._otype_seg), 0, 1)
+        top_grid.addWidget(self._labeled_block("VALIDITY", self._validity_seg), 0, 2)
+        top_grid.setColumnStretch(0, 1)
+        top_grid.setColumnStretch(1, 2)
+        top_grid.setColumnStretch(2, 1)
+        lay.addLayout(top_grid)
+
+        qty_block = QWidget()
+        qty_block_lay = QVBoxLayout(qty_block)
+        qty_block_lay.setContentsMargins(0, 0, 0, 0)
+        qty_block_lay.setSpacing(3)
 
         # QUANTITY
         qty_hdr = QWidget()
@@ -696,7 +709,7 @@ class OrderDialog(QDialog):
         qh.addWidget(self._section_label("QUANTITY"))
         qh.addStretch()
         qh.addWidget(_Label(f"LOT: {self._lot_size}", P.BLUE, 9))
-        lay.addWidget(qty_hdr)
+        qty_block_lay.addWidget(qty_hdr)
 
         qty_row = QHBoxLayout()
         qty_row.setSpacing(3)
@@ -708,7 +721,12 @@ class OrderDialog(QDialog):
         qty_row.addWidget(self._qty_spin, 1)
         qty_row.addWidget(self._qty_plus)
         qty_row.addWidget(_Label("SHR", P.T2, 9))
-        lay.addLayout(qty_row)
+        qty_block_lay.addLayout(qty_row)
+
+        price_block = QWidget()
+        price_block_lay = QVBoxLayout(price_block)
+        price_block_lay.setContentsMargins(0, 0, 0, 0)
+        price_block_lay.setSpacing(3)
 
         # PRICE
         self._price_hdr = QWidget()
@@ -717,7 +735,7 @@ class OrderDialog(QDialog):
         ph.addWidget(self._section_label("PRICE"))
         ph.addStretch()
         ph.addWidget(_Label(f"TICK ₹{self._tick_size}", P.T2, 9))
-        lay.addWidget(self._price_hdr)
+        price_block_lay.addWidget(self._price_hdr)
 
         self._price_row_w = QWidget()
         pr = QHBoxLayout(self._price_row_w)
@@ -732,7 +750,17 @@ class OrderDialog(QDialog):
         pr.addWidget(self._price_spin, 1)
         pr.addWidget(self._price_plus)
         pr.addWidget(self._ltp_btn)
-        lay.addWidget(self._price_row_w)
+        price_block_lay.addWidget(self._price_row_w)
+
+        field_grid = QGridLayout()
+        field_grid.setContentsMargins(0, 0, 0, 0)
+        field_grid.setHorizontalSpacing(10)
+        field_grid.setVerticalSpacing(6)
+        field_grid.addWidget(qty_block, 0, 0)
+        field_grid.addWidget(price_block, 0, 1)
+        field_grid.setColumnStretch(0, 1)
+        field_grid.setColumnStretch(1, 1)
+        lay.addLayout(field_grid)
 
         # TRIGGER PRICE
         self._trig_hdr = _Label("TRIGGER PRICE", P.T2, 9, bold=True)
@@ -751,11 +779,6 @@ class OrderDialog(QDialog):
         tr.addWidget(self._trig_spin, 1)
         tr.addWidget(_Label("₹", P.T2, 10))
         lay.addWidget(self._trig_row_w)
-
-        # VALIDITY
-        lay.addWidget(self._section_label("VALIDITY"))
-        self._validity_seg = _SegGroup(VALID_VALIDITY, "DAY")
-        lay.addWidget(self._validity_seg)
 
         # TOGGLES (AMO  GTT  VARIETY)
         tog_row = QHBoxLayout()
@@ -794,6 +817,15 @@ class OrderDialog(QDialog):
         lay.addWidget(self._confirm_hint)
 
         return f
+
+    def _labeled_block(self, label: str, widget: QWidget) -> QWidget:
+        block = QWidget()
+        layout = QVBoxLayout(block)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(3)
+        layout.addWidget(self._section_label(label))
+        layout.addWidget(widget)
+        return block
 
     def _build_bo_section(self) -> QGroupBox:
         g = QGroupBox("Bracket Order")
@@ -1049,7 +1081,6 @@ class OrderDialog(QDialog):
             }}
             QFrame#formPanel {{
                 background:{P.BG1};
-                border-right:1px solid {P.BORDER};
             }}
             QFrame#depthPanel {{
                 background:{P.BG1};
