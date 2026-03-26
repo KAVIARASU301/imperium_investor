@@ -1004,40 +1004,57 @@ class FixedTradingChart {
     // ═══════════════════════════════════════════════════════════════════════
 
     _drawVolume() {
-        // Visibility + pane guard — both must be present
         if (this.indicatorVisibility.volume === false) return;
         if (!this.volumeArea) return;
 
-        const ctx = this.ctx;
+        const ctx  = this.ctx;
+        const area = this.volumeArea;
+        const start = Math.max(0, this.viewPortStart);
+        const end   = Math.min(this.data.length - 1, this.viewPortEnd);
+
+        // Collect visible volumes
         const visVols = [];
-        for (let i = this.viewPortStart; i <= this.viewPortEnd && i < this.volumeData.length; i++) {
-            if (i >= 0 && this.volumeData[i]) visVols.push(this.volumeData[i].value);
+        for (let i = start; i <= end; i++) {
+            if (this.volumeData[i]) visVols.push(this.volumeData[i].value || 0);
         }
         if (visVols.length === 0) return;
 
-        // 90th percentile cap for cleaner bars
-        const sorted = [...visVols].sort((a, b) => a - b);
-        const p90    = sorted[Math.floor(sorted.length * 0.90)] || 1;
-        this.maxVolume = p90 * 1.15;
+        // Stable p90 cap — only recalculate when viewport actually changes
+        const vpKey = `${this.viewPortStart}_${this.viewPortEnd}`;
+        if (this._volVpKey !== vpKey) {
+            const sorted = [...visVols].sort((a, b) => a - b);
+            const p90    = sorted[Math.floor(sorted.length * 0.90)] || 1;
+            this._cachedMaxVolume = p90 * 1.2;
+            this._volVpKey = vpKey;
+        }
+        this.maxVolume = this._cachedMaxVolume;
 
-        for (let i = this.viewPortStart; i <= this.viewPortEnd && i < this.volumeData.length; i++) {
-            if (i < 0) continue;
-            const vol    = this.volumeData[i];
+        // Panel background (subtle, like TradingView)
+        ctx.fillStyle = 'rgba(10,14,26,0.4)';
+        ctx.fillRect(area.x, area.y, area.width, area.height);
+
+        // Draw bars
+        for (let i = start; i <= end; i++) {
+            const vol    = (this.volumeData[i] || {}).value || 0;
             const candle = this.data[i];
-            if (!vol || !candle) continue;
+            if (!candle) continue;
 
-            const ratio  = Math.min(1, vol.value / this.maxVolume);
-            const h      = ratio * this.volumeArea.height;
+            const ratio  = Math.min(1.0, vol / this.maxVolume);
+            const h      = Math.max(1, ratio * area.height);
             const x      = this._candleToX(i);
-            const barTop = this.volumeArea.y + this.volumeArea.height - h;
+            const barTop = area.y + area.height - h;
             const isUp   = candle.close >= candle.open;
-            const alpha  = Math.min(0.85, 0.3 + ratio * 0.55);
 
-            ctx.fillStyle = this._hexToRgba(isUp ? this.colors.volumeUp : this.colors.volumeDown, alpha);
+            // TradingView-style: solid fill, slightly transparent
+            ctx.fillStyle = isUp
+                ? this._hexToRgba(this.colors.volumeUp,   0.55)
+                : this._hexToRgba(this.colors.volumeDown, 0.55);
             ctx.fillRect(x, barTop, this.candleWidth, h);
 
-            // Bright top edge for bar separation
-            ctx.fillStyle = this._hexToRgba(isUp ? this.colors.volumeUp : this.colors.volumeDown, 0.7);
+            // Bright cap line (1px top edge for crisp definition)
+            ctx.fillStyle = isUp
+                ? this._hexToRgba(this.colors.volumeUp,   0.90)
+                : this._hexToRgba(this.colors.volumeDown, 0.90);
             ctx.fillRect(x, barTop, this.candleWidth, 1);
         }
 
@@ -1142,9 +1159,6 @@ class FixedTradingChart {
     }
 
     _drawCurrentVolLabel() {
-        // ── Live volume pill in right axis panel — matches live price pill ──
-        // Renders at the top of the last visible bar using the same chevron-
-        // pill shape as the live price label, fully contained in the axis panel.
         if (!this.volumeArea) return;
         if (this.data.length === 0) return;
         const lastI = this.data.length - 1;
@@ -1153,53 +1167,47 @@ class FixedTradingChart {
         const vol = (this.volumeData[lastI] || {}).value || 0;
         if (!this.maxVolume || vol <= 0) return;
 
-        const y = this._volumeToY(vol);
+        const ctx = this.ctx;
+        // ← FIX: use chartArea-relative position, not hardcoded width
+        const axisX = this.chartArea.x + this.chartArea.width;
+        const axisW = this.rightAxisWidth;
+        const y     = this._volumeToY(vol);
+        const area  = this.volumeArea;
 
-        // Clamp pill centre so it never overflows the volume pane
-        const area   = this.volumeArea;
-        const lh     = 14;
-        const clampedY = Math.max(area.y + lh / 2 + 1,
-                          Math.min(area.y + area.height - lh / 2 - 1, y));
+        const lh       = 14;
+        const clampedY = Math.max(area.y + lh/2 + 1, Math.min(area.y + area.height - lh/2 - 1, y));
+        const label    = this._fmtVol(vol);
+        const lw       = axisW;
 
-        const ctx    = this.ctx;
-        const axisX  = this.chartArea.x + this.chartArea.width;
-        const axisW  = this.rightAxisWidth;
-        const label  = this._fmtVol(vol);
-
-        const lw = axisW;  // pill spans full axis width (same as price pill)
-
-        // Chevron pointing left into chart
         ctx.fillStyle = 'rgba(30,45,70,0.92)';
         ctx.beginPath();
-        ctx.moveTo(axisX,          clampedY);
-        ctx.lineTo(axisX + 5,      clampedY - lh / 2);
-        ctx.lineTo(axisX + lw,     clampedY - lh / 2);
-        ctx.lineTo(axisX + lw,     clampedY + lh / 2);
-        ctx.lineTo(axisX + 5,      clampedY + lh / 2);
+        ctx.moveTo(axisX,        clampedY);
+        ctx.lineTo(axisX + 5,    clampedY - lh/2);
+        ctx.lineTo(axisX + lw,   clampedY - lh/2);
+        ctx.lineTo(axisX + lw,   clampedY + lh/2);
+        ctx.lineTo(axisX + 5,    clampedY + lh/2);
         ctx.closePath();
         ctx.fill();
 
-        // Subtle border
         ctx.strokeStyle = 'rgba(80,120,180,0.55)';
         ctx.lineWidth   = 0.8;
         ctx.stroke();
 
-        // Short dashed ray from bar top to axis
+        // Dashed ray from bar top to axis
         ctx.strokeStyle = 'rgba(122,168,216,0.28)';
         ctx.lineWidth   = 0.6;
-        ctx.setLineDash([2, 3]);
+        ctx.setLineDash([2,3]);
         ctx.beginPath();
         ctx.moveTo(axisX - 10, y);
-        ctx.lineTo(axisX,      y);
+        ctx.lineTo(axisX, y);
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // Label text
         ctx.font         = 'bold 9px "Segoe UI Mono", monospace';
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillStyle    = '#a8c8e8';
-        ctx.fillText(label, axisX + 5 + (lw - 5) / 2, clampedY);
+        ctx.fillText(label, axisX + 5 + (lw - 5)/2, clampedY);
     }
 
     _niceVolStep(rough) {

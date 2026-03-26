@@ -154,6 +154,7 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
         self.setMinimumSize(1200, 700)
+        self.menuBar().setVisible(False)
 
     def _setup_ui(self):
         """Setup UI with simplified layout"""
@@ -238,7 +239,7 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
     def _create_menu_bar(self) -> QMenuBar:
         """Create a classic top-level menu bar for quick access to key actions."""
-        menu_bar = QMenuBar(self)
+        menu_bar = QMenuBar()
         menu_bar.setObjectName("mainMenuBar")
         # Keep the menu rendered inside our custom title bar.
         # Without this, some desktop environments may move it to a system/global
@@ -425,7 +426,6 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         layout.setContentsMargins(8, 0, 4, 0)
         layout.setSpacing(4)
 
-        self.menu_bar.setParent(title_bar)
         self.menu_bar.setFixedHeight(24)
         # Keep File/View/Tools/About as first-class top-level entries.
         self.menu_bar.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)

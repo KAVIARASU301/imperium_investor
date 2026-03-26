@@ -29,6 +29,7 @@ _DEFAULT_GLOBAL_SETTINGS: Dict[str, Any] = {
     "watermark_position": "mid_center",
     "watermark_font_size": 0,
     "indicator_scale_labels_enabled": False,
+    "indicator_visibility": {},
 }
 
 _DEFAULT_DRAWINGS: Dict[str, list] = {
@@ -168,9 +169,14 @@ class DrawingStorage:
     # ─── Global settings ──────────────────────────────────────────────────────
 
     def save_global_settings(self, settings: Dict[str, Any]) -> None:
+        payload = dict(settings or {})
+        if "indicator_visibility" in payload:
+            payload["indicator_visibility"] = _validate_indicator_visibility(
+                payload.get("indicator_visibility")
+            )
         try:
             with open(self.global_settings_file, "w") as f:
-                json.dump(settings, f, indent=2)
+                json.dump(payload, f, indent=2)
             logger.info("Saved global chart settings.")
         except Exception as exc:
             logger.error("Failed to save global settings: %s", exc)
@@ -183,11 +189,25 @@ class DrawingStorage:
                 settings = json.load(f)
             result = dict(_DEFAULT_GLOBAL_SETTINGS)
             result.update(settings)
+            result["indicator_visibility"] = _validate_indicator_visibility(
+                result.get("indicator_visibility")
+            )
             logger.info("Loaded global chart settings.")
             return result
         except Exception as exc:
             logger.error("Failed to load global settings: %s", exc)
             return dict(_DEFAULT_GLOBAL_SETTINGS)
+
+    def save_global_indicator_visibility(self, visibility: Dict[str, Any]) -> None:
+        """Persist indicator visibility once and reuse for all symbols."""
+        settings = self.load_global_settings()
+        settings["indicator_visibility"] = _validate_indicator_visibility(visibility)
+        self.save_global_settings(settings)
+
+    def load_global_indicator_visibility(self) -> Dict[str, bool]:
+        """Load shared indicator visibility used across all chart symbols."""
+        settings = self.load_global_settings()
+        return _validate_indicator_visibility(settings.get("indicator_visibility", {}))
 
     # ─── Last-viewed symbol ───────────────────────────────────────────────────
 

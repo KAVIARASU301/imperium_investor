@@ -123,7 +123,7 @@ class CandlestickChart(QWidget):
         self._watermark_font_size       = self.global_chart_settings.get("watermark_font_size", 0)
         self._indicator_scale_labels_enabled = self.global_chart_settings.get("indicator_scale_labels_enabled", False)
         self.current_visible_candle_count = self.global_chart_settings.get("default_visible_candles", 100)
-        self._indicator_visibility = dict(DEFAULT_INDICATOR_VISIBILITY)
+        self._indicator_visibility = self.drawing_storage.load_global_indicator_visibility()
 
         self.data_fetcher = DataFetcher(kite_client)
         self.data_cache   = DataCache()
@@ -451,13 +451,8 @@ class CandlestickChart(QWidget):
         saved_state = self.drawing_storage.load_state(self.current_symbol, self.current_interval)
         initial_zoom = saved_state.get("visible_candle_count",
                                        self.current_visible_candle_count)
-        # Use saved state as-is. DEFAULT_INDICATOR_VISIBILITY only fills keys that
-        # are completely absent (new install). Never overrides an explicit False.
-        saved_vis = saved_state.get("indicator_visibility", {})
-        initial_indicator_visibility = {
-            **DEFAULT_INDICATOR_VISIBILITY,   # brand-new-install baseline (all False)
-            **saved_vis,                      # user's explicit choices always win
-        }
+        # Indicators are global, not per-symbol. Load once and apply everywhere.
+        initial_indicator_visibility = self.drawing_storage.load_global_indicator_visibility()
         self._indicator_visibility = initial_indicator_visibility
         self._apply_indicator_toolbar_state(initial_indicator_visibility)
         drawings_json = json.dumps(saved_state.get("drawings", {}))
@@ -625,12 +620,7 @@ class CandlestickChart(QWidget):
     def _toggle_indicator(self, key: str, visible: bool) -> None:
         self._indicator_visibility[key] = visible
         self._js(f"if(window.chart) window.chart.setIndicatorVisibility('{key}', {str(visible).lower()});")
-        if self.current_symbol and self.current_state == ChartState.LOADED:
-            state = self.drawing_storage.load_state(self.current_symbol, self.current_interval)
-            existing = state.get("indicator_visibility", {})
-            existing[key] = visible          # only update the one key that changed
-            state["indicator_visibility"] = existing
-            self.drawing_storage.save_state(self.current_symbol, self.current_interval, state)
+        self.drawing_storage.save_global_indicator_visibility(self._indicator_visibility)
 
     def _save_drawings(self) -> None:
         if not (self.chart_view and self.current_symbol):
@@ -826,9 +816,11 @@ class CandlestickChart(QWidget):
         if "visible_candle_count" in snapshot:
             state["visible_candle_count"] = snapshot["visible_candle_count"]
         if "indicator_visibility" in snapshot and isinstance(snapshot["indicator_visibility"], dict):
-            existing = state.get("indicator_visibility", {})
-            # Merge: existing saved state + whatever JS reported (JS is authoritative)
-            state["indicator_visibility"] = {**existing, **snapshot["indicator_visibility"]}
+            self._indicator_visibility = {
+                **DEFAULT_INDICATOR_VISIBILITY,
+                **snapshot["indicator_visibility"],
+            }
+            self.drawing_storage.save_global_indicator_visibility(self._indicator_visibility)
 
         self.drawing_storage.save_state(symbol, interval, state)
 
