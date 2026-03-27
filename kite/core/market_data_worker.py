@@ -85,7 +85,7 @@ class MarketDataWorker(QObject):
 
         except Exception as e:
             logger.error(f"MarketDataWorker start failed: {e}")
-            self.connection_error.emit(str(e))
+            self._safe_emit(self.connection_error, str(e))
 
     def stop(self):
         """Clean shutdown — unsubscribe then close WS."""
@@ -196,7 +196,7 @@ class MarketDataWorker(QObject):
             valid = [t for t in ticks
                      if "instrument_token" in t and "last_price" in t]
             if valid:
-                self.data_received.emit(valid)
+                self._safe_emit(self.data_received, valid)
         except Exception as e:
             logger.error(f"Tick processing error: {e}")
 
@@ -212,7 +212,7 @@ class MarketDataWorker(QObject):
             logger.debug(
                 f"WS order update: {message.get('order_id')} → {message.get('status')}"
             )
-            self.order_update.emit(message)
+            self._safe_emit(self.order_update, message)
         except Exception as e:
             logger.error(f"Order update processing error: {e}")
 
@@ -227,7 +227,7 @@ class MarketDataWorker(QObject):
             except Exception as e:
                 logger.error(f"On-connect subscribe failed: {e}")
 
-        self.connection_established.emit()
+        self._safe_emit(self.connection_established)
 
     def _on_close(self, ws: KiteTicker, code: int, reason: str) -> None:
         if self._shutdown_requested:
@@ -235,7 +235,7 @@ class MarketDataWorker(QObject):
         else:
             logger.warning(f"WebSocket closed — code: {code}, reason: {reason}")
         self.is_running = False
-        self.connection_closed.emit()
+        self._safe_emit(self.connection_closed)
 
         # Only retry on non-intentional close and if not shutting down
         if code != 1000 and not self._shutdown_requested:
@@ -247,7 +247,7 @@ class MarketDataWorker(QObject):
 
     def _on_error(self, ws: KiteTicker, code: int, reason: str) -> None:
         logger.error(f"WebSocket error — code: {code}, reason: {reason}")
-        self.connection_error.emit(str(reason))
+        self._safe_emit(self.connection_error, str(reason))
 
     def _on_reconnect(self, ws: KiteTicker, attempts: int) -> None:
         logger.info(f"WebSocket reconnecting — attempt {attempts}")
@@ -264,3 +264,19 @@ class MarketDataWorker(QObject):
             return
         ticker_logger.setLevel(self._ticker_log_level_before_shutdown)
         self._ticker_log_level_before_shutdown = None
+
+    def _safe_emit(self, signal: Signal, *args) -> None:
+        """
+        Emit a Qt signal safely.
+
+        During shutdown, KiteTicker callbacks can still arrive after the worker
+        QObject is deleted; emitting then raises RuntimeError ("Signal source has
+        been deleted"). We swallow only that lifecycle race.
+        """
+        try:
+            signal.emit(*args)
+        except RuntimeError as exc:
+            if "Signal source has been deleted" in str(exc):
+                logger.debug("Skipping signal emit after QObject deletion")
+                return
+            raise
