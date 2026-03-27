@@ -259,6 +259,11 @@ class BasePaperTrader(QObject, ABC, metaclass=QObjectABCMeta):
         )
         self._orders.append(order)
         logger.info(f"Paper order queued: {order_id} | {transaction_type} {quantity} {resolved} [{order_type}]")
+
+        # MARKET and SL-M orders: execute immediately, no timer wait.
+        if order.order_type in (self.ORDER_TYPE_MARKET, self.ORDER_TYPE_SL_M):
+            self._try_execute(order)
+
         return order_id
 
     def cancel_order(self, variety: str, order_id: str) -> str:
@@ -376,8 +381,13 @@ class BasePaperTrader(QObject, ABC, metaclass=QObjectABCMeta):
         symbol = order.tradingsymbol
         ltp = self._get_ltp(symbol)
 
+        # Fallback: use instrument map last_price if live tick not yet received
+        if ltp <= 0 and symbol in getattr(self, "_instrument_map", {}):
+            inst = self._instrument_map[symbol]
+            ltp = float(inst.get("last_price") or inst.get("ohlc", {}).get("close", 0.0) or 0.0)
+
         if ltp <= 0:
-            return  # No price data yet — wait
+            return  # Still no price — wait for next tick
 
         rule = self.execution_rules.get(order.order_type)
         if not rule:
