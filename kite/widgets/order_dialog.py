@@ -42,7 +42,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication, QDialog, QWidget, QFrame, QLabel, QPushButton,
-    QComboBox, QSpinBox, QDoubleSpinBox, QCheckBox, QGroupBox, QScrollArea,
+    QComboBox, QSpinBox, QDoubleSpinBox, QCheckBox, QGroupBox,
     QVBoxLayout, QHBoxLayout, QFormLayout, QGridLayout,
     QSizePolicy, QGraphicsDropShadowEffect
 )
@@ -171,6 +171,75 @@ class _SegGroup(QWidget):
 
     def set_current(self, val: str):
         self._select(val)
+
+
+class _DropdownField(QWidget):
+    """
+    Styled dropdown selector with SegGroup-compatible API.
+    """
+    currentChanged = Signal(str)
+
+    def __init__(self, options: List[str], default: str = "", parent=None):
+        super().__init__(parent)
+        self._combo = QComboBox(self)
+        self._combo.addItems(options)
+        self._combo.currentTextChanged.connect(self.currentChanged.emit)
+        self._combo.setStyleSheet(f"""
+            QComboBox {{
+                background:{P.BG3}; color:{P.T0};
+                border:1px solid {P.BORDER2}; border-radius:3px;
+                font-family:'{FONT_MONO}',{FONT_FALL};
+                font-size:11px; font-weight:700;
+                letter-spacing:0.4px;
+                padding:5px 28px 5px 8px;
+                min-height:20px;
+            }}
+            QComboBox:hover {{
+                background:{P.BG2};
+                border:1px solid {P.BLUE};
+            }}
+            QComboBox:focus {{
+                border:1px solid {P.BLUE};
+                background:{P.BG2};
+            }}
+            QComboBox::drop-down {{
+                width:20px;
+                border:none;
+                background:transparent;
+            }}
+            QComboBox::down-arrow {{
+                image:none;
+                width:0px;
+                height:0px;
+                border-left:5px solid transparent;
+                border-right:5px solid transparent;
+                border-top:6px solid {P.T1};
+                margin-right:6px;
+            }}
+            QComboBox QAbstractItemView {{
+                background:{P.BG1};
+                color:{P.T0};
+                border:1px solid {P.BORDER2};
+                selection-background-color:{P.BG2};
+                selection-color:{P.T0};
+                outline:none;
+                padding:2px;
+            }}
+        """)
+
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(self._combo)
+
+        self.set_current(default or options[0])
+
+    def current(self) -> str:
+        return self._combo.currentText()
+
+    def set_current(self, val: str):
+        idx = self._combo.findText(val)
+        if idx >= 0:
+            self._combo.setCurrentIndex(idx)
 
 
 class _NumInput(QDoubleSpinBox):
@@ -463,8 +532,8 @@ class OrderDialog(QDialog):
         super().__init__(parent)
         self.setWindowFlags(Qt.Dialog | Qt.WindowCloseButtonHint)
         self.setAttribute(Qt.WA_TranslucentBackground, False)
-        self.setMinimumSize(560, 640)
-        self.resize(620, 700)
+        self.setMinimumWidth(560)
+        self.resize(620, 560)
 
         self.symbol     = symbol.strip().upper()
         self.ltp        = max(0.0, float(ltp))
@@ -499,6 +568,7 @@ class OrderDialog(QDialog):
         self._refresh_fields_visibility()
         self._refresh_confirm_btn()
         self._update_summary()
+        self._sync_dialog_height()
 
     # ─────────────────────────────────────────────────────────────────────────
     #  DEFAULTS INFERENCE
@@ -531,135 +601,22 @@ class OrderDialog(QDialog):
         root.setSpacing(0)
 
         root.addWidget(self._build_header())
-        root.addWidget(self._build_bidask_strip())
-
-        body = QHBoxLayout()
-        body.setContentsMargins(0, 0, 0, 0)
-        body.setSpacing(0)
-
-        form_scroll = QScrollArea()
-        form_scroll.setObjectName("formScroll")
-        form_scroll.setWidgetResizable(True)
-        form_scroll.setFrameShape(QFrame.NoFrame)
-        form_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        form_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        form_scroll.setWidget(self._build_form_panel())
-        body.addWidget(form_scroll, 1)
-        root.addLayout(body)
-
-        root.addWidget(self._build_status_bar())
+        root.addWidget(self._build_form_panel())
 
     # ── HEADER ───────────────────────────────────────────────────────────────
 
     def _build_header(self) -> QFrame:
         f = QFrame()
         f.setObjectName("header")
-        f.setFixedHeight(50)
+        f.setFixedHeight(42)
         h = QHBoxLayout(f)
-        h.setContentsMargins(16, 8, 14, 6)
+        h.setContentsMargins(16, 8, 16, 8)
         h.setSpacing(10)
 
-        # Symbol
+        # Symbol only (per UX request)
         self._sym_label = _Label(self.symbol, P.T0, 16, bold=True)
-        self._sym_label.setMinimumWidth(110)
-        self._sym_label.setMaximumWidth(240)
-        self._sym_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self._sym_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         h.addWidget(self._sym_label)
-
-        # Exchange badge
-        self._exch_badge = _Label(self._exchange, P.BLUE, 9, bold=True)
-        self._exch_badge.setStyleSheet(
-            f"color:{P.BLUE};border:1px solid {P.BLUE};border-radius:2px;"
-            f"padding:1px 5px;font-family:'{FONT_MONO}',{FONT_FALL};"
-            f"font-size:9px;font-weight:700;letter-spacing:1px;background:transparent;"
-        )
-        h.addWidget(self._exch_badge)
-
-        # LTP (animated)
-        self._ltp_label = _LTPLabel()
-        self._ltp_label.setText(f"₹{self.ltp:,.2f}")
-        h.addWidget(self._ltp_label)
-
-        # Change chip
-        self._chg_label = _Label("", P.T1, 10, bold=True)
-        self._chg_label.setMinimumWidth(96)
-        h.addWidget(self._chg_label)
-        self._update_change_chip(self.ltp)
-
-        h.addStretch()
-
-        # OHLCV row
-        ohlcv_w = QWidget()
-        ohlcv_lay = QHBoxLayout(ohlcv_w)
-        ohlcv_lay.setContentsMargins(0, 0, 0, 0)
-        ohlcv_lay.setSpacing(10)
-
-        prev = float(self.instrument.get("prev_close") or self.ltp)
-        self._ohlcv: Dict[str, QLabel] = {}
-        for key, val, color in [
-            ("O", self.instrument.get("open",  self.ltp), P.T1),
-            ("H", self.instrument.get("high",  self.ltp), P.BUY),
-            ("L", self.instrument.get("low",   self.ltp), P.SELL),
-            ("C", prev,                                    P.T1),
-        ]:
-            w = QWidget()
-            w_lay = QHBoxLayout(w)
-            w_lay.setContentsMargins(0, 0, 0, 0)
-            w_lay.setSpacing(4)
-            w_lay.addWidget(_Label(key, P.T2, 9))
-            lbl = _Label(f"{float(val):,.2f}", color, 11, bold=True)
-            self._ohlcv[key] = lbl
-            w_lay.addWidget(lbl)
-            ohlcv_lay.addWidget(w)
-
-        h.addWidget(ohlcv_w)
-
-        return f
-
-    # ── BID/ASK STRIP ────────────────────────────────────────────────────────
-
-    def _build_bidask_strip(self) -> QFrame:
-        f = QFrame()
-        f.setObjectName("bidAskStrip")
-        f.setFixedHeight(28)
-        h = QHBoxLayout(f)
-        h.setContentsMargins(20, 0, 20, 0)
-        h.setSpacing(0)
-
-        # BID
-        h.addWidget(_Label("BID", P.T2, 9, bold=True))
-        h.addSpacing(8)
-        self._bid_price = _Label("—", P.BUY, 14, bold=True)
-        h.addWidget(self._bid_price)
-        h.addSpacing(6)
-        self._bid_qty = _Label("", P.T1, 10)
-        h.addWidget(self._bid_qty)
-
-        h.addStretch()
-
-        # SPREAD
-        spread_col = QWidget()
-        sc = QVBoxLayout(spread_col)
-        sc.setContentsMargins(0, 0, 0, 0)
-        sc.setSpacing(0)
-        sc.setAlignment(Qt.AlignCenter)
-        sc.addWidget(_Label("SPREAD", P.T2, 8))
-        self._spread_lbl = _Label("—", P.AMBER, 12, bold=True)
-        self._spread_lbl.setAlignment(Qt.AlignCenter)
-        sc.addWidget(self._spread_lbl)
-        h.addWidget(spread_col)
-
-        h.addStretch()
-
-        # ASK
-        self._ask_qty = _Label("", P.T1, 10)
-        h.addWidget(self._ask_qty)
-        h.addSpacing(6)
-        self._ask_price = _Label("—", P.SELL, 14, bold=True)
-        h.addWidget(self._ask_price)
-        h.addSpacing(8)
-        h.addWidget(_Label("ASK", P.T2, 9, bold=True))
-
         return f
 
     # ── FORM PANEL ───────────────────────────────────────────────────────────
@@ -683,12 +640,12 @@ class OrderDialog(QDialog):
         lay.addWidget(self._side_group)
 
         # PRODUCT / VALIDITY / ORDER TYPE (compact grid to save vertical space)
-        self._product_seg = _SegGroup(VALID_PRODUCTS, self._product_type)
+        self._product_seg = _DropdownField(VALID_PRODUCTS, self._product_type)
         self._product_seg.currentChanged.connect(self._update_summary)
 
-        self._validity_seg = _SegGroup(VALID_VALIDITY, "DAY")
+        self._validity_seg = _DropdownField(VALID_VALIDITY, "DAY")
 
-        self._otype_seg = _SegGroup(VALID_ORDER_TYPES, self._order_type)
+        self._otype_seg = _DropdownField(VALID_ORDER_TYPES, self._order_type)
         self._otype_seg.currentChanged.connect(self._refresh_fields_visibility)
 
         top_grid = QGridLayout()
@@ -1031,41 +988,6 @@ class OrderDialog(QDialog):
         lay.addStretch()
         return f
 
-    # ── STATUS BAR ───────────────────────────────────────────────────────────
-
-    def _build_status_bar(self) -> QFrame:
-        f = QFrame()
-        f.setObjectName("statusBar")
-        f.setFixedHeight(28)
-        h = QHBoxLayout(f)
-        h.setContentsMargins(16, 0, 16, 0)
-        h.setSpacing(14)
-
-        def chip(text, val, val_color=P.BUY):
-            w = QWidget()
-            wl = QHBoxLayout(w)
-            wl.setContentsMargins(0, 0, 0, 0)
-            wl.setSpacing(5)
-            wl.addWidget(_Label(text, P.T2, 9))
-            wl.addWidget(_Label(val, val_color, 9, bold=True))
-            return w
-
-        h.addWidget(chip("KITE API", "● LIVE", P.BUY))
-        h.addWidget(chip("LATENCY", "4ms", P.BUY))
-        h.addWidget(chip("SESSION", "09:15 → 15:30 IST", P.T0))
-        h.addWidget(chip("FEED", "NSE EQ · F&O", P.AMBER))
-        h.addStretch()
-        self._clock = _Label("", P.T1, 9, bold=True)
-        h.addWidget(self._clock)
-
-        # Live clock
-        self._clock_timer = QTimer(self)
-        self._clock_timer.timeout.connect(self._tick_clock)
-        self._clock_timer.start(1000)
-        self._tick_clock()
-
-        return f
-
     # ─────────────────────────────────────────────────────────────────────────
     #  STYLES
     # ─────────────────────────────────────────────────────────────────────────
@@ -1081,18 +1003,7 @@ class OrderDialog(QDialog):
                 background:{P.BG0};
                 border-bottom:1px solid {P.BORDER};
             }}
-            QFrame#bidAskStrip {{
-                background:{P.BG0};
-                border-bottom:1px solid {P.BORDER};
-            }}
             QFrame#formPanel {{
-                background:{P.BG1};
-            }}
-            QScrollArea#formScroll {{
-                background:{P.BG1};
-                border:none;
-            }}
-            QScrollArea#formScroll > QWidget > QWidget {{
                 background:{P.BG1};
             }}
             QFrame#depthPanel {{
@@ -1102,10 +1013,6 @@ class OrderDialog(QDialog):
                 background:{P.BG0};
                 border:1px solid {P.BORDER};
                 border-radius:6px;
-            }}
-            QFrame#statusBar {{
-                background:{P.BG0};
-                border-top:1px solid {P.BORDER};
             }}
             QGroupBox {{
                 color:{P.T2};
@@ -1228,6 +1135,19 @@ class OrderDialog(QDialog):
         self._price_row_w.setVisible(show_price)
         self._trig_hdr.setVisible(show_trig)
         self._trig_row_w.setVisible(show_trig)
+        self._sync_dialog_height()
+
+    def _sync_dialog_height(self):
+        """
+        Keep dialog height tightly fit to visible content while allowing growth
+        when optional sections (e.g. BO) are shown.
+        """
+        self.layout().activate()
+        self._container.layout().activate()
+        target_h = self.sizeHint().height()
+        max_h = int(QApplication.primaryScreen().availableGeometry().height() * 0.92)
+        self.setMaximumHeight(max_h)
+        self.resize(self.width(), min(target_h, max_h))
 
     def _refresh_confirm_btn(self):
         side = self._side_group.current()
@@ -1278,24 +1198,6 @@ class OrderDialog(QDialog):
             pct = (self.ltp - self._circuit_low) / (self._circuit_high - self._circuit_low)
             self._circuit_bar.set_pct(pct)
 
-    def _update_change_chip(self, new_ltp: float):
-        prev = float(self.instrument.get("prev_close") or new_ltp)
-        if prev <= 0: return
-        chg = new_ltp - prev
-        pct = (chg / prev) * 100
-        sign = "▲" if chg >= 0 else "▼"
-        c    = P.BUY if chg >= 0 else P.SELL
-        self._chg_label.setText(f"{sign} {abs(chg):,.2f}  ({abs(pct):.2f}%)")
-        self._chg_label.setStyleSheet(
-            f"color:{c};background:{'rgba(0,229,160,0.10)' if chg>=0 else 'rgba(255,77,109,0.10)'};"
-            f"padding:2px 8px;border-radius:2px;font-family:'{FONT_MONO}',{FONT_FALL};"
-            f"font-size:11px;font-weight:700;"
-        )
-
-    def _tick_clock(self):
-        from datetime import datetime
-        self._clock.setText(datetime.now().strftime("%H:%M:%S") + " IST")
-
     def _handle_submit(self):
         if self._confirm_stage == 0:
             self._confirm_stage = 1
@@ -1343,18 +1245,8 @@ class OrderDialog(QDialog):
         depth format (list of 10 dicts, first 5 = buy, last 5 = sell):
             [{"price": 2847.20, "quantity": 342, "orders": 8}, ...]
         """
-        direction = "up" if ltp >= self.ltp else "down"
-        self.ltp   = ltp
-        self._ltp_label.setText(f"₹{ltp:,.2f}")
-        self._ltp_label.flash(direction)
-        self._update_change_chip(ltp)
+        self.ltp = ltp
         self._update_circuit()
-
-        # Bid / Ask
-        if bid > 0 and ask > 0:
-            self._bid_price.setText(f"₹{bid:,.2f}")
-            self._ask_price.setText(f"₹{ask:,.2f}")
-            self._spread_lbl.setText(f"₹{ask-bid:.2f}")
 
         # Depth
         if depth and len(depth) >= 10:
@@ -1363,6 +1255,8 @@ class OrderDialog(QDialog):
             self._depth_buy  = buy_side
             self._depth_sell = sell_side
             self._refresh_depth(buy_side, sell_side)
+
+        self._update_summary()
 
     def _refresh_depth(self, buy_side: List[Dict], sell_side: List[Dict]):
         all_qty = [d.get("quantity", 0) for d in buy_side + sell_side]
