@@ -1110,6 +1110,13 @@ class FixedTradingChart {
         ctx.lineTo(axisX, area.y + area.height);
         ctx.stroke();
 
+        // ── 3b. Pane name tag ────────────────────────────────────────────────
+        ctx.font         = this._axisFont(10, 700);
+        ctx.textAlign    = 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillStyle    = 'rgba(122,168,216,0.88)';
+        ctx.fillText('VOL', axisX + 6, area.y + 4);
+
         // ── 4. Compute a nice set of tick values ─────────────────────────────
         // Pick 2-3 human-friendly volume levels using a "nice step" approach,
         // similar to how the price axis works.  Skip the 0 tick — it sits at
@@ -2628,7 +2635,20 @@ class FixedTradingChart {
     // DISPLAY HELPERS
     // ═══════════════════════════════════════════════════════════════════════
 
-    _renderPriceInfo(c, dateStr) {
+    _resolveVolumeForCandle(candle, candleIndex = -1) {
+        const atIdx = (typeof candleIndex === 'number' && candleIndex >= 0 && candleIndex < this.volumeData.length)
+            ? Number(this.volumeData[candleIndex]?.value)
+            : NaN;
+        if (Number.isFinite(atIdx) && atIdx >= 0) return atIdx;
+
+        const byTime = Number(this.volumeData?.find(v => v.time === candle?.time)?.value);
+        if (Number.isFinite(byTime) && byTime >= 0) return byTime;
+
+        const fromCandle = Number(candle?.volume);
+        return (Number.isFinite(fromCandle) && fromCandle >= 0) ? fromCandle : 0;
+    }
+
+    _renderPriceInfo(c, dateStr, candleIndex = -1) {
         const el = document.getElementById('metricsInfo');
         if (!el) return;
 
@@ -2637,7 +2657,7 @@ class FixedTradingChart {
         const dayPct = prevClose !== 0 ? ((dayChange / prevClose) * 100) : 0;
         const dayColor = dayChange >= 0 ? '#2dd4a7' : '#ff6b7f';
         const daySign = dayChange >= 0 ? '+' : '';
-        const volume = Number((this.volumeData?.find(v => v.time === c.time)?.value) ?? c.volume ?? 0);
+        const volume = this._resolveVolumeForCandle(c, candleIndex);
 
         const sep = '<span style="color:#26354d;margin:0 4px;">·</span>';
         const dot = '<span style="color:#223149;margin:0 4px;">·</span>';
@@ -2675,16 +2695,17 @@ class FixedTradingChart {
         const idx = this._xToCandle(x);
         if (idx < 0 || idx >= this.data.length) { this._displayLatestCandleDetails(); return; }
         const c = this.data[idx];
-        this._renderPriceInfo(c, this._fmtTimeLabel(new Date(c.time)));
+        this._renderPriceInfo(c, this._fmtTimeLabel(new Date(c.time)), idx);
     }
 
     _displayLatestCandleDetails() {
         const el = document.getElementById('metricsInfo');
         if (!el) return;
         if (this.data.length === 0) { el.textContent = 'No data'; return; }
-        const c = this.data[this.data.length - 1];
+        const idx = this.data.length - 1;
+        const c = this.data[idx];
         const dateStr = new Date(c.time).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' });
-        this._renderPriceInfo(c, dateStr);
+        this._renderPriceInfo(c, dateStr, idx);
     }
 
     _updateMetricsDisplay() {

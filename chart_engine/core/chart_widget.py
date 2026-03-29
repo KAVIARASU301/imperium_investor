@@ -445,7 +445,8 @@ class CandlestickChart(QWidget):
         for _, row in df.iterrows():
             ts = int(row["time"].timestamp() * 1000)
             candles.append({"time": ts, "open": float(row["open"]), "high": float(row["high"]),
-                            "low": float(row["low"]), "close": float(row["close"])})
+                            "low": float(row["low"]), "close": float(row["close"]),
+                            "volume": float(row["volume"])})
             volumes.append({"time": ts, "value": float(row["volume"])})
 
         saved_state = self.drawing_storage.load_state(self.current_symbol, self.current_interval)
