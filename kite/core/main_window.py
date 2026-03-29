@@ -233,8 +233,16 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.main_splitter.setStretchFactor(2, 2)
         self.main_splitter.setSizes([220, 900, 320])
         self.main_splitter.splitterMoved.connect(self._on_main_splitter_moved)
+        self.main_splitter.splitterMoved.connect(self._queue_window_state_save)
 
         self.right_panel_splitter = right_panel_splitter
+        self.right_panel_splitter.splitterMoved.connect(self._queue_window_state_save)
+        self._window_state_save_timer = QTimer(self)
+        self._window_state_save_timer.setSingleShot(True)
+        self._window_state_save_timer.setInterval(400)
+        self._window_state_save_timer.timeout.connect(self.save_window_state)
+        self._pending_main_splitter_sizes = None
+        self._pending_right_splitter_sizes = None
         self._apply_intelligent_main_splitter_layout()
 
     def _create_menu_bar(self) -> QMenuBar:
@@ -404,6 +412,11 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         """Prevent one pane from taking all width when dragging splitter handles."""
         self._apply_intelligent_main_splitter_layout()
 
+    def _queue_window_state_save(self, *_args):
+        """Debounce frequent splitter drags and persist layout shortly after movement."""
+        if hasattr(self, '_window_state_save_timer'):
+            self._window_state_save_timer.start()
+
     def resizeEvent(self, event):
         """Re-balance pane widths when the window geometry changes."""
         super().resizeEvent(event)
@@ -415,6 +428,22 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         """Recompute title/menu geometry once the window is visible."""
         super().showEvent(event)
         self._update_title_bar_compact_state()
+        self._apply_pending_splitter_sizes()
+
+    def _apply_pending_splitter_sizes(self):
+        """Apply restored splitter sizes once widgets have a real on-screen size."""
+        try:
+            if self._pending_main_splitter_sizes:
+                self.main_splitter.setSizes(self._pending_main_splitter_sizes)
+                self._pending_main_splitter_sizes = None
+
+            if hasattr(self, 'right_panel_splitter') and self._pending_right_splitter_sizes:
+                self.right_panel_splitter.setSizes(self._pending_right_splitter_sizes)
+                self._pending_right_splitter_sizes = None
+
+            self._apply_intelligent_main_splitter_layout()
+        except Exception as e:
+            logger.warning(f"Failed applying pending splitter sizes: {e}")
 
     def _create_top_bar(self) -> QWidget:
         """Create a top bar with centered app title/mode and anchored menu/window controls."""
@@ -1667,11 +1696,13 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             state = {
                 'geometry': self.saveGeometry().toBase64().data().decode('utf-8'),
                 'main_splitter': self.main_splitter.saveState().toBase64().data().decode('utf-8'),
+                'main_splitter_sizes': self.main_splitter.sizes(),
                 'is_maximized': self.isMaximized()
             }
 
             if hasattr(self, 'right_panel_splitter'):
                 state['right_panel_splitter'] = self.right_panel_splitter.saveState().toBase64().data().decode('utf-8')
+                state['right_panel_splitter_sizes'] = self.right_panel_splitter.sizes()
 
             self.config_manager.save_window_state(state)
             logger.info("Window state saved")
@@ -1693,6 +1724,8 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                         self.main_splitter.setSizes([220, 900, 320])
                 else:
                     self.main_splitter.setSizes([220, 900, 320])
+                if state.get('main_splitter_sizes'):
+                    self._pending_main_splitter_sizes = state['main_splitter_sizes']
 
                 if hasattr(self, 'right_panel_splitter') and 'right_panel_splitter' in state:
                     try:
@@ -1703,12 +1736,14 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                         self.right_panel_splitter.setSizes([320, 220])
                 elif hasattr(self, 'right_panel_splitter'):
                     self.right_panel_splitter.setSizes([320, 220])
+                if hasattr(self, 'right_panel_splitter') and state.get('right_panel_splitter_sizes'):
+                    self._pending_right_splitter_sizes = state['right_panel_splitter_sizes']
 
                 if state.get('is_maximized', False):
                     self.showMaximized()
                     self.max_btn.setText("❐")
 
-                self._apply_intelligent_main_splitter_layout()
+                QTimer.singleShot(0, self._apply_pending_splitter_sizes)
                 logger.info("Window state restored")
             else:
                 # Default state

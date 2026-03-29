@@ -8,7 +8,7 @@
  *   - HiDPI canvas setup (sharp on Retina / 4K displays)
  *   - requestAnimationFrame render loop with dirty-flag (no wasted redraws)
  *   - Candle rendering: TC2000-style body + wick + subtle border
- *   - Volume bars: 90th-percentile normalised + opacity proportional to size
+ *   - Volume bars: max-visible normalised (no percentile clipping)
  *   - Overlays: EMA10/20/50/200 with right-edge price labels
  *   - ATR Trend Reversal markers (3.01 ATR distance from EMA21)
  *   - VWAP line (institutional standard, calculated from cumulative TPV/Vol)
@@ -1026,12 +1026,11 @@ class FixedTradingChart {
         }
         if (visVols.length === 0) return;
 
-        // Stable p90 cap — only recalculate when viewport actually changes
+        // Stable max cap — only recalculate when viewport actually changes
         const vpKey = `${this.viewPortStart}_${this.viewPortEnd}`;
         if (this._volVpKey !== vpKey) {
-            const sorted = [...visVols].sort((a, b) => a - b);
-            const p90    = sorted[Math.floor(sorted.length * 0.90)] || 1;
-            this._cachedMaxVolume = p90 * 1.2;
+            const maxVisible = Math.max(1, ...visVols);
+            this._cachedMaxVolume = maxVisible;
             this._volVpKey = vpKey;
         }
         this.maxVolume = this._cachedMaxVolume;
