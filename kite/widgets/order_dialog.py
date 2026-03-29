@@ -42,7 +42,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication, QDialog, QWidget, QFrame, QLabel, QPushButton,
-    QComboBox, QSpinBox, QDoubleSpinBox, QCheckBox, QGroupBox,
+    QComboBox, QSpinBox, QDoubleSpinBox, QCheckBox, QGroupBox, QScrollArea,
     QVBoxLayout, QHBoxLayout, QFormLayout, QGridLayout,
     QSizePolicy, QGraphicsDropShadowEffect
 )
@@ -76,7 +76,7 @@ FONT_FALL = "Segoe UI, Arial, sans-serif"
 #  CONSTANTS
 # ─────────────────────────────────────────────────────────────────────────────
 VALID_ORDER_TYPES = ["MARKET", "LIMIT", "SL", "SL-M"]
-VALID_PRODUCTS    = ["CNC", "MIS", "NRML"]
+VALID_PRODUCTS    = ["CNC", "MIS"]
 VALID_VARIETIES   = ["regular", "bo", "co"]
 VALID_EXCHANGES   = ["NSE", "BSE", "NFO", "MCX", "BFO", "CDS"]
 VALID_VALIDITY    = ["DAY", "IOC", "GTD"]
@@ -151,10 +151,16 @@ class _SegGroup(QWidget):
         self._select(default or options[0])
 
     def _select(self, val: str):
+        if val not in self._btns:
+            return
+
         for k, b in self._btns.items():
-            b.blockSignals(True)
-            b.setChecked(k == val)
-            b.blockSignals(False)
+            should_check = (k == val)
+            if b.isChecked() != should_check:
+                b.setChecked(should_check)
+            # Keep visual state deterministic even if checked state is unchanged.
+            b._refresh()
+
         self.currentChanged.emit(val)
 
     def current(self) -> str:
@@ -457,7 +463,8 @@ class OrderDialog(QDialog):
         super().__init__(parent)
         self.setWindowFlags(Qt.Dialog | Qt.WindowCloseButtonHint)
         self.setAttribute(Qt.WA_TranslucentBackground, False)
-        self.setMinimumSize(500, 520)
+        self.setMinimumSize(560, 640)
+        self.resize(620, 700)
 
         self.symbol     = symbol.strip().upper()
         self.ltp        = max(0.0, float(ltp))
@@ -465,7 +472,8 @@ class OrderDialog(QDialog):
         od              = order_details or {}
 
         self._exchange     = self._infer_exchange(od, instrument)
-        self._product_type = od.get("product", self._infer_product(instrument))
+        requested_product = str(od.get("product", "CNC")).upper()
+        self._product_type = requested_product if requested_product in VALID_PRODUCTS else "CNC"
         self._order_type   = od.get("order_type", "LIMIT")
         self._variety      = od.get("variety", "regular")
         self._is_buy       = od.get("transaction_type", "BUY").upper() == "BUY"
@@ -502,9 +510,8 @@ class OrderDialog(QDialog):
         return "NSE"
 
     def _infer_product(self, instr: Optional[Dict]) -> str:
-        if not instr: return "MIS"
-        seg = instr.get("segment", "").upper()
-        return "NRML" if any(x in seg for x in ["FO", "NFO", "BFO"]) else "MIS"
+        # CNC is the default in this dialog; NRML is intentionally excluded from UI options.
+        return "CNC"
 
     # ─────────────────────────────────────────────────────────────────────────
     #  UI CONSTRUCTION
@@ -529,7 +536,15 @@ class OrderDialog(QDialog):
         body = QHBoxLayout()
         body.setContentsMargins(0, 0, 0, 0)
         body.setSpacing(0)
-        body.addWidget(self._build_form_panel(), 1)
+
+        form_scroll = QScrollArea()
+        form_scroll.setObjectName("formScroll")
+        form_scroll.setWidgetResizable(True)
+        form_scroll.setFrameShape(QFrame.NoFrame)
+        form_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        form_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        form_scroll.setWidget(self._build_form_panel())
+        body.addWidget(form_scroll, 1)
         root.addLayout(body)
 
         root.addWidget(self._build_status_bar())
@@ -545,8 +560,10 @@ class OrderDialog(QDialog):
         h.setSpacing(10)
 
         # Symbol
-        self._sym_label = _Label(self.symbol, P.T0, 17, bold=True)
-        self._sym_label.setFixedWidth(160)
+        self._sym_label = _Label(self.symbol, P.T0, 16, bold=True)
+        self._sym_label.setMinimumWidth(110)
+        self._sym_label.setMaximumWidth(240)
+        self._sym_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         h.addWidget(self._sym_label)
 
         # Exchange badge
@@ -564,8 +581,8 @@ class OrderDialog(QDialog):
         h.addWidget(self._ltp_label)
 
         # Change chip
-        self._chg_label = _Label("", P.T1, 11, bold=True)
-        self._chg_label.setMinimumWidth(140)
+        self._chg_label = _Label("", P.T1, 10, bold=True)
+        self._chg_label.setMinimumWidth(96)
         h.addWidget(self._chg_label)
         self._update_change_chip(self.ltp)
 
@@ -575,7 +592,7 @@ class OrderDialog(QDialog):
         ohlcv_w = QWidget()
         ohlcv_lay = QHBoxLayout(ohlcv_w)
         ohlcv_lay.setContentsMargins(0, 0, 0, 0)
-        ohlcv_lay.setSpacing(16)
+        ohlcv_lay.setSpacing(10)
 
         prev = float(self.instrument.get("prev_close") or self.ltp)
         self._ohlcv: Dict[str, QLabel] = {}
@@ -651,16 +668,16 @@ class OrderDialog(QDialog):
         f = QFrame()
         f.setObjectName("formPanel")
         lay = QVBoxLayout(f)
-        lay.setContentsMargins(10, 8, 10, 8)
+        lay.setContentsMargins(10, 8, 10, 10)
         lay.setSpacing(6)
 
         # BUY / SELL
         self._side_group = _SegGroup(["BUY", "SELL"],
                                      "BUY" if self._is_buy else "SELL")
-        self._side_group.setFixedHeight(32)
+        self._side_group.setFixedHeight(30)
         # Override with big bold buttons
         for key, btn in self._side_group._btns.items():
-            btn.setFixedHeight(32)
+            btn.setFixedHeight(30)
             btn.setStyleSheet(self._side_style(key, key == ("BUY" if self._is_buy else "SELL")))
         self._side_group.currentChanged.connect(self._on_side_changed)
         lay.addWidget(self._side_group)
@@ -796,7 +813,7 @@ class OrderDialog(QDialog):
 
         # SUBMIT BUTTON
         self._submit_btn = QPushButton("▲  PLACE BUY ORDER")
-        self._submit_btn.setFixedHeight(34)
+        self._submit_btn.setFixedHeight(32)
         self._submit_btn.setCursor(QCursor(Qt.PointingHandCursor))
         lay.addWidget(self._submit_btn)
 
@@ -847,7 +864,7 @@ class OrderDialog(QDialog):
         f = QFrame()
         f.setObjectName("summaryBox")
         lay = QVBoxLayout(f)
-        lay.setContentsMargins(10, 8, 10, 8)
+        lay.setContentsMargins(10, 8, 10, 10)
         lay.setSpacing(5)
 
         def row(key: str):
@@ -1019,10 +1036,10 @@ class OrderDialog(QDialog):
     def _build_status_bar(self) -> QFrame:
         f = QFrame()
         f.setObjectName("statusBar")
-        f.setFixedHeight(24)
+        f.setFixedHeight(28)
         h = QHBoxLayout(f)
         h.setContentsMargins(16, 0, 16, 0)
-        h.setSpacing(20)
+        h.setSpacing(14)
 
         def chip(text, val, val_color=P.BUY):
             w = QWidget()
@@ -1071,6 +1088,13 @@ class OrderDialog(QDialog):
             QFrame#formPanel {{
                 background:{P.BG1};
             }}
+            QScrollArea#formScroll {{
+                background:{P.BG1};
+                border:none;
+            }}
+            QScrollArea#formScroll > QWidget > QWidget {{
+                background:{P.BG1};
+            }}
             QFrame#depthPanel {{
                 background:{P.BG1};
             }}
@@ -1109,7 +1133,7 @@ class OrderDialog(QDialog):
             return (
                 f"QPushButton{{background:{P.BG3};color:{P.T1};"
                 f"border:1px solid {P.BORDER2};border-radius:4px;font-family:'{FONT_MONO}',{FONT_FALL};"
-                f"font-size:13px;font-weight:700;letter-spacing:0.5px;}}"
+                f"font-size:12px;font-weight:700;letter-spacing:0.4px;padding:0 8px;}}"
                 f"QPushButton:hover{{background:{P.BG2};color:{P.T0};}}"
             )
         grad = "qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #2ebd85,stop:1 #1f9d55)" \
@@ -1118,7 +1142,7 @@ class OrderDialog(QDialog):
         return (
             f"QPushButton{{background:{grad};color:#ffffff;"
             f"border:none;border-radius:4px;font-family:'{FONT_MONO}',{FONT_FALL};"
-            f"font-size:13px;font-weight:700;letter-spacing:0.4px;}}"
+            f"font-size:12px;font-weight:700;letter-spacing:0.4px;padding:0 8px;}}"
         )
 
     def _refresh_submit_style(self):

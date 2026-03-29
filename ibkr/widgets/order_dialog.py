@@ -76,7 +76,7 @@ FONT_FALL = "Consolas, Courier New"
 #  CONSTANTS
 # ─────────────────────────────────────────────────────────────────────────────
 VALID_ORDER_TYPES = ["MARKET", "LIMIT", "SL", "SL-M"]
-VALID_PRODUCTS    = ["CNC", "MIS", "NRML"]
+VALID_PRODUCTS    = ["CNC", "MIS"]
 VALID_VARIETIES   = ["regular", "bo", "co"]
 VALID_EXCHANGES   = ["NSE", "BSE", "NFO", "MCX", "BFO", "CDS"]
 VALID_VALIDITY    = ["DAY", "IOC", "GTD"]
@@ -151,10 +151,16 @@ class _SegGroup(QWidget):
         self._select(default or options[0])
 
     def _select(self, val: str):
+        if val not in self._btns:
+            return
+
         for k, b in self._btns.items():
-            b.blockSignals(True)
-            b.setChecked(k == val)
-            b.blockSignals(False)
+            should_check = (k == val)
+            if b.isChecked() != should_check:
+                b.setChecked(should_check)
+            # Keep visual state deterministic even if checked state is unchanged.
+            b._refresh()
+
         self.currentChanged.emit(val)
 
     def current(self) -> str:
@@ -466,7 +472,8 @@ class OrderDialog(QDialog):
         od              = order_details or {}
 
         self._exchange     = self._infer_exchange(od, instrument)
-        self._product_type = od.get("product", self._infer_product(instrument))
+        requested_product = str(od.get("product", "CNC")).upper()
+        self._product_type = requested_product if requested_product in VALID_PRODUCTS else "CNC"
         self._order_type   = od.get("order_type", "LIMIT")
         self._variety      = od.get("variety", "regular")
         self._is_buy       = od.get("transaction_type", "BUY").upper() == "BUY"
@@ -503,9 +510,8 @@ class OrderDialog(QDialog):
         return "NSE"
 
     def _infer_product(self, instr: Optional[Dict]) -> str:
-        if not instr: return "MIS"
-        seg = instr.get("segment", "").upper()
-        return "NRML" if any(x in seg for x in ["FO", "NFO", "BFO"]) else "MIS"
+        # CNC is the default in this dialog; NRML is intentionally excluded from UI options.
+        return "CNC"
 
     # ─────────────────────────────────────────────────────────────────────────
     #  UI CONSTRUCTION

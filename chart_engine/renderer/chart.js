@@ -159,19 +159,19 @@ class FixedTradingChart {
         this.indicatorVisibility = _loadIndicatorState(_pythonDefaults);
         // indicator panel removed — toggles live in the Python toolbar (IND ▾)
 
-        // ── Computed VWAP ──
+        // ── Computed indicators — only if real historical data is present ──
+        // CVD/VWAP/RSI must never run on empty or placeholder data.
         this.vwapData = [];
-        this._computeVWAP();
         this.atrTrendReversal = [];
-        this._computeATRTrendReversal();
-
-        // ── Computed CVD ──
         this.cvdData = [];
-        this._computeCVD();
-
-        // ── Computed RSI (Wilder 14-period smoothed) ──
         this.rsiData = [];
-        this._computeRSI();
+        this._hasLiveTicks = false;
+        if (this.data.length > 0) {
+            this._computeVWAP();
+            this._computeATRTrendReversal();
+            this._computeCVD();
+            this._computeRSI();
+        }
 
         // ── Bridge ──
         this.chartBridge = null;
@@ -441,8 +441,12 @@ class FixedTradingChart {
     }
 
     _drawRSI() {
-        if (!this.rsiArea || !this.rsiData || this.rsiData.length === 0) return;
+        if (!this.rsiArea) return;
         if (this.indicatorVisibility.rsi === false) return;
+        if (!this.rsiData || this.rsiData.length === 0 || this.data.length === 0) {
+            this._drawPaneWaiting(this.rsiArea, `RSI (${this.rsiPeriod || 14})`, '179,136,255');
+            return;
+        }
 
         const ctx  = this.ctx;
         const area = this.rsiArea;
@@ -838,9 +842,12 @@ class FixedTradingChart {
     // ═══════════════════════════════════════════════════════════════════════
 
     _drawCVD() {
-        if (!this.cvdArea || !this.cvdData || this.cvdData.length === 0) return;
-        // Guard: indicatorVisibility.cvd controls both pane and _updateChartAreas
+        if (!this.cvdArea) return;
         if (this.indicatorVisibility.cvd === false) return;
+        if (!this.cvdData || this.cvdData.length === 0 || this.data.length === 0) {
+            this._drawPaneWaiting(this.cvdArea, 'CVD', '0,191,255');
+            return;
+        }
 
         const ctx  = this.ctx;
         const area = this.cvdArea;
@@ -1268,8 +1275,36 @@ class FixedTradingChart {
         }
     }
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // PANE WAITING STATE  (clean label when indicator data unavailable)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    _drawPaneWaiting(area, label, rgb) {
+        const ctx = this.ctx;
+        ctx.fillStyle = 'rgba(8,10,20,0.93)';
+        ctx.fillRect(area.x, area.y, area.width, area.height);
+        ctx.strokeStyle = 'rgba(38,52,85,0.8)';
+        ctx.lineWidth = 0.8;
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.moveTo(area.x, area.y - 2);
+        ctx.lineTo(area.x + area.width, area.y - 2);
+        ctx.stroke();
+        ctx.font = '700 9px "Segoe UI", sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillStyle = `rgba(${rgb},0.45)`;
+        ctx.fillText(label, area.x + 4, area.y + 3);
+        ctx.font = '10px "Segoe UI", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = 'rgba(80,100,140,0.45)';
+        ctx.fillText('No data', area.x + area.width / 2, area.y + area.height / 2);
+    }
+
     _drawVWAP() {
-        if (this.vwapData.length === 0 || !this.currentInterval.includes('minute')) return;
+        if (this.vwapData.length === 0 || this.data.length === 0) return;
+        if (!this.currentInterval.includes('minute')) return;
         if (this.indicatorVisibility.vwap === false) return;
         const ctx = this.ctx;
         ctx.strokeStyle = this.colors.vwap;
@@ -2683,6 +2718,7 @@ class FixedTradingChart {
 
     updateLivePrice(price) {
         this.livePrice = price;
+        this._hasLiveTicks = true;
         if (this.data.length > 0) {
             const last = this.data[this.data.length - 1];
             last.close = price;
