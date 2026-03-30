@@ -2659,18 +2659,18 @@ class FixedTradingChart {
         const daySign = dayChange >= 0 ? '+' : '';
         const volume = this._resolveVolumeForCandle(c, candleIndex);
 
-        const sep = '<span style="color:#26354d;margin:0 4px;">·</span>';
-        const dot = '<span style="color:#223149;margin:0 4px;">·</span>';
+        const sep = '<span style="color:#6f86ab;margin:0 5px;">•</span>';
+        const dot = '<span style="color:#60779d;margin:0 5px;">•</span>';
         const adrPercent = Number(this.currentADR?.percent ?? 0);
-        const adrPctColor = adrPercent > 4 ? '#22c55e' : (adrPercent >= 2 ? '#f8fafc' : '#ef4444');
+        const adrPctColor = adrPercent > 4 ? '#22c55e' : (adrPercent >= 2 ? '#e2e8f0' : '#f87171');
         const adrStr = this.currentADR?.value > 0
-            ? `<span style="color:#93c5fd;">ADR</span><span style="color:#bfdbfe;margin-left:2px;">₹${this.currentADR.value.toFixed(2)}</span><span style="color:${adrPctColor};margin-left:2px;font-weight:700;">(${adrPercent.toFixed(2)}%)</span>`
-            : '<span style="color:#405a77;">ADR N/A</span>';
+            ? `<span style="color:#bfdbfe;">ADR</span><span style="color:#e0ecff;margin-left:2px;">₹${this.currentADR.value.toFixed(2)}</span><span style="color:${adrPctColor};margin-left:3px;font-weight:700;">(${adrPercent.toFixed(2)}%)</span>`
+            : '<span style="color:#8da2c3;">ADR N/A</span>';
         const perf = ['Monthly','3M','6M','1Y'].map(p => {
             const v = this.percentageChanges?.[p];
-            if (v == null) return `<span style="color:#354b66;">${p} N/A</span>`;
-            const valCol = v >= 0 ? '#3a9e72' : '#c45a6a';
-            return `<span style="color:#425a78;">${p}</span><span style="color:${valCol};margin-left:2px;">${v >= 0 ? '+' : ''}${v.toFixed(2)}%</span>`;
+            if (v == null) return `<span style="color:#8ea3c3;">${p} N/A</span>`;
+            const valCol = v >= 0 ? '#34d399' : '#fb7185';
+            return `<span style="color:#b2c2dc;">${p}</span><span style="color:${valCol};margin-left:3px;font-weight:600;">${v >= 0 ? '+' : ''}${v.toFixed(2)}%</span>`;
         }).join(dot);
 
         const metricsRow = [
@@ -2679,13 +2679,13 @@ class FixedTradingChart {
         ].join(sep);
 
         const priceRow = [
-            `<span style="color:#556887;">${dateStr}</span>`,
-            `<span style="color:#3c4f6d;">O</span><span style="color:#8fa3bf;margin-left:2px;">₹${c.open.toFixed(2)}</span>`,
-            `<span style="color:#3c4f6d;">H</span><span style="color:#8fa3bf;margin-left:2px;">₹${c.high.toFixed(2)}</span>`,
-            `<span style="color:#3c4f6d;">L</span><span style="color:#8fa3bf;margin-left:2px;">₹${c.low.toFixed(2)}</span>`,
-            `<span style="color:#3c4f6d;">C</span><span style="color:#8fa3bf;margin-left:2px;">₹${c.close.toFixed(2)}</span>`,
-            `<span style="color:${dayColor};">Chg ${daySign}₹${dayChange.toFixed(2)} (${daySign}${dayPct.toFixed(2)}%)</span>`,
-            `<span style="color:#3c4f6d;">Vol</span><span style="color:#8fa3bf;margin-left:2px;">${Math.round(volume).toLocaleString('en-IN')}</span>`
+            `<span style="color:#9fb2d3;">${dateStr}</span>`,
+            `<span style="color:#b8c7e1;">O</span><span style="color:#e2e8f0;margin-left:3px;">₹${c.open.toFixed(2)}</span>`,
+            `<span style="color:#b8c7e1;">H</span><span style="color:#e2e8f0;margin-left:3px;">₹${c.high.toFixed(2)}</span>`,
+            `<span style="color:#b8c7e1;">L</span><span style="color:#e2e8f0;margin-left:3px;">₹${c.low.toFixed(2)}</span>`,
+            `<span style="color:#b8c7e1;">C</span><span style="color:#e2e8f0;margin-left:3px;">₹${c.close.toFixed(2)}</span>`,
+            `<span style="color:${dayColor};font-weight:700;">Chg ${daySign}₹${dayChange.toFixed(2)} (${daySign}${dayPct.toFixed(2)}%)</span>`,
+            `<span style="color:#b8c7e1;">Vol</span><span style="color:#dbe6fb;margin-left:3px;">${Math.round(volume).toLocaleString('en-IN')}</span>`
         ].join(sep);
 
         el.innerHTML = `<div class="info-row metrics-row">${metricsRow}</div><div class="info-row price-row">${priceRow}</div>`;

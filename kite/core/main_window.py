@@ -1849,81 +1849,81 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 font-family: "Segoe UI", Arial, sans-serif; 
             }
 
-            /* Splitter styling for easy dragging */
+            /* Ultra-thin splitter styling */
             QSplitter { 
                 background-color: #0a0a0a;
             }
 
             QSplitter::handle { 
-                background-color: #1a1a1a;
+                background-color: transparent;
                 border: none;
                 margin: 0px;
             }
 
             QSplitter::handle:horizontal { 
                 width: 1px; 
-                background-color: #1a1a1a;
+                background-color: transparent;
                 border: none;
             }
 
             QSplitter::handle:vertical { 
                 height: 1px; 
-                background-color: #1a1a1a;
+                background-color: transparent;
                 border: none;
             }
 
             QSplitter::handle:hover { 
-                background-color: #6a9cff; 
+                background-color: rgba(106, 156, 255, 0.28); 
             }
 
             QSplitter::handle:pressed {
-                background-color: #5a8be0;
+                background-color: rgba(106, 156, 255, 0.45);
             }
 
             QSplitter#rightPanelSplitter::handle:vertical {
-                background-color: #2a2a2a;
+                background-color: transparent;
                 height: 1px;
             }
 
             QSplitter#rightPanelSplitter::handle:vertical:hover {
-                background-color: #6a9cff;
+                background-color: rgba(106, 156, 255, 0.28);
             }
 
-            /* Enhanced Scrollbars */
+            /* Ultra-thin scrollbars */
             QScrollBar:vertical { 
-                background-color: #151515; 
-                width: 8px; 
+                background-color: transparent; 
+                width: 4px; 
                 border: none; 
                 margin: 0px;
             }
 
             QScrollBar::handle:vertical { 
-                background-color: #424242; 
-                border-radius: 4px; 
-                min-height: 20px; 
-                margin: 2px;
+                background-color: rgba(140, 140, 140, 0.45); 
+                border-radius: 2px; 
+                min-height: 18px; 
+                margin: 0px;
             }
 
             QScrollBar::handle:vertical:hover { 
-                background-color: #616161; 
+                background-color: rgba(170, 170, 170, 0.7); 
             }
 
             QScrollBar:horizontal { 
-                background-color: #151515; 
-                height: 8px; 
+                background-color: transparent; 
+                height: 4px; 
                 border: none; 
                 margin: 0px;
             }
 
             QScrollBar::handle:horizontal { 
-                background-color: #424242; 
-                border-radius: 4px; 
-                min-width: 20px; 
-                margin: 2px;
+                background-color: rgba(140, 140, 140, 0.45); 
+                border-radius: 2px; 
+                min-width: 18px; 
+                margin: 0px;
             }
 
             QScrollBar::handle:horizontal:hover { 
-                background-color: #616161; 
+                background-color: rgba(170, 170, 170, 0.7); 
             }
 
             QScrollBar::add-line, QScrollBar::sub-line {
