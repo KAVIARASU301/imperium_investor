@@ -237,13 +237,17 @@ class DualModeLoginManager(QDialog):
 
     def _create_header(self) -> QHBoxLayout:
         layout = QHBoxLayout()
+        left_spacer = QLabel("")
+        left_spacer.setFixedSize(30, 30)
         title = QLabel("Swing Trader Login")
         title.setObjectName("dialogTitle")
         close_btn = QPushButton("✕")
         close_btn.setObjectName("closeButton")
         close_btn.setFixedSize(30, 30)
         close_btn.clicked.connect(self._on_close)
-        layout.addWidget(title)
+        layout.addWidget(left_spacer)
+        layout.addStretch()
+        layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignCenter)
         layout.addStretch()
         layout.addWidget(close_btn)
         return layout
@@ -285,7 +289,6 @@ class DualModeLoginManager(QDialog):
             self._active_kite_session = session
             self._active_kite_creds = creds
             self.auto_login_status.setText("Active Kite session found.")
-            self.session_hint_label.setText("✅ Active session found.")
             self.cancel_active_session_btn.setVisible(True)
 
         self.stacked_widget.setCurrentIndex(1)
@@ -302,15 +305,12 @@ class DualModeLoginManager(QDialog):
         layout = QVBoxLayout(page)
 
         title = QLabel("Select Your Broker")
-        title.setObjectName("pageTitle")
+        title.setObjectName("brokerPageTitle")
 
         self.session_hint_label = QLabel("")
         self.session_hint_label.setObjectName("statusLabel")
         self.session_hint_label.setWordWrap(True)
         self.session_hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        if self._active_kite_session:
-            self.session_hint_label.setText("✅ Active session found.")
 
         self.cancel_active_session_btn = QPushButton("Cancel active session")
         self.cancel_active_session_btn.setObjectName("subtleActionButton")
@@ -336,11 +336,11 @@ class DualModeLoginManager(QDialog):
 
         layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.session_hint_label)
-        layout.addWidget(self.cancel_active_session_btn, alignment=Qt.AlignmentFlag.AlignCenter)
         layout.addLayout(broker_layout)
         layout.addWidget(mode_frame)
         layout.addStretch()
         layout.addWidget(continue_btn)
+        layout.addWidget(self.cancel_active_session_btn, alignment=Qt.AlignmentFlag.AlignCenter)
         return page
 
     def _create_broker_card(self, broker_mode: BrokerMode) -> QFrame:
@@ -853,9 +853,21 @@ class DualModeLoginManager(QDialog):
     # --------------------------------------------------------------------------
 
     def _apply_styles(self):
-        self.setStyleSheet("""
+        texture_path = os.path.normpath(
+            os.path.join(
+                os.path.dirname(os.path.dirname(__file__)),
+                "assets",
+                "textures",
+                "login_manager_texture.png",
+            )
+        ).replace("\\", "/")
+
+        self.setStyleSheet(f"""
             #mainContainer {
                 background-color: #080b12;
+                background-image: url("{login_manager_texture.png}");
+                background-position: center;
+                background-repeat: repeat;
                 border-radius: 10px;
                 border: 1px solid #1f2733;
             }
@@ -877,6 +889,12 @@ class DualModeLoginManager(QDialog):
                 font-size: 16px;
                 font-weight: 700;
                 color: #e5edf8;
+                margin-bottom: 2px;
+            }
+            #brokerPageTitle {
+                font-size: 16px;
+                font-weight: 500;
+                color: #8a95a5;
                 margin-bottom: 2px;
             }
             #inputPanel {
