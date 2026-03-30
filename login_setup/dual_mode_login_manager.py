@@ -865,7 +865,7 @@ class DualModeLoginManager(QDialog):
         self.setStyleSheet(f"""
             #mainContainer {
                 background-color: #080b12;
-                background-image: url("{login_manager_texture.png}");
+                background-image: url("{assets/textures/login_manager_texture.png}");
                 background-position: center;
                 background-repeat: repeat;
                 border-radius: 10px;
