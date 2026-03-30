@@ -137,7 +137,7 @@ class BasePaperTrader(QObject, ABC, metaclass=QObjectABCMeta):
     VARIETY_BO      = "bo"
     VARIETY_CO      = "co"
 
-    def __init__(self, broker: str = "kite", initial_balance: float = 100_000.0):
+    def __init__(self, broker: str = "kite", initial_balance: float = 1_000_000.0):
         super().__init__()
 
         self.broker = broker.lower()

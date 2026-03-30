@@ -43,7 +43,7 @@ class Application:
         logger.info("🚀 Starting Swing Trader Application...")
         self.app = QApplication(sys.argv)
         self.app.setApplicationName("Swing Trader")
-        self.app.setWindowIcon(QIcon("assets/swing_trader.png"))
+        self.app.setWindowIcon(QIcon("assets/qullamaggie_icon.png"))
 
         self.broker_manager = BrokerClientManager()
 

@@ -130,25 +130,6 @@ class PositionsTable(QWidget):
         self.total_pnl_label.setObjectName("footerPrimaryMetric")
         footer_layout.addWidget(self.total_pnl_label)
 
-        # Separator
-        separator = QLabel("|")
-        separator.setObjectName("footerSeparator")
-        footer_layout.addWidget(separator)
-
-        # Investment amount
-        self.investment_label = QLabel("Investment: ₹0")
-        self.investment_label.setObjectName("footerSecondaryMetric")
-        footer_layout.addWidget(self.investment_label)
-
-        # Separator
-        separator2 = QLabel("|")
-        separator2.setObjectName("footerSeparator")
-        footer_layout.addWidget(separator2)
-
-        # Returns percentage
-        self.returns_label = QLabel("Returns: 0.00%")
-        self.returns_label.setObjectName("footerSecondaryMetric")
-        footer_layout.addWidget(self.returns_label)
 
         footer_layout.addStretch()
         return footer_frame
@@ -327,12 +308,9 @@ class PositionsTable(QWidget):
         """Update summary footer"""
         if not self.positions_data:
             self.total_pnl_label.setText("P&L: ₹0.00")
-            self.investment_label.setText("Investment: ₹0")
-            self.returns_label.setText("Returns: 0.00%")
             return
 
         total_pnl = sum(pos.pnl for pos in self.positions_data.values())
-        total_investment = sum(abs(pos.quantity * pos.avg_price) for pos in self.positions_data.values())
 
         # Update P&L with color
         table_colors = self._color_theme.get("tables", {})
@@ -344,10 +322,6 @@ class PositionsTable(QWidget):
         self.total_pnl_label.setText(f"P&L: ₹{total_pnl:,.2f}")
         self.total_pnl_label.setStyleSheet(f"color: {color}; background-color: transparent; border: none;")
 
-        # Update other metrics
-        self.investment_label.setText(f"Investment: ₹{total_investment:,.0f}")
-        returns_percent = (total_pnl / total_investment * 100) if total_investment > 0 else 0
-        self.returns_label.setText(f"Returns: {returns_percent:+.2f}%")
 
     # ===========================================================================
     # SIMPLE EVENT HANDLERS

@@ -15,6 +15,7 @@ from kiteconnect import KiteConnect
 from widgets.status_bar import StatusBar, status
 
 logger = logging.getLogger(__name__)
+DEFAULT_PAPER_BALANCE = 1_000_000.0
 
 
 class NotificationBadge(QLabel):
@@ -74,7 +75,7 @@ class HeaderToolbar(QToolBar):
         self.setObjectName("enhancedHeaderToolbar")
         self.trader = trader
         self._instrument_map: Dict[str, Dict] = {}
-        self._account_info = {'available_balance': 0.0, 'user_id': 'N/A'}
+        self._account_info = {'available_balance': DEFAULT_PAPER_BALANCE, 'user_id': 'N/A'}
 
         self._init_ui()
         self._apply_styles()
@@ -269,27 +270,67 @@ class HeaderToolbar(QToolBar):
     def _refresh_account_info(self):
         """SIMPLIFIED account information refresh - no error handling complexity."""
         try:
-            # Try to get account info from actual trader
-            if hasattr(self.trader, 'profile') and hasattr(self.trader, 'margins'):
-                profile = self.trader.profile()
-                margins = self.trader.margins()
-                equity_margins = margins.get('equity', {})
+            profile = self._get_profile_data()
+            margins = self._get_margins_data()
 
-                self._account_info = {
-                    'user_id': profile.get('user_id', 'DEMO'),
-                    'available_balance': equity_margins.get('available', {}).get('live_balance', 0.0)
-                }
-            else:
-                # Demo mode
-                self._account_info = {'user_id': 'DEMO', 'available_balance': 0.0}
+            self._account_info = {
+                'user_id': profile.get('user_id', profile.get('user_name', 'DEMO')),
+                'available_balance': self._extract_available_balance(profile, margins)
+            }
 
             self._update_account_display()
 
         except Exception as e:
             logger.debug(f"Using demo account info: {e}")
-            # Simple fallback
-            self._account_info = {'user_id': 'DEMO', 'available_balance': 0.0}
+            self._account_info = {'user_id': 'DEMO', 'available_balance': DEFAULT_PAPER_BALANCE}
             self._update_account_display()
+
+    def _get_profile_data(self) -> Dict[str, Any]:
+        profile_fn = getattr(self.trader, 'profile', None)
+        if callable(profile_fn):
+            return profile_fn() or {}
+
+        get_profile_fn = getattr(self.trader, 'get_profile', None)
+        if callable(get_profile_fn):
+            return get_profile_fn() or {}
+
+        return {}
+
+    def _get_margins_data(self) -> Dict[str, Any]:
+        margins_fn = getattr(self.trader, 'margins', None)
+        if callable(margins_fn):
+            return margins_fn() or {}
+        return {}
+
+    def _extract_available_balance(self, profile: Dict[str, Any], margins: Dict[str, Any]) -> float:
+        equity_margins = margins.get('equity', {})
+        available = equity_margins.get('available', {})
+
+        candidate_values = [
+            available.get('live_balance'),
+            available.get('cash'),
+            equity_margins.get('net'),
+            profile.get('current_balance'),
+            profile.get('balance'),
+            getattr(self.trader, 'balance', None),
+            getattr(self.trader, 'current_balance', None),
+            getattr(self.trader, 'initial_balance', DEFAULT_PAPER_BALANCE),
+        ]
+
+        for value in candidate_values:
+            try:
+                if value is not None:
+                    return float(value)
+            except (TypeError, ValueError):
+                continue
+        return DEFAULT_PAPER_BALANCE
+
+    def update_balance(self, balance: float):
+        """Direct balance update callback used by paper-trading signal wiring."""
+        self._account_info['available_balance'] = float(balance)
+        if self._account_info.get('user_id') in (None, '', 'N/A'):
+            self._account_info['user_id'] = 'DEMO'
+        self._update_account_display()
 
     def _update_account_display(self):
         """Updates the UI labels for account information."""

@@ -76,7 +76,7 @@ class IBKRPaperTradingManager(QObject):
     position_updated = Signal(dict)
     account_updated = Signal(dict)
 
-    def __init__(self, initial_balance: float = 100000.0):
+    def __init__(self, initial_balance: float = 1000000.0):
         super().__init__()
         self.initial_balance = initial_balance
         self.current_balance = initial_balance

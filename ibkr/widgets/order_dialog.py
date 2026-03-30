@@ -852,7 +852,14 @@ class OrderDialog(QDialog):
         self._sl_spin.setValue(self.ltp * 0.98 if self.ltp > 0 else 1.0)
         self._trailing_chk = QCheckBox("Trailing SL")
         self._trailing_chk.setStyleSheet(
-            f"color:{P.T1};font-family:'{FONT_MONO}',{FONT_FALL};font-size:10px;background:transparent;"
+            f"QCheckBox{{"
+            f"color:{P.T1};font-family:'{FONT_MONO}',{FONT_FALL};font-size:10px;"
+            f"spacing:6px;background:transparent;}}"
+            f"QCheckBox::indicator{{"
+            f"width:14px;height:14px;border-radius:3px;border:1px solid {P.BORDER2};"
+            f"background:{P.BG3};}}"
+            f"QCheckBox::indicator:checked{{"
+            f"background:{P.BLUE};border:1px solid {P.BLUE};}}"
         )
 
         form.addRow(_Label("Target:", P.T1, 10), self._target_spin)
@@ -1071,6 +1078,7 @@ class OrderDialog(QDialog):
     # ─────────────────────────────────────────────────────────────────────────
 
     def _apply_global_styles(self):
+        self.setStyleSheet(f"QDialog{{background:{P.BG1};}}")
         self._container.setStyleSheet(f"""
             QFrame#dialogContainer {{
                 background:{P.BG1};

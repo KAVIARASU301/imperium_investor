@@ -42,7 +42,7 @@ class PaperTradingManager(BasePaperTrader):
     VALID_PRODUCTS  = {"MIS", "CNC", "NRML"}
     VALID_VARIETIES = {"regular", "bo", "co", "amo", "iceberg", "auction"}
 
-    def __init__(self, initial_balance: float = 100_000.0):
+    def __init__(self, initial_balance: float = 1_000_000.0):
         # instrument_map: tradingsymbol → instrument dict (populated from InstrumentLoader)
         self._instrument_map: Dict[str, Dict] = {}
         # Aliases for common names, e.g. "NIFTY" → "NIFTY 50"
