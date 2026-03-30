@@ -862,7 +862,7 @@ class DualModeLoginManager(QDialog):
             )
         ).replace("\\", "/")
 
-        self.setStyleSheet(f"""
+        stylesheet = """
             #mainContainer {
                 background-color: #080b12;
                 background-image: url("{texture_path}");
@@ -997,4 +997,5 @@ class DualModeLoginManager(QDialog):
                 background: #52d894;
             }
             QCheckBox { color: #c4d1e3; font-size: 12px; }
-        """)
+        """
+        self.setStyleSheet(stylesheet.replace("{texture_path}", texture_path))
