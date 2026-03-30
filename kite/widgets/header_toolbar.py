@@ -63,6 +63,7 @@ class HeaderToolbar(QToolBar):
     add_alert_requested = Signal()
     alert_manager_requested = Signal()
     order_history_requested = Signal()
+    pending_orders_requested = Signal()
     performance_dashboard_requested = Signal()
     market_depth_requested = Signal(str)
     timeframe_changed = Signal(str)
@@ -220,6 +221,13 @@ class HeaderToolbar(QToolBar):
         self.order_history_btn.clicked.connect(self.order_history_requested.emit)
         self.order_history_btn.setFixedSize(84, 20)
         actions_layout.addWidget(self.order_history_btn)
+
+        # Pending Orders Button
+        self.pending_orders_btn = QPushButton("Pending")
+        self.pending_orders_btn.setObjectName("tradingActionButton")
+        self.pending_orders_btn.clicked.connect(self.pending_orders_requested.emit)
+        self.pending_orders_btn.setFixedSize(62, 20)
+        actions_layout.addWidget(self.pending_orders_btn)
 
         # Performance Dashboard Button
         self.performance_btn = QPushButton("Performance")

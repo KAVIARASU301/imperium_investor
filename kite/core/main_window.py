@@ -22,6 +22,7 @@ from kite.widgets.color_settings_dialog import ColorSettingsDialog
 
 from kite.widgets.order_dialog import OrderDialog
 from kite.widgets.order_history_dialog import OrderHistoryDialog
+from kite.widgets.pending_orders_dialog import PendingOrdersDialog
 from kite.widgets.performance_dialog import PerformanceDialog
 from kite.core.alert_management_system import AlertSystemManager
 from kite.core.chart_lines_manager import ChartLinesManager
@@ -117,6 +118,7 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self._drag_pos = None
         self._is_maximized = False
         self.order_history_dialog = None
+        self.pending_orders_dialog = None
         self.performance_dialog = None
 
         # --- Setup Sequence ---
@@ -256,6 +258,7 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         file_menu = menu_bar.addMenu("File")
         file_menu.addAction("Order History", self._show_order_history_dialog)
+        file_menu.addAction("Pending Orders", self._show_pending_orders_dialog)
         file_menu.addAction("Performance", self._show_performance_dialog)
         file_menu.addSeparator()
         file_menu.addAction("Exit", self.close)
@@ -708,6 +711,7 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.header_toolbar.buy_order_requested.connect(self._on_header_buy_order)
         self.header_toolbar.sell_order_requested.connect(self._on_header_sell_order)
         self.header_toolbar.order_history_requested.connect(self._show_order_history_dialog)
+        self.header_toolbar.pending_orders_requested.connect(self._show_pending_orders_dialog)
         self.header_toolbar.performance_dashboard_requested.connect(self._show_performance_dialog)
 
         # Alert System
@@ -1339,6 +1343,26 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         except Exception as e:
             logger.error(f"Failed to show order history dialog: {e}")
             show_error("Failed to open order history")
+
+    def _show_pending_orders_dialog(self):
+        """Show pending orders dialog wired to live/paper Kite order APIs."""
+        try:
+            if self.pending_orders_dialog is None or not self.pending_orders_dialog.isVisible():
+                self.pending_orders_dialog = PendingOrdersDialog(
+                    trader=self.trader,
+                    instrument_map=self.instrument_map,
+                    parent=self,
+                )
+            else:
+                self.pending_orders_dialog.refresh_orders()
+
+            self.pending_orders_dialog.show()
+            self.pending_orders_dialog.raise_()
+            self.pending_orders_dialog.activateWindow()
+            logger.info("Pending orders dialog opened")
+        except Exception as e:
+            logger.error(f"Failed to show pending orders dialog: {e}")
+            show_error("Failed to open pending orders")
 
     def _show_performance_dialog(self):
         """Show performance dialog"""
