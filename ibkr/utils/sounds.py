@@ -40,16 +40,20 @@ class SoundManager(QObject):
         self.use_system_fallback = True
         self.qt_sounds_initialized = False  # NEW: Track Qt initialization
 
-        # Sound file mappings - only required sounds
+        # Sound file mappings
         self.sound_files = {
             'alert': 'alert.wav',
-            'success': 'success.wav',
+            'entry_exit': 'pop.wav',
+            # Backward-compatible aliases mapped to the new execution sound
+            'success': 'pop.wav',
             'error': 'error.wav',
-            'order_placed': 'placed.wav'
+            'order_placed': 'pop.wav'
         }
 
         self._detect_audio_system()
         self._load_sound_file_paths()  # CHANGED: Only load file paths, not Qt sounds
+        # Preload when app is already alive to avoid first-play lag.
+        self._initialize_qt_sounds()
         self._initialized = True
         logger.info("SoundManager initialized successfully")
 
@@ -121,7 +125,7 @@ class SoundManager(QObject):
         for assets_dir in possible_assets_dirs:
             if os.path.exists(assets_dir) and os.path.isdir(assets_dir):
                 # Check if it actually contains sound files
-                sound_files = ['alert.wav', 'success.wav', 'error.wav', 'placed.wav']
+                sound_files = ['alert.wav', 'pop.wav', 'error.wav']
                 if any(os.path.exists(os.path.join(assets_dir, sf)) for sf in sound_files):
                     return assets_dir
 
@@ -134,7 +138,7 @@ class SoundManager(QObject):
 
         if assets_dir is None:
             logger.error("❌ Could not find assets directory with sound files!")
-            logger.info("Expected sound files: alert.wav, success.wav, error.wav, placed.wav")
+            logger.info("Expected sound files: alert.wav, pop.wav, error.wav")
             logger.info(f"Current working directory: {os.getcwd()}")
             logger.info(f"Script location: {os.path.dirname(os.path.abspath(__file__))}")
             return
@@ -208,10 +212,6 @@ class SoundManager(QObject):
             sound_effect.setSource(file_url)
             sound_effect.setVolume(self.default_volume)
             sound_effect.setLoopCount(1)
-
-            # Wait a moment for loading
-            import time
-            time.sleep(0.1)
 
             if sound_effect.source().isEmpty():
                 logger.warning(f"Qt sound source is empty for: {sound_path}")
@@ -311,9 +311,13 @@ class SoundManager(QObject):
         """Play alert sound (for price alerts, notifications)"""
         return self._play_sound_safe('alert')
 
+    def play_entry_exit(self) -> bool:
+        """Play execution sound for both entry and exit fills."""
+        return self._play_sound_safe('entry_exit')
+
     def play_success(self) -> bool:
         """Play success sound (for completed orders, successful operations)"""
-        return self._play_sound_safe('success')
+        return self.play_entry_exit()
 
     def play_error(self) -> bool:
         """Play error sound (for failed orders, errors, rejections)"""
@@ -411,6 +415,9 @@ _sound_manager = SoundManager()
 
 def play_alert() -> bool:
     return _sound_manager.play_alert()
+
+def play_entry_exit() -> bool:
+    return _sound_manager.play_entry_exit()
 
 
 def play_success() -> bool:

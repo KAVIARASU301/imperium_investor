@@ -6,7 +6,6 @@ import logging
 
 from PySide6.QtWidgets import QLabel
 from PySide6.QtCore import QTimer
-from utils.sounds import play_success, play_error, play_order_placed
 
 logger = logging.getLogger(__name__)
 
@@ -272,22 +271,19 @@ class GlobalStatusManager:
     # ==========================================================================
 
     def show_order_placed(self, symbol: str = ""):
-        """Show order placed status with sound"""
+        """Show order placed status globally"""
         if self._status_bar:
             self._status_bar.set_order_placed(symbol)
-        play_order_placed()
 
     def show_order_completed(self, symbol: str = "", pnl: str = ""):
-        """Show order completed status with sound"""
+        """Show order completed status globally"""
         if self._status_bar:
             self._status_bar.set_order_completed(symbol, pnl)
-        play_success()  # Automatic sound
 
     def show_order_failed(self, reason: str = ""):
-        """Show order failed status with sound"""
+        """Show order failed status globally"""
         if self._status_bar:
             self._status_bar.set_order_failed(reason)
-        play_error()  # Automatic sound
 
     def show_order_rejected(self, reason: str = ""):
         """Show order rejected status globally"""
@@ -305,10 +301,9 @@ class GlobalStatusManager:
             self._status_bar.set_position_update(symbol, pnl)
 
     def show_error(self, error_message: str):
-        """Show error status with sound"""
+        """Show error status globally"""
         if self._status_bar:
             self._status_bar.set_error(error_message)
-        play_error()  # Automatic sound
 
     def show_info(self, info_message: str):
         """Show info status globally"""

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from widgets.status_bar import (
     show_order_completed, show_order_failed, show_error, show_info
 )
+from utils.sounds import play_entry_exit
 
 logger = logging.getLogger(__name__)
 
@@ -150,30 +151,39 @@ class PositionManager(QObject):
         """Handle when order completes/fails with chart line integration"""
         symbol = kite_order.get('tradingsymbol', '')
         quantity = kite_order.get('quantity', 0)
-        tx_type = kite_order.get('transaction_type', '')
+        tx_type = kite_order.get('transaction_type', '').upper()
+        tracked_order = self.tracking_orders.get(order_id, {})
+        is_exit = bool(tracked_order.get("_is_exit_order")) or tx_type == "SELL"
 
         try:
             if status in ['COMPLETE', 'FILLED']:
                 # Show order completed notification
                 show_order_completed(symbol, "")
+                play_entry_exit()
 
-                # Add position line to chart
+                # Update chart position line
                 if self.main_window and hasattr(self.main_window, 'chart_lines_manager'):
-                    order_type = kite_order.get('transaction_type', '')
                     filled_quantity = kite_order.get('filled_quantity', kite_order.get('quantity', 0))
                     avg_price = kite_order.get('average_price', 0)
 
                     if filled_quantity and avg_price:
-                        success = self.main_window.chart_lines_manager.add_position_line(
-                            symbol=symbol,
-                            order_type=order_type,
-                            quantity=filled_quantity,
-                            avg_price=avg_price
-                        )
-                        if success:
-                            logger.info(f"Position line added to chart for {symbol}")
+                        if is_exit:
+                            success = self.main_window.chart_lines_manager.remove_position_line(symbol)
+                            if success:
+                                logger.info(f"Position line removed for exit {symbol}")
+                            else:
+                                logger.warning(f"Failed to remove position line for exit {symbol}")
                         else:
-                            logger.warning(f"Failed to add position line to chart for {symbol}")
+                            success = self.main_window.chart_lines_manager.add_position_line(
+                                symbol=symbol,
+                                order_type=tx_type,
+                                quantity=filled_quantity,
+                                avg_price=avg_price
+                            )
+                            if success:
+                                logger.info(f"Position line added to chart for {symbol}")
+                            else:
+                                logger.warning(f"Failed to add position line to chart for {symbol}")
                     else:
                         logger.warning(
                             f"Invalid order data for chart line: quantity={filled_quantity}, price={avg_price}")

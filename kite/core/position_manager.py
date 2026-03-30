@@ -28,6 +28,7 @@ from PySide6.QtCore import QObject, Signal, QTimer, Slot
 from kite.widgets.status_bar import (
     show_order_completed, show_order_failed, show_error, show_info
 )
+from kite.utils.sounds import play_entry_exit
 
 logger = logging.getLogger(__name__)
 
@@ -293,6 +294,7 @@ class PositionManager(QObject):
         )
 
         show_order_completed(symbol, "")
+        play_entry_exit()
 
         # ── Chart line management ──
         if self.main_window and hasattr(self.main_window, "chart_lines_manager"):
