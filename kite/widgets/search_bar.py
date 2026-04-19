@@ -12,7 +12,37 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import QLineEdit, QStyle, QStyledItemDelegate
-from rapidfuzz import fuzz
+try:
+    from rapidfuzz import fuzz
+except ModuleNotFoundError:
+    from difflib import SequenceMatcher
+
+    class _FallbackFuzz:
+        @staticmethod
+        def WRatio(query: str, value: str) -> float:
+            if not query or not value:
+                return 0.0
+            return SequenceMatcher(None, query, value).ratio() * 100
+
+        @staticmethod
+        def partial_ratio(query: str, value: str) -> float:
+            if not query or not value:
+                return 0.0
+            query = str(query)
+            value = str(value)
+            if len(query) > len(value):
+                query, value = value, query
+
+            best = 0.0
+            window = len(query)
+            for start in range(0, len(value) - window + 1):
+                candidate = value[start:start + window]
+                score = SequenceMatcher(None, query, candidate).ratio()
+                if score > best:
+                    best = score
+            return best * 100
+
+    fuzz = _FallbackFuzz()
 
 
 class SmartSearchModel(QAbstractListModel):
