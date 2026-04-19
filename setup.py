@@ -33,6 +33,7 @@ setup(
         "kiteconnect>=5.0.0",
         "cryptography>=41.0.0",
         "python-dateutil>=2.8.2",
+        "rapidfuzz>=3.14.1",
     ],
     entry_points={
         "console_scripts": [
