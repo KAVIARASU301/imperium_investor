@@ -12,7 +12,6 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 
 # Import your single-source-of-truth utilities
 from kite.utils.pnl_calculator import PnLCalculator, PerformanceMetrics
@@ -108,8 +107,8 @@ class PerformanceDialog(QDialog):
 
         splitter.addWidget(chart_container)
         splitter.addWidget(right_panel)
-        splitter.setStretchFactor(0, 6)  # Chart gets 60% space
-        splitter.setStretchFactor(1, 4)  # Tables get 40% space
+        splitter.setStretchFactor(0, 3)  # Chart gets ~35% space
+        splitter.setStretchFactor(1, 6)  # Tables get ~65% space
 
         container_layout.addWidget(splitter, stretch=1)
 
@@ -331,45 +330,57 @@ class PerformanceDialog(QDialog):
 
         dates = [item['date'] for item in daily_data]
         cum_pnl = [item['cumulative_pnl'] for item in daily_data]
-        daily_pnl = [item['daily_pnl'] for item in daily_data]
 
-        # Combo chart: Area for Cumulative, Bar for Daily
-        fig = make_subplots(specs=[[{"secondary_y": True}]])
+        fig = go.Figure()
 
-        # Bar chart for daily PnL
-        bar_colors = [self.profit_color if val >= 0 else self.loss_color for val in daily_pnl]
-        fig.add_trace(go.Bar(
-            x=dates, y=daily_pnl,
-            name="Daily P&L",
-            marker_color=bar_colors,
-            opacity=0.6,
-            hovertemplate='<b>%{x}</b><br>Daily P&L: ₹%{y:,.2f}<extra></extra>'
-        ), secondary_y=False)
-
-        # Area chart for Cumulative PnL
         fig.add_trace(go.Scatter(
-            x=dates, y=cum_pnl,
-            name="Cumulative",
+            x=dates,
+            y=cum_pnl,
             mode="lines",
-            line=dict(color=self.profit_color, width=3),
+            line=dict(color=self.profit_color, width=2, shape='spline', smoothing=0.5),
             fill='tozeroy',
-            fillcolor=self.profit_color.replace(')', ', 0.1)').replace('rgb',
-                                                                       'rgba') if 'rgb' in self.profit_color else f"rgba({int(self.profit_color[1:3], 16)}, {int(self.profit_color[3:5], 16)}, {int(self.profit_color[5:7], 16)}, 0.1)",
-            hovertemplate='<b>%{x}</b><br>Cum. P&L: ₹%{y:,.2f}<extra></extra>'
-        ), secondary_y=True)
+            fillcolor=self.profit_color.replace(')', ', 0.08)').replace('rgb',
+                                                                         'rgba') if 'rgb' in self.profit_color else f"rgba({int(self.profit_color[1:3], 16)}, {int(self.profit_color[3:5], 16)}, {int(self.profit_color[5:7], 16)}, 0.08)",
+            hovertemplate='<b>%{x}</b><br>Net P&L: ₹%{y:,.2f}<extra></extra>'
+        ))
 
         fig.update_layout(
-            plot_bgcolor='#121212', paper_bgcolor='#121212',
-            margin=dict(l=10, r=10, t=20, b=20),
-            font=dict(color='#888888', size=11),
+            plot_bgcolor='#121212',
+            paper_bgcolor='#121212',
+            margin=dict(l=0, r=0, t=10, b=0),
+            font=dict(color='#555555', size=10),
             showlegend=False,
-            hovermode='x unified'
+            hovermode='x unified',
+            dragmode=False
         )
-        fig.update_xaxes(showgrid=True, gridcolor='#222222', gridwidth=1)
-        fig.update_yaxes(showgrid=True, gridcolor='#222222', gridwidth=1, secondary_y=False)
-        fig.update_yaxes(showgrid=False, secondary_y=True)
 
-        self.chart_view.setHtml(fig.to_html(include_plotlyjs='cdn', config={'displayModeBar': False}))
+        fig.update_xaxes(
+            showgrid=False,
+            zeroline=False,
+            showticklabels=True,
+            fixedrange=True,
+            nticks=5
+        )
+        fig.update_yaxes(
+            showgrid=True,
+            gridcolor='#1a1a1a',
+            gridwidth=1,
+            zeroline=True,
+            zerolinecolor='#2d2d2d',
+            zerolinewidth=1,
+            showticklabels=True,
+            side='right',
+            fixedrange=True
+        )
+
+        html = fig.to_html(include_plotlyjs='cdn', config={
+            'displayModeBar': False,
+            'scrollZoom': False,
+            'doubleClick': False,
+            'showAxisDragHandles': False
+        })
+
+        self.chart_view.setHtml(html)
 
     def _on_theme_changed(self, new_theme: Dict):
         """Update chart and UI colors when global theme changes."""
