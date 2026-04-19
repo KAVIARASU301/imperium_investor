@@ -3,12 +3,48 @@
 import logging
 from typing import Optional
 from PySide6.QtCore import QObject
-from PySide6.QtWidgets import QLabel
+from PySide6.QtWidgets import QLabel, QWidget, QHBoxLayout
 
 # Import our new professional popups
 from kite.widgets.notifications import ToastNotification
 
 logger = logging.getLogger(__name__)
+
+
+class StatusBar(QWidget):
+    """
+    Lightweight status bar widget kept for compatibility with existing toolbar code.
+
+    The old LED status bar was replaced by toast notifications, but some modules
+    still instantiate `StatusBar` and pass it into the global status manager.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("compactStatusBar")
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(6, 0, 6, 0)
+        layout.setSpacing(8)
+
+        self.market_label = QLabel("Market: --")
+        self.api_label = QLabel("API: --")
+        self.message_label = QLabel("Ready")
+
+        for label in (self.market_label, self.api_label, self.message_label):
+            label.setObjectName("statusLabel")
+            layout.addWidget(label)
+
+    def set_market_status(self, text: str) -> None:
+        self.market_label.setText(f"Market: {text}")
+
+    def set_api_status(self, text: str) -> None:
+        self.api_label.setText(f"API: {text}")
+
+    def set_message(self, text: str) -> None:
+        self.message_label.setText(text)
 
 class GlobalStatusManager(QObject):
     """
