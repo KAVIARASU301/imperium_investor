@@ -1,18 +1,15 @@
-# header_toolbar.py (Updated with Status Bar)
-
 import logging
 from typing import List, Dict, Any, Union
 
 from PySide6.QtWidgets import (
-    QToolBar, QCompleter, QWidget, QLabel, QSizePolicy, QPushButton,
-    QHBoxLayout, QFrame, QListView
+    QToolBar, QWidget, QLabel, QSizePolicy, QPushButton,
+    QHBoxLayout, QFrame
 )
-from PySide6.QtCore import Signal, Qt, QTimer, QEvent, QModelIndex
+from PySide6.QtCore import Signal, Qt, QTimer
 from PySide6.QtGui import QPainter, QColor, QFont
 from kiteconnect import KiteConnect
-from kite.widgets.search_bar import EnhancedSearchInput, SearchItemDelegate, SmartSearchModel
 
-# Import the simple status bar
+from kite.widgets.search_bar import EnhancedSearchInput, SymbolIndex
 from kite.widgets.status_bar import StatusBar, status
 
 logger = logging.getLogger(__name__)
@@ -32,25 +29,19 @@ class NotificationBadge(QLabel):
         self.setContentsMargins(0, 0, 0, 0)
 
     def set_count(self, count: int):
-        """Set badge count and visibility."""
         self.count = count
         if count > 0:
-            display_text = str(count) if count < 100 else "99+"
-            self.setText(display_text)
+            self.setText(str(count) if count < 100 else "99+")
             self.show()
         else:
             self.hide()
         self.update()
 
     def paintEvent(self, event):
-        """Custom paint event for circular badge."""
         if not self.isVisible():
             return
-
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        # Draw white number
         painter.setPen(QColor("#f80404"))
         painter.setFont(QFont("Arial", 8, QFont.Weight.Bold))
         painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.text())
@@ -58,19 +49,31 @@ class NotificationBadge(QLabel):
 
 class HeaderToolbar(QToolBar):
     """
-    Compact, modern toolbar with status bar integration and trading features.
+    Compact, modern toolbar.
+
+    Signals
+    ───────
+    symbol_selected(str)           — a valid symbol was committed by the user
+    buy_order_requested(str)
+    sell_order_requested(str)
+    alert_manager_requested()
+    order_history_requested()
+    pending_orders_requested()
+    performance_dashboard_requested()
+    color_settings_requested()
     """
-    symbol_selected = Signal(str)
-    add_alert_requested = Signal()
-    alert_manager_requested = Signal()
-    order_history_requested = Signal()
-    pending_orders_requested = Signal()
-    performance_dashboard_requested = Signal()
-    market_depth_requested = Signal(str)
-    timeframe_changed = Signal(str)
-    buy_order_requested = Signal(str)
-    sell_order_requested = Signal(str)
-    color_settings_requested = Signal()
+
+    symbol_selected                  = Signal(str)
+    add_alert_requested              = Signal()
+    alert_manager_requested          = Signal()
+    order_history_requested          = Signal()
+    pending_orders_requested         = Signal()
+    performance_dashboard_requested  = Signal()
+    market_depth_requested           = Signal(str)
+    timeframe_changed                = Signal(str)
+    buy_order_requested              = Signal(str)
+    sell_order_requested             = Signal(str)
+    color_settings_requested         = Signal()
 
     def __init__(self, trader: Union[KiteConnect, Any], parent=None):
         super().__init__(parent)
@@ -79,38 +82,41 @@ class HeaderToolbar(QToolBar):
         self.trader = trader
         self._instrument_map: Dict[str, Dict] = {}
         self._recent_symbols: List[str] = []
-        self._account_info = {'available_balance': DEFAULT_PAPER_BALANCE, 'user_id': 'N/A'}
+        self._account_info = {"available_balance": DEFAULT_PAPER_BALANCE, "user_id": "N/A"}
+        self._symbol_index = SymbolIndex()
 
         self._init_ui()
         self._apply_styles()
         self._setup_timers()
 
+    # ── UI construction ───────────────────────────────────────────────────────
+
     def _init_ui(self):
-        """Initialize UI components with status bar integration."""
         self._create_symbol_search_section()
-        self._create_status_bar_section()  # NEW: Status bar section
+        self._create_status_bar_section()
         self._create_center_spacer()
         self._create_alert_section()
         self._create_trading_actions_section()
         self._create_account_section()
 
     def _create_symbol_search_section(self):
-        """Creates symbol search section with buy/sell buttons."""
         symbol_label = QLabel("SYMBOL:")
         symbol_label.setObjectName("symbolLabel")
         self.addWidget(symbol_label)
 
-        # Use custom symbol input instead of regular QLineEdit
         self.search_input = EnhancedSearchInput()
-        self.search_input.setPlaceholderText("Search symbol, company, exchange")
+        self.search_input.setPlaceholderText("Symbol / company…")
         self.search_input.setObjectName("enhancedSymbolSearch")
-        self.search_input.debouncedTextChanged.connect(self._on_search_text_edited)
-        self.search_input.returnPressed.connect(self._on_search_enter)
-        self.search_input.focusReceived.connect(self._on_search_focus_received)
+
+        # ── Wire the NEW fast signals ──────────────────────────────────────
+        self.search_input.symbol_selected.connect(self._on_symbol_committed)
+
+        # Backward-compat: some callers may still listen to debouncedTextChanged
+        # (e.g. alert dialogs) — keep it connected but don't drive search from it
+        # (the new index handles search internally).
 
         self.addWidget(self.search_input)
 
-        # Buy and Sell buttons
         self.buy_button = QPushButton("BUY")
         self.buy_button.setObjectName("buyButton")
         self.buy_button.setFixedSize(42, 20)
@@ -123,57 +129,15 @@ class HeaderToolbar(QToolBar):
         self.sell_button.clicked.connect(self._on_sell_clicked)
         self.addWidget(self.sell_button)
 
-        # Setup completer with enhanced settings
-        self.smart_search_model = SmartSearchModel(self)
-        self.completer = QCompleter(self.smart_search_model, self)
-        self.completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-        self.completer.setMaxVisibleItems(10)
-        self.completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
-        self.completer.setModelSorting(QCompleter.ModelSorting.UnsortedModel)
-        self.completer.setCompletionRole(SmartSearchModel.SYMBOL_ROLE)
-
-        popup = QListView(self)
-        popup.setItemDelegate(SearchItemDelegate(popup))
-        self.completer.setPopup(popup)
-        popup.setStyleSheet("""
-            QListView {
-                background-color: #2b2b2b;
-                color: #ffffff;
-                border: 1px solid #555555;
-                selection-background-color: #0078d4;
-                font-size: 11px;
-            }
-            QListView::item {
-                padding: 4px;
-                border-bottom: 1px solid #3a3a3a;
-            }
-            QListView::item:hover {
-                background-color: #404040;
-            }
-            QListView::item:selected {
-                background-color: #0078d4;
-            }
-        """)
-
-        self.search_input.setCompleter(self.completer)
-        self.completer.activated[QModelIndex].connect(self._on_completer_activated)
-
-
     def _create_status_bar_section(self):
-        """NEW: Creates the LED-style status bar section."""
-        # Add small separator
-        separator = QFrame()
-        separator.setFrameShape(QFrame.Shape.VLine)
-        separator.setObjectName("sectionSeparator")
-        self.addWidget(separator)
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.VLine)
+        sep.setObjectName("sectionSeparator")
+        self.addWidget(sep)
 
-        # Create status bar widget
         self.status_bar = StatusBar(self)
         self.addWidget(self.status_bar)
-
-        # Initialize global status manager
         status.initialize(self.status_bar)
-        logger.info("Status bar integrated into header toolbar")
 
     def _create_center_spacer(self):
         spacer = QWidget()
@@ -182,20 +146,17 @@ class HeaderToolbar(QToolBar):
         self.addWidget(spacer)
 
     def _create_alert_section(self):
-        """Creates alert management section."""
-        separator = QFrame()
-        separator.setFrameShape(QFrame.Shape.VLine)
-        separator.setObjectName("sectionSeparator")
-        self.addWidget(separator)
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.VLine)
+        sep.setObjectName("sectionSeparator")
+        self.addWidget(sep)
 
         alert_widget = QWidget()
         alert_widget.setObjectName("alertActionWidget")
-
         alert_layout = QHBoxLayout(alert_widget)
         alert_layout.setContentsMargins(4, 2, 4, 2)
         alert_layout.setSpacing(2)
 
-        # Unified Alerts button with a single badge
         alerts_container = QWidget()
         alerts_container.setFixedSize(64, 20)
         self.alerts_button = QPushButton("Alerts", alerts_container)
@@ -205,38 +166,32 @@ class HeaderToolbar(QToolBar):
         self.alerts_badge = NotificationBadge(alerts_container)
         self.alerts_badge.move(50, -3)
         alert_layout.addWidget(alerts_container)
-
         self.addWidget(alert_widget)
 
     def _create_trading_actions_section(self):
-        """Creates trading actions section."""
-        separator = QFrame()
-        separator.setFrameShape(QFrame.Shape.VLine)
-        separator.setObjectName("sectionSeparator")
-        self.addWidget(separator)
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.VLine)
+        sep.setObjectName("sectionSeparator")
+        self.addWidget(sep)
 
         actions_widget = QWidget()
         actions_widget.setObjectName("tradingActionWidget")
-
         actions_layout = QHBoxLayout(actions_widget)
         actions_layout.setContentsMargins(4, 2, 4, 2)
         actions_layout.setSpacing(2)
 
-        # Order History Button
         self.order_history_btn = QPushButton("Order History")
         self.order_history_btn.setObjectName("tradingActionButton")
         self.order_history_btn.clicked.connect(self.order_history_requested.emit)
         self.order_history_btn.setFixedSize(84, 20)
         actions_layout.addWidget(self.order_history_btn)
 
-        # Pending Orders Button
         self.pending_orders_btn = QPushButton("Pending")
         self.pending_orders_btn.setObjectName("tradingActionButton")
         self.pending_orders_btn.clicked.connect(self.pending_orders_requested.emit)
         self.pending_orders_btn.setFixedSize(62, 20)
         actions_layout.addWidget(self.pending_orders_btn)
 
-        # Performance Dashboard Button
         self.performance_btn = QPushButton("Performance")
         self.performance_btn.setObjectName("tradingActionButton")
         self.performance_btn.clicked.connect(self.performance_dashboard_requested.emit)
@@ -252,11 +207,10 @@ class HeaderToolbar(QToolBar):
         self.addWidget(actions_widget)
 
     def _create_account_section(self):
-        """Creates simplified account information display."""
-        separator = QFrame()
-        separator.setFrameShape(QFrame.Shape.VLine)
-        separator.setObjectName("sectionSeparator")
-        self.addWidget(separator)
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.VLine)
+        sep.setObjectName("sectionSeparator")
+        self.addWidget(sep)
 
         self.account_info_widget = QWidget()
         self.account_info_widget.setObjectName("accountInfoWidget")
@@ -281,212 +235,156 @@ class HeaderToolbar(QToolBar):
         dot.setObjectName("separatorDot")
         return dot
 
+    # ── Timers ────────────────────────────────────────────────────────────────
+
     def _setup_timers(self):
-        """Setup simplified timers."""
-        # Simplified account refresh
         QTimer.singleShot(1000, self._refresh_account_info)
         self.account_timer = QTimer(self)
         self.account_timer.timeout.connect(self._refresh_account_info)
-        self.account_timer.start(30000)
+        self.account_timer.start(30_000)
 
-    def _refresh_account_info(self):
-        """SIMPLIFIED account information refresh - no error handling complexity."""
-        try:
-            profile = self._get_profile_data()
-            margins = self._get_margins_data()
+    # ── Signal handlers ───────────────────────────────────────────────────────
 
-            self._account_info = {
-                'user_id': profile.get('user_id', profile.get('user_name', 'DEMO')),
-                'available_balance': self._extract_available_balance(profile, margins)
-            }
+    def _on_symbol_committed(self, symbol: str, inst: Dict) -> None:
+        """Called when user selects from dropdown or presses Enter."""
+        self._remember_recent_symbol(symbol)
+        self.symbol_selected.emit(symbol)
 
-            self._update_account_display()
+    def _on_buy_clicked(self):
+        sym = self.search_input.text().upper().strip()
+        if sym and sym in self._instrument_map:
+            self.buy_order_requested.emit(sym)
 
-        except Exception as e:
-            logger.debug(f"Using demo account info: {e}")
-            self._account_info = {'user_id': 'DEMO', 'available_balance': DEFAULT_PAPER_BALANCE}
-            self._update_account_display()
+    def _on_sell_clicked(self):
+        sym = self.search_input.text().upper().strip()
+        if sym and sym in self._instrument_map:
+            self.sell_order_requested.emit(sym)
 
-    def _get_profile_data(self) -> Dict[str, Any]:
-        profile_fn = getattr(self.trader, 'profile', None)
-        if callable(profile_fn):
-            return profile_fn() or {}
+    # ── Public API ────────────────────────────────────────────────────────────
 
-        get_profile_fn = getattr(self.trader, 'get_profile', None)
-        if callable(get_profile_fn):
-            return get_profile_fn() or {}
+    def set_instrument_data(self, instruments: List[Dict[str, Any]]) -> None:
+        """Build the fast index and update internal map. O(n) once."""
+        self._instrument_map = {
+            inst["tradingsymbol"]: inst
+            for inst in instruments
+            if "tradingsymbol" in inst
+        }
+        # Build index in-place (fast even for 100k instruments)
+        self._symbol_index.build(instruments)
+        # Hand the index to the search input — it uses it from now on
+        self.search_input.set_symbol_index(self._symbol_index)
+        logger.info(f"Search index built: {len(self._instrument_map)} instruments")
 
-        return {}
-
-    def _get_margins_data(self) -> Dict[str, Any]:
-        margins_fn = getattr(self.trader, 'margins', None)
-        if callable(margins_fn):
-            return margins_fn() or {}
-        return {}
-
-    def _extract_available_balance(self, profile: Dict[str, Any], margins: Dict[str, Any]) -> float:
-        equity_margins = margins.get('equity', {})
-        available = equity_margins.get('available', {})
-
-        candidate_values = [
-            available.get('live_balance'),
-            available.get('cash'),
-            equity_margins.get('net'),
-            profile.get('current_balance'),
-            profile.get('balance'),
-            getattr(self.trader, 'balance', None),
-            getattr(self.trader, 'current_balance', None),
-            getattr(self.trader, 'initial_balance', DEFAULT_PAPER_BALANCE),
-        ]
-
-        for value in candidate_values:
-            try:
-                if value is not None:
-                    return float(value)
-            except (TypeError, ValueError):
-                continue
-        return DEFAULT_PAPER_BALANCE
-
-    def update_balance(self, balance: float):
-        """Direct balance update callback used by paper-trading signal wiring."""
-        self._account_info['available_balance'] = float(balance)
-        if self._account_info.get('user_id') in (None, '', 'N/A'):
-            self._account_info['user_id'] = 'DEMO'
-        self._update_account_display()
-
-    def _update_account_display(self):
-        """Updates the UI labels for account information."""
-        self.user_id_label.setText(self._account_info.get('user_id', 'DEMO'))
-        balance = self._account_info.get('available_balance', 0.0)
-        self.balance_label.setText(self._format_indian_currency(balance))
-
-    def _format_indian_currency(self, amount: float) -> str:
-        """Format currency in Indian numbering system."""
-        if amount == 0:
-            return "₹0"
-
-        is_negative = amount < 0
-        amount = abs(amount)
-        amount_str = f"{amount:.0f}"
-
-        if len(amount_str) <= 3:
-            formatted = amount_str
-        else:
-            last_three = amount_str[-3:]
-            remaining = amount_str[:-3]
-
-            formatted_remaining = ""
-            for i, digit in enumerate(reversed(remaining)):
-                if i > 0 and i % 2 == 0:
-                    formatted_remaining = "," + formatted_remaining
-                formatted_remaining = digit + formatted_remaining
-
-            formatted = formatted_remaining + "," + last_three
-
-        prefix = "-₹" if is_negative else "₹"
-        return prefix + formatted
-
-    def set_instrument_data(self, instruments: List[Dict[str, Any]]):
-        """Set instrument data for symbol search."""
-        self._instrument_map = {inst['tradingsymbol']: inst for inst in instruments if 'tradingsymbol' in inst}
-        self.smart_search_model.set_instruments(instruments)
-
-    def update_alert_counts(self, active_count: int, triggered_today: int):
-        """Update alert badge counts."""
+    def update_alert_counts(self, active_count: int, triggered_today: int) -> None:
         self.alerts_badge.set_count(active_count + triggered_today)
 
-    def set_current_symbol(self, symbol: str):
-        """Set the current symbol in the search input."""
-        normalized_symbol = symbol.upper().strip()
-        self.search_input.setText(normalized_symbol)
-        self.search_input.set_committed_symbol(normalized_symbol)
+    def set_current_symbol(self, symbol: str) -> None:
+        normalized = symbol.upper().strip()
+        self.search_input.setText(normalized)
+        self.search_input.set_committed_symbol(normalized)
         self.search_input.arm_replace_on_next_input()
 
     def get_current_symbol(self) -> str:
-        """Get the current symbol from the search input."""
         return self.search_input.text().upper().strip()
 
-    def _on_search_enter(self, text=""):
-        """Handle symbol search."""
-        symbol = (text or self.search_input.text()).upper().strip()
-        if symbol and symbol in self._instrument_map:
-            self.search_input.setText(symbol)
-            self.search_input.set_committed_symbol(symbol)
-            self.search_input.arm_replace_on_next_input()
-            self._remember_recent_symbol(symbol)
-            self.symbol_selected.emit(symbol)
-        elif symbol:
-            logger.warning(f"Invalid symbol entered: {symbol}")
-            self.search_input.flash_invalid()
+    def update_balance(self, balance: float) -> None:
+        self._account_info["available_balance"] = float(balance)
+        if not self._account_info.get("user_id"):
+            self._account_info["user_id"] = "DEMO"
+        self._update_account_display()
 
-    def _on_search_text_edited(self, text: str):
-        """Show live matches as the user types."""
-        self.smart_search_model.update_query(text)
-        if self.smart_search_model.rowCount() > 0:
-            self.completer.complete()
+    def update_performance_metrics(self, performance_data: Dict[str, Any]) -> None:
+        daily_pnl = performance_data.get("daily_pnl", 0)
+        if daily_pnl > 0:
+            self.performance_btn.setStyleSheet(
+                self.performance_btn.styleSheet() + "border-left:3px solid #00b894;"
+            )
+        elif daily_pnl < 0:
+            self.performance_btn.setStyleSheet(
+                self.performance_btn.styleSheet() + "border-left:3px solid #d63031;"
+            )
 
-    def _on_completer_activated(self, index: QModelIndex):
-        """Convert completion selection into canonical symbol text."""
-        symbol = index.data(SmartSearchModel.SYMBOL_ROLE) or index.data(Qt.ItemDataRole.DisplayRole)
-        if isinstance(symbol, str):
-            self._on_search_enter(symbol)
+    def set_watchlist_symbols(self, symbols: List[str]) -> None:
+        pass  # index handles this now
 
-    def _on_search_focus_received(self):
-        self.smart_search_model.set_recent_symbols(getattr(self, "_recent_symbols", []))
-        self.smart_search_model.refresh_empty_state()
-        if self.smart_search_model.rowCount() > 0:
-            self.completer.complete()
+    # ── Account helpers ───────────────────────────────────────────────────────
 
-    def set_watchlist_symbols(self, symbols: List[str]):
-        self.smart_search_model.set_watchlist_symbols(symbols)
+    def _refresh_account_info(self):
+        try:
+            profile = self._get_profile_data()
+            margins = self._get_margins_data()
+            self._account_info = {
+                "user_id": profile.get("user_id", profile.get("user_name", "DEMO")),
+                "available_balance": self._extract_available_balance(profile, margins),
+            }
+            self._update_account_display()
+        except Exception:
+            self._account_info = {"user_id": "DEMO", "available_balance": DEFAULT_PAPER_BALANCE}
+            self._update_account_display()
+
+    def _get_profile_data(self) -> Dict[str, Any]:
+        for fn_name in ("profile", "get_profile"):
+            fn = getattr(self.trader, fn_name, None)
+            if callable(fn):
+                return fn() or {}
+        return {}
+
+    def _get_margins_data(self) -> Dict[str, Any]:
+        fn = getattr(self.trader, "margins", None)
+        return fn() if callable(fn) else {}
+
+    def _extract_available_balance(self, profile, margins) -> float:
+        equity = margins.get("equity", {})
+        available = equity.get("available", {})
+        for val in [
+            available.get("live_balance"),
+            available.get("cash"),
+            equity.get("net"),
+            profile.get("current_balance"),
+            profile.get("balance"),
+            getattr(self.trader, "balance", None),
+            getattr(self.trader, "initial_balance", DEFAULT_PAPER_BALANCE),
+        ]:
+            try:
+                if val is not None:
+                    return float(val)
+            except (TypeError, ValueError):
+                pass
+        return DEFAULT_PAPER_BALANCE
+
+    def _update_account_display(self):
+        self.user_id_label.setText(self._account_info.get("user_id", "DEMO"))
+        balance = self._account_info.get("available_balance", 0.0)
+        self.balance_label.setText(self._format_indian_currency(balance))
+
+    @staticmethod
+    def _format_indian_currency(amount: float) -> str:
+        if amount == 0:
+            return "₹0"
+        neg = amount < 0
+        amount = abs(amount)
+        s = f"{amount:.0f}"
+        if len(s) <= 3:
+            fmt = s
+        else:
+            last3 = s[-3:]
+            rest = s[:-3]
+            chunks = ""
+            for i, d in enumerate(reversed(rest)):
+                if i and i % 2 == 0:
+                    chunks = "," + chunks
+                chunks = d + chunks
+            fmt = chunks + "," + last3
+        return ("-₹" if neg else "₹") + fmt
 
     def _remember_recent_symbol(self, symbol: str):
-        current = getattr(self, "_recent_symbols", [])
         normalized = symbol.upper().strip()
-        updated = [normalized] + [item for item in current if item != normalized]
+        updated = [normalized] + [s for s in self._recent_symbols if s != normalized]
         self._recent_symbols = updated[:10]
-        self.smart_search_model.set_recent_symbols(self._recent_symbols)
 
-    def _on_buy_clicked(self):
-        """Handle buy button click."""
-        symbol = self.search_input.text().upper().strip()
-        if symbol and symbol in self._instrument_map:
-            self.buy_order_requested.emit(symbol)
-        else:
-            logger.warning("No valid symbol entered for buy order")
-
-    def _on_sell_clicked(self):
-        """Handle sell button click."""
-        symbol = self.search_input.text().upper().strip()
-        if symbol and symbol in self._instrument_map:
-            self.sell_order_requested.emit(symbol)
-        else:
-            logger.warning("No valid symbol entered for sell order")
-
-    def update_performance_metrics(self, performance_data: Dict[str, Any]):
-        """SIMPLIFIED performance metrics update - no tooltips."""
-        try:
-            daily_pnl = performance_data.get('daily_pnl', 0)
-
-            # Simple color indicator on performance button
-            if daily_pnl > 0:
-                self.performance_btn.setStyleSheet(
-                    self.performance_btn.styleSheet() +
-                    "border-left: 3px solid #00b894;"
-                )
-            elif daily_pnl < 0:
-                self.performance_btn.setStyleSheet(
-                    self.performance_btn.styleSheet() +
-                    "border-left: 3px solid #d63031;"
-                )
-
-            logger.debug(f"Header performance updated: P&L ₹{daily_pnl:,.2f}")
-
-        except Exception as e:
-            logger.error(f"Failed to update performance metrics: {e}")
+    # ── Styles ────────────────────────────────────────────────────────────────
 
     def _apply_styles(self):
-        """Apply styles with status bar integration."""
         self.setStyleSheet("""
             QToolBar#enhancedHeaderToolbar {
                 background-color: #1a1a1a;
@@ -496,151 +394,53 @@ class HeaderToolbar(QToolBar):
                 min-height: 28px;
                 max-height: 30px;
             }
-            #centerSpacer {
-                background-color: transparent;
-            }
-            #symbolLabel { 
-                background-color: #1a1a1a; 
-                color: #ffffff; 
-                font-size: 11px; 
-                font-weight: 900; 
-                text-transform: uppercase;
-                letter-spacing: 1px;
+            #centerSpacer { background-color: transparent; }
+            #symbolLabel {
+                background-color: #1a1a1a; color: #ffffff;
+                font-size: 11px; font-weight: 900;
+                text-transform: uppercase; letter-spacing: 1px;
                 padding-right: 6px;
             }
             #enhancedSymbolSearch {
                 background-color: #000000;
-                border: 1px solid #333333; 
-                color: #ffffff; 
-                padding: 3px 8px; 
-                border-radius: 3px;
-                font-size: 11px; 
-                font-weight: 500;
-                min-width: 84px; 
-                max-width: 100px; 
-                max-height: 20px;
+                border: 1px solid #333333; color: #ffffff;
+                padding: 3px 8px; border-radius: 3px;
+                font-size: 11px; font-weight: 500;
+                min-width: 84px; max-width: 100px; max-height: 20px;
             }
-            #enhancedSymbolSearch:focus { 
-                border: 1px solid #00d4ff; 
-                color: #00d4ff;
-            }
+            #enhancedSymbolSearch:focus { border: 1px solid #00d4ff; color: #00d4ff; }
             #buyButton {
-                background-color: #000000;
-                color: white;
-                border: 1px solid #333333;
-                padding: 3px 6px;
-                border-radius: 3px;
-                font-size: 9px;
-                font-weight: 600;
-                text-transform: uppercase;
+                background-color: #000000; color: white;
+                border: 1px solid #333333; padding: 3px 6px;
+                border-radius: 3px; font-size: 9px; font-weight: 600;
             }
-            #buyButton:hover {
-                background-color: #1a5928;
-                border: 1px solid #4aff4a;
-                color: #4aff4a;
-            }
+            #buyButton:hover { background-color:#1a5928; border:1px solid #4aff4a; color:#4aff4a; }
             #sellButton {
-                background-color: #000000;
-                color: white;
-                border: 1px solid #333333;
-                padding: 3px 6px;
-                border-radius: 3px;
-                font-size: 9px;
-                font-weight: 600;
-                text-transform: uppercase;
+                background-color: #000000; color: white;
+                border: 1px solid #333333; padding: 3px 6px;
+                border-radius: 3px; font-size: 9px; font-weight: 600;
             }
-            #sellButton:hover {
-                background-color: #5a1a1a;
-                border: 1px solid #ff4444;
-                color: #ff4444;
-            }
-            #marketStatusWidget { 
-                background-color: #1a1a1a; 
-                border-radius: 4px; 
-                border: 1px solid #333; 
-            }
-            #marketOpen { 
-                background-color: #1a1a1a;
-                color: #00ff00; 
-            } 
-            #marketClosed { 
-                background-color: #1a1a1a;
-                color: #ff4444; 
-            }
-            #marketStatusText { 
-                background-color: #1a1a1a;
-                color: #cccccc; 
-                font-size: 10px; 
-                font-weight: 600; 
-            }
-            #marketStatusWidget { 
-                background-color: #1a1a1a; 
-                border-radius: 4px; 
-                border: 1px solid #333; 
-            }
-            #marketOpen { 
-                background-color: #1a1a1a;
-                color: #00ff00; 
-            } 
-            #marketClosed { 
-                background-color: #1a1a1a;
-                color: #ff4444; 
-            }
-            #marketStatusText { 
-                background-color: #1a1a1a;
-                color: #cccccc; 
-                font-size: 10px; 
-                font-weight: 600; 
-            }
-            #alertActionWidget, #tradingActionWidget {
-                background-color: #1a1a1a;
-            }
+            #sellButton:hover { background-color:#5a1a1a; border:1px solid #ff4444; color:#ff4444; }
+            #alertActionWidget, #tradingActionWidget { background-color: #1a1a1a; }
             #alertActionButton, #tradingActionButton {
-                background-color: #000000;
-                color: white;
-                border: 1px solid #333333;
-                padding: 3px 6px;
-                border-radius: 3px;
-                font-size: 9px;
-                font-weight: 500;
+                background-color: #000000; color: white;
+                border: 1px solid #333333; padding: 3px 6px;
+                border-radius: 3px; font-size: 9px; font-weight: 500;
             }
             #alertActionButton:hover, #tradingActionButton:hover {
-                background-color: #1a1a1a;
-                border: 1px solid #00d4ff;
-                color: #00d4ff;
+                background-color: #1a1a1a; border: 1px solid #00d4ff; color: #00d4ff;
             }
             #accountInfoWidget {
-                background-color: #1a1a1a;
-                border: 1px solid #333333; 
-                border-radius: 5px; 
-                padding: 2px 6px;
+                background-color: #1a1a1a; border: 1px solid #333333;
+                border-radius: 5px; padding: 2px 6px;
             }
-            #userIdLabel { 
-                background-color: #1a1a1a;
-                color: #00d4ff; 
-                font-size: 10px; 
-                font-weight: 700; 
-            }
-            #balanceLabel { 
-                background-color: #1a1a1a;
-                color: #4aff4a; 
-                font-size: 10px; 
-                font-weight: 600; 
-            }
-            #separatorDot { 
-                background-color: #1a1a1a;
-                color: #666666; 
-                font-size: 8px; 
-            }
-            #sectionSeparator { 
-                background-color: #404040; 
-                max-width: 1px; 
-                margin: 3px 1px; 
-            }
+            #userIdLabel { background-color:#1a1a1a; color:#00d4ff; font-size:10px; font-weight:700; }
+            #balanceLabel { background-color:#1a1a1a; color:#4aff4a; font-size:10px; font-weight:600; }
+            #separatorDot { background-color:#1a1a1a; color:#666666; font-size:8px; }
+            #sectionSeparator { background-color:#404040; max-width:1px; margin:3px 1px; }
         """)
 
     def closeEvent(self, event):
-        """Clean up timers when closing."""
-        if hasattr(self, 'account_timer'):
+        if hasattr(self, "account_timer"):
             self.account_timer.stop()
         super().closeEvent(event)
