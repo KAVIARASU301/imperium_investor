@@ -36,6 +36,7 @@ class EnhancedTokenManager:
 
         # Global settings
         self.settings_file = self.app_dir / "settings.enc"
+        self.dialog_states_file = self.app_dir / "dialog_states.enc"
         self.key_file = self.app_dir / ".encryption_key"
 
         # Initialize encryption
@@ -329,6 +330,35 @@ class EnhancedTokenManager:
             'sound_enabled': True,
             'notifications_enabled': True
         }
+
+    # === DIALOG STATE MANAGEMENT (BACKWARD COMPATIBILITY) ===
+
+    def save_dialog_state(self, dialog_name: str, state_data: str) -> bool:
+        """
+        Save state for a UI dialog/widget by name.
+
+        State is stored in encrypted global storage to preserve compatibility
+        with older ConfigManager-based callers.
+        """
+        try:
+            all_states = self._load_encrypted_file(self.dialog_states_file) or {}
+            all_states[dialog_name] = state_data
+            return self._save_encrypted_file(self.dialog_states_file, all_states)
+        except Exception as e:
+            logger.error(f"Failed to save dialog state for {dialog_name}: {e}")
+            return False
+
+    def load_dialog_state(self, dialog_name: str) -> Optional[str]:
+        """Load previously saved state for a UI dialog/widget by name."""
+        try:
+            all_states = self._load_encrypted_file(self.dialog_states_file) or {}
+            value = all_states.get(dialog_name)
+            if value is None:
+                return None
+            return str(value)
+        except Exception as e:
+            logger.error(f"Failed to load dialog state for {dialog_name}: {e}")
+            return None
 
     # === UTILITY METHODS ===
 
