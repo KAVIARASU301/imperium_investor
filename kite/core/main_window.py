@@ -2033,8 +2033,8 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             super().keyPressEvent(event)
             return
 
-        # Auto-focus logic for letter keys (existing code)
-        if self._is_letter_key(event) and not self._is_input_focused():
+        # Auto-focus logic for symbol typing from anywhere on the chart.
+        if self._is_symbol_char_key(event) and not self._is_input_focused():
             if not (event.modifiers() & (Qt.KeyboardModifier.ControlModifier |
                                          Qt.KeyboardModifier.AltModifier |
                                          Qt.KeyboardModifier.MetaModifier)):
@@ -2049,10 +2049,12 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         # Call parent implementation for all other keys
         super().keyPressEvent(event)
 
-    def _is_letter_key(self, key_event):
-        """Check if the pressed key is a letter (a-z, A-Z)."""
+    def _is_symbol_char_key(self, key_event):
+        """Check if the pressed key is symbol-search compatible text (A-Z, 0-9)."""
         key = key_event.key()
-        return (Qt.Key.Key_A <= key <= Qt.Key.Key_Z)
+        is_letter = Qt.Key.Key_A <= key <= Qt.Key.Key_Z
+        is_number = Qt.Key.Key_0 <= key <= Qt.Key.Key_9
+        return is_letter or is_number
 
     def _is_input_focused(self):
         """Check if any input field is currently focused."""

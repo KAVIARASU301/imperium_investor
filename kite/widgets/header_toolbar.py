@@ -4,12 +4,13 @@ import logging
 from typing import List, Dict, Any, Union
 
 from PySide6.QtWidgets import (
-    QToolBar, QLineEdit, QCompleter, QWidget, QLabel, QSizePolicy, QPushButton,
-    QHBoxLayout, QFrame
+    QToolBar, QCompleter, QWidget, QLabel, QSizePolicy, QPushButton,
+    QHBoxLayout, QFrame, QListView
 )
 from PySide6.QtCore import Signal, Qt, QTimer, QEvent, QModelIndex
-from PySide6.QtGui import QPainter, QColor, QFont, QKeyEvent, QStandardItemModel, QStandardItem
+from PySide6.QtGui import QPainter, QColor, QFont
 from kiteconnect import KiteConnect
+from kite.widgets.search_bar import EnhancedSearchInput, SearchItemDelegate, SmartSearchModel
 
 # Import the simple status bar
 from kite.widgets.status_bar import StatusBar, status
@@ -77,6 +78,7 @@ class HeaderToolbar(QToolBar):
         self.setObjectName("enhancedHeaderToolbar")
         self.trader = trader
         self._instrument_map: Dict[str, Dict] = {}
+        self._recent_symbols: List[str] = []
         self._account_info = {'available_balance': DEFAULT_PAPER_BALANCE, 'user_id': 'N/A'}
 
         self._init_ui()
@@ -99,11 +101,12 @@ class HeaderToolbar(QToolBar):
         self.addWidget(symbol_label)
 
         # Use custom symbol input instead of regular QLineEdit
-        self.search_input = SymbolSearchInput()
+        self.search_input = EnhancedSearchInput()
         self.search_input.setPlaceholderText("Search symbol, company, exchange")
         self.search_input.setObjectName("enhancedSymbolSearch")
-        self.search_input.textEdited.connect(self._on_search_text_edited)
+        self.search_input.debouncedTextChanged.connect(self._on_search_text_edited)
         self.search_input.returnPressed.connect(self._on_search_enter)
+        self.search_input.focusReceived.connect(self._on_search_focus_received)
 
         self.addWidget(self.search_input)
 
@@ -121,14 +124,17 @@ class HeaderToolbar(QToolBar):
         self.addWidget(self.sell_button)
 
         # Setup completer with enhanced settings
-        self.completer = QCompleter(self)
+        self.smart_search_model = SmartSearchModel(self)
+        self.completer = QCompleter(self.smart_search_model, self)
         self.completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-        self.completer.setFilterMode(Qt.MatchFlag.MatchContains)
         self.completer.setMaxVisibleItems(10)
         self.completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        self.completer.setModelSorting(QCompleter.ModelSorting.UnsortedModel)
+        self.completer.setCompletionRole(SmartSearchModel.SYMBOL_ROLE)
 
-        # Configure completer popup
-        popup = self.completer.popup()
+        popup = QListView(self)
+        popup.setItemDelegate(SearchItemDelegate(popup))
+        self.completer.setPopup(popup)
         popup.setStyleSheet("""
             QListView {
                 background-color: #2b2b2b;
@@ -383,22 +389,7 @@ class HeaderToolbar(QToolBar):
     def set_instrument_data(self, instruments: List[Dict[str, Any]]):
         """Set instrument data for symbol search."""
         self._instrument_map = {inst['tradingsymbol']: inst for inst in instruments if 'tradingsymbol' in inst}
-        model = QStandardItemModel(self)
-
-        for inst in instruments:
-            symbol = inst.get("tradingsymbol")
-            if not symbol:
-                continue
-
-            name = inst.get("name") or ""
-            exchange = inst.get("exchange") or ""
-            display_text = f"{symbol} — {name} ({exchange})" if name else f"{symbol} ({exchange})" if exchange else symbol
-
-            item = QStandardItem(display_text)
-            item.setData(symbol, Qt.ItemDataRole.UserRole)
-            model.appendRow(item)
-
-        self.completer.setModel(model)
+        self.smart_search_model.set_instruments(instruments)
 
     def update_alert_counts(self, active_count: int, triggered_today: int):
         """Update alert badge counts."""
@@ -422,20 +413,39 @@ class HeaderToolbar(QToolBar):
             self.search_input.setText(symbol)
             self.search_input.set_committed_symbol(symbol)
             self.search_input.arm_replace_on_next_input()
+            self._remember_recent_symbol(symbol)
             self.symbol_selected.emit(symbol)
         elif symbol:
             logger.warning(f"Invalid symbol entered: {symbol}")
+            self.search_input.flash_invalid()
 
     def _on_search_text_edited(self, text: str):
         """Show live matches as the user types."""
-        if text.strip():
+        self.smart_search_model.update_query(text)
+        if self.smart_search_model.rowCount() > 0:
             self.completer.complete()
 
     def _on_completer_activated(self, index: QModelIndex):
         """Convert completion selection into canonical symbol text."""
-        symbol = index.data(Qt.ItemDataRole.UserRole) or index.data(Qt.ItemDataRole.DisplayRole)
+        symbol = index.data(SmartSearchModel.SYMBOL_ROLE) or index.data(Qt.ItemDataRole.DisplayRole)
         if isinstance(symbol, str):
             self._on_search_enter(symbol)
+
+    def _on_search_focus_received(self):
+        self.smart_search_model.set_recent_symbols(getattr(self, "_recent_symbols", []))
+        self.smart_search_model.refresh_empty_state()
+        if self.smart_search_model.rowCount() > 0:
+            self.completer.complete()
+
+    def set_watchlist_symbols(self, symbols: List[str]):
+        self.smart_search_model.set_watchlist_symbols(symbols)
+
+    def _remember_recent_symbol(self, symbol: str):
+        current = getattr(self, "_recent_symbols", [])
+        normalized = symbol.upper().strip()
+        updated = [normalized] + [item for item in current if item != normalized]
+        self._recent_symbols = updated[:10]
+        self.smart_search_model.set_recent_symbols(self._recent_symbols)
 
     def _on_buy_clicked(self):
         """Handle buy button click."""
@@ -634,111 +644,3 @@ class HeaderToolbar(QToolBar):
         if hasattr(self, 'account_timer'):
             self.account_timer.stop()
         super().closeEvent(event)
-
-
-
-
-from PySide6.QtWidgets import QLineEdit
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QKeyEvent
-
-
-# Update the SymbolSearchInput class in widgets/header_toolbar.py
-
-class SymbolSearchInput(QLineEdit):
-    """Enhanced QLineEdit tuned for high-speed symbol lookup."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._select_all_on_mouse_release = False
-        self._replace_on_next_input = False
-        self._committed_symbol = ""
-        self.textEdited.connect(self._normalize_user_text)
-
-    def arm_replace_on_next_input(self):
-        """Enable one-shot replace mode so next typed character overwrites current symbol."""
-        self._replace_on_next_input = True
-
-    def set_committed_symbol(self, symbol: str):
-        """Remember the most recently confirmed symbol for escape-to-revert."""
-        self._committed_symbol = (symbol or "").upper().strip()
-
-    def _normalize_user_text(self, text: str):
-        """Keep symbol inputs consistently uppercase."""
-        normalized = text.upper()
-        if normalized != text:
-            cursor_pos = self.cursorPosition()
-            self.blockSignals(True)
-            self.setText(normalized)
-            self.setCursorPosition(cursor_pos)
-            self.blockSignals(False)
-
-    def keyPressEvent(self, event):
-        """Override to support TradingView-like replace and navigation behaviour."""
-        key = event.key()
-        text_value = event.text()
-
-        if key == Qt.Key.Key_Escape:
-            if self._committed_symbol:
-                self.setText(self._committed_symbol)
-                self.selectAll()
-            event.accept()
-            return
-
-        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Tab):
-            self._replace_on_next_input = True
-            super().keyPressEvent(event)
-            return
-
-        # Handle arrow keys specially
-        if key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
-            completer = self.completer()
-
-            if completer:
-                # If there's text and popup is not visible, show it
-                if self.text().strip() and not completer.popup().isVisible():
-                    completer.complete()
-
-                # If popup is visible, let the default handling work
-                if completer.popup().isVisible():
-                    super().keyPressEvent(event)
-                    return
-
-            # If no completer or popup not visible, consume the event
-            # This prevents the chart timeframe change
-            event.accept()  # Explicitly accept the event
-            return
-
-        is_text_input = bool(text_value and text_value.isprintable() and not event.modifiers())
-        if is_text_input and self._replace_on_next_input:
-            self.clear()
-            self._replace_on_next_input = False
-
-        # For all other keys, use default handling
-        super().keyPressEvent(event)
-        if is_text_input:
-            self._replace_on_next_input = False
-
-    def focusInEvent(self, event):
-        """Handle focus in event."""
-        super().focusInEvent(event)
-        self.selectAll()
-        self._select_all_on_mouse_release = True
-        # Optionally show completer when focused if there's text
-        if self.text().strip() and self.completer():
-            self.completer().complete()
-
-    def mousePressEvent(self, event):
-        """Single click should allow immediate overwrite of existing symbol text."""
-        super().mousePressEvent(event)
-        if self._select_all_on_mouse_release:
-            self.selectAll()
-            self._select_all_on_mouse_release = False
-
-    def focusOutEvent(self, event):
-        """Handle focus out event."""
-        super().focusOutEvent(event)
-        self._select_all_on_mouse_release = False
-        # Hide completer when focus is lost
-        if self.completer() and self.completer().popup().isVisible():
-            self.completer().popup().hide()
