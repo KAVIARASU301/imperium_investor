@@ -11,6 +11,7 @@ from abc import ABC, abstractmethod
 
 from login_setup.broker_modes import BrokerMode, TradingMode, get_broker_config, get_module_path
 from login_setup.enhanced_token_manager import EnhancedTokenManager
+from kite.core.relay_integration import build_relay_client
 
 logger = logging.getLogger(__name__)
 
@@ -404,7 +405,14 @@ class BrokerFactory:
                 profile = kite_client.profile()
                 logger.info(f"Kite client created for user: {profile.get('user_name', 'Unknown')}")
 
-                return KiteClientWrapper(kite_client)
+                wrapped_client = KiteClientWrapper(kite_client)
+                token_manager = auth_data.get('token_manager') or EnhancedTokenManager()
+                return build_relay_client(
+                    raw_kite_client=wrapped_client,
+                    api_key=api_key,
+                    access_token=access_token,
+                    token_manager=token_manager,
+                )
 
             except ImportError:
                 raise ImportError("kiteconnect library not available")
@@ -481,7 +489,14 @@ class BrokerFactory:
                 access_token = authentication_data.get('access_token')
 
                 kite_client = KiteConnect(api_key=api_key, access_token=access_token)
-                return KiteClientWrapper(kite_client)
+                wrapped_client = KiteClientWrapper(kite_client)
+                token_manager = authentication_data.get('token_manager') or EnhancedTokenManager()
+                return build_relay_client(
+                    raw_kite_client=wrapped_client,
+                    api_key=api_key,
+                    access_token=access_token,
+                    token_manager=token_manager,
+                )
 
             except Exception as e:
                 logger.error(f"Could not create Kite data client: {e}")

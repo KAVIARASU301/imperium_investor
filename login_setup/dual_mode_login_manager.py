@@ -41,6 +41,7 @@ except ImportError:
 from login_setup.broker_modes import BrokerMode, TradingMode, get_broker_config, get_display_config
 from login_setup.enhanced_token_manager import EnhancedTokenManager
 from login_setup.ibkr_auth import IBKRAuth, is_ibkr_available
+from kite.core.relay_integration import inject_relay_widget_into_login
 
 logger = logging.getLogger(__name__)
 
@@ -450,6 +451,7 @@ class DualModeLoginManager(QDialog):
             "trading_mode": self.selected_trading_mode,
             "api_key": api_key,
             "access_token": access_token,
+            "token_manager": self.token_manager,
         }
         self.accept()
         return True
@@ -503,6 +505,7 @@ class DualModeLoginManager(QDialog):
         creds_layout.addWidget(self.kite_api_key_input)
         creds_layout.addWidget(self.kite_api_secret_input)
         creds_layout.addWidget(self.save_kite_creds)
+        self.relay_settings_widget = inject_relay_widget_into_login(creds_layout, self.token_manager)
 
         layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(creds_panel)
@@ -715,6 +718,7 @@ class DualModeLoginManager(QDialog):
             "trading_mode": self.selected_trading_mode,
             "api_key": self.kite_api_key,
             "access_token": access_token,
+            "token_manager": self.token_manager,
         }
         self.accept()
 
