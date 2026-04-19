@@ -93,6 +93,8 @@ class PerformanceDialog(QDialog):
         chart_layout.setContentsMargins(0, 0, 10, 0)
         self.chart_view = QWebEngineView()
         self.chart_view.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
+        # Remove any default frame/border so the chart blends with the card background
+        self.chart_view.setStyleSheet("QWebEngineView { border: none; background-color: transparent; }")
         self._set_loading_html()
         chart_layout.addWidget(self.chart_view)
 
@@ -405,6 +407,7 @@ class PerformanceDialog(QDialog):
                 font-weight: bold;
                 color: #e0e0e0;
                 padding-left: 5px;
+                background-color: transparent;
             }
             #headerBtn {
                 background-color: transparent;
@@ -428,11 +431,13 @@ class PerformanceDialog(QDialog):
                 font-weight: 600;
                 color: #888888;
                 letter-spacing: 1px;
+                background-color: transparent;
             }
             #kpiCardValue {
                 font-size: 18px;
                 font-weight: bold;
                 color: #ffffff;
+                background-color: transparent;
             }
             #contentGroup {
                 font-size: 12px;
@@ -452,14 +457,16 @@ class PerformanceDialog(QDialog):
             #statTitle {
                 color: #888888;
                 font-size: 12px;
+                background-color: transparent;
             }
             #statValue {
                 font-size: 13px;
                 font-weight: 600;
+                background-color: transparent;
             }
             QWebEngineView {
                 background-color: #121212;
-                border: 1px solid #2d2d2d;
+                border: none;
                 border-radius: 6px;
             }
             QTableWidget {
