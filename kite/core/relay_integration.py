@@ -9,10 +9,6 @@ What this module does
         If a valid relay config exists → wraps the client in RelayOrderRouter.
         If no relay config → returns the raw KiteConnect client unchanged.
 
-2.  apply_relay_to_login_page(kite_credentials_page, token_manager)
-        Injects the RelaySettingsWidget into the Kite credentials page of
-        DualModeLoginManager, so users can configure the relay at login time.
-
 Usage (in broker_factory._create_kite_client)
 ─────────────────────────────────────────────
     from kite.core.relay_integration import build_relay_client
@@ -85,20 +81,3 @@ def build_relay_client(
 
     return router
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# UI HELPER — inject relay panel into the Kite credentials page
-# ─────────────────────────────────────────────────────────────────────────────
-
-def inject_relay_widget_into_login(credentials_page_layout, token_manager):
-    """
-    Append a RelaySettingsWidget to the given QLayout on the Kite credentials
-    page of DualModeLoginManager.
-
-    Call this from DualModeLoginManager._create_kite_credentials_page() after
-    building the existing form, before adding the nav-button row.
-    """
-    from kite.widgets.relay_settings_widget import RelaySettingsWidget
-    widget = RelaySettingsWidget(token_manager=token_manager)
-    credentials_page_layout.addWidget(widget)
-    return widget

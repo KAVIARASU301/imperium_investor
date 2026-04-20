@@ -41,7 +41,7 @@ except ImportError:
 from login_setup.broker_modes import BrokerMode, TradingMode, get_broker_config, get_display_config
 from login_setup.enhanced_token_manager import EnhancedTokenManager
 from login_setup.ibkr_auth import IBKRAuth, is_ibkr_available
-from kite.core.relay_integration import inject_relay_widget_into_login
+from kite.widgets.relay_settings_widget import RelaySettingsDialog
 
 logger = logging.getLogger(__name__)
 
@@ -489,6 +489,10 @@ class DualModeLoginManager(QDialog):
         self.save_kite_creds = QCheckBox("Remember Credentials")
         self.save_kite_creds.setChecked(True)
 
+        self.relay_settings_btn = QPushButton("⚙️ Configure Relay Server")
+        self.relay_settings_btn.setObjectName("subtleActionButton")
+        self.relay_settings_btn.clicked.connect(self._show_relay_settings)
+
         redirect_hint = QLabel(
             f'<small>Set Redirect URL in Kite Console to: '
             f'<b>http://127.0.0.1:{_resolve_callback_ports()[0]}/</b></small>'
@@ -504,8 +508,11 @@ class DualModeLoginManager(QDialog):
 
         creds_layout.addWidget(self.kite_api_key_input)
         creds_layout.addWidget(self.kite_api_secret_input)
-        creds_layout.addWidget(self.save_kite_creds)
-        self.relay_settings_widget = inject_relay_widget_into_login(creds_layout, self.token_manager)
+        bottom_options = QHBoxLayout()
+        bottom_options.addWidget(self.save_kite_creds)
+        bottom_options.addStretch()
+        bottom_options.addWidget(self.relay_settings_btn)
+        creds_layout.addLayout(bottom_options)
 
         layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(creds_panel)
@@ -513,6 +520,11 @@ class DualModeLoginManager(QDialog):
         layout.addStretch()
         layout.addLayout(nav)
         return page
+
+    def _show_relay_settings(self):
+        """Pops up the standalone relay settings dialog."""
+        dialog = RelaySettingsDialog(self.token_manager, self)
+        dialog.exec()
 
     # --------------------------------------------------------------------------
     # Page 3: Kite Token (auto-capture + manual fallback)
