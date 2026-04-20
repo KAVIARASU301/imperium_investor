@@ -339,7 +339,7 @@ function notifyDrawingsChange(chart) {
 
    In html_builder.py build_chart_html(), add before the chart_js embed:
 
-       <script src="qrc:///drawing_engine.js"></script>
+       <script src="qrc:///drawing_engine.js"><\/script>
 
    OR inline drawing_engine.js content just before the chart.js content.
    Then at the bottom of chart.js _init():

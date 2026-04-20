@@ -32,7 +32,7 @@
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const FIB_LEVELS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0];
+const CHART_FIB_LEVELS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0];
 const FIB_COLORS = ['#FFD700', '#FF9800', '#4CAF50', '#2196F3', '#9C27B0', '#F44336', '#FFD700'];
 const FIB_LABELS = ['0%', '23.6%', '38.2%', '50%', '61.8%', '78.6%', '100%'];
 
@@ -1819,7 +1819,7 @@ class FixedTradingChart {
             const ex = this._timeToX(fib.endTime),   ey = this._priceToY(fib.endPrice);
             const priceRange = fib.startPrice - fib.endPrice;
 
-            FIB_LEVELS.forEach((level, idx) => {
+            CHART_FIB_LEVELS.forEach((level, idx) => {
                 const price = fib.endPrice + priceRange * level;
                 const y     = this._priceToY(price);
                 const col   = FIB_COLORS[idx];
@@ -1833,8 +1833,8 @@ class FixedTradingChart {
                 ctx.stroke();
 
                 // Shade between levels
-                if (idx < FIB_LEVELS.length - 1) {
-                    const nextPrice = fib.endPrice + priceRange * FIB_LEVELS[idx + 1];
+                if (idx < CHART_FIB_LEVELS.length - 1) {
+                    const nextPrice = fib.endPrice + priceRange * CHART_FIB_LEVELS[idx + 1];
                     const nextY = this._priceToY(nextPrice);
                     ctx.fillStyle = this._hexToRgba(col, 0.04);
                     ctx.fillRect(Math.min(sx, ex), Math.min(y, nextY),
