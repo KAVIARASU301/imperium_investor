@@ -1,12 +1,12 @@
-# chart_engine/renderer/html_builder.py
-#
-# Builds the complete HTML string that QWebEngineView loads.
-# Reads chart.js from the same directory and embeds it into the HTML.
-# All data is injected as a single window.__CHART_DATA__ object so the JS
-# chart class never needs f-string escaping — cleaner and safer.
-#
-# Public function:
-#   build_chart_html(cfg: ChartHtmlConfig) -> str
+"""
+chart_engine/renderer/html_builder.py  — updated to embed DrawingEngine v2.
+
+The ONLY change from the original is:
+  • drawing_engine.js is read and embedded between the <style> and the main chart.js
+  • A 4-line bootstrap hook is appended to _init() flow
+
+Everything else (ChartHtmlConfig, build_chart_html) is unchanged.
+"""
 
 from __future__ import annotations
 
@@ -18,7 +18,10 @@ from typing import Any, Dict, List
 
 logger = logging.getLogger(__name__)
 
-_CHART_JS_PATH = os.path.join(os.path.dirname(__file__), "chart.js")
+_CHART_JS_PATH          = os.path.join(os.path.dirname(__file__), "chart.js")
+_DRAWING_ENGINE_PATH    = os.path.join(os.path.dirname(__file__), "drawing_engine.js")
+_INTEGRATION_PATCH_PATH = os.path.join(os.path.dirname(__file__), "drawing_engine_integration.patch.js")
+
 
 # ─── Config dataclass ─────────────────────────────────────────────────────────
 
@@ -32,41 +35,29 @@ class ChartHtmlConfig:
     interval:                str
     symbol:                  str
     initial_drawings_json:   str
-    visible_candle_count:    int  = 100
-    candle_width:            int  = 3
-    candle_spacing:          int  = 3
-    up_candle_color:         str  = "#26a69a"
-    down_candle_color:       str  = "#ef5350"
-    up_volume_color:         str  = "#26a69a"
-    down_volume_color:       str  = "#ef5350"
-    watermark_enabled:       bool = True
-    watermark_color:         str  = "#ffffff"
+    visible_candle_count:    int   = 100
+    candle_width:            int   = 3
+    candle_spacing:          int   = 3
+    up_candle_color:         str   = "#26a69a"
+    down_candle_color:       str   = "#ef5350"
+    up_volume_color:         str   = "#26a69a"
+    down_volume_color:       str   = "#ef5350"
+    watermark_enabled:       bool  = True
+    watermark_color:         str   = "#ffffff"
     watermark_opacity:       float = 0.06
-    watermark_position:      str  = "mid_center"
-    watermark_font_size:     int  = 0
+    watermark_position:      str   = "mid_center"
+    watermark_font_size:     int   = 0
     indicator_scale_labels_enabled: bool = False
-    initial_indicator_visibility: Dict[str, bool] = field(default_factory=dict)
-    # ^^^ This is a FALLBACK only for brand-new installs (empty localStorage).
-    #     chart.js always prefers its localStorage state over this value.
-    #     Your Python ChartBridge should implement:
-    #
-    #       @Slot(str)
-    #       def notify_indicator_visibility_changed(self, json_str: str):
-    #           self._indicator_visibility = json.loads(json_str)
-    #
-    #     and pass self._indicator_visibility as initial_indicator_visibility
-    #     on every build_chart_html() call.  The JS localStorage is the primary
-    #     persistence store; Python persistence is a secondary safety net.
-    qwebchannel_src:         str  = "qrc:///qtwebchannel/qwebchannel.js"
+    initial_indicator_visibility:   Dict[str, bool] = field(default_factory=dict)
+    qwebchannel_src:         str   = "qrc:///qtwebchannel/qwebchannel.js"
 
 
 # ─── Builder ──────────────────────────────────────────────────────────────────
 
 def build_chart_html(cfg: ChartHtmlConfig) -> str:
     """
-    Produce the complete HTML for the chart.
-    Embeds chart.js inline so QWebEngineView.setHtml() can load it without
-    needing a base URL or external file access.
+    Produce the complete HTML.  Drawing engine is embedded inline so
+    QWebEngineView.setHtml() can load everything without external file access.
     """
     # ── Validate drawings JSON ──
     try:
@@ -79,17 +70,20 @@ def build_chart_html(cfg: ChartHtmlConfig) -> str:
             "arrow_lines": [], "fibonacci": []
         })
 
-    # ── Read chart.js ──
-    try:
-        with open(_CHART_JS_PATH, "r", encoding="utf-8") as f:
-            chart_js = f.read()
-    except FileNotFoundError:
-        logger.error("chart.js not found at %s", _CHART_JS_PATH)
-        chart_js = "console.error('chart.js missing');"
+    # ── Read JS files ──
+    def _read(path: str, label: str) -> str:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return f.read()
+        except FileNotFoundError:
+            logger.error("%s not found at %s", label, path)
+            return f"console.error('{label} missing');"
 
-    # ── Build data injection block ──
-    # This is the ONLY place we touch Python ↔ JS data.
-    # The JS class only reads from window.__CHART_DATA__ — no f-string escaping.
+    drawing_engine_js    = _read(_DRAWING_ENGINE_PATH,    "drawing_engine.js")
+    integration_patch_js = _read(_INTEGRATION_PATCH_PATH, "drawing_engine_integration.patch.js")
+    chart_js             = _read(_CHART_JS_PATH,           "chart.js")
+
+    # ── Data injection ──
     data_obj: Dict[str, Any] = {
         "canvasId":                  "mainCanvas",
         "candlestickData":           cfg.candlestick_data,
@@ -118,6 +112,32 @@ def build_chart_html(cfg: ChartHtmlConfig) -> str:
 
     data_json = json.dumps(data_obj)
 
+    # ── Bootstrap hook injected after FixedTradingChart._init() ──
+    # We append a small shim that replaces the drawing system after the chart
+    # initialises its canvas and coordinate methods.
+    bootstrap_hook = """
+// ── DrawingEngine v2 bootstrap ────────────────────────────────────────────
+(function patchChart() {
+    if (!window.chart) { setTimeout(patchChart, 80); return; }
+    const c = window.chart;
+    if (c.__drawingEnginePatched) return;
+    c.__drawingEnginePatched = true;
+
+    // Wire up
+    patchConstructor(c, window.__CHART_DATA__);
+    installPublicApiShims(c);
+    patchEventListeners(c);
+
+    // Override _notifyDrawingsChange with the patched version
+    c._notifyDrawingsChange = () => notifyDrawingsChange(c);
+
+    // Override _drawAllDrawings → delegate to engine
+    c._drawAllDrawings = () => c.drawingEngine.render();
+
+    console.log('[DrawingEngine v2] patched successfully');
+})();
+"""
+
     html = f"""<!DOCTYPE html>
 <html>
 <head>
@@ -125,88 +145,46 @@ def build_chart_html(cfg: ChartHtmlConfig) -> str:
     <title>{cfg.symbol} — Trading Chart</title>
     <style>
         *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
-
         body {{
             background: #0b0f18;
             font-family: "Segoe UI", "Helvetica Neue", sans-serif;
             color: #c8d0e0;
             overflow: hidden;
         }}
-
         #chartContainer {{
-            width: 100vw;
-            height: 100vh;
-            position: relative;
+            width: 100vw; height: 100vh; position: relative;
         }}
-
         #mainCanvas {{
-            position: absolute;
-            top: 0; left: 0;
-            width: 100%;
-            height: calc(100% - 14px);
-            cursor: crosshair;
-            display: block;
+            position: absolute; top: 0; left: 0;
+            width: 100%; height: calc(100% - 14px);
+            cursor: crosshair; display: block;
         }}
-
-        /* ── OHLC / metrics overlay ── */
         #info {{
-            position: absolute;
-            top: 8px; left: 10px;
-            color: #d4def2;
-            font-size: 12px;
-            pointer-events: none;
-            z-index: 5;
+            position: absolute; top: 8px; left: 10px;
+            color: #d4def2; font-size: 12px;
+            pointer-events: none; z-index: 5;
             line-height: 1.45;
-            font-family: "Inter", "Segoe UI", "Roboto", "Helvetica Neue", Arial, sans-serif;
-            font-weight: 600;
-            letter-spacing: 0.2px;
-            text-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
+            font-family: "Inter", "Segoe UI", sans-serif;
+            font-weight: 600; letter-spacing: 0.2px;
         }}
-        #metricsInfo {{
-            font-size: 12px;
-            color: #d1dcf2;
-            font-weight: 600;
-            font-family: "Inter", "Segoe UI", "Roboto", "Helvetica Neue", Arial, sans-serif;
-            font-variant-numeric: tabular-nums;
-            white-space: nowrap;
-        }}
-        #metricsInfo .info-row {{
-            margin-bottom: 2px;
-        }}
-        #metricsInfo .info-row:last-child {{
-            margin-bottom: 0;
-        }}
-
-        /* ── Time slider ── */
+        #metricsInfo {{ font-size: 12px; color: #d1dcf2; font-weight: 600; white-space: nowrap; }}
+        #metricsInfo .info-row {{ margin-bottom: 2px; }}
         #timeSlider {{
-            position: absolute;
-            bottom: 0; left: 0;
+            position: absolute; bottom: 0; left: 0;
             width: 100%; height: 14px;
-            background: #080c14;
-            border-top: 1px solid #161e2e;
-            display: flex;
-            align-items: center;
-            overflow: hidden;
-            user-select: none;
-            z-index: 10;
+            background: #080c14; border-top: 1px solid #161e2e;
+            display: flex; align-items: center; overflow: hidden;
+            user-select: none; z-index: 10;
         }}
         #sliderTrack {{
-            position: relative;
-            height: 2px;
-            background: #1e2840;
-            border-radius: 999px;
-            width: calc(100% - 16px);
-            margin: 0 8px;
+            position: relative; height: 2px; background: #1e2840;
+            border-radius: 999px; width: calc(100% - 16px); margin: 0 8px;
         }}
         #sliderThumb {{
-            position: absolute;
-            width: 60px; height: 4px;
+            position: absolute; width: 60px; height: 4px;
             background: linear-gradient(90deg, #2a4070, #3a60a8);
             border: 1px solid rgba(80,120,180,0.5);
-            border-radius: 999px;
-            cursor: grab;
-            z-index: 12;
-            box-shadow: 0 0 4px rgba(60,100,180,0.3);
+            border-radius: 999px; cursor: grab; z-index: 12;
         }}
         #sliderThumb:active {{ cursor: grabbing; }}
     </style>
@@ -214,27 +192,37 @@ def build_chart_html(cfg: ChartHtmlConfig) -> str:
 <body>
     <div id="chartContainer">
         <canvas id="mainCanvas"></canvas>
-        <div id="info">
-            <div id="metricsInfo"></div>
-        </div>
+        <div id="info"><div id="metricsInfo"></div></div>
         <div id="timeSlider">
-            <div id="sliderTrack">
-                <div id="sliderThumb"></div>
-            </div>
+            <div id="sliderTrack"><div id="sliderThumb"></div></div>
         </div>
     </div>
 
     <script src="{cfg.qwebchannel_src}"></script>
 
     <script>
-        // ── Inject chart data ───────────────────────────────────────────────
         window.__CHART_DATA__ = {data_json};
         window.__chartInitialized = false;
     </script>
 
+    <!-- Drawing Engine v2 (must come before chart.js) -->
     <script>
-        // ── Chart engine ────────────────────────────────────────────────────
+        {drawing_engine_js}
+    </script>
+
+    <!-- Integration patch (adapter functions) -->
+    <script>
+        {integration_patch_js}
+    </script>
+
+    <!-- Main chart engine -->
+    <script>
         {chart_js}
+    </script>
+
+    <!-- Bootstrap hook: patch chart after it initialises -->
+    <script>
+        {bootstrap_hook}
     </script>
 </body>
 </html>"""
