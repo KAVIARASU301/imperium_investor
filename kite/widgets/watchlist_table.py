@@ -40,7 +40,7 @@ class TradingTable(QTableWidget):
         self._watchlist_data: Dict[str, Dict] = {}
         self._symbol_to_row: Dict[str, int] = {}
         self._token_to_symbol: Dict[int, str] = {}   # O(1) reverse map
-        self._data_update_timer = QTimer()
+        self._last_tick_time = 0.0
 
         # Initialize empty watchlist data
         self._watchlist_symbols = set()  # Track symbols separately
@@ -231,9 +231,13 @@ class TradingTable(QTableWidget):
             header.setSortIndicatorShown(True)
 
     def _setup_data_refresh(self):
-        """Setup periodic data refresh for better responsiveness"""
-        self._data_update_timer.timeout.connect(self._refresh_display)
-        self._data_update_timer.start(1000)  # Refresh every second
+        """
+        Fallback refresh — only fires when WebSocket ticks stop arriving.
+        5 s interval vs the old 1 s — reduces wasted redraws.
+        """
+        self._data_update_timer = QTimer()
+        self._data_update_timer.timeout.connect(self._fallback_refresh)
+        self._data_update_timer.start(5000)
 
     def resizeEvent(self, event):
         """Re-lock col4 at 24 px on every resize so it never overflows the edge.
@@ -326,10 +330,10 @@ class TradingTable(QTableWidget):
 
 
     def _rebuild_token_map(self):
-        """Build a token -> symbol reverse map for O(1) tick lookups."""
+        """O(1) token→symbol map. Always store tokens as int."""
         self._token_to_symbol = {}
         for symbol, data in self._watchlist_data.items():
-            token = data.get('instrument_token')
+            token = data.get("instrument_token")
             if token is not None:
                 try:
                     self._token_to_symbol[int(token)] = symbol
@@ -346,102 +350,75 @@ class TradingTable(QTableWidget):
             return None
 
     def update_data(self, ticks: List[Dict]):
-        """FIXED data update from WebSocket ticks with proper field handling"""
-        updated_symbols = set()
+        """
+        Process WebSocket ticks at full speed.
+        O(1) lookup per tick — no linear scans, no timer fights.
+        """
+        import time
+
+        if ticks:
+            self._last_tick_time = time.monotonic()
 
         for tick in ticks:
-            token = self._normalize_token(tick.get('instrument_token'))
-            if token is None:
+            raw_token = tick.get("instrument_token")
+            if raw_token is None:
+                continue
+            try:
+                token = int(raw_token)
+            except (TypeError, ValueError):
                 continue
 
-            # O(1) reverse-map lookup - replaces the O(n) linear scan
-            symbol_found = self._token_to_symbol.get(token)
-            if not symbol_found:
+            symbol = self._token_to_symbol.get(token)
+            if symbol is None:
                 continue
 
-            # Update data from tick
-            data = self._watchlist_data[symbol_found]
+            data = self._watchlist_data[symbol]
 
-            # Debug: Log the full tick structure occasionally
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Processing tick for {symbol_found}: {tick}")
+            ltp = tick.get("last_price")
+            if ltp is not None:
+                ltp = float(ltp)
+                data["ltp"] = ltp
+                data["last_price"] = ltp
 
-            # Update LTP
-            if 'last_price' in tick and tick['last_price'] is not None:
-                new_ltp = float(tick['last_price'])
-                data['ltp'] = new_ltp
-                data['last_price'] = new_ltp
-
-            # FIXED: Update volume - try multiple possible field names
-            volume_updated = False
-            for vol_field in ['volume', 'volume_traded', 'day_volume']:
-                if vol_field in tick and tick[vol_field] is not None:
+            # Volume — try fields in priority order, accept first positive value
+            for vol_field in ("volume_traded", "volume"):
+                vol = tick.get(vol_field)
+                if vol is not None:
                     try:
-                        new_volume = int(tick[vol_field])
-                        if new_volume > 0:  # Only update if we get a positive volume
-                            data['volume'] = new_volume
-                            volume_updated = True
-                            logger.debug(f"Updated volume for {symbol_found} from field '{vol_field}': {new_volume}")
+                        v = int(vol)
+                        if v > 0:
+                            data["volume"] = v
                             break
-                    except (ValueError, TypeError):
-                        logger.warning(f"Invalid volume value in field '{vol_field}': {tick[vol_field]}")
+                    except (TypeError, ValueError):
+                        pass
 
-            if not volume_updated and 'volume' in tick:
-                logger.debug(f"Volume not updated for {symbol_found}, tick volume field: {tick.get('volume')}")
+            # OHLC update
+            ohlc = tick.get("ohlc")
+            if isinstance(ohlc, dict):
+                close = ohlc.get("close")
+                if close is not None:
+                    data["prev_close"] = float(close)
+                high = ohlc.get("high")
+                if high is not None:
+                    data["day_high"] = max(data.get("day_high", 0.0), float(high))
+                low = ohlc.get("low")
+                if low is not None:
+                    cur_low = data.get("day_low", 0.0)
+                    data["day_low"] = float(low) if cur_low == 0.0 else min(cur_low, float(low))
 
-            # FIXED: Update OHLC if available - handle different data structures
-            if 'ohlc' in tick and tick['ohlc'] is not None:
-                tick_ohlc = tick['ohlc']
-                if isinstance(tick_ohlc, dict):
-                    # Update high
-                    if 'high' in tick_ohlc and tick_ohlc['high'] is not None:
-                        new_high = float(tick_ohlc['high'])
-                        data['day_high'] = max(data.get('day_high', 0.0), new_high)
-
-                    # Update low
-                    if 'low' in tick_ohlc and tick_ohlc['low'] is not None:
-                        new_low = float(tick_ohlc['low'])
-                        if new_low > 0:  # Only update if we have a valid low
-                            if data.get('day_low', 0.0) == 0.0:
-                                data['day_low'] = new_low
-                            else:
-                                data['day_low'] = min(data['day_low'], new_low)
-
-                    # Update open (usually doesn't change during the day)
-                    if 'open' in tick_ohlc and tick_ohlc['open'] is not None:
-                        data['day_open'] = float(tick_ohlc['open'])
-
-                    # CRITICAL: Update previous close for change calculation
-                    if 'close' in tick_ohlc and tick_ohlc['close'] is not None:
-                        data['prev_close'] = float(tick_ohlc['close'])
-
-            # Alternative: If change fields are directly in tick data
-            if 'change' in tick and tick['change'] is not None:
-                data['change'] = float(tick['change'])
-
-            if 'net_change' in tick and tick['net_change'] is not None:
-                data['change'] = float(tick['net_change'])
-
-            # Alternative: If change percentage is directly provided
-            if 'change_percent' in tick and tick['change_percent'] is not None:
-                data['change_pct'] = float(tick['change_percent'])
-            elif 'net_change_percent' in tick and tick['net_change_percent'] is not None:
-                data['change_pct'] = float(tick['net_change_percent'])
+            # Recalculate change %
+            prev = data.get("prev_close", 0.0)
+            cur = data.get("ltp", 0.0)
+            if prev > 0 and cur > 0:
+                data["change_pct"] = (cur - prev) / prev * 100
+                data["change"] = cur - prev
             else:
-                # Recalculate change percentage
-                self._calculate_change_percentage(symbol_found)
+                data["change_pct"] = 0.0
 
-            updated_symbols.add(symbol_found)
-
-            logger.debug(
-                f"Updated {symbol_found}: LTP={data['ltp']:.2f}, Vol={data['volume']}, "
-                f"Chg={data['change_pct']:.2f}%, PrevClose={data['prev_close']:.2f}")
-
-        # Update display for changed symbols
-        for symbol in updated_symbols:
-            if symbol in self._symbol_to_row:
-                row = self._symbol_to_row[symbol]
-                self._update_row_data(row, self._watchlist_data[symbol])
+            # Push to UI immediately — no timer, no batch delay
+            row = self._symbol_to_row.get(symbol)
+            if row is not None:
+                self._update_row_data(row, data)
 
     def add_symbol(self, symbol: str) -> bool:
         """Enhanced symbol addition with proper data initialization"""
@@ -639,8 +616,11 @@ class TradingTable(QTableWidget):
             if symbol in self._watchlist_data:
                 self._update_row_data(row, self._watchlist_data[symbol])
 
-    def _refresh_display(self):
-        """Periodic refresh of display data"""
+    def _fallback_refresh(self):
+        """Redraw only if no live ticks in last 4 s (WS disconnected / pre-market)."""
+        import time
+        if time.monotonic() - getattr(self, "_last_tick_time", 0) < 4.0:
+            return
         for symbol, row in self._symbol_to_row.items():
             if symbol in self._watchlist_data:
                 self._update_row_data(row, self._watchlist_data[symbol])

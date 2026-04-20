@@ -230,10 +230,10 @@ class PositionsTable(QWidget):
     @Slot(int, float)
     def update_market_data(self, token: int, ltp: float):
         """
-        Update LTP and recalculate PnL locally
-        ONLY UPDATES AFFECTED ROWS - NO TABLE RECREATION
+        Direct O(1) path: token → symbol → row.
+        Called from main_window._on_market_data for every tick.
         """
-        symbol = self._token_to_symbol.get(token)
+        symbol = self._token_to_symbol.get(int(token))
         if symbol is None:
             return
 
@@ -241,16 +241,13 @@ class PositionsTable(QWidget):
         if position is None:
             return
 
-        # Update position data locally
         position.ltp = ltp
         position.pnl = (ltp - position.avg_price) * position.quantity
 
-        # Update ONLY this row - NO FULL TABLE REFRESH
         row = self.symbol_to_row.get(symbol)
         if row is not None:
             self._update_single_row_data(row, position)
 
-        # Update summary
         self._update_summary()
 
     def _update_single_row_data(self, row: int, position: Position):

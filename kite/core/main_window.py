@@ -889,33 +889,41 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
     @Slot(list)
     def _on_market_data(self, ticks: List[Dict]):
-        """Handle market data updates with NSE preference and improved filtering"""
+        """
+        Hot path — called on every WebSocket tick batch.
+        Keep this MINIMAL: no filtering, no allocation, no logging.
+        Each component does its own O(1) lookup.
+        """
         if not ticks:
             return
 
-        try:
-            # Filter and prioritize ticks by exchange preference
-            filtered_ticks = self._filter_ticks_by_exchange_preference(ticks)
+        # 1. Watchlist and scanner — direct dispatch (O(1) per tick per component)
+        self.watchlist.update_data(ticks)
+        self.chartink_scanner.update_data(ticks)
 
-            # Update chart with filtered data
-            self._update_chart_data(filtered_ticks)
+        # 2. Positions — pass raw ticks; table does O(1) token→row lookup
+        for tick in ticks:
+            token = tick.get("instrument_token")
+            ltp = tick.get("last_price")
+            if token is not None and ltp is not None:
+                self.positions_table.update_market_data(int(token), float(ltp))
 
-            # Update positions table with market data (using filtered ticks)
-            self._update_positions_market_data(filtered_ticks)
+        # 3. Chart — only if token matches current symbol (cheap check)
+        chart_token = getattr(self.candlestick_chart, "current_instrument_token", None)
+        if chart_token:
+            for tick in ticks:
+                if tick.get("instrument_token") == chart_token:
+                    self.candlestick_chart.update_live_data(tick)
+                    break  # only one match possible
 
-            # Update other components with filtered data
-            paper_trader = self._get_paper_trading_manager()
-            if paper_trader:
-                paper_trader.update_market_data(filtered_ticks)
+        # 4. Paper trader (only in paper mode, lightweight)
+        paper_trader = self._get_paper_trading_manager()
+        if paper_trader:
+            paper_trader.update_market_data(ticks)
 
-            self.watchlist.update_data(filtered_ticks)
-            self.chartink_scanner.update_data(filtered_ticks)
-
-            if self.alert_system:
-                self.alert_system.update_market_data(filtered_ticks)
-
-        except Exception as e:
-            logger.error(f"Error processing market data: {e}")
+        # 5. Alert engine
+        if self.alert_system:
+            self.alert_system.update_market_data(ticks)
 
     @Slot(str)
     def _on_scanner_symbol_selected(self, symbol: str):
