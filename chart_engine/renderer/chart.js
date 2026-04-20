@@ -123,18 +123,8 @@ class FixedTradingChart {
         this._rafPending = false;
         this._dirty = true;
 
-        // ── Drawings ──
-        this.drawings = this._initDrawings(cfg.initialDrawingsJson);
-        this.currentTool = null;
-        this.isDrawing = false;
-        this.isDragMovingDrawing = false;
-        this.startPoint = null;
-        this.endPoint   = null;
-        this.drawingColor  = '#FFD700';
-        this.lineWidth     = 1.5;
-        this.selectedDrawingId = null;
-        this.dragDrawingRef = null;
-        this.dragLastPoint = null;
+        // ── Drawings (DrawingEngine) ──
+        patchConstructor(this, cfg);
         this.activeContextMenu = null;
 
         // ── Watermark ──
@@ -191,6 +181,7 @@ class FixedTradingChart {
         this._updateViewport();   // derive visibleCount + viewPortStart from fixed slot width
         this._setupSlider();
         this.calculateBounds();
+        installPublicApiShims(this);
         this._setupEventListeners();
         this._setupWebChannel();
         this.requestDraw();
@@ -648,7 +639,7 @@ class FixedTradingChart {
             this._drawCandlesticks();
             this._drawATRTrendReversal();
             this._drawAxes();
-            this._drawAllDrawings();
+            this.drawingEngine.render();
             this._drawWatermark();
             this._drawLivePriceRay();
             this._drawCrosshair();
@@ -1981,79 +1972,86 @@ class FixedTradingChart {
     // ═══════════════════════════════════════════════════════════════════════
 
     _setupEventListeners() {
-        this.canvas.addEventListener('mousemove',   e => this._onMouseMove(e));
-        this.canvas.addEventListener('mousedown',   e => this._onMouseDown(e));
-        this.canvas.addEventListener('mouseup',     e => this._onMouseUp(e));
-        this.canvas.addEventListener('mouseleave',  e => this._onMouseLeave(e));
-        this.canvas.addEventListener('wheel',       e => this._onWheel(e), { passive: false });
-        this.canvas.addEventListener('contextmenu', e => this._onRightClick(e));
+        const canvas = this.canvas;
+
+        // Remove existing listeners by swapping canvas node
+        const fresh = canvas.cloneNode(true);
+        canvas.parentNode.replaceChild(fresh, canvas);
+
+        this.canvas = fresh;
+        this.ctx = fresh.getContext('2d');
+        const dpr = window.devicePixelRatio || 1;
+        this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        this.drawingEngine.canvas = fresh;
+        this.drawingEngine.ctx = this.ctx;
+
+        // Drawing engine gets events first
+        this.drawingEngine._bindEvents();
+
+        // Chart-level handlers (panning/zoom/crosshair)
+        fresh.addEventListener('mousemove', e => this._onMouseMove(e));
+        fresh.addEventListener('mousedown', e => this._onMouseDown(e));
+        fresh.addEventListener('mouseup', e => this._onMouseUp(e));
+        fresh.addEventListener('mouseleave', () => this._onMouseLeave());
+        fresh.addEventListener('wheel', e => this._onWheel(e), { passive: false });
+        fresh.addEventListener('contextmenu', e => this._onRightClick(e));
 
         document.addEventListener('keydown', e => {
-            if (e.key === 'Escape') this._clearTool();
-            if (e.key === 'Delete' && this.selectedDrawingId) this._deleteSelected();
+            const tag = document.activeElement?.tagName;
+            if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+            // Ctrl/Cmd+Z,Y handled by DrawingEngine
+            if ((e.ctrlKey || e.metaKey) && ['z', 'Z', 'y', 'Y'].includes(e.key)) return;
+            if (e.key === 'Escape') this._clearTool?.();
+            if (e.key === 'Delete') {
+                const selectedId = this.drawingEngine?.selectedId;
+                if (selectedId) this.drawingEngine.deleteDrawing(selectedId);
+            }
+            if (e.key === 'F5') this._force_refresh?.();
         });
     }
 
     _onMouseMove(e) {
+        const engine = this.drawingEngine;
+
+        // Engine active interactions suppress chart pan/crosshair
+        if (engine.activeTool || engine.activeHandle) {
+            this.crosshairX = null;
+            this.crosshairY = null;
+            this.requestDraw();
+            return;
+        }
+
         const pos = this._mousePos(e);
-
-        // ── Drag selected drawing ──
-        if (this.isDragMovingDrawing && this.dragDrawingRef && this.dragLastPoint) {
-            const dx = pos.x - this.dragLastPoint.x;
-            const dy = pos.y - this.dragLastPoint.y;
-            if (dx !== 0 || dy !== 0) {
-                this._shiftDrawing(this.dragDrawingRef, dx, dy);
-                this.dragLastPoint = pos;
-                this.requestDraw();
-            }
-            return;
-        }
-
-        // ── Panning ──
-        if (this.isDragging) {
-            const dx    = pos.x - this.lastMouseX;
-            const shift = Math.round(dx / this._slotW());   // slot-width → exact candle count
-            if (shift !== 0) {
-                const vis = this.visibleCandleCount;
-                this.viewPortStart = Math.max(0, this.viewPortStart - shift);
-                this.viewPortEnd   = this.viewPortStart + vis - 1;
-                this.calculateBounds();
-                this.updateSlider();
-                this.lastMouseX = pos.x;
-            }
-            this.requestDraw();
-            return;
-        }
-
-        // ── Drawing in-progress ──
-        if (this.isDrawing && this.startPoint) {
-            this.endPoint = pos;
-            this.crosshairX = pos.x;
-            this.crosshairY = pos.y;
-            this.requestDraw();
-            return;
-        }
-
-        // ── Crosshair + OHLC display ──
         const inChart = pos.x >= this.chartArea.x &&
                         pos.x <= this.chartArea.x + this.chartArea.width &&
                         pos.y >= this.chartArea.y &&
                         pos.y <= this._paneBottom();
 
-        if (inChart) {
+        if (this.isDragging && e.buttons === 1) {
+            const dx = pos.x - this.lastMouseX;
+            const shift = Math.round(dx / this._slotW());
+            if (shift !== 0) {
+                const vis = this.visibleCandleCount;
+                this.viewPortStart = Math.max(0, this.viewPortStart - shift);
+                this.viewPortEnd = this.viewPortStart + vis - 1;
+                this.calculateBounds();
+                this.updateSlider();
+                this.lastMouseX = pos.x;
+                engine.rebuildSpatialHash();
+            }
+        } else if (inChart) {
             this.crosshairX = pos.x;
             const candleIndex = this._xToCandle(pos.x);
             const isInPricePane = pos.y >= this.chartArea.y && pos.y <= this.chartArea.y + this.chartArea.height;
             this.crosshairY = isInPricePane ? this._snapCrosshairY(pos.y, candleIndex) : pos.y;
             this._updateCandleDetail(pos.x);
-            const hit = this._hitTest(pos);
-            this.canvas.style.cursor = this.currentTool ? 'crosshair' : (hit ? 'grab' : 'default');
         } else {
             this.crosshairX = null;
             this.crosshairY = null;
             this._displayLatestCandleDetails();
-            this.canvas.style.cursor = 'default';
         }
+
+        this.lastMouseX = pos.x;
         this.requestDraw();
     }
 
@@ -2061,54 +2059,22 @@ class FixedTradingChart {
         if (e.button !== 0) return;
         const pos = this._mousePos(e);
 
-        if (this.currentTool) {
-            this.isDrawing  = true;
-            this.startPoint = { x: pos.x, y: pos.y, time: this._xToTime(pos.x), price: this._yToPrice(pos.y) };
-            this.endPoint   = pos;
-        } else {
-            // Selection hit-test
-            const hit = this._hitTest(pos);
-            this.selectedDrawingId = hit ? hit.id : null;
-
-            if (hit) {
-                this.isDragMovingDrawing = true;
-                this.dragDrawingRef = hit;
-                this.dragLastPoint = pos;
-                this.canvas.style.cursor = 'grabbing';
-            } else {
-                this.isDragging = true;
-                this.lastMouseX = pos.x;
-                this.canvas.style.cursor = 'grabbing';
-            }
-            this.requestDraw();
+        // Engine already handled draw/selection; only pan if empty space
+        if (!this.drawingEngine.activeTool && !this.drawingEngine.activeHandle && !this.drawingEngine.hoverId) {
+            this.isDragging = true;
+            this.lastMouseX = pos.x;
+            this.canvas.style.cursor = 'grabbing';
         }
     }
 
     _onMouseUp(e) {
         if (e.button !== 0) return;
-        const pos = this._mousePos(e);
-
-        if (this.isDrawing && this.startPoint) {
-            this._finalizeDrawing(pos);
-        }
-
-        if (this.isDragMovingDrawing) {
-            this._notifyDrawingsChange();
-        }
-
         this.isDragging = false;
-        this.isDragMovingDrawing = false;
-        this.dragDrawingRef = null;
-        this.dragLastPoint = null;
-        this.isDrawing  = false;
-        this.canvas.style.cursor = this.currentTool ? 'crosshair' : 'default';
+        this.canvas.style.cursor = this.drawingEngine.activeTool ? 'crosshair' : 'default';
     }
 
     _onMouseLeave() {
         this.isDragging = false;
-        this.isDragMovingDrawing = false;
-        this.dragDrawingRef = null;
-        this.dragLastPoint = null;
         this.crosshairX = null;
         this.crosshairY = null;
         this._displayLatestCandleDetails();
@@ -2152,8 +2118,10 @@ class FixedTradingChart {
     }
 
     _onRightClick(e) {
-        e.preventDefault();
         const pos = this._mousePos(e);
+        const hit = this.drawingEngine._hitTest(pos.x, pos.y);
+        if (hit) return; // DrawingEngine handles drawing context menu
+        e.preventDefault();
         const price = this._yToPrice(pos.y);
         this._showContextMenu(e.clientX, e.clientY, price);
     }
@@ -2901,8 +2869,10 @@ class FixedTradingChart {
             this._scheduleFlush();
             return;
         }
-        try { this.chartBridge.notify_drawings_changed(JSON.stringify(this.drawings)); }
-        catch (e) { console.error('notify_drawings_changed error:', e); }
+        try {
+            const legacyFmt = legacySerialize(this.drawingEngine.getDrawings());
+            this.chartBridge.notify_drawings_changed(JSON.stringify(legacyFmt));
+        } catch (e) { console.error('notify_drawings_changed error:', e); }
     }
 
     // Notify Python so its own Dict[str,bool] stays in sync.

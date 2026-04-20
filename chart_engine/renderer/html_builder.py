@@ -1,11 +1,7 @@
 """
 chart_engine/renderer/html_builder.py  — updated to embed DrawingEngine v2.
 
-The ONLY change from the original is:
-  • drawing_engine.js is read and embedded between the <style> and the main chart.js
-  • A 4-line bootstrap hook is appended to _init() flow
-
-Everything else (ChartHtmlConfig, build_chart_html) is unchanged.
+Embeds drawing_engine.js and drawing_engine_integration.patch.js before chart.js so FixedTradingChart can initialize DrawingEngine directly.
 """
 
 from __future__ import annotations
@@ -112,32 +108,6 @@ def build_chart_html(cfg: ChartHtmlConfig) -> str:
 
     data_json = json.dumps(data_obj)
 
-    # ── Bootstrap hook injected after FixedTradingChart._init() ──
-    # We append a small shim that replaces the drawing system after the chart
-    # initialises its canvas and coordinate methods.
-    bootstrap_hook = """
-// ── DrawingEngine v2 bootstrap ────────────────────────────────────────────
-(function patchChart() {
-    if (!window.chart) { setTimeout(patchChart, 80); return; }
-    const c = window.chart;
-    if (c.__drawingEnginePatched) return;
-    c.__drawingEnginePatched = true;
-
-    // Wire up
-    patchConstructor(c, window.__CHART_DATA__);
-    installPublicApiShims(c);
-    patchEventListeners(c);
-
-    // Override _notifyDrawingsChange with the patched version
-    c._notifyDrawingsChange = () => notifyDrawingsChange(c);
-
-    // Override _drawAllDrawings → delegate to engine
-    c._drawAllDrawings = () => c.drawingEngine.render();
-
-    console.log('[DrawingEngine v2] patched successfully');
-})();
-"""
-
     html = f"""<!DOCTYPE html>
 <html>
 <head>
@@ -220,10 +190,6 @@ def build_chart_html(cfg: ChartHtmlConfig) -> str:
         {chart_js}
     </script>
 
-    <!-- Bootstrap hook: patch chart after it initialises -->
-    <script>
-        {bootstrap_hook}
-    </script>
 </body>
 </html>"""
 
