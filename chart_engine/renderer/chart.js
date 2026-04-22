@@ -122,6 +122,10 @@ class FixedTradingChart {
         this.isUserZooming = false;
         this._rafPending = false;
         this._dirty = true;
+        // Measure tool — ephemeral, zero DrawingEngine involvement
+        this._measureStart = null;   // {x, y, price, time, candleIdx}
+        this._measureEnd   = null;
+        this._isMeasuring  = false;
 
         // ── Drawings (DrawingEngine) ──
         patchConstructor(this, cfg);
@@ -640,6 +644,7 @@ class FixedTradingChart {
             this._drawATRTrendReversal();
             this._drawAxes();
             this.drawingEngine.render();
+            this._drawMeasureOverlay();
             this._drawWatermark();
             this._drawLivePriceRay();
             this._drawCrosshair();
@@ -1967,6 +1972,168 @@ class FixedTradingChart {
         ctx.restore();
     }
 
+    _drawMeasureOverlay() {
+        if (!this._isMeasuring || !this._measureStart || !this._measureEnd) return;
+
+        const ctx = this.ctx;
+        const s   = this._measureStart;
+        const end = this._measureEnd;
+        const sx  = s.x;
+        const sy  = s.y;
+        const ex  = end.x;
+        const ey  = end.y;
+
+        // ── Shaded rectangle ─────────────────────────────────────────────
+        const rectX = Math.min(sx, ex);
+        const rectY = Math.min(sy, ey);
+        const rectW = Math.abs(ex - sx);
+        const rectH = Math.abs(ey - sy);
+
+        ctx.save();
+
+        ctx.fillStyle = 'rgba(100, 160, 255, 0.07)';
+        ctx.fillRect(rectX, rectY, rectW, rectH);
+
+        ctx.strokeStyle = 'rgba(100, 160, 255, 0.45)';
+        ctx.lineWidth   = 1;
+        ctx.setLineDash([5, 3]);
+        ctx.strokeRect(rectX, rectY, rectW, rectH);
+        ctx.setLineDash([]);
+
+        // ── Diagonal line start → end ────────────────────────────────────
+        ctx.strokeStyle = 'rgba(130, 185, 255, 0.70)';
+        ctx.lineWidth   = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(ex, ey);
+        ctx.stroke();
+
+        // ── Corner anchor dots ───────────────────────────────────────────
+        for (const [px, py] of [[sx, sy], [ex, ey]]) {
+            ctx.fillStyle   = '#6ea8fe';
+            ctx.strokeStyle = 'rgba(10, 14, 26, 0.70)';
+            ctx.lineWidth   = 1;
+            ctx.beginPath();
+            ctx.arc(px, py, 3.5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+        }
+
+        // ── Compute stats ─────────────────────────────────────────────────
+        const priceDiff = end.price - s.price;
+        const pctChange = s.price !== 0 ? (priceDiff / s.price) * 100 : 0;
+        const barA      = Math.min(s.candleIdx, end.candleIdx);
+        const barB      = Math.max(s.candleIdx, end.candleIdx);
+        const bars      = Math.max(0, barB - barA);
+
+        let dayCount = 0;
+        if (barA >= 0 && barB < this.data.length) {
+            const t1 = new Date(this.data[Math.max(0, barA)].time);
+            const t2 = new Date(this.data[Math.min(this.data.length - 1, barB)].time);
+            dayCount = Math.round(Math.abs(t2 - t1) / 86400000);
+        }
+
+        const sign   = priceDiff >= 0 ? '+' : '';
+        const valCol = priceDiff >= 0 ? '#4ade80' : '#f87171';
+
+        const lines = [
+            { label: 'Δ Price', value: `${sign}₹${Math.abs(priceDiff).toFixed(2)}`, color: valCol },
+            { label: '% Move',  value: `${sign}${pctChange.toFixed(2)}%`,            color: valCol },
+            { label: 'Bars',    value: `${bars}`,                                     color: '#c8d4e8' },
+            { label: 'Days',    value: `${dayCount}`,                                 color: '#c8d4e8' },
+        ];
+
+        // ── Callout box ──────────────────────────────────────────────────
+        const lineH  = 19;
+        const padX   = 12;
+        const padY   = 9;
+        const boxW   = 164;
+        const boxH   = lines.length * lineH + padY * 2;
+
+        const { chartArea: a } = this;
+        let bx = ex + 16;
+        let by = ey - boxH / 2;
+        if (bx + boxW > a.x + a.width - 6)  bx = ex - boxW - 16;
+        if (bx < a.x + 6)                   bx = a.x + 6;
+        if (by < a.y + 6)                   by = a.y + 6;
+        if (by + boxH > a.y + a.height - 6) by = a.y + a.height - boxH - 6;
+
+        // Background
+        ctx.fillStyle = 'rgba(8, 12, 24, 0.90)';
+        ctx.beginPath();
+        ctx.roundRect(bx, by, boxW, boxH, 5);
+        ctx.fill();
+
+        // Border
+        ctx.strokeStyle = 'rgba(100, 160, 255, 0.38)';
+        ctx.lineWidth   = 0.8;
+        ctx.stroke();
+
+        // Top accent line
+        ctx.fillStyle = priceDiff >= 0 ? '#4ade80' : '#f87171';
+        ctx.fillRect(bx + 1, by + 1, boxW - 2, 2);
+
+        // Text rows
+        lines.forEach((line, i) => {
+            const rowY = by + padY + i * lineH + lineH / 2;
+
+            // Label
+            ctx.font         = '500 10px "Segoe UI", sans-serif';
+            ctx.textAlign    = 'left';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle    = 'rgba(130, 155, 190, 0.70)';
+            ctx.fillText(line.label, bx + padX, rowY);
+
+            // Value
+            ctx.font      = '700 11px "Segoe UI Mono", "JetBrains Mono", Consolas, monospace';
+            ctx.textAlign = 'right';
+            ctx.fillStyle = line.color;
+            ctx.fillText(line.value, bx + boxW - padX, rowY);
+        });
+
+        // ── Y-axis pills for start and end price ─────────────────────────
+        const axisX = a.x + a.width;
+        const axisW = this.rightAxisWidth || 72;
+
+        for (const [py, price] of [[sy, s.price], [ey, end.price]]) {
+            if (py < a.y - 1 || py > a.y + a.height + 1) continue;
+
+            // Dashed ray to axis
+            ctx.strokeStyle = 'rgba(100, 160, 255, 0.25)';
+            ctx.lineWidth   = 0.6;
+            ctx.setLineDash([2, 3]);
+            ctx.beginPath();
+            ctx.moveTo(axisX - 12, py);
+            ctx.lineTo(axisX, py);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Axis pill
+            const lh   = 14;
+            const lTop = Math.round(py - lh / 2);
+            ctx.fillStyle = 'rgba(22, 36, 64, 0.92)';
+            ctx.beginPath();
+            ctx.moveTo(axisX,         py);
+            ctx.lineTo(axisX + 4,     lTop);
+            ctx.lineTo(axisX + axisW, lTop);
+            ctx.lineTo(axisX + axisW, lTop + lh);
+            ctx.lineTo(axisX + 4,     lTop + lh);
+            ctx.closePath();
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(100, 160, 255, 0.35)';
+            ctx.lineWidth   = 0.7;
+            ctx.stroke();
+
+            ctx.fillStyle    = '#a8c8ff';
+            ctx.font         = 'bold 9px "Segoe UI Mono", monospace';
+            ctx.textAlign    = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(price.toFixed(2), axisX + 4 + (axisW - 4) / 2, py);
+        }
+
+        ctx.restore();
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     // EVENT HANDLING
     // ═══════════════════════════════════════════════════════════════════════
@@ -2013,8 +2180,25 @@ class FixedTradingChart {
     _onMouseMove(e) {
         const engine = this.drawingEngine;
 
+        // ── MEASURE: update end point while button held ───────────────────
+        if (this._isMeasuring && e.buttons === 1) {
+            const pos = this._mousePos(e);
+            this._measureEnd = {
+                x:         pos.x,
+                y:         pos.y,
+                price:     this._yToPrice(pos.y),
+                time:      this._xToTime(pos.x),
+                candleIdx: this._xToCandle(pos.x),
+            };
+            // Keep crosshair visible during measure
+            this.crosshairX = pos.x;
+            this.crosshairY = pos.y;
+            this.requestDraw();
+            return;
+        }
+
         // Engine active interactions suppress chart pan/crosshair
-        if (engine.activeTool || engine.activeHandle) {
+        if (engine?.activeTool || engine?.activeHandle) {
             this.crosshairX = null;
             this.crosshairY = null;
             this.requestDraw();
@@ -2028,22 +2212,25 @@ class FixedTradingChart {
                         pos.y <= this._paneBottom();
 
         if (this.isDragging && e.buttons === 1) {
-            const dx = pos.x - this.lastMouseX;
+            const dx    = pos.x - this.lastMouseX;
             const shift = Math.round(dx / this._slotW());
             if (shift !== 0) {
                 const vis = this.visibleCandleCount;
                 this.viewPortStart = Math.max(0, this.viewPortStart - shift);
-                this.viewPortEnd = this.viewPortStart + vis - 1;
+                this.viewPortEnd   = this.viewPortStart + vis - 1;
                 this.calculateBounds();
                 this.updateSlider();
                 this.lastMouseX = pos.x;
-                engine.rebuildSpatialHash();
+                engine?.rebuildSpatialHash();
             }
         } else if (inChart) {
             this.crosshairX = pos.x;
-            const candleIndex = this._xToCandle(pos.x);
-            const isInPricePane = pos.y >= this.chartArea.y && pos.y <= this.chartArea.y + this.chartArea.height;
-            this.crosshairY = isInPricePane ? this._snapCrosshairY(pos.y, candleIndex) : pos.y;
+            const candleIndex   = this._xToCandle(pos.x);
+            const isInPricePane = pos.y >= this.chartArea.y &&
+                                  pos.y <= this.chartArea.y + this.chartArea.height;
+            this.crosshairY = isInPricePane
+                ? this._snapCrosshairY(pos.y, candleIndex)
+                : pos.y;
             this._updateCandleDetail(pos.x);
         } else {
             this.crosshairX = null;
@@ -2059,8 +2246,32 @@ class FixedTradingChart {
         if (e.button !== 0) return;
         const pos = this._mousePos(e);
 
+        // ── MEASURE: completely bypass DrawingEngine ──────────────────────
+        if (this.currentTool === 'measure') {
+            // Ensure DrawingEngine has no active tool so it won't interfere
+            if (this.drawingEngine) this.drawingEngine.activeTool = null;
+
+            if (this._inChartArea_check(pos.x, pos.y)) {
+                const ci = this._xToCandle(pos.x);
+                this._measureStart = {
+                    x:         pos.x,
+                    y:         pos.y,
+                    price:     this._yToPrice(pos.y),
+                    time:      this._xToTime(pos.x),
+                    candleIdx: ci,
+                };
+                this._measureEnd  = { ...this._measureStart };
+                this._isMeasuring = true;
+                this.canvas.style.cursor = 'crosshair';
+                this.requestDraw();
+            }
+            return; // never fall through to pan logic
+        }
+
         // Engine already handled draw/selection; only pan if empty space
-        if (!this.drawingEngine.activeTool && !this.drawingEngine.activeHandle && !this.drawingEngine.hoverId) {
+        if (!this.drawingEngine?.activeTool &&
+            !this.drawingEngine?.activeHandle &&
+            !this.drawingEngine?.hoverId) {
             this.isDragging = true;
             this.lastMouseX = pos.x;
             this.canvas.style.cursor = 'grabbing';
@@ -2069,8 +2280,22 @@ class FixedTradingChart {
 
     _onMouseUp(e) {
         if (e.button !== 0) return;
+
+        // ── MEASURE: clear on release ─────────────────────────────────────
+        if (this._isMeasuring) {
+            this._isMeasuring  = false;
+            this._measureStart = null;
+            this._measureEnd   = null;
+            this.crosshairX    = null;
+            this.crosshairY    = null;
+            // Keep activeTool = 'measure' so next press starts a new measurement
+            this.canvas.style.cursor = 'crosshair';
+            this.requestDraw();
+            return;
+        }
+
         this.isDragging = false;
-        this.canvas.style.cursor = this.drawingEngine.activeTool ? 'crosshair' : 'default';
+        this.canvas.style.cursor = this.drawingEngine?.activeTool ? 'crosshair' : 'default';
     }
 
     _onMouseLeave() {
@@ -2516,6 +2741,13 @@ class FixedTradingChart {
     _mousePos(e) {
         const r = this.canvas.getBoundingClientRect();
         return { x: e.clientX - r.left, y: e.clientY - r.top };
+    }
+
+    _inChartArea_check(x, y) {
+        return x >= this.chartArea.x &&
+               x <= this.chartArea.x + this.chartArea.width &&
+               y >= this.chartArea.y &&
+               y <= this.chartArea.y + this.chartArea.height;
     }
 
     // ═══════════════════════════════════════════════════════════════════════
