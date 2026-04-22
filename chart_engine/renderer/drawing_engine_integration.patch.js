@@ -207,6 +207,9 @@ function chartOnKey(chart, e) {
 
 function installPublicApiShims(chart) {
     const eng = chart.drawingEngine;
+    const TOOL_ALIASES = {
+        arrow_line: 'arrow',
+    };
 
     chart.setDrawingTool = (toolId, active, color, lw) => {
         if (!active) {
@@ -228,7 +231,7 @@ function installPublicApiShims(chart) {
         chart._isMeasuring = false;
         chart._measureStart = null;
         chart._measureEnd = null;
-        eng.setTool(toolId, color, lw);
+        eng.setTool(TOOL_ALIASES[toolId] || toolId, color, lw);
     };
 
     chart._clearTool = () => {
