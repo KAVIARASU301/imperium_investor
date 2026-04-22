@@ -67,12 +67,12 @@ INDICATORS: List[Tuple[str, str, str, str]] = [
     ("rsi",             "RSI",  "#8bc34a", "Relative Strength Index"),
 ]
 
-CHART_TYPES: List[Tuple[str, str]] = [
-    ("candle",     "Candles"),
-    ("bar",        "OHLC Bars"),
-    ("line",       "Line"),
-    ("area",       "Area"),
-    ("heikinashi", "Heikin-Ashi"),
+CHART_TYPES: List[Tuple[str, str, str]] = [
+    ("candle",     "🕯", "Candles"),
+    ("bar",        "┆",  "OHLC Bars"),
+    ("line",       "╱",  "Line"),
+    ("area",       "▃",  "Area"),
+    ("heikinashi", "HA", "Heikin-Ashi"),
 ]
 
 # (tool_id, unicode_glyph, tooltip)
@@ -244,10 +244,11 @@ class ChartToolbar(QFrame):
         # ── 3. Chart type ─────────────────────────────────────────────────────
         self.chart_type_combo = QComboBox()
         self.chart_type_combo.setObjectName("chartTypeCombo")
-        self.chart_type_combo.setFixedSize(70, 20)
+        self.chart_type_combo.setFixedSize(48, 20)
         self.chart_type_combo.view().setMinimumWidth(110)
-        for data, label in CHART_TYPES:
-            self.chart_type_combo.addItem(f"{label} ▾", data)
+        for data, symbol, label in CHART_TYPES:
+            self.chart_type_combo.addItem(f"{symbol} ▾", data)
+            self.chart_type_combo.setItemData(self.chart_type_combo.count() - 1, label, Qt.ItemDataRole.ToolTipRole)
         layout.addWidget(self.chart_type_combo)
         layout.addWidget(_spacer(5))
         layout.addWidget(_vsep())
