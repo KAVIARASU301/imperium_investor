@@ -118,6 +118,12 @@ class FixedTradingChart {
         this.crosshairX  = null;
         this.crosshairY  = null;
         this.isDragging  = false;
+        this.isYAxisDragging = false;
+        this.yAxisDragStartY = 0;
+        this.yAxisDragStartMin = 0;
+        this.yAxisDragStartMax = 0;
+        this.yAxisDragAnchorRatio = 0.5;
+        this.isUserYRange = false;
         this.lastMouseX  = 0;
         this.isUserZooming = false;
         this._rafPending = false;
@@ -2162,6 +2168,7 @@ class FixedTradingChart {
         fresh.addEventListener('mouseleave', () => this._onMouseLeave());
         fresh.addEventListener('wheel', e => this._onWheel(e), { passive: false });
         fresh.addEventListener('contextmenu', e => this._onRightClick(e));
+        fresh.addEventListener('dblclick', e => this._onDoubleClick(e));
 
         document.addEventListener('keydown', e => {
             const tag = document.activeElement?.tagName;
@@ -2179,6 +2186,16 @@ class FixedTradingChart {
 
     _onMouseMove(e) {
         const engine = this.drawingEngine;
+        const pos = this._mousePos(e);
+
+        if (this.isYAxisDragging && e.buttons === 1) {
+            this._applyYAxisDrag(pos.y);
+            this.crosshairX = null;
+            this.crosshairY = null;
+            this.canvas.style.cursor = 'ns-resize';
+            this.requestDraw();
+            return;
+        }
 
         // ── MEASURE: update end point while button held ───────────────────
         if (this._isMeasuring && e.buttons === 1) {
@@ -2205,7 +2222,6 @@ class FixedTradingChart {
             return;
         }
 
-        const pos = this._mousePos(e);
         const inChart = pos.x >= this.chartArea.x &&
                         pos.x <= this.chartArea.x + this.chartArea.width &&
                         pos.y >= this.chartArea.y &&
@@ -2238,6 +2254,13 @@ class FixedTradingChart {
             this._displayLatestCandleDetails();
         }
 
+
+        if (this._inPriceAxis(pos.x, pos.y) && !this.isDragging) {
+            this.canvas.style.cursor = 'ns-resize';
+        } else if (!this.isDragging && !this.drawingEngine?.activeTool) {
+            this.canvas.style.cursor = 'default';
+        }
+
         this.lastMouseX = pos.x;
         this.requestDraw();
     }
@@ -2245,6 +2268,20 @@ class FixedTradingChart {
     _onMouseDown(e) {
         if (e.button !== 0) return;
         const pos = this._mousePos(e);
+
+        if (this._inPriceAxis(pos.x, pos.y)) {
+            const range = this.maxPrice - this.minPrice;
+            if (range > 0) {
+                this.isYAxisDragging = true;
+                this.yAxisDragStartY = pos.y;
+                this.yAxisDragStartMin = this.minPrice;
+                this.yAxisDragStartMax = this.maxPrice;
+                this.yAxisDragAnchorRatio = this._clamp01((this.chartArea.y + this.chartArea.height - pos.y) / this.chartArea.height);
+                this.isUserYRange = true;
+                this.canvas.style.cursor = 'ns-resize';
+            }
+            return;
+        }
 
         // ── MEASURE: completely bypass DrawingEngine ──────────────────────
         if (this.currentTool === 'measure') {
@@ -2281,6 +2318,12 @@ class FixedTradingChart {
     _onMouseUp(e) {
         if (e.button !== 0) return;
 
+        if (this.isYAxisDragging) {
+            this.isYAxisDragging = false;
+            this.canvas.style.cursor = this.drawingEngine?.activeTool ? 'crosshair' : 'default';
+            return;
+        }
+
         // ── MEASURE: clear on release ─────────────────────────────────────
         if (this._isMeasuring) {
             this._isMeasuring  = false;
@@ -2306,6 +2349,7 @@ class FixedTradingChart {
 
     _onMouseLeave() {
         this.isDragging = false;
+        this.isYAxisDragging = false;
         this.crosshairX = null;
         this.crosshairY = null;
         this._displayLatestCandleDetails();
@@ -2316,6 +2360,14 @@ class FixedTradingChart {
         e.preventDefault();
         const delta  = e.deltaY || e.deltaX;
         const zoomIn = delta < 0;
+        const pos = this._mousePos(e);
+
+        if (this._inPriceAxis(pos.x, pos.y)) {
+            this.isUserYRange = true;
+            this._zoomPriceRange(pos.y, zoomIn ? 0.92 : 1.08);
+            this.requestDraw();
+            return;
+        }
 
         // ── Fixed-width zoom model ──────────────────────────────────────────
         // Zoom = change candleWidth in px. visibleCount adjusts automatically.
@@ -2325,7 +2377,6 @@ class FixedTradingChart {
         if (Math.abs(newW - this.candleWidth) < 0.05) return;
 
         // Anchor the candle under the mouse so it stays in place after zoom.
-        const pos          = this._mousePos(e);
         const anchorCandle = this._xToCandle(pos.x);   // index before resize
         const anchorFrac   = (pos.x - this.chartArea.x) / this.chartArea.width;
 
@@ -2601,6 +2652,9 @@ class FixedTradingChart {
 
     calculateBounds() {
         if (this.data.length === 0) return;
+        const lockedMin = this.isUserYRange ? this.minPrice : null;
+        const lockedMax = this.isUserYRange ? this.maxPrice : null;
+
         const start = Math.max(0, this.viewPortStart);
         const end   = Math.min(this.data.length - 1, this.viewPortEnd);
         const slice = this.data.slice(start, end + 1);
@@ -2631,6 +2685,11 @@ class FixedTradingChart {
         if (range === 0) { this.minPrice -= 1; this.maxPrice += 1; }
         else { this.minPrice -= range * 0.04; this.maxPrice += range * 0.06; }
 
+        if (this.isUserYRange && Number.isFinite(lockedMin) && Number.isFinite(lockedMax) && lockedMax > lockedMin) {
+            this.minPrice = lockedMin;
+            this.maxPrice = lockedMax;
+        }
+
         const prevAxisWidth = this.rightAxisWidth || 0;
         this._updateChartAreas();
 
@@ -2638,6 +2697,45 @@ class FixedTradingChart {
         if (Math.abs((this.rightAxisWidth || 0) - prevAxisWidth) > 0.5) {
             this._updateChartAreas();
         }
+    }
+
+
+    _inPriceAxis(x, y) {
+        const axisX = this.chartArea.x + this.chartArea.width;
+        const axisY1 = this.chartArea.y;
+        const axisY2 = this.chartArea.y + this.chartArea.height;
+        return x >= axisX && x <= axisX + (this.rightAxisWidth || 0) && y >= axisY1 && y <= axisY2;
+    }
+
+    _clamp01(v) {
+        return Math.max(0, Math.min(1, v));
+    }
+
+    _applyYAxisDrag(mouseY) {
+        const dy = mouseY - this.yAxisDragStartY;
+        const startRange = Math.max(1e-8, this.yAxisDragStartMax - this.yAxisDragStartMin);
+        const scale = Math.exp(dy * 0.01);
+        const newRange = Math.max(1e-8, Math.min(startRange * 25, startRange * scale));
+        const anchorPrice = this.yAxisDragStartMin + this.yAxisDragAnchorRatio * startRange;
+        this.minPrice = anchorPrice - this.yAxisDragAnchorRatio * newRange;
+        this.maxPrice = this.minPrice + newRange;
+    }
+
+    _zoomPriceRange(anchorY, factor) {
+        const oldRange = Math.max(1e-8, this.maxPrice - this.minPrice);
+        const anchorRatio = this._clamp01((this.chartArea.y + this.chartArea.height - anchorY) / this.chartArea.height);
+        const anchorPrice = this.minPrice + anchorRatio * oldRange;
+        const newRange = Math.max(1e-8, oldRange * factor);
+        this.minPrice = anchorPrice - anchorRatio * newRange;
+        this.maxPrice = this.minPrice + newRange;
+    }
+
+    _onDoubleClick(e) {
+        const pos = this._mousePos(e);
+        if (!this._inPriceAxis(pos.x, pos.y)) return;
+        this.isUserYRange = false;
+        this.calculateBounds();
+        this.requestDraw();
     }
 
     _computeATRTrendReversal() {
