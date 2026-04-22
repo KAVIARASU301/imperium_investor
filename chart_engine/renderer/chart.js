@@ -2288,8 +2288,14 @@ class FixedTradingChart {
             this._measureEnd   = null;
             this.crosshairX    = null;
             this.crosshairY    = null;
-            // Keep activeTool = 'measure' so next press starts a new measurement
-            this.canvas.style.cursor = 'crosshair';
+
+            // Measure behaves as a "hold + drag" action:
+            // once mouse is released, consume the tool and return to default mode.
+            if (this.currentTool === 'measure') {
+                this._clearTool();
+            } else {
+                this.canvas.style.cursor = 'default';
+            }
             this.requestDraw();
             return;
         }

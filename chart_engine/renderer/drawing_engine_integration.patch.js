@@ -209,11 +209,44 @@ function installPublicApiShims(chart) {
     const eng = chart.drawingEngine;
 
     chart.setDrawingTool = (toolId, active, color, lw) => {
-        if (!active) { eng.clearTool(); return; }
+        if (!active) {
+            chart._clearTool();
+            return;
+        }
+
+        // Measure is a transient "hold + drag" overlay handled by chart.js,
+        // not a persisted DrawingEngine drawing.
+        if (toolId === 'measure') {
+            eng.clearTool();
+            chart.currentTool = 'measure';
+            chart.canvas.style.cursor = 'crosshair';
+            return;
+        }
+
+        // Any non-measure drawing tool should exit transient measure mode first.
+        chart.currentTool = null;
+        chart._isMeasuring = false;
+        chart._measureStart = null;
+        chart._measureEnd = null;
         eng.setTool(toolId, color, lw);
     };
 
-    chart._clearTool = () => eng.clearTool();
+    chart._clearTool = () => {
+        const hadMeasureTool = Boolean(chart.currentTool);
+        const hadEngineTool  = Boolean(eng.activeTool);
+
+        chart.currentTool = null;
+        chart._isMeasuring = false;
+        chart._measureStart = null;
+        chart._measureEnd = null;
+
+        eng.clearTool();
+        chart.canvas.style.cursor = 'default';
+
+        if (hadMeasureTool || hadEngineTool) {
+            chart._notifyDrawingToolCleared();
+        }
+    };
 
     chart.clearAllDrawings = () => {
         eng.clearAll();
