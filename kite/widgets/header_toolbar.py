@@ -5,13 +5,64 @@ from PySide6.QtWidgets import (
     QToolBar, QWidget, QLabel, QSizePolicy, QPushButton,
     QHBoxLayout
 )
-from PySide6.QtCore import Signal, Qt, QTimer
+from PySide6.QtCore import Signal, Qt, QTimer, QObject, QThread, Slot
 from PySide6.QtGui import QPainter, QColor, QFont
 from kiteconnect import KiteConnect
 
 from kite.widgets.search_bar import EnhancedSearchInput, SymbolIndex
 logger = logging.getLogger(__name__)
 DEFAULT_PAPER_BALANCE = 1_000_000.0
+
+
+def _extract_available_balance_from_data(trader: Any, profile: Dict[str, Any], margins: Dict[str, Any]) -> float:
+    equity = margins.get("equity", {})
+    available = equity.get("available", {})
+    for val in [
+        available.get("live_balance"),
+        available.get("cash"),
+        equity.get("net"),
+        profile.get("current_balance"),
+        profile.get("balance"),
+        getattr(trader, "balance", None),
+        getattr(trader, "initial_balance", DEFAULT_PAPER_BALANCE),
+    ]:
+        try:
+            if val is not None:
+                return float(val)
+        except (TypeError, ValueError):
+            pass
+    return DEFAULT_PAPER_BALANCE
+
+
+class AccountPollingWorker(QObject):
+    account_data_ready = Signal(dict)
+    account_data_failed = Signal()
+
+    def __init__(self, trader: Union[KiteConnect, Any]):
+        super().__init__()
+        self._trader = trader
+
+    @Slot()
+    def poll_account(self) -> None:
+        try:
+            profile = {}
+            margins = {}
+            for fn_name in ("profile", "get_profile"):
+                fn = getattr(self._trader, fn_name, None)
+                if callable(fn):
+                    profile = fn() or {}
+                    break
+            margins_fn = getattr(self._trader, "margins", None)
+            if callable(margins_fn):
+                margins = margins_fn() or {}
+
+            account_info = {
+                "user_id": profile.get("user_id", profile.get("user_name", "DEMO")),
+                "available_balance": _extract_available_balance_from_data(self._trader, profile, margins),
+            }
+            self.account_data_ready.emit(account_info)
+        except Exception:
+            self.account_data_failed.emit()
 
 
 class NotificationBadge(QLabel):
@@ -75,6 +126,7 @@ class HeaderToolbar(QToolBar):
     buy_order_requested              = Signal(str)
     sell_order_requested             = Signal(str)
     color_settings_requested         = Signal()
+    account_refresh_requested        = Signal()
 
     def __init__(self, trader: Union[KiteConnect, Any], parent=None):
         super().__init__(parent)
@@ -225,10 +277,21 @@ class HeaderToolbar(QToolBar):
     # ── Timers ────────────────────────────────────────────────────────────────
 
     def _setup_timers(self):
-        QTimer.singleShot(1000, self._refresh_account_info)
+        self._setup_account_polling_worker()
+        QTimer.singleShot(1000, self._trigger_account_refresh)
         self.account_timer = QTimer(self)
-        self.account_timer.timeout.connect(self._refresh_account_info)
+        self.account_timer.timeout.connect(self._trigger_account_refresh)
         self.account_timer.start(30_000)
+
+    def _setup_account_polling_worker(self) -> None:
+        self._account_polling_thread = QThread(self)
+        self._account_polling_worker = AccountPollingWorker(self.trader)
+        self._account_polling_worker.moveToThread(self._account_polling_thread)
+
+        self.account_refresh_requested.connect(self._account_polling_worker.poll_account)
+        self._account_polling_worker.account_data_ready.connect(self._handle_account_info_update)
+        self._account_polling_worker.account_data_failed.connect(self._handle_account_info_error)
+        self._account_polling_thread.start()
 
     # ── Signal handlers ───────────────────────────────────────────────────────
 
@@ -297,17 +360,21 @@ class HeaderToolbar(QToolBar):
     # ── Account helpers ───────────────────────────────────────────────────────
 
     def _refresh_account_info(self):
-        try:
-            profile = self._get_profile_data()
-            margins = self._get_margins_data()
-            self._account_info = {
-                "user_id": profile.get("user_id", profile.get("user_name", "DEMO")),
-                "available_balance": self._extract_available_balance(profile, margins),
-            }
-            self._update_account_display()
-        except Exception:
-            self._account_info = {"user_id": "DEMO", "available_balance": DEFAULT_PAPER_BALANCE}
-            self._update_account_display()
+        self._trigger_account_refresh()
+
+    def _trigger_account_refresh(self) -> None:
+        if hasattr(self, "_account_polling_thread") and self._account_polling_thread.isRunning():
+            self.account_refresh_requested.emit()
+
+    @Slot(dict)
+    def _handle_account_info_update(self, account_info: Dict[str, Any]) -> None:
+        self._account_info = account_info
+        self._update_account_display()
+
+    @Slot()
+    def _handle_account_info_error(self) -> None:
+        self._account_info = {"user_id": "DEMO", "available_balance": DEFAULT_PAPER_BALANCE}
+        self._update_account_display()
 
     def _get_profile_data(self) -> Dict[str, Any]:
         for fn_name in ("profile", "get_profile"):
@@ -321,23 +388,7 @@ class HeaderToolbar(QToolBar):
         return fn() if callable(fn) else {}
 
     def _extract_available_balance(self, profile, margins) -> float:
-        equity = margins.get("equity", {})
-        available = equity.get("available", {})
-        for val in [
-            available.get("live_balance"),
-            available.get("cash"),
-            equity.get("net"),
-            profile.get("current_balance"),
-            profile.get("balance"),
-            getattr(self.trader, "balance", None),
-            getattr(self.trader, "initial_balance", DEFAULT_PAPER_BALANCE),
-        ]:
-            try:
-                if val is not None:
-                    return float(val)
-            except (TypeError, ValueError):
-                pass
-        return DEFAULT_PAPER_BALANCE
+        return _extract_available_balance_from_data(self.trader, profile, margins)
 
     def _update_account_display(self):
         self.user_id_label.setText(self._account_info.get("user_id", "DEMO"))
@@ -459,4 +510,7 @@ class HeaderToolbar(QToolBar):
     def closeEvent(self, event):
         if hasattr(self, "account_timer"):
             self.account_timer.stop()
+        if hasattr(self, "_account_polling_thread"):
+            self._account_polling_thread.quit()
+            self._account_polling_thread.wait(2000)
         super().closeEvent(event)
