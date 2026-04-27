@@ -2266,6 +2266,12 @@ class FixedTradingChart {
             if (this.viewPortStart <= 0 && this.panOffsetPx > 0) this.panOffsetPx = 0;
             if (this.viewPortEnd >= maxEnd && this.panOffsetPx < 0) this.panOffsetPx = 0;
 
+            // Automatically unlock Auto-Scale on intentional vertical drag.
+            // A tiny threshold prevents accidental unlocks on pure horizontal pan.
+            if (Math.abs(dy) > 2 && !this.isUserYRange) {
+                this.isUserYRange = true;
+            }
+
             // Pan Y smoothly if user has un-locked the auto-scale
             if (this.isUserYRange && dy !== 0) {
                 const priceShift = (dy / this.chartArea.height) * (this.maxPrice - this.minPrice);
