@@ -315,11 +315,6 @@ class CandlestickChart(QWidget):
             action.triggered.connect(
                 lambda _checked=False, tid=tool_id: self._activate_drawing_tool(tid)
             )
-            button = tb.get_tool_button(tool_id)
-            if button:
-                button.clicked.connect(
-                    lambda _checked=False, tid=tool_id: self._activate_drawing_tool(tid)
-                )
         tb.get_clear_action().triggered.connect(self._clear_active_tool)
         tb.measure_btn.toggled.connect(self._toggle_measure_tool)
 

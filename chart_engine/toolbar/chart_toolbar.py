@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QToolButton,
     QWidget,
+    QWidgetAction,
 )
 
 
@@ -107,6 +108,64 @@ def _spacer(w: int = 4) -> QWidget:
     return sp
 
 
+class ToolMenuItemWidget(QWidget):
+    """Custom interactive row for the Drawing Tools Dropdown (TradingView Style)."""
+
+    triggered = Signal(str)
+    favorite_toggled = Signal(str, bool)
+
+    def __init__(self, tool_id: str, glyph: str, label: str, is_fav: bool, parent=None):
+        super().__init__(parent)
+        self.tool_id = tool_id
+        self.setObjectName("menuItem")
+        self.setFixedHeight(28)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(10, 0, 10, 0)
+        layout.setSpacing(12)
+
+        self.icon_lbl = QLabel(glyph)
+        self.icon_lbl.setFixedWidth(20)
+        self.icon_lbl.setStyleSheet(
+            "font-size: 14px; color: #a0b4cc; background: transparent;"
+            "font-family: 'Segoe UI Symbol', sans-serif;"
+        )
+        self.text_lbl = QLabel(label)
+        self.text_lbl.setStyleSheet(
+            "font-size: 12px; color: #d0dbe8; font-weight: 500;"
+            "font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; background: transparent;"
+        )
+
+        layout.addWidget(self.icon_lbl)
+        layout.addWidget(self.text_lbl)
+        layout.addStretch()
+
+        self.star_btn = QPushButton("★" if is_fav else "☆")
+        self.star_btn.setCheckable(True)
+        self.star_btn.setChecked(is_fav)
+        self.star_btn.setFixedSize(24, 24)
+        self.star_btn.setObjectName("starBtn")
+        self.star_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.star_btn.setStyleSheet(
+            "QPushButton#starBtn { color: #4a5e78; background: transparent; border: none; font-size: 15px; padding-bottom: 2px; }"
+            "QPushButton#starBtn:hover { color: #8aaecf; }"
+            "QPushButton#starBtn:checked { color: #ffd700; }"
+        )
+        layout.addWidget(self.star_btn)
+
+        self.star_btn.toggled.connect(self._on_star_toggled)
+
+    def _on_star_toggled(self, checked: bool) -> None:
+        self.star_btn.setText("★" if checked else "☆")
+        self.favorite_toggled.emit(self.tool_id, checked)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and not self.star_btn.geometry().contains(event.pos()):
+            self.triggered.emit(self.tool_id)
+        super().mousePressEvent(event)
+
+
 # ─── ChartToolbar ─────────────────────────────────────────────────────────────
 
 class ChartToolbar(QFrame):
@@ -144,6 +203,7 @@ class ChartToolbar(QFrame):
         self._tool_btn_group: Optional[QButtonGroup] = None
         self._drawing_actions: Dict[str, QAction] = {}
         self._drawing_action_group: Optional[QActionGroup] = None
+        self._favorite_tools: List[str] = ["line", "horizontal_line", "fibonacci", "rectangle"]
 
         # ── Public accessible widgets ──────────────────────────────────────
         self.symbol_label: Optional[QLabel] = None
@@ -298,78 +358,88 @@ class ChartToolbar(QFrame):
         layout.addWidget(_spacer(3))
 
         # ── 5. Drawing tools container ───────────────────────────────────────
-        # Outer container — sharp-edged inset box, groups all drawing controls
-        tools_container = QFrame()
-        tools_container.setObjectName("drawingContainer")
-        tools_container.setFixedHeight(24)
-        tools_layout = QHBoxLayout(tools_container)
-        tools_layout.setContentsMargins(2, 0, 2, 0)
-        tools_layout.setSpacing(0)
+        self.drawing_tray = QFrame()
+        self.drawing_tray.setObjectName("drawingTray")
+        self.drawing_tray.setFixedHeight(24)
+        self.drawing_tray_layout = QHBoxLayout(self.drawing_tray)
+        self.drawing_tray_layout.setContentsMargins(4, 0, 4, 0)
+        self.drawing_tray_layout.setSpacing(2)
 
         self._tool_btn_group = QButtonGroup(self)
-        self._tool_btn_group.setExclusive(False)   # allow de-select
+        self._tool_btn_group.setExclusive(False)
 
         self._drawing_action_group = QActionGroup(self)
         self._drawing_action_group.setExclusive(True)
 
-        _glyph_font = QFont("Segoe UI Symbol, Noto Sans Symbols, DejaVu Sans, sans-serif")
-        _glyph_font.setPixelSize(15)
-        _glyph_font.setWeight(QFont.Weight.Black)
+        self._drawing_menu = QMenu(self)
+        self._drawing_menu.setObjectName("drawingMenu")
 
-        for idx, (tool_id, glyph, tip) in enumerate(DRAWING_TOOLS):
+        for tool_id, glyph, tip in DRAWING_TOOLS:
             action = QAction(tip, self)
             action.setCheckable(True)
             self._drawing_action_group.addAction(action)
             self._drawing_actions[tool_id] = action
 
-            btn = QPushButton(glyph)
-            btn.setObjectName("toolBtn")
-            btn.setCheckable(True)
-            btn.setFixedSize(26, 24)
-            btn.setToolTip(tip)
-            btn.setFont(_glyph_font)
-            self._tool_buttons[tool_id] = btn
-            self._tool_btn_group.addButton(btn)
-            tools_layout.addWidget(btn)
+            item_widget = ToolMenuItemWidget(tool_id, glyph, tip, tool_id in self._favorite_tools, self)
+            item_widget.triggered.connect(self._on_drawing_tool_selected_from_menu)
+            item_widget.favorite_toggled.connect(self._on_drawing_tool_favorite_toggled)
 
-        # Thin divider before measure
+            action_widget = QWidgetAction(self)
+            action_widget.setDefaultWidget(item_widget)
+            self._drawing_menu.addAction(action_widget)
+
+        self.drawing_menu_btn = QToolButton()
+        self.drawing_menu_btn.setObjectName("drawingMenuBtn")
+        self.drawing_menu_btn.setText("✎ ▾")
+        self.drawing_menu_btn.setToolTip("Select drawing tool")
+        self.drawing_menu_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.drawing_menu_btn.setMenu(self._drawing_menu)
+        self.drawing_menu_btn.setFixedSize(40, 20)
+        self.drawing_tray_layout.addWidget(self.drawing_menu_btn)
+
+        self.favorites_layout = QHBoxLayout()
+        self.favorites_layout.setContentsMargins(0, 0, 0, 0)
+        self.favorites_layout.setSpacing(2)
+        self.drawing_tray_layout.addLayout(self.favorites_layout)
+        self._rebuild_favorites_tray()
+
+        _glyph_font = QFont("Segoe UI Symbol, Noto Sans Symbols, DejaVu Sans, sans-serif")
+        _glyph_font.setPixelSize(15)
+        _glyph_font.setWeight(QFont.Weight.Black)
+
         div = QFrame()
         div.setFrameShape(QFrame.Shape.VLine)
         div.setFixedSize(1, 14)
         div.setStyleSheet("background:#1e2d44; border:none;")
-        tools_layout.addWidget(div)
+        self.drawing_tray_layout.addWidget(div)
 
-        # Measure tool
         self.measure_btn = QPushButton("⤢")
         self.measure_btn.setObjectName("toolBtn")
         self.measure_btn.setFixedSize(26, 24)
         self.measure_btn.setCheckable(True)
         self.measure_btn.setToolTip("Measure price/time range  [E]")
         self.measure_btn.setFont(_glyph_font)
-        tools_layout.addWidget(self.measure_btn)
+        self.drawing_tray_layout.addWidget(self.measure_btn)
 
-        # Thin divider before color
         div2 = QFrame()
         div2.setFrameShape(QFrame.Shape.VLine)
         div2.setFixedSize(1, 14)
         div2.setStyleSheet("background:#1e2d44; border:none;")
-        tools_layout.addWidget(div2)
+        self.drawing_tray_layout.addWidget(div2)
 
-        # Color picker
         self.color_btn = QPushButton("■")
         self.color_btn.setObjectName("colorPickerBtn")
         self.color_btn.setFixedSize(26, 24)
         self.color_btn.setToolTip("Drawing color")
-        tools_layout.addWidget(self.color_btn)
+        self.drawing_tray_layout.addWidget(self.color_btn)
 
-        # Clear drawings
         self.clear_drawings_btn = QPushButton("✕")
         self.clear_drawings_btn.setObjectName("clearBtn")
         self.clear_drawings_btn.setFixedSize(24, 24)
         self.clear_drawings_btn.setToolTip("Clear all drawings  [Del]")
-        tools_layout.addWidget(self.clear_drawings_btn)
+        self.drawing_tray_layout.addWidget(self.clear_drawings_btn)
 
-        layout.addWidget(tools_container)
+        layout.addWidget(self.drawing_tray)
 
         # ── Stretch ───────────────────────────────────────────────────────────
         layout.addStretch()
@@ -485,6 +555,61 @@ class ChartToolbar(QFrame):
                 self.timeframe_dropdown.setCurrentIndex(i)
                 break
         self.timeframe_changed.emit(kite_iv)
+
+    def _on_drawing_tool_selected_from_menu(self, tool_id: str) -> None:
+        self._drawing_menu.hide()
+        action = self._drawing_actions.get(tool_id)
+        if action:
+            action.trigger()
+        self.set_draw_btn_active(tool_id)
+
+    def _on_drawing_tool_favorite_toggled(self, tool_id: str, is_fav: bool) -> None:
+        if is_fav and tool_id not in self._favorite_tools:
+            self._favorite_tools.append(tool_id)
+        elif not is_fav and tool_id in self._favorite_tools:
+            self._favorite_tools.remove(tool_id)
+        self._rebuild_favorites_tray()
+
+    def _rebuild_favorites_tray(self) -> None:
+        while self.favorites_layout.count():
+            item = self.favorites_layout.takeAt(0)
+            w = item.widget()
+            if w is None:
+                continue
+            if self._tool_btn_group:
+                self._tool_btn_group.removeButton(w)
+            w.deleteLater()
+        self._tool_buttons.clear()
+
+        glyph_font = QFont("Segoe UI Symbol", 14, QFont.Weight.Bold)
+
+        for tool_id in self._favorite_tools:
+            glyph = next((g for tid, g, _ in DRAWING_TOOLS if tid == tool_id), None)
+            if glyph is None:
+                continue
+            btn = QPushButton(glyph)
+            btn.setObjectName("toolBtn")
+            btn.setCheckable(True)
+            btn.setFixedSize(26, 24)
+            btn.setFont(glyph_font)
+            btn.setToolTip(TOOL_DISPLAY.get(tool_id, tool_id))
+
+            if self._drawing_actions.get(tool_id, QAction()).isChecked():
+                btn.setChecked(True)
+
+            btn.clicked.connect(lambda checked, tid=tool_id: self._on_tray_button_clicked(tid, checked))
+            self._tool_buttons[tool_id] = btn
+            if self._tool_btn_group:
+                self._tool_btn_group.addButton(btn)
+            self.favorites_layout.addWidget(btn)
+
+    def _on_tray_button_clicked(self, tool_id: str, checked: bool) -> None:
+        if checked:
+            action = self._drawing_actions.get(tool_id)
+            if action:
+                action.trigger()
+        else:
+            self.reset_draw_btn()
 
     # ─── Public API ───────────────────────────────────────────────────────────
 
@@ -614,6 +739,9 @@ class ChartToolbar(QFrame):
 
     def _apply_styles(self) -> None:
         self.setStyleSheet("""
+            /* ── Eradicate Monospace & Soften Menus ── */
+            * { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+
             /* ── Toolbar frame ── */
             QFrame#chartToolbar {
                 background: #0d1117;
@@ -778,11 +906,36 @@ class ChartToolbar(QFrame):
                 border-color: #3a80c0;
             }
 
-            /* ── Drawing tools container ── */
-            QFrame#drawingContainer {
-                background: #0d1117;
-                border: 1px solid #1c2840;
-                border-radius: 3px;
+            QMenu#drawingMenu {
+                background: #0f1420;
+                border: 1px solid #1e2e48;
+                border-radius: 6px;
+                padding: 4px 0;
+            }
+            QFrame#drawingTray {
+                background: rgba(255,255,255,0.02);
+                border-radius: 4px;
+            }
+
+            QToolButton#drawingMenuBtn {
+                background: transparent;
+                color: #8aaecf;
+                border: none;
+                font-size: 11px;
+                font-weight: 600;
+            }
+            QToolButton#drawingMenuBtn:hover {
+                background: rgba(255,255,255,0.06);
+                color: #c8dff5;
+                border-radius: 4px;
+            }
+            QToolButton#drawingMenuBtn::menu-indicator { image: none; width: 0; }
+
+            QWidget#menuItem {
+                background: transparent;
+            }
+            QWidget#menuItem:hover {
+                background: rgba(255,255,255,0.04);
             }
 
             /* ── Drawing tool buttons ── */
