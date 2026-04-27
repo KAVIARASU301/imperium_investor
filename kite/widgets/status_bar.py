@@ -1,9 +1,10 @@
-# kite/widgets/status_bar.py (Replacement)
+# kite/widgets/status_bar.py
 
 import logging
 from typing import Optional
-from PySide6.QtCore import QObject
-from PySide6.QtWidgets import QLabel, QWidget, QHBoxLayout
+
+from PySide6.QtCore import QObject, Qt
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QWidget
 
 # Import our new professional popups
 from kite.widgets.notifications import ToastNotification
@@ -13,49 +14,77 @@ logger = logging.getLogger(__name__)
 
 class StatusBar(QWidget):
     """
-    Lightweight status bar widget kept for compatibility with existing toolbar code.
-
-    The old LED status bar was replaced by toast notifications, but some modules
-    still instantiate `StatusBar` and pass it into the global status manager.
+    Ultra-compact, production-ready bottom ribbon.
+    Sharp edges, no rounded corners, strictly for core system vitals.
     """
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setObjectName("compactStatusBar")
+        self.setObjectName("bottomStatusBar")
+        # Lock to a strict, thin ribbon size
+        self.setFixedHeight(26)
         self._build_ui()
+        self._apply_styles()
 
     def _build_ui(self) -> None:
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 2, 10, 2)
-        layout.setSpacing(14)
+        # 0 vertical margin makes it sit flush against the bottom edge
+        layout.setContentsMargins(15, 0, 15, 0)
+        layout.setSpacing(25)
 
-        self.market_label = QLabel("Market: --")
+        # Uppercase for a stronger, institutional feel
+        self.market_label = QLabel("MARKET: --")
         self.api_label = QLabel("API: --")
-        self.heartbeat_label = QLabel("Heartbeat: --")
-        self.message_label = QLabel("Ready")
+        self.heartbeat_label = QLabel("HEARTBEAT: --")
 
-        for label in (self.market_label, self.api_label, self.heartbeat_label, self.message_label):
+        # Add indicators to layout
+        for label in (self.market_label, self.api_label, self.heartbeat_label):
             label.setObjectName("statusLabel")
+            label.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
             layout.addWidget(label)
+
         layout.addStretch(1)
 
+    def _apply_styles(self) -> None:
+        self.setStyleSheet(
+            """
+            #bottomStatusBar {
+                background-color: #0d0f14; /* Deep, solid background */
+                border-top: 1px solid #222630; /* Sharp top separator line */
+                border-bottom: none;
+                border-left: none;
+                border-right: none;
+                border-radius: 0px; /* Force sharp edges */
+            }
+            #statusLabel {
+                color: #7b8496; /* Subdued gray text so it doesn't distract */
+                font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+                font-size: 11px;
+                font-weight: 600;
+                letter-spacing: 0.5px; /* Slight tracking for readability */
+            }
+        """
+        )
+
     def set_market_status(self, text: str) -> None:
-        self.market_label.setText(f"Market: {text}")
+        self.market_label.setText(f"MARKET: {text.upper()}")
 
     def set_api_status(self, text: str) -> None:
-        self.api_label.setText(f"API: {text}")
+        self.api_label.setText(f"API: {text.upper()}")
 
     def set_heartbeat(self, text: str) -> None:
-        self.heartbeat_label.setText(f"Heartbeat: {text}")
+        self.heartbeat_label.setText(f"HEARTBEAT: {text}")
 
     def set_message(self, text: str) -> None:
-        self.message_label.setText(text)
+        # Dummy method to prevent crashes since we removed message_label
+        pass
+
 
 class GlobalStatusManager(QObject):
     """
     Singleton manager that routes status updates to professional Toast Popups.
-    Acts as a drop-in replacement for the old LED status bar manager.
     """
+
     _instance: Optional["GlobalStatusManager"] = None
 
     def __new__(cls) -> "GlobalStatusManager":
@@ -99,8 +128,6 @@ class GlobalStatusManager(QObject):
         self._post("Order Cancelled", msg, "warn", 4000)
 
     def show_position_update(self, symbol: str, pnl: str) -> None:
-        # For rapid position updates, you might want to suppress popups to avoid spam
-        # or route this to a smaller, quieter UI element if desired.
         pass
 
     def show_error(self, message: str) -> None:
@@ -128,24 +155,27 @@ class GlobalStatusManager(QObject):
 
     def pulse_heartbeat(self) -> None:
         if getattr(self, "_status_bar", None):
-            current = self._status_bar.heartbeat_label.text().replace("Heartbeat: ", "").strip()
+            current = self._status_bar.heartbeat_label.text().replace("HEARTBEAT: ", "").strip()
             next_state = "○" if current == "●" else "●"
             self._status_bar.set_heartbeat(next_state)
 
     def set_ready(self) -> None:
-        if getattr(self, "_status_bar", None):
-            self._status_bar.set_message("Ready")
+        # We removed the "Ready" label, so this method safely does nothing.
+        pass
 
     def clear_status(self) -> None:
-        if getattr(self, "_status_bar", None):
-            self._status_bar.set_message("")
+        pass
 
     def set_message(self, message: str, timeout: int = 3000, level: str = "info") -> None:
-        if getattr(self, "_status_bar", None):
-            self._status_bar.set_message(message)
-        level_map = {"error": "error", "danger": "error",
-                     "warning": "warn", "warn": "warn",
-                     "success": "success", "action": "info"}
+        # Route generic string messages purely to toasts
+        level_map = {
+            "error": "error",
+            "danger": "error",
+            "warning": "warn",
+            "warn": "warn",
+            "success": "success",
+            "action": "info",
+        }
         kind = level_map.get(level.lower(), "info")
         self._post("Notification", message, kind, timeout)
 
@@ -159,19 +189,55 @@ class GlobalStatusManager(QObject):
         except Exception as e:
             logger.error(f"Failed to show popup: {e}")
 
+
 # ─── Module-level singleton + convenience functions ───────────────────────────
 
 status = GlobalStatusManager()
 
-def show_order_placed(symbol: str = ""): status.show_order_placed(symbol)
-def show_order_completed(symbol: str = "", pnl: str = ""): status.show_order_completed(symbol, pnl)
-def show_order_failed(reason: str = ""): status.show_order_failed(reason)
-def show_order_rejected(reason: str = ""): status.show_order_rejected(reason)
-def show_order_cancelled(symbol: str = ""): status.show_order_cancelled(symbol)
-def show_position_update(symbol: str, pnl: str): status.show_position_update(symbol, pnl)
-def show_error(message: str): status.show_error(message)
-def show_info(message: str): status.show_info(message)
-def show_market_status(status_text: str): status.show_market_status(status_text)
-def show_api_status(status_text: str): status.show_api_status(status_text)
-def set_ready(): status.set_ready()
-def clear_status(): status.clear_status()
+
+def show_order_placed(symbol: str = ""):
+    status.show_order_placed(symbol)
+
+
+def show_order_completed(symbol: str = "", pnl: str = ""):
+    status.show_order_completed(symbol, pnl)
+
+
+def show_order_failed(reason: str = ""):
+    status.show_order_failed(reason)
+
+
+def show_order_rejected(reason: str = ""):
+    status.show_order_rejected(reason)
+
+
+def show_order_cancelled(symbol: str = ""):
+    status.show_order_cancelled(symbol)
+
+
+def show_position_update(symbol: str, pnl: str):
+    status.show_position_update(symbol, pnl)
+
+
+def show_error(message: str):
+    status.show_error(message)
+
+
+def show_info(message: str):
+    status.show_info(message)
+
+
+def show_market_status(status_text: str):
+    status.show_market_status(status_text)
+
+
+def show_api_status(status_text: str):
+    status.show_api_status(status_text)
+
+
+def set_ready():
+    status.set_ready()
+
+
+def clear_status():
+    status.clear_status()
