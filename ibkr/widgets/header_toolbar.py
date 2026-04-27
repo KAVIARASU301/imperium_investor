@@ -19,27 +19,28 @@ DEFAULT_PAPER_BALANCE = 1_000_000.0
 
 
 class NotificationBadge(QLabel):
-    """Animated notification badge for buttons."""
+    """Sharp, layout-friendly alert count badge."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.count = 0
-        self.setFixedSize(15, 15)
+        self.setFixedSize(18, 18)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setObjectName("notificationBadge")
-        self.hide()
         self.setContentsMargins(0, 0, 0, 0)
+        self.hide()
 
-    def set_count(self, count: int):
-        """Set badge count and visibility."""
+    def update_count(self, count: int):
         self.count = count
         if count > 0:
-            display_text = str(count) if count < 100 else "99+"
-            self.setText(display_text)
+            self.setText(str(count) if count < 100 else "99+")
             self.show()
         else:
             self.hide()
-        self.update()
+
+    def set_count(self, count: int):
+        """Backward compatible alias."""
+        self.update_count(count)
 
 
 class HeaderToolbar(QToolBar):
@@ -164,19 +165,17 @@ class HeaderToolbar(QToolBar):
         alert_widget.setObjectName("alertActionWidget")
 
         alert_layout = QHBoxLayout(alert_widget)
-        alert_layout.setContentsMargins(4, 2, 4, 2)
-        alert_layout.setSpacing(2)
+        alert_layout.setContentsMargins(0, 0, 0, 0)
+        alert_layout.setSpacing(4)
 
-        # Unified Alerts button with a single badge
-        alerts_container = QWidget()
-        alerts_container.setFixedSize(64, 20)
-        self.alerts_button = QPushButton("Alerts", alerts_container)
+        self.alerts_button = QPushButton("ALERTS")
         self.alerts_button.setObjectName("alertActionButton")
         self.alerts_button.clicked.connect(self.alert_manager_requested.emit)
-        self.alerts_button.setGeometry(0, 0, 64, 20)
-        self.alerts_badge = NotificationBadge(alerts_container)
-        self.alerts_badge.move(50, -3)
-        alert_layout.addWidget(alerts_container)
+        self.alerts_button.setFixedSize(64, 20)
+        alert_layout.addWidget(self.alerts_button)
+
+        self.alerts_badge = NotificationBadge()
+        alert_layout.addWidget(self.alerts_badge)
 
         self.addWidget(alert_widget)
 
@@ -367,7 +366,7 @@ class HeaderToolbar(QToolBar):
 
     def update_alert_counts(self, active_count: int, triggered_today: int):
         """Update alert badge counts."""
-        self.alerts_badge.set_count(active_count + triggered_today)
+        self.alerts_badge.update_count(active_count + triggered_today)
 
     def set_current_symbol(self, symbol: str):
         """Set the current symbol in the search input."""
@@ -551,11 +550,13 @@ class HeaderToolbar(QToolBar):
                 background: transparent;
             }
             #notificationBadge {
-                background-color: #f80404;
-                color: white;
-                border-radius: 0px;
-                font-size: 8px;
+                background-color: #E53935;
+                color: #FFFFFF;
+                border: none;
+                border-radius: 2px;
+                font-size: 10px;
                 font-weight: 700;
+                font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
             }
             #alertActionWidget, #tradingActionWidget {
                 background-color: rgba(255, 255, 255, 0.03);

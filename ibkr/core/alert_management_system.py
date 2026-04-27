@@ -445,6 +445,7 @@ class AlertEngine(QThread):
         super().__init__(parent)
         self._alerts: List[Alert] = []
         self._market_data: Dict[str, float] = {}
+        self._last_prices: Dict[str, float] = {}
         self._check_interval_ms = 1000  # 1 second for responsiveness
         self._running = False
         self._mutex = QMutex()
@@ -490,7 +491,7 @@ class AlertEngine(QThread):
                 self.engine_error.emit("Engine appears to be frozen")
 
     def _check_alerts(self):
-        """Core alert checking logic with enhanced error handling."""
+        """Core alert checking logic using stateful crossover detection."""
         with QMutexLocker(self._mutex):
             if not self._alerts:
                 return
@@ -500,45 +501,44 @@ class AlertEngine(QThread):
 
             for alert in self._alerts[:]:  # Copy list to avoid modification during iteration
                 try:
-                    # Check expiry
                     if alert.expiry_time <= now:
                         expired_alerts.append(alert)
                         continue
 
-                    # Check price condition
                     current_price = self._market_data.get(alert.symbol)
                     if current_price is None:
                         continue
 
+                    prev_price = self._last_prices.get(alert.symbol, current_price)
                     condition_met = False
-                    if alert.condition == AlertCondition.PRICE_IS_ABOVE and current_price >= alert.price:
-                        condition_met = True
-                    elif alert.condition == AlertCondition.PRICE_IS_BELOW and current_price <= alert.price:
-                        condition_met = True
+
+                    if alert.condition == AlertCondition.PRICE_IS_ABOVE:
+                        condition_met = prev_price < alert.price <= current_price
+                    elif alert.condition == AlertCondition.PRICE_IS_BELOW:
+                        condition_met = prev_price > alert.price >= current_price
+
+                    self._last_prices[alert.symbol] = current_price
 
                     if condition_met:
                         alert.triggered = True
                         alert.triggered_time = now
                         alert.triggered_price = current_price
                         triggered_alerts.append(alert)
-                        logger.info(f"Alert triggered: {alert.symbol} at {current_price:.2f}")
+                        logger.info(
+                            f"Alert triggered: {alert.symbol} crossed {alert.price:.2f} at {current_price:.2f}"
+                        )
 
                 except Exception as e:
                     logger.error(f"Error checking alert {alert.id}: {e}")
                     continue
 
-            # Remove processed alerts from an active list
             for alert in expired_alerts + triggered_alerts:
                 if alert in self._alerts:
                     self._alerts.remove(alert)
 
-            # Emit signals outside mutex lock
-
-        # Emit signals for expired alerts
         for alert in expired_alerts:
             self.alert_expired.emit(alert)
 
-        # Emit signals for triggered alerts
         for alert in triggered_alerts:
             self.alert_triggered.emit(alert, alert.triggered_price)
 

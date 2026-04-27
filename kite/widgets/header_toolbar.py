@@ -65,25 +65,28 @@ class AccountPollingWorker(QObject):
 
 
 class NotificationBadge(QLabel):
-    """Animated notification badge for buttons."""
+    """Sharp, layout-friendly alert count badge."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.count = 0
-        self.setFixedSize(16, 16)
+        self.setFixedSize(18, 18)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setObjectName("notificationBadge")
-        self.hide()
         self.setContentsMargins(0, 0, 0, 0)
+        self.hide()
 
-    def set_count(self, count: int):
+    def update_count(self, count: int):
         self.count = count
         if count > 0:
             self.setText(str(count) if count < 100 else "99+")
             self.show()
         else:
             self.hide()
-        self.update()
+
+    def set_count(self, count: int):
+        """Backward compatible alias."""
+        self.update_count(count)
 
 
 class HeaderToolbar(QToolBar):
@@ -313,7 +316,7 @@ class HeaderToolbar(QToolBar):
         logger.info(f"Search index built: {len(self._instrument_map)} instruments")
 
     def update_alert_counts(self, active_count: int, triggered_today: int) -> None:
-        self.alerts_badge.set_count(triggered_today)
+        self.alerts_badge.update_count(triggered_today)
 
     def set_current_symbol(self, symbol: str) -> None:
         normalized = symbol.upper().strip()
@@ -485,12 +488,13 @@ class HeaderToolbar(QToolBar):
                 border: 1px solid #555555;
             }
             #notificationBadge {
-                background-color: #d63031;
-                border: 1px solid #b71540;
-                color: white;
-                border-radius: 0px;
-                font-size: 9px;
-                font-weight: 800;
+                background-color: #E53935;
+                border: none;
+                color: #FFFFFF;
+                border-radius: 2px;
+                font-size: 10px;
+                font-weight: 700;
+                font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
             }
             #tradingActionWidget {
                 background-color: rgba(255, 255, 255, 0.03);
