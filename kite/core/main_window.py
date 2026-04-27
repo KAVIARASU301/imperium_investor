@@ -174,7 +174,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         main_layout.addWidget(self.top_bar)
 
         # Header toolbar dedicated to trading actions
-        self.header_toolbar = HeaderToolbar(self.trader, self)
+        # Use the raw Kite client for live data, but keep the paper trader for paper mode
+        toolbar_client = self.trader if self.trading_mode == 'paper' else self.real_kite_client
+        self.header_toolbar = HeaderToolbar(toolbar_client, self)
         self.header_toolbar.color_settings_requested.connect(self._open_color_settings_dialog)
         main_layout.addWidget(self.header_toolbar)
 

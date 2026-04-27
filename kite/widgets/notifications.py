@@ -1,7 +1,15 @@
 # kite/widgets/notifications.py
 import logging
 from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QRect, QPoint
-from PySide6.QtWidgets import QWidget, QLabel, QVBoxLayout, QHBoxLayout, QApplication, QGraphicsDropShadowEffect
+from PySide6.QtWidgets import (
+    QWidget,
+    QLabel,
+    QVBoxLayout,
+    QHBoxLayout,
+    QApplication,
+    QGraphicsDropShadowEffect,
+    QSizePolicy,
+)
 from PySide6.QtGui import QColor, QPainter, QPainterPath
 
 logger = logging.getLogger(__name__)
@@ -14,8 +22,9 @@ class ToastNotification(QWidget):
     _active_toasts = []
 
     # Padding and sizing
-    TOAST_WIDTH = 280
-    TOAST_HEIGHT = 64
+    TOAST_WIDTH = 300
+    TOAST_MIN_HEIGHT = 50
+    STACK_SPACING = 10
     MARGIN = 20
 
     def __init__(self, title: str, message: str, kind: str = "info", duration: int = 3000, parent=None):
@@ -38,8 +47,11 @@ class ToastNotification(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
 
-        self.setFixedSize(self.TOAST_WIDTH, self.TOAST_HEIGHT)
         self._setup_ui(title, message)
+        self.setFixedWidth(self.TOAST_WIDTH)
+        self.setMinimumHeight(self.TOAST_MIN_HEIGHT)
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.MinimumExpanding)
+        self.adjustSize()
 
         # Shadow effect for professional depth
         shadow = QGraphicsDropShadowEffect(self)
@@ -82,13 +94,16 @@ class ToastNotification(QWidget):
             text_layout.addWidget(title_label)
 
         # Message
-        msg_label = QLabel(message)
-        msg_label.setStyleSheet(f"color: {self.theme['text']}; font-size: 11px;")
-        msg_label.setWordWrap(True)
-        text_layout.addWidget(msg_label)
+        self.message_label = QLabel(message)
+        self.message_label.setStyleSheet(f"color: {self.theme['text']}; font-size: 11px;")
+        self.message_label.setWordWrap(True)
+        self.message_label.adjustSize()
+        text_layout.addWidget(self.message_label)
 
         text_layout.addStretch()
         layout.addLayout(text_layout)
+
+        self.adjustSize()
 
     def paintEvent(self, event):
         """Draw rounded dark background."""
@@ -107,15 +122,15 @@ class ToastNotification(QWidget):
         # Clean up dead toasts from the stack tracking
         ToastNotification._active_toasts = [t for t in ToastNotification._active_toasts if t.isVisible()]
 
-        # Calculate Y position based on how many toasts are already showing
-        stack_index = len(ToastNotification._active_toasts)
-        y_offset = self.MARGIN + (stack_index * (self.TOAST_HEIGHT + 10))
+        # Calculate Y position based on total stack height of visible toasts
+        stack_height = sum(t.height() + self.STACK_SPACING for t in ToastNotification._active_toasts)
+        y_offset = self.MARGIN + stack_height
 
         start_x = screen.width()
         end_x = screen.width() - self.TOAST_WIDTH - self.MARGIN
-        target_y = screen.height() - self.TOAST_HEIGHT - y_offset
+        target_y = screen.height() - self.height() - y_offset
 
-        self.setGeometry(start_x, target_y, self.TOAST_WIDTH, self.TOAST_HEIGHT)
+        self.setGeometry(start_x, target_y, self.TOAST_WIDTH, self.height())
         self.show()
 
         self.animation.setStartValue(QPoint(start_x, target_y))

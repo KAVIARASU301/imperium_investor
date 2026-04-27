@@ -1,6 +1,7 @@
 # kite/widgets/status_bar.py
 
 import logging
+import re
 from typing import Optional
 
 from PySide6.QtCore import QObject, Qt
@@ -116,10 +117,10 @@ class GlobalStatusManager(QObject):
         self._post("FILLED", msg, "success", 3000)
 
     def show_order_failed(self, reason: str = "") -> None:
-        self._post("REJECTED", reason or "Unknown reason", "error", 3000)
+        self._post("REJECTED", self._translate_message(reason or "Unknown reason"), "error", 3000)
 
     def show_order_rejected(self, reason: str = "") -> None:
-        self._post("REJECTED", reason or "Unknown reason", "error", 3000)
+        self._post("REJECTED", self._translate_message(reason or "Unknown reason"), "error", 3000)
 
     def show_order_cancelled(self, symbol: str = "") -> None:
         msg = f"{symbol}" if symbol else "UNKNOWN"
@@ -163,7 +164,8 @@ class GlobalStatusManager(QObject):
                 or order_dict.get("reject_reason")
                 or "Unknown Reason"
             )
-            short_reason = (reason[:30] + "...") if len(reason) > 30 else reason
+            clean_reason = self._translate_message(reason)
+            short_reason = (clean_reason[:50] + "...") if len(clean_reason) > 50 else clean_reason
             self._post("REJECTED", f"{symbol} [{short_reason}]", "error", 3000)
             return
 
@@ -181,7 +183,7 @@ class GlobalStatusManager(QObject):
         pass
 
     def show_error(self, message: str) -> None:
-        self._post("Error", message, "error", 6000)
+        self._post("ERROR", self._translate_message(message), "error", 6000)
 
     def show_info(self, message: str) -> None:
         self._post("System Info", message, "info", 4000)
@@ -227,6 +229,8 @@ class GlobalStatusManager(QObject):
             "action": "info",
         }
         kind = level_map.get(level.lower(), "info")
+        if kind == "error":
+            message = self._translate_message(message)
         self._post("Notification", message, kind, timeout)
 
     # ── Internal ──────────────────────────────────────────────────────────
@@ -238,6 +242,42 @@ class GlobalStatusManager(QObject):
             toast.show_toast()
         except Exception as e:
             logger.error(f"Failed to show popup: {e}")
+
+    @staticmethod
+    def _translate_message(message: str) -> str:
+        """Translate noisy broker/API failures into compact trader-facing alerts."""
+        cleaned = re.sub(r"\s+", " ", (message or "").strip())
+        if not cleaned:
+            return "Unknown error"
+
+        msg_lower = cleaned.lower()
+
+        if "market is closed" in msg_lower or "after market" in msg_lower or "amo" in msg_lower:
+            return "REJECTED: Market Is Closed"
+
+        if "insufficient" in msg_lower and "margin" in msg_lower:
+            return "REJECTED: Insufficient Funds"
+        if "available cash" in msg_lower or "buying power" in msg_lower:
+            return "REJECTED: Not Enough Buying Power"
+
+        if "trigger price" in msg_lower:
+            return "REJECTED: Invalid Trigger Price"
+        if "limit price" in msg_lower:
+            return "REJECTED: Invalid Limit Price"
+        if any(key in msg_lower for key in ("circuit breaker", "upper circuit", "lower circuit")):
+            return "REJECTED: Stock Hit Circuit Limit"
+        if "rms" in msg_lower and "blocked" in msg_lower:
+            return "BLOCKED: RMS Rule Violation"
+
+        if "timeout" in msg_lower:
+            return "ERROR: Network Timeout"
+        if "502" in msg_lower or "bad gateway" in msg_lower:
+            return "ERROR: Broker API Down"
+
+        if len(cleaned) > 65:
+            return cleaned[:62] + "..."
+
+        return cleaned
 
 
 # ─── Module-level singleton + convenience functions ───────────────────────────
