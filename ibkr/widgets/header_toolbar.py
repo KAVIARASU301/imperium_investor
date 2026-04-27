@@ -5,7 +5,7 @@ from typing import List, Dict, Any, Union
 
 from PySide6.QtWidgets import (
     QToolBar, QLineEdit, QCompleter, QWidget, QLabel, QSizePolicy, QPushButton,
-    QHBoxLayout, QFrame
+    QHBoxLayout
 )
 from PySide6.QtCore import Signal, Qt, QTimer, QEvent, QModelIndex
 from PySide6.QtGui import QPainter, QColor, QFont, QKeyEvent, QStandardItemModel, QStandardItem
@@ -153,11 +153,7 @@ class HeaderToolbar(QToolBar):
 
     def _create_status_bar_section(self):
         """NEW: Creates the LED-style status bar section."""
-        # Add small separator
-        separator = QFrame()
-        separator.setFrameShape(QFrame.Shape.VLine)
-        separator.setObjectName("sectionSeparator")
-        self.addWidget(separator)
+        self._add_section_gap()
 
         # Create status bar widget
         self.status_bar = StatusBar(self)
@@ -175,10 +171,7 @@ class HeaderToolbar(QToolBar):
 
     def _create_alert_section(self):
         """Creates alert management section."""
-        separator = QFrame()
-        separator.setFrameShape(QFrame.Shape.VLine)
-        separator.setObjectName("sectionSeparator")
-        self.addWidget(separator)
+        self._add_section_gap()
 
         alert_widget = QWidget()
         alert_widget.setObjectName("alertActionWidget")
@@ -202,10 +195,7 @@ class HeaderToolbar(QToolBar):
 
     def _create_trading_actions_section(self):
         """Creates trading actions section."""
-        separator = QFrame()
-        separator.setFrameShape(QFrame.Shape.VLine)
-        separator.setObjectName("sectionSeparator")
-        self.addWidget(separator)
+        self._add_section_gap()
 
         actions_widget = QWidget()
         actions_widget.setObjectName("tradingActionWidget")
@@ -232,10 +222,7 @@ class HeaderToolbar(QToolBar):
 
     def _create_account_section(self):
         """Creates simplified account information display."""
-        separator = QFrame()
-        separator.setFrameShape(QFrame.Shape.VLine)
-        separator.setObjectName("sectionSeparator")
-        self.addWidget(separator)
+        self._add_section_gap()
 
         self.account_info_widget = QWidget()
         self.account_info_widget.setObjectName("accountInfoWidget")
@@ -259,6 +246,12 @@ class HeaderToolbar(QToolBar):
         dot = QLabel("•")
         dot.setObjectName("separatorDot")
         return dot
+
+    def _add_section_gap(self, width: int = 10) -> None:
+        gap = QWidget()
+        gap.setObjectName("sectionGap")
+        gap.setFixedWidth(width)
+        self.addWidget(gap)
 
     def _setup_timers(self):
         """Setup simplified timers."""
@@ -567,8 +560,13 @@ class HeaderToolbar(QToolBar):
                 font-size: 9px; 
                 font-weight: 600; 
             }
+            #sectionGap {
+                background: transparent;
+            }
             #alertActionWidget, #tradingActionWidget {
-                background-color: #1a1a1a;
+                background-color: rgba(255, 255, 255, 0.03);
+                border: 1px solid #2f2f2f;
+                border-radius: 6px;
             }
             #alertActionButton, #tradingActionButton {
                 background-color: #000000;
@@ -585,7 +583,7 @@ class HeaderToolbar(QToolBar):
                 color: #00d4ff;
             }
             #accountInfoWidget {
-                background-color: #1a1a1a;
+                background-color: rgba(255, 255, 255, 0.03);
                 border: 1px solid #333333; 
                 border-radius: 5px; 
                 padding: 2px 6px;
@@ -603,14 +601,9 @@ class HeaderToolbar(QToolBar):
                 font-weight: 600; 
             }
             #separatorDot { 
-                background-color: #1a1a1a;
+                background-color: transparent;
                 color: #666666; 
                 font-size: 8px; 
-            }
-            #sectionSeparator { 
-                background-color: #404040; 
-                max-width: 1px; 
-                margin: 3px 1px; 
             }
         """)
 

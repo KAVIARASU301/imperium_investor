@@ -3,7 +3,7 @@ from typing import List, Dict, Any, Union
 
 from PySide6.QtWidgets import (
     QToolBar, QWidget, QLabel, QSizePolicy, QPushButton,
-    QHBoxLayout, QFrame
+    QHBoxLayout
 )
 from PySide6.QtCore import Signal, Qt, QTimer
 from PySide6.QtGui import QPainter, QColor, QFont
@@ -133,10 +133,7 @@ class HeaderToolbar(QToolBar):
         self.addWidget(spacer)
 
     def _create_alert_section(self):
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.VLine)
-        sep.setObjectName("sectionSeparator")
-        self.addWidget(sep)
+        self._add_section_gap()
 
         alert_widget = QWidget()
         alert_widget.setObjectName("alertActionWidget")
@@ -156,10 +153,7 @@ class HeaderToolbar(QToolBar):
         self.addWidget(alert_widget)
 
     def _create_trading_actions_section(self):
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.VLine)
-        sep.setObjectName("sectionSeparator")
-        self.addWidget(sep)
+        self._add_section_gap()
 
         actions_widget = QWidget()
         actions_widget.setObjectName("tradingActionWidget")
@@ -194,10 +188,7 @@ class HeaderToolbar(QToolBar):
         self.addWidget(actions_widget)
 
     def _create_account_section(self):
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.VLine)
-        sep.setObjectName("sectionSeparator")
-        self.addWidget(sep)
+        self._add_section_gap()
 
         self.account_info_widget = QWidget()
         self.account_info_widget.setObjectName("accountInfoWidget")
@@ -221,6 +212,12 @@ class HeaderToolbar(QToolBar):
         dot = QLabel("•")
         dot.setObjectName("separatorDot")
         return dot
+
+    def _add_section_gap(self, width: int = 10) -> None:
+        gap = QWidget()
+        gap.setObjectName("sectionGap")
+        gap.setFixedWidth(width)
+        self.addWidget(gap)
 
     # ── Timers ────────────────────────────────────────────────────────────────
 
@@ -408,7 +405,12 @@ class HeaderToolbar(QToolBar):
                 border-radius: 3px; font-size: 9px; font-weight: 600;
             }
             #sellButton:hover { background-color:#5a1a1a; border:1px solid #ff4444; color:#ff4444; }
-            #alertActionWidget, #tradingActionWidget { background-color: #1a1a1a; }
+            #sectionGap { background: transparent; }
+            #alertActionWidget, #tradingActionWidget {
+                background-color: rgba(255, 255, 255, 0.03);
+                border: 1px solid #2f2f2f;
+                border-radius: 6px;
+            }
             #alertActionButton, #tradingActionButton {
                 background-color: #000000; color: white;
                 border: 1px solid #333333; padding: 3px 6px;
@@ -418,13 +420,12 @@ class HeaderToolbar(QToolBar):
                 background-color: #1a1a1a; border: 1px solid #00d4ff; color: #00d4ff;
             }
             #accountInfoWidget {
-                background-color: #1a1a1a; border: 1px solid #333333;
+                background-color: rgba(255, 255, 255, 0.03); border: 1px solid #333333;
                 border-radius: 5px; padding: 2px 6px;
             }
             #userIdLabel { background-color:#1a1a1a; color:#00d4ff; font-size:10px; font-weight:700; }
             #balanceLabel { background-color:#1a1a1a; color:#4aff4a; font-size:10px; font-weight:600; }
-            #separatorDot { background-color:#1a1a1a; color:#666666; font-size:8px; }
-            #sectionSeparator { background-color:#404040; max-width:1px; margin:3px 1px; }
+            #separatorDot { background-color:transparent; color:#666666; font-size:8px; }
         """)
 
     def closeEvent(self, event):
