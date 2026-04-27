@@ -51,7 +51,10 @@ class NotificationBadge(QLabel):
 
         # Draw white number
         painter.setPen(QColor("#f80404"))
-        painter.setFont(QFont("Arial", 8, QFont.Weight.Bold))
+        badge_font = QFont()
+        badge_font.setPointSize(8)
+        badge_font.setWeight(QFont.Weight.Bold)
+        painter.setFont(badge_font)
         painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.text())
 
 
