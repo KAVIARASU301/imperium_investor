@@ -394,17 +394,33 @@ class HeaderToolbar(QToolBar):
             }
             #enhancedSymbolSearch:focus { border: 1px solid #00d4ff; color: #00d4ff; }
             #buyButton {
-                background-color: #000000; color: white;
-                border: 1px solid #333333; padding: 3px 6px;
-                border-radius: 3px; font-size: 9px; font-weight: 600;
+                background-color: rgba(74, 255, 74, 0.10);
+                color: #4aff4a;
+                border: none;
+                padding: 3px 8px;
+                border-radius: 10px;
+                font-size: 9px;
+                font-weight: 700;
             }
-            #buyButton:hover { background-color:#1a5928; border:1px solid #4aff4a; color:#4aff4a; }
+            #buyButton:hover {
+                background-color: rgba(74, 255, 74, 0.18);
+                border: 1px solid rgba(74, 255, 74, 0.45);
+                color: #7dff7d;
+            }
             #sellButton {
-                background-color: #000000; color: white;
-                border: 1px solid #333333; padding: 3px 6px;
-                border-radius: 3px; font-size: 9px; font-weight: 600;
+                background-color: rgba(255, 68, 68, 0.10);
+                color: #ff6666;
+                border: none;
+                padding: 3px 8px;
+                border-radius: 10px;
+                font-size: 9px;
+                font-weight: 700;
             }
-            #sellButton:hover { background-color:#5a1a1a; border:1px solid #ff4444; color:#ff4444; }
+            #sellButton:hover {
+                background-color: rgba(255, 68, 68, 0.18);
+                border: 1px solid rgba(255, 68, 68, 0.45);
+                color: #ff8b8b;
+            }
             #sectionGap { background: transparent; }
             #alertActionWidget, #tradingActionWidget {
                 background-color: rgba(255, 255, 255, 0.03);
@@ -412,12 +428,18 @@ class HeaderToolbar(QToolBar):
                 border-radius: 6px;
             }
             #alertActionButton, #tradingActionButton {
-                background-color: #000000; color: white;
-                border: 1px solid #333333; padding: 3px 6px;
-                border-radius: 3px; font-size: 9px; font-weight: 500;
+                background-color: rgba(0, 212, 255, 0.10);
+                color: #7ee9ff;
+                border: none;
+                padding: 3px 8px;
+                border-radius: 10px;
+                font-size: 9px;
+                font-weight: 600;
             }
             #alertActionButton:hover, #tradingActionButton:hover {
-                background-color: #1a1a1a; border: 1px solid #00d4ff; color: #00d4ff;
+                background-color: rgba(0, 212, 255, 0.18);
+                border: 1px solid rgba(0, 212, 255, 0.45);
+                color: #b7f4ff;
             }
             #accountInfoWidget {
                 background-color: rgba(255, 255, 255, 0.03); border: 1px solid #333333;
