@@ -31,7 +31,9 @@ class ChartLinesManager(QObject):
             if hasattr(chart, 'current_interval') and chart.current_interval:
                 interval = chart.current_interval
 
-        safe_symbol = symbol.replace("/", "_").replace(":", "_").replace("-", "_")
+        # Keep filename sanitization aligned with DrawingStorage._state_path()
+        # so chart overlays and persisted drawings always hit the same file.
+        safe_symbol = symbol.replace("/", "_").replace(":", "_")
         return os.path.join(self.drawings_dir, f"{safe_symbol}_{interval}_state.json")
 
     def _load_symbol_drawings(self, symbol: str) -> Dict:

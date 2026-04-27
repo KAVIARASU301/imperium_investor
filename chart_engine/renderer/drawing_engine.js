@@ -203,6 +203,7 @@ class DrawingEngine {
         this.onRequestTextNote = null;    // ({x, y, price, time}) => void
 
         this._bindEvents();
+        this._pendingSpatialRebuild = false;
     }
 
     /* ─── Coordinate helpers ────────────────────────────────────────────────── */
@@ -396,8 +397,14 @@ class DrawingEngine {
     }
 
     rebuildSpatialHash() {
+        const area = this.cs && this.cs.chartArea;
+        if (!area || !Number.isFinite(area.x) || !Number.isFinite(area.y)) {
+            this._pendingSpatialRebuild = true;
+            return;
+        }
         this.spatialHash.clear();
         for (const d of this.drawings.values()) this._hashInsert(d);
+        this._pendingSpatialRebuild = false;
     }
 
     /* ─── Undo / Redo ───────────────────────────────────────────────────────── */
@@ -904,6 +911,9 @@ class DrawingEngine {
     render() {
         const ctx = this.ctx;
         const dpr = window.devicePixelRatio || 1;
+        if (this._pendingSpatialRebuild) {
+            this.rebuildSpatialHash();
+        }
 
         /* Render all persistent drawings */
         for (const d of this.drawings.values()) {

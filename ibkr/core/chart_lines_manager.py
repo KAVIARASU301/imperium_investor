@@ -26,7 +26,9 @@ class ChartLinesManager(QObject):
     def _get_symbol_file_path(self, symbol: str) -> str:
         """Get the path to the symbol's drawings JSON file for day timeframe"""
         # Use the same format as existing system: SYMBOL_day_state.json
-        safe_symbol = symbol.replace("/", "_").replace(":", "_").replace("-", "_")
+        # Keep filename sanitization aligned with DrawingStorage._state_path()
+        # so chart overlays and persisted drawings always hit the same file.
+        safe_symbol = symbol.replace("/", "_").replace(":", "_")
         return os.path.join(self.drawings_dir, f"{safe_symbol}_day_state.json")
 
     def _load_symbol_drawings(self, symbol: str) -> Dict:
