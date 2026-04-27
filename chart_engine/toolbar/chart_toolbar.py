@@ -5,13 +5,13 @@
 # Layout (L → R):
 #   [SYMBOL BADGE] [EXCHANGE] | [TF strip: 1m…M] | [Chart type] | [Indicator pills] |
 #   [Drawing tools] [Color ✕] <stretch>
-#   [VOL] [ALERT] [COMPARE] [SNAP] | [⊡ Autoscale] [⟳ Refresh] [⚙ Settings] | [⚡ ORDER]
+#   [VOL] [ALERT] [SNAP] | [⊡ Autoscale] [⟳ Refresh] [⚙ Settings] | [⚡ ORDER]
 #
 # New vs v1:
 #   • Timeframe buttons as inline pills (no dropdown) — 1-click switching like TC2000
 #   • Chart-type selector: Candle / Bar / Line / Area / Heikin-Ashi
 #   • Indicator pills: always-visible colored toggles (no hidden menu)
-#   • Volume toggle, Alert shortcut, Compare overlay, Snapshot buttons
+#   • Volume toggle, Alert shortcut, Snapshot buttons
 #   • Live/Delayed data badge on the right
 #   • Keyboard shortcut tooltips on every button
 #   • Full public API for chart_widget.py to drive
@@ -20,7 +20,7 @@
 #   timeframe_btn.clicked  →  get_timeframe_value()
 #   indicator pill toggled →  get_indicator_states() : Dict[str, bool]
 #   chart_type_combo       →  get_chart_type()
-#   compare_btn.clicked, alert_btn.clicked, snapshot_btn.clicked
+#   alert_btn.clicked, snapshot_btn.clicked
 #   vol_btn.toggled, autoscale_btn, refresh_btn, settings_btn, order_btn
 
 from typing import Dict, List, Optional, Tuple
@@ -154,7 +154,6 @@ class ChartToolbar(QFrame):
         self.measure_btn: Optional[QPushButton] = None
         self.vol_btn: Optional[QPushButton] = None
         self.alert_btn: Optional[QPushButton] = None
-        self.compare_btn: Optional[QPushButton] = None
         self.snapshot_btn: Optional[QPushButton] = None
         self.autoscale_btn: Optional[QPushButton] = None
         self.refresh_btn: Optional[QPushButton] = None
@@ -376,14 +375,6 @@ class ChartToolbar(QFrame):
         layout.addStretch()
 
         # ── 6. Right utility cluster ──────────────────────────────────────────
-        # Compare
-        self.compare_btn = QPushButton("⧉")
-        self.compare_btn.setObjectName("iconBtn")
-        self.compare_btn.setFixedSize(26, 20)
-        self.compare_btn.setToolTip("Overlay / compare symbol  [C]")
-        layout.addWidget(self.compare_btn)
-        layout.addWidget(_spacer(2))
-
         # Snapshot
         self.snapshot_btn = QPushButton("S")
         self.snapshot_btn.setObjectName("iconBtn")
@@ -851,7 +842,7 @@ class ChartToolbar(QFrame):
                 border: 1px solid rgba(79,216,160,0.30);
             }
 
-            /* ── Icon buttons (compare, snapshot, autoscale, refresh, settings) ── */
+            /* ── Icon buttons (snapshot, autoscale, refresh, settings) ── */
             QPushButton#iconBtn {
                 background: transparent;
                 color: #4a6280;
@@ -895,27 +886,26 @@ class ChartToolbar(QFrame):
             }
             QLabel#livebage { color: #4fd8a0; }  /* fallback */
 
-            /* ── Order button — subtle rest, vivid on hover ── */
+            /* ── Order button — aligned with app header action style ── */
             QPushButton#orderBtn {
-                background: transparent;
-                border: 1px solid #1e3828;
-                color: #2a6040;
+                background: rgba(0, 212, 255, 0.10);
+                border: 1px solid rgba(0, 212, 255, 0.22);
+                color: #7ee9ff;
                 border-radius: 3px;
                 font-size: 9px;
-                font-weight: 900;
+                font-weight: 700;
                 font-family: "JetBrains Mono","Fira Code","Consolas",monospace;
-                letter-spacing: 1.2px;
+                letter-spacing: 1px;
             }
             QPushButton#orderBtn:hover {
-                background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
-                    stop:0 #0d3e1c, stop:1 #081e0e);
-                border-color: #2a9050;
-                color: #4dffb0;
+                background: rgba(0, 212, 255, 0.18);
+                border-color: rgba(0, 212, 255, 0.45);
+                color: #b7f4ff;
             }
             QPushButton#orderBtn:pressed {
-                background: #071408;
-                border-color: #1a6030;
-                color: #20cc80;
+                background: rgba(0, 212, 255, 0.14);
+                border-color: rgba(0, 212, 255, 0.35);
+                color: #9defff;
             }
         """)
 
