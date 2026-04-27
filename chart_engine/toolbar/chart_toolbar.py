@@ -1,27 +1,19 @@
 # chart_engine/toolbar/chart_toolbar.py
 #
-# Institutional-grade TC2000-style toolbar — v2
+# Institutional TC2000-style chart toolbar — v3 (Premium Redesign)
+#
+# Design Language:
+#   • Bloomberg Terminal meets TradingView Pro — dark obsidian background
+#   • Symbol badge with live price accent glow (cyan-on-slate)
+#   • Segmented pill groups with hairline dividers — zero visual clutter
+#   • Icon-forward drawing tools with labeled fallback on hover
+#   • Monospace numerics only (JetBrains Mono) — everything else: system sans
+#   • Micro-animations via border transitions (CSS)
+#   • Accent palette: #00d4ff (cyan), #22d3a0 (teal), #ff4d6a (red), #fbbf24 (amber)
 #
 # Layout (L → R):
-#   [SYMBOL BADGE] [EXCHANGE] | [TF strip: 1m…M] | [Chart type] | [Indicator pills] |
-#   [Drawing tools] [Color ✕] <stretch>
-#   [VOL] [ALERT] [SNAP] | [⊡ Autoscale] [⟳ Refresh] [⚙ Settings] | [⚡ ORDER]
-#
-# New vs v1:
-#   • Timeframe buttons as inline pills (no dropdown) — 1-click switching like TC2000
-#   • Chart-type selector: Candle / Bar / Line / Area / Heikin-Ashi
-#   • Indicator pills: always-visible colored toggles (no hidden menu)
-#   • Volume toggle, Alert shortcut, Snapshot buttons
-#   • Live/Delayed data badge on the right
-#   • Keyboard shortcut tooltips on every button
-#   • Full public API for chart_widget.py to drive
-#
-# Signals emitted by connecting to individual buttons/menus from chart_widget.py:
-#   timeframe_btn.clicked  →  get_timeframe_value()
-#   indicator pill toggled →  get_indicator_states() : Dict[str, bool]
-#   chart_type_combo       →  get_chart_type()
-#   alert_btn.clicked, snapshot_btn.clicked
-#   vol_btn.toggled, autoscale_btn, refresh_btn, settings_btn, order_btn
+#   [SYMBOL] [TF ▾] [CHART TYPE] | [IND ▾] | [TOOLS tray ✎▾ + fav pins] |──|
+#   <stretch> [S] [⊡] [↺] [⚙] | [ORDER]
 
 from typing import Dict, List, Optional, Tuple
 
@@ -45,237 +37,267 @@ from PySide6.QtWidgets import (
 # ─── Metadata ─────────────────────────────────────────────────────────────────
 
 TIMEFRAMES: List[Tuple[str, str, str]] = [
-    # (display, kite_interval, tooltip)
     ("1m",  "minute",   "1 Minute  [1]"),
     ("3m",  "3minute",  "3 Minutes [3]"),
     ("5m",  "5minute",  "5 Minutes [5]"),
     ("15m", "15minute", "15 Minutes [Q]"),
     ("30m", "30minute", "30 Minutes [H]"),
-    ("1h",  "60minute", "1 Hour  [6]"),
+    ("1H",  "60minute", "1 Hour  [6]"),
     ("D",   "day",      "Daily  [D]"),
     ("W",   "week",     "Weekly  [W]"),
+    ("M",   "month",    "Monthly  [M]"),
 ]
 
-# (key, pill_label, hex_color, tooltip)
 INDICATORS: List[Tuple[str, str, str, str]] = [
-    ("ema10",           "E10",  "#2962ff", "EMA 10"),
-    ("ema20",           "E20",  "#9c27b0", "EMA 20"),
-    ("ema50",           "E50",  "#f06204", "EMA 50"),
-    ("ema200",          "E200", "#e91e63", "EMA 200"),
-    ("vwap",            "VWAP", "#ff9e42", "VWAP — Volume Weighted Avg Price"),
-    ("atrTrendReversal","ATR",  "#ff5252", "ATR Trend Reversal"),
-    ("cvd",             "CVD",  "#00bcd4", "Cumulative Volume Delta"),
-    ("rsi",             "RSI",  "#8bc34a", "Relative Strength Index"),
+    ("ema10",            "EMA10",  "#2979ff", "EMA 10"),
+    ("ema20",            "EMA20",  "#aa00ff", "EMA 20"),
+    ("ema50",            "EMA50",  "#ff6d00", "EMA 50"),
+    ("ema200",           "EMA200", "#f50057", "EMA 200"),
+    ("vwap",             "VWAP",   "#ff9100", "VWAP — Volume Weighted Avg Price"),
+    ("atrTrendReversal", "ATR·TR", "#ff1744", "ATR Trend Reversal"),
+    ("cvd",              "CVD",    "#00b0ff", "Cumulative Volume Delta"),
+    ("rsi",              "RSI",    "#76ff03", "Relative Strength Index (14)"),
 ]
 
 CHART_TYPES: List[Tuple[str, str, str]] = [
-    ("candle",     "🕯", "Candles"),
-    ("bar",        "┆",  "OHLC Bars"),
-    ("line",       "╱",  "Line"),
-    ("area",       "▃",  "Area"),
-    ("heikinashi", "HA", "Heikin-Ashi"),
+    ("candle",     "🕯",  "Candlestick"),
+    ("bar",        "|||", "OHLC Bars"),
+    ("line",       "〜",  "Line"),
+    ("heikinashi", "HA",  "Heikin-Ashi"),
 ]
 
-# (tool_id, unicode_glyph, tooltip)
 DRAWING_TOOLS: List[Tuple[str, str, str]] = [
-    ("line",            "╱",  "Trend Line  [L]"),
-    ("horizontal_line", "━",  "Horizontal Line  [H]"),
-    ("horizontal_ray",  "→",  "Horizontal Ray  [R]"),
-    ("rectangle",       "▭",  "Rectangle  [B]"),
-    ("fibonacci",       "⌇",  "Fibonacci Retracement  [F]"),
-    ("arrow_line",      "↗",  "Arrow  [A]"),
-    ("note",            "T",  "Text Note  [N]"),
+    ("line",             "╱",  "Trend Line  [L]"),
+    ("horizontal_line",  "──", "Horizontal Line  [H]"),
+    ("horizontal_ray",   "→",  "Ray  [R]"),
+    ("rectangle",        "⬜", "Rectangle  [B]"),
+    ("fibonacci",        "≋",  "Fibonacci  [F]"),
+    ("arrow_line",       "↗",  "Arrow  [A]"),
+    ("note",             "T",  "Text Note  [N]"),
 ]
 
-# Backward-compat alias — toolbar/__init__.py imports this
 TOOL_DISPLAY: Dict[str, str] = {tid: label for tid, _, label in DRAWING_TOOLS}
+
+
+# ─── Palette constants ────────────────────────────────────────────────────────
+
+class P:
+    # Backgrounds
+    BG_BASE   = "#070a0f"   # toolbar root
+    BG_RAISED = "#0d1219"   # pill / badge backgrounds
+    BG_HOVER  = "#111a26"   # hover state
+    BG_ACTIVE = "#0a1828"   # selected / checked
+
+    # Borders
+    BORDER      = "#1a2535"
+    BORDER_MID  = "#243040"
+    BORDER_LIVE = "#00d4ff"  # cyan accent border
+
+    # Text
+    T_DIM    = "#2e4060"
+    T_MID    = "#4a6280"
+    T_MUTED  = "#7a94b0"
+    T_MAIN   = "#b8cce0"
+    T_BRIGHT = "#ddeeff"
+
+    # Accents
+    CYAN   = "#00d4ff"
+    TEAL   = "#22d3a0"
+    AMBER  = "#fbbf24"
+    RED    = "#ff4d6a"
+    PURPLE = "#a78bfa"
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
-def _vsep(height: int = 16) -> QFrame:
-    sep = QFrame()
-    sep.setFrameShape(QFrame.Shape.VLine)
-    sep.setFixedWidth(1)
-    sep.setFixedHeight(height)
-    sep.setStyleSheet("background: #1e2738; border: none;")
-    return sep
+def _vsep(h: int = 14) -> QFrame:
+    f = QFrame()
+    f.setFrameShape(QFrame.Shape.VLine)
+    f.setFixedWidth(1)
+    f.setFixedHeight(h)
+    f.setStyleSheet(f"background:{P.BORDER}; border:none;")
+    return f
 
 
-def _spacer(w: int = 4) -> QWidget:
+def _gap(w: int = 4) -> QWidget:
     sp = QWidget()
     sp.setFixedWidth(w)
+    sp.setStyleSheet("background:transparent;")
     return sp
 
 
-class ToolMenuItemWidget(QWidget):
-    """Custom interactive row for the Drawing Tools Dropdown (TradingView Style)."""
+def _hex_to_rgb(h: str) -> str:
+    h = h.lstrip("#")
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    try:
+        return f"{int(h[0:2],16)},{int(h[2:4],16)},{int(h[4:6],16)}"
+    except (ValueError, IndexError):
+        return "255,255,255"
 
-    triggered = Signal(str)
+
+# ─── Drawing tool menu row ────────────────────────────────────────────────────
+
+class ToolMenuItemWidget(QWidget):
+    triggered        = Signal(str)
     favorite_toggled = Signal(str, bool)
 
-    def __init__(self, tool_id: str, glyph: str, label: str, is_fav: bool, parent=None):
+    def __init__(self, tool_id: str, glyph: str, label: str,
+                 is_fav: bool, parent=None):
         super().__init__(parent)
         self.tool_id = tool_id
         self.setObjectName("menuItem")
-        self.setFixedHeight(28)
+        self.setFixedHeight(30)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 0, 10, 0)
-        layout.setSpacing(12)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(12, 0, 10, 0)
+        lay.setSpacing(10)
 
-        self.icon_lbl = QLabel(glyph)
-        self.icon_lbl.setFixedWidth(20)
-        self.icon_lbl.setStyleSheet(
-            "font-size: 14px; color: #a0b4cc; background: transparent;"
-            "font-family: 'Segoe UI Symbol', sans-serif;"
-        )
-        self.text_lbl = QLabel(label)
-        self.text_lbl.setStyleSheet(
-            "font-size: 12px; color: #d0dbe8; font-weight: 500;"
-            "font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; background: transparent;"
+        icon = QLabel(glyph)
+        icon.setFixedWidth(18)
+        icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon.setStyleSheet(
+            "font-size:14px; color:#7090b0; background:transparent;"
+            "font-family:'Segoe UI Symbol','Noto Sans Symbols',sans-serif;"
         )
 
-        layout.addWidget(self.icon_lbl)
-        layout.addWidget(self.text_lbl)
-        layout.addStretch()
-
-        self.star_btn = QPushButton("★" if is_fav else "☆")
-        self.star_btn.setCheckable(True)
-        self.star_btn.setChecked(is_fav)
-        self.star_btn.setFixedSize(24, 24)
-        self.star_btn.setObjectName("starBtn")
-        self.star_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.star_btn.setStyleSheet(
-            "QPushButton#starBtn { color: #4a5e78; background: transparent; border: none; font-size: 15px; padding-bottom: 2px; }"
-            "QPushButton#starBtn:hover { color: #8aaecf; }"
-            "QPushButton#starBtn:checked { color: #ffd700; }"
+        text = QLabel(label)
+        text.setStyleSheet(
+            "font-size:11px; color:#a8bed4; font-weight:500; background:transparent;"
         )
-        layout.addWidget(self.star_btn)
 
-        self.star_btn.toggled.connect(self._on_star_toggled)
+        self.star = QPushButton("★" if is_fav else "☆")
+        self.star.setCheckable(True)
+        self.star.setChecked(is_fav)
+        self.star.setFixedSize(22, 22)
+        self.star.setObjectName("starBtn")
+        self.star.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.star.setStyleSheet(
+            "QPushButton#starBtn{color:#2a3d55;background:transparent;border:none;font-size:14px;}"
+            "QPushButton#starBtn:hover{color:#5a7a99;}"
+            "QPushButton#starBtn:checked{color:#fbbf24;}"
+        )
+        self.star.toggled.connect(
+            lambda c: (self.star.setText("★" if c else "☆"),
+                       self.favorite_toggled.emit(self.tool_id, c))
+        )
 
-    def _on_star_toggled(self, checked: bool) -> None:
-        self.star_btn.setText("★" if checked else "☆")
-        self.favorite_toggled.emit(self.tool_id, checked)
+        lay.addWidget(icon)
+        lay.addWidget(text)
+        lay.addStretch()
+        lay.addWidget(self.star)
 
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton and not self.star_btn.geometry().contains(event.pos()):
-            self.triggered.emit(self.tool_id)
-        super().mousePressEvent(event)
+    def mousePressEvent(self, ev):
+        if ev.button() == Qt.MouseButton.LeftButton:
+            if not self.star.geometry().contains(ev.pos()):
+                self.triggered.emit(self.tool_id)
+        super().mousePressEvent(ev)
 
 
 # ─── ChartToolbar ─────────────────────────────────────────────────────────────
 
 class ChartToolbar(QFrame):
     """
-    Institutional TC2000-style chart toolbar.
-
-    All interactive elements are public attributes so chart_widget.py can wire
-    signals directly without going through wrapper methods.
+    Premium institutional chart toolbar.
+    Public attributes are backward-compatible with chart_widget.py.
     """
 
-    # ── Emitted when user clicks a timeframe pill ──────────────────────────
-    # connect chart_widget to timeframe_changed(kite_interval_str)
     timeframe_changed = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("chartToolbar")
-        self.setFixedHeight(30)
+        self.setFixedHeight(32)
 
         # ── State ─────────────────────────────────────────────────────────
-        self._drawing_color: str = "#FFD700"
-        self._active_tf: str = "day"
+        self._drawing_color = "#FFD700"
+        self._active_tf     = "day"
+        self._live_price    = 0.0
 
-        # ── Widget registries ─────────────────────────────────────────────
-        self._tf_buttons: Dict[str, QPushButton] = {}       # kept for compat (unused)
-        self._tf_btn_group: Optional[QButtonGroup] = None   # kept for compat (unused)
-        self._tf_actions: Dict[str, QAction] = {}           # kite_interval → menu action
-        self._tf_menu_btn: Optional[QToolButton] = None
-
-        self._ind_buttons: Dict[str, QPushButton] = {}      # key → pill btn (unused now)
-        self._ind_colors: Dict[str, str] = {}               # key → hex
-        self._ind_actions: Dict[str, QAction] = {}          # key → menu action
-
-        self._tool_buttons: Dict[str, QPushButton] = {}     # tool_id → btn
-        self._tool_btn_group: Optional[QButtonGroup] = None
-        self._drawing_actions: Dict[str, QAction] = {}
+        # ── Registries ────────────────────────────────────────────────────
+        self._tf_actions:       Dict[str, QAction]     = {}
+        self._ind_actions:      Dict[str, QAction]     = {}
+        self._drawing_actions:  Dict[str, QAction]     = {}
         self._drawing_action_group: Optional[QActionGroup] = None
-        self._favorite_tools: List[str] = ["line", "horizontal_line", "fibonacci", "rectangle"]
+        self._tool_buttons:     Dict[str, QPushButton] = {}
+        self._tool_btn_group:   Optional[QButtonGroup] = None
+        self._favorite_tools = ["line", "horizontal_line", "fibonacci", "rectangle"]
 
-        # ── Public accessible widgets ──────────────────────────────────────
-        self.symbol_label: Optional[QLabel] = None
-        self.exchange_label: Optional[QLabel] = None
-        self.chart_type_combo: Optional[QComboBox] = None
-        self.color_btn: Optional[QPushButton] = None
+        # ── Public compat attributes ───────────────────────────────────────
+        self.symbol_label:      Optional[QLabel]       = None
+        self.exchange_label:    Optional[QLabel]       = None
+        self.chart_type_combo:  Optional[QComboBox]    = None
+        self.color_btn:         Optional[QPushButton]  = None
         self.clear_drawings_btn: Optional[QPushButton] = None
-        self.measure_btn: Optional[QPushButton] = None
-        self.vol_btn: Optional[QPushButton] = None
-        self.alert_btn: Optional[QPushButton] = None
-        self.snapshot_btn: Optional[QPushButton] = None
-        self.autoscale_btn: Optional[QPushButton] = None
-        self.refresh_btn: Optional[QPushButton] = None
-        self.settings_btn: Optional[QPushButton] = None
-        self.order_btn: Optional[QPushButton] = None
-        self.data_status_label: Optional[QLabel] = None
+        self.measure_btn:       Optional[QPushButton]  = None
+        self.vol_btn:           Optional[QPushButton]  = None
+        self.alert_btn:         Optional[QPushButton]  = None
+        self.snapshot_btn:      Optional[QPushButton]  = None
+        self.autoscale_btn:     Optional[QPushButton]  = None
+        self.refresh_btn:       Optional[QPushButton]  = None
+        self.settings_btn:      Optional[QPushButton]  = None
+        self.order_btn:         Optional[QPushButton]  = None
+        self.data_status_label: Optional[QLabel]       = None
+        self.indicator_menu_button: Optional[QToolButton] = None
+        self.indicator_actions: Dict[str, QAction]     = {}
 
-        # ── Backward-compat shims for chart_widget.py ─────────────────────
-        # chart_widget.py checks `if tb.timeframe_dropdown:` and connects to
-        # currentIndexChanged / reads currentData().  We keep a hidden
-        # QComboBox that mirrors the visible pill buttons so chart_widget.py
-        # needs zero changes.
-        self.timeframe_dropdown: QComboBox = QComboBox()
+        # Hidden shim combo (chart_widget.py reads currentData from this)
+        self.timeframe_dropdown = QComboBox()
         self.timeframe_dropdown.setVisible(False)
-        for _display, kite_iv, _tip in TIMEFRAMES:
+        for _, kite_iv, _ in TIMEFRAMES:
             self.timeframe_dropdown.addItem(kite_iv, kite_iv)
 
-        # Old indicator menu attributes (kept as stubs)
-        self.indicator_menu_button: Optional[QToolButton] = None
-        self.indicator_actions: Dict[str, QAction] = {}
-
-        # Shim QAction for get_clear_action() — chart_widget.py does:
-        #   tb.get_clear_action().triggered.connect(self._clear_active_tool)
-        # We create a real action and wire it to clear_drawings_btn after _build().
-        self._clear_action_shim: QAction = QAction("Deselect Tool", self)
+        # Shim action for get_clear_action()
+        self._clear_action_shim = QAction("Deselect Tool", self)
 
         self._build()
-        # Wire shim action → clear_drawings_btn so chart_widget.py's
-        # get_clear_action().triggered fires when the ✕ button is clicked.
         self.clear_drawings_btn.clicked.connect(self._clear_action_shim.trigger)
         self._apply_styles()
 
-    # ─── Build ────────────────────────────────────────────────────────────────
+    # ═══════════════════════════════════════════════════════════════════════
+    # BUILD
+    # ═══════════════════════════════════════════════════════════════════════
 
     def _build(self) -> None:
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 0, 6, 0)
-        layout.setSpacing(0)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(8, 0, 8, 0)
+        lay.setSpacing(0)
 
-        # ── 1. Symbol + Exchange badge ────────────────────────────────────────
+        # ── 1. SYMBOL BADGE ───────────────────────────────────────────────
+        symbol_block = QWidget()
+        symbol_block.setObjectName("symbolBlock")
+        sb_lay = QHBoxLayout(symbol_block)
+        sb_lay.setContentsMargins(0, 0, 0, 0)
+        sb_lay.setSpacing(4)
+
+        # Thin left accent bar
+        accent_bar = QFrame()
+        accent_bar.setFixedSize(2, 20)
+        accent_bar.setObjectName("accentBar")
+        sb_lay.addWidget(accent_bar)
+
         self.symbol_label = QLabel("─")
         self.symbol_label.setObjectName("symbolBadge")
-        self.symbol_label.setFixedHeight(20)
-        self.symbol_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.symbol_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+        sb_lay.addWidget(self.symbol_label)
 
         self.exchange_label = QLabel("")
         self.exchange_label.setObjectName("exchangeBadge")
-        self.exchange_label.setFixedHeight(20)
-        self.exchange_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.exchange_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        self.exchange_label.setVisible(False)
+        sb_lay.addWidget(self.exchange_label)
 
-        layout.addWidget(self.symbol_label)
-        layout.addWidget(_spacer(3))
-        layout.addWidget(self.exchange_label)
-        layout.addWidget(_spacer(6))
-        layout.addWidget(_vsep())
-        layout.addWidget(_spacer(6))
+        lay.addWidget(symbol_block)
+        lay.addWidget(_gap(8))
+        lay.addWidget(_vsep())
+        lay.addWidget(_gap(6))
 
-        # ── 2. Timeframe dropdown ────────────────────────────────────────────
+        # ── 2. TIMEFRAME DROPDOWN PILL ────────────────────────────────────
         self._tf_menu = QMenu(self)
-        self._tf_menu.setObjectName("tfMenu")
-        self._tf_action_group = QActionGroup(self)
-        self._tf_action_group.setExclusive(True)
+        self._tf_menu.setObjectName("dropdownMenu")
+        tf_group = QActionGroup(self)
+        tf_group.setExclusive(True)
 
         for display, kite_iv, tip in TIMEFRAMES:
             action = QAction(display, self)
@@ -283,96 +305,115 @@ class ChartToolbar(QFrame):
             action.setData(kite_iv)
             action.setToolTip(tip)
             action.triggered.connect(lambda _=False, iv=kite_iv: self._on_tf_clicked(iv))
-            self._tf_action_group.addAction(action)
+            tf_group.addAction(action)
             self._tf_menu.addAction(action)
             self._tf_actions[kite_iv] = action
 
         self._tf_menu_btn = QToolButton()
-        self._tf_menu_btn.setObjectName("tfMenuButton")
-        self._tf_menu_btn.setText("D ▾")   # default label updated in set_timeframe
+        self._tf_menu_btn.setObjectName("pillMenuBtn")
+        self._tf_menu_btn.setText("D")
         self._tf_menu_btn.setToolTip("Select timeframe")
         self._tf_menu_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        self._tf_menu_btn.setFixedSize(40, 20)
+        self._tf_menu_btn.setFixedSize(36, 22)
         self._tf_menu_btn.setMenu(self._tf_menu)
-        layout.addWidget(self._tf_menu_btn)
+        lay.addWidget(self._tf_menu_btn)
+        lay.addWidget(_gap(4))
 
-        layout.addWidget(_spacer(4))
-        layout.addWidget(_vsep())
-        layout.addWidget(_spacer(4))
+        # ── 3. CHART TYPE DROPDOWN ────────────────────────────────────────
+        self._ct_menu = QMenu(self)
+        self._ct_menu.setObjectName("dropdownMenu")
+        self._active_chart_type = "candle"
 
-        # ── 3. Chart type ─────────────────────────────────────────────────────
+        # We expose chart_type_combo as hidden shim for backward compat
         self.chart_type_combo = QComboBox()
-        self.chart_type_combo.setObjectName("chartTypeCombo")
-        self.chart_type_combo.setFixedSize(48, 20)
-        self.chart_type_combo.view().setMinimumWidth(110)
-        for data, symbol, label in CHART_TYPES:
-            self.chart_type_combo.addItem(f"{symbol} ▾", data)
-            self.chart_type_combo.setItemData(self.chart_type_combo.count() - 1, label, Qt.ItemDataRole.ToolTipRole)
-        layout.addWidget(self.chart_type_combo)
-        layout.addWidget(_spacer(5))
-        layout.addWidget(_vsep())
-        layout.addWidget(_spacer(5))
+        self.chart_type_combo.setVisible(False)
+        for data, _, label in CHART_TYPES:
+            self.chart_type_combo.addItem(label, data)
 
-        # ── 4. Indicator multi-select dropdown ──────────────────────────────
-        self._indicator_menu = QMenu(self)
-        self._indicator_menu.setObjectName("indicatorMenu")
-
-        for key, pill_label, color, tip in INDICATORS:
-            self._ind_colors[key] = color
-            action = QAction(pill_label, self)
+        ct_action_grp = QActionGroup(self)
+        ct_action_grp.setExclusive(True)
+        self._ct_actions: Dict[str, QAction] = {}
+        glyphs = {"candle": "🕯", "bar": "▌▌▌", "line": "〜", "heikinashi": "HA"}
+        for data, glyph, label in CHART_TYPES:
+            action = QAction(f"{glyph}  {label}", self)
             action.setCheckable(True)
-            action.setChecked(False)          # off by default; widget restores saved state
+            action.setData(data)
+            if data == "candle":
+                action.setChecked(True)
+            action.triggered.connect(lambda _=False, d=data: self._on_chart_type(d))
+            ct_action_grp.addAction(action)
+            self._ct_menu.addAction(action)
+            self._ct_actions[data] = action
+
+        self._ct_menu_btn = QToolButton()
+        self._ct_menu_btn.setObjectName("pillMenuBtn")
+        self._ct_menu_btn.setText("🕯")
+        self._ct_menu_btn.setToolTip("Chart type")
+        self._ct_menu_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._ct_menu_btn.setFixedSize(36, 22)
+        self._ct_menu_btn.setMenu(self._ct_menu)
+        lay.addWidget(self._ct_menu_btn)
+        lay.addWidget(_gap(6))
+        lay.addWidget(_vsep())
+        lay.addWidget(_gap(6))
+
+        # ── 4. INDICATOR DROPDOWN ─────────────────────────────────────────
+        self._indicator_menu = QMenu(self)
+        self._indicator_menu.setObjectName("dropdownMenu")
+
+        for key, label, color, tip in INDICATORS:
+            action = QAction(label, self)
+            action.setCheckable(True)
+            action.setChecked(False)
             action.setData(key)
             action.setToolTip(tip)
             self._indicator_menu.addAction(action)
             self._ind_actions[key] = action
-            # keep indicator_actions in sync for old chart_widget compat
             self.indicator_actions[key] = action
 
-        # Volume toggle inside indicator menu
         self._indicator_menu.addSeparator()
-        self._vol_action = QAction("Volume Bars", self)
-        self._vol_action.setCheckable(True)
-        self._vol_action.setChecked(True)     # volume on by default
-        self._vol_action.setData("volume")
-        self._indicator_menu.addAction(self._vol_action)
-        self.indicator_actions["volume"] = self._vol_action
-        # keep vol_btn as a shim so old chart_widget refs don't break
+        vol_action = QAction("Volume Bars", self)
+        vol_action.setCheckable(True)
+        vol_action.setChecked(True)
+        vol_action.setData("volume")
+        vol_action.setToolTip("Volume histogram")
+        self._indicator_menu.addAction(vol_action)
+        self.indicator_actions["volume"] = vol_action
+        self._ind_actions["volume"] = vol_action
+
+        # CVD / RSI in indicator menu too
         self.vol_btn = QPushButton()
         self.vol_btn.setVisible(False)
         self.vol_btn.setCheckable(True)
         self.vol_btn.setChecked(True)
-        self._vol_action.toggled.connect(self.vol_btn.setChecked)
+        vol_action.toggled.connect(self.vol_btn.setChecked)
 
         self.indicator_menu_button = QToolButton()
-        self.indicator_menu_button.setObjectName("indicatorMenuButton")
-        self.indicator_menu_button.setText("IND ▾")
-        self.indicator_menu_button.setToolTip("Toggle indicators")
+        self.indicator_menu_button.setObjectName("pillMenuBtn")
+        self.indicator_menu_button.setText("Indicators")
+        self.indicator_menu_button.setToolTip("Toggle chart indicators")
         self.indicator_menu_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        self.indicator_menu_button.setFixedSize(48, 20)
+        self.indicator_menu_button.setFixedHeight(22)
         self.indicator_menu_button.setMenu(self._indicator_menu)
-        layout.addWidget(self.indicator_menu_button)
+        lay.addWidget(self.indicator_menu_button)
 
-        layout.addWidget(_spacer(4))
-        layout.addWidget(_vsep())
-        layout.addWidget(_spacer(3))
+        lay.addWidget(_gap(6))
+        lay.addWidget(_vsep())
+        lay.addWidget(_gap(6))
 
-        # ── 5. Drawing tools container ───────────────────────────────────────
+        # ── 5. DRAWING TOOLS TRAY ─────────────────────────────────────────
         self.drawing_tray = QFrame()
         self.drawing_tray.setObjectName("drawingTray")
-        self.drawing_tray.setFixedHeight(24)
-        self.drawing_tray_layout = QHBoxLayout(self.drawing_tray)
-        self.drawing_tray_layout.setContentsMargins(4, 0, 4, 0)
-        self.drawing_tray_layout.setSpacing(2)
-
-        self._tool_btn_group = QButtonGroup(self)
-        self._tool_btn_group.setExclusive(False)
+        self.drawing_tray.setFixedHeight(26)
+        dt_lay = QHBoxLayout(self.drawing_tray)
+        dt_lay.setContentsMargins(6, 0, 6, 0)
+        dt_lay.setSpacing(2)
 
         self._drawing_action_group = QActionGroup(self)
         self._drawing_action_group.setExclusive(True)
 
         self._drawing_menu = QMenu(self)
-        self._drawing_menu.setObjectName("drawingMenu")
+        self._drawing_menu.setObjectName("dropdownMenu")
 
         for tool_id, glyph, tip in DRAWING_TOOLS:
             action = QAction(tip, self)
@@ -380,230 +421,198 @@ class ChartToolbar(QFrame):
             self._drawing_action_group.addAction(action)
             self._drawing_actions[tool_id] = action
 
-            item_widget = ToolMenuItemWidget(tool_id, glyph, tip, tool_id in self._favorite_tools, self)
-            item_widget.triggered.connect(self._on_drawing_tool_selected_from_menu)
-            item_widget.favorite_toggled.connect(self._on_drawing_tool_favorite_toggled)
-
-            action_widget = QWidgetAction(self)
-            action_widget.setDefaultWidget(item_widget)
-            self._drawing_menu.addAction(action_widget)
+            item = ToolMenuItemWidget(tool_id, glyph, tip,
+                                      tool_id in self._favorite_tools, self)
+            item.triggered.connect(self._on_drawing_tool_from_menu)
+            item.favorite_toggled.connect(self._on_fav_toggled)
+            wa = QWidgetAction(self)
+            wa.setDefaultWidget(item)
+            self._drawing_menu.addAction(wa)
 
         self.drawing_menu_btn = QToolButton()
-        self.drawing_menu_btn.setObjectName("drawingMenuBtn")
-        self.drawing_menu_btn.setText("✎ ▾")
-        self.drawing_menu_btn.setToolTip("Select drawing tool")
+        self.drawing_menu_btn.setObjectName("drawMenuBtn")
+        self.drawing_menu_btn.setText("✏")
+        self.drawing_menu_btn.setToolTip("Drawing tools")
         self.drawing_menu_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.drawing_menu_btn.setFixedSize(32, 22)
         self.drawing_menu_btn.setMenu(self._drawing_menu)
-        self.drawing_menu_btn.setFixedSize(40, 20)
-        self.drawing_tray_layout.addWidget(self.drawing_menu_btn)
+        dt_lay.addWidget(self.drawing_menu_btn)
+
+        # Divider before favorites
+        fav_div = QFrame()
+        fav_div.setFrameShape(QFrame.Shape.VLine)
+        fav_div.setFixedSize(1, 12)
+        fav_div.setStyleSheet(f"background:{P.BORDER_MID}; border:none;")
+        dt_lay.addWidget(fav_div)
+        dt_lay.addWidget(_gap(2))
 
         self.favorites_layout = QHBoxLayout()
         self.favorites_layout.setContentsMargins(0, 0, 0, 0)
         self.favorites_layout.setSpacing(2)
-        self.drawing_tray_layout.addLayout(self.favorites_layout)
+        dt_lay.addLayout(self.favorites_layout)
+
+        self._tool_btn_group = QButtonGroup(self)
+        self._tool_btn_group.setExclusive(False)
         self._rebuild_favorites_tray()
 
-        _glyph_font = QFont("Segoe UI Symbol, Noto Sans Symbols, DejaVu Sans, sans-serif")
-        _glyph_font.setPixelSize(15)
-        _glyph_font.setWeight(QFont.Weight.Black)
-
-        div = QFrame()
-        div.setFrameShape(QFrame.Shape.VLine)
-        div.setFixedSize(1, 14)
-        div.setStyleSheet("background:#1e2d44; border:none;")
-        self.drawing_tray_layout.addWidget(div)
+        # Divider before measure / color
+        dt_lay.addWidget(_gap(2))
+        div2 = QFrame()
+        div2.setFrameShape(QFrame.Shape.VLine)
+        div2.setFixedSize(1, 12)
+        div2.setStyleSheet(f"background:{P.BORDER_MID}; border:none;")
+        dt_lay.addWidget(div2)
+        dt_lay.addWidget(_gap(2))
 
         self.measure_btn = QPushButton("⤢")
         self.measure_btn.setObjectName("toolBtn")
-        self.measure_btn.setFixedSize(26, 24)
+        self.measure_btn.setFixedSize(28, 22)
         self.measure_btn.setCheckable(True)
-        self.measure_btn.setToolTip("Measure price/time range  [E]")
-        self.measure_btn.setFont(_glyph_font)
-        self.drawing_tray_layout.addWidget(self.measure_btn)
+        self.measure_btn.setToolTip("Measure  [E]")
+        dt_lay.addWidget(self.measure_btn)
 
-        div2 = QFrame()
-        div2.setFrameShape(QFrame.Shape.VLine)
-        div2.setFixedSize(1, 14)
-        div2.setStyleSheet("background:#1e2d44; border:none;")
-        self.drawing_tray_layout.addWidget(div2)
+        div3 = QFrame()
+        div3.setFrameShape(QFrame.Shape.VLine)
+        div3.setFixedSize(1, 12)
+        div3.setStyleSheet(f"background:{P.BORDER_MID}; border:none;")
+        dt_lay.addWidget(div3)
+        dt_lay.addWidget(_gap(2))
 
-        self.color_btn = QPushButton("■")
-        self.color_btn.setObjectName("colorPickerBtn")
-        self.color_btn.setFixedSize(26, 24)
+        self.color_btn = QPushButton("●")
+        self.color_btn.setObjectName("colorBtn")
+        self.color_btn.setFixedSize(28, 22)
         self.color_btn.setToolTip("Drawing color")
-        self.drawing_tray_layout.addWidget(self.color_btn)
+        dt_lay.addWidget(self.color_btn)
 
         self.clear_drawings_btn = QPushButton("✕")
         self.clear_drawings_btn.setObjectName("clearBtn")
-        self.clear_drawings_btn.setFixedSize(24, 24)
-        self.clear_drawings_btn.setToolTip("Clear all drawings  [Del]")
-        self.drawing_tray_layout.addWidget(self.clear_drawings_btn)
+        self.clear_drawings_btn.setFixedSize(24, 22)
+        self.clear_drawings_btn.setToolTip("Clear all drawings")
+        dt_lay.addWidget(self.clear_drawings_btn)
 
-        layout.addWidget(self.drawing_tray)
+        lay.addWidget(self.drawing_tray)
 
-        # ── Stretch ───────────────────────────────────────────────────────────
-        layout.addStretch()
+        # ── STRETCH ───────────────────────────────────────────────────────
+        lay.addStretch()
 
-        # ── 6. Right utility cluster ──────────────────────────────────────────
+        # ── 6. RIGHT UTILITY CLUSTER ──────────────────────────────────────
         # Snapshot
-        self.snapshot_btn = QPushButton("S")
-        self.snapshot_btn.setObjectName("iconBtn")
-        self.snapshot_btn.setFixedSize(24, 20)
-        self.snapshot_btn.setToolTip("Save chart snapshot  [Ctrl+S]")
-        layout.addWidget(self.snapshot_btn)
+        self.snapshot_btn = self._icon_btn("⬡", "Save snapshot  [Ctrl+S]", 28)
+        lay.addWidget(self.snapshot_btn)
+        lay.addWidget(_gap(2))
 
-        layout.addWidget(_spacer(3))
-        layout.addWidget(_vsep())
-        layout.addWidget(_spacer(3))
+        lay.addWidget(_vsep())
+        lay.addWidget(_gap(4))
 
-        # Auto-scale
-        self.autoscale_btn = QPushButton("A")
-        self.autoscale_btn.setObjectName("iconBtn")
-        self.autoscale_btn.setFixedSize(22, 20)
-        self.autoscale_btn.setToolTip("Auto-scale  [Ctrl+Z]")
-        layout.addWidget(self.autoscale_btn)
-        layout.addWidget(_spacer(2))
+        # Autoscale
+        self.autoscale_btn = self._icon_btn("⊡", "Auto-scale  [Ctrl+A]", 28)
+        lay.addWidget(self.autoscale_btn)
+        lay.addWidget(_gap(2))
 
         # Refresh
-        self.refresh_btn = QPushButton("↺")
-        self.refresh_btn.setObjectName("iconBtn")
-        self.refresh_btn.setFixedSize(22, 20)
-        self.refresh_btn.setToolTip("Refresh data  [F5]")
-        layout.addWidget(self.refresh_btn)
-        layout.addWidget(_spacer(2))
+        self.refresh_btn = self._icon_btn("↺", "Refresh  [F5]", 28)
+        lay.addWidget(self.refresh_btn)
+        lay.addWidget(_gap(2))
 
         # Settings
-        self.settings_btn = QPushButton("⚙")
-        self.settings_btn.setObjectName("iconBtn")
-        self.settings_btn.setFixedSize(22, 20)
-        self.settings_btn.setToolTip("Chart settings")
-        layout.addWidget(self.settings_btn)
+        self.settings_btn = self._icon_btn("⚙", "Chart settings", 28)
+        lay.addWidget(self.settings_btn)
 
-        layout.addWidget(_spacer(6))
-        layout.addWidget(_vsep())
-        layout.addWidget(_spacer(5))
+        lay.addWidget(_gap(8))
+        lay.addWidget(_vsep())
+        lay.addWidget(_gap(6))
 
         # Order button
         self.order_btn = QPushButton("ORDER")
         self.order_btn.setObjectName("orderBtn")
-        self.order_btn.setFixedSize(72, 22)
+        self.order_btn.setFixedSize(68, 24)
         self.order_btn.setToolTip("Place order  [O]")
-        layout.addWidget(self.order_btn)
+        lay.addWidget(self.order_btn)
 
-        # ── Set default timeframe ─────────────────────────────────────────────
+        # Set defaults
         self.set_timeframe("day")
         self._refresh_color_btn()
 
-    def _make_ind_pill(self, key: str, label: str, color: str, tip: str) -> QPushButton:
-        btn = QPushButton(label)
-        btn.setObjectName("indPill")
-        btn.setCheckable(True)
-        btn.setChecked(True)
+    @staticmethod
+    def _icon_btn(icon: str, tip: str, size: int = 28) -> QPushButton:
+        btn = QPushButton(icon)
+        btn.setObjectName("iconBtn")
+        btn.setFixedSize(size, 22)
         btn.setToolTip(tip)
-        btn.setFixedSize(_ind_pill_width(label), 20)
-        # Encode accent color via property so stylesheet can reference it,
-        # but we set the style directly since Qt props aren't CSS variables.
-        btn.setProperty("accentColor", color)
-        # Active/inactive driven fully by stylesheet + :checked pseudo-state
-        # We override inline only for the accent border/text color:
-        self._set_ind_pill_style(btn, color, True)
-        btn.toggled.connect(lambda checked, b=btn, c=color: self._set_ind_pill_style(b, c, checked))
         return btn
 
-    @staticmethod
-    def _set_ind_pill_style(btn: QPushButton, color: str, checked: bool) -> None:
-        """Inline style for a single indicator pill depending on its checked state."""
-        if checked:
-            btn.setStyleSheet(
-                f"QPushButton#indPill{{"
-                f"color:{color};"
-                f"background:rgba({_hex_to_rgb(color)},0.12);"
-                f"border:1px solid rgba({_hex_to_rgb(color)},0.45);"
-                f"border-radius:3px;"
-                f"font-size:9px;font-weight:800;font-family:'JetBrains Mono','Fira Code','Consolas',monospace;"
-                f"letter-spacing:0.3px;"
-                f"}}"
-                f"QPushButton#indPill:hover{{"
-                f"background:rgba({_hex_to_rgb(color)},0.22);"
-                f"border-color:rgba({_hex_to_rgb(color)},0.7);"
-                f"}}"
-            )
-        else:
-            btn.setStyleSheet(
-                "QPushButton#indPill{"
-                "color:#38445a;"
-                "background:transparent;"
-                "border:1px solid #1e2738;"
-                "border-radius:3px;"
-                "font-size:9px;font-weight:800;"
-                "font-family:'JetBrains Mono','Fira Code','Consolas',monospace;"
-                "}"
-                "QPushButton#indPill:hover{color:#5a6e88;border-color:#2e3e56;}"
-            )
+    # ═══════════════════════════════════════════════════════════════════════
+    # INTERNALS
+    # ═══════════════════════════════════════════════════════════════════════
 
-    # ─── Event handlers ───────────────────────────────────────────────────────
+    def _rebuild_favorites_tray(self) -> None:
+        while self.favorites_layout.count():
+            item = self.favorites_layout.takeAt(0)
+            w = item.widget()
+            if w:
+                if self._tool_btn_group:
+                    self._tool_btn_group.removeButton(w)
+                w.deleteLater()
+        self._tool_buttons.clear()
+
+        glyph_map = {tid: g for tid, g, _ in DRAWING_TOOLS}
+        for tool_id in self._favorite_tools:
+            glyph = glyph_map.get(tool_id)
+            if not glyph:
+                continue
+            btn = QPushButton(glyph)
+            btn.setObjectName("toolBtn")
+            btn.setCheckable(True)
+            btn.setFixedSize(28, 22)
+            btn.setToolTip(TOOL_DISPLAY.get(tool_id, tool_id))
+            if self._drawing_actions.get(tool_id, QAction()).isChecked():
+                btn.setChecked(True)
+            btn.clicked.connect(
+                lambda checked, tid=tool_id: self._on_tray_btn_clicked(tid, checked)
+            )
+            self._tool_buttons[tool_id] = btn
+            if self._tool_btn_group:
+                self._tool_btn_group.addButton(btn)
+            self.favorites_layout.addWidget(btn)
 
     def _on_tf_clicked(self, kite_iv: str) -> None:
         self._active_tf = kite_iv
-        # Update button label to show active TF
         action = self._tf_actions.get(kite_iv)
         if action and self._tf_menu_btn:
-            self._tf_menu_btn.setText(f"{action.text()} ▾")
-        # Keep hidden shim combo in sync so chart_widget.py wiring still fires
+            self._tf_menu_btn.setText(action.text())
+        # Sync hidden shim combo
         for i in range(self.timeframe_dropdown.count()):
             if self.timeframe_dropdown.itemData(i) == kite_iv:
                 self.timeframe_dropdown.setCurrentIndex(i)
                 break
         self.timeframe_changed.emit(kite_iv)
 
-    def _on_drawing_tool_selected_from_menu(self, tool_id: str) -> None:
+    def _on_chart_type(self, data: str) -> None:
+        self._active_chart_type = data
+        glyphs = {"candle": "🕯", "bar": "▌▌▌", "line": "〜", "heikinashi": "HA"}
+        if self._ct_menu_btn:
+            self._ct_menu_btn.setText(glyphs.get(data, "?"))
+        # Sync hidden shim
+        for i in range(self.chart_type_combo.count()):
+            if self.chart_type_combo.itemData(i) == data:
+                self.chart_type_combo.setCurrentIndex(i)
+                break
+
+    def _on_drawing_tool_from_menu(self, tool_id: str) -> None:
         self._drawing_menu.hide()
         action = self._drawing_actions.get(tool_id)
         if action:
             action.trigger()
         self.set_draw_btn_active(tool_id)
 
-    def _on_drawing_tool_favorite_toggled(self, tool_id: str, is_fav: bool) -> None:
+    def _on_fav_toggled(self, tool_id: str, is_fav: bool) -> None:
         if is_fav and tool_id not in self._favorite_tools:
             self._favorite_tools.append(tool_id)
         elif not is_fav and tool_id in self._favorite_tools:
             self._favorite_tools.remove(tool_id)
         self._rebuild_favorites_tray()
 
-    def _rebuild_favorites_tray(self) -> None:
-        while self.favorites_layout.count():
-            item = self.favorites_layout.takeAt(0)
-            w = item.widget()
-            if w is None:
-                continue
-            if self._tool_btn_group:
-                self._tool_btn_group.removeButton(w)
-            w.deleteLater()
-        self._tool_buttons.clear()
-
-        glyph_font = QFont("Segoe UI Symbol", 14, QFont.Weight.Bold)
-
-        for tool_id in self._favorite_tools:
-            glyph = next((g for tid, g, _ in DRAWING_TOOLS if tid == tool_id), None)
-            if glyph is None:
-                continue
-            btn = QPushButton(glyph)
-            btn.setObjectName("toolBtn")
-            btn.setCheckable(True)
-            btn.setFixedSize(26, 24)
-            btn.setFont(glyph_font)
-            btn.setToolTip(TOOL_DISPLAY.get(tool_id, tool_id))
-
-            if self._drawing_actions.get(tool_id, QAction()).isChecked():
-                btn.setChecked(True)
-
-            btn.clicked.connect(lambda checked, tid=tool_id: self._on_tray_button_clicked(tid, checked))
-            self._tool_buttons[tool_id] = btn
-            if self._tool_btn_group:
-                self._tool_btn_group.addButton(btn)
-            self.favorites_layout.addWidget(btn)
-
-    def _on_tray_button_clicked(self, tool_id: str, checked: bool) -> None:
+    def _on_tray_btn_clicked(self, tool_id: str, checked: bool) -> None:
         if checked:
             action = self._drawing_actions.get(tool_id)
             if action:
@@ -611,10 +620,25 @@ class ChartToolbar(QFrame):
         else:
             self.reset_draw_btn()
 
-    # ─── Public API ───────────────────────────────────────────────────────────
+    def _refresh_color_btn(self) -> None:
+        c = self._drawing_color
+        rgb = _hex_to_rgb(c)
+        self.color_btn.setStyleSheet(
+            f"QPushButton#colorBtn{{"
+            f"color:{c}; background:rgba({rgb},0.14);"
+            f"border:1px solid rgba({rgb},0.38); border-radius:3px;"
+            f"font-size:16px; font-weight:900; padding:0;"
+            f"}}"
+            f"QPushButton#colorBtn:hover{{"
+            f"background:rgba({rgb},0.26); border-color:rgba({rgb},0.65);"
+            f"}}"
+        )
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # PUBLIC API
+    # ═══════════════════════════════════════════════════════════════════════
 
     def set_symbol_text(self, symbol: str, exchange: str = "") -> None:
-        """Update symbol badge. Optionally set exchange tag (NSE / BSE / NYSE)."""
         self.symbol_label.setText(symbol)
         if exchange:
             self.exchange_label.setText(exchange)
@@ -623,14 +647,12 @@ class ChartToolbar(QFrame):
             self.exchange_label.setVisible(False)
 
     def set_timeframe(self, kite_interval: str) -> None:
-        """Activate the matching TF menu action and sync the shim combo."""
         action = self._tf_actions.get(kite_interval)
         if action:
             action.setChecked(True)
             self._active_tf = kite_interval
             if self._tf_menu_btn:
-                self._tf_menu_btn.setText(f"{action.text()} ▾")
-        # Keep hidden shim combo in sync
+                self._tf_menu_btn.setText(action.text())
         for i in range(self.timeframe_dropdown.count()):
             if self.timeframe_dropdown.itemData(i) == kite_interval:
                 self.timeframe_dropdown.blockSignals(True)
@@ -642,24 +664,20 @@ class ChartToolbar(QFrame):
         return self._active_tf
 
     def get_chart_type(self) -> str:
-        if self.chart_type_combo:
-            return self.chart_type_combo.currentData() or "candle"
-        return "candle"
+        return self._active_chart_type
 
     def get_indicator_states(self) -> Dict[str, bool]:
-        """Returns {key: is_checked} for all indicator menu actions."""
-        return {key: action.isChecked() for key, action in self._ind_actions.items()}
+        return {k: a.isChecked() for k, a in self._ind_actions.items()}
 
     def set_indicator_state(self, key: str, checked: bool) -> None:
-        action = self._ind_actions.get(key)
-        if action:
-            action.setChecked(checked)
+        a = self._ind_actions.get(key)
+        if a:
+            a.setChecked(checked)
 
     def get_drawing_action(self, tool_id: str) -> Optional[QAction]:
         return self._drawing_actions.get(tool_id)
 
     def get_clear_action(self) -> QAction:
-        """Returns a real QAction whose .triggered fires when ✕ is clicked."""
         return self._clear_action_shim
 
     def get_all_drawing_actions(self):
@@ -700,383 +718,266 @@ class ChartToolbar(QFrame):
         return self._drawing_color
 
     def set_data_status(self, status: str, live: bool = True) -> None:
-        """Update the live/delayed/offline badge text and color."""
         if self.data_status_label:
             self.data_status_label.setText(status)
-            if live:
-                self.data_status_label.setStyleSheet(
-                    "QLabel#livebage,QLabel#livebage{}"   # use class style from sheet
-                )
-                self.data_status_label.setObjectName("liveBadge")
-            else:
-                self.data_status_label.setObjectName("delayedBadge")
-            # re-polish so stylesheet picks up new objectName
+            name = "liveBadge" if live else "delayedBadge"
+            self.data_status_label.setObjectName(name)
             self.data_status_label.style().unpolish(self.data_status_label)
             self.data_status_label.style().polish(self.data_status_label)
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # Internal helpers
-    # ─────────────────────────────────────────────────────────────────────────
-
-    def _refresh_color_btn(self) -> None:
-        c = self._drawing_color
-        self.color_btn.setStyleSheet(
-            f"QPushButton#colorPickerBtn{{"
-            f"color:{c};"
-            f"background:transparent;"
-            f"border:none;"
-            f"border-radius:0px;"
-            f"font-size:16px;"
-            f"padding:0;"
-            f"}}"
-            f"QPushButton#colorPickerBtn:hover{{"
-            f"background:#162030;"
-            f"border-left:2px solid rgba({_hex_to_rgb(c)},0.8);"
-            f"}}"
-        )
-
-    # ─── Stylesheet ───────────────────────────────────────────────────────────
+    # ═══════════════════════════════════════════════════════════════════════
+    # STYLESHEET
+    # ═══════════════════════════════════════════════════════════════════════
 
     def _apply_styles(self) -> None:
-        self.setStyleSheet("""
-            /* ── Eradicate Monospace & Soften Menus ── */
-            * { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        self.setStyleSheet(f"""
+            /* ─ TOOLBAR ROOT ─────────────────────────────────────────── */
+            QFrame#chartToolbar {{
+                background: {P.BG_BASE};
+                border-top: 1px solid #0f1622;
+                border-bottom: 1px solid {P.BORDER};
+                min-height: 32px;
+                max-height: 32px;
+            }}
 
-            /* ── Toolbar frame ── */
-            QFrame#chartToolbar {
-                background: #0d1117;
-                border-top: 1px solid #1c2840;
-                border-bottom: 1px solid #1c2840;
-            }
-
-            /* ── Symbol badge ── */
-            QLabel#symbolBadge {
-                color: #5bc8fa;
-                font-family: "JetBrains Mono","Fira Code","Consolas",monospace;
-                font-size: 12px;
+            /* ─ SYMBOL BLOCK ──────────────────────────────────────────── */
+            QWidget#symbolBlock {{
+                background: transparent;
+            }}
+            QFrame#accentBar {{
+                background: {P.CYAN};
+                border-radius: 1px;
+            }}
+            QLabel#symbolBadge {{
+                color: {P.CYAN};
+                font-family: "JetBrains Mono", "Fira Code", "Cascadia Code",
+                             "Consolas", monospace;
+                font-size: 13px;
                 font-weight: 800;
-                letter-spacing: 1.8px;
-                padding: 0 8px;
-                background: rgba(91,200,250,0.06);
-                border: 1px solid rgba(91,200,250,0.18);
-                border-radius: 3px;
-                min-width: 60px;
-            }
-
-            QLabel#exchangeBadge {
-                color: #3d5170;
-                font-family: "JetBrains Mono","Fira Code","Consolas",monospace;
+                letter-spacing: 2.5px;
+                padding: 0 6px 0 2px;
+                background: transparent;
+                min-width: 50px;
+            }}
+            QLabel#exchangeBadge {{
+                color: {P.T_MID};
+                font-family: "JetBrains Mono", "Consolas", monospace;
                 font-size: 8px;
                 font-weight: 700;
-                letter-spacing: 1px;
-                padding: 0 5px;
-                background: transparent;
-                border: 1px solid #1e2738;
-                border-radius: 3px;
-            }
+                letter-spacing: 1.2px;
+                padding: 1px 5px;
+                background: {P.BG_RAISED};
+                border: 1px solid {P.BORDER};
+                border-radius: 2px;
+            }}
 
-            /* ── Timeframe pills ── */
-            QPushButton#tfPill {
-                background: transparent;
-                color: #3d5070;
-                border: none;
+            /* ─ GENERIC PILL MENU BUTTON ──────────────────────────────── */
+            QToolButton#pillMenuBtn {{
+                background: {P.BG_RAISED};
+                color: {P.T_MUTED};
+                border: 1px solid {P.BORDER};
                 border-radius: 3px;
-                font-size: 9px;
-                font-weight: 800;
-                font-family: "JetBrains Mono","Fira Code","Consolas",monospace;
-                letter-spacing: 0.2px;
-            }
-            QPushButton#tfPill:hover {
-                color: #8aaecf;
-                background: rgba(255,255,255,0.05);
-            }
-            QPushButton#tfPill:checked {
-                color: #5bc8fa;
-                background: rgba(91,200,250,0.11);
-                border: 1px solid rgba(91,200,250,0.30);
-            }
-
-            /* ── Chart type combo ── */
-            QComboBox#chartTypeCombo {
-                background: rgba(255,255,255,0.02);
-                color: #607090;
-                border: 1px solid #1e2738;
-                border-radius: 3px;
-                font-size: 9px;
-                font-weight: 700;
-                font-family: "JetBrains Mono","Fira Code","Consolas",monospace;
-                padding-left: 4px;
-            }
-            QComboBox#chartTypeCombo:hover {
-                color: #8aaecf;
-                border-color: #2e4060;
-            }
-            QComboBox#chartTypeCombo::drop-down {
-                width: 0px;
-                border: none;
-                subcontrol-origin: padding;
-                subcontrol-position: top right;
-            }
-            QComboBox#chartTypeCombo::down-arrow {
-                image: none;
-                width: 0; height: 0;
-            }
-            QComboBox#chartTypeCombo QAbstractItemView {
-                background: #0f1420;
-                color: #8aaecf;
-                border: 1px solid #2a3a56;
-                selection-background-color: #1a3058;
+                font-family: "JetBrains Mono", "Consolas", monospace;
                 font-size: 10px;
-                padding: 2px;
-            }
-
-            /* ── Timeframe dropdown button ── */
-            QToolButton#tfMenuButton {
-                background: rgba(255,255,255,0.02);
-                color: #5bc8fa;
-                border: 1px solid #1e2738;
-                border-radius: 3px;
-                font-size: 9px;
-                font-weight: 800;
-                font-family: "JetBrains Mono","Fira Code","Consolas",monospace;
-                letter-spacing: 0.3px;
-                padding: 0 5px;
-            }
-            QToolButton#tfMenuButton:hover {
-                color: #8adefc;
-                border-color: rgba(91,200,250,0.35);
-                background: rgba(91,200,250,0.07);
-            }
-            QToolButton#tfMenuButton::menu-indicator { image: none; width: 0; }
-
-            QMenu#tfMenu {
-                background: #0f1420;
-                color: #a0b4cc;
-                border: 1px solid #1e2e48;
-                padding: 3px 0;
-            }
-            QMenu#tfMenu::item {
-                padding: 5px 24px 5px 12px;
-                font-size: 11px;
-                font-family: "JetBrains Mono","Fira Code","Consolas",monospace;
                 font-weight: 700;
-            }
-            QMenu#tfMenu::item:selected { background: #142040; color: #5bc8fa; }
-            QMenu#tfMenu::indicator { width: 0; height: 0; }
+                letter-spacing: 0.5px;
+                padding: 0 6px;
+            }}
+            QToolButton#pillMenuBtn:hover {{
+                background: {P.BG_HOVER};
+                color: {P.T_MAIN};
+                border-color: {P.BORDER_MID};
+            }}
+            QToolButton#pillMenuBtn:pressed, QToolButton#pillMenuBtn:open {{
+                background: {P.BG_ACTIVE};
+                color: {P.CYAN};
+                border-color: rgba(0,212,255,0.35);
+            }}
+            QToolButton#pillMenuBtn::menu-indicator {{
+                image: none;
+                width: 0;
+            }}
 
-            /* ── Indicator dropdown button ── */
-            QToolButton#indicatorMenuButton {
-                background: rgba(255,255,255,0.02);
-                color: #607090;
-                border: 1px solid #1e2738;
-                border-radius: 3px;
-                font-size: 9px;
-                font-weight: 800;
-                font-family: "JetBrains Mono","Fira Code","Consolas",monospace;
-                letter-spacing: 0.3px;
-                padding: 0 4px;
-            }
-            QToolButton#indicatorMenuButton:hover {
-                color: #8aaecf;
-                border-color: #2e4060;
-                background: rgba(255,255,255,0.05);
-            }
-            QToolButton#indicatorMenuButton::menu-indicator { image: none; width: 0; }
-
-            QMenu#indicatorMenu {
-                background: #0f1420;
-                color: #a0b4cc;
-                border: 1px solid #1e2e48;
-                padding: 3px 0;
-            }
-            QMenu#indicatorMenu::item {
-                padding: 5px 18px 5px 10px;
-                font-size: 11px;
-                font-family: "JetBrains Mono","Fira Code","Consolas",monospace;
-            }
-            QMenu#indicatorMenu::item:selected { background: #142040; color: #7ec8ff; }
-            QMenu#indicatorMenu::indicator {
-                width: 12px; height: 12px;
-                border: 1px solid #2e3e58;
-                border-radius: 2px;
-                margin-left: 6px;
-            }
-            QMenu#indicatorMenu::indicator:checked {
-                background: #1a5080;
-                border-color: #3a80c0;
-            }
-
-            QMenu#drawingMenu {
-                background: #0f1420;
-                border: 1px solid #1e2e48;
-                border-radius: 6px;
-                padding: 4px 0;
-            }
-            QFrame#drawingTray {
-                background: rgba(255,255,255,0.02);
+            /* ─ DRAWING TRAY ──────────────────────────────────────────── */
+            QFrame#drawingTray {{
+                background: rgba(255,255,255,0.018);
+                border: 1px solid {P.BORDER};
                 border-radius: 4px;
-            }
+            }}
 
-            QToolButton#drawingMenuBtn {
+            /* Drawing menu open button */
+            QToolButton#drawMenuBtn {{
                 background: transparent;
-                color: #8aaecf;
+                color: {P.T_MUTED};
                 border: none;
-                font-size: 11px;
-                font-weight: 600;
-            }
-            QToolButton#drawingMenuBtn:hover {
-                background: rgba(255,255,255,0.06);
-                color: #c8dff5;
-                border-radius: 4px;
-            }
-            QToolButton#drawingMenuBtn::menu-indicator { image: none; width: 0; }
-
-            QWidget#menuItem {
-                background: transparent;
-            }
-            QWidget#menuItem:hover {
-                background: rgba(255,255,255,0.04);
-            }
-
-            /* ── Drawing tool buttons ── */
-            QPushButton#toolBtn {
-                background: transparent;
-                color: #6888aa;
-                border: none;
-                border-radius: 2px;
-                font-size: 15px;
-                font-weight: 900;
-                padding: 0px 0px 0px 0px;
-                margin: 0;
-            }
-            QPushButton#toolBtn:hover {
-                color: #c8dff5;
-                background: #1a2840;
-            }
-            QPushButton#toolBtn:checked {
-                color: #5bc8fa;
-                background: #0f2030;
-                border-left: 2px solid #5bc8fa;
-            }
-
-            /* ── Clear button ── */
-            QPushButton#clearBtn {
-                background: transparent;
-                color: #4a5e78;
-                border: none;
-                border-radius: 0px;
-                font-size: 11px;
+                font-size: 14px;
                 font-weight: 900;
                 padding: 0;
-            }
-            QPushButton#clearBtn:hover {
-                color: #e05858;
-                background: #200c0c;
-            }
-
-            /* ── VOL pill ── */
-            QPushButton#utilPill {
-                background: transparent;
-                color: #3d5070;
-                border: 1px solid #1e2738;
+            }}
+            QToolButton#drawMenuBtn:hover {{
+                color: {P.T_BRIGHT};
+                background: rgba(255,255,255,0.06);
                 border-radius: 3px;
-                font-size: 8px;
-                font-weight: 800;
-                font-family: "JetBrains Mono","Fira Code","Consolas",monospace;
-                letter-spacing: 0.5px;
-            }
-            QPushButton#utilPill:hover {
-                color: #7090b8;
-                border-color: #2e4060;
-            }
-            QPushButton#utilPill:checked {
-                color: #4fd8a0;
-                background: rgba(79,216,160,0.09);
-                border: 1px solid rgba(79,216,160,0.30);
-            }
+            }}
+            QToolButton#drawMenuBtn:pressed, QToolButton#drawMenuBtn:open {{
+                color: {P.CYAN};
+                background: rgba(0,212,255,0.10);
+            }}
+            QToolButton#drawMenuBtn::menu-indicator {{
+                image: none;
+                width: 0;
+            }}
 
-            /* ── Icon buttons (snapshot, autoscale, refresh, settings) ── */
-            QPushButton#iconBtn {
+            /* Individual tool pin buttons */
+            QPushButton#toolBtn {{
                 background: transparent;
-                color: #4a6280;
+                color: {P.T_DIM};
+                border: none;
+                border-radius: 3px;
+                font-size: 14px;
+                font-weight: 900;
+                padding: 0;
+            }}
+            QPushButton#toolBtn:hover {{
+                color: {P.T_MAIN};
+                background: rgba(255,255,255,0.07);
+            }}
+            QPushButton#toolBtn:checked {{
+                color: {P.CYAN};
+                background: rgba(0,212,255,0.12);
+                border-left: 2px solid {P.CYAN};
+            }}
+
+            /* Measure button */
+            QPushButton#toolBtn[objectName="measure_btn"]:checked {{
+                color: {P.AMBER};
+                background: rgba(251,191,36,0.10);
+                border-left: 2px solid {P.AMBER};
+            }}
+
+            /* ─ COLOR BUTTON — inline style drives this, see _refresh_color_btn ─ */
+
+            /* ─ CLEAR BUTTON ──────────────────────────────────────────── */
+            QPushButton#clearBtn {{
+                background: transparent;
+                color: {P.T_DIM};
+                border: none;
+                border-radius: 3px;
+                font-size: 10px;
+                font-weight: 900;
+            }}
+            QPushButton#clearBtn:hover {{
+                color: {P.RED};
+                background: rgba(255,77,106,0.10);
+            }}
+
+            /* ─ ICON BUTTONS (right cluster) ──────────────────────────── */
+            QPushButton#iconBtn {{
+                background: transparent;
+                color: {P.T_DIM};
                 border: none;
                 border-radius: 3px;
                 font-size: 14px;
                 font-weight: 700;
                 padding: 0;
-            }
-            QPushButton#iconBtn:hover {
-                color: #c0d8f0;
+            }}
+            QPushButton#iconBtn:hover {{
+                color: {P.T_MAIN};
                 background: rgba(255,255,255,0.07);
-            }
-            QPushButton#iconBtn:pressed {
-                color: #5bc8fa;
-                background: rgba(91,200,250,0.12);
-            }
+            }}
+            QPushButton#iconBtn:pressed {{
+                color: {P.CYAN};
+                background: rgba(0,212,255,0.10);
+            }}
 
-            /* ── Live / Delayed badge ── */
-            QLabel#liveBadge {
-                color: #4fd8a0;
-                font-family: "JetBrains Mono","Fira Code","Consolas",monospace;
-                font-size: 7px;
-                font-weight: 900;
-                letter-spacing: 1.5px;
-                padding: 0 5px;
-                background: rgba(79,216,160,0.07);
-                border: 1px solid rgba(79,216,160,0.22);
-                border-radius: 2px;
-            }
-            QLabel#delayedBadge {
-                color: #f0a030;
-                font-family: "JetBrains Mono","Fira Code","Consolas",monospace;
-                font-size: 7px;
-                font-weight: 900;
-                letter-spacing: 1.5px;
-                padding: 0 5px;
-                background: rgba(240,160,48,0.07);
-                border: 1px solid rgba(240,160,48,0.22);
-                border-radius: 2px;
-            }
-            QLabel#livebage { color: #4fd8a0; }  /* fallback */
-
-            /* ── Order button — aligned with app header action style ── */
-            QPushButton#orderBtn {
-                background: rgba(0, 212, 255, 0.10);
-                border: 1px solid rgba(0, 212, 255, 0.22);
-                color: #7ee9ff;
+            /* ─ ORDER BUTTON ──────────────────────────────────────────── */
+            QPushButton#orderBtn {{
+                background: rgba(0,212,255,0.08);
+                color: #5ddeff;
+                border: 1px solid rgba(0,212,255,0.20);
                 border-radius: 3px;
+                font-family: -apple-system, "Segoe UI", sans-serif;
                 font-size: 9px;
+                font-weight: 800;
+                letter-spacing: 1.8px;
+            }}
+            QPushButton#orderBtn:hover {{
+                background: rgba(0,212,255,0.16);
+                border-color: rgba(0,212,255,0.45);
+                color: #9aedff;
+            }}
+            QPushButton#orderBtn:pressed {{
+                background: rgba(0,212,255,0.22);
+                border-color: rgba(0,212,255,0.60);
+            }}
+
+            /* ─ ALL DROPDOWN MENUS ────────────────────────────────────── */
+            QMenu#dropdownMenu {{
+                background: #0c1220;
+                border: 1px solid {P.BORDER_MID};
+                border-radius: 6px;
+                padding: 5px 0;
+            }}
+            QMenu#dropdownMenu::item {{
+                padding: 6px 22px 6px 14px;
+                color: {P.T_MUTED};
+                font-family: -apple-system, "Segoe UI", sans-serif;
+                font-size: 11px;
+                font-weight: 500;
+            }}
+            QMenu#dropdownMenu::item:selected {{
+                background: rgba(0,212,255,0.10);
+                color: {P.CYAN};
+                border-left: 2px solid {P.CYAN};
+            }}
+            QMenu#dropdownMenu::item:checked {{
+                color: {P.CYAN};
                 font-weight: 700;
-                font-family: "JetBrains Mono","Fira Code","Consolas",monospace;
-                letter-spacing: 1px;
-            }
-            QPushButton#orderBtn:hover {
-                background: rgba(0, 212, 255, 0.18);
-                border-color: rgba(0, 212, 255, 0.45);
-                color: #b7f4ff;
-            }
-            QPushButton#orderBtn:pressed {
-                background: rgba(0, 212, 255, 0.14);
-                border-color: rgba(0, 212, 255, 0.35);
-                color: #9defff;
-            }
+            }}
+            QMenu#dropdownMenu::separator {{
+                height: 1px;
+                background: {P.BORDER};
+                margin: 3px 10px;
+            }}
+            QMenu#dropdownMenu::indicator {{
+                width: 12px;
+                height: 12px;
+                border: 1px solid {P.BORDER_MID};
+                border-radius: 2px;
+                margin-left: 8px;
+                background: {P.BG_RAISED};
+            }}
+            QMenu#dropdownMenu::indicator:checked {{
+                background: rgba(0,212,255,0.25);
+                border-color: rgba(0,212,255,0.60);
+            }}
+
+            /* ─ TOOL MENU ROW HOVER ───────────────────────────────────── */
+            QWidget#menuItem:hover {{
+                background: rgba(0,212,255,0.06);
+            }}
+
+            /* ─ LIVE / DELAYED BADGE ──────────────────────────────────── */
+            QLabel#liveBadge {{
+                color: {P.TEAL};
+                font-family: "JetBrains Mono","Consolas",monospace;
+                font-size: 7px;
+                font-weight: 900;
+                letter-spacing: 1.5px;
+                padding: 0 5px;
+                background: rgba(34,211,160,0.07);
+                border: 1px solid rgba(34,211,160,0.22);
+                border-radius: 2px;
+            }}
+            QLabel#delayedBadge {{
+                color: {P.AMBER};
+                font-family: "JetBrains Mono","Consolas",monospace;
+                font-size: 7px;
+                font-weight: 900;
+                letter-spacing: 1.5px;
+                padding: 0 5px;
+                background: rgba(251,191,36,0.07);
+                border: 1px solid rgba(251,191,36,0.22);
+                border-radius: 2px;
+            }}
         """)
-
-
-# ─── Utilities ────────────────────────────────────────────────────────────────
-
-def _hex_to_rgb(hex_color: str) -> str:
-    """Convert #rrggbb → 'r,g,b' string for use inside rgba()."""
-    h = hex_color.lstrip("#")
-    if len(h) == 3:
-        h = "".join(c * 2 for c in h)
-    try:
-        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-    except (ValueError, IndexError):
-        return "255,255,255"
-    return f"{r},{g},{b}"
-
-
-def _ind_pill_width(label: str) -> int:
-    """Compute pill width based on label length."""
-    return max(26, 8 * len(label) + 10)
