@@ -628,15 +628,14 @@ class ChartToolbar(QFrame):
 
     def _refresh_color_btn(self) -> None:
         c = self._drawing_color
-        rgb = _hex_to_rgb(c)
         self.color_btn.setStyleSheet(
             f"QPushButton#colorBtn{{"
-            f"color:{c}; background:rgba({rgb},0.14);"
-            f"border:1px solid rgba({rgb},0.38); border-radius:3px;"
+            f"color:{c}; background:transparent;"
+            f"border:1px solid transparent; border-radius:3px;"
             f"font-size:16px; font-weight:900; padding:0;"
             f"}}"
             f"QPushButton#colorBtn:hover{{"
-            f"background:rgba({rgb},0.26); border-color:rgba({rgb},0.65);"
+            f"background:transparent; border-color:rgba(255,255,255,0.25);"
             f"}}"
         )
 
