@@ -123,6 +123,7 @@ class CandlestickChart(QWidget):
         self._watermark_position        = self.global_chart_settings.get("watermark_position", "mid_center")
         self._watermark_font_size       = self.global_chart_settings.get("watermark_font_size", 0)
         self._indicator_scale_labels_enabled = self.global_chart_settings.get("indicator_scale_labels_enabled", False)
+        self._crosshair_snap_enabled    = self.global_chart_settings.get("crosshair_snap_enabled", True)
         self.current_visible_candle_count = self.global_chart_settings.get("default_visible_candles", 100)
         self._indicator_visibility = self.drawing_storage.load_global_indicator_visibility()
         self._current_watermark_description = ""
@@ -491,6 +492,7 @@ class CandlestickChart(QWidget):
             watermark_position     = self._watermark_position,
             watermark_font_size    = self._watermark_font_size,
             indicator_scale_labels_enabled = self._indicator_scale_labels_enabled,
+            crosshair_snap_enabled = self._crosshair_snap_enabled,
             initial_indicator_visibility = initial_indicator_visibility,
         )
 
@@ -713,6 +715,7 @@ class CandlestickChart(QWidget):
             "watermark_position":     self._watermark_position,
             "watermark_font_size":    self._watermark_font_size,
             "indicator_scale_labels_enabled": self._indicator_scale_labels_enabled,
+            "crosshair_snap_enabled": self._crosshair_snap_enabled,
         }
         dlg = ChartSettingsDialog(current, self)
         dlg.settings_changed.connect(self._apply_chart_settings)
@@ -734,6 +737,7 @@ class CandlestickChart(QWidget):
         self._watermark_position         = s.get("watermark_position", self._watermark_position)
         self._watermark_font_size        = int(s.get("watermark_font_size", self._watermark_font_size))
         self._indicator_scale_labels_enabled = s.get("indicator_scale_labels_enabled", self._indicator_scale_labels_enabled)
+        self._crosshair_snap_enabled     = s.get("crosshair_snap_enabled", self._crosshair_snap_enabled)
         self._save_global_settings_patch(s)
 
         if self.chart_view and self.current_state == ChartState.LOADED:
@@ -751,6 +755,7 @@ class CandlestickChart(QWidget):
                 "watermarkPosition":self._watermark_position,
                 "watermarkFontSize":self._watermark_font_size,
                 "indicatorScaleLabelsEnabled": self._indicator_scale_labels_enabled,
+                "crosshairSnapEnabled": self._crosshair_snap_enabled,
             })
             self._js(f"if(window.chart){{ window.chart.setChartSettings({payload});"
                      f"window.chart.setVisibleCandleCount({self.current_visible_candle_count});"

@@ -150,6 +150,7 @@ class FixedTradingChart {
             fontSize: cfg.watermarkFontSize || 0,
         };
         this.indicatorScaleLabelsEnabled = cfg.indicatorScaleLabelsEnabled === true;
+        this.crosshairSnapEnabled = cfg.crosshairSnapEnabled !== false;
 
         // ── Indicator visibility — persistent across symbol/timeframe changes ──
         // Priority chain: localStorage (user prefs) → pythonDefaults → false
@@ -1656,6 +1657,7 @@ class FixedTradingChart {
     }
 
     _snapCrosshairY(mouseY, candleIndex) {
+        if (!this.crosshairSnapEnabled) return mouseY;
         if (candleIndex < 0 || candleIndex >= this.data.length) return mouseY;
 
         const candle = this.data[candleIndex];
@@ -3169,6 +3171,8 @@ class FixedTradingChart {
             this.showWatermarkDescription = cfg.showWatermarkDescription === true;
         if (cfg.indicatorScaleLabelsEnabled !== undefined)
             this.indicatorScaleLabelsEnabled = cfg.indicatorScaleLabelsEnabled === true;
+        if (cfg.crosshairSnapEnabled !== undefined)
+            this.crosshairSnapEnabled = cfg.crosshairSnapEnabled === true;
         // If slot dimensions changed, recalculate how many candles fit.
         if (slotChanged) {
             this.viewPortEnd = Math.max(0, this.data.length - 1 + this.rightBufferCandles);

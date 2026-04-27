@@ -32,7 +32,7 @@ class ChartSettingsDialog(QDialog):
     def __init__(self, current_settings: Dict[str, Any], parent=None):
         super().__init__(parent)
         self.setWindowTitle("Chart Settings")
-        self.setFixedSize(360, 480)
+        self.setFixedSize(360, 520)
         self._s = dict(current_settings)          # working copy
         self._color_btns: Dict[str, QPushButton] = {}
         self._build_ui()
@@ -101,6 +101,10 @@ class ChartSettingsDialog(QDialog):
         self.indicator_scale_labels_enabled.setChecked(self._s.get("indicator_scale_labels_enabled", False))
         layout.addRow("Indicator Labels:", self.indicator_scale_labels_enabled)
 
+        self.crosshair_snap_enabled = QCheckBox("Snap crosshair to OHLC")
+        self.crosshair_snap_enabled.setChecked(self._s.get("crosshair_snap_enabled", True))
+        layout.addRow("Crosshair Snap:", self.crosshair_snap_enabled)
+
         self.wm_font_size = QSpinBox()
         self.wm_font_size.setRange(0, 300)
         self.wm_font_size.setValue(self._s.get("watermark_font_size", 0))
@@ -154,6 +158,7 @@ class ChartSettingsDialog(QDialog):
             "watermark_position": self.wm_position.currentData(),
             "watermark_font_size": self.wm_font_size.value(),
             "indicator_scale_labels_enabled": self.indicator_scale_labels_enabled.isChecked(),
+            "crosshair_snap_enabled": self.crosshair_snap_enabled.isChecked(),
         }
         self.settings_changed.emit(new)
         self.accept()
