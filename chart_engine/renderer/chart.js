@@ -125,6 +125,8 @@ class FixedTradingChart {
         this.yAxisDragAnchorRatio = 0.5;
         this.isUserYRange = false;
         this.lastMouseX  = 0;
+        this.lastMouseY  = 0;
+        this.panOffsetPx = 0;
         this.isUserZooming = false;
         this._rafPending = false;
         this._dirty = true;
@@ -521,8 +523,8 @@ class FixedTradingChart {
 
         // ── RSI line ──────────────────────────────────────────────────────
         // Collect visible non-null points
-        const start = Math.max(0, this.viewPortStart);
-        const end   = Math.min(this.data.length - 1, this.viewPortEnd);
+        const start = Math.max(0, this.viewPortStart - 1);
+        const end   = Math.min(this.data.length - 1, this.viewPortEnd + 1);
 
         // Glow pass
         ctx.lineWidth   = 3;
@@ -715,7 +717,7 @@ class FixedTradingChart {
         ctx.lineWidth = 1;
         ctx.setLineDash([3, 5]);
 
-        for (let i = this.viewPortStart; i <= this.viewPortEnd && i < this.data.length; i++) {
+        for (let i = Math.max(0, this.viewPortStart - 1); i <= this.viewPortEnd + 1 && i < this.data.length; i++) {
             const d = new Date(this.data[i].time);
             if (d.getHours() === MARKET_OPEN_HOUR && d.getMinutes() === MARKET_OPEN_MIN) {
                 const x = this._candleToX(i) + this.candleWidth / 2;
@@ -732,7 +734,7 @@ class FixedTradingChart {
         if (this.currentInterval !== 'day' && this.currentInterval !== 'week') return;
         const ctx = this.ctx;
 
-        for (let i = Math.max(1, this.viewPortStart); i <= this.viewPortEnd && i < this.data.length; i++) {
+        for (let i = Math.max(1, this.viewPortStart - 1); i <= this.viewPortEnd + 1 && i < this.data.length; i++) {
             const cur  = this.data[i];
             const prev = this.data[i - 1];
             if (!prev) continue;
@@ -773,7 +775,7 @@ class FixedTradingChart {
         ctx.lineJoin = 'miter';
         ctx.lineCap  = 'butt';
 
-        for (let i = this.viewPortStart; i < this.data.length && i <= this.viewPortEnd; i++) {
+        for (let i = Math.max(0, this.viewPortStart - 1); i < this.data.length && i <= this.viewPortEnd + 1; i++) {
             if (i < 0) continue;
             const c = this.data[i];
             const x = this._candleToX(i);
@@ -854,8 +856,8 @@ class FixedTradingChart {
         const ctx  = this.ctx;
         const area = this.cvdArea;
 
-        const start = Math.max(0, this.viewPortStart);
-        const end   = Math.min(this.data.length - 1, this.viewPortEnd);
+        const start = Math.max(0, this.viewPortStart - 1);
+        const end   = Math.min(this.data.length - 1, this.viewPortEnd + 1);
         if (start > end) return;
 
         // ── Collect visible CVD slice ─────────────────────────────────────
@@ -1018,8 +1020,8 @@ class FixedTradingChart {
 
         const ctx  = this.ctx;
         const area = this.volumeArea;
-        const start = Math.max(0, this.viewPortStart);
-        const end   = Math.min(this.data.length - 1, this.viewPortEnd);
+        const start = Math.max(0, this.viewPortStart - 1);
+        const end   = Math.min(this.data.length - 1, this.viewPortEnd + 1);
 
         // Collect visible volumes
         const visVols = [];
@@ -1352,8 +1354,8 @@ class FixedTradingChart {
         const triHalf = 4;
         const triHeight = 6;
         const yPad = 5;
-        const start = Math.max(0, this.viewPortStart);
-        const end = Math.min(this.data.length - 1, this.viewPortEnd);
+        const start = Math.max(0, this.viewPortStart - 1);
+        const end = Math.min(this.data.length - 1, this.viewPortEnd + 1);
 
         for (let i = start; i <= end; i++) {
             const signal = this.atrTrendReversal[i];
@@ -2228,17 +2230,57 @@ class FixedTradingChart {
                         pos.y <= this._paneBottom();
 
         if (this.isDragging && e.buttons === 1) {
-            const dx    = pos.x - this.lastMouseX;
-            const shift = Math.round(dx / this._slotW());
-            if (shift !== 0) {
+            const dx = pos.x - this.lastMouseX;
+            const dy = pos.y - (this.lastMouseY ?? pos.y);
+
+            // Accumulate smooth sub-pixel X shifts
+            this.panOffsetPx = (this.panOffsetPx || 0) + dx;
+            const slotW = this._slotW();
+
+            if (Math.abs(this.panOffsetPx) >= slotW) {
+                const shift = Math.floor(this.panOffsetPx / slotW);
+                this.panOffsetPx -= shift * slotW;
+
                 const vis = this.visibleCandleCount;
-                this.viewPortStart = Math.max(0, this.viewPortStart - shift);
-                this.viewPortEnd   = this.viewPortStart + vis - 1;
-                this.calculateBounds();
+                let newStart = this.viewPortStart - shift;
+                let newEnd = newStart + vis - 1;
+
+                const maxEnd = this.data.length - 1 + this.rightBufferCandles;
+
+                if (newStart < 0) {
+                    newStart = 0;
+                    newEnd = newStart + vis - 1;
+                } else if (newEnd > maxEnd) {
+                    newEnd = maxEnd;
+                    newStart = newEnd - vis + 1;
+                }
+
+                this.viewPortStart = newStart;
+                this.viewPortEnd = newEnd;
                 this.updateSlider();
-                this.lastMouseX = pos.x;
-                engine?.rebuildSpatialHash();
+                if (engine) engine.rebuildSpatialHash();
             }
+
+            // Hard boundaries to stop panning past edges
+            const maxEnd = this.data.length - 1 + this.rightBufferCandles;
+            if (this.viewPortStart <= 0 && this.panOffsetPx > 0) this.panOffsetPx = 0;
+            if (this.viewPortEnd >= maxEnd && this.panOffsetPx < 0) this.panOffsetPx = 0;
+
+            // Pan Y smoothly if user has un-locked the auto-scale
+            if (this.isUserYRange && dy !== 0) {
+                const priceShift = (dy / this.chartArea.height) * (this.maxPrice - this.minPrice);
+                this.minPrice += priceShift;
+                this.maxPrice += priceShift;
+            }
+
+            this.lastMouseX = pos.x;
+            this.lastMouseY = pos.y;
+            if (!this.isUserYRange) this.calculateBounds();
+
+            this.crosshairX = null;
+            this.crosshairY = null;
+            this.requestDraw();
+            return;
         } else if (inChart) {
             this.crosshairX = pos.x;
             const candleIndex   = this._xToCandle(pos.x);
@@ -2311,6 +2353,7 @@ class FixedTradingChart {
             !this.drawingEngine?.hoverId) {
             this.isDragging = true;
             this.lastMouseX = pos.x;
+            this.lastMouseY = pos.y;
             this.canvas.style.cursor = 'grabbing';
         }
     }
@@ -2381,6 +2424,7 @@ class FixedTradingChart {
         const anchorFrac   = (pos.x - this.chartArea.x) / this.chartArea.width;
 
         this.candleWidth = newW;
+        this.panOffsetPx = 0;
 
         // Recompute how many candles now fit, then position viewport so that
         // anchorCandle stays at anchorFrac of the chart width.
@@ -2604,6 +2648,7 @@ class FixedTradingChart {
             const maxStart = Math.max(0, total - visCount);
             this.viewPortStart = Math.round(ratio * maxStart);
             this.viewPortEnd   = this.viewPortStart + visCount - 1;
+            this.panOffsetPx   = 0;
             this.calculateBounds();
             this.requestDraw();
         });
@@ -2808,13 +2853,13 @@ class FixedTradingChart {
 
     _candleToX(index) {
         // Fixed slot-width model: each candle occupies exactly _slotW() px.
-        return this.chartArea.x + (index - this.viewPortStart) * this._slotW();
+        return this.chartArea.x + (index - this.viewPortStart) * this._slotW() + (this.panOffsetPx || 0);
     }
 
     _xToCandle(x) {
         const slotW = this._slotW();
         if (slotW <= 0) return -1;
-        return this.viewPortStart + Math.floor((x - this.chartArea.x) / slotW);
+        return this.viewPortStart + Math.floor((x - this.chartArea.x - (this.panOffsetPx || 0)) / slotW);
     }
 
     _timeToX(time) {
@@ -3322,8 +3367,8 @@ class FixedTradingChart {
 
     _buildTimeCandidates(tf) {
         const candidates = [];
-        const start = Math.max(0, this.viewPortStart);
-        const end   = Math.min(this.data.length - 1, this.viewPortEnd);
+        const start = Math.max(0, this.viewPortStart - 1);
+        const end   = Math.min(this.data.length - 1, this.viewPortEnd + 1);
 
         for (let i = start; i <= end; i++) {
             const d     = new Date(this.data[i].time);
