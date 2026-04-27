@@ -851,10 +851,43 @@ class DrawingEngine {
                 }
             }
 
+            const normalizeDrawing = (d) => {
+                if (!d || typeof d !== 'object') return null;
+                const out = { ...d };
+
+                if (out.id == null) {
+                    out.id = String(this.nextId++);
+                } else {
+                    out.id = String(out.id);
+                }
+
+                if (out.type === 'note') {
+                    if (out.startTime == null && out.time != null) out.startTime = out.time;
+                    if (out.startPrice == null && out.price != null) out.startPrice = out.price;
+                    if (out.fontSize == null && out.size != null) out.fontSize = out.size;
+                }
+
+                if (out.startTime == null || out.startPrice == null) return null;
+                if (Number.isNaN(Number(out.startTime)) || Number.isNaN(Number(out.startPrice))) return null;
+                if (out.endTime != null && Number.isNaN(Number(out.endTime))) return null;
+                if (out.endPrice != null && Number.isNaN(Number(out.endPrice))) return null;
+
+                out.startTime = Number(out.startTime);
+                out.startPrice = Number(out.startPrice);
+                if (out.endTime != null) out.endTime = Number(out.endTime);
+                if (out.endPrice != null) out.endPrice = Number(out.endPrice);
+                if (out.fontSize != null) out.fontSize = Number(out.fontSize);
+
+                return out;
+            };
+
             this.drawings.clear();
             for (const d of arr) {
-                this.drawings.set(d.id, d);
-                if (parseInt(d.id) >= this.nextId) this.nextId = parseInt(d.id) + 1;
+                const normalized = normalizeDrawing(d);
+                if (!normalized) continue;
+                this.drawings.set(normalized.id, normalized);
+                const idNum = parseInt(normalized.id, 10);
+                if (!Number.isNaN(idNum) && idNum >= this.nextId) this.nextId = idNum + 1;
             }
             this.rebuildSpatialHash();
         } catch (err) { console.warn('DrawingEngine: deserialize error', err); }

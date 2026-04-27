@@ -325,6 +325,25 @@ function legacySerialize(drawings) {
 function legacyDeserialize(obj) {
     if (!obj || typeof obj !== 'object') return [];
     const all = [];
+    const normalize = (type, d) => {
+        if (!d || typeof d !== 'object') return null;
+        const out = { type, ...d };
+        if (out.id == null) return null;
+        out.id = String(out.id);
+        if (type === 'note') {
+            if (out.startTime == null && out.time != null) out.startTime = out.time;
+            if (out.startPrice == null && out.price != null) out.startPrice = out.price;
+            if (out.fontSize == null && out.size != null) out.fontSize = out.size;
+        }
+        if (out.startTime == null || out.startPrice == null) return null;
+        if (Number.isNaN(Number(out.startTime)) || Number.isNaN(Number(out.startPrice))) return null;
+        out.startTime = Number(out.startTime);
+        out.startPrice = Number(out.startPrice);
+        if (out.endTime != null) out.endTime = Number(out.endTime);
+        if (out.endPrice != null) out.endPrice = Number(out.endPrice);
+        if (out.fontSize != null) out.fontSize = Number(out.fontSize);
+        return out;
+    };
     const map = {
         lines: 'line', rectangles: 'rectangle', notes: 'note',
         horizontal_lines: 'horizontal_line', horizontal_rays: 'horizontal_ray',
@@ -332,7 +351,8 @@ function legacyDeserialize(obj) {
     };
     for (const [key, type] of Object.entries(map)) {
         for (const d of (obj[key] || [])) {
-            all.push({ type, ...d });
+            const normalized = normalize(type, d);
+            if (normalized) all.push(normalized);
         }
     }
     return all;
