@@ -26,22 +26,27 @@ class StatusBar(QWidget):
 
     def _build_ui(self) -> None:
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 0, 6, 0)
-        layout.setSpacing(8)
+        layout.setContentsMargins(10, 2, 10, 2)
+        layout.setSpacing(14)
 
         self.market_label = QLabel("Market: --")
         self.api_label = QLabel("API: --")
+        self.heartbeat_label = QLabel("Heartbeat: --")
         self.message_label = QLabel("Ready")
 
-        for label in (self.market_label, self.api_label, self.message_label):
+        for label in (self.market_label, self.api_label, self.heartbeat_label, self.message_label):
             label.setObjectName("statusLabel")
             layout.addWidget(label)
+        layout.addStretch(1)
 
     def set_market_status(self, text: str) -> None:
         self.market_label.setText(f"Market: {text}")
 
     def set_api_status(self, text: str) -> None:
         self.api_label.setText(f"API: {text}")
+
+    def set_heartbeat(self, text: str) -> None:
+        self.heartbeat_label.setText(f"Heartbeat: {text}")
 
     def set_message(self, text: str) -> None:
         self.message_label.setText(text)
@@ -59,9 +64,12 @@ class GlobalStatusManager(QObject):
         return cls._instance
 
     def initialize(self, dummy_bar=None) -> None:
-        # Kept for backwards compatibility so main_window.py doesn't crash
-        # when it calls status.initialize(self.header_toolbar.status_bar)
-        logger.debug("GlobalStatusManager initialized with Popups")
+        self._status_bar = dummy_bar
+        if self._status_bar:
+            self._status_bar.set_market_status("--")
+            self._status_bar.set_api_status("--")
+            self._status_bar.set_heartbeat("●")
+        logger.debug("GlobalStatusManager initialized")
 
     def is_initialized(self) -> bool:
         return True
@@ -102,19 +110,39 @@ class GlobalStatusManager(QObject):
         self._post("System Info", message, "info", 4000)
 
     def show_market_status(self, status_text: str) -> None:
+        self.set_market_indicator(status_text)
         self._post("Market Status", status_text, "info", 4000)
 
     def show_api_status(self, status_text: str) -> None:
+        self.set_api_indicator(status_text)
         kind = "success" if status_text.upper() == "CONNECTED" else "warn"
         self._post("API Status", status_text, kind, 4000)
 
+    def set_market_indicator(self, status_text: str) -> None:
+        if getattr(self, "_status_bar", None):
+            self._status_bar.set_market_status(status_text)
+
+    def set_api_indicator(self, status_text: str) -> None:
+        if getattr(self, "_status_bar", None):
+            self._status_bar.set_api_status(status_text)
+
+    def pulse_heartbeat(self) -> None:
+        if getattr(self, "_status_bar", None):
+            current = self._status_bar.heartbeat_label.text().replace("Heartbeat: ", "").strip()
+            next_state = "○" if current == "●" else "●"
+            self._status_bar.set_heartbeat(next_state)
+
     def set_ready(self) -> None:
-        pass
+        if getattr(self, "_status_bar", None):
+            self._status_bar.set_message("Ready")
 
     def clear_status(self) -> None:
-        pass
+        if getattr(self, "_status_bar", None):
+            self._status_bar.set_message("")
 
     def set_message(self, message: str, timeout: int = 3000, level: str = "info") -> None:
+        if getattr(self, "_status_bar", None):
+            self._status_bar.set_message(message)
         level_map = {"error": "error", "danger": "error",
                      "warning": "warn", "warn": "warn",
                      "success": "success", "action": "info"}

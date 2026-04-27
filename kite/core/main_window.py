@@ -5,7 +5,7 @@
 import logging
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict, Union, Any, Optional
 
 from PySide6.QtCore import Qt, QByteArray, QTimer, Slot, Signal, QEvent
@@ -43,6 +43,7 @@ from kite.core.trade_logger import TradeLogger
 from kiteconnect import KiteConnect
 
 from kite.widgets.status_bar import (
+    StatusBar,
     show_error, show_info, show_order_placed, show_order_failed,
     show_order_completed, show_order_rejected, show_order_cancelled,
     status  # Global status manager
@@ -56,9 +57,9 @@ logger = logging.getLogger(__name__)
 
 class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     """
-    SIMPLIFIED Main Window with LED-style status bar instead of popup notifications:
+    SIMPLIFIED Main Window with subtle bottom status bar:
     - Simple Position Manager (only works when tracking orders)
-    - LED Status Bar in header toolbar (no popup distractions)
+    - Bottom app status bar for market/API/heartbeat indicators
     - Self-Managing Positions Table (local PnL calculation)
     - Event-driven updates (no continuous polling)
     """
@@ -172,15 +173,10 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.top_bar = self._create_top_bar()
         main_layout.addWidget(self.top_bar)
 
-        # HEADER TOOLBAR WITH STATUS BAR INTEGRATION
+        # Header toolbar dedicated to trading actions
         self.header_toolbar = HeaderToolbar(self.trader, self)
         self.header_toolbar.color_settings_requested.connect(self._open_color_settings_dialog)
         main_layout.addWidget(self.header_toolbar)
-
-        # Initialize global status manager with header toolbar's status bar
-        if hasattr(self.header_toolbar, 'status_bar'):
-            status.initialize(self.header_toolbar.status_bar)
-            logger.info("Status bar integrated with header toolbar")
 
         # Create the main splitter
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -238,6 +234,13 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.main_splitter.splitterMoved.connect(self._queue_window_state_save)
 
         self.right_panel_splitter = right_panel_splitter
+
+        # Bottom status bar (quiet app-level health indicators)
+        self.app_status_bar = StatusBar(self)
+        self.app_status_bar.setObjectName("bottomAppStatusBar")
+        main_layout.addWidget(self.app_status_bar)
+        status.initialize(self.app_status_bar)
+        self._setup_status_indicators()
         self.right_panel_splitter.splitterMoved.connect(self._queue_window_state_save)
         self._window_state_save_timer = QTimer(self)
         self._window_state_save_timer.setSingleShot(True)
@@ -292,6 +295,26 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         about_menu.addAction("About Swing Trader", self._show_about_dialog)
 
         return menu_bar
+
+    def _setup_status_indicators(self) -> None:
+        """Drive subtle bottom-bar operational indicators."""
+        self._heartbeat_timer = QTimer(self)
+        self._heartbeat_timer.timeout.connect(status.pulse_heartbeat)
+        self._heartbeat_timer.start(1000)
+
+        self._market_status_timer = QTimer(self)
+        self._market_status_timer.timeout.connect(self._refresh_market_status)
+        self._market_status_timer.start(60_000)
+        self._refresh_market_status()
+
+    def _refresh_market_status(self) -> None:
+        """Update bottom status bar with NSE session status based on IST."""
+        now_ist = datetime.utcnow() + timedelta(hours=5, minutes=30)
+        is_weekend = now_ist.weekday() >= 5
+        time_tuple = (now_ist.hour, now_ist.minute)
+        is_open_time = (9, 15) <= time_tuple <= (15, 30)
+        market_status = "OPEN" if (not is_weekend and is_open_time) else "CLOSED"
+        status.set_market_indicator(market_status)
 
     def _show_about_dialog(self):
         """Display application summary information."""
@@ -642,7 +665,7 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     def _on_websocket_connect(self):
         """WebSocket connection handler"""
         logger.info("WebSocket connected. Setting up subscriptions.")
-        status.show_api_status("CONNECTED")
+        status.set_api_indicator("CONNECTED")
 
         if (hasattr(self, 'candlestick_chart') and
                 hasattr(self.candlestick_chart, 'current_instrument_token') and
@@ -2026,6 +2049,19 @@ class SwingTraderWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
             QMessageBox QPushButton:hover { 
                 background-color: #3a3a3a; 
+            }
+
+            #bottomAppStatusBar {
+                background-color: #0f0f0f;
+                border-top: 1px solid #1f1f1f;
+                min-height: 22px;
+                max-height: 24px;
+            }
+
+            #statusLabel {
+                color: #8a8a8a;
+                font-size: 10px;
+                background: transparent;
             }
         """)
 

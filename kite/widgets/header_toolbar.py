@@ -10,8 +10,6 @@ from PySide6.QtGui import QPainter, QColor, QFont
 from kiteconnect import KiteConnect
 
 from kite.widgets.search_bar import EnhancedSearchInput, SymbolIndex
-from kite.widgets.status_bar import StatusBar, status
-
 logger = logging.getLogger(__name__)
 DEFAULT_PAPER_BALANCE = 1_000_000.0
 
@@ -93,7 +91,6 @@ class HeaderToolbar(QToolBar):
 
     def _init_ui(self):
         self._create_symbol_search_section()
-        self._create_status_bar_section()
         self._create_center_spacer()
         self._create_alert_section()
         self._create_trading_actions_section()
@@ -128,16 +125,6 @@ class HeaderToolbar(QToolBar):
         self.sell_button.setFixedSize(42, 20)
         self.sell_button.clicked.connect(self._on_sell_clicked)
         self.addWidget(self.sell_button)
-
-    def _create_status_bar_section(self):
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.VLine)
-        sep.setObjectName("sectionSeparator")
-        self.addWidget(sep)
-
-        self.status_bar = StatusBar(self)
-        self.addWidget(self.status_bar)
-        status.initialize(self.status_bar)
 
     def _create_center_spacer(self):
         spacer = QWidget()
