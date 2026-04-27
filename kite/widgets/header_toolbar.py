@@ -6,7 +6,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout
 )
 from PySide6.QtCore import Signal, Qt, QTimer, QObject, QThread, Slot
-from PySide6.QtGui import QPainter, QColor, QFont
 from kiteconnect import KiteConnect
 
 from kite.widgets.search_bar import EnhancedSearchInput, SymbolIndex
@@ -85,18 +84,6 @@ class NotificationBadge(QLabel):
         else:
             self.hide()
         self.update()
-
-    def paintEvent(self, event):
-        if not self.isVisible():
-            return
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setPen(QColor("#f80404"))
-        badge_font = QFont()
-        badge_font.setPointSize(8)
-        badge_font.setWeight(QFont.Weight.Bold)
-        painter.setFont(badge_font)
-        painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.text())
 
 
 class HeaderToolbar(QToolBar):
@@ -479,6 +466,13 @@ class HeaderToolbar(QToolBar):
                 color: #ff8b8b;
             }
             #sectionGap { background: transparent; }
+            #notificationBadge {
+                background-color: #f80404;
+                color: white;
+                border-radius: 7px;
+                font-size: 8px;
+                font-weight: 700;
+            }
             #alertActionWidget, #tradingActionWidget {
                 background-color: rgba(255, 255, 255, 0.03);
                 border: 1px solid #2f2f2f;

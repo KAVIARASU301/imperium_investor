@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout
 )
 from PySide6.QtCore import Signal, Qt, QTimer, QEvent, QModelIndex
-from PySide6.QtGui import QPainter, QColor, QFont, QKeyEvent, QStandardItemModel, QStandardItem
+from PySide6.QtGui import QKeyEvent, QStandardItemModel, QStandardItem
 from kiteconnect import KiteConnect
 
 # Import the simple status bar
@@ -40,22 +40,6 @@ class NotificationBadge(QLabel):
         else:
             self.hide()
         self.update()
-
-    def paintEvent(self, event):
-        """Custom paint event for circular badge."""
-        if not self.isVisible():
-            return
-
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        # Draw white number
-        painter.setPen(QColor("#f80404"))
-        badge_font = QFont()
-        badge_font.setPointSize(8)
-        badge_font.setWeight(QFont.Weight.Bold)
-        painter.setFont(badge_font)
-        painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.text())
 
 
 class HeaderToolbar(QToolBar):
@@ -565,6 +549,13 @@ class HeaderToolbar(QToolBar):
             }
             #sectionGap {
                 background: transparent;
+            }
+            #notificationBadge {
+                background-color: #f80404;
+                color: white;
+                border-radius: 7px;
+                font-size: 8px;
+                font-weight: 700;
             }
             #alertActionWidget, #tradingActionWidget {
                 background-color: rgba(255, 255, 255, 0.03);
