@@ -14,11 +14,11 @@ class ToastNotification(QWidget):
     _active_toasts = []
 
     # Padding and sizing
-    TOAST_WIDTH = 320
+    TOAST_WIDTH = 280
     TOAST_HEIGHT = 64
     MARGIN = 20
 
-    def __init__(self, title: str, message: str, kind: str = "info", duration: int = 4000, parent=None):
+    def __init__(self, title: str, message: str, kind: str = "info", duration: int = 3000, parent=None):
         super().__init__(parent)
 
         # Determine colors based on kind
@@ -51,7 +51,7 @@ class ToastNotification(QWidget):
         # Animation setup
         self.animation = QPropertyAnimation(self, b"pos")
         self.animation.setEasingCurve(QEasingCurve.Type.OutCubic)
-        self.animation.setDuration(300)
+        self.animation.setDuration(150)
 
         # Auto-close timer
         if duration > 0:
@@ -126,6 +126,7 @@ class ToastNotification(QWidget):
 
     def fade_out(self):
         """Animates out and cleans up."""
+        self.animation.setDuration(200)
         self.animation.setStartValue(self.pos())
         self.animation.setEndValue(QPoint(self.pos().x() + self.TOAST_WIDTH + self.MARGIN, self.pos().y()))
         self.animation.finished.connect(self.close)

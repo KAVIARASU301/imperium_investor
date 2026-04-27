@@ -25,9 +25,7 @@ from datetime import datetime, timedelta
 
 from PySide6.QtCore import QObject, Signal, QTimer, Slot
 
-from kite.widgets.status_bar import (
-    show_order_completed, show_order_failed, show_error, show_info
-)
+from kite.widgets.status_bar import show_error, show_info, status as global_status
 from kite.utils.sounds import play_entry_exit
 
 logger = logging.getLogger(__name__)
@@ -243,9 +241,15 @@ class PositionManager(QObject):
         price    = order_data.get("price", 0)
         tx_type  = order_data.get("transaction_type", "")
 
-        self.show_notification.emit(
-            f"⏳ {tx_type} {qty} {symbol} @ ₹{price} — Pending",
-            "pending"
+        global_status.show_order_update(
+            {
+                "status": "ROUTED",
+                "tradingsymbol": symbol,
+                "quantity": qty,
+                "price": price,
+                "transaction_type": tx_type,
+                "order_type": order_data.get("order_type", "MKT"),
+            }
         )
 
         if not self._ws_available:
@@ -293,7 +297,7 @@ class PositionManager(QObject):
             or tx_type == "SELL"   # fallback: SELL = reducing/closing long
         )
 
-        show_order_completed(symbol, "")
+        global_status.show_order_update(order_dict)
         play_entry_exit()
 
         # ── Chart line management ──
@@ -339,8 +343,7 @@ class PositionManager(QObject):
         )
         tx_type = order_dict.get("transaction_type", "")
 
-        ui_msg = f"{symbol} {status.lower()}: {reason}"
-        show_order_failed(ui_msg)
+        global_status.show_order_update(order_dict)
 
         del self._tracked[order_id]
         logger.warning(

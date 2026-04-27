@@ -106,26 +106,76 @@ class GlobalStatusManager(QObject):
     # ── High-level helpers ──────────────────────────────────────────────────
 
     def show_order_placed(self, symbol: str = "") -> None:
-        title = "Order Submitted"
-        msg = f"Your order for {symbol} has been sent to the exchange." if symbol else "Order sent."
-        self._post(title, msg, "info", 4000)
+        msg = f"{symbol} (MKT)" if symbol else "UNKNOWN (MKT)"
+        self._post("ROUTED", msg, "info", 3000)
 
     def show_order_completed(self, symbol: str = "", pnl: str = "") -> None:
-        title = "Order Filled"
-        parts = [f"Executed: {symbol}"]
+        msg = f"{symbol}" if symbol else "UNKNOWN"
         if pnl:
-            parts.append(f"PnL: {pnl}")
-        self._post(title, " | ".join(parts), "success", 5000)
+            msg = f"{msg} | PNL: {pnl}"
+        self._post("FILLED", msg, "success", 3000)
 
     def show_order_failed(self, reason: str = "") -> None:
-        self._post("Order Failed", reason or "The order could not be placed.", "error", 6000)
+        self._post("REJECTED", reason or "Unknown reason", "error", 3000)
 
     def show_order_rejected(self, reason: str = "") -> None:
-        self._post("Order Rejected", reason or "The exchange rejected the order.", "error", 6000)
+        self._post("REJECTED", reason or "Unknown reason", "error", 3000)
 
     def show_order_cancelled(self, symbol: str = "") -> None:
-        msg = f"Order for {symbol} was cancelled." if symbol else "Order cancelled."
-        self._post("Order Cancelled", msg, "warn", 4000)
+        msg = f"{symbol}" if symbol else "UNKNOWN"
+        self._post("CANCELED", msg, "warn", 3000)
+
+    def show_order_update(self, order_dict: dict) -> None:
+        """
+        Gatekeeper for order notifications.
+        Emits only terminal/actionable updates in concise trading lexicon.
+        """
+        raw_status = str(order_dict.get("status", "")).upper().strip()
+        symbol = str(order_dict.get("tradingsymbol") or "UNKNOWN").upper()
+        qty = int(order_dict.get("filled_quantity") or order_dict.get("quantity") or 0)
+        price = order_dict.get("average_price") or order_dict.get("price") or "MKT"
+        side = str(order_dict.get("transaction_type") or "BUY").upper()
+        order_type = str(order_dict.get("order_type") or "MKT").upper()
+
+        ignored_states = {
+            "UPDATE",
+            "VALIDATION PENDING",
+            "PUT ORDER REQ RECEIVED",
+            "MODIFY VALIDATION PENDING",
+            "MODIFY PENDING",
+            "OPEN",
+            "PENDING",
+            "TRIGGER PENDING",
+            "AMO REQ RECEIVED",
+        }
+        if raw_status in ignored_states:
+            return
+
+        direction_sign = "+" if side == "BUY" else "-"
+
+        if raw_status in {"COMPLETE", "FILLED"}:
+            self._post("FILLED", f"{direction_sign}{qty} {symbol} @ {price}", "success", 3000)
+            return
+
+        if raw_status == "REJECTED":
+            reason = str(
+                order_dict.get("status_message")
+                or order_dict.get("reject_reason")
+                or "Unknown Reason"
+            )
+            short_reason = (reason[:30] + "...") if len(reason) > 30 else reason
+            self._post("REJECTED", f"{symbol} [{short_reason}]", "error", 3000)
+            return
+
+        if raw_status in {"CANCELLED", "CANCELED"}:
+            self._post("CANCELED", f"{direction_sign}{qty} {symbol}", "warn", 3000)
+            return
+
+        if raw_status in {"PUT ORDER REQ", "ROUTED"}:
+            self._post("ROUTED", f"{direction_sign}{qty} {symbol} ({order_type})", "info", 3000)
+            return
+
+        self._post(raw_status or "ORDER UPDATE", f"{symbol} | QTY: {qty}", "info", 3000)
 
     def show_position_update(self, symbol: str, pnl: str) -> None:
         pass
