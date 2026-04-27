@@ -380,12 +380,12 @@ class HeaderToolbar(QToolBar):
     def _update_account_display(self):
         self.user_id_label.setText(self._account_info.get("user_id", "DEMO"))
         balance = self._account_info.get("available_balance", 0.0)
-        self.balance_label.setText(self._format_indian_currency(balance))
+        self.balance_label.setText(self._format_account_balance(balance))
 
     @staticmethod
-    def _format_indian_currency(amount: float) -> str:
+    def _format_account_balance(amount: float) -> str:
         if amount == 0:
-            return "₹0"
+            return "0"
         neg = amount < 0
         amount = abs(amount)
         s = f"{amount:.0f}"
@@ -400,7 +400,7 @@ class HeaderToolbar(QToolBar):
                     chunks = "," + chunks
                 chunks = d + chunks
             fmt = chunks + "," + last3
-        return ("-₹" if neg else "₹") + fmt
+        return ("-" if neg else "") + fmt
 
     def _remember_recent_symbol(self, symbol: str):
         normalized = symbol.upper().strip()
@@ -515,8 +515,27 @@ class HeaderToolbar(QToolBar):
                 background-color: rgba(255, 255, 255, 0.03); border: 1px solid #333333;
                 border-radius: 0px; padding: 2px 6px;
             }
-            #userIdLabel { background-color:#1a1a1a; color:#00d4ff; font-size:10px; font-weight:700; }
-            #balanceLabel { background-color:#1a1a1a; color:#4aff4a; font-size:10px; font-weight:600; }
+            #userIdLabel {
+                background-color: rgba(0, 212, 255, 0.10);
+                color: #7ee9ff;
+                border: none;
+                padding: 3px 8px;
+                border-radius: 0px;
+                font-size: 9px;
+                font-weight: 600;
+                letter-spacing: 0.4px;
+            }
+            #balanceLabel {
+                background-color: rgba(0, 255, 170, 0.12);
+                color: #76ffcd;
+                border: 1px solid rgba(0, 255, 170, 0.30);
+                padding: 3px 9px;
+                border-radius: 0px;
+                font-size: 10px;
+                font-weight: 800;
+                font-family: "Segoe UI", "Inter", "Arial";
+                letter-spacing: 0.6px;
+            }
             #separatorDot { background-color:transparent; color:#666666; font-size:8px; }
         """)
 
