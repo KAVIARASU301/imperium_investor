@@ -22,15 +22,15 @@ class StatusBar(QWidget):
         super().__init__(parent)
         self.setObjectName("bottomStatusBar")
         # Lock to a strict, thin ribbon size
-        self.setFixedHeight(26)
+        self.setFixedHeight(20)
         self._build_ui()
         self._apply_styles()
 
     def _build_ui(self) -> None:
         layout = QHBoxLayout(self)
         # 0 vertical margin makes it sit flush against the bottom edge
-        layout.setContentsMargins(15, 0, 15, 0)
-        layout.setSpacing(25)
+        layout.setContentsMargins(10, 0, 10, 0)
+        layout.setSpacing(16)
 
         # Uppercase for a stronger, institutional feel
         self.market_label = QLabel("MARKET: --")
@@ -59,9 +59,9 @@ class StatusBar(QWidget):
             #statusLabel {
                 color: #7b8496; /* Subdued gray text so it doesn't distract */
                 font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
-                font-size: 11px;
+                font-size: 10px;
                 font-weight: 600;
-                letter-spacing: 0.5px; /* Slight tracking for readability */
+                letter-spacing: 0.35px; /* Slight tracking for readability */
             }
         """
         )

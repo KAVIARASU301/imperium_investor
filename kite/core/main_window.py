@@ -166,7 +166,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.setCentralWidget(main_container)
 
         main_layout = QVBoxLayout(main_container)
-        main_layout.setContentsMargins(0, 0, 0, 5)
+        main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
         self.menu_bar = self._create_menu_bar()
