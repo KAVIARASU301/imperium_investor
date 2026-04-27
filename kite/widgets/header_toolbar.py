@@ -70,7 +70,7 @@ class NotificationBadge(QLabel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.count = 0
-        self.setFixedSize(15, 15)
+        self.setFixedSize(16, 16)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setObjectName("notificationBadge")
         self.hide()
@@ -180,18 +180,18 @@ class HeaderToolbar(QToolBar):
         alert_widget = QWidget()
         alert_widget.setObjectName("alertActionWidget")
         alert_layout = QHBoxLayout(alert_widget)
-        alert_layout.setContentsMargins(4, 2, 4, 2)
+        alert_layout.setContentsMargins(0, 0, 0, 0)
         alert_layout.setSpacing(2)
 
-        alerts_container = QWidget()
-        alerts_container.setFixedSize(64, 20)
-        self.alerts_button = QPushButton("Alerts", alerts_container)
+        self.alerts_button = QPushButton("ALERTS")
         self.alerts_button.setObjectName("alertActionButton")
         self.alerts_button.clicked.connect(self.alert_manager_requested.emit)
-        self.alerts_button.setGeometry(0, 0, 64, 20)
-        self.alerts_badge = NotificationBadge(alerts_container)
-        self.alerts_badge.move(50, -3)
-        alert_layout.addWidget(alerts_container)
+        self.alerts_button.setFixedSize(54, 20)
+        alert_layout.addWidget(self.alerts_button)
+
+        self.alerts_badge = NotificationBadge()
+        alert_layout.addWidget(self.alerts_badge)
+
         self.addWidget(alert_widget)
 
     def _create_trading_actions_section(self):
@@ -313,7 +313,7 @@ class HeaderToolbar(QToolBar):
         logger.info(f"Search index built: {len(self._instrument_map)} instruments")
 
     def update_alert_counts(self, active_count: int, triggered_today: int) -> None:
-        self.alerts_badge.set_count(active_count + triggered_today)
+        self.alerts_badge.set_count(triggered_today)
 
     def set_current_symbol(self, symbol: str) -> None:
         normalized = symbol.upper().strip()
@@ -466,19 +466,38 @@ class HeaderToolbar(QToolBar):
                 color: #ff8b8b;
             }
             #sectionGap { background: transparent; }
-            #notificationBadge {
-                background-color: #f80404;
-                color: white;
-                border-radius: 7px;
-                font-size: 8px;
-                font-weight: 700;
+            #alertActionWidget {
+                background-color: transparent;
+                border: none;
             }
-            #alertActionWidget, #tradingActionWidget {
+            #alertActionButton {
+                background-color: transparent;
+                color: #999999;
+                border: 1px solid #404040;
+                border-radius: 2px;
+                font-size: 9px;
+                font-weight: 700;
+                letter-spacing: 0.5px;
+            }
+            #alertActionButton:hover {
+                background-color: #2a2a2a;
+                color: #ffffff;
+                border: 1px solid #555555;
+            }
+            #notificationBadge {
+                background-color: #d63031;
+                border: 1px solid #b71540;
+                color: white;
+                border-radius: 2px;
+                font-size: 9px;
+                font-weight: 800;
+            }
+            #tradingActionWidget {
                 background-color: rgba(255, 255, 255, 0.03);
                 border: 1px solid #2f2f2f;
                 border-radius: 6px;
             }
-            #alertActionButton, #tradingActionButton {
+            #tradingActionButton {
                 background-color: rgba(0, 212, 255, 0.10);
                 color: #7ee9ff;
                 border: none;
@@ -487,7 +506,7 @@ class HeaderToolbar(QToolBar):
                 font-size: 9px;
                 font-weight: 600;
             }
-            #alertActionButton:hover, #tradingActionButton:hover {
+            #tradingActionButton:hover {
                 background-color: rgba(0, 212, 255, 0.18);
                 border: 1px solid rgba(0, 212, 255, 0.45);
                 color: #b7f4ff;
