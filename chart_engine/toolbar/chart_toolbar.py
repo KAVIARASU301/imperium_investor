@@ -204,6 +204,7 @@ class ChartToolbar(QFrame):
     """
 
     timeframe_changed = Signal(str)
+    toolbar_preferences_changed = Signal(dict)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -214,6 +215,7 @@ class ChartToolbar(QFrame):
         self._drawing_color = "#FFD700"
         self._active_tf     = "day"
         self._live_price    = 0.0
+        self._suppress_pref_events = False
 
         # ── Registries ────────────────────────────────────────────────────
         self._tf_actions:       Dict[str, QAction]     = {}
@@ -597,6 +599,8 @@ class ChartToolbar(QFrame):
             if self.chart_type_combo.itemData(i) == data:
                 self.chart_type_combo.setCurrentIndex(i)
                 break
+        if not self._suppress_pref_events:
+            self.toolbar_preferences_changed.emit(self.get_toolbar_preferences())
 
     def _on_drawing_tool_from_menu(self, tool_id: str) -> None:
         self._drawing_menu.hide()
@@ -611,6 +615,8 @@ class ChartToolbar(QFrame):
         elif not is_fav and tool_id in self._favorite_tools:
             self._favorite_tools.remove(tool_id)
         self._rebuild_favorites_tray()
+        if not self._suppress_pref_events:
+            self.toolbar_preferences_changed.emit(self.get_toolbar_preferences())
 
     def _on_tray_btn_clicked(self, tool_id: str, checked: bool) -> None:
         if checked:
@@ -713,9 +719,45 @@ class ChartToolbar(QFrame):
     def set_drawing_color(self, color: str) -> None:
         self._drawing_color = color
         self._refresh_color_btn()
+        if not self._suppress_pref_events:
+            self.toolbar_preferences_changed.emit(self.get_toolbar_preferences())
 
     def get_drawing_color(self) -> str:
         return self._drawing_color
+
+
+    def get_toolbar_preferences(self) -> Dict[str, object]:
+        return {
+            "favorite_tools": list(self._favorite_tools),
+            "chart_type": self._active_chart_type,
+            "drawing_color": self._drawing_color,
+        }
+
+    def apply_toolbar_preferences(self, prefs: Optional[Dict[str, object]]) -> None:
+        if not isinstance(prefs, dict):
+            return
+
+        self._suppress_pref_events = True
+        try:
+            all_tools = {tid for tid, _, _ in DRAWING_TOOLS}
+            favorite_tools = prefs.get("favorite_tools")
+            if isinstance(favorite_tools, list):
+                filtered = [str(tid) for tid in favorite_tools if str(tid) in all_tools]
+                if filtered:
+                    self._favorite_tools = filtered
+                    self._rebuild_favorites_tray()
+
+            chart_type = prefs.get("chart_type")
+            if isinstance(chart_type, str) and chart_type in self._ct_actions:
+                action = self._ct_actions[chart_type]
+                action.setChecked(True)
+                self._on_chart_type(chart_type)
+
+            drawing_color = prefs.get("drawing_color")
+            if isinstance(drawing_color, str) and drawing_color.strip():
+                self.set_drawing_color(drawing_color)
+        finally:
+            self._suppress_pref_events = False
 
     def set_data_status(self, status: str, live: bool = True) -> None:
         if self.data_status_label:

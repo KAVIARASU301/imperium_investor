@@ -291,6 +291,7 @@ class CandlestickChart(QWidget):
 
         # ── Toolbar ──
         self.toolbar = ChartToolbar(self)
+        self.toolbar.apply_toolbar_preferences(self.global_chart_settings.get("toolbar_preferences", {}))
         self._wire_toolbar()
         main_layout.addWidget(self.toolbar)
 
@@ -343,6 +344,7 @@ class CandlestickChart(QWidget):
         tb.refresh_btn.clicked.connect(self._force_refresh)
         tb.settings_btn.clicked.connect(self._open_settings_dialog)
         tb.order_btn.clicked.connect(self._on_order_btn_clicked)
+        tb.toolbar_preferences_changed.connect(self._on_toolbar_preferences_changed)
 
     def _make_loading_widget(self) -> QWidget:
         w = QWidget()
@@ -645,6 +647,10 @@ class CandlestickChart(QWidget):
             self.toolbar.set_drawing_color(self.current_drawing_color)
             self._js(f"if(window.chart) window.chart.updateDrawingStyle('{self.current_drawing_color}', {self.current_line_width});")
 
+    @Slot(dict)
+    def _on_toolbar_preferences_changed(self, prefs: Dict[str, Any]) -> None:
+        self._save_global_settings_patch({"toolbar_preferences": dict(prefs or {})})
+
     def _toggle_indicator(self, key: str, visible: bool) -> None:
         self._indicator_visibility[key] = visible
         self._js(f"if(window.chart) window.chart.setIndicatorVisibility('{key}', {str(visible).lower()});")
@@ -728,7 +734,7 @@ class CandlestickChart(QWidget):
         self._watermark_position         = s.get("watermark_position", self._watermark_position)
         self._watermark_font_size        = int(s.get("watermark_font_size", self._watermark_font_size))
         self._indicator_scale_labels_enabled = s.get("indicator_scale_labels_enabled", self._indicator_scale_labels_enabled)
-        self.drawing_storage.save_global_settings(s)
+        self._save_global_settings_patch(s)
 
         if self.chart_view and self.current_state == ChartState.LOADED:
             payload = json.dumps({
@@ -754,6 +760,13 @@ class CandlestickChart(QWidget):
                 self._current_watermark_description,
                 self._show_watermark_description,
             )
+
+    def _save_global_settings_patch(self, patch: Dict[str, Any]) -> None:
+        settings = self.drawing_storage.load_global_settings()
+        settings.update(dict(patch or {}))
+        settings["indicator_visibility"] = dict(self._indicator_visibility or {})
+        settings.setdefault("toolbar_preferences", self.toolbar.get_toolbar_preferences())
+        self.drawing_storage.save_global_settings(settings)
 
     # ── Misc actions ──────────────────────────────────────────────────────
 
