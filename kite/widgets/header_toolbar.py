@@ -429,7 +429,7 @@ class HeaderToolbar(QToolBar):
             #enhancedSymbolSearch {
                 background-color: #111111;
                 border: 1px solid transparent; color: #ffffff;
-                padding: 3px 8px; border-radius: 6px;
+                padding: 3px 8px; border-radius: 0px;
                 font-size: 11px; font-weight: 500;
                 min-width: 84px; max-width: 100px; max-height: 20px;
             }
@@ -442,7 +442,7 @@ class HeaderToolbar(QToolBar):
                 color: #4aff4a;
                 border: none;
                 padding: 3px 8px;
-                border-radius: 10px;
+                border-radius: 0px;
                 font-size: 9px;
                 font-weight: 700;
             }
@@ -456,7 +456,7 @@ class HeaderToolbar(QToolBar):
                 color: #ff6666;
                 border: none;
                 padding: 3px 8px;
-                border-radius: 10px;
+                border-radius: 0px;
                 font-size: 9px;
                 font-weight: 700;
             }
@@ -474,7 +474,7 @@ class HeaderToolbar(QToolBar):
                 background-color: transparent;
                 color: #999999;
                 border: 1px solid #404040;
-                border-radius: 2px;
+                border-radius: 0px;
                 font-size: 9px;
                 font-weight: 700;
                 letter-spacing: 0.5px;
@@ -488,21 +488,21 @@ class HeaderToolbar(QToolBar):
                 background-color: #d63031;
                 border: 1px solid #b71540;
                 color: white;
-                border-radius: 2px;
+                border-radius: 0px;
                 font-size: 9px;
                 font-weight: 800;
             }
             #tradingActionWidget {
                 background-color: rgba(255, 255, 255, 0.03);
                 border: 1px solid #2f2f2f;
-                border-radius: 6px;
+                border-radius: 0px;
             }
             #tradingActionButton {
                 background-color: rgba(0, 212, 255, 0.10);
                 color: #7ee9ff;
                 border: none;
                 padding: 3px 8px;
-                border-radius: 10px;
+                border-radius: 0px;
                 font-size: 9px;
                 font-weight: 600;
             }
@@ -513,7 +513,7 @@ class HeaderToolbar(QToolBar):
             }
             #accountInfoWidget {
                 background-color: rgba(255, 255, 255, 0.03); border: 1px solid #333333;
-                border-radius: 5px; padding: 2px 6px;
+                border-radius: 0px; padding: 2px 6px;
             }
             #userIdLabel { background-color:#1a1a1a; color:#00d4ff; font-size:10px; font-weight:700; }
             #balanceLabel { background-color:#1a1a1a; color:#4aff4a; font-size:10px; font-weight:600; }

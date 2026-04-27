@@ -468,7 +468,7 @@ class HeaderToolbar(QToolBar):
                 border: 1px solid transparent; 
                 color: #ffffff; 
                 padding: 3px 8px; 
-                border-radius: 6px;
+                border-radius: 0px;
                 font-size: 11px; 
                 font-weight: 500;
                 min-width: 84px; 
@@ -484,7 +484,7 @@ class HeaderToolbar(QToolBar):
                 color: white;
                 border: 1px solid #333333;
                 padding: 3px 6px;
-                border-radius: 3px;
+                border-radius: 0px;
                 font-size: 9px;
                 font-weight: 600;
                 text-transform: uppercase;
@@ -499,7 +499,7 @@ class HeaderToolbar(QToolBar):
                 color: white;
                 border: 1px solid #333333;
                 padding: 3px 6px;
-                border-radius: 3px;
+                border-radius: 0px;
                 font-size: 9px;
                 font-weight: 600;
                 text-transform: uppercase;
@@ -511,7 +511,7 @@ class HeaderToolbar(QToolBar):
             }
             #marketStatusWidget { 
                 background-color: #1a1a1a; 
-                border-radius: 4px; 
+                border-radius: 0px; 
                 border: 1px solid #333; 
             }
             #marketOpen { 
@@ -530,7 +530,7 @@ class HeaderToolbar(QToolBar):
             }
             #marketStatusWidget { 
                 background-color: #1a1a1a; 
-                border-radius: 4px; 
+                border-radius: 0px; 
                 border: 1px solid #333; 
             }
             #marketOpen { 
@@ -553,21 +553,21 @@ class HeaderToolbar(QToolBar):
             #notificationBadge {
                 background-color: #f80404;
                 color: white;
-                border-radius: 7px;
+                border-radius: 0px;
                 font-size: 8px;
                 font-weight: 700;
             }
             #alertActionWidget, #tradingActionWidget {
                 background-color: rgba(255, 255, 255, 0.03);
                 border: 1px solid #2f2f2f;
-                border-radius: 6px;
+                border-radius: 0px;
             }
             #alertActionButton, #tradingActionButton {
                 background-color: #000000;
                 color: white;
                 border: 1px solid #333333;
                 padding: 3px 6px;
-                border-radius: 3px;
+                border-radius: 0px;
                 font-size: 9px;
                 font-weight: 500;
             }
@@ -579,7 +579,7 @@ class HeaderToolbar(QToolBar):
             #accountInfoWidget {
                 background-color: rgba(255, 255, 255, 0.03);
                 border: 1px solid #333333; 
-                border-radius: 5px; 
+                border-radius: 0px; 
                 padding: 2px 6px;
             }
             #userIdLabel { 
