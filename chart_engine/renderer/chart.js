@@ -76,6 +76,8 @@ class FixedTradingChart {
         this.percentageChanges = cfg.percentageChanges || {};
         this.currentInterval = cfg.currentInterval || 'day';
         this.currentSymbol = cfg.currentSymbol || '';
+        this.currentSymbolDescription = cfg.watermarkDescription || '';
+        this.showWatermarkDescription = cfg.showWatermarkDescription === true;
 
         // ── Settings ──
         this.colors = {
@@ -1688,18 +1690,28 @@ class FixedTradingChart {
             mid_center:    this.chartArea.y + this.chartArea.height * 0.5,
             bottom_center: this.chartArea.y + this.chartArea.height * 0.8,
         };
+        const centerX = this.chartArea.x + this.chartArea.width / 2;
+        const centerY = yMap[this.watermark.position] || yMap.mid_center;
+        const hasDescription = this.showWatermarkDescription && !!this.currentSymbolDescription;
         const fontSize = this.watermark.fontSize > 0
             ? this.watermark.fontSize
             : Math.max(32, Math.round(this.chartArea.width * 0.08));
 
         ctx.save();
-        ctx.globalAlpha  = this.watermark.opacity;
-        ctx.fillStyle    = this.watermark.color;
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'middle';
+        const symbolYOffset = hasDescription ? 28 : 0;
+        ctx.globalAlpha  = this.watermark.opacity;
+        ctx.fillStyle    = this.watermark.color;
         ctx.font         = `700 ${fontSize}px "Segoe UI", sans-serif`;
-        ctx.fillText(this.currentSymbol, this.chartArea.x + this.chartArea.width / 2,
-                     yMap[this.watermark.position] || yMap.mid_center);
+        ctx.fillText(this.currentSymbol, centerX, centerY - symbolYOffset);
+
+        if (hasDescription) {
+            const descriptionFontSize = Math.max(14, Math.round(fontSize * 0.32));
+            ctx.globalAlpha = Math.max(0.01, Math.min(this.watermark.opacity * 0.5, 0.08));
+            ctx.font        = `600 ${descriptionFontSize}px "Segoe UI", sans-serif`;
+            ctx.fillText(this.currentSymbolDescription, centerX, centerY + Math.round(fontSize * 0.48));
+        }
         ctx.restore();
     }
 
@@ -3153,6 +3165,8 @@ class FixedTradingChart {
         if (cfg.watermarkOpacity  !== undefined) this.watermark.opacity  = cfg.watermarkOpacity;
         if (cfg.watermarkPosition) this.watermark.position = cfg.watermarkPosition;
         if (cfg.watermarkFontSize !== undefined) this.watermark.fontSize = cfg.watermarkFontSize;
+        if (cfg.showWatermarkDescription !== undefined)
+            this.showWatermarkDescription = cfg.showWatermarkDescription === true;
         if (cfg.indicatorScaleLabelsEnabled !== undefined)
             this.indicatorScaleLabelsEnabled = cfg.indicatorScaleLabelsEnabled === true;
         // If slot dimensions changed, recalculate how many candles fit.
@@ -3161,6 +3175,13 @@ class FixedTradingChart {
             this._updateViewport();
             this.calculateBounds();
         }
+        this.requestDraw();
+    }
+
+    setWatermark(symbol, description = '', showDescription = false) {
+        this.currentSymbol = symbol || '';
+        this.currentSymbolDescription = description || '';
+        this.showWatermarkDescription = showDescription === true;
         this.requestDraw();
     }
 

@@ -31,6 +31,8 @@ class ChartHtmlConfig:
     interval:                str
     symbol:                  str
     initial_drawings_json:   str
+    watermark_description:   str   = ""
+    show_watermark_description: bool = False
     visible_candle_count:    int   = 100
     candle_width:            int   = 3
     candle_spacing:          int   = 3
@@ -89,6 +91,8 @@ def build_chart_html(cfg: ChartHtmlConfig) -> str:
         "percentageChanges":         cfg.pct_changes,
         "currentInterval":           cfg.interval,
         "currentSymbol":             cfg.symbol,
+        "watermarkDescription":      cfg.watermark_description,
+        "showWatermarkDescription":  bool(cfg.show_watermark_description),
         "initialDrawingsJson":       safe_drawings,
         "initialVisibleCandleCount": cfg.visible_candle_count,
         "initialCandleWidth":        cfg.candle_width,

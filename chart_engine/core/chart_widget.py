@@ -117,6 +117,7 @@ class CandlestickChart(QWidget):
         self._current_candle_width      = self.global_chart_settings.get("candle_width",   3)
         self._current_candle_spacing    = self.global_chart_settings.get("candle_spacing", 3)
         self._watermark_enabled         = self.global_chart_settings.get("watermark_enabled",  True)
+        self._show_watermark_description = self.global_chart_settings.get("show_watermark_description", True)
         self._watermark_color           = self.global_chart_settings.get("watermark_color",    "#ffffff")
         self._watermark_opacity         = self.global_chart_settings.get("watermark_opacity",  0.06)
         self._watermark_position        = self.global_chart_settings.get("watermark_position", "mid_center")
@@ -124,6 +125,7 @@ class CandlestickChart(QWidget):
         self._indicator_scale_labels_enabled = self.global_chart_settings.get("indicator_scale_labels_enabled", False)
         self.current_visible_candle_count = self.global_chart_settings.get("default_visible_candles", 100)
         self._indicator_visibility = self.drawing_storage.load_global_indicator_visibility()
+        self._current_watermark_description = ""
 
         self.data_fetcher = DataFetcher(kite_client)
         self.data_cache   = DataCache()
@@ -162,6 +164,7 @@ class CandlestickChart(QWidget):
         if not symbol:
             return
         self.current_symbol           = symbol
+        self._current_watermark_description = self._resolve_symbol_description(symbol)
         token = int(instrument_token or 0)
         if not token:
             instrument = self.instrument_map.get(symbol, {})
@@ -243,6 +246,11 @@ class CandlestickChart(QWidget):
         token = int(instrument.get("instrument_token") or 0)
         exchange = instrument.get("exchange")
         self.load_symbol(resolved_symbol, exchange, token)
+        self.set_watermark(
+            resolved_symbol,
+            self._resolve_symbol_description(resolved_symbol),
+            self._show_watermark_description,
+        )
 
         self.drawing_storage.save_last_viewed_symbol(resolved_symbol, self.current_interval)
 
@@ -267,6 +275,10 @@ class CandlestickChart(QWidget):
             if candidate in self.instrument_map:
                 return candidate
         return None
+
+    def _resolve_symbol_description(self, symbol: str) -> str:
+        instrument = self.instrument_map.get(str(symbol or "").strip().upper(), {})
+        return str(instrument.get("name", "") or "").strip()
 
     # ═══════════════════════════════════════════════════════════════════════
     # BUILD UI
@@ -462,6 +474,8 @@ class CandlestickChart(QWidget):
             interval               = self.current_interval,
             symbol                 = self.current_symbol,
             initial_drawings_json  = drawings_json,
+            watermark_description  = self._current_watermark_description,
+            show_watermark_description = self._show_watermark_description,
             visible_candle_count   = initial_zoom,
             candle_width           = self._current_candle_width,
             candle_spacing         = self._current_candle_spacing,
@@ -544,6 +558,24 @@ class CandlestickChart(QWidget):
     @Slot()
     def _on_chart_ready(self) -> None:
         logger.debug("Chart JS ready for %s", self.current_symbol)
+        self.set_watermark(
+            self.current_symbol,
+            self._current_watermark_description,
+            self._show_watermark_description,
+        )
+
+    def set_watermark(self, symbol: str, description: str = "", show_description: bool = False) -> None:
+        """Push watermark symbol/description state into the JS renderer."""
+        payload = json.dumps({
+            "symbol": str(symbol or ""),
+            "description": str(description or ""),
+            "showDescription": bool(show_description),
+        })
+        self._js(
+            "if(window.chart){"
+            f"const wm={payload}; window.chart.setWatermark(wm.symbol, wm.description, wm.showDescription);"
+            "}"
+        )
 
     @Slot(str)
     def _on_drawings_changed(self, drawings_json: str) -> None:
@@ -669,6 +701,7 @@ class CandlestickChart(QWidget):
             "up_volume_color":        self._current_volume_up_color,
             "down_volume_color":      self._current_volume_down_color,
             "watermark_enabled":      self._watermark_enabled,
+            "show_watermark_description": self._show_watermark_description,
             "watermark_color":        self._watermark_color,
             "watermark_opacity":      self._watermark_opacity,
             "watermark_position":     self._watermark_position,
@@ -689,6 +722,7 @@ class CandlestickChart(QWidget):
         self._current_volume_up_color    = s.get("up_volume_color",   self._current_up_color)
         self._current_volume_down_color  = s.get("down_volume_color", self._current_down_color)
         self._watermark_enabled          = s.get("watermark_enabled",  self._watermark_enabled)
+        self._show_watermark_description = s.get("show_watermark_description", self._show_watermark_description)
         self._watermark_color            = s.get("watermark_color",    self._watermark_color)
         self._watermark_opacity          = s.get("watermark_opacity",  self._watermark_opacity)
         self._watermark_position         = s.get("watermark_position", self._watermark_position)
@@ -705,6 +739,7 @@ class CandlestickChart(QWidget):
                 "upVolumeColor":    self._current_volume_up_color,
                 "downVolumeColor":  self._current_volume_down_color,
                 "watermarkEnabled": self._watermark_enabled,
+                "showWatermarkDescription": self._show_watermark_description,
                 "watermarkColor":   self._watermark_color,
                 "watermarkOpacity": self._watermark_opacity,
                 "watermarkPosition":self._watermark_position,
@@ -714,6 +749,11 @@ class CandlestickChart(QWidget):
             self._js(f"if(window.chart){{ window.chart.setChartSettings({payload});"
                      f"window.chart.setVisibleCandleCount({self.current_visible_candle_count});"
                      "window.chart.autoScale(); }}")
+            self.set_watermark(
+                self.current_symbol,
+                self._current_watermark_description,
+                self._show_watermark_description,
+            )
 
     # ── Misc actions ──────────────────────────────────────────────────────
 

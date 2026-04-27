@@ -32,7 +32,7 @@ class ChartSettingsDialog(QDialog):
     def __init__(self, current_settings: Dict[str, Any], parent=None):
         super().__init__(parent)
         self.setWindowTitle("Chart Settings")
-        self.setFixedSize(360, 440)
+        self.setFixedSize(360, 480)
         self._s = dict(current_settings)          # working copy
         self._color_btns: Dict[str, QPushButton] = {}
         self._build_ui()
@@ -70,6 +70,10 @@ class ChartSettingsDialog(QDialog):
         self.wm_enabled = QCheckBox("Show symbol watermark")
         self.wm_enabled.setChecked(self._s.get("watermark_enabled", True))
         layout.addRow("Watermark:", self.wm_enabled)
+
+        self.wm_description = QCheckBox("Show company description under symbol")
+        self.wm_description.setChecked(self._s.get("show_watermark_description", True))
+        layout.addRow("Watermark Description:", self.wm_description)
 
         layout.addRow("Watermark Color:", self._color_row("watermark_color", "#ffffff"))
 
@@ -144,6 +148,7 @@ class ChartSettingsDialog(QDialog):
             "up_volume_color": self._s.get("up_volume_color", self._s.get("up_candle_color", "#26a69a")),
             "down_volume_color": self._s.get("down_volume_color", self._s.get("down_candle_color", "#ef5350")),
             "watermark_enabled": self.wm_enabled.isChecked(),
+            "show_watermark_description": self.wm_description.isChecked(),
             "watermark_color": self._s.get("watermark_color", "#ffffff"),
             "watermark_opacity": self.wm_opacity.value(),
             "watermark_position": self.wm_position.currentData(),
