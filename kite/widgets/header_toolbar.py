@@ -386,13 +386,16 @@ class HeaderToolbar(QToolBar):
                 padding-right: 6px;
             }
             #enhancedSymbolSearch {
-                background-color: #000000;
-                border: 1px solid #333333; color: #ffffff;
-                padding: 3px 8px; border-radius: 3px;
+                background-color: #111111;
+                border: 1px solid transparent; color: #ffffff;
+                padding: 3px 8px; border-radius: 6px;
                 font-size: 11px; font-weight: 500;
                 min-width: 84px; max-width: 100px; max-height: 20px;
             }
-            #enhancedSymbolSearch:focus { border: 1px solid #00d4ff; color: #00d4ff; }
+            #enhancedSymbolSearch:focus {
+                border: 1px solid #2f2f2f;
+                color: #ffffff;
+            }
             #buyButton {
                 background-color: rgba(74, 255, 74, 0.10);
                 color: #4aff4a;
