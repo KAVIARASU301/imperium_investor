@@ -578,21 +578,30 @@ class HeaderToolbar(QToolBar):
             }
             #accountInfoWidget {
                 background-color: rgba(255, 255, 255, 0.03);
-                border: 1px solid #333333; 
-                border-radius: 0px; 
+                border: none;
+                border-radius: 4px;
                 padding: 2px 6px;
             }
             #userIdLabel { 
-                background-color: #1a1a1a;
-                color: #00d4ff; 
-                font-size: 10px; 
-                font-weight: 700; 
+                background-color: rgba(0, 212, 255, 0.10);
+                color: #7ee9ff;
+                border: none;
+                padding: 3px 8px;
+                border-radius: 4px;
+                font-size: 9px;
+                font-weight: 600;
+                letter-spacing: 0.4px;
             }
             #balanceLabel { 
-                background-color: #1a1a1a;
-                color: #4aff4a; 
-                font-size: 10px; 
-                font-weight: 600; 
+                background-color: rgba(0, 255, 170, 0.10);
+                color: #76ffcd;
+                border: none;
+                padding: 3px 9px;
+                border-radius: 4px;
+                font-size: 10px;
+                font-weight: 800;
+                font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+                letter-spacing: 0.6px;
             }
             #separatorDot { 
                 background-color: transparent;
