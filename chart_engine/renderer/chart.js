@@ -3121,6 +3121,26 @@ class FixedTradingChart {
         this.requestDraw();
     }
 
+    updateDrawings(drawings) {
+        if (!drawings) return;
+        this.drawings = {
+            lines:            Array.isArray(drawings.lines) ? drawings.lines : [],
+            rectangles:       Array.isArray(drawings.rectangles) ? drawings.rectangles : [],
+            notes:            Array.isArray(drawings.notes) ? drawings.notes : [],
+            horizontal_lines: Array.isArray(drawings.horizontal_lines) ? drawings.horizontal_lines : [],
+            horizontal_rays:  Array.isArray(drawings.horizontal_rays) ? drawings.horizontal_rays : [],
+            arrow_lines:      Array.isArray(drawings.arrow_lines) ? drawings.arrow_lines : [],
+            fibonacci:        Array.isArray(drawings.fibonacci) ? drawings.fibonacci : [],
+        };
+        if (this.drawingEngine) {
+            this.drawingEngine.drawings = this.drawings;
+            if (typeof this.drawingEngine.rebuildSpatialHash === 'function') {
+                this.drawingEngine.rebuildSpatialHash();
+            }
+        }
+        this.requestDraw();
+    }
+
     addNewCandle(candle) {
         this.data.push(candle);
         this.volumeData.push({ time: candle.time, value: candle.volume || 0 });

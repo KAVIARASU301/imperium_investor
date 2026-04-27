@@ -24,10 +24,15 @@ class ChartLinesManager(QObject):
         os.makedirs(self.drawings_dir, exist_ok=True)
 
     def _get_symbol_file_path(self, symbol: str) -> str:
-        """Get the path to the symbol's drawings JSON file for day timeframe"""
-        # Use the same format as existing system: SYMBOL_day_state.json
+        """Get the path to the symbol's drawings JSON file for current timeframe."""
+        interval = "day"
+        if hasattr(self.main_window, 'candlestick_chart'):
+            chart = self.main_window.candlestick_chart
+            if hasattr(chart, 'current_interval') and chart.current_interval:
+                interval = chart.current_interval
+
         safe_symbol = symbol.replace("/", "_").replace(":", "_").replace("-", "_")
-        return os.path.join(self.drawings_dir, f"{safe_symbol}_day_state.json")
+        return os.path.join(self.drawings_dir, f"{safe_symbol}_{interval}_state.json")
 
     def _load_symbol_drawings(self, symbol: str) -> Dict:
         """Load existing drawings for a symbol or create new structure"""
@@ -457,23 +462,28 @@ class ChartLinesManager(QObject):
         ]
 
     def _refresh_chart(self):
-        """Signal the chart to refresh and reload drawings"""
+        """Signal the chart to refresh and reload drawings without network request."""
         try:
             self.chart_refresh_requested.emit()
 
-            # Directly refresh chart if available
             if hasattr(self.main_window, 'candlestick_chart'):
                 chart = self.main_window.candlestick_chart
+                if not getattr(chart, 'current_symbol', None):
+                    return
 
-                # Try different methods to refresh the chart
-                if hasattr(chart, 'load_symbol_drawings'):
-                    chart.load_symbol_drawings(chart.current_symbol, 'day')
-                elif hasattr(chart, '_load_chart_data'):
-                    chart._load_chart_data(force_refresh=True)
-                elif hasattr(chart, 'reload_drawings'):
-                    chart.reload_drawings()
+                state = self._load_symbol_drawings(chart.current_symbol)
+                drawings = state.get("drawings", {})
 
-                logger.debug("Chart refresh requested")
+                if hasattr(chart, 'set_drawings'):
+                    chart.set_drawings(drawings)
+                elif hasattr(chart, 'chart_view'):
+                    js_code = (
+                        "if (window.chart && window.chart.updateDrawings) "
+                        f"window.chart.updateDrawings({json.dumps(drawings)});"
+                    )
+                    chart.chart_view.page().runJavaScript(js_code)
+
+                logger.debug("Chart drawings refreshed seamlessly")
 
         except Exception as e:
             logger.error(f"Error refreshing chart: {e}")

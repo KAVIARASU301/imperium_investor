@@ -186,6 +186,15 @@ class CandlestickChart(QWidget):
         elif isinstance(live_data, dict):
             self._process_tick(live_data)
 
+    def set_drawings(self, drawings: Dict[str, Any]) -> None:
+        """Inject a complete drawings dictionary directly into the live JavaScript chart."""
+        if self.chart_view and self.current_state == ChartState.LOADED:
+            js_code = (
+                "if(window.chart && window.chart.updateDrawings) "
+                f"window.chart.updateDrawings({json.dumps(drawings)});"
+            )
+            self._js(js_code)
+
     def apply_color_theme(self, theme: Dict[str, Any]) -> None:
         candles = theme.get("candles", {})
         volume  = theme.get("volume",  {})
