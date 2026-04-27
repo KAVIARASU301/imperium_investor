@@ -262,7 +262,7 @@ class TradeLogger(QObject):
         self._shutdown_requested = False
 
         if db_path is None:
-            db_dir = os.path.join(os.path.expanduser("~"), ".swing_trader")
+            db_dir = os.path.join(os.path.expanduser("~"), ".qullamaggie")
             os.makedirs(db_dir, exist_ok=True)
             # Single unified DB for all brokers/modes
             self.db_path = os.path.join(db_dir, "trade_history.db")
@@ -459,7 +459,7 @@ class TradeLogger(QObject):
     def cleanup(self):
         """
         Graceful shutdown — drains the DB queue before closing.
-        Called by SwingTraderWindow.closeEvent().
+        Called by QullamaggieWindow.closeEvent().
         """
         if self._shutdown_requested:
             return

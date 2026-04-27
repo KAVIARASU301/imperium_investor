@@ -405,7 +405,7 @@ class OrderHistoryDialog(QDialog):
 
     def _setup_window(self):
         """Initialize window properties."""
-        self.setWindowTitle("Order History - Swing Trader")
+        self.setWindowTitle("Order History - Qullamaggie")
         self.setMinimumSize(1100, 700)
         # self.resize(1400, 800)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)

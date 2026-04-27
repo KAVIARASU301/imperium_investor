@@ -32,7 +32,7 @@ class ColorThemeManager(QObject):
 
     def __init__(self, storage_path: str = None):
         super().__init__()
-        self.storage_path = storage_path or os.path.join(os.path.expanduser("~/.swing_trader"), "color_theme.json")
+        self.storage_path = storage_path or os.path.join(os.path.expanduser("~/.qullamaggie"), "color_theme.json")
         os.makedirs(os.path.dirname(self.storage_path), exist_ok=True)
         self._theme = copy.deepcopy(DEFAULT_COLOR_THEME)
         self.load_theme()

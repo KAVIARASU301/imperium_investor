@@ -352,8 +352,8 @@ class BrokerFactory:
 
             module = importlib.import_module(main_window_module_name)
 
-            # The main window class is expected to be named 'SwingTraderWindow' in both modules
-            MainWindowClass = getattr(module, 'SwingTraderWindow')
+            # The main window class is expected to be named 'QullamaggieWindow' in both modules
+            MainWindowClass = getattr(module, 'QullamaggieWindow')
 
             return MainWindowClass
         except (ImportError, AttributeError) as e:

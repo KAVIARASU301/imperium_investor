@@ -130,7 +130,7 @@ class AlertStore:
     def __init__(self):
         self._alerts: Dict[str, Alert] = {}
         self._mutex  = QMutex()
-        app_dir = os.path.join(os.path.expanduser("~"), ".swing_trader")
+        app_dir = os.path.join(os.path.expanduser("~"), ".qullamaggie")
         os.makedirs(app_dir, exist_ok=True)
         self._path = os.path.join(app_dir, "alerts.json")
         self._load()

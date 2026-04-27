@@ -1,6 +1,6 @@
 # main.py
 """
-Main entry point for the Swing Trader application.
+Main entry point for the Qullamaggie application.
 
 This script initializes the application, handles user login for different
 brokers (Kite for India, Interactive Brokers for America), creates the
@@ -40,9 +40,9 @@ class Application:
 
     def run(self):
         """Main entry point to run the application."""
-        logger.info("🚀 Starting Swing Trader Application...")
+        logger.info("🚀 Starting Qullamaggie Application...")
         self.app = QApplication(sys.argv)
-        self.app.setApplicationName("Swing Trader")
+        self.app.setApplicationName("Qullamaggie")
         self.app.setWindowIcon(QIcon("assets/qullamaggie_icon.png"))
 
         self.broker_manager = BrokerClientManager()

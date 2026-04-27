@@ -162,7 +162,7 @@ class PaperTradingManager(BasePaperTrader):
         self._aliases[alias.upper()] = canonical.upper()
 
     # ─────────────────────────────────────────────────────────────────────────
-    # UI integration helpers (used by SwingTraderWindow mixin)
+    # UI integration helpers (used by QullamaggieWindow mixin)
     # ─────────────────────────────────────────────────────────────────────────
 
     def get_portfolio_summary(self) -> Dict[str, Any]:
@@ -182,12 +182,12 @@ class PaperTradingManager(BasePaperTrader):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Integration helpers for SwingTraderWindow
+# Integration helpers for QullamaggieWindow
 # ─────────────────────────────────────────────────────────────────────────────
 
-def integrate_paper_trading(swing_trader_window, trader) -> None:
+def integrate_paper_trading(qullamaggie_window, trader) -> None:
     """
-    Wire paper trading signals into SwingTraderWindow.
+    Wire paper trading signals into QullamaggieWindow.
 
     KEY CHANGE: paper order_update now routes through
     position_manager.on_ws_order_update — the same pipeline
@@ -197,12 +197,12 @@ def integrate_paper_trading(swing_trader_window, trader) -> None:
     try:
         # Execution notifications (margin warnings, rejections from RMS)
         trader.execution_notification.connect(
-            lambda msg, level: swing_trader_window._show_paper_notification(msg, level)
+            lambda msg, level: qullamaggie_window._show_paper_notification(msg, level)
         )
 
         # Balance display updates
         trader.balance_update.connect(
-            lambda balance: swing_trader_window._update_balance_display(balance)
+            lambda balance: qullamaggie_window._update_balance_display(balance)
         )
 
         # ── UNIFIED ORDER PIPELINE ──
@@ -210,21 +210,21 @@ def integrate_paper_trading(swing_trader_window, trader) -> None:
         # exactly like live WS postbacks come from MarketDataWorker.
         # _on_paper_order_update is now the FALLBACK for edge cases only.
         trader.order_update.connect(
-            swing_trader_window.position_manager.on_ws_order_update
+            qullamaggie_window.position_manager.on_ws_order_update
         )
         # Secondary hook: catches anything position_manager doesn't (e.g. untracked orders)
         trader.order_update.connect(
-            lambda order: swing_trader_window._on_paper_order_update(order)
+            lambda order: qullamaggie_window._on_paper_order_update(order)
         )
 
         # PnL display updates
         trader.daily_pnl_update.connect(
-            lambda pnl: swing_trader_window._on_daily_pnl_update(pnl)
+            lambda pnl: qullamaggie_window._on_daily_pnl_update(pnl)
         )
 
         # Mark WS as "available" so position_manager uses its normal completion path
         # (paper trader emits synchronously, so there's no 60s WS timeout needed)
-        swing_trader_window.position_manager.on_ws_connected()
+        qullamaggie_window.position_manager.on_ws_connected()
 
         logger.info("KitePaperTradingManager integrated — unified order pipeline active")
 
@@ -234,7 +234,7 @@ def integrate_paper_trading(swing_trader_window, trader) -> None:
 
 class PaperTradingMixin:
     """
-    Mixin for SwingTraderWindow — handles paper trading UI callbacks.
+    Mixin for QullamaggieWindow — handles paper trading UI callbacks.
 
     _on_paper_order_update is now a SAFETY NET for orders that slipped
     through position_manager tracking (e.g. placed before tracking started,
