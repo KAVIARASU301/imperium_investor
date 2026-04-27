@@ -829,7 +829,28 @@ class DrawingEngine {
 
     deserialize(json) {
         try {
-            const arr = JSON.parse(json);
+            const parsed = (typeof json === 'string') ? JSON.parse(json) : json;
+            let arr = [];
+
+            if (Array.isArray(parsed)) {
+                arr = parsed;
+            } else if (parsed && typeof parsed === 'object') {
+                const map = {
+                    lines: 'line',
+                    rectangles: 'rectangle',
+                    notes: 'note',
+                    horizontal_lines: 'horizontal_line',
+                    horizontal_rays: 'horizontal_ray',
+                    arrow_lines: 'arrow',
+                    fibonacci: 'fibonacci',
+                };
+                for (const [key, type] of Object.entries(map)) {
+                    for (const d of (parsed[key] || [])) {
+                        arr.push({ type, ...d });
+                    }
+                }
+            }
+
             this.drawings.clear();
             for (const d of arr) {
                 this.drawings.set(d.id, d);

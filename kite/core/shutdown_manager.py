@@ -25,7 +25,7 @@ import logging
 from typing import Callable, List, Optional, Tuple
 from dataclasses import dataclass
 
-from PySide6.QtCore import QTimer, QEventLoop, Qt
+from PySide6.QtCore import QTimer, QEventLoop, Qt, QThread
 from PySide6.QtWidgets import QApplication
 
 logger = logging.getLogger(__name__)
@@ -94,6 +94,12 @@ class ShutdownManager:
                 name="stop_remaining_timers",
                 fn=self._stop_all_timers,
                 timeout_ms=500,
+            ),
+            ShutdownStep(
+                name="stop_qthreads",
+                fn=self._stop_qthreads,
+                timeout_ms=2_000,
+                critical=True,
             ),
         ]
 
@@ -189,6 +195,28 @@ class ShutdownManager:
                 count += 1
         if count:
             logger.debug(f"Stopped {count} remaining active timers")
+
+    def _stop_qthreads(self) -> None:
+        """
+        Stop any child QThreads that are still active.
+        Prevents: 'QThread: Destroyed while thread is still running'.
+        """
+        count = 0
+        for thread in self.window.findChildren(QThread):
+            if not thread or thread == QThread.currentThread():
+                continue
+            if not thread.isRunning():
+                continue
+
+            thread.quit()
+            if not thread.wait(2000):
+                logger.warning("QThread did not stop gracefully; terminating")
+                thread.terminate()
+                thread.wait(1000)
+            count += 1
+
+        if count:
+            logger.info(f"Stopped {count} active QThread(s)")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
