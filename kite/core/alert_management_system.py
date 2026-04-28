@@ -547,34 +547,101 @@ class AlertCreationDialog(QDialog):
 
     def _apply_styles(self):
         self.setStyleSheet("""
+            * {
+                font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+            }
             QFrame#alertContainer {
-                background-color: #1e1e1e;
-                border: 1px solid #333;
-                border-radius: 8px;
+                background-color: #12141A;
+                border: 1px solid #222630;
+                border-radius: 2px;
             }
-            QLabel#alertTitle { color: #e0e0e0; font-size: 13px; font-weight: bold; }
+            QLabel {
+                color: #A0A6B5;
+                font-size: 12px;
+                font-weight: 500;
+            }
+            QLabel#alertTitle {
+                color: #FFFFFF;
+                font-size: 14px;
+                font-weight: 600;
+                letter-spacing: 0.5px;
+            }
+            /* Flat Inputs & Dropdowns */
+            QLineEdit, QComboBox, QDoubleSpinBox, QSpinBox {
+                background-color: #1B1E26;
+                color: #FFFFFF;
+                border: 1px solid #2A2F3A;
+                border-radius: 2px;
+                padding: 5px 8px;
+                font-size: 12px;
+            }
+            QLineEdit:focus, QComboBox:focus, QDoubleSpinBox:focus {
+                border: 1px solid #00E676;
+                background-color: #12141A;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 20px;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 5px solid #7B8496;
+                margin-right: 4px;
+            }
+            /* Action Buttons */
+            QPushButton {
+                font-weight: 600;
+                font-size: 12px;
+                border-radius: 2px;
+            }
             QPushButton#confirmButton {
-                background-color: #006064;
-                color: white; border: none; border-radius: 4px;
-                padding: 6px; font-weight: bold;
+                background-color: rgba(0, 230, 118, 0.1);
+                color: #00E676;
+                border: 1px solid transparent;
+                padding: 6px 12px;
             }
-            QPushButton#confirmButton:hover { background-color: #00838f; }
+            QPushButton#confirmButton:hover {
+                background-color: rgba(0, 230, 118, 0.15);
+                border: 1px solid rgba(0, 230, 118, 0.3);
+            }
             QPushButton#cancelButton {
-                background-color: #2c2c2c; color: #aaa; border: none; border-radius: 4px; padding: 6px;
+                background-color: transparent;
+                color: #7B8496;
+                border: 1px solid #2A2F3A;
+                padding: 6px 12px;
             }
-            QPushButton#closeButton { background: transparent; color: #666; border: none; }
-            QPushButton#closeButton:hover { color: #ef5350; }
-            QComboBox, QLineEdit, QDoubleSpinBox {
-                background-color: #2c2c2c; color: #e0e0e0;
-                border: 1px solid #3a3a3a; border-radius: 3px; padding: 3px 6px;
+            QPushButton#cancelButton:hover {
+                background-color: #1B1E26;
+                color: #FFFFFF;
             }
-            QLabel { color: #a0a0a0; }
+            QPushButton#closeButton {
+                background: transparent;
+                color: #7B8496;
+                border: none;
+                font-size: 16px;
+            }
+            QPushButton#closeButton:hover {
+                color: #FF4444;
+            }
+            QCheckBox {
+                color: #A0A6B5;
+                font-size: 12px;
+            }
+            QCheckBox::indicator {
+                width: 14px;
+                height: 14px;
+                border: 1px solid #2A2F3A;
+                border-radius: 2px;
+                background: #1B1E26;
+            }
+            QCheckBox::indicator:checked {
+                background: #00E676;
+                border: 1px solid #00E676;
+            }
         """)
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# MAIN ALERT SYSTEM MANAGER (wires engine + UI + store)
-# ─────────────────────────────────────────────────────────────────────────────
 
 class AlertSystemManager(QObject):
     """
@@ -1200,45 +1267,120 @@ class AlertManagementDialog(QDialog):
 
     def _apply_styles(self):
         self.setStyleSheet("""
+            * {
+                font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+            }
             QFrame#alertMgmtContainer {
-                background-color: #111;
-                border: 1px solid #333;
-                border-radius: 8px;
+                background-color: #12141A;
+                border: 1px solid #222630;
+                border-radius: 2px;
             }
-            QLabel#mgmtTitle { color: #e0e0e0; font-size: 14px; font-weight: bold; }
+            QLabel#mgmtTitle {
+                color: #FFFFFF;
+                font-size: 15px;
+                font-weight: 600;
+                letter-spacing: 0.5px;
+            }
+            /* Header Buttons */
             QPushButton#addButton {
-                background-color: #006064; color: white; border: none;
-                border-radius: 4px; padding: 4px 10px; font-weight: bold;
+                background-color: rgba(0, 230, 118, 0.1);
+                color: #00E676;
+                border: 1px solid transparent;
+                border-radius: 2px;
+                padding: 5px 12px;
+                font-weight: 600;
+                font-size: 12px;
             }
-            QPushButton#addButton:hover { background-color: #00838f; }
+            QPushButton#addButton:hover {
+                background-color: rgba(0, 230, 118, 0.15);
+                border: 1px solid rgba(0, 230, 118, 0.3);
+            }
             QPushButton#closeButton {
-                background: transparent; color: #666; border: none; font-size: 14px;
+                background: transparent;
+                color: #7B8496;
+                border: none;
+                font-size: 16px;
             }
-            QPushButton#closeButton:hover { color: #ef5350; }
-            QPushButton#deleteButton {
-                background-color: transparent; color: #ff6b6b; border: none;
-            }
-            QPushButton#deleteButton:hover { color: #ef5350; }
-            QPushButton#ackButton {
-                background-color: #1b5e20; color: #a5d6a7; border: none;
-                border-radius: 3px; padding: 2px 6px;
-            }
-            QPushButton#ackButton:hover { background-color: #2e7d32; }
+            QPushButton#closeButton:hover { color: #FF4444; }
+
+            /* Table Data Cells */
             QTableWidget {
-                background-color: #0d0d0d; color: #ccc;
-                gridline-color: #222; border: none;
+                background-color: transparent;
+                color: #D1D4DC;
+                border: none;
+                gridline-color: #1E222B;
+                font-size: 12px;
+                outline: none;
             }
-            QTableWidget::item { padding: 3px 6px; }
-            QTableWidget::item:selected { background-color: #1e3a5f; }
+            QTableWidget::item {
+                padding: 2px 6px;
+                border-bottom: 1px solid #1A1D24;
+            }
+            QTableWidget::item:selected {
+                background-color: #1B1E26;
+                color: #FFFFFF;
+            }
+
+            /* Table Headers */
             QHeaderView::section {
-                background-color: #1a1a1a; color: #888;
-                border: none; font-size: 11px; font-weight: 700;
-                padding: 4px;
+                background-color: #12141A;
+                color: #7B8496;
+                border: none;
+                border-bottom: 1px solid #222630;
+                font-size: 10px;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                padding: 4px 6px;
+                text-align: left;
             }
-            QTabWidget::pane { border: none; }
+
+            /* Inline Table Buttons */
+            QPushButton#deleteButton {
+                background-color: transparent;
+                color: #FF4444;
+                border: none;
+                font-weight: 600;
+                font-size: 11px;
+                text-align: left;
+            }
+            QPushButton#deleteButton:hover {
+                color: #FF6666;
+                background-color: rgba(255, 68, 68, 0.1);
+                border-radius: 2px;
+            }
+            QPushButton#ackButton {
+                background-color: rgba(0, 230, 118, 0.1);
+                color: #00E676;
+                border: none;
+                border-radius: 2px;
+                padding: 3px 8px;
+                font-weight: 600;
+                font-size: 11px;
+            }
+            QPushButton#ackButton:hover {
+                background-color: rgba(0, 230, 118, 0.2);
+            }
+
+            /* Tabs */
+            QTabWidget::pane {
+                border: none;
+                border-top: 1px solid #222630;
+            }
             QTabBar::tab {
-                background: #1a1a1a; color: #888;
-                padding: 4px 12px; border: none;
+                background: transparent;
+                color: #7B8496;
+                padding: 8px 16px;
+                border: none;
+                font-size: 12px;
+                font-weight: 600;
             }
-            QTabBar::tab:selected { background: #0d0d0d; color: #e0e0e0; }
+            QTabBar::tab:selected {
+                background: transparent;
+                color: #FFFFFF;
+                border-bottom: 2px solid #00E676;
+            }
+            QTabBar::tab:hover:!selected {
+                color: #D1D4DC;
+            }
         """)
