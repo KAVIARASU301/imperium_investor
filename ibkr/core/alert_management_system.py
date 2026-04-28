@@ -280,6 +280,14 @@ class AlertCreationDialog(QDialog):
                 border: 1px solid #00E676;
                 background-color: #12141A;
             }
+            QComboBox#alertComboCompact QAbstractItemView {
+                background-color: #1B1E26;
+                color: #FFFFFF;
+                selection-background-color: #2A2F3A;
+                selection-color: #FFFFFF;
+                border: 1px solid #2A2F3A;
+                outline: 0;
+            }
             QComboBox::drop-down {
                 border: none;
                 width: 20px;
