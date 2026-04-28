@@ -189,9 +189,18 @@ class CandlestickChart(QWidget):
     def set_drawings(self, drawings: Dict[str, Any]) -> None:
         """Inject a complete drawings dictionary directly into the live JavaScript chart."""
         if self.chart_view and self.current_state == ChartState.LOADED:
+            payload = json.dumps(drawings)
             js_code = (
-                "if(window.chart && window.chart.updateDrawings) "
-                f"window.chart.updateDrawings({json.dumps(drawings)});"
+                "(function applyDrawingsWhenReady(drawings, attempt){"
+                "attempt = attempt || 0;"
+                "if(window.chart && window.chart.updateDrawings){"
+                "window.chart.updateDrawings(drawings);"
+                "return;"
+                "}"
+                "if(attempt < 25){"
+                "setTimeout(function(){applyDrawingsWhenReady(drawings, attempt + 1);}, 100);"
+                "}"
+                "})(" + payload + ", 0);"
             )
             self._js(js_code)
 

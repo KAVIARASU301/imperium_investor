@@ -174,7 +174,7 @@ class ChartLinesManager(QObject):
 
             success = self._save_symbol_drawings(symbol, state)
             if success:
-                self._refresh_chart()
+                self._refresh_chart(symbol)
                 logger.info(f"Added alert line for {symbol} at {price:.2f}")
 
             return success
@@ -238,7 +238,7 @@ class ChartLinesManager(QObject):
             if removed_items > 0:
                 success = self._save_symbol_drawings(symbol, state)
                 if success:
-                    self._refresh_chart()
+                    self._refresh_chart(symbol)
                     logger.info(f"Removed {removed_items} alert line items for {symbol} at {price:.2f}")
                 return success
             else:
@@ -302,7 +302,7 @@ class ChartLinesManager(QObject):
                         # Position is fully closed, don't add any line
                         success = self._save_symbol_drawings(symbol, state)
                         if success:
-                            self._refresh_chart()
+                            self._refresh_chart(symbol)
                             logger.info(f"Position fully closed for {symbol}, no line added")
                         return success
 
@@ -310,7 +310,7 @@ class ChartLinesManager(QObject):
             if total_quantity == 0:
                 success = self._save_symbol_drawings(symbol, state)
                 if success:
-                    self._refresh_chart()
+                    self._refresh_chart(symbol)
                     logger.info(f"Position closed for {symbol}, line removed")
                 return success
 
@@ -338,7 +338,7 @@ class ChartLinesManager(QObject):
 
             success = self._save_symbol_drawings(symbol, state)
             if success:
-                self._refresh_chart()
+                self._refresh_chart(symbol)
                 logger.info(
                     f"Updated position line for {symbol}: {normalized_order_type} "
                     f"{total_quantity} @ {final_avg_price:.2f}"
@@ -369,7 +369,7 @@ class ChartLinesManager(QObject):
             if removed_items > 0:
                 success = self._save_symbol_drawings(symbol, state)
                 if success:
-                    self._refresh_chart()
+                    self._refresh_chart(symbol)
                     logger.info(f"Removed {removed_items} position line items for {symbol}")
                 return success
             else:
@@ -458,24 +458,33 @@ class ChartLinesManager(QObject):
                     note.get("color") in ["#00FF00", "#FF0000"])
         ]
 
-    def _refresh_chart(self):
-        """Signal the chart to refresh and reload drawings"""
+    def _refresh_chart(self, symbol: Optional[str] = None):
+        """Signal the chart to refresh and reload drawings for a symbol."""
         try:
             self.chart_refresh_requested.emit()
 
-            # Directly refresh chart if available
+            # Directly refresh chart if available and symbol is currently visible.
             if hasattr(self.main_window, 'candlestick_chart'):
                 chart = self.main_window.candlestick_chart
+                target_symbol = symbol or getattr(chart, 'current_symbol', None)
+
+                if target_symbol and getattr(chart, 'current_symbol', None) != target_symbol:
+                    logger.debug(
+                        "Skipping live chart refresh for %s because active chart symbol is %s",
+                        target_symbol,
+                        getattr(chart, 'current_symbol', None),
+                    )
+                    return
 
                 # Try different methods to refresh the chart
                 if hasattr(chart, 'load_symbol_drawings'):
-                    chart.load_symbol_drawings(chart.current_symbol, 'day')
+                    chart.load_symbol_drawings(target_symbol, 'day')
                 elif hasattr(chart, '_load_chart_data'):
                     chart._load_chart_data(force_refresh=True)
                 elif hasattr(chart, 'reload_drawings'):
                     chart.reload_drawings()
 
-                logger.debug("Chart refresh requested")
+                logger.debug("Chart refresh requested for %s", target_symbol)
 
         except Exception as e:
             logger.error(f"Error refreshing chart: {e}")
