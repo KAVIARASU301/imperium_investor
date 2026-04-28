@@ -358,7 +358,7 @@ class FixedTradingChart {
                 }
             }
             const tp  = (c.high + c.low + c.close) / 3;
-            const vol = (this.volumeData[i] || {}).value || 0;
+            const vol = this._resolveVolumeForCandle(c, i);
             cumTPV += tp * vol;
             cumVol += vol;
             return { time: c.time, value: cumVol > 0 ? cumTPV / cumVol : tp };
@@ -391,7 +391,7 @@ class FixedTradingChart {
                     cumDelta = 0;
                 }
             }
-            const vol   = (this.volumeData[i] || {}).value || 0;
+            const vol   = this._resolveVolumeForCandle(c, i);
             const range = c.high - c.low;
             let delta   = 0;
             if (range > 1e-9) {
@@ -1029,7 +1029,9 @@ class FixedTradingChart {
         // Collect visible volumes
         const visVols = [];
         for (let i = start; i <= end; i++) {
-            if (this.volumeData[i]) visVols.push(this.volumeData[i].value || 0);
+            const candle = this.data[i];
+            if (!candle) continue;
+            visVols.push(this._resolveVolumeForCandle(candle, i));
         }
         if (visVols.length === 0) return;
 
@@ -1048,9 +1050,9 @@ class FixedTradingChart {
 
         // Draw bars
         for (let i = start; i <= end; i++) {
-            const vol    = (this.volumeData[i] || {}).value || 0;
             const candle = this.data[i];
             if (!candle) continue;
+            const vol    = this._resolveVolumeForCandle(candle, i);
 
             const ratio  = Math.min(1.0, vol / this.maxVolume);
             const h      = Math.max(1, ratio * area.height);
@@ -1184,7 +1186,7 @@ class FixedTradingChart {
         const lastI = this.data.length - 1;
         if (lastI < this.viewPortStart || lastI > this.viewPortEnd) return;
 
-        const vol = (this.volumeData[lastI] || {}).value || 0;
+        const vol = this._resolveVolumeForCandle(this.data[lastI], lastI);
         if (!this.maxVolume || vol <= 0) return;
 
         const ctx = this.ctx;
@@ -3005,6 +3007,9 @@ class FixedTradingChart {
     // ═══════════════════════════════════════════════════════════════════════
 
     _resolveVolumeForCandle(candle, candleIndex = -1) {
+        const fromCandle = Number(candle?.volume);
+        if (Number.isFinite(fromCandle) && fromCandle >= 0) return fromCandle;
+
         const atIdx = (typeof candleIndex === 'number' && candleIndex >= 0 && candleIndex < this.volumeData.length)
             ? Number(this.volumeData[candleIndex]?.value)
             : NaN;
@@ -3013,8 +3018,7 @@ class FixedTradingChart {
         const byTime = Number(this.volumeData?.find(v => v.time === candle?.time)?.value);
         if (Number.isFinite(byTime) && byTime >= 0) return byTime;
 
-        const fromCandle = Number(candle?.volume);
-        return (Number.isFinite(fromCandle) && fromCandle >= 0) ? fromCandle : 0;
+        return 0;
     }
 
     _renderPriceInfo(c, dateStr, candleIndex = -1) {

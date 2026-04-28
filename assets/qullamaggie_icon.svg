@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="100%" stop-color="#E2E8F0" />
+    </linearGradient>
+
+    <linearGradient id="arrowGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#D97706" />
+      <stop offset="30%" stop-color="#F59E0B" />
+      <stop offset="70%" stop-color="#FCD34D" />
+      <stop offset="100%" stop-color="#FEF08A" />
+    </linearGradient>
+
+    <linearGradient id="borderGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="100%" stop-color="#94A3B8" />
+    </linearGradient>
+
+    <mask id="gapMask">
+      <rect width="512" height="512" fill="white" />
+      <path d="M -20 450 Q 220 330, 340 180 L 270 170 L 490 10 L 400 270 L 380 210 Q 250 370, 20 490 Z" 
+            fill="black" stroke="black" stroke-width="26" stroke-linejoin="round" />
+    </mask>
+
+    <filter id="arrowShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="3" dy="6" stdDeviation="5" flood-color="#000000" flood-opacity="0.15" />
+    </filter>
+  </defs>
+
+  <rect x="24" y="24" width="464" height="464" rx="110" 
+        fill="url(#bgGrad)" mask="url(#gapMask)" 
+        stroke="url(#borderGrad)" stroke-width="3"/>
+
+  <path d="M -20 450 Q 220 330, 340 180 L 270 170 L 490 10 L 400 270 L 380 210 Q 250 370, 20 490 Z" 
+        fill="url(#arrowGrad)" 
+        filter="url(#arrowShadow)" 
+        stroke="#B45309" stroke-width="1.5" stroke-linejoin="round"/>
+</svg>

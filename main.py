@@ -43,7 +43,7 @@ class Application:
         logger.info("🚀 Starting Qullamaggie Application...")
         self.app = QApplication(sys.argv)
         self.app.setApplicationName("Qullamaggie")
-        self.app.setWindowIcon(QIcon("assets/qullamaggie_icon.png"))
+        self.app.setWindowIcon(QIcon("assets/qullamaggie_icon.svg"))
 
         self.broker_manager = BrokerClientManager()
 
