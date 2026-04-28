@@ -366,7 +366,7 @@ class HeaderToolbar(QToolBar):
 
     def update_alert_counts(self, active_count: int, triggered_today: int):
         """Update alert badge counts."""
-        self.alerts_badge.update_count(active_count + triggered_today)
+        self.alerts_badge.update_count(triggered_today)
 
     def set_current_symbol(self, symbol: str):
         """Set the current symbol in the search input."""
@@ -564,18 +564,18 @@ class HeaderToolbar(QToolBar):
                 border-radius: 0px;
             }
             #alertActionButton, #tradingActionButton {
-                background-color: #000000;
-                color: white;
-                border: 1px solid #333333;
+                background-color: transparent;
+                color: #cfcfcf;
+                border: 1px solid #3a3a3a;
                 padding: 3px 6px;
                 border-radius: 0px;
                 font-size: 9px;
                 font-weight: 500;
             }
             #alertActionButton:hover, #tradingActionButton:hover {
-                background-color: #1a1a1a;
-                border: 1px solid #00d4ff;
-                color: #00d4ff;
+                background-color: #232323;
+                border: 1px solid #575757;
+                color: #ffffff;
             }
             #accountInfoWidget {
                 background-color: rgba(255, 255, 255, 0.03);

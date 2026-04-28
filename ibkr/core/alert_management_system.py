@@ -1708,7 +1708,11 @@ class AlertSystemManager(QObject):
         """Get counts for badge notifications."""
         try:
             active = len([a for a in self.all_alerts if not a.triggered])
-            triggered = len([a for a in self.all_alerts if a.triggered and not a.acknowledged])
+            today = datetime.now().date()
+            triggered = len([
+                a for a in self.all_alerts
+                if a.triggered and a.triggered_time and a.triggered_time.date() == today
+            ])
             return active, triggered
         except Exception as e:
             logger.error(f"Error getting notification counts: {e}")

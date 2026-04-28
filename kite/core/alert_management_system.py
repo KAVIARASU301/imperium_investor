@@ -329,10 +329,16 @@ class AlertEngine(QObject):
 
         # ── Price conditions ──
         if cond == AlertCondition.PRICE_IS_ABOVE.value:
-            return ltp >= target
+            prev = alert._prev_price
+            crossed_up = prev > 0 and prev < target <= ltp
+            alert._prev_price = ltp
+            return crossed_up
 
         if cond == AlertCondition.PRICE_IS_BELOW.value:
-            return ltp <= target
+            prev = alert._prev_price
+            crossed_down = prev > 0 and prev > target >= ltp
+            alert._prev_price = ltp
+            return crossed_down
 
         if cond == AlertCondition.PRICE_CROSSED_UP.value:
             prev = alert._prev_price
@@ -993,8 +999,17 @@ class AlertSystemManager(QObject):
 
     def get_notification_counts(self) -> tuple:
         alerts = self.store.all()
-        active    = sum(1 for a in alerts if a.status == AlertStatus.ACTIVE.value)
-        triggered = sum(1 for a in alerts if a.status == AlertStatus.TRIGGERED.value)
+        active = sum(1 for a in alerts if a.status == AlertStatus.ACTIVE.value)
+        today = datetime.now().date()
+        triggered = sum(
+            1
+            for a in alerts
+            if (
+                a.status == AlertStatus.TRIGGERED.value
+                and a.triggered_at
+                and datetime.fromisoformat(a.triggered_at).date() == today
+            )
+        )
         return active, triggered
 
     def _refresh_dialog_if_open(self) -> None:
