@@ -330,6 +330,12 @@ class DualModeLoginManager(QDialog):
         self.broker_group.addButton(self.india_radio)
         self.broker_group.addButton(self.america_radio)
 
+        # Default to Kite when available; otherwise fall back to IBKR.
+        if self.india_radio.isEnabled():
+            self.india_radio.setChecked(True)
+        elif self.america_radio.isEnabled():
+            self.america_radio.setChecked(True)
+
         mode_frame = self._create_trading_mode_selector()
         continue_btn = QPushButton("Continue")
         continue_btn.setObjectName("primaryButton")
@@ -400,7 +406,7 @@ class DualModeLoginManager(QDialog):
         layout.setContentsMargins(12, 8, 12, 8)
         self.paper_radio = QRadioButton("Paper")
         self.live_radio = QRadioButton("Live")
-        self.paper_radio.setChecked(True)
+        self.live_radio.setChecked(True)
         layout.addWidget(self.paper_radio)
         layout.addWidget(self.live_radio)
         layout.addStretch()
