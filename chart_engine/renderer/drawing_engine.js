@@ -917,7 +917,7 @@ class DrawingEngine {
 
         /* Render all persistent drawings */
         for (const d of this.drawings.values()) {
-            if (!d.visible) continue;
+            if (d.visible === false) continue;
             const selected = d.id === this.selectedId;
             const hovered  = d.id === this.hoverId && !selected;
             this._renderDrawing(ctx, d, selected, hovered);

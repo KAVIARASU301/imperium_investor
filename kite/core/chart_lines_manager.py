@@ -452,8 +452,6 @@ class ChartLinesManager(QObject):
         Retries up to 10 times (1 second total) if the chart is not ready yet.
         """
         try:
-            self.chart_refresh_requested.emit()
-
             if not hasattr(self.main_window, 'candlestick_chart'):
                 return
 

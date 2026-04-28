@@ -102,9 +102,6 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.position_manager = PositionManager(self.trader, main_window=self)
 
         self.chart_lines_manager = ChartLinesManager(self)
-        self.chart_lines_manager.chart_refresh_requested.connect(
-            self._refresh_chart_drawings
-        )
 
         self.instrument_list: List[Dict] = []
         self.instrument_map: Dict[str, Dict] = {}
