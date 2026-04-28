@@ -1,582 +1,750 @@
+# kite/widgets/positions_table.py
+"""
+Institutional-grade Positions Table — TC2000 / Bloomberg terminal style.
+
+Upgrades over previous version:
+  • LTP column (live comparison vs avg entry)
+  • % Change (today's move for each stock)
+  • Open P&L in absolute ₹
+  • % of Account (position weight / concentration)
+  • Cell flash animation on tick update (green up-tick, red down-tick)
+  • Delta arrow indicator (▲ / ▼) next to LTP
+  • Throttled redraws at ≈5 fps — numbers remain readable
+  • Click-to-sort on every column header
+  • Pinned aggregation footer (Total P&L, Day P&L, Total Exposure)
+  • Right-click context menu (Close, Half-exit, Chart)
+  • Double-click row → opens chart
+  • Remove explicit "X" button — actions live in context menu
+  • Color: muted teal / red, tabular numbers, zero noise
+"""
+
 import logging
 from typing import List, Dict, Optional
-from dataclasses import dataclass
-from functools import partial
-from PySide6.QtWidgets import (
-    QTableWidget, QTableWidgetItem, QPushButton, QLabel, QVBoxLayout,
-    QWidget, QHeaderView, QFrame, QHBoxLayout, QAbstractItemView, QMenu
-)
-from PySide6.QtCore import Qt, Signal, Slot
-from PySide6.QtGui import QColor, QCursor, QAction, QFont, QBrush, QFontMetrics
+from dataclasses import dataclass, field
 from functools import partial
 
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+    QHeaderView, QAbstractItemView, QFrame, QMenu, QTableWidget,
+    QTableWidgetItem, QSizePolicy, QGraphicsOpacityEffect
+)
+from PySide6.QtCore import (
+    Qt, Signal, Slot, QTimer, QPropertyAnimation, QEasingCurve,
+    QSequentialAnimationGroup, Property, QRect
+)
+from PySide6.QtGui import QColor, QFont, QBrush, QCursor, QAction, QFontMetrics
+
 logger = logging.getLogger(__name__)
+
+# ─── Palette ──────────────────────────────────────────────────────────────────
+_BG_BASE    = "#03060c"
+_BG_ALT     = "#070b12"
+_BG_HEADER  = "#0b1019"
+_BG_FOOTER  = "#080d15"
+_BG_SEL     = "#1a3350"
+_BG_HOVER   = "#0f1a28"
+_BORDER     = "#1a2536"
+_T0         = "#d8e4f0"   # primary text
+_T1         = "#8ea3bc"   # secondary text
+_T2         = "#506070"   # muted
+_GREEN      = "#26a69a"   # profit / up-tick
+_RED        = "#ef5350"   # loss / down-tick
+_AMBER      = "#f59e0b"   # neutral / warn
+_BLUE       = "#4a9eff"   # accent
+_FLASH_UP   = "#1a3d2a"   # cell flash bg up
+_FLASH_DN   = "#3d1a1a"   # cell flash bg down
+_MONO       = "JetBrains Mono, Consolas, Courier New, monospace"
+_SANS       = "Segoe UI, Helvetica Neue, Arial, sans-serif"
+
+# Column indices
+COL_SYMBOL  = 0
+COL_QTY     = 1
+COL_AVG     = 2
+COL_LTP     = 3
+COL_DAY_CHG = 4
+COL_OPEN_PNL= 5
+COL_WEIGHT  = 6
+
+HEADERS = ["Symbol", "Qty", "Avg Entry", "LTP", "Day %", "Open P&L", "% Acct"]
+
+# Throttle: refresh table visuals at 250 ms intervals (≈4 fps) to keep numbers readable
+_REFRESH_INTERVAL_MS = 250
+
+# Flash duration in ms
+_FLASH_DURATION_MS   = 350
 
 
 @dataclass
 class Position:
-    """Simple position data structure"""
-    symbol: str
-    quantity: int
-    avg_price: float
-    token: int
-    ltp: float = 0.0
-    pnl: float = 0.0
-    product: str = "MIS"
+    """Single live position."""
+    symbol:       str
+    quantity:     int
+    avg_price:    float
+    token:        int
+    ltp:          float  = 0.0
+    pnl:          float  = 0.0
+    product:      str    = "MIS"
+    # Day change (from previous close to current LTP)
+    prev_close:   float  = 0.0
+    # Tick direction: +1 up, -1 down, 0 neutral
+    tick_dir:     int    = 0
+    # Previous LTP (for tick direction detection)
+    _prev_ltp:    float  = field(default=0.0, repr=False)
+
+
+class _FlashCell:
+    """Tracks a single cell's flash state."""
+    __slots__ = ("row", "col", "direction", "remaining_ms")
+
+    def __init__(self, row: int, col: int, direction: int):
+        self.row = row
+        self.col = col
+        self.direction = direction   # +1 or -1
+        self.remaining_ms = _FLASH_DURATION_MS
 
 
 class PositionsTable(QWidget):
     """
-    SIMPLIFIED Positions Table - Self-Managing:
-    1. Receives positions from manager ONCE
-    2. Subscribes to market data ONCE
-    3. Updates LTP and PnL locally
-    4. NEVER recreates the table
+    Institutional Positions Table.
+
+    Signals:
+        exit_position_requested(str)           — symbol, full exit
+        exit_half_position_requested(str)      — symbol, partial exit
+        symbol_selected(str)                   — click → chart
+        subscribe_to_market_data(list[int])    — token list
     """
 
-    # Simple signals
-    exit_position_requested = Signal(str)  # Just symbol
-    subscribe_to_market_data = Signal(list)  # Request tokens
-    symbol_selected = Signal(str)  # For chart
+    exit_position_requested      = Signal(str)
+    exit_half_position_requested = Signal(str)
+    symbol_selected              = Signal(str)
+    subscribe_to_market_data     = Signal(list)
 
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        # Simple data storage
-        self.positions_data = {}  # symbol -> SimplePosition
-        self.symbol_to_row = {}          # symbol -> row_number
-        self._token_to_symbol: dict = {} # token -> symbol  O(1) lookup
-        self.is_market_data_subscribed = False
-        self._subscribed_position_tokens = set()
+        # ── State ──────────────────────────────────────────────────────────
+        self.positions_data:  Dict[str, Position]  = {}
+        self.symbol_to_row:   Dict[str, int]       = {}
+        self._token_to_symbol: Dict[int, str]      = {}
+        self._subscribed_tokens: set               = set()
+        self._account_equity: float                = 1_000_000.0  # default until updated
+
+        # Sort state
+        self._sort_col:   int  = COL_SYMBOL
+        self._sort_asc:   bool = True
+
+        # Cell flash queue
+        self._flashes: List[_FlashCell] = []
+
+        # Pending tick updates (batched)
+        self._pending_ticks: Dict[int, float] = {}
+
         self._color_theme = {
-            "enable_table_directional_colors": False,
-            "tables": {"positive": "#26a69a", "negative": "#ef5350", "neutral": "#a9a9a9"}
+            "enable_table_directional_colors": True,
+            "tables": {
+                "positive": _GREEN,
+                "negative": _RED,
+                "neutral": _T1,
+                "volume": "#45d4ff",
+            },
         }
 
         self._setup_ui()
-        self._apply_consistent_styles()
-        logger.info("Simple Positions Table initialized")
+        self._apply_styles()
+
+        # Throttled redraw timer
+        self._redraw_timer = QTimer(self)
+        self._redraw_timer.timeout.connect(self._flush_pending_ticks)
+        self._redraw_timer.start(_REFRESH_INTERVAL_MS)
+
+        # Flash decay timer (runs faster to smooth animation)
+        self._flash_timer = QTimer(self)
+        self._flash_timer.timeout.connect(self._decay_flashes)
+        self._flash_timer.start(50)  # 20 fps flash decay
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # UI CONSTRUCTION
+    # ══════════════════════════════════════════════════════════════════════════
 
     def _setup_ui(self):
-        """Setup UI once - never recreate"""
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        # Main table
+        # ── Table ──────────────────────────────────────────────────────────
         self.table = QTableWidget()
         self._configure_table()
         main_layout.addWidget(self.table, 1)
 
-        # Simple footer
-        footer = self._create_minimal_footer()
-        main_layout.addWidget(footer)
+        # ── Footer ─────────────────────────────────────────────────────────
+        main_layout.addWidget(self._build_footer())
 
-        # Connect table signals
+        # Signals
         self.table.cellClicked.connect(self._on_cell_clicked)
+        self.table.cellDoubleClicked.connect(self._on_cell_double_clicked)
         self.table.customContextMenuRequested.connect(self._show_context_menu)
+        self.table.horizontalHeader().sectionClicked.connect(self._on_header_clicked)
 
     def _configure_table(self):
-        """TC2000 style compact table configuration."""
-        self.table.setColumnCount(5)
-        self.table.setHorizontalHeaderLabels([
-            "Symbol", "Qty", "Avg", "P&L", ""
-        ])
+        self.table.setColumnCount(len(HEADERS))
+        self.table.setHorizontalHeaderLabels(HEADERS)
 
-        # Table behavior
+        # Behaviour
         self.table.verticalHeader().setVisible(False)
-        self.table.horizontalHeader().setVisible(True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setShowGrid(True)
+        self.table.setShowGrid(False)
         self.table.setAlternatingRowColors(True)
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.table.setSortingEnabled(False)   # manual sort
 
-        # THE FIX: Native Qt sizing for ultimate density
-        header = self.table.horizontalHeader()
-        header.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
+        # Row height
+        self.table.verticalHeader().setDefaultSectionSize(24)
 
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)  # Symbol stretches
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)  # Qty fits digits
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)  # Avg fits digits
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)  # P&L fits digits
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)  # Exit fits icon
+        # Column widths
+        hdr = self.table.horizontalHeader()
+        hdr.setDefaultAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        hdr.setSectionResizeMode(COL_SYMBOL, QHeaderView.ResizeMode.Stretch)
+        for col in (COL_QTY, COL_AVG, COL_LTP, COL_DAY_CHG, COL_OPEN_PNL, COL_WEIGHT):
+            hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setMinimumSectionSize(54)
+        hdr.setHighlightSections(False)
+        hdr.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
-        header.setMinimumSectionSize(35)
-        self.table.setColumnWidth(4, 24)  # Lock exit button width
+        # Bold mono header font
+        hdr_font = QFont(_MONO)
+        hdr_font.setPixelSize(10)
+        hdr_font.setBold(True)
+        hdr.setFont(hdr_font)
 
-        # Compact Row Height
-        self.table.verticalHeader().setDefaultSectionSize(22)
+    def _build_footer(self) -> QFrame:
+        frame = QFrame()
+        frame.setObjectName("positionsFooter")
+        frame.setFixedHeight(26)
 
-        header_font = QFont("Segoe UI", 9)
-        header_font.setBold(True)
-        header.setFont(header_font)
+        lay = QHBoxLayout(frame)
+        lay.setContentsMargins(10, 0, 10, 0)
+        lay.setSpacing(20)
 
-    def _create_minimal_footer(self) -> QFrame:
-        """Create minimal footer"""
-        footer_frame = QFrame()
-        footer_frame.setObjectName("positionsFooter")
-        footer_frame.setFixedHeight(28)
+        def _metric(label: str) -> tuple:
+            lbl = QLabel(label)
+            lbl.setObjectName("footerLabel")
+            val = QLabel("–")
+            val.setObjectName("footerValue")
+            lay.addWidget(lbl)
+            lay.addWidget(val)
+            return val
 
-        footer_layout = QHBoxLayout(footer_frame)
-        footer_layout.setContentsMargins(12, 4, 12, 4)
-        footer_layout.setSpacing(12)
+        self._footer_open_pnl  = _metric("Open P&L:")
+        self._footer_exposure  = _metric("Exposure:")
+        self._footer_positions = _metric("Positions:")
+        lay.addStretch()
+        return frame
 
-        # Total P&L
-        self.total_pnl_label = QLabel("P&L: ₹0.00")
-        self.total_pnl_label.setObjectName("footerPrimaryMetric")
-        footer_layout.addWidget(self.total_pnl_label)
-
-
-        footer_layout.addStretch()
-        return footer_frame
-
-    def apply_color_theme(self, theme: Dict):
-        self._color_theme = theme or self._color_theme
-        for symbol, row in self.symbol_to_row.items():
-            position = self.positions_data.get(symbol)
-            if position:
-                self._update_single_row_data(row, position)
-        self._update_summary()
-
-    # ===========================================================================
-    # MAIN METHOD: RECEIVE POSITIONS FROM MANAGER (ONCE)
-    # ===========================================================================
+    # ══════════════════════════════════════════════════════════════════════════
+    # POSITIONS POPULATION
+    # ══════════════════════════════════════════════════════════════════════════
 
     @Slot(list)
     def update_positions(self, positions_list: List[Position]):
-        """
-        Receive positions from manager - populate table ONCE
-        This is the ONLY method that recreates the table
-        """
-        logger.info(f"📊 Updating positions table with {len(positions_list)} positions")
-
-        # Store positions data locally
-        self.positions_data = {pos.symbol: pos for pos in positions_list}
-
-        # Clear and populate table ONCE
-        self.table.setRowCount(len(positions_list))
-        self.symbol_to_row = {}
+        """Receive fresh positions list from PositionManager."""
+        self.positions_data  = {p.symbol: p for p in positions_list}
+        self.symbol_to_row   = {}
         self._token_to_symbol = {}
 
-        for row, position in enumerate(positions_list):
-            self.symbol_to_row[position.symbol] = row
-            if position.token > 0:
-                self._token_to_symbol[position.token] = position.symbol
-            self._populate_row_once(row, position)
+        self.table.setRowCount(len(positions_list))
 
-        # Subscribe to market data ONCE
-        self._subscribe_to_market_data_once(positions_list)
+        sorted_positions = self._sort_positions(positions_list)
+        for row, pos in enumerate(sorted_positions):
+            self.symbol_to_row[pos.symbol] = row
+            if pos.token > 0:
+                self._token_to_symbol[pos.token] = pos.symbol
+            self._populate_row(row, pos)
 
-        # Update summary
-        self._update_summary()
+        self._subscribe_tokens(positions_list)
+        self._update_footer()
 
-        logger.info(f"✅ Positions table updated with {len(positions_list)} positions")
+    def _populate_row(self, row: int, pos: Position):
+        for col in range(len(HEADERS)):
+            item = QTableWidgetItem()
+            self.table.setItem(row, col, item)
+        self._refresh_row(row, pos)
 
-    def _populate_row_once(self, row: int, position: Position):
-        """Populate a single row ONCE - never called again"""
-        # Create items for first 4 columns
-        for i in range(4):
-            self.table.setItem(row, i, QTableWidgetItem())
-
-        # Add exit button in last column
-        exit_btn = self._create_exit_button(position.symbol)
-        self.table.setCellWidget(row, 4, exit_btn)
-
-        # Populate with initial data
-        self._update_single_row_data(row, position)
-
-
-    def _create_exit_button(self, symbol: str) -> QPushButton:
-        """Create exit button for position"""
-        exit_btn = QPushButton("×")
-        exit_btn.setObjectName("exitButton")
-        exit_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        exit_btn.setFixedSize(16, 16)
-        exit_btn.clicked.connect(partial(self._emit_exit_position_signal, symbol))
-        return exit_btn
-
-    def _emit_exit_position_signal(self, symbol: str):
-        """Emit exit position signal with proper symbol"""
-        self.exit_position_requested.emit(symbol)
-
-    def _subscribe_to_market_data_once(self, positions_list: List[Position]):
-        """Subscribe to market data for new/changed position tokens."""
-        current_tokens = {pos.token for pos in positions_list if pos.token > 0}
-
-        if not current_tokens:
-            self.is_market_data_subscribed = False
-            self._subscribed_position_tokens.clear()
-            return
-
-        new_tokens = list(current_tokens - self._subscribed_position_tokens)
-        if new_tokens:
-            self.subscribe_to_market_data.emit(new_tokens)
-            self._subscribed_position_tokens.update(new_tokens)
-            self.is_market_data_subscribed = True
-            logger.info(f"📡 Subscribed to market data for {len(new_tokens)} new position tokens")
-
-        stale_tokens = self._subscribed_position_tokens - current_tokens
-        if stale_tokens:
-            self._subscribed_position_tokens = set(current_tokens)
-
-    # ===========================================================================
-    # LOCAL PNL CALCULATION: UPDATE ONLY AFFECTED ROWS
-    # ===========================================================================
-
-    @Slot(int, float)
-    def update_market_data(self, token: int, ltp: float):
-        """
-        Direct O(1) path: token → symbol → row.
-        Called from main_window._on_market_data for every tick.
-        """
-        symbol = self._token_to_symbol.get(int(token))
-        if symbol is None:
-            return
-
-        position = self.positions_data.get(symbol)
-        if position is None:
-            return
-
-        position.ltp = ltp
-        position.pnl = (ltp - position.avg_price) * position.quantity
-
-        row = self.symbol_to_row.get(symbol)
-        if row is not None:
-            self._update_single_row_data(row, position)
-
-        self._update_summary()
-
-    def _update_single_row_data(self, row: int, position: Position):
-        """Update data for a single row only"""
+    def _refresh_row(self, row: int, pos: Position):
+        """Write all cell values for a position row."""
         if row >= self.table.rowCount():
             return
 
-        # Update text values
-        self.table.item(row, 0).setText(position.symbol)
-        self.table.item(row, 0).setToolTip(f"Open chart for {position.symbol}")
-        self.table.item(row, 1).setText(f"{position.quantity:,}")
-        self.table.item(row, 2).setText(f"{position.avg_price:,.2f}")
-        self.table.item(row, 3).setText(f"{position.pnl:+,.2f}")
+        pnl      = (pos.ltp - pos.avg_price) * pos.quantity
+        pos.pnl  = pnl
+        is_long  = pos.quantity > 0
+        qty_sign = "+" if is_long else "−"
 
-        # Color code P&L
-        table_colors = self._color_theme.get("tables", {})
-        directional_colors_enabled = bool(self._color_theme.get("enable_table_directional_colors", False))
-        pnl_item = self.table.item(row, 3)
-        neutral_color = QColor(table_colors.get("neutral", "#a9a9a9"))
-        if directional_colors_enabled and position.pnl > 0:
-            pnl_item.setForeground(QColor(table_colors.get("positive", "#26a69a")))
-        elif directional_colors_enabled and position.pnl < 0:
-            pnl_item.setForeground(QColor(table_colors.get("negative", "#ef5350")))
+        # Day change %
+        day_chg_pct = 0.0
+        if pos.prev_close > 0 and pos.ltp > 0:
+            day_chg_pct = (pos.ltp - pos.prev_close) / pos.prev_close * 100
+
+        # Weight %
+        investment = abs(pos.quantity) * pos.avg_price
+        weight_pct = (investment / self._account_equity * 100) if self._account_equity > 0 else 0.0
+
+        # Tick direction delta label
+        tick_arrow = "▲" if pos.tick_dir > 0 else ("▼" if pos.tick_dir < 0 else " ")
+        tick_col   = _GREEN if pos.tick_dir > 0 else (_RED if pos.tick_dir < 0 else _T2)
+
+        cells = [
+            (COL_SYMBOL,  pos.symbol,                            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,  _T0),
+            (COL_QTY,     f"{qty_sign}{abs(pos.quantity):,}",    Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, _GREEN if is_long else _RED),
+            (COL_AVG,     f"₹{pos.avg_price:,.2f}",              Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, _T1),
+            (COL_LTP,     f"{tick_arrow} ₹{pos.ltp:,.2f}",       Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, tick_col),
+            (COL_DAY_CHG, f"{day_chg_pct:+.2f}%",               Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, _GREEN if day_chg_pct >= 0 else _RED),
+            (COL_OPEN_PNL,f"{'+'if pnl>=0 else ''}₹{pnl:,.2f}", Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, _GREEN if pnl >= 0 else _RED),
+            (COL_WEIGHT,  f"{weight_pct:.1f}%",                   Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                          _AMBER if weight_pct > 20 else _T1),
+        ]
+
+        mono_font = QFont(_MONO)
+        mono_font.setPixelSize(11)
+        mono_font.setBold(False)
+
+        sym_font = QFont(_MONO)
+        sym_font.setPixelSize(11)
+        sym_font.setBold(True)
+
+        for col, text, align, color in cells:
+            item = self.table.item(row, col)
+            if not item:
+                continue
+            item.setText(text)
+            item.setTextAlignment(align)
+            item.setForeground(QColor(color))
+            item.setFont(sym_font if col == COL_SYMBOL else mono_font)
+            item.setData(Qt.ItemDataRole.UserRole, self._sort_key(col, pos))
+
+        # P&L tint background on open P&L cell
+        pnl_item = self.table.item(row, COL_OPEN_PNL)
+        if pnl_item:
+            if pnl > 0:
+                pnl_item.setBackground(QBrush(QColor(18, 55, 34, 160)))
+            elif pnl < 0:
+                pnl_item.setBackground(QBrush(QColor(70, 20, 20, 160)))
+            else:
+                pnl_item.setBackground(QBrush(QColor(20, 28, 42, 120)))
+
+        # Weight warning tint
+        w_item = self.table.item(row, COL_WEIGHT)
+        if w_item:
+            if weight_pct > 30:
+                w_item.setBackground(QBrush(QColor(80, 50, 0, 120)))
+            else:
+                w_item.setBackground(QBrush(QColor(0, 0, 0, 0)))
+
+    @staticmethod
+    def _sort_key(col: int, pos: Position):
+        pnl = (pos.ltp - pos.avg_price) * pos.quantity
+        day_chg = (pos.ltp - pos.prev_close) / pos.prev_close * 100 if pos.prev_close > 0 else 0
+        mapping = {
+            COL_SYMBOL:   pos.symbol,
+            COL_QTY:      pos.quantity,
+            COL_AVG:      pos.avg_price,
+            COL_LTP:      pos.ltp,
+            COL_DAY_CHG:  day_chg,
+            COL_OPEN_PNL: pnl,
+            COL_WEIGHT:   abs(pos.quantity) * pos.avg_price,
+        }
+        return mapping.get(col, 0)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # LIVE TICK UPDATE — throttled + cell flash
+    # ══════════════════════════════════════════════════════════════════════════
+
+    @Slot(int, float)
+    def update_market_data(self, token: int, ltp: float):
+        """O(1) tick path — batch into pending dict, flush at 4fps."""
+        self._pending_ticks[token] = ltp
+
+    def _flush_pending_ticks(self):
+        """Called every 250ms — apply batched ticks and redraw affected rows."""
+        if not self._pending_ticks:
+            return
+
+        for token, ltp in self._pending_ticks.items():
+            symbol = self._token_to_symbol.get(token)
+            if not symbol:
+                continue
+            pos = self.positions_data.get(symbol)
+            if not pos:
+                continue
+
+            prev_ltp  = pos.ltp
+            pos._prev_ltp = prev_ltp
+            pos.ltp   = ltp
+            pos.pnl   = (ltp - pos.avg_price) * pos.quantity
+
+            # Tick direction
+            if ltp > prev_ltp:
+                pos.tick_dir = 1
+            elif ltp < prev_ltp:
+                pos.tick_dir = -1
+
+            row = self.symbol_to_row.get(symbol)
+            if row is not None:
+                self._refresh_row(row, pos)
+                # Queue flash on LTP cell
+                if prev_ltp > 0 and ltp != prev_ltp:
+                    direction = 1 if ltp > prev_ltp else -1
+                    self._flashes.append(_FlashCell(row, COL_LTP, direction))
+
+        self._pending_ticks.clear()
+        self._update_footer()
+
+    # ── Cell Flash ─────────────────────────────────────────────────────────
+
+    def _decay_flashes(self):
+        """Decay flash backgrounds every 50ms."""
+        if not self._flashes:
+            return
+
+        surviving = []
+        for flash in self._flashes:
+            flash.remaining_ms -= 50
+            item = self.table.item(flash.row, flash.col)
+            if item:
+                ratio = max(0.0, flash.remaining_ms / _FLASH_DURATION_MS)
+                if ratio > 0:
+                    if flash.direction > 0:
+                        # up-tick: green flash
+                        r = int(18 + (0 - 18) * (1 - ratio))
+                        g = int(80 + (55 - 80) * (1 - ratio))
+                        b = int(40 + (34 - 40) * (1 - ratio))
+                    else:
+                        # down-tick: red flash
+                        r = int(120 + (70 - 120) * (1 - ratio))
+                        g = int(20 + (20 - 20) * (1 - ratio))
+                        b = int(20 + (20 - 20) * (1 - ratio))
+                    item.setBackground(QBrush(QColor(r, g, b, 200)))
+                    surviving.append(flash)
+                else:
+                    # Restore PnL tint
+                    pos_sym = None
+                    for sym, row in self.symbol_to_row.items():
+                        if row == flash.row:
+                            pos_sym = sym
+                            break
+                    if pos_sym:
+                        pos = self.positions_data.get(pos_sym)
+                        if pos:
+                            self._refresh_row(flash.row, pos)
+
+        self._flashes = surviving
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SORTING
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def _on_header_clicked(self, logical_idx: int):
+        if self._sort_col == logical_idx:
+            self._sort_asc = not self._sort_asc
         else:
-            pnl_item.setForeground(neutral_color)
+            self._sort_col = logical_idx
+            self._sort_asc = logical_idx == COL_SYMBOL   # alpha asc by default for symbol
+        self._re_sort()
 
-        # Subtle directional tint for P&L cell
-        if directional_colors_enabled and position.pnl > 0:
-            pnl_item.setBackground(QBrush(QColor(18, 55, 34, 140)))
-        elif directional_colors_enabled and position.pnl < 0:
-            pnl_item.setBackground(QBrush(QColor(70, 20, 20, 140)))
-        else:
-            pnl_item.setBackground(QBrush(QColor(35, 35, 35, 100)))
+    def _re_sort(self):
+        positions = list(self.positions_data.values())
+        sorted_list = self._sort_positions(positions)
+        self.symbol_to_row = {}
+        self.table.setSortingEnabled(False)
+        self.table.setRowCount(len(sorted_list))
+        for row, pos in enumerate(sorted_list):
+            self.symbol_to_row[pos.symbol] = row
+            self._populate_row(row, pos)
+        self._update_footer()
 
-        # Set alignments
-        self.table.item(row, 0).setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        self.table.item(row, 1).setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self.table.item(row, 2).setTextAlignment(Qt.AlignmentFlag.AlignRight  | Qt.AlignmentFlag.AlignVCenter)
-        self.table.item(row, 3).setTextAlignment(Qt.AlignmentFlag.AlignRight  | Qt.AlignmentFlag.AlignVCenter)
+    def _sort_positions(self, positions: List[Position]) -> List[Position]:
+        def key_fn(pos: Position):
+            return self._sort_key(self._sort_col, pos)
+        return sorted(positions, key=key_fn, reverse=not self._sort_asc)
 
-        symbol_font = self.table.item(row, 0).font()
-        symbol_font.setBold(True)
-        self.table.item(row, 0).setFont(symbol_font)
+    # ══════════════════════════════════════════════════════════════════════════
+    # FOOTER
+    # ══════════════════════════════════════════════════════════════════════════
 
-        # Set tooltip
-        investment = abs(position.quantity * position.avg_price)
-        pnl_percent = ((position.ltp - position.avg_price) / position.avg_price * 100) if position.avg_price != 0 else 0
-        tooltip = f"Symbol: {position.symbol}\nLTP: ₹{position.ltp:.2f}\nInvestment: ₹{investment:,.2f}\nP&L %: {pnl_percent:+.2f}%"
-
-        for col in range(4):
-            if self.table.item(row, col):
-                self.table.item(row, col).setToolTip(tooltip)
-
-    def _update_summary(self):
-        """Update summary footer"""
+    def _update_footer(self):
         if not self.positions_data:
-            self.total_pnl_label.setText("P&L: ₹0.00")
+            for w in (self._footer_open_pnl, self._footer_exposure, self._footer_positions):
+                w.setText("–")
             return
 
-        total_pnl = sum(pos.pnl for pos in self.positions_data.values())
+        total_pnl  = sum(p.pnl for p in self.positions_data.values())
+        exposure   = sum(abs(p.quantity) * p.avg_price for p in self.positions_data.values())
+        n          = len(self.positions_data)
 
-        # Update P&L with color
-        table_colors = self._color_theme.get("tables", {})
-        directional_colors_enabled = bool(self._color_theme.get("enable_table_directional_colors", False))
-        if directional_colors_enabled:
-            color = table_colors.get("positive", "#26a69a") if total_pnl >= 0 else table_colors.get("negative", "#ef5350")
-        else:
-            color = table_colors.get("neutral", "#a9a9a9")
-        self.total_pnl_label.setText(f"P&L: ₹{total_pnl:,.2f}")
-        self.total_pnl_label.setStyleSheet(f"color: {color}; background-color: transparent; border: none;")
+        pnl_color  = _GREEN if total_pnl >= 0 else _RED
+        sign       = "+" if total_pnl >= 0 else ""
 
+        self._footer_open_pnl.setText(f"{sign}₹{total_pnl:,.2f}")
+        self._footer_open_pnl.setStyleSheet(
+            f"color:{pnl_color};font-family:'{_MONO}';font-size:11px;font-weight:700;background:transparent;"
+        )
+        self._footer_exposure.setText(f"₹{exposure:,.0f}")
+        self._footer_positions.setText(str(n))
 
-    # ===========================================================================
-    # SIMPLE EVENT HANDLERS
-    # ===========================================================================
+    # ══════════════════════════════════════════════════════════════════════════
+    # EVENTS
+    # ══════════════════════════════════════════════════════════════════════════
 
-    def _on_cell_clicked(self, row: int, column: int):
-        """Handle cell click for chart updates"""
-        if column != 4 and row < self.table.rowCount():  # Don't handle exit button
-            try:
-                symbol = self.table.item(row, 0).text()
-                self.symbol_selected.emit(symbol)
-            except Exception as e:
-                logger.error(f"Error handling cell click: {e}")
+    def _on_cell_clicked(self, row: int, col: int):
+        symbol = self._symbol_at_row(row)
+        if symbol:
+            self.symbol_selected.emit(symbol)
 
-    def _show_context_menu(self, position):
-        """Show simple context menu"""
-        item = self.table.itemAt(position)
-        if not item:
+    def _on_cell_double_clicked(self, row: int, col: int):
+        """Double-click also triggers chart — same as single click, more explicit."""
+        self._on_cell_clicked(row, col)
+
+    def _show_context_menu(self, pos):
+        row = self.table.rowAt(pos.y())
+        if row < 0:
             return
-
-        row = item.row()
-        symbol = self.table.item(row, 0).text()
-        pos = self.positions_data.get(symbol)
-        if not pos:
+        symbol = self._symbol_at_row(row)
+        position = self.positions_data.get(symbol) if symbol else None
+        if not symbol or not position:
             return
 
         menu = QMenu(self)
-        # ... styling code ...
+        menu.setObjectName("posContextMenu")
 
-        # Simple menu options
-        chart_action = QAction("View Chart", self)
-        chart_action.triggered.connect(partial(self._emit_symbol_selected, symbol))
-        menu.addAction(chart_action)
+        pnl_text = f"{'+'if position.pnl>=0 else ''}₹{position.pnl:,.2f}"
+        info = menu.addAction(f"  {symbol}  ·  {pnl_text}")
+        info.setEnabled(False)
+        menu.addSeparator()
+
+        chart_action = menu.addAction("📈  Open Chart")
+        chart_action.triggered.connect(lambda: self.symbol_selected.emit(symbol))
 
         menu.addSeparator()
 
-        exit_action = QAction("Exit Position", self)
-        exit_action.triggered.connect(partial(self._emit_exit_position_signal, symbol))
-        menu.addAction(exit_action)
+        close_action = menu.addAction("✕  Close Position (Market)")
+        close_action.triggered.connect(lambda: self.exit_position_requested.emit(symbol))
 
-        menu.exec(self.table.mapToGlobal(position))
+        half_action = menu.addAction("½  Exit Half Position")
+        half_action.triggered.connect(lambda: self.exit_half_position_requested.emit(symbol))
 
-    def _emit_symbol_selected(self, symbol: str):
-        """Emit symbol selected signal"""
-        self.symbol_selected.emit(symbol)
+        menu.exec(self.table.viewport().mapToGlobal(pos))
 
-    # ===========================================================================
-    # UTILITY METHODS
-    # ===========================================================================
+    def _symbol_at_row(self, row: int) -> Optional[str]:
+        for sym, r in self.symbol_to_row.items():
+            if r == row:
+                return sym
+        return None
 
-    def get_position_by_symbol(self, symbol: str) -> Optional[Position]:
-        """Get position by symbol"""
-        return self.positions_data.get(symbol)
+    # ══════════════════════════════════════════════════════════════════════════
+    # SUBSCRIPTIONS
+    # ══════════════════════════════════════════════════════════════════════════
 
-    def has_positions(self) -> bool:
-        """Check if there are any open positions"""
-        return len(self.positions_data) > 0
+    def _subscribe_tokens(self, positions: List[Position]):
+        tokens = [p.token for p in positions if p.token > 0]
+        new_tokens = [t for t in tokens if t not in self._subscribed_tokens]
+        if new_tokens:
+            self.subscribe_to_market_data.emit(new_tokens)
+            self._subscribed_tokens.update(new_tokens)
 
-    def get_position_count(self) -> int:
-        """Get current position count"""
-        return len(self.positions_data)
+    # ══════════════════════════════════════════════════════════════════════════
+    # PUBLIC HELPERS
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def set_account_equity(self, equity: float):
+        """Feed account balance so % weight is calculated correctly."""
+        self._account_equity = max(1.0, equity)
+
+    def apply_color_theme(self, theme: Dict):
+        self._color_theme = theme or self._color_theme
+        for sym, row in self.symbol_to_row.items():
+            pos = self.positions_data.get(sym)
+            if pos:
+                self._refresh_row(row, pos)
+        self._update_footer()
 
     def get_total_pnl(self) -> float:
-        """Get total unrealized P&L"""
-        return sum(pos.pnl for pos in self.positions_data.values())
+        return sum(p.pnl for p in self.positions_data.values())
+
+    def has_positions(self) -> bool:
+        return bool(self.positions_data)
 
     def clear_positions(self):
-        """Clear all positions - used when no positions"""
         self.positions_data.clear()
         self.symbol_to_row.clear()
         self._token_to_symbol.clear()
+        self._subscribed_tokens.clear()
+        self._flashes.clear()
+        self._pending_ticks.clear()
         self.table.setRowCount(0)
-        self.is_market_data_subscribed = False
-        self._subscribed_position_tokens.clear()
-        self._color_theme = {
-            "enable_table_directional_colors": False,
-            "tables": {"positive": "#26a69a", "negative": "#ef5350", "neutral": "#a9a9a9"}
-        }
-        self._update_summary()
-        logger.info("Positions table cleared")
+        self._update_footer()
 
-    def _apply_consistent_styles(self):
-        """Apply the same styling as before - keeping UI intact"""
-        self.setStyleSheet("""
-            /* Main Widget - matches watchlist and scanner */
-            QWidget {
-                background-color: #05070b;
-                color: #e0e0e0;
-                font-family: "Segoe UI", Arial, sans-serif;
-                font-size: 13px;
-                border-top: 3px solid #404040;
-            }
+    # ══════════════════════════════════════════════════════════════════════════
+    # STYLES
+    # ══════════════════════════════════════════════════════════════════════════
 
-            /* Table Styling - EXACT match to watchlist and scanner */
-            QTableWidget {
-                background-color: #03060c;
-                border: 1px solid #1a2536;
-                gridline-color: #162131;
-                selection-background-color: #234b73;
-                alternate-background-color: #070b12;
-                outline: none;
-                show-decoration-selected: 0;
-                font-size: 12px;
-                border-radius: 0px;
-            }
+    def _apply_styles(self):
+        self.setStyleSheet(f"""
+            /* ── Widget shell ──────────────────────────────────────────── */
+            QWidget {{
+                background:{_BG_BASE};
+                color:{_T0};
+                font-family:'{_SANS}';
+                font-size:12px;
+            }}
 
-            QTableWidget::item {
-                padding: 1px 5px;
-                border-bottom: 1px solid #101926;
-                background-color: transparent;
-                font-size: 12px;
-            }
+            /* ── Main table ────────────────────────────────────────────── */
+            QTableWidget {{
+                background:{_BG_BASE};
+                alternate-background-color:{_BG_ALT};
+                gridline-color:transparent;
+                border:1px solid {_BORDER};
+                border-radius:0px;
+                outline:none;
+                show-decoration-selected:0;
+                selection-background-color:transparent;
+            }}
 
-            QTableWidget::item:selected {
-                background-color: #234b73 !important;
-                outline: none;
-                border: none;
-                color: #ffffff;
-                font-weight: 600;
-            }
+            QTableWidget::item {{
+                padding:1px 8px;
+                border-bottom:1px solid {_BORDER};
+                background:transparent;
+            }}
 
-            QTableWidget::item:focus {
-                background-color: #234b73 !important;
-                outline: none;
-                border: none;
-            }
+            QTableWidget::item:selected {{
+                background:{_BG_SEL} !important;
+                color:{_T0};
+            }}
 
-            QTableWidget::item:hover {
-                background-color: transparent;
-            }
+            QTableWidget::item:focus {{
+                background:{_BG_SEL} !important;
+                outline:none;
+            }}
 
-            QTableWidget::item:alternate {
-                background-color: #070b12;
-            }
+            QTableWidget::item:alternate {{
+                background:{_BG_ALT};
+            }}
 
-            QTableWidget::item:alternate:selected {
-                background-color: #234b73 !important;
-                color: #ffffff;
-                font-weight: 600;
-            }
+            QTableWidget::item:alternate:selected {{
+                background:{_BG_SEL} !important;
+            }}
 
-            /* Header Styling - EXACT match to watchlist */
-            QHeaderView::section {
-                background-color: #0b1019;
-                color: #7fd4ff;
-                padding: 2px 5px;
-                border: none;
-                border-bottom: 1px solid #24344c;
-                border-right: 1px solid #121c2b;
-                font-weight: 600;
-                font-size: 11px;
-            }
+            /* ── Header ────────────────────────────────────────────────── */
+            QHeaderView {{
+                background:{_BG_HEADER};
+                border:none;
+            }}
 
-            QHeaderView::section:last {
-                border-right: none;
-            }
+            QHeaderView::section {{
+                background:{_BG_HEADER};
+                color:{_BLUE};
+                padding:3px 8px;
+                border:none;
+                border-bottom:1px solid {_BORDER};
+                border-right:1px solid {_BORDER};
+                font-family:'{_MONO}';
+                font-size:10px;
+                font-weight:700;
+                letter-spacing:0.8px;
+            }}
 
-            QHeaderView::section:hover {
-                background-color: #16253a;
-                color: #dbe9ff;
-            }
+            QHeaderView::section:last {{
+                border-right:none;
+            }}
 
-            /* Exit Button - EXACT match to watchlist remove button */
-            QPushButton#exitButton {
-                background-color: transparent;
-                color: #cc4444;
-                border: none;
-                font-weight: bold;
-                font-size: 12px;
-                border-radius: 8px;
-                padding: 0px;
-                margin: 0px;
-            }
+            QHeaderView::section:hover {{
+                background:#111d2c;
+                color:{_T0};
+            }}
 
-            QPushButton#exitButton:hover {
-                color: #ff6666;
-                background-color: #2a1f1f;
-            }
+            QHeaderView::down-arrow,
+            QHeaderView::up-arrow {{
+                width:0px;
+                height:0px;
+            }}
 
-            /* Minimal Footer Styling */
-            #positionsFooter {
-                background-color: #05070b;
-                border-top: 1px solid #1f2c3f;
-            }
+            /* ── Footer ────────────────────────────────────────────────── */
+            #positionsFooter {{
+                background:{_BG_FOOTER};
+                border-top:1px solid {_BORDER};
+            }}
 
-            #footerPrimaryMetric {
-                color: #e0e0e0;
-                font-size: 11px;
-                font-weight: 600;
-                background-color: transparent;
-                border: none;
-                margin: 0px;
-                padding: 0px;
-            }
+            #footerLabel {{
+                color:{_T2};
+                font-family:'{_MONO}';
+                font-size:10px;
+                font-weight:700;
+                letter-spacing:0.8px;
+                background:transparent;
+            }}
 
-            #footerSecondaryMetric {
-                color: #a0a0a0;
-                font-size: 10px;
-                font-weight: normal;
-                background-color: transparent;
-                border: none;
-                margin: 0px;
-                padding: 0px;
-            }
+            #footerValue {{
+                color:{_T1};
+                font-family:'{_MONO}';
+                font-size:11px;
+                font-weight:600;
+                background:transparent;
+                min-width:80px;
+            }}
 
-            #footerSeparator {
-                color: #505050;
-                font-size: 10px;
-                background-color: transparent;
-                border: none;
-                margin: 0px;
-                padding: 0px;
-            }
+            /* ── Context menu ───────────────────────────────────────────── */
+            QMenu#posContextMenu {{
+                background:#0c121e;
+                border:1px solid {_BORDER};
+                border-radius:4px;
+                padding:4px 0;
+                font-family:'{_SANS}';
+                font-size:12px;
+                color:{_T0};
+            }}
+            QMenu#posContextMenu::item {{
+                padding:7px 18px;
+            }}
+            QMenu#posContextMenu::item:selected {{
+                background:#1a2840;
+                color:{_T0};
+            }}
+            QMenu#posContextMenu::item:disabled {{
+                color:{_T2};
+            }}
+            QMenu#posContextMenu::separator {{
+                height:1px;
+                background:{_BORDER};
+                margin:3px 0;
+            }}
 
-            /* Enhanced Scrollbars - EXACT match to watchlist */
-            QScrollBar:vertical {
-                background-color: #05070b;
-                width: 8px;
-                border: none;
-                margin: 0px;
-            }
-
-            QScrollBar::handle:vertical {
-                background-color: #424242;
-                border-radius: 4px;
-                min-height: 20px;
-                margin: 2px;
-            }
-
-            QScrollBar::handle:vertical:hover {
-                background-color: #616161;
-            }
-
-            QScrollBar:horizontal {
-                background-color: #05070b;
-                height: 8px;
-                border: none;
-                margin: 0px;
-            }
-
-            QScrollBar::handle:horizontal {
-                background-color: #424242;
-                border-radius: 4px;
-                min-width: 20px;
-                margin: 2px;
-            }
-
-            QScrollBar::handle:horizontal:hover {
-                background-color: #616161;
-            }
-
-            QScrollBar::add-line, QScrollBar::sub-line {
-                border: none;
-                background: none;
-                width: 0px;
-                height: 0px;
-                margin: 0px;
-            }
+            /* ── Scrollbars ─────────────────────────────────────────────── */
+            QScrollBar:vertical {{
+                background:transparent;
+                width:5px;
+                border:none;
+            }}
+            QScrollBar::handle:vertical {{
+                background:#2a3850;
+                border-radius:2px;
+                min-height:20px;
+            }}
+            QScrollBar::handle:vertical:hover {{
+                background:#4a6888;
+            }}
+            QScrollBar:horizontal {{
+                background:transparent;
+                height:5px;
+                border:none;
+            }}
+            QScrollBar::handle:horizontal {{
+                background:#2a3850;
+                border-radius:2px;
+            }}
+            QScrollBar::add-line,QScrollBar::sub-line {{
+                border:none;background:none;width:0px;height:0px;
+            }}
         """)
-
-        logger.info("Consistent styling applied to positions table.")
