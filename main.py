@@ -14,7 +14,7 @@ import atexit
 from typing import Optional
 
 from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import QApplication, QMessageBox, QWidget
+from PySide6.QtWidgets import QApplication, QMessageBox, QWidget, QSystemTrayIcon
 from PySide6.QtCore import QTimer
 
 # --- Local Imports ---
@@ -36,6 +36,7 @@ class Application:
         self.app: Optional[QApplication] = None
         self.window: Optional[QWidget] = None
         self.broker_manager: Optional[BrokerClientManager] = None
+        self.tray_icon: Optional[QSystemTrayIcon] = None
         self._setup_signal_handlers()
 
     def run(self):
@@ -43,7 +44,17 @@ class Application:
         logger.info("🚀 Starting Qullamaggie Application...")
         self.app = QApplication(sys.argv)
         self.app.setApplicationName("Qullamaggie")
-        self.app.setWindowIcon(QIcon("assets/qullamaggie_icon.svg"))
+        app_icon = QIcon("assets/qullamaggie_icon.svg")
+        self.app.setWindowIcon(app_icon)
+
+        if QSystemTrayIcon.isSystemTrayAvailable():
+            self.tray_icon = QSystemTrayIcon(self.app)
+            self.tray_icon.setIcon(app_icon)
+            self.tray_icon.setToolTip("Qullamaggie Trading App")
+            self.tray_icon.show()
+            logger.info("System tray icon loaded.")
+        else:
+            logger.warning("System tray is not available on this Desktop Environment.")
 
         self.broker_manager = BrokerClientManager()
 
@@ -145,6 +156,8 @@ class Application:
     def _cleanup(self):
         """Graceful cleanup of application resources."""
         logger.info("Shutting down and cleaning up resources...")
+        if self.tray_icon:
+            self.tray_icon.hide()
         if self.broker_manager:
             self.broker_manager.disconnect_all()
         if self.window:
