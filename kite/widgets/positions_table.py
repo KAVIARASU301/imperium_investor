@@ -39,7 +39,7 @@ _T1 = "#8ea3bc"  # secondary text
 _T2 = "#506070"  # muted
 _GREEN = "#26a69a"  # profit / up-tick
 _RED = "#ef5350"  # loss / down-tick
-_SANS = "-apple-system, Segoe UI, Roboto, Helvetica Neue, sans-serif"
+_APP_FONT_FAMILY = "Segoe UI"
 
 # Column indices
 COL_SYMBOL = 0
@@ -154,7 +154,7 @@ class PositionsTable(QWidget):
         self.table.verticalHeader().setDefaultSectionSize(22)  # Tighter rows
 
         hdr = self.table.horizontalHeader()
-        hdr.setDefaultAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        hdr.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
         hdr.setSectionResizeMode(COL_SYMBOL, QHeaderView.ResizeMode.Stretch)
         for col in (COL_QTY, COL_AVG, COL_LTP, COL_OPEN_PNL):
             hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
@@ -228,20 +228,16 @@ class PositionsTable(QWidget):
 
         # Notice: No ₹ symbols to save horizontal space
         cells = [
-            (COL_SYMBOL, pos.symbol, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, _T0),
-            (COL_QTY, f"{qty_sign}{abs(pos.quantity)}", Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-             _GREEN if is_long else _RED),
-            (COL_AVG, f"{pos.avg_price:,.2f}", Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, _T1),
-            (COL_LTP, f"{tick_arrow} {pos.ltp:,.2f}", Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-             tick_col),
-            (COL_OPEN_PNL, f"{'+' if pnl >= 0 else ''}{pnl:,.2f}",
-             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, _GREEN if pnl >= 0 else _RED),
+            (COL_SYMBOL, pos.symbol, Qt.AlignmentFlag.AlignCenter, _T0),
+            (COL_QTY, f"{qty_sign}{abs(pos.quantity)}", Qt.AlignmentFlag.AlignCenter, _GREEN if is_long else _RED),
+            (COL_AVG, f"{pos.avg_price:,.2f}", Qt.AlignmentFlag.AlignCenter, _T1),
+            (COL_LTP, f"{tick_arrow} {pos.ltp:,.2f}", Qt.AlignmentFlag.AlignCenter, tick_col),
+            (COL_OPEN_PNL, f"{'+' if pnl >= 0 else ''}{pnl:,.2f}", Qt.AlignmentFlag.AlignCenter,
+             _GREEN if pnl >= 0 else _RED),
         ]
 
         # Use UI native fonts instead of Monospace
-        base_font = QFont()
-        base_font.setFamilies(_SANS.split(","))
-        base_font.setPixelSize(11)
+        base_font = QFont(_APP_FONT_FAMILY, 9)
 
         sym_font = QFont(base_font)
         sym_font.setBold(True)
@@ -441,8 +437,8 @@ class PositionsTable(QWidget):
             QWidget {{
                 background:{_BG_BASE};
                 color:{_T0};
-                font-family:'{_SANS}';
-                font-size:11px;
+                font-family:'{_APP_FONT_FAMILY}';
+                font-size:9pt;
             }}
             QTableWidget {{
                 background:{_BG_BASE};
@@ -471,8 +467,8 @@ class PositionsTable(QWidget):
                 border:none;
                 border-bottom:1px solid {_BORDER};
                 border-right:1px solid {_BORDER};
-                font-family:'{_SANS}';
-                font-size:10px;
+                font-family:'{_APP_FONT_FAMILY}';
+                font-size:9pt;
                 font-weight:600;
             }}
             QHeaderView::section:last {{ border-right:none; }}
@@ -484,13 +480,13 @@ class PositionsTable(QWidget):
             }}
             #footerLabel {{
                 color:{_T2};
-                font-family:'{_SANS}';
-                font-size:10px;
+                font-family:'{_APP_FONT_FAMILY}';
+                font-size:9pt;
             }}
             #footerValue {{
                 color:{_T1};
-                font-family:'{_SANS}';
-                font-size:11px;
+                font-family:'{_APP_FONT_FAMILY}';
+                font-size:9pt;
             }}
             QMenu#posContextMenu {{
                 background:#0c121e;
