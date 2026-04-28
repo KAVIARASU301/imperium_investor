@@ -53,6 +53,7 @@ HEADERS = ["Symbol", "Qty", "Avg", "LTP", "P&L"]
 # Throttle: refresh table visuals at 250 ms intervals (≈4 fps)
 _REFRESH_INTERVAL_MS = 250
 _FLASH_DURATION_MS = 350
+_LTP_COL_WIDTH = 100
 
 
 @dataclass
@@ -156,8 +157,10 @@ class PositionsTable(QWidget):
         hdr = self.table.horizontalHeader()
         hdr.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
         hdr.setSectionResizeMode(COL_SYMBOL, QHeaderView.ResizeMode.Stretch)
-        for col in (COL_QTY, COL_AVG, COL_LTP, COL_OPEN_PNL):
+        for col in (COL_QTY, COL_AVG, COL_OPEN_PNL):
             hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(COL_LTP, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(COL_LTP, _LTP_COL_WIDTH)
 
         hdr.setMinimumSectionSize(35)  # Reduced for compactness
         hdr.setHighlightSections(False)
@@ -228,10 +231,10 @@ class PositionsTable(QWidget):
 
         # Notice: No ₹ symbols to save horizontal space
         cells = [
-            (COL_SYMBOL, pos.symbol, Qt.AlignmentFlag.AlignCenter, _T0),
+            (COL_SYMBOL, pos.symbol, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, _T0),
             (COL_QTY, f"{qty_sign}{abs(pos.quantity)}", Qt.AlignmentFlag.AlignCenter, _GREEN if is_long else _RED),
             (COL_AVG, f"{pos.avg_price:,.2f}", Qt.AlignmentFlag.AlignCenter, _T1),
-            (COL_LTP, f"{tick_arrow} {pos.ltp:,.2f}", Qt.AlignmentFlag.AlignCenter, tick_col),
+            (COL_LTP, f"{tick_arrow if tick_arrow else ' '}  {pos.ltp:,.2f}", Qt.AlignmentFlag.AlignCenter, tick_col),
             (COL_OPEN_PNL, f"{'+' if pnl >= 0 else ''}{pnl:,.2f}", Qt.AlignmentFlag.AlignCenter,
              _GREEN if pnl >= 0 else _RED),
         ]
