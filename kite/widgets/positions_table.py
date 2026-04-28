@@ -286,8 +286,9 @@ class PositionsTable(QWidget):
 
         # Day change %
         day_chg_pct = 0.0
-        if pos.prev_close > 0 and pos.ltp > 0:
-            day_chg_pct = (pos.ltp - pos.prev_close) / pos.prev_close * 100
+        prev_close = float(getattr(pos, "prev_close", 0.0) or 0.0)
+        if prev_close > 0 and pos.ltp > 0:
+            day_chg_pct = (pos.ltp - prev_close) / prev_close * 100
 
         # Weight %
         investment = abs(pos.quantity) * pos.avg_price
@@ -347,7 +348,8 @@ class PositionsTable(QWidget):
     @staticmethod
     def _sort_key(col: int, pos: Position):
         pnl = (pos.ltp - pos.avg_price) * pos.quantity
-        day_chg = (pos.ltp - pos.prev_close) / pos.prev_close * 100 if pos.prev_close > 0 else 0
+        prev_close = float(getattr(pos, "prev_close", 0.0) or 0.0)
+        day_chg = (pos.ltp - prev_close) / prev_close * 100 if prev_close > 0 else 0
         mapping = {
             COL_SYMBOL:   pos.symbol,
             COL_QTY:      pos.quantity,

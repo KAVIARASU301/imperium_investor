@@ -40,6 +40,7 @@ class Position:
     ltp: float  = 0.0
     pnl:  float = 0.0
     product: str = "MIS"
+    prev_close: float = 0.0
 
 
 @dataclass
