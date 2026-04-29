@@ -532,8 +532,8 @@ class OrderDialog(QDialog):
         super().__init__(parent)
         self.setWindowFlags(Qt.Dialog | Qt.WindowCloseButtonHint)
         self.setAttribute(Qt.WA_TranslucentBackground, False)
-        self.setMinimumWidth(560)
-        self.resize(620, 560)
+        self.setMinimumWidth(500)
+        self.resize(500, 560)
 
         self.symbol     = symbol.strip().upper()
         self.ltp        = max(0.0, float(ltp))
@@ -661,12 +661,14 @@ class OrderDialog(QDialog):
         lay.addLayout(top_grid)
 
         qty_block = QWidget()
+        qty_block.setObjectName("qtyBlock")
         qty_block_lay = QVBoxLayout(qty_block)
         qty_block_lay.setContentsMargins(0, 0, 0, 0)
         qty_block_lay.setSpacing(3)
 
         # QUANTITY
         qty_hdr = QWidget()
+        qty_hdr.setObjectName("qtyHeader")
         qh = QHBoxLayout(qty_hdr)
         qh.setContentsMargins(0, 0, 0, 0)
         qh.addWidget(self._section_label("QUANTITY"))
@@ -687,12 +689,14 @@ class OrderDialog(QDialog):
         qty_block_lay.addLayout(qty_row)
 
         price_block = QWidget()
+        price_block.setObjectName("priceBlock")
         price_block_lay = QVBoxLayout(price_block)
         price_block_lay.setContentsMargins(0, 0, 0, 0)
         price_block_lay.setSpacing(3)
 
         # PRICE
         self._price_hdr = QWidget()
+        self._price_hdr.setObjectName("priceHeader")
         ph = QHBoxLayout(self._price_hdr)
         ph.setContentsMargins(0, 0, 0, 0)
         ph.addWidget(self._section_label("PRICE"))
@@ -701,6 +705,7 @@ class OrderDialog(QDialog):
         price_block_lay.addWidget(self._price_hdr)
 
         self._price_row_w = QWidget()
+        self._price_row_w.setObjectName("priceRow")
         pr = QHBoxLayout(self._price_row_w)
         pr.setContentsMargins(0, 0, 0, 0)
         pr.setSpacing(3)
@@ -734,6 +739,7 @@ class OrderDialog(QDialog):
         lay.addWidget(self._trig_hdr)
 
         self._trig_row_w = QWidget()
+        self._trig_row_w.setObjectName("triggerRow")
         tr = QHBoxLayout(self._trig_row_w)
         tr.setContentsMargins(0, 0, 0, 0)
         tr.setSpacing(3)
@@ -783,6 +789,7 @@ class OrderDialog(QDialog):
 
     def _labeled_block(self, label: str, widget: QWidget) -> QWidget:
         block = QWidget()
+        block.setObjectName("fieldBlock")
         layout = QVBoxLayout(block)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(3)
@@ -1031,6 +1038,19 @@ class OrderDialog(QDialog):
             }}
             QGroupBox::title {{
                 subcontrol-origin:margin; left:8px; padding:0 4px;
+                background:transparent;
+            }}
+            QLabel, QCheckBox {{
+                background:transparent;
+            }}
+            QWidget#fieldBlock,
+            QWidget#qtyBlock,
+            QWidget#qtyHeader,
+            QWidget#priceBlock,
+            QWidget#priceHeader,
+            QWidget#priceRow,
+            QWidget#triggerRow {{
+                background:transparent;
             }}
         """)
         self._refresh_submit_style()
@@ -1397,72 +1417,3 @@ def _sep_v() -> QFrame:
     f.setStyleSheet(f"background:{P.BORDER};border:none;")
     return f
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  STANDALONE PREVIEW  (python order_dialog.py)
-# ─────────────────────────────────────────────────────────────────────────────
-
-if __name__ == "__main__":
-    import sys, random
-
-    app = QApplication(sys.argv)
-    app.setStyle("Fusion")
-
-    # Dark palette baseline
-    pal = QPalette()
-    pal.setColor(QPalette.Window,          QColor(P.BG1))
-    pal.setColor(QPalette.WindowText,      QColor(P.T0))
-    pal.setColor(QPalette.Base,            QColor(P.BG3))
-    pal.setColor(QPalette.AlternateBase,   QColor(P.BG2))
-    pal.setColor(QPalette.Text,            QColor(P.T0))
-    pal.setColor(QPalette.Button,          QColor(P.BG3))
-    pal.setColor(QPalette.ButtonText,      QColor(P.T0))
-    pal.setColor(QPalette.Highlight,       QColor(P.BLUE))
-    pal.setColor(QPalette.HighlightedText, QColor("#ffffff"))
-    app.setPalette(pal)
-
-    # Fake instrument
-    instrument = {
-        "exchange": "NSE", "segment": "NSE", "lot_size": 1,
-        "tick_size": 0.05, "prev_close": 2829.10,
-        "open": 2831.00, "high": 2869.80, "low": 2821.45,
-        "lower_circuit_limit": 2546.20, "upper_circuit_limit": 3112.00,
-    }
-
-    dlg = OrderDialog(
-        symbol="RELIANCE", ltp=2847.35,
-        instrument=instrument,
-        order_details={"available_margin": 284750.00},
-    )
-    dlg.order_placed.connect(lambda d: print("ORDER:", d))
-
-    # Simulate live ticks
-    depth_mock = [
-        {"price": 2847.20, "quantity": 342, "orders": 8},
-        {"price": 2847.00, "quantity": 518, "orders": 12},
-        {"price": 2846.75, "quantity": 203, "orders": 5},
-        {"price": 2846.50, "quantity": 891, "orders": 21},
-        {"price": 2846.25, "quantity": 412, "orders": 9},
-        {"price": 2847.50, "quantity": 215, "orders": 6},
-        {"price": 2847.75, "quantity": 334, "orders": 9},
-        {"price": 2848.00, "quantity": 672, "orders": 17},
-        {"price": 2848.25, "quantity": 289, "orders": 7},
-        {"price": 2848.50, "quantity": 543, "orders": 13},
-    ]
-    dlg.update_tick(2847.35, 2847.20, 2847.50, depth_mock)
-
-    def _simulate_tick():
-        ltp  = dlg.ltp + (random.random() - 0.49) * 1.4
-        bid  = round(ltp - 0.15, 2)
-        ask  = round(ltp + 0.15, 2)
-        for row in depth_mock[:5]:
-            row["price"] = round(row["price"] + (random.random()-0.5)*0.3, 2)
-            row["quantity"] = max(10, row["quantity"] + random.randint(-30, 30))
-        dlg.update_tick(round(ltp, 2), bid, ask, depth_mock)
-
-    tick_timer = QTimer()
-    tick_timer.timeout.connect(_simulate_tick)
-    tick_timer.start(1800)
-
-    dlg.show()
-    sys.exit(app.exec())
