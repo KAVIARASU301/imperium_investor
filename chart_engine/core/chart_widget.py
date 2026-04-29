@@ -360,6 +360,7 @@ class CandlestickChart(QWidget):
         tb.clear_drawings_btn.clicked.connect(
             lambda: self._js("if(window.chart) window.chart.clearAllDrawings();")
         )
+        tb.snapshot_btn.clicked.connect(self._save_drawings)
         tb.autoscale_btn.clicked.connect(self._auto_scale)
         tb.refresh_btn.clicked.connect(self._force_refresh)
         tb.settings_btn.clicked.connect(self._open_settings_dialog)
