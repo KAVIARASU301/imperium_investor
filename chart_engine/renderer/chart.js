@@ -139,6 +139,9 @@ class FixedTradingChart {
 
         // ── Drawings (DrawingEngine) ──
         patchConstructor(this, cfg);
+        if (this.drawingEngine) {
+            this.drawingEngine.onToolCleared = () => this._notifyDrawingToolCleared();
+        }
         this.activeContextMenu = null;
 
         // ── Watermark ──

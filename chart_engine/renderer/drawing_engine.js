@@ -503,9 +503,13 @@ class DrawingEngine {
     }
 
     clearTool() {
+        const hadActiveTool = Boolean(this.activeTool);
         this.activeTool = null;
         this.inProgress = null;
         this.canvas.style.cursor = 'default';
+        if (hadActiveTool && typeof this.onToolCleared === 'function') {
+            this.onToolCleared();
+        }
     }
 
     setExtend(mode) {
