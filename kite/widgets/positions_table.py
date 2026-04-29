@@ -3,7 +3,7 @@
 Institutional-grade Positions Table — Ultra-Compact Mode.
 
 Upgrades:
-  • Strictly 5 columns: Symbol, Qty, Avg, LTP, PnL
+  • Strictly 4 columns: Symbol, Qty, Avg, PnL
   • Stripped heavy monospace fonts; matches native app UI (Sans-serif)
   • Compact headers and cell paddings to minimize horizontal space
   • Zero visual noise (no currency symbols inline)
@@ -45,15 +45,13 @@ _APP_FONT_FAMILY = "Segoe UI"
 COL_SYMBOL = 0
 COL_QTY = 1
 COL_AVG = 2
-COL_LTP = 3
-COL_OPEN_PNL = 4
+COL_OPEN_PNL = 3
 
-HEADERS = ["Symbol", "Qty", "Avg", "LTP", "P&L"]
+HEADERS = ["Symbol", "Qty", "Avg", "P&L"]
 
 # Throttle: refresh table visuals at 250 ms intervals (≈4 fps)
 _REFRESH_INTERVAL_MS = 250
 _FLASH_DURATION_MS = 350
-_LTP_COL_WIDTH = 100
 
 
 @dataclass
@@ -168,8 +166,6 @@ class PositionsTable(QWidget):
         hdr.setSectionResizeMode(COL_SYMBOL, QHeaderView.ResizeMode.Stretch)
         for col in (COL_QTY, COL_AVG, COL_OPEN_PNL):
             hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
-        hdr.setSectionResizeMode(COL_LTP, QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(COL_LTP, _LTP_COL_WIDTH)
 
         hdr.setMinimumSectionSize(35)  # Reduced for compactness
         hdr.setHighlightSections(False)
@@ -235,29 +231,21 @@ class PositionsTable(QWidget):
         qty_sign = "+" if is_long else "−"
 
         tick_dir = self._tick_dirs.get(pos.symbol, 0)
-        tick_arrow = "▲" if tick_dir > 0 else ("▼" if tick_dir < 0 else "")
         table_colors = self._color_theme.get("tables", {})
         directional_colors_enabled = bool(self._color_theme.get("enable_table_directional_colors", False))
         profit_color = table_colors.get("positive", _GREEN)
         loss_color = table_colors.get("negative", _RED)
         neutral_color = table_colors.get("neutral", _T2)
 
-        ltp_base_color = neutral_color
-        if directional_colors_enabled:
-            ltp_base_color = profit_color if tick_dir > 0 else (loss_color if tick_dir < 0 else neutral_color)
-
         pnl_color = profit_color if pnl >= 0 else loss_color
         if not directional_colors_enabled and pnl == 0:
             pnl_color = neutral_color
-
-        tick_col = ltp_base_color
 
         # Notice: No ₹ symbols to save horizontal space
         cells = [
             (COL_SYMBOL, pos.symbol, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, _T0),
             (COL_QTY, f"{qty_sign}{abs(pos.quantity)}", Qt.AlignmentFlag.AlignCenter, profit_color if is_long else loss_color),
             (COL_AVG, f"{pos.avg_price:,.2f}", Qt.AlignmentFlag.AlignCenter, neutral_color),
-            (COL_LTP, f"{tick_arrow if tick_arrow else ' '}  {pos.ltp:,.2f}", Qt.AlignmentFlag.AlignCenter, tick_col),
             (COL_OPEN_PNL, f"{'+' if pnl >= 0 else ''}{pnl:,.2f}", Qt.AlignmentFlag.AlignCenter, pnl_color),
         ]
 
@@ -291,7 +279,6 @@ class PositionsTable(QWidget):
             COL_SYMBOL: pos.symbol,
             COL_QTY: pos.quantity,
             COL_AVG: pos.avg_price,
-            COL_LTP: pos.ltp,
             COL_OPEN_PNL: pnl,
         }
         return mapping.get(col, 0)
@@ -332,7 +319,7 @@ class PositionsTable(QWidget):
                 self._refresh_row(row, pos)
                 if prev_ltp > 0 and ltp != prev_ltp:
                     direction = 1 if ltp > prev_ltp else -1
-                    self._flashes.append(_FlashCell(row, COL_LTP, direction))
+                    self._flashes.append(_FlashCell(row, COL_OPEN_PNL, direction))
 
         self._pending_ticks.clear()
         self._update_footer()
