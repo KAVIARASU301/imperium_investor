@@ -63,8 +63,8 @@ class ChartSettingsDialog(QDialog):
         layout.addRow("Default Visible Candles:", self.visible_candles)
 
         # ── Candle colors ──
-        layout.addRow("Up Candle Color:", self._color_row("up_candle_color", "#26a69a"))
-        layout.addRow("Down Candle Color:", self._color_row("down_candle_color", "#ef5350"))
+        layout.addRow("Up Candle Color:", self._color_row("up_candle_color", "#00d4a8"))
+        layout.addRow("Down Candle Color:", self._color_row("down_candle_color", "#ff4d6a"))
 
         # ── Watermark ──
         self.wm_enabled = QCheckBox("Show symbol watermark")
@@ -168,10 +168,10 @@ class ChartSettingsDialog(QDialog):
             "candle_width": self.candle_width.value(),
             "candle_spacing": self.candle_spacing.value(),
             "default_visible_candles": self.visible_candles.value(),
-            "up_candle_color": self._s.get("up_candle_color", "#26a69a"),
-            "down_candle_color": self._s.get("down_candle_color", "#ef5350"),
-            "up_volume_color": self._s.get("up_volume_color", self._s.get("up_candle_color", "#26a69a")),
-            "down_volume_color": self._s.get("down_volume_color", self._s.get("down_candle_color", "#ef5350")),
+            "up_candle_color": self._s.get("up_candle_color", "#00d4a8"),
+            "down_candle_color": self._s.get("down_candle_color", "#ff4d6a"),
+            "up_volume_color": self._s.get("up_volume_color", self._s.get("up_candle_color", "#00d4a8")),
+            "down_volume_color": self._s.get("down_volume_color", self._s.get("down_candle_color", "#ff4d6a")),
             "watermark_enabled": self.wm_enabled.isChecked(),
             "show_watermark_description": self.wm_description.isChecked(),
             "toolbar_symbol_display": self.toolbar_symbol_display.currentData(),
