@@ -1031,11 +1031,11 @@ class TabbedWatchlistWidget(QWidget):
 
             /* Table Styling - EXACT match to scanner table */
             TradingTable {
-                background-color: #05070b;
-                border: 1px solid #1a2536;
-                gridline-color: #162131;
-                selection-background-color: #234b73;
-                alternate-background-color: #070b12;
+                background-color: #0f1318;
+                border: 1px solid #1a2030;
+                gridline-color: #1a2030;
+                selection-background-color: #1a2840;
+                alternate-background-color: #0f1318;
                 outline: none;
                 show-decoration-selected: 0;
                 font-size: 12px;
@@ -1044,13 +1044,14 @@ class TabbedWatchlistWidget(QWidget):
 
             TradingTable::item {
                 padding: 1px 5px;
-                border-bottom: 1px solid #101926;
+                border-bottom: 1px solid #1a2030;
                 background-color: transparent;
                 font-size: 12px;
+                font-family: "JetBrains Mono", "Consolas", monospace;
             }
 
             TradingTable::item:selected {
-                background-color: #234b73 !important;
+                background-color: #1a2840 !important;
                 outline: none;
                 border: none;
                 color: #ffffff;
@@ -1058,21 +1059,21 @@ class TabbedWatchlistWidget(QWidget):
             }
 
             TradingTable::item:focus {
-                background-color: #234b73 !important;
+                background-color: #1a2840 !important;
                 outline: none;
                 border: none;
             }
 
             TradingTable::item:hover {
-                background-color: transparent;
+                background-color: #141920;
             }
 
             TradingTable::item:alternate {
-                background-color: #070b12;
+                background-color: #0f1318;
             }
 
             TradingTable::item:alternate:selected {
-                background-color: #234b73 !important;
+                background-color: #1a2840 !important;
                 color: #ffffff;
                 font-weight: 600;
             }

@@ -27,13 +27,13 @@ from PySide6.QtGui import QColor, QFont, QBrush, QCursor
 logger = logging.getLogger(__name__)
 
 # ─── Palette ──────────────────────────────────────────────────────────────────
-_BG_BASE = "#03060c"
-_BG_ALT = "#070b12"
+_BG_BASE = "#0f1318"
+_BG_ALT = "#0f1318"
 _BG_HEADER = "#0b1019"
 _BG_FOOTER = "#080d15"
-_BG_SEL = "#1a3350"
-_BG_HOVER = "#0f1a28"
-_BORDER = "#1a2536"
+_BG_SEL = "#1a2840"
+_BG_HOVER = "#141920"
+_BORDER = "#1a2030"
 _T0 = "#d8e4f0"  # primary text
 _T1 = "#8ea3bc"  # secondary text
 _T2 = "#506070"  # muted
@@ -484,8 +484,16 @@ class PositionsTable(QWidget):
             QTableWidget::item {{
                 padding:1px 6px; /* Tighter cell padding */
                 border-bottom:1px solid {_BORDER};
+                font-family:"JetBrains Mono","Consolas",monospace;
             }}
             QTableWidget::item:selected {{
+                background:{_BG_SEL} !important;
+                color:{_T0};
+            }}
+            QTableWidget::item:hover {{
+                background:{_BG_HOVER};
+            }}
+            QTableWidget::item:focus {{
                 background:{_BG_SEL} !important;
                 color:{_T0};
             }}
