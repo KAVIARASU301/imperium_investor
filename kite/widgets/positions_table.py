@@ -104,6 +104,15 @@ class PositionsTable(QWidget):
         self._flashes: List[_FlashCell] = []
         self._pending_ticks: Dict[int, float] = {}
 
+        self._color_theme: Dict = {
+            "enable_table_directional_colors": False,
+            "tables": {
+                "positive": _GREEN,
+                "negative": _RED,
+                "neutral": _T2,
+            },
+        }
+
         self._setup_ui()
         self._apply_styles()
 
@@ -227,16 +236,29 @@ class PositionsTable(QWidget):
 
         tick_dir = self._tick_dirs.get(pos.symbol, 0)
         tick_arrow = "▲" if tick_dir > 0 else ("▼" if tick_dir < 0 else "")
-        tick_col = _GREEN if tick_dir > 0 else (_RED if tick_dir < 0 else _T2)
+        table_colors = self._color_theme.get("tables", {})
+        directional_colors_enabled = bool(self._color_theme.get("enable_table_directional_colors", False))
+        profit_color = table_colors.get("positive", _GREEN)
+        loss_color = table_colors.get("negative", _RED)
+        neutral_color = table_colors.get("neutral", _T2)
+
+        ltp_base_color = neutral_color
+        if directional_colors_enabled:
+            ltp_base_color = profit_color if tick_dir > 0 else (loss_color if tick_dir < 0 else neutral_color)
+
+        pnl_color = profit_color if pnl >= 0 else loss_color
+        if not directional_colors_enabled and pnl == 0:
+            pnl_color = neutral_color
+
+        tick_col = ltp_base_color
 
         # Notice: No ₹ symbols to save horizontal space
         cells = [
             (COL_SYMBOL, pos.symbol, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, _T0),
-            (COL_QTY, f"{qty_sign}{abs(pos.quantity)}", Qt.AlignmentFlag.AlignCenter, _GREEN if is_long else _RED),
-            (COL_AVG, f"{pos.avg_price:,.2f}", Qt.AlignmentFlag.AlignCenter, _T1),
+            (COL_QTY, f"{qty_sign}{abs(pos.quantity)}", Qt.AlignmentFlag.AlignCenter, profit_color if is_long else loss_color),
+            (COL_AVG, f"{pos.avg_price:,.2f}", Qt.AlignmentFlag.AlignCenter, neutral_color),
             (COL_LTP, f"{tick_arrow if tick_arrow else ' '}  {pos.ltp:,.2f}", Qt.AlignmentFlag.AlignCenter, tick_col),
-            (COL_OPEN_PNL, f"{'+' if pnl >= 0 else ''}{pnl:,.2f}", Qt.AlignmentFlag.AlignCenter,
-             _GREEN if pnl >= 0 else _RED),
+            (COL_OPEN_PNL, f"{'+' if pnl >= 0 else ''}{pnl:,.2f}", Qt.AlignmentFlag.AlignCenter, pnl_color),
         ]
 
         # Use UI native fonts instead of Monospace
@@ -256,9 +278,9 @@ class PositionsTable(QWidget):
 
         pnl_item = self.table.item(row, COL_OPEN_PNL)
         if pnl_item:
-            if pnl > 0:
+            if directional_colors_enabled and pnl > 0:
                 pnl_item.setBackground(QBrush(QColor(18, 55, 34, 160)))
-            elif pnl < 0:
+            elif directional_colors_enabled and pnl < 0:
                 pnl_item.setBackground(QBrush(QColor(70, 20, 20, 160)))
             else:
                 pnl_item.setBackground(QBrush(QColor(20, 28, 42, 120)))
