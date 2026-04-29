@@ -1,0 +1,199 @@
+# Institutional Color System for Your Trading Terminal
+
+Here's a complete color architecture used by TC2000, Bloomberg, and professional trading platforms.
+
+---
+
+## The Core Palette Philosophy
+
+Professional terminals use **three distinct color systems** working together: a neutral dark foundation, semantic signal colors, and accent hierarchy. The key insight is that **neutrals do 80% of the work** — color only appears where it carries meaning.
+
+---
+
+## Foundation (Background Layers)
+
+Use exactly 4 depth levels, each 6-8 points lighter than the last:
+
+```
+BG-0  #050709   → App shell, outermost container (near-OLED black)
+BG-1  #0a0d12   → Primary panels, main content areas
+BG-2  #0f1318   → Cards, table rows, input backgrounds
+BG-3  #141920   → Hover states, selected rows, elevated elements
+BG-4  #1a2030   → Borders and subtle dividers
+```
+
+The progression creates natural depth without shadows.
+
+---
+
+## Signal Colors (The Most Important Decisions)
+
+**Never use pure red/green.** Raw #ff0000 and #00ff00 look like amateur stock tickers. Professional platforms use desaturated, slightly warm variants:
+
+```
+BULL (Profit / Up / Buy)
+  Primary:    #00d4a8   → Teal-green (TC2000's signature)
+  Dim:        #1a7a62   → Muted for table backgrounds
+  Background: rgba(0,212,168, 0.07) → Subtle row tinting
+
+BEAR (Loss / Down / Sell)
+  Primary:    #ff4d6a   → Warm crimson (not pure red)
+  Dim:        #7a2030   → Muted for table backgrounds
+  Background: rgba(255,77,106, 0.07) → Subtle row tinting
+
+NEUTRAL
+  Primary:    #7a94b0   → Blue-grey for unchanged values
+  Dim:        #3a4d60   → For secondary data
+```
+
+**Why teal-green instead of lime green?** Teal reads as "positive/safe" without the visual aggression of pure green. Bloomberg uses it, TC2000 uses it, most pro platforms use it.
+
+---
+
+## Candle Colors
+
+```
+BULL CANDLE
+  Body fill:    #00c896   → Brighter than text green for visibility
+  Body border:  #009e78   → 20% darker than fill
+  Wick:         #009e78
+
+BEAR CANDLE
+  Body fill:    #e84060   → Slightly muted from signal red
+  Body border:  #b83050   → 20% darker
+  Wick:         #b83050
+
+DOJI / Neutral candle: #5a7090
+```
+
+For **volume bars**, use the same colors at 55% opacity — this is standard across all professional platforms and visually connects price and volume without competing.
+
+---
+
+## Text Hierarchy
+
+Four levels, strictly enforced:
+
+```
+T-0  #e8f0ff   → Primary values: prices, P&L amounts, symbol names
+T-1  #a8bcd4   → Secondary: column headers, labels, timestamps
+T-2  #5a7090   → Tertiary: muted metadata, axis labels
+T-3  #2a3a50   → Quaternary: disabled states, placeholder text
+```
+
+The rule: **data that changes gets T-0. Labels that describe it get T-1 or T-2.**
+
+---
+
+## Accent Colors (Functional, Not Decorative)
+
+```
+CYAN    #00d4ff   → Live price ray, selected elements, focus rings
+AMBER   #f59e0b   → Alerts, warnings, pending orders, ATM strike
+PURPLE  #a78bfa   → RSI, indicator overlays
+BLUE    #3b82f6   → VWAP, EMA200, informational states
+```
+
+Each accent maps to exactly one function. Never reuse amber for something other than alerts.
+
+---
+
+## P&L and Position Colors
+
+```
+Open profit:   #00d4a8 with #0a2520 background tint
+Open loss:     #ff4d6a with #200a10 background tint
+Flat/zero:     #7a94b0 plain, no background tint
+Realized gain: #00d4a8 bold
+Realized loss: #ff4d6a bold
+```
+
+The background tint on table rows is critical — it lets traders read positions at a glance without reading numbers.
+
+---
+
+## Scanner / Watchlist Change Column
+
+```
++3% or more:    #00d4a8 + background rgba(0,212,168,0.12)
++1% to +3%:     #22c4a0 + background rgba(34,196,160,0.07)
+-0.5% to +1%:   #7a94b0 plain
+-1% to -0.5%:   #e87060 + background rgba(232,112,96,0.07)
+-3% or less:    #ff4d6a + background rgba(255,77,106,0.12)
+```
+
+This **heat-map gradient** approach is used by every institutional scanner. The color intensity communicates magnitude before the trader reads the number.
+
+---
+
+## Order Types Color Coding
+
+```
+BUY / LONG entry:  #00d4a8
+SELL / SHORT entry: #ff4d6a
+LIMIT pending:      #f59e0b (amber — waiting)
+MARKET:             #60a8ff (blue — instant)
+SL order active:    #ff8c42 (orange — protective)
+CANCELLED:          #3a4d60 (dimmed out)
+COMPLETE:           #00d4a8 for buy, #ff4d6a for sell
+```
+
+---
+
+## Chart Line Colors for Indicators
+
+Assign each indicator a permanent, never-changing color. Users will learn them:
+
+```
+EMA 10:   #2979ff   → Deep blue
+EMA 20:   #aa00ff   → Violet
+EMA 50:   #ff6d00   → Orange
+EMA 200:  #f50057   → Hot pink (most important, most visible)
+VWAP:     #ff9100   → Amber-orange (institutional benchmark)
+ATR TR:   #ff1744   → Alert red (reversal signal)
+CVD:      #00b0ff   → Sky blue
+RSI:      #76ff03   → Chartreuse (sub-panel)
+```
+
+**Critical rule:** EMA200 should be the most visually prominent EMA because it's the most institutionally significant. The hot pink at 1.2px weight stands out clearly.
+
+---
+
+## Alert Lines on Chart
+
+```
+Alert line color:          #ffd700   → Gold (always gold, universally recognizable)
+Position entry line:        #00d4a8 for long, #ff4d6a for short
+Stop loss line:             #ff8c42   → Orange (distinct from SL order color for contrast)
+Target line:                #00d4a8 dashed
+```
+
+---
+
+## Status Bar
+
+```
+Market OPEN:     #00d4a8
+Market CLOSED:   #3a4d60
+API CONNECTED:   #00d4a8 dot
+API ERROR:       #ff4d6a dot
+Heartbeat tick:  #2a3a50 / #00d4a8 alternating (subtle pulse)
+```
+
+---
+
+## Implementation Rules
+
+**Consistency rules to follow strictly:**
+
+1. **Never use opacity for emphasis** — use a lighter shade from your palette instead. Opacity stacking causes muddy colors.
+
+2. **Table row hover:** Always `BG-3` (#141920), never a colored tint on hover.
+
+3. **Selected row:** `#1a2840` — a cool blue-dark, not BG-3. This distinguishes selection from hover.
+
+4. **Borders:** Only one weight — 1px solid `BG-4` (#1a2030). No rounded corners on data tables. Sharp edges everywhere.
+
+5. **Font for numbers:** Always monospace (Consolas or JetBrains Mono). Proportional fonts cause column widths to shift as numbers update, which is visually jarring in a live terminal.
+
+6. **The 1% rule for color:** If more than 1% of visible pixels are colored (non-neutral), you have too much color. Professional terminals are mostly dark grey — color is a signal, not decoration.

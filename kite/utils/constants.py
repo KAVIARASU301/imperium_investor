@@ -39,21 +39,42 @@ MAX_STRIKE_RANGE = 10
 DEFAULT_STRIKE_RANGE = 5
 MIN_OI_THRESHOLD = 100000
 
-# Color scheme
+# Institutional color scheme
 COLORS = {
-    "profit": "#4CAF50",
-    "loss": "#F44336",
-    "neutral": "#6c757d",
-    "buy": "#007bff",
-    "sell": "#ffc107",
-    "background": "#0f0f0f",
-    "foreground": "#1a1a1a",
-    "text": "#ffffff",
-    "text_muted": "#888888",
-    "border": "#333333",
-    "hover": "#2a2a2a",
-    "selected": "#3a3a3a"
+    # Foundation
+    "bg_0": "#050709",
+    "bg_1": "#0a0d12",
+    "bg_2": "#0f1318",
+    "bg_3": "#141920",
+    "bg_4": "#1a2030",
+
+    # Signal colors
+    "profit": "#00d4a8",
+    "loss": "#ff4d6a",
+    "neutral": "#7a94b0",
+    "buy": "#00d4a8",
+    "sell": "#ff4d6a",
+
+    # Text hierarchy
+    "text": "#e8f0ff",
+    "text_secondary": "#a8bcd4",
+    "text_muted": "#5a7090",
+    "text_disabled": "#2a3a50",
+
+    # Table and interaction states
+    "background": "#0a0d12",
+    "foreground": "#0f1318",
+    "border": "#1a2030",
+    "hover": "#141920",
+    "selected": "#1a2840",
+
+    # Functional accents
+    "accent_cyan": "#00d4ff",
+    "accent_amber": "#f59e0b",
+    "accent_purple": "#a78bfa",
+    "accent_blue": "#3b82f6",
 }
+
 
 # Market timings (IST)
 MARKET_OPEN_HOUR = 9

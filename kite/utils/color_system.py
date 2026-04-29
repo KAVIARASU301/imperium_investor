@@ -11,18 +11,18 @@ DEFAULT_COLOR_THEME: Dict[str, Any] = {
     "enable_table_directional_colors": False,
     "enable_volume_strength_indicator": False,
     "candles": {
-        "up": "#26a69a",
-        "down": "#ef5350",
+        "up": "#00c896",
+        "down": "#e84060",
     },
     "volume": {
-        "up": "#26a69a",
-        "down": "#ef5350",
+        "up": "#00c896",
+        "down": "#e84060",
     },
     "tables": {
-        "positive": "#26a69a",
-        "negative": "#ef5350",
-        "neutral": "#a9a9a9",
-        "volume": "#45d4ff",
+        "positive": "#00d4a8",
+        "negative": "#ff4d6a",
+        "neutral": "#7a94b0",
+        "volume": "#00d4ff",
     },
 }
 

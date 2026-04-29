@@ -40,15 +40,35 @@ STRIKE_STEP_RULES = {
     "penny_pilot": 0.5
 }
 
-# Colors for UI (USD themed)
+# Institutional color scheme
 COLORS = {
-    "primary": "#1976D2",      # Blue
-    "secondary": "#D32F2F",    # Red
-    "success": "#388E3C",      # Green
-    "warning": "#F57C00",      # Orange
-    "background": "#1E1E1E",   # Dark
-    "text": "#FFFFFF"          # White
+    # Foundation
+    "bg_0": "#050709",
+    "bg_1": "#0a0d12",
+    "bg_2": "#0f1318",
+    "bg_3": "#141920",
+    "bg_4": "#1a2030",
+
+    # Signal colors
+    "primary": "#00d4a8",
+    "secondary": "#ff4d6a",
+    "success": "#00d4a8",
+    "warning": "#f59e0b",
+    "neutral": "#7a94b0",
+
+    # Text hierarchy
+    "text": "#e8f0ff",
+    "text_secondary": "#a8bcd4",
+    "text_muted": "#5a7090",
+
+    # Surfaces and controls
+    "background": "#0a0d12",
+    "surface": "#0f1318",
+    "hover": "#141920",
+    "selected": "#1a2840",
+    "border": "#1a2030",
 }
+
 
 # Market hours (ET)
 MARKET_HOURS = {
