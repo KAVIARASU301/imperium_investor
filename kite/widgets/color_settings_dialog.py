@@ -83,6 +83,9 @@ class ColorSettingsDialog(QDialog):
     Strict TC2000 dark mode aesthetic, frameless drag, sharp borders.
     """
 
+    DEFAULT_BULL_CANDLE_COLOR = "#00c896"
+    DEFAULT_BEAR_CANDLE_COLOR = "#e84060"
+
     def __init__(self, current_theme: Dict[str, Any], parent=None):
         super().__init__(parent)
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
@@ -182,12 +185,18 @@ class ColorSettingsDialog(QDialog):
         cancel_btn.setCursor(QCursor(Qt.PointingHandCursor))
         cancel_btn.clicked.connect(self.reject)
 
+        reset_btn = QPushButton("RESET DEFAULT CANDLES")
+        reset_btn.setObjectName("actionBtnSecondary")
+        reset_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        reset_btn.clicked.connect(self._reset_default_candle_colors)
+
         save_btn = QPushButton("APPLY SETTINGS")
         save_btn.setObjectName("actionBtnPrimary")
         save_btn.setCursor(QCursor(Qt.PointingHandCursor))
         save_btn.clicked.connect(self.accept)
 
         btn_layout.addWidget(cancel_btn)
+        btn_layout.addWidget(reset_btn)
         btn_layout.addWidget(save_btn)
         body_layout.addLayout(btn_layout)
 
@@ -380,6 +389,15 @@ class ColorSettingsDialog(QDialog):
         self._theme["enable_table_directional_colors"] = self.table_color_toggle_checkbox.isChecked()
         self._theme["enable_volume_strength_indicator"] = self.volume_strength_toggle_checkbox.isChecked()
         return self._theme
+
+    def _reset_default_candle_colors(self):
+        self._set_color("candles.up", self.DEFAULT_BULL_CANDLE_COLOR)
+        self._set_color("candles.down", self.DEFAULT_BEAR_CANDLE_COLOR)
+        self._set_button_color(self._buttons["candles.up"], self.DEFAULT_BULL_CANDLE_COLOR)
+        self._set_button_color(self._buttons["candles.down"], self.DEFAULT_BEAR_CANDLE_COLOR)
+
+        if self.link_checkbox.isChecked():
+            self._sync_linked_colors_from_candles()
 
     # ─────────────────────────────────────────────────────────────────────────────
     #  FRAMELESS WINDOW DRAG SUPPORT
