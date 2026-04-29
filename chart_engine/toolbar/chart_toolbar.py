@@ -224,7 +224,7 @@ class ChartToolbar(QFrame):
         self._drawing_action_group: Optional[QActionGroup] = None
         self._tool_buttons:     Dict[str, QPushButton] = {}
         self._tool_btn_group:   Optional[QButtonGroup] = None
-        self._favorite_tools = ["line", "horizontal_line", "fibonacci", "rectangle"]
+        self._favorite_tools = ["line", "horizontal_line", "note"]
 
         # ── Public compat attributes ───────────────────────────────────────
         self.symbol_label:      Optional[QLabel]       = None
@@ -742,9 +742,8 @@ class ChartToolbar(QFrame):
             favorite_tools = prefs.get("favorite_tools")
             if isinstance(favorite_tools, list):
                 filtered = [str(tid) for tid in favorite_tools if str(tid) in all_tools]
-                if filtered:
-                    self._favorite_tools = filtered
-                    self._rebuild_favorites_tray()
+                self._favorite_tools = filtered
+                self._rebuild_favorites_tray()
 
             chart_type = prefs.get("chart_type")
             if isinstance(chart_type, str) and chart_type in self._ct_actions:
