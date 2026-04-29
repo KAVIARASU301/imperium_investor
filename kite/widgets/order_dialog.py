@@ -493,8 +493,6 @@ class _CircuitBar(QWidget):
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing, False)
-        # Track
-        p.fillRect(self.rect(), QColor(P.BG3))
         # Fill (gradient)
         w = int(self.width() * self._pct)
         if w > 0:
@@ -1416,4 +1414,3 @@ def _sep_v() -> QFrame:
     f.setFixedWidth(1)
     f.setStyleSheet(f"background:{P.BORDER};border:none;")
     return f
-
