@@ -1520,9 +1520,19 @@ class ChartinkScannerTable(QWidget):
                         except (TypeError, ValueError):
                             pass
 
-                chg = tick.get('change_percent') or tick.get('net_change_percent')
+                # NOTE: Do not use `or` here because a valid 0.0 change gets treated as falsey.
+                chg = tick.get('change_percent')
+                if chg is None:
+                    chg = tick.get('net_change_percent')
+
                 if chg is not None:
-                    data['change_pct'] = float(chg)
+                    incoming_chg = float(chg)
+                    existing_chg = float(data.get('change_pct', 0.0) or 0.0)
+
+                    # Some feeds briefly send 0.0 during bootstrap; preserve already-known
+                    # non-zero EOD change to avoid flickering everything to neutral gray.
+                    if abs(incoming_chg) > 1e-9 or abs(existing_chg) <= 0.01:
+                        data['change_pct'] = incoming_chg
                 else:
                     ohlc = tick.get('ohlc') or {}
                     prev_close = ohlc.get('close', 0.0) if isinstance(ohlc, dict) else 0.0
