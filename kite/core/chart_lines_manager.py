@@ -37,6 +37,12 @@ class ChartLinesManager(QObject):
         self.drawings_dir = "kite/user_data/chart_drawings"
         os.makedirs(self.drawings_dir, exist_ok=True)
 
+    def _get_trading_mode(self) -> str:
+        """Return active trading mode ('live' or 'paper')."""
+        mode = getattr(self.main_window, "trading_mode", "live")
+        mode = str(mode).lower()
+        return "paper" if mode == "paper" else "live"
+
     # ─────────────────────────────────────────────────────────────────────────
     # FILE PATH HELPERS
     # ─────────────────────────────────────────────────────────────────────────
@@ -241,7 +247,7 @@ class ChartLinesManager(QObject):
 
             new_line = self._create_horizontal_ray_line(
                 price=price, color="#FFD700", start_time=0, text="",
-                metadata={"lineCategory": "alert"},
+                metadata={"lineCategory": "alert", "tradingMode": self._get_trading_mode()},
             )
 
             def _apply(d):
@@ -260,20 +266,24 @@ class ChartLinesManager(QObject):
             return False
 
     def _has_existing_alert_drawings(self, drawings: Dict, price: float) -> bool:
+        mode = self._get_trading_mode()
         return any(
             ray.get("type") == "horizontal_ray" and
             abs(ray.get("startPrice", 0) - price) < 0.01 and
-            (ray.get("lineCategory") == "alert" or ray.get("color") == "#FFD700")
+            (ray.get("lineCategory") == "alert" or ray.get("color") == "#FFD700") and
+            str(ray.get("tradingMode", "live")).lower() == mode
             for ray in drawings.get("horizontal_rays", [])
         )
 
     def _remove_existing_alert_drawings(self, drawings: Dict, price: float) -> None:
+        mode = self._get_trading_mode()
         drawings["horizontal_rays"] = [
             ray for ray in drawings.get("horizontal_rays", [])
             if not (
                 ray.get("type") == "horizontal_ray" and
                 abs(ray.get("startPrice", 0) - price) < 0.01 and
-                (ray.get("lineCategory") == "alert" or ray.get("color") == "#FFD700")
+                (ray.get("lineCategory") == "alert" or ray.get("color") == "#FFD700") and
+                str(ray.get("tradingMode", "live")).lower() == mode
             )
         ]
         # Remove legacy note-based alert labels
@@ -358,6 +368,7 @@ class ChartLinesManager(QObject):
                     "quantity": int(total_quantity),
                     "orderType": normalized_order_type,
                     "avgPrice": float(final_avg_price),
+                    "tradingMode": self._get_trading_mode(),
                 },
             )
 
@@ -395,8 +406,11 @@ class ChartLinesManager(QObject):
 
     def _get_existing_position_info(self, drawings: Dict) -> Optional[Dict]:
         try:
+            mode = self._get_trading_mode()
             for ray in drawings.get("horizontal_rays", []):
                 if ray.get("type") != "horizontal_ray" or ray.get("lineCategory") != "position":
+                    continue
+                if str(ray.get("tradingMode", "live")).lower() != mode:
                     continue
                 quantity = ray.get("quantity")
                 order_type = ray.get("orderType")
@@ -412,7 +426,8 @@ class ChartLinesManager(QObject):
             # Fallback: legacy color-based detection
             for ray in drawings.get("horizontal_rays", []):
                 if (ray.get("type") == "horizontal_ray" and
-                        ray.get("color") in ["#00FF00", "#FF0000"]):
+                        ray.get("color") in ["#00FF00", "#FF0000"] and
+                        str(ray.get("tradingMode", "live")).lower() == mode):
                     color = ray.get("color")
                     order_type = "BUY" if color == "#00FF00" else "SELL"
                     price = ray.get("startPrice", 0)
@@ -425,12 +440,14 @@ class ChartLinesManager(QObject):
             return None
 
     def _remove_existing_position_lines(self, drawings: Dict) -> None:
+        mode = self._get_trading_mode()
         drawings["horizontal_rays"] = [
             ray for ray in drawings.get("horizontal_rays", [])
             if not (
                 ray.get("type") == "horizontal_ray" and
                 (ray.get("lineCategory") == "position" or
-                 ray.get("color") in ["#00FF00", "#FF0000"])
+                 ray.get("color") in ["#00FF00", "#FF0000"]) and
+                str(ray.get("tradingMode", "live")).lower() == mode
             )
         ]
         drawings["notes"] = [
@@ -441,6 +458,24 @@ class ChartLinesManager(QObject):
                 note.get("color") in ["#00FF00", "#FF0000"]
             )
         ]
+
+
+    def _filter_drawings_for_mode(self, drawings: Dict[str, Any]) -> Dict[str, Any]:
+        """Return a copy of drawings that only includes active-mode alert/position lines."""
+        mode = self._get_trading_mode()
+        out = dict(drawings)
+        rays = list(drawings.get("horizontal_rays", []))
+
+        def _keep(ray: Dict[str, Any]) -> bool:
+            category = ray.get("lineCategory")
+            is_alert = category == "alert" or ray.get("color") == "#FFD700"
+            is_position = category == "position" or ray.get("color") in ["#00FF00", "#FF0000"]
+            if not (is_alert or is_position):
+                return True
+            return str(ray.get("tradingMode", "live")).lower() == mode
+
+        out["horizontal_rays"] = [r for r in rays if _keep(r)]
+        return out
 
     # ─────────────────────────────────────────────────────────────────────────
     # CHART REFRESH  (waits for chart LOADED state before injecting)
@@ -473,14 +508,15 @@ class ChartLinesManager(QObject):
 
             state = self._load_symbol_drawings(symbol)
             drawings = state.get("drawings", {})
+            filtered_drawings = self._filter_drawings_for_mode(drawings)
 
             if hasattr(chart, 'set_drawings'):
-                chart.set_drawings(drawings)
+                chart.set_drawings(filtered_drawings)
                 logger.debug(f"Chart drawings refreshed for {symbol}")
             elif hasattr(chart, 'chart_view') and chart.chart_view:
                 js_code = (
                     "if(window.chart && window.chart.updateDrawings)"
-                    f"window.chart.updateDrawings({json.dumps(drawings)});"
+                    f"window.chart.updateDrawings({json.dumps(filtered_drawings)});"
                 )
                 chart.chart_view.page().runJavaScript(js_code)
                 logger.debug(f"Chart drawings injected via JS for {symbol}")
