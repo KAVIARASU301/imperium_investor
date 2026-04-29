@@ -271,24 +271,12 @@ class ChartToolbar(QFrame):
         symbol_block.setObjectName("symbolBlock")
         sb_lay = QHBoxLayout(symbol_block)
         sb_lay.setContentsMargins(0, 0, 0, 0)
-        sb_lay.setSpacing(4)
-
-        # Thin left accent bar
-        accent_bar = QFrame()
-        accent_bar.setFixedSize(2, 20)
-        accent_bar.setObjectName("accentBar")
-        sb_lay.addWidget(accent_bar)
+        sb_lay.setSpacing(2)
 
         self.symbol_label = QLabel("─")
         self.symbol_label.setObjectName("symbolBadge")
         self.symbol_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
         sb_lay.addWidget(self.symbol_label)
-
-        self.exchange_label = QLabel("")
-        self.exchange_label.setObjectName("exchangeBadge")
-        self.exchange_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
-        self.exchange_label.setVisible(False)
-        sb_lay.addWidget(self.exchange_label)
 
         lay.addWidget(symbol_block)
         lay.addWidget(_gap(8))
@@ -644,12 +632,8 @@ class ChartToolbar(QFrame):
     # ═══════════════════════════════════════════════════════════════════════
 
     def set_symbol_text(self, symbol: str, exchange: str = "") -> None:
+        _ = exchange  # retained for backward compatibility
         self.symbol_label.setText(symbol)
-        if exchange:
-            self.exchange_label.setText(exchange)
-            self.exchange_label.setVisible(True)
-        else:
-            self.exchange_label.setVisible(False)
 
     def set_timeframe(self, kite_interval: str) -> None:
         action = self._tf_actions.get(kite_interval)
@@ -774,8 +758,7 @@ class ChartToolbar(QFrame):
             /* ─ TOOLBAR ROOT ─────────────────────────────────────────── */
             QFrame#chartToolbar {{
                 background: {P.BG_BASE};
-                border-top: 1px solid #0f1622;
-                border-bottom: 1px solid {P.BORDER};
+                border: 1px solid rgba(255,255,255,0.18);
                 min-height: 32px;
                 max-height: 32px;
             }}
@@ -784,31 +767,15 @@ class ChartToolbar(QFrame):
             QWidget#symbolBlock {{
                 background: transparent;
             }}
-            QFrame#accentBar {{
-                background: {P.CYAN};
-                border-radius: 1px;
-            }}
             QLabel#symbolBadge {{
-                color: {P.CYAN};
-                font-family: "JetBrains Mono", "Fira Code", "Cascadia Code",
-                             "Consolas", monospace;
+                color: #b7cff8;
+                font-family: "Inter", "Segoe UI", "SF Pro Text", "Helvetica Neue", sans-serif;
                 font-size: 13px;
-                font-weight: 800;
-                letter-spacing: 2.5px;
-                padding: 0 6px 0 2px;
+                font-weight: 700;
+                letter-spacing: 0.2px;
+                padding: 0 6px 0 0;
                 background: transparent;
                 min-width: 50px;
-            }}
-            QLabel#exchangeBadge {{
-                color: {P.T_MID};
-                font-family: "JetBrains Mono", "Consolas", monospace;
-                font-size: 8px;
-                font-weight: 700;
-                letter-spacing: 1.2px;
-                padding: 1px 5px;
-                background: {P.BG_RAISED};
-                border: 1px solid {P.BORDER};
-                border-radius: 2px;
             }}
 
             /* ─ GENERIC PILL MENU BUTTON ──────────────────────────────── */

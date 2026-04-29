@@ -75,6 +75,16 @@ class ChartSettingsDialog(QDialog):
         self.wm_description.setChecked(self._s.get("show_watermark_description", True))
         layout.addRow("Watermark Description:", self.wm_description)
 
+        self.toolbar_symbol_display = QComboBox()
+        self.toolbar_symbol_display.addItem("Symbol Name", "symbol")
+        self.toolbar_symbol_display.addItem("Symbol Description", "description")
+        current_toolbar_display = self._s.get("toolbar_symbol_display", "symbol")
+        for i in range(self.toolbar_symbol_display.count()):
+            if self.toolbar_symbol_display.itemData(i) == current_toolbar_display:
+                self.toolbar_symbol_display.setCurrentIndex(i)
+                break
+        layout.addRow("Toolbar Symbol Text:", self.toolbar_symbol_display)
+
         layout.addRow("Watermark Color:", self._color_row("watermark_color", "#ffffff"))
 
         self.wm_opacity = QDoubleSpinBox()
@@ -164,6 +174,7 @@ class ChartSettingsDialog(QDialog):
             "down_volume_color": self._s.get("down_volume_color", self._s.get("down_candle_color", "#ef5350")),
             "watermark_enabled": self.wm_enabled.isChecked(),
             "show_watermark_description": self.wm_description.isChecked(),
+            "toolbar_symbol_display": self.toolbar_symbol_display.currentData(),
             "watermark_color": self._s.get("watermark_color", "#ffffff"),
             "watermark_opacity": self.wm_opacity.value(),
             "watermark_position": self.wm_position.currentData(),

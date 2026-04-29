@@ -125,6 +125,7 @@ class CandlestickChart(QWidget):
         self._indicator_scale_labels_enabled = self.global_chart_settings.get("indicator_scale_labels_enabled", False)
         self._crosshair_snap_enabled    = self.global_chart_settings.get("crosshair_snap_enabled", True)
         self._tool_selection_mode       = self.global_chart_settings.get("tool_selection_mode", "single_use")
+        self._toolbar_symbol_display    = self.global_chart_settings.get("toolbar_symbol_display", "symbol")
         self.current_visible_candle_count = self.global_chart_settings.get("default_visible_candles", 100)
         self._indicator_visibility = self.drawing_storage.load_global_indicator_visibility()
         self._current_watermark_description = ""
@@ -573,7 +574,7 @@ class CandlestickChart(QWidget):
             return
 
         self.current_ltp = float(price)
-        self.toolbar.set_symbol_text(self.current_symbol)
+        self._refresh_toolbar_symbol_text()
 
         if self.chart_view and self.current_state == ChartState.LOADED:
             self._js(f"if(window.chart) window.chart.updateLivePrice({price});")
@@ -738,6 +739,7 @@ class CandlestickChart(QWidget):
             "indicator_scale_labels_enabled": self._indicator_scale_labels_enabled,
             "crosshair_snap_enabled": self._crosshair_snap_enabled,
             "tool_selection_mode": self._tool_selection_mode,
+            "toolbar_symbol_display": self._toolbar_symbol_display,
         }
         dlg = ChartSettingsDialog(current, self)
         dlg.settings_changed.connect(self._apply_chart_settings)
@@ -761,7 +763,9 @@ class CandlestickChart(QWidget):
         self._indicator_scale_labels_enabled = s.get("indicator_scale_labels_enabled", self._indicator_scale_labels_enabled)
         self._crosshair_snap_enabled     = s.get("crosshair_snap_enabled", self._crosshair_snap_enabled)
         self._tool_selection_mode        = s.get("tool_selection_mode", self._tool_selection_mode)
+        self._toolbar_symbol_display     = s.get("toolbar_symbol_display", self._toolbar_symbol_display)
         self._save_global_settings_patch(s)
+        self._refresh_toolbar_symbol_text()
 
         if self.chart_view and self.current_state == ChartState.LOADED:
             payload = json.dumps({
@@ -833,6 +837,12 @@ class CandlestickChart(QWidget):
             return
         last_close = float(df.iloc[-1]["close"])
         self.current_ltp = last_close
+        self._refresh_toolbar_symbol_text()
+
+    def _refresh_toolbar_symbol_text(self) -> None:
+        if self._toolbar_symbol_display == "description" and self._current_watermark_description:
+            self.toolbar.set_symbol_text(self._current_watermark_description)
+            return
         self.toolbar.set_symbol_text(self.current_symbol)
 
     # ── State management ──────────────────────────────────────────────────
