@@ -266,23 +266,23 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         file_menu.addAction("Exit", self.close)
 
         view_menu = menu_bar.addMenu("View")
-        scanner_action = QAction("Scanner", self)
-        scanner_action.setCheckable(True)
-        scanner_action.setChecked(True)
-        scanner_action.toggled.connect(self._set_scanner_visible)
-        view_menu.addAction(scanner_action)
+        self.scanner_action = QAction("Scanner", self)
+        self.scanner_action.setCheckable(True)
+        self.scanner_action.setChecked(True)
+        self.scanner_action.toggled.connect(self._set_scanner_visible)
+        view_menu.addAction(self.scanner_action)
 
-        watchlist_action = QAction("Watchlist", self)
-        watchlist_action.setCheckable(True)
-        watchlist_action.setChecked(True)
-        watchlist_action.toggled.connect(self._set_watchlist_visible)
-        view_menu.addAction(watchlist_action)
+        self.watchlist_action = QAction("Watchlist", self)
+        self.watchlist_action.setCheckable(True)
+        self.watchlist_action.setChecked(True)
+        self.watchlist_action.toggled.connect(self._set_watchlist_visible)
+        view_menu.addAction(self.watchlist_action)
 
-        positions_action = QAction("Positions", self)
-        positions_action.setCheckable(True)
-        positions_action.setChecked(True)
-        positions_action.toggled.connect(self._set_positions_visible)
-        view_menu.addAction(positions_action)
+        self.positions_action = QAction("Positions", self)
+        self.positions_action.setCheckable(True)
+        self.positions_action.setChecked(True)
+        self.positions_action.toggled.connect(self._set_positions_visible)
+        view_menu.addAction(self.positions_action)
 
         tools_menu = menu_bar.addMenu("Tools")
         tools_menu.addAction("Color Settings", self._open_color_settings_dialog)
@@ -405,14 +405,17 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     def _set_scanner_visible(self, visible: bool):
         self.chartink_scanner.setVisible(visible)
         self._apply_intelligent_main_splitter_layout()
+        self._queue_window_state_save()
 
     def _set_watchlist_visible(self, visible: bool):
         self.watchlist.setVisible(visible)
         self._sync_right_panel_visibility()
+        self._queue_window_state_save()
 
     def _set_positions_visible(self, visible: bool):
         self.positions_table.setVisible(visible)
         self._sync_right_panel_visibility()
+        self._queue_window_state_save()
 
     def _sync_right_panel_visibility(self):
         right_visible = self.watchlist.isVisible() or self.positions_table.isVisible()
@@ -1792,7 +1795,10 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 'geometry': self.saveGeometry().toBase64().data().decode('utf-8'),
                 'main_splitter': self.main_splitter.saveState().toBase64().data().decode('utf-8'),
                 'main_splitter_sizes': self.main_splitter.sizes(),
-                'is_maximized': self.isMaximized()
+                'is_maximized': self.isMaximized(),
+                'scanner_visible': self.chartink_scanner.isVisible(),
+                'watchlist_visible': self.watchlist.isVisible(),
+                'positions_visible': self.positions_table.isVisible()
             }
 
             if hasattr(self, 'right_panel_splitter'):
@@ -1833,6 +1839,14 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                     self.right_panel_splitter.setSizes([320, 220])
                 if hasattr(self, 'right_panel_splitter') and state.get('right_panel_splitter_sizes'):
                     self._pending_right_splitter_sizes = state['right_panel_splitter_sizes']
+
+                scanner_visible = state.get('scanner_visible', True)
+                watchlist_visible = state.get('watchlist_visible', True)
+                positions_visible = state.get('positions_visible', True)
+
+                self.scanner_action.setChecked(scanner_visible)
+                self.watchlist_action.setChecked(watchlist_visible)
+                self.positions_action.setChecked(positions_visible)
 
                 if state.get('is_maximized', False):
                     self.showMaximized()
