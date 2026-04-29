@@ -1905,11 +1905,7 @@ class FixedTradingChart {
             ctx.textAlign = 'left';
             ctx.textBaseline = 'top';
 
-            // Background pill
-            const tw = ctx.measureText(note.text).width;
-            ctx.fillStyle = 'rgba(15,20,32,0.75)';
-            ctx.fillRect(x + 2, y - 14, tw + 6, (note.size || 12) + 6);
-            ctx.fillStyle = note.color || '#FFD700';
+            // Naked text note (no background container)
             ctx.fillText(note.text, x + 5, y - 12);
 
             // Pin dot
