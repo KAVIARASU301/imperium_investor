@@ -441,32 +441,32 @@ class HeaderToolbar(QToolBar):
                 color: #ffffff;
             }
             #buyButton {
-                background-color: rgba(74, 255, 74, 0.10);
-                color: #4aff4a;
-                border: none;
+                background-color: #0f1318;
+                color: #00d4a8;
+                border: 1px solid #1a2030;
                 padding: 3px 8px;
                 border-radius: 0px;
                 font-size: 9px;
                 font-weight: 700;
             }
             #buyButton:hover {
-                background-color: rgba(74, 255, 74, 0.18);
-                border: 1px solid rgba(74, 255, 74, 0.45);
-                color: #7dff7d;
+                background-color: #141920;
+                border: 1px solid #1a7a62;
+                color: #22c4a0;
             }
             #sellButton {
-                background-color: rgba(255, 68, 68, 0.10);
-                color: #ff6666;
-                border: none;
+                background-color: #0f1318;
+                color: #ff4d6a;
+                border: 1px solid #1a2030;
                 padding: 3px 8px;
                 border-radius: 0px;
                 font-size: 9px;
                 font-weight: 700;
             }
             #sellButton:hover {
-                background-color: rgba(255, 68, 68, 0.18);
-                border: 1px solid rgba(255, 68, 68, 0.45);
-                color: #ff8b8b;
+                background-color: #141920;
+                border: 1px solid #7a2030;
+                color: #ff6b82;
             }
             #sectionGap { background: transparent; }
             #alertActionWidget {
