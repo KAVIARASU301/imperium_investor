@@ -40,6 +40,11 @@ _T2 = "#506070"  # muted
 _GREEN = "#26a69a"  # profit / up-tick
 _RED = "#ef5350"  # loss / down-tick
 _APP_FONT_FAMILY = "Segoe UI"
+_OPEN_PROFIT = "#00d4a8"
+_OPEN_PROFIT_TINT = "#0a2520"
+_OPEN_LOSS = "#ff4d6a"
+_OPEN_LOSS_TINT = "#200a10"
+_OPEN_FLAT = "#7a94b0"
 
 # Column indices
 COL_SYMBOL = 0
@@ -237,15 +242,13 @@ class PositionsTable(QWidget):
         loss_color = table_colors.get("negative", _RED)
         neutral_color = table_colors.get("neutral", _T2)
 
-        pnl_color = profit_color if pnl >= 0 else loss_color
-        if not directional_colors_enabled and pnl == 0:
-            pnl_color = neutral_color
+        pnl_color = self._open_pnl_text_color(pnl)
 
         # Notice: No ₹ symbols to save horizontal space
         cells = [
-            (COL_SYMBOL, pos.symbol, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, _T0),
+            (COL_SYMBOL, pos.symbol, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, pnl_color),
             (COL_QTY, f"{qty_sign}{abs(pos.quantity)}", Qt.AlignmentFlag.AlignCenter, profit_color if is_long else loss_color),
-            (COL_AVG, f"{pos.avg_price:,.2f}", Qt.AlignmentFlag.AlignCenter, neutral_color),
+            (COL_AVG, f"{pos.avg_price:,.2f}", Qt.AlignmentFlag.AlignCenter, pnl_color),
             (COL_OPEN_PNL, f"{'+' if pnl >= 0 else ''}{pnl:,.2f}", Qt.AlignmentFlag.AlignCenter, pnl_color),
         ]
 
@@ -264,14 +267,31 @@ class PositionsTable(QWidget):
             item.setFont(sym_font if col == COL_SYMBOL else base_font)
             item.setData(Qt.ItemDataRole.UserRole, self._sort_key(col, pos))
 
-        pnl_item = self.table.item(row, COL_OPEN_PNL)
-        if pnl_item:
-            if directional_colors_enabled and pnl > 0:
-                pnl_item.setBackground(QBrush(QColor(18, 55, 34, 160)))
-            elif directional_colors_enabled and pnl < 0:
-                pnl_item.setBackground(QBrush(QColor(70, 20, 20, 160)))
-            else:
-                pnl_item.setBackground(QBrush(QColor(20, 28, 42, 120)))
+        self._apply_open_pnl_row_style(row, pnl)
+
+    def _open_pnl_text_color(self, pnl: float) -> str:
+        if pnl > 0:
+            return _OPEN_PROFIT
+        if pnl < 0:
+            return _OPEN_LOSS
+        return _OPEN_FLAT
+
+    def _apply_open_pnl_row_style(self, row: int, pnl: float) -> None:
+        if pnl > 0:
+            fg = QColor(_OPEN_PROFIT)
+            bg = QColor(_OPEN_PROFIT_TINT)
+        elif pnl < 0:
+            fg = QColor(_OPEN_LOSS)
+            bg = QColor(_OPEN_LOSS_TINT)
+        else:
+            fg = QColor(_OPEN_FLAT)
+            bg = QColor(Qt.transparent)
+
+        for col in range(self.table.columnCount()):
+            item = self.table.item(row, col)
+            if item:
+                item.setForeground(QBrush(fg))
+                item.setBackground(QBrush(bg))
 
     def _sort_key(self, col: int, pos: Position):
         pnl = (pos.ltp - pos.avg_price) * pos.quantity

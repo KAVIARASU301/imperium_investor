@@ -39,6 +39,13 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+OPEN_PROFIT_COLOR = QColor("#00d4a8")
+OPEN_PROFIT_BG_TINT = QColor("#0a2520")
+OPEN_LOSS_COLOR = QColor("#ff4d6a")
+OPEN_LOSS_BG_TINT = QColor("#200a10")
+FLAT_COLOR = QColor("#7a94b0")
+
+
 class IBKRMainWindow(QMainWindow):
     """
     Enhanced main window for IBKR trading with complete functionality.
@@ -590,17 +597,50 @@ class IBKRMainWindow(QMainWindow):
                     pnl = (current_price - avg_price) * quantity
 
             pnl_item = QTableWidgetItem(f"${pnl:.2f}")
-            pnl_item.setForeground(QColor("green" if pnl >= 0 else "red"))
+            pnl_item.setForeground(self._get_open_pnl_foreground_color(pnl))
             self.positions_table.setItem(row, 5, pnl_item)
 
             # P&L percentage
             avg_price = position.get('average_price', 0)
             pnl_percent = (pnl / (avg_price * abs(quantity)) * 100) if avg_price > 0 and quantity != 0 else 0
             pnl_percent_item = QTableWidgetItem(f"{pnl_percent:.2f}%")
-            pnl_percent_item.setForeground(QColor("green" if pnl_percent >= 0 else "red"))
+            pnl_percent_item.setForeground(self._get_open_pnl_foreground_color(pnl))
             self.positions_table.setItem(row, 6, pnl_percent_item)
 
             self.positions_table.setItem(row, 7, QTableWidgetItem(position.get('exchange', 'SMART')))
+            self._apply_open_pnl_row_style(row, pnl)
+
+    def _get_open_pnl_foreground_color(self, pnl_value: float) -> QColor:
+        """Open P&L text color for profit/loss/flat values."""
+        if pnl_value > 0:
+            return OPEN_PROFIT_COLOR
+        if pnl_value < 0:
+            return OPEN_LOSS_COLOR
+        return FLAT_COLOR
+
+    def _apply_open_pnl_row_style(self, row: int, pnl_value: float) -> None:
+        """Apply open P&L row tint so positions are scannable at a glance."""
+        if pnl_value > 0:
+            row_foreground = OPEN_PROFIT_COLOR
+            row_background = OPEN_PROFIT_BG_TINT
+        elif pnl_value < 0:
+            row_foreground = OPEN_LOSS_COLOR
+            row_background = OPEN_LOSS_BG_TINT
+        else:
+            row_foreground = FLAT_COLOR
+            row_background = None
+
+        for col in range(self.positions_table.columnCount()):
+            item = self.positions_table.item(row, col)
+            if item is None:
+                item = QTableWidgetItem("")
+                self.positions_table.setItem(row, col, item)
+
+            item.setForeground(row_foreground)
+            if row_background is not None:
+                item.setBackground(row_background)
+            else:
+                item.setBackground(QColor(Qt.transparent))
 
 
     def _refresh_orders_table(self):
@@ -1044,5 +1084,4 @@ class IBKRMainWindow(QMainWindow):
         self.market_data[symbol] = data
         self._update_watchlist_display()
         self._update_market_data_display()  # ibkr/core/enhanced_main_window.py
-
 
