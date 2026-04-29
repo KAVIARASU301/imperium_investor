@@ -36,7 +36,8 @@ class StatusBar(QWidget):
         # Uppercase for a stronger, institutional feel
         self.market_label = QLabel("MARKET: --")
         self.api_label = QLabel("API: --")
-        self.heartbeat_label = QLabel("HEARTBEAT: --")
+        self.heartbeat_label = QLabel("HEARTBEAT: ●")
+        self._heartbeat_pulse_on = False
 
         # Add indicators to layout
         for label in (self.market_label, self.api_label, self.heartbeat_label):
@@ -68,13 +69,26 @@ class StatusBar(QWidget):
         )
 
     def set_market_status(self, text: str) -> None:
-        self.market_label.setText(f"MARKET: {text.upper()}")
+        status = (text or "--").upper()
+        market_color_map = {
+            "OPEN": "#00d4a8",
+            "CLOSED": "#3a4d60",
+        }
+        color = market_color_map.get(status, "#7b8496")
+        self.market_label.setText(f'MARKET: <span style="color:{color};">{status}</span>')
 
     def set_api_status(self, text: str) -> None:
-        self.api_label.setText(f"API: {text.upper()}")
+        status = (text or "--").upper()
+        dot_color_map = {
+            "CONNECTED": "#00d4a8",
+            "ERROR": "#ff4d6a",
+        }
+        dot_color = dot_color_map.get(status, "#7b8496")
+        self.api_label.setText(f'API: {status} <span style="color:{dot_color};">●</span>')
 
     def set_heartbeat(self, text: str) -> None:
-        self.heartbeat_label.setText(f"HEARTBEAT: {text}")
+        pulse_color = "#00d4a8" if self._heartbeat_pulse_on else "#2a3a50"
+        self.heartbeat_label.setText(f'HEARTBEAT: <span style="color:{pulse_color};">{text}</span>')
 
     def set_message(self, text: str) -> None:
         # Dummy method to prevent crashes since we removed message_label
@@ -207,9 +221,8 @@ class GlobalStatusManager(QObject):
 
     def pulse_heartbeat(self) -> None:
         if getattr(self, "_status_bar", None):
-            current = self._status_bar.heartbeat_label.text().replace("HEARTBEAT: ", "").strip()
-            next_state = "○" if current == "●" else "●"
-            self._status_bar.set_heartbeat(next_state)
+            self._status_bar._heartbeat_pulse_on = not self._status_bar._heartbeat_pulse_on
+            self._status_bar.set_heartbeat("●")
 
     def set_ready(self) -> None:
         # We removed the "Ready" label, so this method safely does nothing.
