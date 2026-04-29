@@ -194,6 +194,7 @@ class DrawingEngine {
         /* snap state */
         this.snapPoint    = null;         // {x, y, price, label} or null
         this.snapEnabled  = true;
+        this.toolSelectionMode = 'single_use';
 
         /* context menu */
         this._menu        = null;
@@ -684,6 +685,9 @@ class DrawingEngine {
                     extend:     ip.extend,
                 });
                 this.selectedId = String(this.nextId - 1);
+                if (this.toolSelectionMode === 'single_use') {
+                    this.clearTool();
+                }
             }
 
             this.inProgress = null;

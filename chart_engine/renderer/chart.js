@@ -151,6 +151,10 @@ class FixedTradingChart {
         };
         this.indicatorScaleLabelsEnabled = cfg.indicatorScaleLabelsEnabled === true;
         this.crosshairSnapEnabled = cfg.crosshairSnapEnabled !== false;
+        this.toolSelectionMode = cfg.toolSelectionMode === 'multi_use' ? 'multi_use' : 'single_use';
+        if (this.drawingEngine) {
+            this.drawingEngine.toolSelectionMode = this.toolSelectionMode;
+        }
 
         // ── Indicator visibility — persistent across symbol/timeframe changes ──
         // Priority chain: localStorage (user prefs) → pythonDefaults → false
@@ -3199,6 +3203,12 @@ class FixedTradingChart {
             this.indicatorScaleLabelsEnabled = cfg.indicatorScaleLabelsEnabled === true;
         if (cfg.crosshairSnapEnabled !== undefined)
             this.crosshairSnapEnabled = cfg.crosshairSnapEnabled === true;
+        if (cfg.toolSelectionMode !== undefined) {
+            this.toolSelectionMode = cfg.toolSelectionMode === 'multi_use' ? 'multi_use' : 'single_use';
+            if (this.drawingEngine) {
+                this.drawingEngine.toolSelectionMode = this.toolSelectionMode;
+            }
+        }
         // If slot dimensions changed, recalculate how many candles fit.
         if (slotChanged) {
             this.viewPortEnd = Math.max(0, this.data.length - 1 + this.rightBufferCandles);

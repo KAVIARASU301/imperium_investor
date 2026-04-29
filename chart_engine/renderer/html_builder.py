@@ -47,6 +47,7 @@ class ChartHtmlConfig:
     watermark_font_size:     int   = 0
     indicator_scale_labels_enabled: bool = False
     crosshair_snap_enabled:  bool  = True
+    tool_selection_mode:     str   = "single_use"
     initial_indicator_visibility:   Dict[str, bool] = field(default_factory=dict)
     qwebchannel_src:         str   = "qrc:///qtwebchannel/qwebchannel.js"
 
@@ -109,6 +110,7 @@ def build_chart_html(cfg: ChartHtmlConfig) -> str:
         "watermarkFontSize":         int(max(0, cfg.watermark_font_size)),
         "indicatorScaleLabelsEnabled": bool(cfg.indicator_scale_labels_enabled),
         "crosshairSnapEnabled":      bool(cfg.crosshair_snap_enabled),
+        "toolSelectionMode":         cfg.tool_selection_mode,
         "initialIndicatorVisibility": cfg.initial_indicator_visibility,
     }
 

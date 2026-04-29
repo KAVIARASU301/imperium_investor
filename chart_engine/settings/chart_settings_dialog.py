@@ -32,7 +32,7 @@ class ChartSettingsDialog(QDialog):
     def __init__(self, current_settings: Dict[str, Any], parent=None):
         super().__init__(parent)
         self.setWindowTitle("Chart Settings")
-        self.setFixedSize(360, 520)
+        self.setFixedSize(380, 560)
         self._s = dict(current_settings)          # working copy
         self._color_btns: Dict[str, QPushButton] = {}
         self._build_ui()
@@ -105,6 +105,17 @@ class ChartSettingsDialog(QDialog):
         self.crosshair_snap_enabled.setChecked(self._s.get("crosshair_snap_enabled", True))
         layout.addRow("Crosshair Snap:", self.crosshair_snap_enabled)
 
+        self.tool_selection_mode = QComboBox()
+        self.tool_selection_mode.addItem("One use (reselect each time)", "single_use")
+        self.tool_selection_mode.addItem("Multiple use (stay active)", "multi_use")
+        current_mode = self._s.get("tool_selection_mode", "single_use")
+        for i in range(self.tool_selection_mode.count()):
+            if self.tool_selection_mode.itemData(i) == current_mode:
+                self.tool_selection_mode.setCurrentIndex(i)
+                break
+        self.tool_selection_mode.setToolTip("Applies only to drawing tools in the tools container.")
+        layout.addRow("Tool Selection Mode:", self.tool_selection_mode)
+
         self.wm_font_size = QSpinBox()
         self.wm_font_size.setRange(0, 300)
         self.wm_font_size.setValue(self._s.get("watermark_font_size", 0))
@@ -159,6 +170,7 @@ class ChartSettingsDialog(QDialog):
             "watermark_font_size": self.wm_font_size.value(),
             "indicator_scale_labels_enabled": self.indicator_scale_labels_enabled.isChecked(),
             "crosshair_snap_enabled": self.crosshair_snap_enabled.isChecked(),
+            "tool_selection_mode": self.tool_selection_mode.currentData(),
         }
         self.settings_changed.emit(new)
         self.accept()
