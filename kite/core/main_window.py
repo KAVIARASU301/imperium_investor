@@ -418,16 +418,16 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self._queue_window_state_save()
 
     def _sync_right_panel_visibility(self):
-        right_visible = self.watchlist.isVisible() or self.positions_table.isVisible()
+        watchlist_visible = self.watchlist_action.isChecked()
+        positions_visible = self.positions_action.isChecked()
+
+        right_visible = watchlist_visible or positions_visible
         self.right_panel_splitter.setVisible(right_visible)
 
         if right_visible:
             # Recover splitter sizes after both right-side panes were hidden.
             pane_sizes = self.right_panel_splitter.sizes()
             if len(pane_sizes) == 2:
-                watchlist_visible = self.watchlist.isVisible()
-                positions_visible = self.positions_table.isVisible()
-
                 if watchlist_visible and positions_visible:
                     if pane_sizes[0] == 0 and pane_sizes[1] == 0:
                         self.right_panel_splitter.setSizes([320, 220])
@@ -1797,8 +1797,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 'main_splitter_sizes': self.main_splitter.sizes(),
                 'is_maximized': self.isMaximized(),
                 'scanner_visible': self.chartink_scanner.isVisible(),
-                'watchlist_visible': self.watchlist.isVisible(),
-                'positions_visible': self.positions_table.isVisible()
+                'watchlist_visible': self.watchlist_action.isChecked(),
+                'positions_visible': self.positions_action.isChecked()
             }
 
             if hasattr(self, 'right_panel_splitter'):
