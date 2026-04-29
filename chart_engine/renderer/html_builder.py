@@ -36,10 +36,10 @@ class ChartHtmlConfig:
     visible_candle_count:    int   = 100
     candle_width:            int   = 3
     candle_spacing:          int   = 3
-    up_candle_color:         str   = "#26a69a"
-    down_candle_color:       str   = "#ef5350"
-    up_volume_color:         str   = "#26a69a"
-    down_volume_color:       str   = "#ef5350"
+    up_candle_color:         str   = "#00c896"
+    down_candle_color:       str   = "#e84060"
+    up_volume_color:         str   = "#00c896"
+    down_volume_color:       str   = "#e84060"
     watermark_enabled:       bool  = True
     watermark_color:         str   = "#ffffff"
     watermark_opacity:       float = 0.06

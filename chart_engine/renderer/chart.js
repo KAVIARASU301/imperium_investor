@@ -90,10 +90,13 @@ class FixedTradingChart {
             textBright:  '#c8d0e0',
             crosshair:   'rgba(140,170,220,0.35)',
             livePrice:   '#00bfff',
-            upCandle:    cfg.upCandleColor   || '#26a69a',
-            downCandle:  cfg.downCandleColor || '#ef5350',
-            volumeUp:    cfg.upVolumeColor   || '#26a69a',
-            volumeDown:  cfg.downVolumeColor || '#ef5350',
+            upCandle:    cfg.upCandleColor   || '#00c896',
+            downCandle:  cfg.downCandleColor || '#e84060',
+            volumeUp:    cfg.upVolumeColor   || '#00c896',
+            volumeDown:  cfg.downVolumeColor || '#e84060',
+            dojiCandle:  '#5a7090',
+            upWick:      '#009e78',
+            downWick:    '#b83050',
             vwap:        '#ff9e42',
             ema: { ema10: '#2962ff', ema20: '#9c27b0', ema50: '#f06204', ema200: '#e91e63' },
             atrReversalAbove: '#ff4d4f',
@@ -795,13 +798,15 @@ class FixedTradingChart {
             const highY  = this._priceToY(c.high);
             const lowY   = this._priceToY(c.low);
 
-            const isUp  = c.close >= c.open;
-            const col   = isUp ? this.colors.upCandle : this.colors.downCandle;
-            const brdr  = isUp ? this._darken(col, 0.25) : this._darken(col, 0.25);
+            const isDoji = Math.abs(c.close - c.open) < 1e-10;
+            const isUp   = c.close > c.open;
+            const col    = isDoji ? this.colors.dojiCandle : (isUp ? this.colors.upCandle : this.colors.downCandle);
+            const wick   = isDoji ? this.colors.dojiCandle : (isUp ? this.colors.upWick : this.colors.downWick);
+            const brdr   = wick;
             const cx    = x + this.candleWidth / 2;
 
             // Wick
-            ctx.strokeStyle = col;
+            ctx.strokeStyle = wick;
             ctx.lineWidth   = wickW;
             ctx.beginPath();
             ctx.moveTo(cx, highY);
@@ -836,11 +841,13 @@ class FixedTradingChart {
                 const clY   = this._priceToY(c.close);
                 const hiY   = this._priceToY(c.high);
                 const loY   = this._priceToY(c.low);
-                const isUp  = c.close >= c.open;
-                const col   = isUp ? this.colors.upCandle : this.colors.downCandle;
+                const isDoji = Math.abs(c.close - c.open) < 1e-10;
+                const isUp   = c.close > c.open;
+                const col    = isDoji ? this.colors.dojiCandle : (isUp ? this.colors.upCandle : this.colors.downCandle);
+                const wick   = isDoji ? this.colors.dojiCandle : (isUp ? this.colors.upWick : this.colors.downWick);
                 const cx    = x + this.candleWidth / 2;
 
-                ctx.strokeStyle = col; ctx.lineWidth = wickW;
+                ctx.strokeStyle = wick; ctx.lineWidth = wickW;
                 ctx.beginPath(); ctx.moveTo(cx, hiY); ctx.lineTo(cx, loY); ctx.stroke();
 
                 const topY  = Math.min(openY, clY);
