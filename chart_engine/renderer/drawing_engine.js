@@ -205,6 +205,7 @@ class DrawingEngine {
 
         this._bindEvents();
         this._pendingSpatialRebuild = false;
+        this._noteEditor = null;
     }
 
     /* ─── Coordinate helpers ────────────────────────────────────────────────── */
@@ -712,8 +713,8 @@ class DrawingEngine {
         const hit = this._hitTest(x, y);
         if (hit) {
             const d = this.drawings.get(hit.id);
-            if (d && d.type === 'note' && this.onRequestTextNote) {
-                this.onRequestTextNote({ id: d.id, text: d.text, color: d.color, x, y });
+            if (d && d.type === 'note') {
+                this._startInlineNoteEdit(d);
             }
         }
     }
@@ -724,6 +725,10 @@ class DrawingEngine {
 
         switch (e.key) {
             case 'Escape':
+                if (this._noteEditor) {
+                    this._teardownInlineNoteEditor(false);
+                    break;
+                }
                 if (this.activeTool) { this.clearTool(); }
                 else { this.selectedId = null; }
                 break;
@@ -824,6 +829,9 @@ class DrawingEngine {
 
     _onDocClick(e) {
         if (this._menu && !this._menu.contains(e.target)) this._dismissMenu();
+        if (this._noteEditor && !this._noteEditor.wrapper.contains(e.target)) {
+            this._teardownInlineNoteEditor(true);
+        }
     }
 
     _dismissMenu() {
@@ -880,6 +888,7 @@ class DrawingEngine {
                     if (out.startTime == null && out.time != null) out.startTime = out.time;
                     if (out.startPrice == null && out.price != null) out.startPrice = out.price;
                     if (out.fontSize == null && out.size != null) out.fontSize = out.size;
+                    delete out.textWidth; // runtime only; avoid DPI/session mismatch persistence
                 }
 
                 if (out.startTime == null || out.startPrice == null) return null;
@@ -889,6 +898,12 @@ class DrawingEngine {
 
                 out.startTime = Number(out.startTime);
                 out.startPrice = Number(out.startPrice);
+                const minTime = this.cs.data?.[0]?.time;
+                const maxTime = this.cs.data?.[this.cs.data.length - 1]?.time;
+                if (Number.isFinite(minTime) && Number.isFinite(maxTime) &&
+                    (out.startTime < minTime || out.startTime > maxTime)) {
+                    return null;
+                }
                 if (out.endTime != null) out.endTime = Number(out.endTime);
                 if (out.endPrice != null) out.endPrice = Number(out.endPrice);
                 if (out.fontSize != null) out.fontSize = Number(out.fontSize);
@@ -1114,18 +1129,24 @@ class DrawingEngine {
     _renderNote(ctx, d, sel, hov) {
         if (!d.text) return;
         const x = this.cs.timeToX(d.startTime), y = this.cs.priceToY(d.startPrice);
-        const fs = d.fontSize || 12;
-        ctx.font = `${fs}px "Segoe UI", sans-serif`;
+        const fs = Math.max(9, d.fontSize || 12);
+        const family = d.fontFamily === 'monospace' ? '"Consolas", "Courier New", monospace' : '"Segoe UI", sans-serif';
+        ctx.font = `${d.fontWeight || 500} ${fs}px ${family}`;
         ctx.textBaseline = 'top';
-        const tw = ctx.measureText(d.text).width;
+        const lines = String(d.text).split('\n');
+        const lineHeight = Math.ceil(fs * 1.3);
+        const tw = lines.reduce((m, line) => Math.max(m, ctx.measureText(line).width), 0);
+        const th = Math.max(lineHeight, lines.length * lineHeight);
         d.textWidth = tw;
+        d.textHeight = th;
 
         /* pill background */
-        ctx.fillStyle = 'rgba(13,17,23,0.78)';
+        const bgOpacity = Number.isFinite(d.backgroundOpacity) ? Math.max(0, Math.min(1, d.backgroundOpacity)) : 0.78;
+        ctx.fillStyle = `rgba(13,17,23,${bgOpacity})`;
         ctx.beginPath();
-        ctx.roundRect(x, y - fs - 6, tw + 12, fs + 8, 3);
+        ctx.roundRect(x, y - th - 6, tw + 12, th + 8, 3);
         ctx.fill();
-        if (sel || hov) {
+        if (d.showBorder !== false || sel || hov) {
             ctx.strokeStyle = d.color;
             ctx.lineWidth = 1;
             ctx.setLineDash([]);
@@ -1134,13 +1155,60 @@ class DrawingEngine {
 
         /* text */
         ctx.fillStyle = d.color || '#FFD700';
-        ctx.fillText(d.text, x + 6, y - fs - 2);
+        lines.forEach((line, idx) => ctx.fillText(line, x + 6, y - th - 2 + (idx * lineHeight)));
 
         /* pin dot */
         ctx.fillStyle = d.color || '#FFD700';
         ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill();
 
         if (sel || hov) this._renderHandle(ctx, x, y, sel, d.color);
+    }
+
+    _startInlineNoteEdit(d) {
+        this._teardownInlineNoteEditor(false);
+        const x = this.cs.timeToX(d.startTime);
+        const y = this.cs.priceToY(d.startPrice);
+        const ta = document.createElement('textarea');
+        ta.value = d.text || '';
+        ta.style.position = 'absolute';
+        ta.style.left = `${x}px`;
+        ta.style.top = `${y - 48}px`;
+        ta.style.minWidth = '120px';
+        ta.style.minHeight = '48px';
+        ta.style.zIndex = '9999';
+        ta.style.background = '#0d1117';
+        ta.style.color = d.color || '#FFD700';
+        ta.style.border = '1px solid #4b5563';
+        ta.style.padding = '6px';
+        ta.style.font = `${Math.max(9, d.fontSize || 12)}px "Segoe UI", sans-serif`;
+        this.canvas.parentElement.appendChild(ta);
+        ta.focus();
+        ta.select();
+        ta.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                this._teardownInlineNoteEditor(false);
+            } else if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                e.preventDefault();
+                this._teardownInlineNoteEditor(true);
+            }
+        });
+        this._noteEditor = { wrapper: ta, noteId: d.id };
+    }
+
+    _teardownInlineNoteEditor(commit) {
+        if (!this._noteEditor) return;
+        const { wrapper, noteId } = this._noteEditor;
+        if (commit) {
+            const d = this.drawings.get(noteId);
+            if (d) {
+                this._undoSnapshot();
+                d.text = wrapper.value || '';
+                this._notify();
+            }
+        }
+        wrapper.remove();
+        this._noteEditor = null;
     }
 
     /* ── Measure tool ── */

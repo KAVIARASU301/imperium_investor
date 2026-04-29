@@ -3241,6 +3241,19 @@ class FixedTradingChart {
     }
 
     addTextNoteFromDialog(note) {
+        if (this.drawingEngine) {
+            this.drawingEngine.addDrawing({
+                type: 'note',
+                startTime: this._xToTime(note.x),
+                startPrice: this._yToPrice(note.y),
+                text: note.text,
+                color: note.color,
+                fontSize: note.size
+            });
+            this.requestDraw();
+            this._notifyDrawingsChange();
+            return;
+        }
         this.drawings.notes.push({
             id: Date.now() + Math.random(), type: 'note',
             time: this._xToTime(note.x), price: this._yToPrice(note.y),
