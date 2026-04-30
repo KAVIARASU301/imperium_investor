@@ -1264,11 +1264,47 @@ class AlertManagementDialog(QDialog):
         t.setAlternatingRowColors(True)
         t.setShowGrid(False)
         header = t.horizontalHeader()
+        for col, name in enumerate(headers):
+            h_item = t.horizontalHeaderItem(col)
+            if not h_item:
+                continue
+            if name == "Symbol":
+                h_item.setTextAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+            elif name in ("Condition", "Target", "Created", "Triggered At"):
+                h_item.setTextAlignment(Qt.AlignCenter)
+            elif name == "Count":
+                h_item.setTextAlignment(Qt.AlignVCenter | Qt.AlignRight)
+            else:
+                h_item.setTextAlignment(Qt.AlignCenter)
         if "Action" in headers:
             action_col = headers.index("Action")
             header.setSectionResizeMode(action_col, QHeaderView.ResizeMode.Fixed)
             t.setColumnWidth(action_col, 110)
         return t
+
+    @staticmethod
+    def _fmt_indian_datetime(dt_text: Optional[str]) -> str:
+        """Format ISO datetime to readable Indian-style date/time."""
+        if not dt_text:
+            return ""
+        try:
+            clean_text = dt_text.replace("Z", "+00:00")
+            dt = datetime.fromisoformat(clean_text)
+            return dt.strftime("%d-%m-%Y %I:%M %p")
+        except Exception:
+            return str(dt_text)[:16]
+
+    @staticmethod
+    def _set_row_alignment(table: QTableWidget, row: int):
+        """Keep cell alignments consistent with header expectations."""
+        left_item = table.item(row, 0)
+        if left_item:
+            left_item.setTextAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+
+        for col in (1, 2, 3):
+            item = table.item(row, col)
+            if item:
+                item.setTextAlignment(Qt.AlignCenter)
 
     def refresh_tables(self):
         alerts    = self.store.all()
@@ -1291,13 +1327,15 @@ class AlertManagementDialog(QDialog):
             t.setItem(row, 0, QTableWidgetItem(a.symbol))
             t.setItem(row, 1, QTableWidgetItem(a.condition))
             t.setItem(row, 2, QTableWidgetItem(f"{a.target_value:.2f}"))
-            t.setItem(row, 3, QTableWidgetItem(a.created_at[:16]))
+            t.setItem(row, 3, QTableWidgetItem(self._fmt_indian_datetime(a.created_at)))
 
             del_btn = QPushButton("Delete")
             del_btn.setObjectName("deleteButton")
+            del_btn.setMinimumWidth(74)
             # FIX #5 / #6: route through manager so chart line is also removed
             del_btn.clicked.connect(lambda _, aid=a.id: self._delete_alert(aid))
             t.setCellWidget(row, 4, del_btn)
+            self._set_row_alignment(t, row)
 
     def _populate_triggered(self, alerts: List[Alert]):
         t = self.triggered_table
@@ -1306,12 +1344,13 @@ class AlertManagementDialog(QDialog):
             t.setItem(row, 0, QTableWidgetItem(a.symbol))
             t.setItem(row, 1, QTableWidgetItem(a.condition))
             t.setItem(row, 2, QTableWidgetItem(f"{a.target_value:.2f}"))
-            t.setItem(row, 3, QTableWidgetItem(a.triggered_at[:16] if a.triggered_at else ""))
+            t.setItem(row, 3, QTableWidgetItem(self._fmt_indian_datetime(a.triggered_at)))
 
             ack_btn = QPushButton("Ack")
             ack_btn.setObjectName("ackButton")
             ack_btn.clicked.connect(lambda _, aid=a.id: self._ack_alert(aid))
             t.setCellWidget(row, 4, ack_btn)
+            self._set_row_alignment(t, row)
 
     def _populate_history(self, alerts: List[Alert]):
         t = self.history_table
@@ -1320,8 +1359,9 @@ class AlertManagementDialog(QDialog):
             t.setItem(row, 0, QTableWidgetItem(a.symbol))
             t.setItem(row, 1, QTableWidgetItem(a.condition))
             t.setItem(row, 2, QTableWidgetItem(f"{a.target_value:.2f}"))
-            t.setItem(row, 3, QTableWidgetItem(a.triggered_at[:16] if a.triggered_at else ""))
+            t.setItem(row, 3, QTableWidgetItem(self._fmt_indian_datetime(a.triggered_at)))
             t.setItem(row, 4, QTableWidgetItem(str(a._trigger_count)))
+            self._set_row_alignment(t, row)
 
     def _add_new(self):
         dlg = AlertCreationDialog(parent=self)
@@ -1401,6 +1441,7 @@ class AlertManagementDialog(QDialog):
                 border: none;
                 padding: 6px 8px;
                 font-size: 11px;
+                text-align: left;
             }
             QPushButton {
                 background-color: rgba(255, 255, 255, 0.05);
@@ -1425,6 +1466,7 @@ class AlertManagementDialog(QDialog):
             QPushButton#deleteButton {
                 background-color: rgba(239, 83, 80, 0.1);
                 color: #ef5350;
+                padding: 4px 10px;
             }
             QPushButton#deleteButton:hover {
                 background-color: rgba(239, 83, 80, 0.15);
