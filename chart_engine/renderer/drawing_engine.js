@@ -1322,20 +1322,13 @@ class DrawingEngine {
 
         ctx.save();
         ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.moveTo(axisX, y);
-        ctx.lineTo(axisX + 5, ly);
-        ctx.lineTo(axisX + lw, ly);
-        ctx.lineTo(axisX + lw, ly + lh);
-        ctx.lineTo(axisX + 5, ly + lh);
-        ctx.closePath();
-        ctx.fill();
+        ctx.fillRect(axisX, ly, lw, lh);
 
         ctx.font = `${bold ? '700' : '600'} 10px "Segoe UI Mono", monospace`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillStyle = '#000000';
-        ctx.fillText(price.toFixed(2), axisX + 5 + (lw - 5) / 2, y);
+        ctx.fillText(price.toFixed(2), axisX + lw / 2, y);
         ctx.restore();
     }
 

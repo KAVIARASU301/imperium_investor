@@ -1549,23 +1549,16 @@ class FixedTradingChart {
         const lw     = axisW;                  // span the entire axis width
         const ly     = Math.round(y - lh / 2);
 
-        // Pointer triangle (left edge chevron pointing into chart)
+        // Rectangular label (TradingView-style)
         ctx.fillStyle = col;
-        ctx.beginPath();
-        ctx.moveTo(lx,     y);
-        ctx.lineTo(lx + 5, ly);
-        ctx.lineTo(lx + lw, ly);
-        ctx.lineTo(lx + lw, ly + lh);
-        ctx.lineTo(lx + 5, ly + lh);
-        ctx.closePath();
-        ctx.fill();
+        ctx.fillRect(lx, ly, lw, lh);
 
-        // Label text — centered inside pill
+        // Label text — centered inside label
         ctx.font         = 'bold 10px "Segoe UI Mono", monospace';
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillStyle    = '#000000';
-        ctx.fillText(label, lx + 5 + (lw - 5) / 2, y);
+        ctx.fillText(label, lx + lw / 2, y);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -1605,35 +1598,21 @@ class FixedTradingChart {
         const lw     = axisW;
         const ly     = Math.round(y - lh / 2);
 
-        // Background: full axis width with left pointer chevron
+        // Rectangular crosshair label
         ctx.fillStyle = '#1e2d45';
-        ctx.beginPath();
-        ctx.moveTo(lx,      y);
-        ctx.lineTo(lx + 5,  ly);
-        ctx.lineTo(lx + lw, ly);
-        ctx.lineTo(lx + lw, ly + lh);
-        ctx.lineTo(lx + 5,  ly + lh);
-        ctx.closePath();
-        ctx.fill();
+        ctx.fillRect(lx, ly, lw, lh);
 
         // Border
         ctx.strokeStyle = 'rgba(120,165,230,0.55)';
         ctx.lineWidth   = 0.8;
-        ctx.beginPath();
-        ctx.moveTo(lx,      y);
-        ctx.lineTo(lx + 5,  ly);
-        ctx.lineTo(lx + lw, ly);
-        ctx.lineTo(lx + lw, ly + lh);
-        ctx.lineTo(lx + 5,  ly + lh);
-        ctx.closePath();
-        ctx.stroke();
+        ctx.strokeRect(lx + 0.5, ly + 0.5, lw - 1, lh - 1);
 
         // Label text — centered
         ctx.font         = 'bold 10px "Segoe UI Mono", monospace';
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillStyle    = '#d4e6ff';
-        ctx.fillText(plabel, lx + 5 + (lw - 5) / 2, y);
+        ctx.fillText(plabel, lx + lw / 2, y);
 
         // ── Time label at bottom ────────────────────────────────────────────
         const ci = this._xToCandle(x);
