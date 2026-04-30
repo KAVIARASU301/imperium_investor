@@ -1196,7 +1196,8 @@ class AlertManagementDialog(QDialog):
         self.setWindowTitle("Alert Manager")
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.setMinimumSize(700, 450)
+        self.resize(850, 500)
+        self.setMinimumSize(700, 400)
 
         self._drag_pos = None
         self._build_ui()
@@ -1261,6 +1262,7 @@ class AlertManagementDialog(QDialog):
         t.setEditTriggers(QAbstractItemView.NoEditTriggers)
         t.verticalHeader().setVisible(False)
         t.setAlternatingRowColors(True)
+        t.setShowGrid(False)
         return t
 
     def refresh_tables(self):
@@ -1355,102 +1357,88 @@ class AlertManagementDialog(QDialog):
 
     def _apply_styles(self):
         self.setStyleSheet("""
-            * {
-                font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+            QDialog {
+                background-color: #121212;
+                color: #e0e0e0;
+                font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
             }
             QFrame#alertMgmtContainer {
-                background-color: #12141A;
+                background-color: #121212;
                 border: 1px solid #222630;
                 border-radius: 2px;
             }
             QLabel#mgmtTitle {
-                color: #FFFFFF;
+                color: #e0e0e0;
                 font-size: 15px;
                 font-weight: 600;
                 letter-spacing: 0.5px;
             }
-            /* Header Buttons */
-            QPushButton#addButton {
+            QTableWidget {
+                background-color: transparent;
+                border: none;
+                gridline-color: transparent;
+                font-size: 13px;
+            }
+            QTableWidget::item {
+                padding: 4px 8px;
+                border-bottom: 1px solid #1e1e1e;
+            }
+            QHeaderView::section {
+                background-color: #1B1E26;
+                color: #7b8496;
+                font-weight: 600;
+                letter-spacing: 0.5px;
+                text-transform: uppercase;
+                border: none;
+                padding: 6px 8px;
+                font-size: 11px;
+            }
+            QPushButton {
+                background-color: rgba(255, 255, 255, 0.05);
+                color: #e0e0e0;
+                border-radius: 2px;
+                padding: 6px 14px;
+                font-weight: bold;
+                border: 1px solid transparent;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 255, 255, 0.1);
+            }
+            QPushButton#addButton,
+            QPushButton#ackButton {
                 background-color: rgba(0, 230, 118, 0.1);
                 color: #00E676;
-                border: 1px solid transparent;
-                border-radius: 2px;
-                padding: 5px 12px;
-                font-weight: 600;
-                font-size: 12px;
             }
-            QPushButton#addButton:hover {
+            QPushButton#addButton:hover,
+            QPushButton#ackButton:hover {
                 background-color: rgba(0, 230, 118, 0.15);
-                border: 1px solid rgba(0, 230, 118, 0.3);
+            }
+            QPushButton#deleteButton {
+                background-color: rgba(239, 83, 80, 0.1);
+                color: #ef5350;
+            }
+            QPushButton#deleteButton:hover {
+                background-color: rgba(239, 83, 80, 0.15);
             }
             QPushButton#closeButton {
                 background: transparent;
                 color: #7B8496;
                 border: none;
                 font-size: 16px;
+                padding: 0;
             }
             QPushButton#closeButton:hover { color: #FF4444; }
-
-            /* Table Data Cells */
-            QTableWidget {
-                background-color: transparent;
-                color: #D1D4DC;
-                border: none;
-                gridline-color: #1E222B;
-                font-size: 12px;
-                outline: none;
-            }
-            QTableWidget::item {
-                padding: 2px 6px;
-                border-bottom: 1px solid #1A1D24;
-            }
-            QTableWidget::item:selected {
+            QLineEdit, QComboBox, QDoubleSpinBox {
                 background-color: #1B1E26;
-                color: #FFFFFF;
-            }
-
-            /* Table Headers */
-            QHeaderView::section {
-                background-color: #12141A;
-                color: #7B8496;
-                border: none;
-                border-bottom: 1px solid #222630;
-                font-size: 10px;
-                font-weight: 700;
-                text-transform: uppercase;
-                letter-spacing: 0.5px;
-                padding: 4px 6px;
-                text-align: left;
-            }
-
-            /* Inline Table Buttons */
-            QPushButton#deleteButton {
-                background-color: transparent;
-                color: #FF4444;
-                border: none;
-                font-weight: 600;
-                font-size: 11px;
-                text-align: left;
-            }
-            QPushButton#deleteButton:hover {
-                color: #FF6666;
-                background-color: rgba(255, 68, 68, 0.1);
+                border: 1px solid transparent;
                 border-radius: 2px;
+                padding: 5px 8px;
+                color: #ffffff;
             }
-            QPushButton#ackButton {
-                background-color: rgba(0, 230, 118, 0.1);
-                color: #00E676;
-                border: none;
-                border-radius: 2px;
-                padding: 3px 8px;
-                font-weight: 600;
-                font-size: 11px;
+            QLineEdit:focus, QComboBox:focus, QDoubleSpinBox:focus {
+                border: 1px solid #3b4252;
+                background-color: #15181e;
             }
-            QPushButton#ackButton:hover {
-                background-color: rgba(0, 230, 118, 0.2);
-            }
-
-            /* Tabs */
             QTabWidget::pane {
                 border: none;
                 border-top: 1px solid #222630;
