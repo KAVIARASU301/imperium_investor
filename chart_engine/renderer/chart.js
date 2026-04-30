@@ -158,6 +158,11 @@ class FixedTradingChart {
         this.indicatorScaleLabelsEnabled = cfg.indicatorScaleLabelsEnabled === true;
         this.crosshairSnapEnabled = cfg.crosshairSnapEnabled !== false;
         this.toolSelectionMode = cfg.toolSelectionMode === 'multi_use' ? 'multi_use' : 'single_use';
+        this.volumeScaleMode = cfg.volumeScaleMode === 'sqrt' ? 'sqrt' : 'linear';
+        this.volumeSmaPeriod = Number.isFinite(cfg.volumeSmaPeriod) ? Math.max(1, Math.floor(cfg.volumeSmaPeriod)) : 20;
+        this.volumeOutlierCapMultiple = Number.isFinite(cfg.volumeOutlierCapMultiple)
+            ? Math.max(1, cfg.volumeOutlierCapMultiple)
+            : 5;
         if (this.drawingEngine) {
             this.drawingEngine.toolSelectionMode = this.toolSelectionMode;
         }
@@ -1040,20 +1045,25 @@ class FixedTradingChart {
         const start = Math.max(0, this.viewPortStart - 1);
         const end   = Math.min(this.data.length - 1, this.viewPortEnd + 1);
 
-        // Collect visible volumes
+        // Collect visible volumes (viewport-only scaling baseline)
         const visVols = [];
+        const visSmaVols = [];
         for (let i = start; i <= end; i++) {
             const candle = this.data[i];
             if (!candle) continue;
-            visVols.push(this._resolveVolumeForCandle(candle, i));
+            const rawVol = this._resolveVolumeForCandle(candle, i);
+            visVols.push(rawVol);
+            visSmaVols.push(this._volumeSMA(i, this.volumeSmaPeriod));
         }
         if (visVols.length === 0) return;
 
-        // Stable max cap — only recalculate when viewport actually changes
+        // Stable viewport max with outlier cap (squish method)
         const vpKey = `${this.viewPortStart}_${this.viewPortEnd}`;
         if (this._volVpKey !== vpKey) {
             const maxVisible = Math.max(1, ...visVols);
-            this._cachedMaxVolume = maxVisible;
+            const maxVisibleSma = Math.max(1, ...visSmaVols);
+            const outlierCap = maxVisibleSma * this.volumeOutlierCapMultiple;
+            this._cachedMaxVolume = Math.max(1, Math.min(maxVisible, outlierCap));
             this._volVpKey = vpKey;
         }
         this.maxVolume = this._cachedMaxVolume;
@@ -1066,9 +1076,11 @@ class FixedTradingChart {
         for (let i = start; i <= end; i++) {
             const candle = this.data[i];
             if (!candle) continue;
-            const vol    = this._resolveVolumeForCandle(candle, i);
+            const rawVol = this._resolveVolumeForCandle(candle, i);
+            const vol    = this._scaleVolume(rawVol);
+            const maxVol = this._scaleVolume(this.maxVolume);
 
-            const ratio  = Math.min(1.0, vol / this.maxVolume);
+            const ratio  = Math.min(1.0, vol / Math.max(1, maxVol));
             const h      = Math.max(1, ratio * area.height);
             const x      = this._candleToX(i);
             const barTop = area.y + area.height - h;
@@ -1093,10 +1105,30 @@ class FixedTradingChart {
 
     _volumeToY(vol) {
         if (!this.volumeArea) return 0;
-        const max = Math.max(1, this.maxVolume || 1);
-        const clamped = Math.max(0, Math.min(vol, max));
+        const max = Math.max(1, this._scaleVolume(this.maxVolume || 1));
+        const clamped = Math.max(0, Math.min(this._scaleVolume(vol), max));
         const ratio = clamped / max;
         return this.volumeArea.y + this.volumeArea.height - (ratio * this.volumeArea.height);
+    }
+
+    _scaleVolume(vol) {
+        const v = Math.max(0, Number(vol) || 0);
+        if (this.volumeScaleMode === 'sqrt') return Math.sqrt(v);
+        return v;
+    }
+
+    _volumeSMA(index, period = 20) {
+        const p = Math.max(1, period | 0);
+        const start = Math.max(0, index - p + 1);
+        let sum = 0;
+        let n = 0;
+        for (let i = start; i <= index; i++) {
+            const candle = this.data[i];
+            if (!candle) continue;
+            sum += this._resolveVolumeForCandle(candle, i);
+            n++;
+        }
+        return n > 0 ? (sum / n) : 0;
     }
 
     _drawVolumeScale() {
