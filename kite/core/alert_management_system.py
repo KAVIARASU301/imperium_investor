@@ -25,6 +25,7 @@ import os
 import time
 import math
 import uuid
+import sqlite3
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, asdict, field
 from datetime import datetime, timedelta
@@ -125,14 +126,17 @@ class Alert:
 # ─────────────────────────────────────────────────────────────────────────────
 
 class AlertStore:
-    """Thread-safe in-memory store with JSON persistence."""
+    """Thread-safe in-memory store with SQLite persistence and JSON migration."""
 
     def __init__(self):
         self._alerts: Dict[str, Alert] = {}
         self._mutex  = QMutex()
         app_dir = os.path.join(os.path.expanduser("~"), ".qullamaggie")
         os.makedirs(app_dir, exist_ok=True)
-        self._path = os.path.join(app_dir, "alerts.json")
+        self._path = os.path.join(app_dir, "alerts.db")
+        self._legacy_json_path = os.path.join(app_dir, "alerts.json")
+        self._init_db()
+        self._migrate_from_legacy_json_if_needed()
         self._load()
 
     def all(self) -> List[Alert]:
@@ -159,18 +163,22 @@ class AlertStore:
 
     def _save(self):
         try:
-            data = [a.to_dict() for a in self._alerts.values()]
-            with open(self._path, "w") as f:
-                json.dump(data, f, indent=2)
+            payload = json.dumps([a.to_dict() for a in self._alerts.values()])
+            with sqlite3.connect(self._path, timeout=5.0) as conn:
+                conn.execute("BEGIN IMMEDIATE")
+                conn.execute("UPDATE alerts_store SET payload_json = ?, updated_at = ? WHERE id = 1",
+                             (payload, datetime.now().isoformat()))
+                conn.commit()
         except Exception as e:
             logger.error(f"AlertStore save failed: {e}")
 
     def _load(self):
-        if not os.path.exists(self._path):
-            return
         try:
-            with open(self._path, "r") as f:
-                data = json.load(f)
+            with sqlite3.connect(self._path, timeout=5.0) as conn:
+                row = conn.execute("SELECT payload_json FROM alerts_store WHERE id = 1").fetchone()
+            if not row or not row[0]:
+                return
+            data = json.loads(row[0])
             for d in data:
                 try:
                     a = Alert.from_dict(d)
@@ -185,6 +193,57 @@ class AlertStore:
             logger.info(f"Loaded {len(self._alerts)} alerts from disk")
         except Exception as e:
             logger.error(f"AlertStore load failed: {e}")
+
+    def _init_db(self) -> None:
+        try:
+            with sqlite3.connect(self._path, timeout=5.0) as conn:
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS alerts_store (
+                        id INTEGER PRIMARY KEY CHECK (id = 1),
+                        payload_json TEXT NOT NULL DEFAULT '[]',
+                        updated_at TEXT
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    INSERT INTO alerts_store (id, payload_json, updated_at)
+                    VALUES (1, '[]', ?)
+                    ON CONFLICT(id) DO NOTHING
+                    """,
+                    (datetime.now().isoformat(),),
+                )
+                conn.commit()
+        except Exception as e:
+            logger.error(f"AlertStore DB init failed: {e}")
+
+    def _migrate_from_legacy_json_if_needed(self) -> None:
+        if not os.path.exists(self._legacy_json_path):
+            return
+        try:
+            with sqlite3.connect(self._path, timeout=5.0) as conn:
+                row = conn.execute("SELECT payload_json FROM alerts_store WHERE id = 1").fetchone()
+                has_db_data = bool(row and row[0] and row[0] != "[]")
+            if has_db_data:
+                return
+
+            with open(self._legacy_json_path, "r") as f:
+                legacy_data = json.load(f)
+            if not isinstance(legacy_data, list):
+                logger.warning("Legacy alerts.json format invalid; skipping migration")
+                return
+
+            payload = json.dumps(legacy_data)
+            with sqlite3.connect(self._path, timeout=5.0) as conn:
+                conn.execute(
+                    "UPDATE alerts_store SET payload_json = ?, updated_at = ? WHERE id = 1",
+                    (payload, datetime.now().isoformat()),
+                )
+                conn.commit()
+            logger.info(f"Migrated {len(legacy_data)} alert(s) from alerts.json to alerts.db")
+        except Exception as e:
+            logger.error(f"AlertStore legacy migration failed: {e}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
