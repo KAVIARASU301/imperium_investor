@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 class ChartLinesManager(QObject):
     """
     Manages alert lines and position lines in the chart
-    Compatible with existing drawing system: user_data/chart_drawings/SYMBOL_day_state.json
+    Compatible with existing drawing system: user_data/chart_drawings/SYMBOL_<interval>_state.json
     """
 
     # Signals to communicate with chart
@@ -23,17 +23,24 @@ class ChartLinesManager(QObject):
         self.drawings_dir = "user_data/chart_drawings"
         os.makedirs(self.drawings_dir, exist_ok=True)
 
-    def _get_symbol_file_path(self, symbol: str) -> str:
-        """Get the path to the symbol's drawings JSON file for day timeframe"""
-        # Use the same format as existing system: SYMBOL_day_state.json
-        # Keep filename sanitization aligned with DrawingStorage._state_path()
-        # so chart overlays and persisted drawings always hit the same file.
-        safe_symbol = symbol.replace("/", "_").replace(":", "_")
-        return os.path.join(self.drawings_dir, f"{safe_symbol}_day_state.json")
+    def _get_current_interval(self) -> str:
+        """Get current chart interval, defaulting to day."""
+        if hasattr(self.main_window, "candlestick_chart"):
+            chart = self.main_window.candlestick_chart
+            if hasattr(chart, "current_interval") and chart.current_interval:
+                return chart.current_interval
+        return "day"
 
-    def _load_symbol_drawings(self, symbol: str) -> Dict:
+    def _get_symbol_file_path(self, symbol: str, interval: str = None) -> str:
+        """Get the path to the symbol's drawings JSON file for the target interval."""
+        if interval is None:
+            interval = self._get_current_interval()
+        safe_symbol = symbol.replace("/", "_").replace(":", "_")
+        return os.path.join(self.drawings_dir, f"{safe_symbol}_{interval}_state.json")
+
+    def _load_symbol_drawings(self, symbol: str, interval: str = None) -> Dict:
         """Load existing drawings for a symbol or create new structure"""
-        file_path = self._get_symbol_file_path(symbol)
+        file_path = self._get_symbol_file_path(symbol, interval)
 
         if os.path.exists(file_path):
             try:
@@ -65,10 +72,10 @@ class ChartLinesManager(QObject):
             "visible_candle_count": 100
         }
 
-    def _save_symbol_drawings(self, symbol: str, state: Dict) -> bool:
+    def _save_symbol_drawings(self, symbol: str, state: Dict, interval: str = None) -> bool:
         """Save drawings to symbol's JSON file"""
         try:
-            file_path = self._get_symbol_file_path(symbol)
+            file_path = self._get_symbol_file_path(symbol, interval)
 
             # Ensure the state structure is valid
             if not isinstance(state, dict):
