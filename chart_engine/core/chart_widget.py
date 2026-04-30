@@ -437,7 +437,8 @@ class CandlestickChart(QWidget):
             return
 
         self._stop_loader()
-        self._set_state(ChartState.LOADING)
+        if not self.chart_view or self.current_state != ChartState.LOADED:
+            self._set_state(ChartState.LOADING)
         self.progress_bar.setValue(0)
         self.progress_bar.show()
         self.loading_label.setText(f"Loading {self.current_symbol}…")
@@ -489,6 +490,27 @@ class CandlestickChart(QWidget):
         self._apply_indicator_toolbar_state(initial_indicator_visibility)
         drawings_json = json.dumps(saved_state.get("drawings", {}))
 
+        if self.chart_view and self.current_state == ChartState.LOADED:
+            payload_dict = {
+                "candlestickData": candles,
+                "volumeData": volumes,
+                "emaData": metrics.ema_data,
+                "initialADR": metrics.adr,
+                "percentageChanges": metrics.pct_changes,
+                "interval": self.current_interval,
+                "symbol": self.current_symbol,
+                "initialDrawingsJson": drawings_json,
+                "watermarkDescription": self._current_watermark_description,
+                "showWatermarkDescription": self._show_watermark_description,
+                "visibleCandleCount": initial_zoom,
+            }
+            self._js(f"if(window.chart) window.chart.loadNewData({json.dumps(payload_dict)});")
+            self._update_symbol_info(df)
+            self.symbol_loaded.emit(self.current_symbol)
+            self.data_request_for_symbol.emit(self.current_symbol)
+            logger.info("Chart seamlessly updated: %s", self.current_symbol)
+            return
+
         cfg = ChartHtmlConfig(
             candlestick_data       = candles,
             volume_data            = volumes,
@@ -523,7 +545,7 @@ class CandlestickChart(QWidget):
         self._set_state(ChartState.LOADED)
         self.symbol_loaded.emit(self.current_symbol)
         self.data_request_for_symbol.emit(self.current_symbol)
-        logger.info("Chart loaded: %s (%d candles)", self.current_symbol, len(df))
+        logger.info("Chart HTML loaded: %s", self.current_symbol)
 
     def _render_html(self, cfg: ChartHtmlConfig) -> None:
         if not self.chart_view:

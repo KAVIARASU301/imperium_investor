@@ -3114,6 +3114,50 @@ class FixedTradingChart {
         this.requestDraw();
     }
 
+    loadNewData(cfg) {
+        this.data = cfg.candlestickData || [];
+        this.volumeData = cfg.volumeData || [];
+        this.emaData = cfg.emaData || {};
+        this.currentADR = cfg.initialADR || {};
+        this.percentageChanges = cfg.percentageChanges || {};
+        this.currentInterval = cfg.interval || 'day';
+        this.currentSymbol = cfg.symbol || '';
+        this.currentSymbolDescription = cfg.watermarkDescription || '';
+        this.showWatermarkDescription = cfg.showWatermarkDescription === true;
+
+        this.panOffsetPx = 0;
+        this.isUserYRange = false;
+        this.visibleCandleCount = cfg.visibleCandleCount || this.visibleCandleCount;
+        this.viewPortEnd = Math.max(0, this.data.length - 1 + this.rightBufferCandles);
+
+        this.vwapData = [];
+        this.atrTrendReversal = [];
+        this.cvdData = [];
+        this.rsiData = [];
+        if (this.data.length > 0) {
+            this._computeVWAP();
+            this._computeATRTrendReversal();
+            this._computeCVD();
+            this._computeRSI();
+        }
+
+        if (cfg.initialDrawingsJson) {
+            try {
+                this.updateDrawings(JSON.parse(cfg.initialDrawingsJson));
+            } catch (e) {
+                this.clearAllDrawings();
+            }
+        } else {
+            this.clearAllDrawings();
+        }
+
+        this._updateViewport();
+        this.calculateBounds();
+        this.requestDraw();
+        this.updateSlider();
+        this._displayLatestCandleDetails();
+    }
+
     updateDrawings(drawings) {
         if (!drawings) return;
         if (this.drawingEngine) {
