@@ -388,16 +388,14 @@ class AlertEngine(QObject):
 
         # ── Price conditions ──
         if cond == AlertCondition.PRICE_IS_ABOVE.value:
-            prev = alert._prev_price
-            crossed_up = prev > 0 and prev < target <= ltp
-            alert._prev_price = ltp
-            return crossed_up
+            # Level-based alert: trigger as soon as LTP is at/above target.
+            # This does NOT wait for candle/day close.
+            return ltp >= target
 
         if cond == AlertCondition.PRICE_IS_BELOW.value:
-            prev = alert._prev_price
-            crossed_down = prev > 0 and prev > target >= ltp
-            alert._prev_price = ltp
-            return crossed_down
+            # Level-based alert: trigger as soon as LTP is at/below target.
+            # This does NOT wait for candle/day close.
+            return ltp <= target
 
         if cond == AlertCondition.PRICE_CROSSED_UP.value:
             prev = alert._prev_price
