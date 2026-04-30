@@ -117,6 +117,8 @@ class FixedTradingChart {
         // ── Bounds ──
         this.minPrice = 0; this.maxPrice = 0;
         this.maxVolume = 1;
+        this._volVpKey = null;
+        this._cachedMaxVolume = 1;
 
         // ── State ──
         this.livePrice   = null;
@@ -3164,6 +3166,9 @@ class FixedTradingChart {
 
         this.panOffsetPx = 0;
         this.isUserYRange = false;
+        this._volVpKey = null;
+        this._cachedMaxVolume = 1;
+        this.maxVolume = 1;
         this.visibleCandleCount = cfg.visibleCandleCount || this.visibleCandleCount;
         this.viewPortEnd = Math.max(0, this.data.length - 1 + this.rightBufferCandles);
 
@@ -3220,6 +3225,7 @@ class FixedTradingChart {
     addNewCandle(candle) {
         this.data.push(candle);
         this.volumeData.push({ time: candle.time, value: candle.volume || 0 });
+        this._volVpKey = null;
         // Keep viewport anchored to latest candle if user hasn't panned away.
         const wasAtEnd = this.viewPortEnd >= this.data.length - 2 + this.rightBufferCandles;
         if (wasAtEnd) {
