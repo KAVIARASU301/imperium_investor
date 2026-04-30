@@ -3115,6 +3115,11 @@ class FixedTradingChart {
     }
 
     loadNewData(cfg) {
+        // Reset per-symbol live overlay so previous symbol LTP never distorts
+        // the first frame of the newly loaded history.
+        this.livePrice = null;
+        this._hasLiveTicks = false;
+
         this.data = cfg.candlestickData || [];
         this.volumeData = cfg.volumeData || [];
         this.emaData = cfg.emaData || {};

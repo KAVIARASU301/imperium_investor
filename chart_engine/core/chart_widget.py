@@ -167,6 +167,7 @@ class CandlestickChart(QWidget):
         if not symbol:
             return
         self.current_symbol           = symbol
+        self.current_ltp              = 0.0
         self._current_watermark_description = self._resolve_symbol_description(symbol)
         token = int(instrument_token or 0)
         if not token:
