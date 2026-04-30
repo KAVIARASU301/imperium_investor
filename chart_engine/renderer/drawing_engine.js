@@ -1140,22 +1140,13 @@ class DrawingEngine {
         d.textWidth = tw;
         d.textHeight = th;
 
-        /* pill background */
-        const bgOpacity = Number.isFinite(d.backgroundOpacity) ? Math.max(0, Math.min(1, d.backgroundOpacity)) : 0.78;
-        ctx.fillStyle = `rgba(13,17,23,${bgOpacity})`;
-        ctx.beginPath();
-        ctx.roundRect(x, y - th - 6, tw + 12, th + 8, 3);
-        ctx.fill();
-        if (d.showBorder !== false || sel || hov) {
-            ctx.strokeStyle = d.color;
-            ctx.lineWidth = 1;
-            ctx.setLineDash([]);
-            ctx.stroke();
-        }
-
-        /* text */
+        /* naked text: align text block center to note origin */
         ctx.fillStyle = d.color || '#FFD700';
-        lines.forEach((line, idx) => ctx.fillText(line, x + 6, y - th - 2 + (idx * lineHeight)));
+        const textTop = y - (th / 2);
+        lines.forEach((line, idx) => {
+            const lw = ctx.measureText(line).width;
+            ctx.fillText(line, x - (lw / 2), textTop + (idx * lineHeight));
+        });
 
         /* pin dot */
         ctx.fillStyle = d.color || '#FFD700';

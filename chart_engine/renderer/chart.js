@@ -1902,11 +1902,11 @@ class FixedTradingChart {
 
             ctx.font      = `${note.size || 12}px "Segoe UI", sans-serif`;
             ctx.fillStyle = note.color || '#FFD700';
-            ctx.textAlign = 'left';
-            ctx.textBaseline = 'top';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
 
-            // Naked text note (no background container)
-            ctx.fillText(note.text, x + 5, y - 12);
+            // Naked text note centered on the note origin
+            ctx.fillText(note.text, x, y);
 
             // Pin dot
             ctx.beginPath();
