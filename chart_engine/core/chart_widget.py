@@ -318,11 +318,9 @@ class CandlestickChart(QWidget):
         main_layout.addWidget(self.toolbar)
 
         # ── Thin progress bar ──
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setMaximumHeight(3)
+        self.progress_bar = QProgressBar(self)
         self.progress_bar.setTextVisible(False)
         self.progress_bar.hide()
-        main_layout.addWidget(self.progress_bar)
 
         # ── Stacked widget: loading / error / chart ──
         self.stack = QStackedWidget()
@@ -408,6 +406,11 @@ class CandlestickChart(QWidget):
         QShortcut(QKeySequence("Ctrl+S"), self).activated.connect(self._save_drawings)
         QShortcut(QKeySequence("F5"),     self).activated.connect(self._force_refresh)
 
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if hasattr(self, "progress_bar"):
+            self.progress_bar.resize(self.width(), 2)
+
     # ═══════════════════════════════════════════════════════════════════════
     # CHART LIFECYCLE
     # ═══════════════════════════════════════════════════════════════════════
@@ -441,6 +444,7 @@ class CandlestickChart(QWidget):
         if not self.chart_view or self.current_state != ChartState.LOADED:
             self._set_state(ChartState.LOADING)
         self.progress_bar.setValue(0)
+        self.progress_bar.setGeometry(0, 0, self.width(), 2)
         self.progress_bar.show()
         self.loading_label.setText(f"Loading {self.current_symbol}…")
 
@@ -1010,7 +1014,7 @@ class CandlestickChart(QWidget):
             QPushButton#retryButton:hover { border-color: #4070b0; color: #a0c0e0; }
 
             QProgressBar {
-                background-color: #0e1420;
+                background: transparent;
                 border: none;
             }
             QProgressBar::chunk { background-color: #1d5aa0; }
