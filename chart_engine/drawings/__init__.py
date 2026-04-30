@@ -51,6 +51,7 @@ _DEFAULT_INDICATOR_VISIBILITY: Dict[str, bool] = {
     "ema20": False,
     "ema50": False,
     "ema200": False,
+    "bjTrend": False,
     "vwap": False,
     "atrTrendReversal": False,
     "volume": True,

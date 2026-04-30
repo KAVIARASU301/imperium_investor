@@ -41,6 +41,7 @@ DEFAULT_INDICATOR_VISIBILITY = {
     "ema20": False,
     "ema50": False,
     "ema200": False,
+    "bjTrend": False,
     "atrTrendReversal": False,
     "vwap": False,
     "volume": True,   # volume bars on by default

@@ -53,6 +53,7 @@ INDICATORS: List[Tuple[str, str, str, str]] = [
     ("ema20",            "EMA20",  "#aa00ff", "EMA 20"),
     ("ema50",            "EMA50",  "#ff6d00", "EMA 50"),
     ("ema200",           "EMA200", "#f50057", "EMA 200"),
+    ("bjTrend",          "BJ·T3",  "#64b5f6", "Bjorgum T3 Trend (5/8, α=0.7)"),
     ("vwap",             "VWAP",   "#ff9100", "VWAP — Volume Weighted Avg Price"),
     ("atrTrendReversal", "ATR·TR", "#ff1744", "ATR Trend Reversal"),
     ("cvd",              "CVD",    "#00b0ff", "Cumulative Volume Delta"),

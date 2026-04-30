@@ -175,7 +175,7 @@ class FixedTradingChart {
         // localStorage is global (not per-symbol) so user's choices stick forever.
         const _pythonDefaults = {
             ema10: false, ema20: false, ema50: false, ema200: false,
-            atrTrendReversal: false, vwap: false, cvd: false, volume: true, rsi: false,
+            atrTrendReversal: false, bjTrend: false, vwap: false, cvd: false, volume: true, rsi: false,
             ...(cfg.initialIndicatorVisibility || {}),
         };
         this.indicatorVisibility = _loadIndicatorState(_pythonDefaults);
@@ -185,12 +185,14 @@ class FixedTradingChart {
         // CVD/VWAP/RSI must never run on empty or placeholder data.
         this.vwapData = [];
         this.atrTrendReversal = [];
+        this.bjTrendData = { fast: [], slow: [], trendUp: [] };
         this.cvdData = [];
         this.rsiData = [];
         this._hasLiveTicks = false;
         if (this.data.length > 0) {
             this._computeVWAP();
             this._computeATRTrendReversal();
+            this._computeBjTrendIndicator();
             this._computeCVD();
             this._computeRSI();
         }
@@ -668,6 +670,7 @@ class FixedTradingChart {
             this._drawRSI();
             this._drawVWAP();
             this._drawEMAs();
+            this._drawBjTrendIndicator();
             this._drawCandlesticks();
             this._drawATRTrendReversal();
             this._drawAxes();
@@ -1438,6 +1441,34 @@ class FixedTradingChart {
                 ctx.fill();
             }
         }
+    }
+
+    _drawBjTrendIndicator() {
+        if (this.indicatorVisibility.bjTrend === false) return;
+        if (!this.bjTrendData || this.bjTrendData.fast.length === 0 || this.bjTrendData.slow.length === 0) return;
+        const ctx = this.ctx;
+        const start = Math.max(0, this.viewPortStart - 1);
+        const end = Math.min(this.data.length - 1, this.viewPortEnd + 1);
+
+        const drawLine = (values, color, width) => {
+            ctx.strokeStyle = color;
+            ctx.lineWidth = width;
+            ctx.setLineDash([]);
+            ctx.beginPath();
+            let first = true;
+            for (let i = start; i <= end; i++) {
+                const value = values[i];
+                if (!Number.isFinite(value)) { first = true; continue; }
+                const x = this._candleToX(i) + this.candleWidth / 2;
+                const y = this._priceToY(value);
+                if (y < this.chartArea.y || y > this.chartArea.y + this.chartArea.height) { first = true; continue; }
+                if (first) { ctx.moveTo(x, y); first = false; } else { ctx.lineTo(x, y); }
+            }
+            ctx.stroke();
+        };
+
+        drawLine(this.bjTrendData.fast, '#64b5f6', 1.4);
+        drawLine(this.bjTrendData.slow, '#ef5350', 1.1);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -2873,6 +2904,35 @@ class FixedTradingChart {
         }
     }
 
+    _computeBjTrendIndicator() {
+        const alpha = 0.7;
+        const fastLength = 5;
+        const slowLength = 8;
+        const n = this.data.length;
+        this.bjTrendData = { fast: new Array(n).fill(NaN), slow: new Array(n).fill(NaN), trendUp: new Array(n).fill(false) };
+        if (n === 0) return;
+
+        const closes = this.data.map(d => Number(d.close) || 0);
+        const emaSeries = (src, length) => {
+            const out = new Array(src.length).fill(NaN);
+            const k = 2 / (length + 1);
+            out[0] = src[0];
+            for (let i = 1; i < src.length; i++) out[i] = (src[i] - out[i - 1]) * k + out[i - 1];
+            return out;
+        };
+        const gdSeries = (src, length, a) => {
+            const e1 = emaSeries(src, length);
+            const e2 = emaSeries(e1, length);
+            return src.map((_, i) => e1[i] * (1 + a) - e2[i] * a);
+        };
+        const t3Series = (src, length, a) => gdSeries(gdSeries(gdSeries(src, length, a), length, a), length, a);
+
+        this.bjTrendData.fast = t3Series(closes, fastLength, alpha);
+        this.bjTrendData.slow = t3Series(closes, slowLength, alpha);
+        this.bjTrendData.trendUp = this.bjTrendData.fast.map((v, i) =>
+            Number.isFinite(v) && Number.isFinite(this.bjTrendData.slow[i]) && v >= this.bjTrendData.slow[i]);
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     // COORDINATE TRANSFORMS
     // ═══════════════════════════════════════════════════════════════════════
@@ -3142,6 +3202,7 @@ class FixedTradingChart {
             last.low   = Math.min(last.low,  price);
         }
         this._computeATRTrendReversal();
+        this._computeBjTrendIndicator();
         this._computeCVD();
         this._computeRSI();
         this.calculateBounds();
@@ -3174,11 +3235,13 @@ class FixedTradingChart {
 
         this.vwapData = [];
         this.atrTrendReversal = [];
+        this.bjTrendData = { fast: [], slow: [], trendUp: [] };
         this.cvdData = [];
         this.rsiData = [];
         if (this.data.length > 0) {
             this._computeVWAP();
             this._computeATRTrendReversal();
+            this._computeBjTrendIndicator();
             this._computeCVD();
             this._computeRSI();
         }
@@ -3234,6 +3297,7 @@ class FixedTradingChart {
         }
         this._computeVWAP();
         this._computeATRTrendReversal();
+        this._computeBjTrendIndicator();
         this._computeCVD();
         this._computeRSI();
         this.calculateBounds();
@@ -3381,7 +3445,7 @@ class FixedTradingChart {
         try { localStorage.removeItem(_IND_STORE_KEY); } catch (e) {}
         this.indicatorVisibility = {
             ema10: false, ema20: false, ema50: false, ema200: false,
-            atrTrendReversal: false, vwap: false, cvd: false, volume: true, rsi: false,
+            atrTrendReversal: false, bjTrend: false, vwap: false, cvd: false, volume: true, rsi: false,
         };
         _saveIndicatorState(this.indicatorVisibility);
         this.requestDraw();
