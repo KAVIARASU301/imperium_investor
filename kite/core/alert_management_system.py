@@ -1243,11 +1243,11 @@ class AlertManagementDialog(QDialog):
         # Tabs
         self.tabs = QTabWidget()
         self.active_table    = self._make_table(
-            ["Symbol", "Condition", "Target", "Intent", "Note", "Created", "Action"])
+            ["Symbol", "Condition", "Target", "Created", "Action"])
         self.triggered_table = self._make_table(
-            ["Symbol", "Condition", "Target", "Triggered At", "Note", "Action"])
+            ["Symbol", "Condition", "Target", "Triggered At", "Action"])
         self.history_table   = self._make_table(
-            ["Symbol", "Condition", "Target", "Triggered At", "Count", "Note"])
+            ["Symbol", "Condition", "Target", "Triggered At", "Count"])
 
         self.tabs.addTab(self.active_table,    "Active")
         self.tabs.addTab(self.triggered_table, "Triggered")
@@ -1263,6 +1263,11 @@ class AlertManagementDialog(QDialog):
         t.verticalHeader().setVisible(False)
         t.setAlternatingRowColors(True)
         t.setShowGrid(False)
+        header = t.horizontalHeader()
+        if "Action" in headers:
+            action_col = headers.index("Action")
+            header.setSectionResizeMode(action_col, QHeaderView.ResizeMode.Fixed)
+            t.setColumnWidth(action_col, 110)
         return t
 
     def refresh_tables(self):
@@ -1286,15 +1291,13 @@ class AlertManagementDialog(QDialog):
             t.setItem(row, 0, QTableWidgetItem(a.symbol))
             t.setItem(row, 1, QTableWidgetItem(a.condition))
             t.setItem(row, 2, QTableWidgetItem(f"{a.target_value:.2f}"))
-            t.setItem(row, 3, QTableWidgetItem(a.intent))
-            t.setItem(row, 4, QTableWidgetItem(a.note))
-            t.setItem(row, 5, QTableWidgetItem(a.created_at[:16]))
+            t.setItem(row, 3, QTableWidgetItem(a.created_at[:16]))
 
-            del_btn = QPushButton("✕ Delete")
+            del_btn = QPushButton("Delete")
             del_btn.setObjectName("deleteButton")
             # FIX #5 / #6: route through manager so chart line is also removed
             del_btn.clicked.connect(lambda _, aid=a.id: self._delete_alert(aid))
-            t.setCellWidget(row, 6, del_btn)
+            t.setCellWidget(row, 4, del_btn)
 
     def _populate_triggered(self, alerts: List[Alert]):
         t = self.triggered_table
@@ -1304,12 +1307,11 @@ class AlertManagementDialog(QDialog):
             t.setItem(row, 1, QTableWidgetItem(a.condition))
             t.setItem(row, 2, QTableWidgetItem(f"{a.target_value:.2f}"))
             t.setItem(row, 3, QTableWidgetItem(a.triggered_at[:16] if a.triggered_at else ""))
-            t.setItem(row, 4, QTableWidgetItem(a.note))
 
-            ack_btn = QPushButton("✓ Ack")
+            ack_btn = QPushButton("Ack")
             ack_btn.setObjectName("ackButton")
             ack_btn.clicked.connect(lambda _, aid=a.id: self._ack_alert(aid))
-            t.setCellWidget(row, 5, ack_btn)
+            t.setCellWidget(row, 4, ack_btn)
 
     def _populate_history(self, alerts: List[Alert]):
         t = self.history_table
@@ -1320,7 +1322,6 @@ class AlertManagementDialog(QDialog):
             t.setItem(row, 2, QTableWidgetItem(f"{a.target_value:.2f}"))
             t.setItem(row, 3, QTableWidgetItem(a.triggered_at[:16] if a.triggered_at else ""))
             t.setItem(row, 4, QTableWidgetItem(str(a._trigger_count)))
-            t.setItem(row, 5, QTableWidgetItem(a.note))
 
     def _add_new(self):
         dlg = AlertCreationDialog(parent=self)
@@ -1374,14 +1375,22 @@ class AlertManagementDialog(QDialog):
                 letter-spacing: 0.5px;
             }
             QTableWidget {
-                background-color: transparent;
-                border: none;
+                background-color: #0f1318;
+                border: 1px solid #1a2030;
                 gridline-color: transparent;
                 font-size: 13px;
+                alternate-background-color: #0f1318;
+                selection-background-color: #1a2840;
             }
             QTableWidget::item {
                 padding: 4px 8px;
-                border-bottom: 1px solid #1e1e1e;
+                border-bottom: 1px solid #1a2030;
+            }
+            QTableWidget::item:hover {
+                background-color: #141920;
+            }
+            QTableWidget::item:selected {
+                background-color: #1a2840;
             }
             QHeaderView::section {
                 background-color: #1B1E26;
