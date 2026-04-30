@@ -7,10 +7,11 @@ from PySide6.QtWidgets import (
     QLineEdit, QDateEdit, QCheckBox, QSplitter, QGroupBox, QGridLayout,
     QFormLayout  # Import QFormLayout
 )
-from PySide6.QtCore import Qt, Signal, QDate, QTimer
+from PySide6.QtCore import Qt, Signal, QDate, QTimer, QThreadPool
 from PySide6.QtGui import QColor, QMouseEvent, QFont
 
 logger = logging.getLogger(__name__)
+from kite.utils.worker import Worker
 
 
 class FilterWidget(QWidget):
@@ -389,6 +390,8 @@ class OrderHistoryDialog(QDialog):
         self.trade_logger = trade_logger
         self._drag_pos = None
         self._orders_data = []
+        self._thread_pool = QThreadPool.globalInstance()
+        self._refresh_inflight = False
 
         self._setup_window()
         self._setup_ui()
@@ -538,34 +541,42 @@ class OrderHistoryDialog(QDialog):
 
     def _refresh_data(self):
         """Refresh order data from trade logger."""
-        try:
-            self.status_label.setText("Loading orders...")
+        if self._refresh_inflight:
+            logger.debug("Order history refresh skipped — previous load still running")
+            return
 
-            # Get orders from trade logger
-            self._orders_data = self.trade_logger.get_all_orders(limit=1000)
+        self._refresh_inflight = True
+        self.status_label.setText("Loading orders...")
+        worker = Worker(self.trade_logger.get_all_orders, 1000)
+        worker.signals.result.connect(self._handle_refresh_result)
+        worker.signals.error.connect(lambda err: self._handle_refresh_error(err[1]))
+        worker.signals.finished.connect(self._on_refresh_finished)
+        self._thread_pool.start(worker)
 
-            # Apply current filters
-            self._apply_filters()
+    def _handle_refresh_result(self, orders):
+        self._orders_data = orders or []
+        self._apply_filters()
 
-            # Update status
-            total_count = len(self._orders_data)
-            self.status_label.setText(f"Last updated: {datetime.now().strftime('%H:%M:%S')}")
-            self.status_label.setStyleSheet("""
-                color: #00FFAA;
-                font-size: 12px;
-                font-weight: bold;
-                font-style: italic;
-                padding: 4px 8px;
-                border: 1px solid #444;
-                border-radius: 6px;
-                background-color: #1e1e1e;
-            """)
+        total_count = len(self._orders_data)
+        self.status_label.setText(f"Last updated: {datetime.now().strftime('%H:%M:%S')}")
+        self.status_label.setStyleSheet("""
+            color: #00FFAA;
+            font-size: 12px;
+            font-weight: bold;
+            font-style: italic;
+            padding: 4px 8px;
+            border: 1px solid #444;
+            border-radius: 6px;
+            background-color: #1e1e1e;
+        """)
+        logger.info(f"Loaded {total_count} orders from trade logger")
 
-            logger.info(f"Loaded {total_count} orders from trade logger")
+    def _handle_refresh_error(self, error):
+        logger.error(f"Failed to refresh order data: {error}")
+        self.status_label.setText("Error loading data")
 
-        except Exception as e:
-            logger.error(f"Failed to refresh order data: {e}")
-            self.status_label.setText("Error loading data")
+    def _on_refresh_finished(self):
+        self._refresh_inflight = False
 
     def _auto_refresh(self):
         """Auto-refresh data periodically."""

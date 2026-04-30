@@ -2,7 +2,7 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import Qt, QTimer, Signal, QThreadPool
 from PySide6.QtWidgets import (
     QDialog,
     QVBoxLayout,
@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from kite.widgets.status_bar import show_error, show_info, show_order_cancelled
+from kite.utils.worker import Worker
 
 logger = logging.getLogger(__name__)
 
@@ -151,6 +152,8 @@ class PendingOrdersDialog(QDialog):
         self.instrument_map = instrument_map or {}
         self._orders: List[Dict[str, Any]] = []
         self._orders_by_id: Dict[str, Dict[str, Any]] = {}
+        self._thread_pool = QThreadPool.globalInstance()
+        self._refresh_inflight = False
 
         self.setWindowTitle("Pending Orders")
         self.setMinimumSize(980, 560)
@@ -244,28 +247,42 @@ class PendingOrdersDialog(QDialog):
         return self._orders_by_id.get(order_id_item.text())
 
     def refresh_orders(self):
-        try:
-            all_orders = self.trader.orders() or []
-            pending = [order for order in all_orders if (order.get("status", "").upper() in PENDING_STATUSES)]
+        if self._refresh_inflight:
+            logger.debug("Pending order refresh skipped — previous broker request still running")
+            return
 
-            pending_sorted = sorted(pending, key=lambda o: o.get("order_timestamp", ""), reverse=True)
-            self._orders = pending_sorted
-            self._orders_by_id = {
-                str(order.get("order_id", "")): order
-                for order in pending_sorted
-                if order.get("order_id")
-            }
-            self._render_table()
+        self._refresh_inflight = True
+        self.status_label.setText("Syncing with Kite...")
+        worker = Worker(self.trader.orders)
+        worker.signals.result.connect(self._handle_orders_result)
+        worker.signals.error.connect(lambda err: self._handle_orders_error(err[1]))
+        worker.signals.finished.connect(self._on_refresh_finished)
+        self._thread_pool.start(worker)
 
-            self.count_label.setText(f"{len(self._orders)} pending")
-            now = datetime.now().strftime("%H:%M:%S")
-            self.status_label.setText(f"Synced with Kite at {now}")
-            self.pending_orders_updated.emit(len(self._orders))
+    def _handle_orders_result(self, all_orders):
+        pending = [order for order in (all_orders or []) if (order.get("status", "").upper() in PENDING_STATUSES)]
 
-        except Exception as exc:
-            logger.error("Failed to refresh pending orders: %s", exc, exc_info=True)
-            self.status_label.setText("Failed to load pending orders")
-            show_error(f"Pending orders refresh failed: {exc}")
+        pending_sorted = sorted(pending, key=lambda o: o.get("order_timestamp", ""), reverse=True)
+        self._orders = pending_sorted
+        self._orders_by_id = {
+            str(order.get("order_id", "")): order
+            for order in pending_sorted
+            if order.get("order_id")
+        }
+        self._render_table()
+
+        self.count_label.setText(f"{len(self._orders)} pending")
+        now = datetime.now().strftime("%H:%M:%S")
+        self.status_label.setText(f"Synced with Kite at {now}")
+        self.pending_orders_updated.emit(len(self._orders))
+
+    def _handle_orders_error(self, exc):
+        logger.error("Failed to refresh pending orders: %s", exc, exc_info=True)
+        self.status_label.setText("Failed to load pending orders")
+        show_error(f"Pending orders refresh failed: {exc}")
+
+    def _on_refresh_finished(self):
+        self._refresh_inflight = False
 
     def _render_table(self):
         self.table.setSortingEnabled(False)

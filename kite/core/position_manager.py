@@ -23,10 +23,11 @@ from dataclasses import dataclass
 from typing import Dict, Optional, Set, List
 from datetime import datetime, timedelta
 
-from PySide6.QtCore import QObject, Signal, QTimer, Slot
+from PySide6.QtCore import QObject, Signal, QTimer, Slot, QThreadPool
 
 from kite.widgets.status_bar import show_error, show_info, status as global_status
 from kite.utils.sounds import play_entry_exit
+from kite.utils.worker import Worker
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +81,9 @@ class PositionManager(QObject):
         self._tracked: Dict[str, TrackedOrder] = {}
         self._confirmed: Set[str] = set()    # order IDs already handled
         self._ws_available = False           # toggled by _on_ws_connected
+        self._thread_pool = QThreadPool.globalInstance()
+        self._positions_fetch_inflight = False
+        self._orders_fetch_inflight = False
 
         # Safety fallback timer — only polls when needed
         self._safety_timer = QTimer(self)
@@ -192,28 +196,20 @@ class PositionManager(QObject):
             logger.debug("Safety poll timer stopped — no pending unconfirmed orders")
             return
 
-        try:
-            kite_orders = self.trader.orders()
-            for oid, tracked in needs_polling:
-                kite_order = next(
-                    (o for o in kite_orders if o.get("order_id") == oid), None
-                )
-                if not kite_order:
-                    continue
+        if self._orders_fetch_inflight:
+            logger.debug("Safety poll skipped — previous /orders request still running")
+            return
 
-                status = kite_order.get("status", "").upper()
-                tracked.rest_confirmed = True
-
-                if status in ("COMPLETE", "FILLED"):
-                    self._handle_completion(oid, kite_order, status)
-                elif status in ("REJECTED", "CANCELLED"):
-                    self._handle_failure(oid, kite_order, status)
-
-        except Exception as e:
-            logger.error(f"Safety poll REST call failed: {e}")
-
-        # Clean up expired orders
-        self._purge_expired()
+        self._orders_fetch_inflight = True
+        worker = Worker(self.trader.orders)
+        worker.signals.result.connect(
+            lambda kite_orders: self._handle_safety_poll_orders_result(kite_orders, needs_polling)
+        )
+        worker.signals.error.connect(
+            lambda err: logger.error(f"Safety poll REST call failed: {err[1]}")
+        )
+        worker.signals.finished.connect(self._on_safety_poll_finished)
+        self._thread_pool.start(worker)
 
     def _ensure_safety_timer(self):
         """Start the safety timer only if it's not already running."""
@@ -357,31 +353,66 @@ class PositionManager(QObject):
 
     def fetch_positions_from_kite(self, reason: str = "manual"):
         """Fetch and emit current positions."""
-        try:
-            logger.debug(f"Fetching positions — reason: {reason}")
-            kite_positions = self.trader.positions()
+        if self._positions_fetch_inflight:
+            logger.debug(f"Skipping position fetch ({reason}) — previous request still running")
+            return
 
-            positions: List[Position] = []
-            for pos_data in kite_positions.get("net", []):
-                if pos_data.get("quantity", 0) == 0:
-                    continue
-                pos = Position(
-                    symbol   = pos_data.get("tradingsymbol", ""),
-                    quantity = pos_data.get("quantity", 0),
-                    avg_price= pos_data.get("average_price", 0),
-                    token    = pos_data.get("instrument_token", 0),
-                    ltp      = pos_data.get("last_price", 0),
-                    product  = pos_data.get("product", "MIS"),
-                )
-                pos.pnl = (pos.ltp - pos.avg_price) * pos.quantity
-                positions.append(pos)
+        logger.debug(f"Queueing background position fetch — reason: {reason}")
+        self._positions_fetch_inflight = True
+        worker = Worker(self.trader.positions)
+        worker.signals.result.connect(self._handle_positions_result)
+        worker.signals.error.connect(
+            lambda err: self._handle_positions_error(err[1])
+        )
+        worker.signals.finished.connect(self._on_positions_fetch_finished)
+        self._thread_pool.start(worker)
 
-            self.positions_updated.emit(positions)
-            logger.debug(f"Emitted {len(positions)} positions")
+    @Slot(object)
+    def _handle_positions_result(self, kite_positions):
+        positions: List[Position] = []
+        for pos_data in (kite_positions or {}).get("net", []):
+            if pos_data.get("quantity", 0) == 0:
+                continue
+            pos = Position(
+                symbol   = pos_data.get("tradingsymbol", ""),
+                quantity = pos_data.get("quantity", 0),
+                avg_price= pos_data.get("average_price", 0),
+                token    = pos_data.get("instrument_token", 0),
+                ltp      = pos_data.get("last_price", 0),
+                product  = pos_data.get("product", "MIS"),
+            )
+            pos.pnl = (pos.ltp - pos.avg_price) * pos.quantity
+            positions.append(pos)
 
-        except Exception as e:
-            logger.error(f"Failed to fetch positions: {e}")
-            self.show_notification.emit(f"Position fetch failed: {e}", "error")
+        self.positions_updated.emit(positions)
+        logger.debug(f"Emitted {len(positions)} positions")
+
+    def _handle_positions_error(self, error):
+        logger.error(f"Failed to fetch positions: {error}")
+        self.show_notification.emit(f"Position fetch failed: {error}", "error")
+
+    @Slot()
+    def _on_positions_fetch_finished(self):
+        self._positions_fetch_inflight = False
+
+    @Slot()
+    def _on_safety_poll_finished(self):
+        self._orders_fetch_inflight = False
+        self._purge_expired()
+
+    def _handle_safety_poll_orders_result(self, kite_orders, needs_polling):
+        for oid, tracked in needs_polling:
+            kite_order = next((o for o in (kite_orders or []) if o.get("order_id") == oid), None)
+            if not kite_order:
+                continue
+
+            status = kite_order.get("status", "").upper()
+            tracked.rest_confirmed = True
+
+            if status in ("COMPLETE", "FILLED"):
+                self._handle_completion(oid, kite_order, status)
+            elif status in ("REJECTED", "CANCELLED"):
+                self._handle_failure(oid, kite_order, status)
 
     # ─────────────────────────────────────────────────────────────────────────
     # CHART LINE HELPERS
