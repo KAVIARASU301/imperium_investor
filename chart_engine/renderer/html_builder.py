@@ -131,6 +131,7 @@ def build_chart_html(cfg: ChartHtmlConfig) -> str:
         }}
         #chartContainer {{
             width: 100vw; height: 100vh; position: relative;
+            user-select: none; -webkit-user-select: none;
         }}
         #mainCanvas {{
             position: absolute; top: 0; left: 0;
@@ -144,6 +145,7 @@ def build_chart_html(cfg: ChartHtmlConfig) -> str:
             line-height: 1.45;
             font-family: "Inter", "Segoe UI", sans-serif;
             font-weight: 600; letter-spacing: 0.2px;
+            user-select: none; -webkit-user-select: none;
         }}
         #metricsInfo {{ font-size: 12px; color: #d1dcf2; font-weight: 600; white-space: nowrap; }}
         #metricsInfo .info-row {{ margin-bottom: 2px; }}
