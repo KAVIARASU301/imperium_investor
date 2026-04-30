@@ -41,6 +41,7 @@ class TradingTable(QTableWidget):
         self._symbol_to_row: Dict[str, int] = {}
         self._token_to_symbol: Dict[int, str] = {}   # O(1) reverse map
         self._last_tick_time = 0.0
+        self._dirty_symbols = set()
 
         # Initialize empty watchlist data
         self._watchlist_symbols = set()  # Track symbols separately
@@ -235,6 +236,12 @@ class TradingTable(QTableWidget):
         Fallback refresh — only fires when WebSocket ticks stop arriving.
         5 s interval vs the old 1 s — reduces wasted redraws.
         """
+        # Throttle UI redraws from rapid websocket ticks to keep numbers readable.
+        # ~4.4 fps strikes a balance between responsiveness and visual stability.
+        self._ui_flush_timer = QTimer(self)
+        self._ui_flush_timer.timeout.connect(self._flush_pending_ui_updates)
+        self._ui_flush_timer.start(225)
+
         self._data_update_timer = QTimer()
         self._data_update_timer.timeout.connect(self._fallback_refresh)
         self._data_update_timer.start(5000)
@@ -351,8 +358,8 @@ class TradingTable(QTableWidget):
 
     def update_data(self, ticks: List[Dict]):
         """
-        Process WebSocket ticks at full speed.
-        O(1) lookup per tick — no linear scans, no timer fights.
+        Process WebSocket ticks at full speed and throttle table redraws.
+        O(1) lookup per tick and batched UI updates (~4-5 fps).
         """
         import time
 
@@ -415,10 +422,27 @@ class TradingTable(QTableWidget):
             else:
                 data["change_pct"] = 0.0
 
-            # Push to UI immediately — no timer, no batch delay
+            # Mark row dirty; UI is updated by throttled timer.
             row = self._symbol_to_row.get(symbol)
             if row is not None:
-                self._update_row_data(row, data)
+                self._dirty_symbols.add(symbol)
+
+    def _flush_pending_ui_updates(self):
+        """Flush queued symbol updates at a human-readable refresh rate."""
+        if not self._dirty_symbols:
+            return
+
+        dirty_symbols = tuple(self._dirty_symbols)
+        self._dirty_symbols.clear()
+
+        for symbol in dirty_symbols:
+            row = self._symbol_to_row.get(symbol)
+            if row is None:
+                continue
+            data = self._watchlist_data.get(symbol)
+            if data is None:
+                continue
+            self._update_row_data(row, data)
 
     def add_symbol(self, symbol: str) -> bool:
         """Enhanced symbol addition with proper data initialization"""

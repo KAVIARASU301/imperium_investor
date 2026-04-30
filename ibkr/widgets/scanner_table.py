@@ -6,7 +6,7 @@ import requests
 from bs4 import BeautifulSoup as bs
 from typing import List, Dict, Optional
 
-from PySide6.QtCore import Signal, Slot, Qt, QThread
+from PySide6.QtCore import Signal, Slot, Qt, QThread, QTimer
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem, QHeaderView,
     QAbstractItemView, QPushButton, QHBoxLayout, QLabel, QComboBox, QMessageBox,
@@ -751,6 +751,7 @@ class ChartinkScannerTable(QWidget):
         self._symbol_to_row: Dict[str, int] = {}
         self._instrument_map: Dict[str, Dict] = {}
         self._token_to_symbol: Dict[int, str] = {}
+        self._dirty_symbols = set()
         self._dropdown_scan_indices: List[int] = []
         self._current_symbol_index = 0  # Track current symbol for spacebar navigation
         self._last_visible_tokens: set = set()  # track to avoid redundant re-subs
@@ -761,6 +762,9 @@ class ChartinkScannerTable(QWidget):
 
         self._setup_ui()
         self._apply_enhanced_styles()
+        self._ui_flush_timer = QTimer(self)
+        self._ui_flush_timer.timeout.connect(self._flush_pending_ui_updates)
+        self._ui_flush_timer.start(225)
 
         if self.scans:
             last_selected = self._load_last_selected_scan()
@@ -1481,10 +1485,26 @@ class ChartinkScannerTable(QWidget):
 
                 row = self._symbol_to_row.get(symbol)
                 if row is not None:
-                    self._update_row_data(row, data)
+                    self._dirty_symbols.add(symbol)
 
             except Exception as e:
                 logger.debug(f"Scanner tick error: {e}")
+
+    def _flush_pending_ui_updates(self) -> None:
+        """Batch scanner row repaints to ~4-5 FPS for readability."""
+        if not self._dirty_symbols:
+            return
+
+        dirty_symbols = tuple(self._dirty_symbols)
+        self._dirty_symbols.clear()
+        for symbol in dirty_symbols:
+            row = self._symbol_to_row.get(symbol)
+            if row is None:
+                continue
+            data = self._symbol_data.get(symbol)
+            if data is None:
+                continue
+            self._update_row_data(row, data)
 
     def cleanup(self):
         """Clean up scanner table threads"""

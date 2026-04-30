@@ -39,6 +39,7 @@ class TradingTable(QTableWidget):
         self._watchlist_data: Dict[str, Dict] = {}
         self._symbol_to_row: Dict[str, int] = {}
         self._data_update_timer = QTimer()
+        self._dirty_symbols = set()
 
         # Initialize empty watchlist data
         self._watchlist_symbols = set()  # Track symbols separately
@@ -242,6 +243,9 @@ class TradingTable(QTableWidget):
 
     def _setup_data_refresh(self):
         """Setup periodic data refresh for better responsiveness"""
+        self._ui_flush_timer = QTimer(self)
+        self._ui_flush_timer.timeout.connect(self._flush_pending_ui_updates)
+        self._ui_flush_timer.start(225)
         self._data_update_timer.timeout.connect(self._refresh_display)
         self._data_update_timer.start(1000)  # Refresh every second
 
@@ -419,9 +423,18 @@ class TradingTable(QTableWidget):
                 f"Updated {symbol_found}: LTP={data['ltp']:.2f}, Vol={data['volume']}, "
                 f"Chg={data['change_pct']:.2f}%, PrevClose={data['prev_close']:.2f}")
 
-        # Update display for changed symbols
-        for symbol in updated_symbols:
-            if symbol in self._symbol_to_row:
+        # Queue for throttled repaint.
+        self._dirty_symbols.update(updated_symbols)
+
+    def _flush_pending_ui_updates(self):
+        """Flush queued watchlist row updates at ~4-5 FPS."""
+        if not self._dirty_symbols:
+            return
+
+        dirty_symbols = tuple(self._dirty_symbols)
+        self._dirty_symbols.clear()
+        for symbol in dirty_symbols:
+            if symbol in self._symbol_to_row and symbol in self._watchlist_data:
                 row = self._symbol_to_row[symbol]
                 self._update_row_data(row, self._watchlist_data[symbol])
 
