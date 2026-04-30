@@ -1011,6 +1011,18 @@ class AlertSystemManager(QObject):
     # CHART-LINE HELPERS
     # ──────────────────────────────────────────────────────────────
 
+    def _current_chart_interval(self) -> str:
+        """Best-effort current chart timeframe (Kite interval string)."""
+        try:
+            p = self.parent()
+            if p and hasattr(p, 'candlestick_chart'):
+                iv = getattr(p.candlestick_chart, 'current_interval', None)
+                if iv:
+                    return str(iv)
+        except Exception:
+            pass
+        return "day"
+
     def _clm(self):
         """Return chart_lines_manager from the parent main window, or None."""
         p = self.parent()
@@ -1025,6 +1037,7 @@ class AlertSystemManager(QObject):
                     symbol=alert.symbol,
                     price=alert.target_value,
                     intent=alert.intent,
+                    interval=self._current_chart_interval(),
                 )
                 logger.debug(f"Chart line added for {alert.symbol} @ {alert.target_value}")
             except Exception as e:
@@ -1038,6 +1051,7 @@ class AlertSystemManager(QObject):
                 clm.remove_alert_line(
                     symbol=alert.symbol,
                     price=alert.target_value,
+                    interval=self._current_chart_interval(),
                 )
                 logger.debug(f"Chart line removed for {alert.symbol} @ {alert.target_value}")
             except Exception as e:
@@ -1060,6 +1074,7 @@ class AlertSystemManager(QObject):
                     symbol=alert.symbol,
                     price=alert.target_value,
                     intent=alert.intent,
+                    interval=self._current_chart_interval(),
                 )
             except Exception as e:
                 logger.error(f"sync_chart_lines: error for {symbol}: {e}")
@@ -1080,6 +1095,7 @@ class AlertSystemManager(QObject):
                     symbol=alert.symbol,
                     price=alert.target_value,
                     intent=alert.intent,
+                    interval=self._current_chart_interval(),
                 )
             except Exception as e:
                 logger.error(f"Startup restore: failed for {alert.symbol}: {e}")

@@ -234,8 +234,8 @@ class ChartLinesManager(QObject):
     # ALERT LINE MANAGEMENT
     # ─────────────────────────────────────────────────────────────────────────
 
-    def add_alert_line(self, symbol: str, price: float, intent: str = "") -> bool:
-        """Add an alert line across ALL interval files for the symbol."""
+    def add_alert_line(self, symbol: str, price: float, intent: str = "", interval: str = None) -> bool:
+        """Add an alert line for a symbol/timeframe file."""
         try:
             # Load current-interval state to check for duplicates
             current_state = self._load_symbol_drawings(symbol)
@@ -250,12 +250,11 @@ class ChartLinesManager(QObject):
                 metadata={"lineCategory": "alert", "tradingMode": self._get_trading_mode()},
             )
 
-            def _apply(d):
-                # Remove stale alert at the same price before inserting
-                self._remove_existing_alert_drawings(d, price)
-                d["horizontal_rays"].append(new_line)
+            # Remove stale alert at the same price before inserting
+            self._remove_existing_alert_drawings(drawings, price)
+            drawings["horizontal_rays"].append(new_line)
 
-            success = self._save_to_all_intervals(symbol, _apply, current_state)
+            success = self._save_symbol_drawings(symbol, current_state, interval)
             if success:
                 self._refresh_chart()
                 logger.info(f"Added alert line for {symbol} at {price:.2f}")
@@ -297,13 +296,12 @@ class ChartLinesManager(QObject):
             )
         ]
 
-    def remove_alert_line(self, symbol: str, price: float) -> bool:
-        """Remove alert line across ALL interval files for the symbol."""
+    def remove_alert_line(self, symbol: str, price: float, interval: str = None) -> bool:
+        """Remove alert line for a symbol/timeframe file."""
         try:
-            def _apply(d):
-                self._remove_existing_alert_drawings(d, price)
-
-            success = self._save_to_all_intervals(symbol, _apply)
+            state = self._load_symbol_drawings(symbol, interval)
+            self._remove_existing_alert_drawings(state["drawings"], price)
+            success = self._save_symbol_drawings(symbol, state, interval)
             if success:
                 self._refresh_chart()
                 logger.info(f"Removed alert line for {symbol} at {price:.2f}")
@@ -376,7 +374,7 @@ class ChartLinesManager(QObject):
                 self._remove_existing_position_lines(d)
                 d["horizontal_rays"].append(new_line)
 
-            success = self._save_to_all_intervals(symbol, _apply, current_state)
+            success = self._save_symbol_drawings(symbol, current_state, interval)
             if success:
                 self._refresh_chart()
                 logger.info(
