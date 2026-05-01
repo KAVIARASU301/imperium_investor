@@ -11,8 +11,6 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # The temporary file where results will be saved.
 TEMP_FILE = "user_data/temp_scan_results.json"
 
-# Premium user configuration
-PREMIUM_USER_ID = "570267"
 
 # Cache CSRF token to avoid fetching /screener for every scan.
 _CSRF_TOKEN = None
@@ -245,7 +243,6 @@ def test_volatility_contraction_scan():
     volatility_scan = "( {cash} ( ( {33489} ( latest high - latest low < 1 day ago high - 1 day ago low and latest high - latest low < 2 days ago high - 2 days ago low and latest high - latest low < 3 days ago high - 3 days ago low and latest high - latest low < 4 days ago high - 4 days ago low and latest high - latest low < 5 days ago high - 5 days ago low and latest high - latest low < 6 days ago high - 6 days ago low ) ) ) )"
 
     print("Testing Volatility Contraction (7 days) scan...")
-    print(f"Premium User ID: {PREMIUM_USER_ID}")
     print(f"Scan clause: {volatility_scan}")
     print("-" * 80)
 
