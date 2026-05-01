@@ -342,12 +342,25 @@ class HeaderToolbar(QToolBar):
         for fn_name in ("profile", "get_profile"):
             fn = getattr(self.trader, fn_name, None)
             if callable(fn):
-                return fn() or {}
+                try:
+                    return fn() or {}
+                except Exception as exc:
+                    logger.warning("Unable to fetch account profile from broker: %s", exc)
+                    return {}
         return {}
 
     def _get_margins_data(self) -> Dict[str, Any]:
         fn = getattr(self.trader, "margins", None)
-        return fn() if callable(fn) else {}
+        if not callable(fn):
+            return {}
+        try:
+            return fn() or {}
+        except Exception as exc:
+            logger.warning(
+                "Unable to fetch account margins from broker (using cached/default balance): %s",
+                exc,
+            )
+            return {}
 
     def _extract_available_balance(self, profile, margins) -> float:
         return _extract_available_balance_from_data(self.trader, profile, margins)
