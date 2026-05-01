@@ -769,6 +769,30 @@ class TradingTable(QTableWidget):
 
     # ── Event handlers ─────────────────────────────────────────────────────
 
+
+    def keyPressEvent(self, event):
+        """Spacebar moves selection down one row and opens selected symbol chart."""
+        if event.key() == Qt.Key.Key_Space:
+            row_count = self.rowCount()
+            if row_count == 0:
+                event.accept()
+                return
+
+            current_row = self.currentRow()
+            next_row = 0 if current_row < 0 else (current_row + 1) % row_count
+
+            self.selectRow(next_row)
+            self.setCurrentCell(next_row, _COL_SYMBOL)
+
+            sym = self._symbol_at_row(next_row)
+            if sym and not sym.startswith("─"):
+                self.symbol_selected.emit(sym)
+
+            event.accept()
+            return
+
+        super().keyPressEvent(event)
+
     def _on_cell_click(self, row: int, col: int):
         if col == _COL_FLAG:
             sym = self._symbol_at_row(row)
