@@ -37,8 +37,8 @@ _BORDER = "#1a2030"
 _T0 = "#d8e4f0"  # primary text
 _T1 = "#8ea3bc"  # secondary text
 _T2 = "#506070"  # muted
-_GREEN = "#26a69a"  # profit / up-tick
-_RED = "#ef5350"  # loss / down-tick
+_GREEN = "#00d4a8"  # institutional bull signal
+_RED = "#ff4d6a"  # institutional bear signal
 _APP_FONT_FAMILY = "Segoe UI"
 _OPEN_PROFIT = "#00d4a8"
 _OPEN_PROFIT_TINT = "#0a2520"
@@ -252,8 +252,9 @@ class PositionsTable(QWidget):
             (COL_OPEN_PNL, f"{'+' if pnl >= 0 else ''}{pnl:,.2f}", Qt.AlignmentFlag.AlignCenter, pnl_color),
         ]
 
-        # Use UI native fonts instead of Monospace
         base_font = QFont(_APP_FONT_FAMILY, 9)
+        mono_font = QFont("JetBrains Mono", 9)
+        mono_font.setStyleHint(QFont.StyleHint.Monospace)
 
         sym_font = QFont(base_font)
         sym_font.setBold(True)
@@ -264,7 +265,7 @@ class PositionsTable(QWidget):
             item.setText(text)
             item.setTextAlignment(align)
             item.setForeground(QColor(color))
-            item.setFont(sym_font if col == COL_SYMBOL else base_font)
+            item.setFont(sym_font if col == COL_SYMBOL else mono_font)
             item.setData(Qt.ItemDataRole.UserRole, self._sort_key(col, pos))
 
         self._apply_open_pnl_row_style(row, pnl)
@@ -363,7 +364,7 @@ class PositionsTable(QWidget):
                         r = int(120 + (70 - 120) * (1 - ratio))
                         g = int(20 + (20 - 20) * (1 - ratio))
                         b = int(20 + (20 - 20) * (1 - ratio))
-                    item.setBackground(QBrush(QColor(r, g, b, 200)))
+                    item.setBackground(QBrush(QColor(r, g, b)))
                     surviving.append(flash)
                 else:
                     pos_sym = next((s for s, r in self.symbol_to_row.items() if r == flash.row), None)
