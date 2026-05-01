@@ -846,16 +846,27 @@ class AlertSystemManager(QObject):
             self._remove_chart_line(alert)
         self._refresh_dialog_if_open()
 
+
+    def acknowledge_triggered_alert(self, alert_id: str) -> None:
+        """Move a triggered alert to history and remove its chart line."""
+        alert = next((a for a in self.store.all() if a.id == alert_id), None)
+        if not alert:
+            return
+
+        if alert.status == AlertStatus.TRIGGERED.value:
+            self._remove_chart_line(alert)
+
+        alert.status = AlertStatus.EXPIRED.value
+        self.store.update(alert)
+        self._refresh_dialog_if_open()
+
     # ──────────────────────────────────────────────────────────────
     # ENGINE CALLBACK
     # ──────────────────────────────────────────────────────────────
 
     @Slot(str)
     def _on_engine_alert_triggered(self, alert_id: str) -> None:
-        """FIX #3: Remove chart line when alert fires, then notify."""
-        alert = next((a for a in self.store.all() if a.id == alert_id), None)
-        if alert:
-            self._remove_chart_line(alert)
+        """Keep triggered alert lines visible until user acknowledges the alert."""
         self.alert_triggered.emit(alert_id)
         self.alert_sound_requested.emit()
         # Refresh open dialog so it moves the row to Triggered tab
@@ -1441,11 +1452,7 @@ class AlertManagementDialog(QDialog):
 
     def _ack_alert(self, alert_id: str):
         """Acknowledge triggered alert — move it to expired/history."""
-        for a in self.store.all():
-            if a.id == alert_id:
-                a.status = AlertStatus.EXPIRED.value
-                self.store.update(a)
-                break
+        self.manager.acknowledge_triggered_alert(alert_id)
         self.refresh_tables()
 
     # ── drag support ──
