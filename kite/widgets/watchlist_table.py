@@ -994,7 +994,6 @@ class TabbedWatchlistWidget(QWidget):
                 border: 1px solid #24354d;
                 color: #ffffff;
                 padding: 3px 6px;
-                border-radius: 2px;
                 font-size: 12px;
                 /* combobox-popup: 0 REMOVED — embedded popup is occluded by the
                    QStackedWidget sibling (higher Z-order). Native popup window
@@ -1025,7 +1024,7 @@ class TabbedWatchlistWidget(QWidget):
                 border: 1px solid #6a9cff;
                 border-radius: 2px;
                 color: #ffffff;
-                selection-background-color: rgba(74, 122, 191, 0.2);
+                selection-background-color: #1a2840;
                 selection-color: #ffffff;
                 padding: 1px;
                 outline: none;
@@ -1033,15 +1032,14 @@ class TabbedWatchlistWidget(QWidget):
             QComboBox#minimalDropdown QAbstractItemView::item {
                 padding: 5px 8px;
                 border: none;
-                border-radius: 1px;
-                margin: 0px 1px;
+                margin: 0px;
                 font-size: 12px;
             }
             QComboBox#minimalDropdown QAbstractItemView::item:hover {
                 background-color: #2a2a2a;
             }
             QComboBox#minimalDropdown QAbstractItemView::item:selected {
-                background-color: rgba(74, 122, 191, 0.2);
+                background-color: #1a2840;
                 color: #ffffff;
             }
 
@@ -1152,14 +1150,14 @@ class TabbedWatchlistWidget(QWidget):
                 border: none;
                 font-weight: bold;
                 font-size: 12px;
-                border-radius: 8px;
+                border-radius: 0px;
                 padding: 0px;
                 margin: 0px;
             }
 
             QPushButton#removeButton:hover {
                 color: #ff6666;
-                background-color: #2a1f1f;
+                background-color: #141920;
             }
 
             /* Enhanced Scrollbars */
@@ -1172,7 +1170,6 @@ class TabbedWatchlistWidget(QWidget):
 
             QScrollBar::handle:vertical {
                 background-color: #424242;
-                border-radius: 4px;
                 min-height: 20px;
                 margin: 2px;
             }
@@ -1190,7 +1187,6 @@ class TabbedWatchlistWidget(QWidget):
 
             QScrollBar::handle:horizontal {
                 background-color: #424242;
-                border-radius: 4px;
                 min-width: 20px;
                 margin: 2px;
             }
