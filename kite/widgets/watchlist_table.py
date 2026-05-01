@@ -870,7 +870,7 @@ class TradingTable(QTableWidget):
     def _mono_font(bold: bool = False) -> QFont:
         f = QFont("JetBrains Mono")
         f.setStyleHint(QFont.StyleHint.Monospace)
-        f.setPointSize(12)
+        f.setPointSize(9)
         f.setBold(bold)
         return f
 
@@ -1284,7 +1284,7 @@ class TabbedWatchlistWidget(QWidget):
             /* ── Table ────────────────────────────────────────────── */
             TradingTable {{
                 background:{_C.BG2};
-                alternate-background-color:{_C.BG1};
+                alternate-background-color:{_C.BG2};
                 gridline-color:{_C.BG4};
                 border:1px solid {_C.BG4};
                 border-radius:0px;
@@ -1294,9 +1294,11 @@ class TabbedWatchlistWidget(QWidget):
                 show-decoration-selected:0;
             }}
             TradingTable::item {{
-                padding:1px 4px;
+                padding:1px 5px;
                 border-bottom:1px solid {_C.BG4};
                 background:transparent;
+                font-size:12px;
+                font-family:"JetBrains Mono", "Consolas", monospace;
             }}
             TradingTable::item:selected {{
                 background:{_C.SEL} !important;
