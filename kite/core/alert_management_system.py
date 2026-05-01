@@ -1317,6 +1317,8 @@ class AlertManagementDialog(QDialog):
         t.setSelectionBehavior(QAbstractItemView.SelectRows)
         t.setEditTriggers(QAbstractItemView.NoEditTriggers)
         t.verticalHeader().setVisible(False)
+        t.verticalHeader().setDefaultSectionSize(34)
+        t.verticalHeader().setMinimumSectionSize(34)
         t.setAlternatingRowColors(True)
         t.setShowGrid(False)
         header = t.horizontalHeader()
