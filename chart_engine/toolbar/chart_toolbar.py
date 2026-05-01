@@ -280,7 +280,7 @@ class ChartToolbar(QFrame):
         sb_lay.addWidget(self.symbol_label)
 
         lay.addWidget(symbol_block)
-        lay.addWidget(_gap(8))
+        lay.addStretch(1)
         lay.addWidget(_vsep())
         lay.addWidget(_gap(6))
 
