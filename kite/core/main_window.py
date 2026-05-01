@@ -1344,6 +1344,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
                 show_order_placed(symbol)
                 self.position_manager.start_tracking_order(order_id, order_data)
+                self.position_manager.fetch_positions_from_kite("entry_order_submitted")
                 self._log_order_placement_immediate(order_data, order_id)
                 logger.info(f"[ENTRY] Order accepted by broker: {order_id}")
             else:
@@ -1398,6 +1399,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
                 show_order_placed(f"{symbol} (exit)")
                 self.position_manager.start_tracking_order(order_id, order_data)
+                self.position_manager.fetch_positions_from_kite("exit_order_submitted")
                 self._log_order_placement_immediate(order_data, order_id)
                 logger.info(f"[EXIT] Exit order accepted: {order_id}")
             else:

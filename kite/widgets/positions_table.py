@@ -450,6 +450,13 @@ class PositionsTable(QWidget):
             self.subscribe_to_market_data.emit(new_tokens)
             self._subscribed_tokens.update(new_tokens)
 
+
+    def get_position_by_symbol(self, symbol: str) -> Optional[Position]:
+        """Return the latest position snapshot for a symbol, if present."""
+        if not symbol:
+            return None
+        return self.positions_data.get(symbol)
+
     def clear_positions(self):
         self.positions_data.clear()
         self.symbol_to_row.clear()
@@ -562,6 +569,13 @@ class PositionsTable(QWidget):
 
     def has_positions(self) -> bool:
         return bool(self.positions_data)
+
+
+    def get_position_by_symbol(self, symbol: str) -> Optional[Position]:
+        """Return the latest position snapshot for a symbol, if present."""
+        if not symbol:
+            return None
+        return self.positions_data.get(symbol)
 
     def clear_positions(self):
         self.positions_data.clear()
