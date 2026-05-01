@@ -1,395 +1,590 @@
-# Enhanced watchlist_table.py - FIXED width consistency with position table
-import logging
-import json
-import os
-from typing import List, Dict, Optional
-from functools import partial
+# kite/widgets/watchlist_table.py
+"""
+Institutional Watchlist — TC2000-grade, production-ready.
 
-from PySide6.QtWidgets import (
-    QTableWidget, QTableWidgetItem, QPushButton, QVBoxLayout, QHBoxLayout,
-    QWidget, QLabel, QFrame, QHeaderView, QAbstractItemView, QMenu, QComboBox, QStackedWidget
+Features
+────────
+  • Unlimited user-named watchlists (create / rename / delete)
+  • ⚑ Flag column (20 px) — 4 states: none → green → amber → red → none
+    Flags are per-symbol and persist globally across all watchlists.
+  • Heat-map % change coloring (gradient magnitude, not binary red/green)
+  • Full TC2000 color system (consistency_rules palette, zero deviation)
+  • Monospace numerics — columns never shift during live updates
+  • Throttled UI redraws (~4.4 fps) via dirty-symbol batching
+  • WS-powered live ticks with token→symbol O(1) resolution
+  • Context menu: chart, advanced buy/sell, bracket, remove
+  • Keyboard: focus → Space navigates symbols into chart
+  • Persistence:
+      watchlist config  → ~/.qullamaggie/watchlist_config.json
+      per-list symbols  → kite/user_data/watchlist_{id}.json
+      flags             → ~/.qullamaggie/watchlist_flags.json
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import uuid
+from functools import partial
+from typing import Dict, List, Optional, Tuple
+
+from PySide6.QtCore import Qt, Signal, Slot, QPoint, QTimer, QSize
+from PySide6.QtGui import (
+    QColor, QFont, QBrush, QCursor, QAction, QFontMetrics, QMouseEvent
 )
-from PySide6.QtCore import Qt, Signal, Slot, QPoint, QTimer
-from PySide6.QtGui import QColor, QCursor, QAction, QFont, QBrush
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
+    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
+    QPushButton, QToolButton, QComboBox, QStackedWidget, QMenu,
+    QDialog, QLineEdit, QDialogButtonBox, QMessageBox, QApplication
+)
 
 logger = logging.getLogger(__name__)
 
-# Separate files for each watchlist category
-WATCHLIST_FILES = {
-    "Breakouts": "kite/user_data/watchlist_breakouts.json",
-    "EP": "kite/user_data/watchlist_episodic.json",
-    "Parabolic": "kite/user_data/watchlist_parabolic.json"
+# ─────────────────────────────────────────────────────────────────────────────
+#  DESIGN TOKENS  (strict consistency_rules palette — zero deviation)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _C:
+    BG0     = "#050709"   # app shell
+    BG1     = "#0a0d12"   # primary panels
+    BG2     = "#0f1318"   # table rows / input bg
+    BG3     = "#141920"   # hover / selected elevated
+    BG4     = "#1a2030"   # borders / subtle dividers
+
+    BULL    = "#00d4a8"   # teal-green — TC2000 signature
+    BULL_DIM= "#1a7a62"
+    BULL_BG = "rgba(0,212,168,0.07)"
+
+    BEAR    = "#ff4d6a"   # warm crimson
+    BEAR_DIM= "#7a2030"
+    BEAR_BG = "rgba(255,77,106,0.07)"
+
+    NEUTRAL = "#7a94b0"
+    NEU_DIM = "#3a4d60"
+
+    T0      = "#e8f0ff"   # primary — prices, symbols
+    T1      = "#a8bcd4"   # secondary — headers, labels
+    T2      = "#5a7090"   # tertiary — muted metadata
+    T3      = "#2a3a50"   # disabled / placeholder
+
+    CYAN    = "#00d4ff"   # selected / focus rings
+    AMBER   = "#f59e0b"   # alerts / warnings
+    BLUE    = "#3b82f6"   # informational
+    SEL     = "#1a2840"   # selected row
+
+    # Flag palette (4-state cycle)
+    FLAG_GREEN = "#00d4a8"   # level-1 importance
+    FLAG_AMBER = "#f59e0b"   # level-2 importance
+    FLAG_RED   = "#ff4d6a"   # level-3 importance / urgent
+
+    # Heat-map change % bands
+    @staticmethod
+    def change_color(pct: float) -> Tuple[str, str]:
+        """Return (fg_color, bg_rgba) for a % change value."""
+        if pct >= 3.0:
+            return "#00d4a8", "rgba(0,212,168,0.12)"
+        if pct >= 1.0:
+            return "#22c4a0", "rgba(34,196,160,0.07)"
+        if pct >= -0.5:
+            return "#7a94b0", ""
+        if pct >= -1.0:
+            return "#e87060", "rgba(232,112,96,0.07)"
+        return "#ff4d6a", "rgba(255,77,106,0.12)"
+
+_MONO = "Consolas, 'JetBrains Mono', 'Courier New', monospace"
+_SANS = "'Segoe UI', -apple-system, Roboto, Arial, sans-serif"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  FLAG STATES
+# ─────────────────────────────────────────────────────────────────────────────
+
+_FLAG_CYCLE = [None, "green", "amber", "red"]
+
+_FLAG_DISPLAY = {
+    None:    ("",  _C.T3),
+    "green": ("⚑", _C.FLAG_GREEN),
+    "amber": ("⚑", _C.FLAG_AMBER),
+    "red":   ("⚑", _C.FLAG_RED),
 }
+
+_FLAG_TOOLTIP = {
+    None:    "Click to flag",
+    "green": "Watching  — click to upgrade",
+    "amber": "Interested — click to upgrade",
+    "red":   "High priority — click to clear",
+}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  PERSISTENCE PATHS
+# ─────────────────────────────────────────────────────────────────────────────
+
+_APP_DIR     = os.path.join(os.path.expanduser("~"), ".qullamaggie")
+_DATA_DIR    = "kite/user_data"
+_CONFIG_FILE = os.path.join(_APP_DIR, "watchlist_config.json")
+_FLAGS_FILE  = os.path.join(_APP_DIR, "watchlist_flags.json")
+
+os.makedirs(_APP_DIR, exist_ok=True)
+os.makedirs(_DATA_DIR, exist_ok=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  FLAG STORE  (global, across all watchlists)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _FlagStore:
+    """Thread-safe in-process flag state. Persisted to JSON."""
+
+    def __init__(self):
+        self._flags: Dict[str, Optional[str]] = {}
+        self._load()
+
+    def get(self, symbol: str) -> Optional[str]:
+        return self._flags.get(symbol.upper())
+
+    def cycle(self, symbol: str) -> Optional[str]:
+        """Advance flag to next state. Return new state."""
+        sym = symbol.upper()
+        cur = self._flags.get(sym)
+        idx = _FLAG_CYCLE.index(cur) if cur in _FLAG_CYCLE else 0
+        nxt = _FLAG_CYCLE[(idx + 1) % len(_FLAG_CYCLE)]
+        if nxt is None:
+            self._flags.pop(sym, None)
+        else:
+            self._flags[sym] = nxt
+        self._save()
+        return nxt
+
+    def all_flagged(self) -> Dict[str, str]:
+        return dict(self._flags)
+
+    def _load(self):
+        try:
+            if os.path.exists(_FLAGS_FILE):
+                with open(_FLAGS_FILE, "r") as f:
+                    self._flags = json.load(f)
+        except Exception as e:
+            logger.error(f"FlagStore load failed: {e}")
+
+    def _save(self):
+        try:
+            with open(_FLAGS_FILE, "w") as f:
+                json.dump(self._flags, f, indent=2)
+        except Exception as e:
+            logger.error(f"FlagStore save failed: {e}")
+
+
+_flag_store = _FlagStore()   # module-level singleton
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  WATCHLIST CONFIG  (names, order, ids)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _WatchlistConfig:
+    """
+    Manages the list of named watchlists.
+    Each entry: {"id": str, "name": str}
+    """
+
+    _DEFAULT = [
+        {"id": "breakouts", "name": "Breakouts"},
+        {"id": "ep",        "name": "EP"},
+        {"id": "parabolic", "name": "Parabolic"},
+    ]
+
+    def __init__(self):
+        self._lists: List[Dict] = []
+        self._load()
+
+    def all(self) -> List[Dict]:
+        return list(self._lists)
+
+    def add(self, name: str) -> Dict:
+        entry = {"id": f"wl_{uuid.uuid4().hex[:8]}", "name": name.strip()}
+        self._lists.append(entry)
+        self._save()
+        return entry
+
+    def rename(self, wl_id: str, new_name: str) -> bool:
+        for entry in self._lists:
+            if entry["id"] == wl_id:
+                entry["name"] = new_name.strip()
+                self._save()
+                return True
+        return False
+
+    def remove(self, wl_id: str) -> bool:
+        before = len(self._lists)
+        self._lists = [e for e in self._lists if e["id"] != wl_id]
+        if len(self._lists) < before:
+            self._save()
+            # Also delete data file
+            path = _data_path(wl_id)
+            if os.path.exists(path):
+                try:
+                    os.remove(path)
+                except Exception:
+                    pass
+            return True
+        return False
+
+    def reorder(self, ids: List[str]) -> None:
+        id_map = {e["id"]: e for e in self._lists}
+        self._lists = [id_map[i] for i in ids if i in id_map]
+        self._save()
+
+    def _load(self):
+        try:
+            if os.path.exists(_CONFIG_FILE):
+                with open(_CONFIG_FILE, "r") as f:
+                    self._lists = json.load(f)
+            else:
+                self._lists = list(self._DEFAULT)
+                self._save()
+        except Exception as e:
+            logger.error(f"WatchlistConfig load failed: {e}")
+            self._lists = list(self._DEFAULT)
+
+    def _save(self):
+        try:
+            with open(_CONFIG_FILE, "w") as f:
+                json.dump(self._lists, f, indent=2)
+        except Exception as e:
+            logger.error(f"WatchlistConfig save failed: {e}")
+
+
+def _data_path(wl_id: str) -> str:
+    return os.path.join(_DATA_DIR, f"watchlist_{wl_id}.json")
+
+
+def _load_symbols(wl_id: str) -> List[str]:
+    path = _data_path(wl_id)
+    if os.path.exists(path):
+        try:
+            with open(path, "r") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return []
+
+
+def _save_symbols(wl_id: str, symbols: List[str]) -> None:
+    try:
+        with open(_data_path(wl_id), "w") as f:
+            json.dump(symbols, f, indent=2)
+    except Exception as e:
+        logger.error(f"Save symbols failed for {wl_id}: {e}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  RENAME DIALOG
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _RenameDialog(QDialog):
+    def __init__(self, current_name: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Rename Watchlist")
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
+        self.setMinimumWidth(320)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 16, 20, 16)
+        layout.setSpacing(12)
+
+        label = QLabel("Watchlist Name")
+        label.setStyleSheet(f"color:{_C.T1}; font-family:{_SANS}; font-size:11px; font-weight:700; letter-spacing:0.5px;")
+
+        self.input = QLineEdit(current_name)
+        self.input.selectAll()
+        self.input.setStyleSheet(f"""
+            QLineEdit {{
+                background:{_C.BG2}; color:{_C.T0};
+                border:1px solid {_C.BG4}; border-radius:1px;
+                font-family:{_SANS}; font-size:13px;
+                padding:6px 8px;
+            }}
+            QLineEdit:focus {{ border:1px solid {_C.CYAN}; }}
+        """)
+
+        btns = QHBoxLayout()
+        btns.setSpacing(8)
+        cancel = QPushButton("Cancel")
+        ok     = QPushButton("Rename")
+
+        for btn, primary in ((cancel, False), (ok, True)):
+            btn.setFixedHeight(28)
+            if primary:
+                btn.setStyleSheet(f"background:{_C.BLUE}; color:#fff; border:none; border-radius:1px; font-family:{_SANS}; font-size:11px; font-weight:700; padding:0 16px;")
+            else:
+                btn.setStyleSheet(f"background:{_C.BG2}; color:{_C.T1}; border:1px solid {_C.BG4}; border-radius:1px; font-family:{_SANS}; font-size:11px; font-weight:700; padding:0 16px;")
+            btns.addWidget(btn)
+
+        cancel.clicked.connect(self.reject)
+        ok.clicked.connect(self._accept)
+        self.input.returnPressed.connect(self._accept)
+
+        layout.addWidget(label)
+        layout.addWidget(self.input)
+        layout.addLayout(btns)
+
+        self.setStyleSheet(f"QDialog {{ background:{_C.BG1}; border:1px solid {_C.BG4}; }}")
+
+    def _accept(self):
+        if self.input.text().strip():
+            self.accept()
+
+    def name(self) -> str:
+        return self.input.text().strip()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  ADD WATCHLIST DIALOG
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _AddWatchlistDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("New Watchlist")
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
+        self.setMinimumWidth(320)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 16, 20, 16)
+        layout.setSpacing(12)
+
+        label = QLabel("Watchlist Name")
+        label.setStyleSheet(f"color:{_C.T1}; font-family:{_SANS}; font-size:11px; font-weight:700; letter-spacing:0.5px;")
+
+        self.input = QLineEdit()
+        self.input.setPlaceholderText("e.g. My Watchlist, Momentum, Breakouts…")
+        self.input.setStyleSheet(f"""
+            QLineEdit {{
+                background:{_C.BG2}; color:{_C.T0};
+                border:1px solid {_C.BG4}; border-radius:1px;
+                font-family:{_SANS}; font-size:13px;
+                padding:6px 8px;
+            }}
+            QLineEdit:focus {{ border:1px solid {_C.CYAN}; }}
+            QLineEdit::placeholder {{ color:{_C.T3}; }}
+        """)
+
+        btns = QHBoxLayout()
+        btns.setSpacing(8)
+        cancel = QPushButton("Cancel")
+        ok     = QPushButton("Create")
+
+        for btn, primary in ((cancel, False), (ok, True)):
+            btn.setFixedHeight(28)
+            if primary:
+                btn.setStyleSheet(f"background:{_C.BULL}; color:#000; border:none; border-radius:1px; font-family:{_SANS}; font-size:11px; font-weight:800; padding:0 16px;")
+            else:
+                btn.setStyleSheet(f"background:{_C.BG2}; color:{_C.T1}; border:1px solid {_C.BG4}; border-radius:1px; font-family:{_SANS}; font-size:11px; font-weight:700; padding:0 16px;")
+            btns.addWidget(btn)
+
+        cancel.clicked.connect(self.reject)
+        ok.clicked.connect(self._accept)
+        self.input.returnPressed.connect(self._accept)
+
+        layout.addWidget(label)
+        layout.addWidget(self.input)
+        layout.addLayout(btns)
+
+        self.setStyleSheet(f"QDialog {{ background:{_C.BG1}; border:1px solid {_C.BG4}; }}")
+
+    def _accept(self):
+        if self.input.text().strip():
+            self.accept()
+
+    def name(self) -> str:
+        return self.input.text().strip()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  TRADING TABLE  (single watchlist pane)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_COL_FLAG   = 0
+_COL_SYMBOL = 1
+_COL_LTP    = 2
+_COL_VOL    = 3
+_COL_CHG    = 4
+_COL_REMOVE = 5
+_NUM_COLS   = 6
+
+_HEADERS = ["", "Symbol", "LTP", "Vol", "Chg%", ""]
 
 
 class TradingTable(QTableWidget):
     """
-    Enhanced trading table with FIXED data persistence and real-time updates
+    Single watchlist table.
+
+    Columns: ⚑ | Symbol | LTP | Vol | Chg% | ×
+
+    Flag column (20 px): click to cycle flag state.
+    All numerics in monospace. Heat-map on Chg%.
     """
-    symbol_selected = Signal(str)
-    place_order_requested = Signal(dict)
+
+    symbol_selected             = Signal(str)
+    place_order_requested       = Signal(dict)
     advanced_buy_order_requested = Signal(str)
     advanced_sell_order_requested = Signal(str)
-    bracket_order_requested = Signal(str)
-    watchlist_symbols_changed = Signal()
+    bracket_order_requested     = Signal(str)
+    watchlist_symbols_changed   = Signal()
 
-    def __init__(self, category: str, parent=None):
+    def __init__(self, wl_id: str, parent=None):
         super().__init__(parent)
-        self.category = category
+        self.wl_id = wl_id
+
         self._instrument_map: Dict[str, Dict] = {}
         self._watchlist_data: Dict[str, Dict] = {}
         self._symbol_to_row: Dict[str, int] = {}
-        self._token_to_symbol: Dict[int, str] = {}   # O(1) reverse map
-        self._last_tick_time = 0.0
-        self._dirty_symbols = set()
+        self._token_to_symbol: Dict[int, str] = {}
+        self._symbols: List[str] = []     # ordered list
+        self._dirty: set = set()
 
-        # Initialize empty watchlist data
-        self._watchlist_symbols = set()  # Track symbols separately
-        self._last_widget_width = 0  # Reset to force update
-
-        self._color_theme = {
-            "enable_table_directional_colors": False,
-            "enable_volume_strength_indicator": False,
-            "tables": {"positive": "#26a69a", "negative": "#ef5350", "neutral": "#a9a9a9", "volume": "#45d4ff"}
-        }
+        self._color_theme: Dict = {}
+        self._sort_col: int = _COL_SYMBOL
+        self._sort_asc: bool = True
+        self._last_tick_time: float = 0.0
 
         self._configure_table()
         self._connect_signals()
-        self._setup_data_refresh()
+
+        # Throttled redraw
+        self._flush_timer = QTimer(self)
+        self._flush_timer.timeout.connect(self._flush_dirty)
+        self._flush_timer.start(225)
+
+        # Fallback refresh when no ticks arrive
+        self._fallback_timer = QTimer(self)
+        self._fallback_timer.timeout.connect(self._fallback_refresh)
+        self._fallback_timer.start(5000)
+
+    # ── Configuration ──────────────────────────────────────────────────────
 
     def _configure_table(self):
-        """TC2000-style compact table — mirrors positions_table exactly."""
-        self.setColumnCount(5)
-        self.setHorizontalHeaderLabels(["Symbol", "LTP", "Vol", "Chg %", ""])
+        self.setColumnCount(_NUM_COLS)
+        self.setHorizontalHeaderLabels(_HEADERS)
+
+        hdr = self.horizontalHeader()
+        hdr.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
+        hdr.setMinimumSectionSize(20)
+        hdr.setStretchLastSection(False)
+
+        # Flag col — fixed tight
+        hdr.setSectionResizeMode(_COL_FLAG,   QHeaderView.ResizeMode.Fixed)
+        self.setColumnWidth(_COL_FLAG, 20)
+
+        # Symbol — stretches
+        hdr.setSectionResizeMode(_COL_SYMBOL, QHeaderView.ResizeMode.Stretch)
+
+        # Data cols — fit content
+        for col in (_COL_LTP, _COL_VOL, _COL_CHG):
+            hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+
+        # Remove btn — fixed
+        hdr.setSectionResizeMode(_COL_REMOVE, QHeaderView.ResizeMode.Fixed)
+        self.setColumnWidth(_COL_REMOVE, 22)
 
         self.verticalHeader().setVisible(False)
-        self.horizontalHeader().setVisible(True)
+        self.verticalHeader().setDefaultSectionSize(22)
 
-        header = self.horizontalHeader()
-        header.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        # FIX: set minimum ONCE, FIRST — then lock col4 at 24 px (mirrors positions_table)
-        # Double setMinimumSectionSize can force Fixed col4 to 35 on some Qt versions.
-        header.setMinimumSectionSize(35)           # floor for Stretch / RTC columns
-        header.setStretchLastSection(False)
-
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)           # Symbol absorbs space
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)  # LTP fits digits
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)  # Vol fits text
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)  # Chg% fits digits
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)             # Remove btn locked
-        self.setColumnWidth(4, 24)  # called AFTER minimum so Fixed 24 overrides floor
-
-        # Table behavior
         self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.setShowGrid(True)
         self.setAlternatingRowColors(True)
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setSortingEnabled(False)
         self.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
 
-        # Enable sorting
-        self.setSortingEnabled(True)
-        header.sectionClicked.connect(self._on_header_clicked)
-        header.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-
-        # Ultra-compact row heights (TC2000 style)
-        self.verticalHeader().setDefaultSectionSize(22)
-
-        header_font = QFont("Segoe UI", 9)
-        header_font.setBold(True)
-        header.setFont(header_font)
-
-        # Initialize sorting state
-        self._sort_column = -1
-        self._sort_order = Qt.SortOrder.AscendingOrder
+        hdr.sectionClicked.connect(self._on_header_click)
+        hdr.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
     def _connect_signals(self):
-        """Connect table signals."""
-        self.cellClicked.connect(self._on_cell_clicked)
-        self.cellDoubleClicked.connect(self._on_cell_double_clicked)
-        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.customContextMenuRequested.connect(self._show_enhanced_context_menu)
+        self.cellClicked.connect(self._on_cell_click)
+        self.customContextMenuRequested.connect(self._show_ctx_menu)
+        self.focusOutEvent = self._on_focus_out
 
-        # Connect focus events to clear selection (from position table)
-        self.focusOutEvent = self._on_table_focus_out
+    # ── Public API ─────────────────────────────────────────────────────────
 
-    def _on_cell_double_clicked(self, row: int, column: int):
-        """Handle cell double-click for symbol details."""
-        if column != 4 and row < self.rowCount():
-            try:
-                symbol = self.item(row, 0).text()
-                if symbol and symbol != 'N/A':
-                    # Emit signal for detailed view or advanced chart
-                    logger.info(f"Double-clicked on {symbol} - opening detailed view")
-                    self.symbol_selected.emit(symbol)  # Can be enhanced later for different action
-            except (AttributeError, TypeError):
-                logger.warning(f"Could not get symbol from double-clicked row {row}.")
-
-    def _on_table_focus_out(self, event):
-        """Clear selection when table loses focus (from position table)."""
-        try:
-            self.clearSelection()
-            # Call the original focusOutEvent if it exists
-            if hasattr(QTableWidget, 'focusOutEvent'):
-                QTableWidget.focusOutEvent(self, event)
-        except Exception as e:
-            logger.debug(f"Error clearing selection on focus out: {e}")
-
-    def _on_header_clicked(self, logical_index: int):
-        """Handle header clicks for sorting."""
-        if logical_index == 4:  # Don't sort on remove button column
-            return
-
-        # Toggle sort order if clicking the same column
-        if self._sort_column == logical_index:
-            self._sort_order = (Qt.SortOrder.DescendingOrder
-                                if self._sort_order == Qt.SortOrder.AscendingOrder
-                                else Qt.SortOrder.AscendingOrder)
-        else:
-            self._sort_column = logical_index
-            # Default sort order based on column
-            if logical_index == 3:  # Change % column - default to descending (the best performers first)
-                self._sort_order = Qt.SortOrder.DescendingOrder
-            else:
-                self._sort_order = Qt.SortOrder.AscendingOrder
-
-        self._sort_table_by_column(logical_index, self._sort_order)
-
-        # Update header visual indicator
-        self._update_header_sort_indicator()
-
-    def _sort_table_by_column(self, column: int, order: Qt.SortOrder):
-        """Sort table by specified column with proper data type handling."""
-        if not self._watchlist_symbols:
-            return
-
-        # Create a list of (symbol, sort_value) tuples
-        sort_data = []
-
-        for symbol in self._watchlist_symbols:
-            if symbol not in self._watchlist_data:
-                continue
-
-            data = self._watchlist_data[symbol]
-
-            if column == 0:  # Symbol
-                sort_value = symbol
-            elif column == 1:  # LTP
-                sort_value = data.get('ltp', 0.0)
-            elif column == 2:  # Volume
-                sort_value = data.get('volume', 0)
-            elif column == 3:  # Change %
-                sort_value = data.get('change_pct', 0.0)
-            else:
-                sort_value = symbol
-
-            sort_data.append((symbol, sort_value))
-
-        # Sort the data
-        reverse = (order == Qt.SortOrder.DescendingOrder)
-
-        # Custom sorting for volume to handle different scales
-        if column == 2:  # Volume column
-            sort_data.sort(key=lambda x: x[1] if isinstance(x[1], (int, float)) else 0, reverse=reverse)
-        else:
-            sort_data.sort(key=lambda x: x[1] if x[1] is not None else (float('-inf') if reverse else float('inf')),
-                           reverse=reverse)
-
-        # Get sorted symbol list
-        sorted_symbols = [item[0] for item in sort_data]
-
-        # Temporarily disable sorting to prevent recursion
-        self.setSortingEnabled(False)
-
-        # Repopulate table with sorted data
-        self.setRowCount(len(sorted_symbols))
-        self._symbol_to_row.clear()
-
-        for row, symbol in enumerate(sorted_symbols):
-            self._symbol_to_row[symbol] = row
-            self._populate_row(row, symbol)
-
-        # Re-enable sorting
-        self.setSortingEnabled(True)
-
-        logger.debug(f"Sorted {self.category} watchlist by column {column} ({'DESC' if reverse else 'ASC'})")
-
-    def _update_header_sort_indicator(self):
-        """Update header to show sort indicator."""
-        header = self.horizontalHeader()
-
-        # Clear all sort indicators first
-        for i in range(self.columnCount() - 1):  # Exclude remove button column
-            header.setSortIndicator(i, Qt.SortOrder.AscendingOrder)
-            header.setSortIndicatorShown(False)
-
-        # Set sort indicator for current column
-        if self._sort_column >= 0:
-            header.setSortIndicator(self._sort_column, self._sort_order)
-            header.setSortIndicatorShown(True)
-
-    def _setup_data_refresh(self):
-        """
-        Fallback refresh — only fires when WebSocket ticks stop arriving.
-        5 s interval vs the old 1 s — reduces wasted redraws.
-        """
-        # Throttle UI redraws from rapid websocket ticks to keep numbers readable.
-        # ~4.4 fps strikes a balance between responsiveness and visual stability.
-        self._ui_flush_timer = QTimer(self)
-        self._ui_flush_timer.timeout.connect(self._flush_pending_ui_updates)
-        self._ui_flush_timer.start(225)
-
-        self._data_update_timer = QTimer()
-        self._data_update_timer.timeout.connect(self._fallback_refresh)
-        self._data_update_timer.start(5000)
-
-    def resizeEvent(self, event):
-        """Re-lock col4 at 24 px on every resize so it never overflows the edge.
-        ResizeToContents mode does NOT auto-shrink on widget resize — it only grows.
-        Without this, a sort-indicator expansion on cols 1-3 can push col4 off-screen
-        once col0 (Stretch) hits its 35 px floor and can no longer absorb the overflow."""
-        super().resizeEvent(event)
-        # Re-apply Fixed width after the resize so the header geometry is current.
-        self.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
-        self.setColumnWidth(4, 24)
-
-    def set_instrument_map(self, instrument_map: Dict[str, Dict]):
-        """Enhanced instrument map setting with proper data initialization"""
-        logger.info(f"Setting instrument map for {self.category} with {len(instrument_map)} instruments")
+    def set_instrument_map(self, instrument_map: Dict[str, Dict]) -> None:
         self._instrument_map = instrument_map
+        self._init_data_for_existing()
+        self._repopulate()
 
-        # Re-initialize watchlist data for existing symbols
-        self._initialize_watchlist_data()
-        self._populate_full_table()
+    def load_symbols(self, symbols: List[str]) -> None:
+        self._symbols = [s for s in symbols if s]
+        if self._instrument_map:
+            self._init_data_for_existing()
+        self._repopulate()
 
-    def _initialize_watchlist_data(self):
-        """Initialize watchlist data from an instrument map for existing symbols"""
-        for symbol in list(self._watchlist_symbols):
-            if symbol in self._instrument_map:
-                instrument = self._instrument_map[symbol]
+    def add_symbol(self, symbol: str) -> bool:
+        if not symbol or symbol in self._symbols:
+            return False
+        if symbol not in self._instrument_map:
+            return False
+        self._symbols.append(symbol)
+        self._init_symbol_data(symbol)
+        self._repopulate()
+        self.watchlist_symbols_changed.emit()
+        return True
 
-                # Get OHLC data properly
-                ohlc_data = instrument.get('ohlc', {})
-                if isinstance(ohlc_data, dict):
-                    prev_close = ohlc_data.get('close', 0.0)
-                    day_high = ohlc_data.get('high', 0.0)
-                    day_low = ohlc_data.get('low', 0.0)
-                    day_open = ohlc_data.get('open', 0.0)
-                else:
-                    prev_close = 0.0
-                    day_high = 0.0
-                    day_low = 0.0
-                    day_open = 0.0
-
-                # Create comprehensive data structure
-                self._watchlist_data[symbol] = {
-                    "tradingsymbol": symbol,
-                    "instrument_token": instrument.get('instrument_token'),
-                    "exchange": instrument.get('exchange', 'NSE'),
-                    "segment": instrument.get('segment', 'NSE'),
-                    "last_price": instrument.get('last_price', 0.0),
-                    "volume": instrument.get('volume', 0),  # This should be a day volume
-                    "volume_traded": instrument.get('volume_traded', 0),  # Alternative field
-                    "ohlc": ohlc_data,
-                    "ltp": instrument.get('last_price', 0.0),  # Current LTP
-                    "change_pct": 0.0,
-                    "change": 0.0,  # Absolute change
-                    "day_high": day_high,
-                    "day_low": day_low,
-                    "day_open": day_open,
-                    "prev_close": prev_close,
-                }
-
-                # Calculate initial change percentage
-                self._calculate_change_percentage(symbol)
-
-                logger.debug(f"Initialized data for {symbol}: LTP={self._watchlist_data[symbol]['ltp']}, "
-                             f"Volume={self._watchlist_data[symbol]['volume']}, "
-                             f"PrevClose={prev_close}")
-            else:
-                logger.warning(f"Symbol {symbol} not found in instrument map")
-
+    def remove_symbol(self, symbol: str) -> bool:
+        if symbol not in self._symbols:
+            return False
+        self._symbols.remove(symbol)
+        self._watchlist_data.pop(symbol, None)
         self._rebuild_token_map()
+        self._repopulate()
+        self.watchlist_symbols_changed.emit()
+        return True
 
-    def _calculate_change_percentage(self, symbol: str):
-        """Calculate change percentage for a symbol"""
-        if symbol not in self._watchlist_data:
-            return
+    def get_symbol_list(self) -> List[str]:
+        return list(self._symbols)
 
-        data = self._watchlist_data[symbol]
-        ltp = data.get('ltp', 0.0)
-        prev_close = data.get('prev_close', 0.0)
+    def get_all_tokens(self) -> List[int]:
+        return list(self._token_to_symbol.keys())
 
-        if prev_close > 0 and ltp > 0:
-            change = ltp - prev_close
-            change_pct = (change / prev_close) * 100
-            data['change_pct'] = change_pct
-            data['change'] = change
-            logger.debug(f"Calculated change for {symbol}: {change_pct:.2f}% (LTP: {ltp}, PrevClose: {prev_close})")
-        else:
-            data['change_pct'] = 0.0
-            data['change'] = 0.0
-            if prev_close <= 0:
-                logger.warning(f"Invalid prev_close for {symbol}: {prev_close}")
+    def apply_color_theme(self, theme: Dict) -> None:
+        self._color_theme = theme
+        for sym, row in self._symbol_to_row.items():
+            data = self._watchlist_data.get(sym)
+            if data:
+                self._update_row(row, data)
 
-
-    def _rebuild_token_map(self):
-        """O(1) token→symbol map. Always store tokens as int."""
-        self._token_to_symbol = {}
-        for symbol, data in self._watchlist_data.items():
-            token = data.get("instrument_token")
-            if token is not None:
-                try:
-                    self._token_to_symbol[int(token)] = symbol
-                except (TypeError, ValueError):
-                    pass
-        logger.debug(f"[{self.category}] token map rebuilt - {len(self._token_to_symbol)} entries")
-
-    @staticmethod
-    def _normalize_token(token) -> Optional[int]:
-        """Normalize incoming instrument tokens for robust comparisons."""
-        try:
-            return int(token)
-        except (TypeError, ValueError):
-            return None
-
-    def update_data(self, ticks: List[Dict]):
-        """
-        Process WebSocket ticks at full speed and throttle table redraws.
-        O(1) lookup per tick and batched UI updates (~4-5 fps).
-        """
+    def update_data(self, ticks: List[Dict]) -> None:
+        """Process WS ticks — O(1) per tick via pre-built token map."""
         import time
-
         if ticks:
             self._last_tick_time = time.monotonic()
 
         for tick in ticks:
-            raw_token = tick.get("instrument_token")
-            if raw_token is None:
+            raw = tick.get("instrument_token")
+            if raw is None:
                 continue
             try:
-                token = int(raw_token)
+                token = int(raw)
             except (TypeError, ValueError):
                 continue
 
-            symbol = self._token_to_symbol.get(token)
-            if symbol is None:
+            sym = self._token_to_symbol.get(token)
+            if not sym:
                 continue
 
-            data = self._watchlist_data[symbol]
-
+            data = self._watchlist_data[sym]
             ltp = tick.get("last_price")
             if ltp is not None:
-                ltp = float(ltp)
-                data["ltp"] = ltp
-                data["last_price"] = ltp
+                data["ltp"] = float(ltp)
 
-            # Volume — try fields in priority order, accept first positive value
-            for vol_field in ("volume_traded", "volume"):
-                vol = tick.get(vol_field)
+            for vf in ("volume_traded", "volume"):
+                vol = tick.get(vf)
                 if vol is not None:
                     try:
                         v = int(vol)
@@ -399,937 +594,808 @@ class TradingTable(QTableWidget):
                     except (TypeError, ValueError):
                         pass
 
-            # OHLC update
             ohlc = tick.get("ohlc")
             if isinstance(ohlc, dict):
                 close = ohlc.get("close")
-                if close is not None:
+                if close:
                     data["prev_close"] = float(close)
-                high = ohlc.get("high")
-                if high is not None:
-                    data["day_high"] = max(data.get("day_high", 0.0), float(high))
-                low = ohlc.get("low")
-                if low is not None:
-                    cur_low = data.get("day_low", 0.0)
-                    data["day_low"] = float(low) if cur_low == 0.0 else min(cur_low, float(low))
 
-            # Recalculate change %
             prev = data.get("prev_close", 0.0)
-            cur = data.get("ltp", 0.0)
+            cur  = data.get("ltp", 0.0)
             if prev > 0 and cur > 0:
                 data["change_pct"] = (cur - prev) / prev * 100
-                data["change"] = cur - prev
-            else:
-                data["change_pct"] = 0.0
 
-            # Mark row dirty; UI is updated by throttled timer.
-            row = self._symbol_to_row.get(symbol)
-            if row is not None:
-                self._dirty_symbols.add(symbol)
+            if sym in self._symbol_to_row:
+                self._dirty.add(sym)
 
-    def _flush_pending_ui_updates(self):
-        """Flush queued symbol updates at a human-readable refresh rate."""
-        if not self._dirty_symbols:
-            return
+    # ── Internal: data ─────────────────────────────────────────────────────
 
-        dirty_symbols = tuple(self._dirty_symbols)
-        self._dirty_symbols.clear()
-
-        for symbol in dirty_symbols:
-            row = self._symbol_to_row.get(symbol)
-            if row is None:
-                continue
-            data = self._watchlist_data.get(symbol)
-            if data is None:
-                continue
-            self._update_row_data(row, data)
-
-    def add_symbol(self, symbol: str) -> bool:
-        """Enhanced symbol addition with proper data initialization"""
-        if not symbol or symbol in self._watchlist_symbols:
-            logger.warning(f"Symbol '{symbol}' already exists in {self.category} or is invalid")
-            return False
-
-        if symbol not in self._instrument_map:
-            logger.warning(f"Symbol '{symbol}' not found in instrument map")
-            return False
-
-        # Add to a symbol set
-        self._watchlist_symbols.add(symbol)
-
-        # Initialize data
-        instrument = self._instrument_map[symbol]
-
-        # Get OHLC data properly
-        ohlc_data = instrument.get('ohlc', {})
-        if isinstance(ohlc_data, dict):
-            prev_close = ohlc_data.get('close', 0.0)
-            day_high = ohlc_data.get('high', 0.0)
-            day_low = ohlc_data.get('low', 0.0)
-            day_open = ohlc_data.get('open', 0.0)
-        else:
-            prev_close = 0.0
-            day_high = 0.0
-            day_low = 0.0
-            day_open = 0.0
-
-        self._watchlist_data[symbol] = {
-            "tradingsymbol": symbol,
-            "instrument_token": instrument.get('instrument_token'),
-            "exchange": instrument.get('exchange', 'NSE'),
-            "segment": instrument.get('segment', 'NSE'),
-            "last_price": instrument.get('last_price', 0.0),
-            "volume": instrument.get('volume', 0),
-            "volume_traded": instrument.get('volume_traded', 0),
-            "ohlc": ohlc_data,
-            "ltp": instrument.get('last_price', 0.0),
-            "change_pct": 0.0,
-            "change": 0.0,
-            "day_high": day_high,
-            "day_low": day_low,
-            "day_open": day_open,
-            "prev_close": prev_close,
-        }
-
-        # Calculate initial change percentage
-        self._calculate_change_percentage(symbol)
+    def _init_data_for_existing(self):
+        for sym in self._symbols:
+            if sym in self._instrument_map:
+                self._init_symbol_data(sym)
         self._rebuild_token_map()
 
-        # Repopulate table
-        self._populate_full_table()
+    def _init_symbol_data(self, symbol: str):
+        inst  = self._instrument_map.get(symbol, {})
+        ohlc  = inst.get("ohlc", {}) or {}
+        prev  = ohlc.get("close", 0.0) if isinstance(ohlc, dict) else 0.0
+        ltp   = inst.get("last_price", 0.0) or 0.0
+        vol   = inst.get("volume", 0) or 0
+        chg   = (ltp - prev) / prev * 100 if prev > 0 and ltp > 0 else 0.0
 
-        logger.info(f"Added {symbol} to {self.category} watchlist with LTP: {self._watchlist_data[symbol]['ltp']}, "
-                    f"Volume: {self._watchlist_data[symbol]['volume']}")
-        self.watchlist_symbols_changed.emit()
-        return True
+        self._watchlist_data[symbol] = {
+            "tradingsymbol":    symbol,
+            "instrument_token": inst.get("instrument_token"),
+            "exchange":         inst.get("exchange", "NSE"),
+            "ltp":              ltp,
+            "volume":           vol,
+            "prev_close":       prev,
+            "change_pct":       chg,
+        }
 
-    def remove_symbol(self, symbol: str) -> bool:
-        """Enhanced symbol removal"""
-        if symbol in self._watchlist_symbols:
-            self._watchlist_symbols.remove(symbol)
-            if symbol in self._watchlist_data:
-                del self._watchlist_data[symbol]
-            self._rebuild_token_map()
-            self._populate_full_table()
-            logger.info(f"Removed {symbol} from {self.category} watchlist")
-            self.watchlist_symbols_changed.emit()
-            return True
-        return False
+    def _rebuild_token_map(self):
+        self._token_to_symbol = {}
+        for sym, data in self._watchlist_data.items():
+            tok = data.get("instrument_token")
+            if tok is not None:
+                try:
+                    self._token_to_symbol[int(tok)] = sym
+                except (TypeError, ValueError):
+                    pass
 
-    def _populate_full_table(self):
-        """Enhanced table population with proper data handling"""
+    # ── Internal: rendering ────────────────────────────────────────────────
+
+    def _repopulate(self):
         self.setRowCount(0)
         self._symbol_to_row.clear()
 
-        if not self._watchlist_symbols:
-            return
+        for row, sym in enumerate(self._symbols):
+            self._symbol_to_row[sym] = row
+            self.insertRow(row)
+            for col in range(_NUM_COLS):
+                self.setItem(row, col, QTableWidgetItem())
 
-        sorted_symbols = sorted(self._watchlist_symbols)
-        self.setRowCount(len(sorted_symbols))
+            # Flag cell
+            self._paint_flag_cell(row, sym)
 
-        for row, symbol in enumerate(sorted_symbols):
-            self._symbol_to_row[symbol] = row
-            self._populate_row(row, symbol)
+            # Remove button
+            self._set_remove_btn(row)
 
-    def _populate_row(self, row: int, symbol: str):
-        """Enhanced row population with proper data"""
-        # Create items for all columns
-        for i in range(4):
-            self.setItem(row, i, QTableWidgetItem())
+            data = self._watchlist_data.get(sym)
+            if data:
+                self._update_row(row, data)
+            else:
+                self.item(row, _COL_SYMBOL).setText(sym)
 
-        # Add remove button
-        self.setCellWidget(row, 4, self._create_remove_button(row))
-
-        # Update with current data
-        if symbol in self._watchlist_data:
-            self._update_row_data(row, self._watchlist_data[symbol])
-        else:
-            # Fallback display
-            self.item(row, 0).setText(symbol)
-            self.item(row, 1).setText("0.00")
-            self.item(row, 2).setText("0")
-            self.item(row, 3).setText("0.00")
-
-    def _update_row_data(self, row: int, data: Dict):
-        """FIXED row data update with proper formatting and sorting preservation"""
+    def _update_row(self, row: int, data: Dict):
         if row >= self.rowCount():
             return
 
-        # Ensure items exist
-        for col_idx in range(4):
-            if not self.item(row, col_idx):
-                self.setItem(row, col_idx, QTableWidgetItem())
+        sym     = data.get("tradingsymbol", "")
+        ltp     = data.get("ltp", 0.0)
+        vol     = data.get("volume", 0)
+        chg     = data.get("change_pct", 0.0)
 
-        # Get data with defaults
-        tradingsymbol = data.get('tradingsymbol', 'N/A')
-        ltp = data.get('ltp', 0.0)
-        volume = data.get('volume', 0)
-        change_pct = data.get('change_pct', 0.0)
+        # ── Flag ──
+        self._paint_flag_cell(row, sym)
 
-        # Set text values
-        self.item(row, 0).setText(tradingsymbol)
-        self.item(row, 0).setToolTip(f"Open chart for {tradingsymbol}")
-        self.item(row, 1).setText(f"{ltp:,.2f}" if ltp > 0 else "0.00")
+        # ── Symbol ──
+        sym_item = self.item(row, _COL_SYMBOL)
+        if sym_item:
+            sym_item.setText(sym)
+            sym_item.setForeground(QColor(_C.T0))
+            sym_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            f = QFont(_SANS.split(",")[0].strip("'"))
+            f.setPointSize(9)
+            f.setBold(True)
+            sym_item.setFont(f)
 
-        # Format volume with K/M notation
-        if volume >= 1_000_000:
-            volume_text = f"{volume / 1_000_000:.1f}M"
-        elif volume >= 1_000:
-            volume_text = f"{volume / 1_000:.1f}K"
-        else:
-            volume_text = str(volume)
+        # ── LTP ──
+        ltp_text = f"{ltp:,.2f}" if ltp > 0 else "—"
+        ltp_item = self.item(row, _COL_LTP)
+        if ltp_item:
+            ltp_item.setText(ltp_text)
+            ltp_item.setForeground(QColor(_C.T0))
+            ltp_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            ltp_item.setFont(self._mono_font())
 
-        show_volume_strength = bool(self._color_theme.get("enable_volume_strength_indicator", False))
-        if show_volume_strength:
-            if volume >= 5_000_000:
-                strength = "3pt"
-            elif volume >= 1_000_000:
-                strength = "2pt"
-            elif volume >= 250_000:
-                strength = "1pt"
+        # ── Volume ──
+        vol_text = self._fmt_volume(vol)
+        vol_item = self.item(row, _COL_VOL)
+        if vol_item:
+            vol_item.setText(vol_text)
+            vol_item.setForeground(QColor(_C.T2))
+            vol_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            vol_item.setFont(self._mono_font())
+            vol_item.setToolTip(f"Volume: {vol:,}")
+
+        # ── Chg% with heat-map ──
+        chg_text = f"{chg:+.2f}%" if abs(chg) > 0.005 else "0.00%"
+        fg, bg_rgba = _C.change_color(chg)
+        chg_item = self.item(row, _COL_CHG)
+        if chg_item:
+            chg_item.setText(chg_text)
+            chg_item.setForeground(QColor(fg))
+            chg_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            chg_item.setFont(self._mono_font(bold=True))
+            if bg_rgba:
+                r, g, b, a = self._parse_rgba(bg_rgba)
+                chg_item.setBackground(QBrush(QColor(r, g, b, a)))
             else:
-                strength = "0pt"
-            self.item(row, 2).setText(f"{strength} {volume_text}")
-        else:
-            self.item(row, 2).setText(volume_text)
-        self.item(row, 2).setToolTip(f"Reported volume: {volume:,.0f}")
+                chg_item.setBackground(QBrush(QColor(_C.BG2)))
 
-        # Format change percentage
-        self.item(row, 3).setText(f"{change_pct:+.2f}" if abs(change_pct) > 0.01 else "0.00")
+        # ── LTP heat-map tint (subtle, for directional context) ──
+        if ltp_item and chg > 0:
+            ltp_item.setForeground(QColor(fg))
+        elif ltp_item and chg < 0:
+            ltp_item.setForeground(QColor(fg))
 
-        # Set data for proper sorting
-        self.item(row, 0).setData(Qt.ItemDataRole.UserRole, tradingsymbol)
-        self.item(row, 1).setData(Qt.ItemDataRole.UserRole, ltp)
-        self.item(row, 2).setData(Qt.ItemDataRole.UserRole, volume)
-        self.item(row, 3).setData(Qt.ItemDataRole.UserRole, change_pct)
+    def _paint_flag_cell(self, row: int, symbol: str):
+        state = _flag_store.get(symbol)
+        glyph, color = _FLAG_DISPLAY[state]
+        item = self.item(row, _COL_FLAG)
+        if not item:
+            item = QTableWidgetItem()
+            self.setItem(row, _COL_FLAG, item)
+        item.setText(glyph)
+        item.setForeground(QColor(color))
+        item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        item.setToolTip(_FLAG_TOOLTIP[state])
+        f = QFont()
+        f.setPointSize(9)
+        item.setFont(f)
 
-        # Apply colors
-        table_colors = self._color_theme.get("tables", {})
-        directional_colors_enabled = bool(self._color_theme.get("enable_table_directional_colors", False))
-        profit_color = QColor(table_colors.get("positive", "#26a69a"))
-        loss_color = QColor(table_colors.get("negative", "#ef5350"))
-        neutral_color = QColor(table_colors.get("neutral", "#a9a9a9"))
-        color = neutral_color
-        if directional_colors_enabled:
-            color = profit_color if change_pct > 0 else (loss_color if change_pct < 0 else neutral_color)
+    def _set_remove_btn(self, row: int):
+        btn = QPushButton("×")
+        btn.setObjectName("removeButton")
+        btn.setFixedSize(16, 16)
+        btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        btn.setToolTip("Remove from watchlist")
+        btn.clicked.connect(partial(self._remove_at_row, row))
+        self.setCellWidget(row, _COL_REMOVE, btn)
 
-        self.item(row, 1).setForeground(color)
-        self.item(row, 3).setForeground(color)
-        self.item(row, 2).setForeground(QColor(table_colors.get("volume", "#45d4ff")))
-
-        if directional_colors_enabled and change_pct > 0:
-            self.item(row, 3).setBackground(QBrush(QColor(18, 55, 34, 140)))
-        elif directional_colors_enabled and change_pct < 0:
-            self.item(row, 3).setBackground(QBrush(QColor(70, 20, 20, 140)))
-        else:
-            self.item(row, 3).setBackground(QBrush(QColor(35, 35, 35, 100)))
-
-        # Set alignments
-        self.item(row, 0).setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        self.item(row, 1).setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self.item(row, 2).setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self.item(row, 3).setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        symbol_font = self.item(row, 0).font()
-        symbol_font.setBold(True)
-        self.item(row, 0).setFont(symbol_font)
-
-    def apply_color_theme(self, theme: Dict):
-        self._color_theme = theme or self._color_theme
-        for symbol, row in self._symbol_to_row.items():
-            if symbol in self._watchlist_data:
-                self._update_row_data(row, self._watchlist_data[symbol])
+    def _flush_dirty(self):
+        if not self._dirty:
+            return
+        for sym in tuple(self._dirty):
+            row  = self._symbol_to_row.get(sym)
+            data = self._watchlist_data.get(sym)
+            if row is not None and data is not None:
+                self._update_row(row, data)
+        self._dirty.clear()
 
     def _fallback_refresh(self):
-        """Redraw only if no live ticks in last 4 s (WS disconnected / pre-market)."""
         import time
-        if time.monotonic() - getattr(self, "_last_tick_time", 0) < 4.0:
+        if time.monotonic() - self._last_tick_time < 4.0:
             return
-        for symbol, row in self._symbol_to_row.items():
-            if symbol in self._watchlist_data:
-                self._update_row_data(row, self._watchlist_data[symbol])
+        for sym, row in self._symbol_to_row.items():
+            data = self._watchlist_data.get(sym)
+            if data:
+                self._update_row(row, data)
 
-    def _create_remove_button(self, row) -> QPushButton:
-        """Creates a minimal 'x' button to remove a symbol."""
-        remove_btn = QPushButton("×")
-        remove_btn.setObjectName("removeButton")
-        # Use Qt method for cursor instead of CSS
-        remove_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        remove_btn.setFixedSize(16, 16)
-        remove_btn.clicked.connect(partial(self._remove_symbol_at_row, row))
-        return remove_btn
+    # ── Event handlers ─────────────────────────────────────────────────────
 
-    def _remove_symbol_at_row(self, row: int):
-        """Enhanced symbol removal by row"""
-        if 0 <= row < self.rowCount():
-            symbols_list = sorted(self._watchlist_symbols)
-            if row < len(symbols_list):
-                symbol_to_remove = symbols_list[row]
-                self.remove_symbol(symbol_to_remove)
+    def _on_cell_click(self, row: int, col: int):
+        if col == _COL_FLAG:
+            sym = self._symbol_at_row(row)
+            if sym:
+                _flag_store.cycle(sym)
+                self._paint_flag_cell(row, sym)
+            return
+        if col != _COL_REMOVE:
+            sym = self._symbol_at_row(row)
+            if sym and not sym.startswith("─"):
+                self.symbol_selected.emit(sym)
 
-    def _on_cell_clicked(self, row, column):
-        """Handles clicks on a cell to select the symbol for charting."""
-        if column != 4 and row < self.rowCount():
-            try:
-                symbol = self.item(row, 0).text()
-                if symbol and symbol != 'N/A':
-                    self.symbol_selected.emit(symbol)
-            except (AttributeError, TypeError):
-                logger.warning(f"Could not get symbol from clicked row {row}.")
+    def _remove_at_row(self, row: int):
+        syms = list(self._symbols)
+        if 0 <= row < len(syms):
+            self.remove_symbol(syms[row])
 
-    def _show_enhanced_context_menu(self, pos: QPoint):
-        """Enhanced context menu with advanced order options."""
+    def _on_focus_out(self, event):
+        self.clearSelection()
+        QTableWidget.focusOutEvent(self, event)
+
+    def _on_header_click(self, col: int):
+        if col in (_COL_FLAG, _COL_REMOVE):
+            return
+        if self._sort_col == col:
+            self._sort_asc = not self._sort_asc
+        else:
+            self._sort_col = col
+            self._sort_asc = col == _COL_SYMBOL
+        self._sort_and_repopulate()
+
+    def _sort_and_repopulate(self):
+        def _key(sym):
+            d = self._watchlist_data.get(sym, {})
+            if self._sort_col == _COL_SYMBOL: return sym
+            if self._sort_col == _COL_LTP:    return d.get("ltp", 0.0)
+            if self._sort_col == _COL_VOL:    return d.get("volume", 0)
+            if self._sort_col == _COL_CHG:    return d.get("change_pct", 0.0)
+            return sym
+
+        self._symbols.sort(key=_key, reverse=not self._sort_asc)
+        self._repopulate()
+
+    def _show_ctx_menu(self, pos: QPoint):
         row = self.rowAt(pos.y())
         if row < 0:
             return
-
-        try:
-            symbol = self.item(row, 0).text()
-            if not symbol or symbol == 'N/A':
-                return
-        except (AttributeError, TypeError):
+        sym = self._symbol_at_row(row)
+        if not sym or sym.startswith("─"):
             return
 
         menu = QMenu(self)
-        menu.setStyleSheet("""
-            QMenu {
-                background-color: #0b1019;
-                color: #e0e0e0;
-                border: 1px solid #3a3a3a;
-                border-radius: 4px;
-                padding: 4px;
-                font-size: 12px;
-            }
-            QMenu::item {
-                padding: 8px 16px;
-                border-radius: 2px;
-                margin: 1px;
-            }
-            QMenu::item:selected {
-                background-color: #6ec8ff;
-                color: #ffffff;
-            }
-            QMenu::separator {
-                height: 1px;
-                background-color: #3a3a3a;
-                margin: 4px 0px;
-            }
-        """)
+        menu.setObjectName("wlCtxMenu")
 
-        # Quick orders section
-        quick_label = QAction("Quick Orders", self)
-        quick_label.setEnabled(False)
-        menu.addAction(quick_label)
-
-        quick_buy = QAction("Quick Buy", self)
-        quick_buy.triggered.connect(lambda: self._request_trade(symbol, "BUY"))
-        menu.addAction(quick_buy)
-
-        quick_sell = QAction("Quick Sell", self)
-        quick_sell.triggered.connect(lambda: self._request_trade(symbol, "SELL"))
-        menu.addAction(quick_sell)
-
+        flag_state = _flag_store.get(sym)
+        next_states = {None: "🚩 Flag (Green)", "green": "🚩 Upgrade (Amber)",
+                       "amber": "🚩 Upgrade (Red)", "red": "🚩 Clear Flag"}
+        flag_act = menu.addAction(next_states.get(flag_state, "🚩 Flag"))
+        flag_act.triggered.connect(lambda: self._cycle_flag(row, sym))
         menu.addSeparator()
 
-        # Advanced orders section
-        advanced_label = QAction("Advanced Orders", self)
-        advanced_label.setEnabled(False)
-        menu.addAction(advanced_label)
-
-        advanced_buy = QAction("Advanced Buy Order", self)
-        advanced_buy.triggered.connect(lambda: self.advanced_buy_order_requested.emit(symbol))
-        menu.addAction(advanced_buy)
-
-        advanced_sell = QAction("Advanced Sell Order", self)
-        advanced_sell.triggered.connect(lambda: self.advanced_sell_order_requested.emit(symbol))
-        menu.addAction(advanced_sell)
-
-        bracket_order = QAction("Bracket Order", self)
-        bracket_order.triggered.connect(lambda: self.bracket_order_requested.emit(symbol))
-        menu.addAction(bracket_order)
+        chart_act = menu.addAction("📈  Open Chart")
+        chart_act.triggered.connect(lambda: self.symbol_selected.emit(sym))
 
         menu.addSeparator()
-
-        # Analysis section
-        analysis_label = QAction("Analysis", self)
-        analysis_label.setEnabled(False)
-        menu.addAction(analysis_label)
-
-        view_chart = QAction("View Chart", self)
-        view_chart.triggered.connect(lambda: self.symbol_selected.emit(symbol))
-        menu.addAction(view_chart)
+        buy_act  = menu.addAction("BUY")
+        sell_act = menu.addAction("SELL")
+        bo_act   = menu.addAction("Bracket Order")
+        buy_act.triggered.connect(lambda: self.advanced_buy_order_requested.emit(sym))
+        sell_act.triggered.connect(lambda: self.advanced_sell_order_requested.emit(sym))
+        bo_act.triggered.connect(lambda: self.bracket_order_requested.emit(sym))
 
         menu.addSeparator()
-
-        # Sorting section
-        sorting_label = QAction("Sorting Options", self)
-        sorting_label.setEnabled(False)
-        menu.addAction(sorting_label)
-
-        sort_symbol = QAction("Sort by Symbol", self)
-        sort_symbol.triggered.connect(lambda: self._sort_table_by_column(0, Qt.SortOrder.AscendingOrder))
-        menu.addAction(sort_symbol)
-
-        sort_ltp = QAction("Sort by LTP", self)
-        sort_ltp.triggered.connect(lambda: self._sort_table_by_column(1, Qt.SortOrder.DescendingOrder))
-        menu.addAction(sort_ltp)
-
-        sort_volume = QAction("Sort by Volume", self)
-        sort_volume.triggered.connect(lambda: self._sort_table_by_column(2,Qt.SortOrder.DescendingOrder))
-        menu.addAction(sort_volume)
-
-        sort_change_desc = QAction("Sort by Change % ↓ (Best First)", self)
-        sort_change_desc.triggered.connect(lambda: self._sort_table_by_column(3, Qt.SortOrder.DescendingOrder))
-        menu.addAction(sort_change_desc)
-
-        sort_change_asc = QAction("Sort by Change % ↑ (Worst First)", self)
-        sort_change_asc.triggered.connect(lambda: self._sort_table_by_column(3, Qt.SortOrder.AscendingOrder))
-        menu.addAction(sort_change_asc)
-
-        # Debug action to show current data
-        menu.addSeparator()
-        debug_action = QAction("Debug: Show Data", self)
-        debug_action.triggered.connect(lambda: self._show_debug_data(symbol))
-        menu.addAction(debug_action)
-
-        # Refresh data action
-        refresh_action = QAction("Refresh Data", self)
-        refresh_action.triggered.connect(lambda: self._refresh_symbol_data(symbol))
-        menu.addAction(refresh_action)
+        rm_act = menu.addAction("✕  Remove")
+        rm_act.triggered.connect(lambda: self.remove_symbol(sym))
 
         menu.exec(self.viewport().mapToGlobal(pos))
 
-    def _show_debug_data(self, symbol: str):
-        """Debug function to show current data for a symbol"""
-        if symbol in self._watchlist_data:
-            data = self._watchlist_data[symbol]
-            logger.info(f"Debug data for {symbol}: {data}")
-            print(f"Debug data for {symbol}:")
-            for key, value in data.items():
-                print(f"  {key}: {value}")
+    def _cycle_flag(self, row: int, sym: str):
+        _flag_store.cycle(sym)
+        self._paint_flag_cell(row, sym)
 
-    def _refresh_symbol_data(self, symbol: str):
-        """Refresh data for a specific symbol"""
-        if symbol in self._instrument_map and symbol in self._watchlist_data:
-            instrument = self._instrument_map[symbol]
-            self._watchlist_data[symbol].update({
-                'ltp': instrument.get('last_price', 0.0),
-                'volume': instrument.get('volume', 0),
-                'day_high': instrument.get('ohlc', {}).get('high', 0.0),
-                'day_low': instrument.get('ohlc', {}).get('low', 0.0),
-            })
-            self._calculate_change_percentage(symbol)
+    # ── Helpers ────────────────────────────────────────────────────────────
 
-            if symbol in self._symbol_to_row:
-                row = self._symbol_to_row[symbol]
-                self._update_row_data(row, self._watchlist_data[symbol])
+    def _symbol_at_row(self, row: int) -> Optional[str]:
+        for s, r in self._symbol_to_row.items():
+            if r == row:
+                return s
+        return None
 
-    def _request_trade(self, symbol: str, transaction_type: str):
-        """Emits a signal to open the basic order dialog."""
-        order_details = {
-            "tradingsymbol": symbol,
-            "transaction_type": transaction_type,
-        }
-        self.place_order_requested.emit(order_details)
+    @staticmethod
+    def _mono_font(bold: bool = False) -> QFont:
+        f = QFont("Consolas")
+        f.setStyleHint(QFont.StyleHint.Monospace)
+        f.setPointSize(9)
+        f.setBold(bold)
+        return f
 
-    def get_all_tokens(self) -> List[int]:
-        """Returns a list of all instrument tokens currently in this watchlist."""
-        tokens = []
-        for data in self._watchlist_data.values():
-            token = data.get('instrument_token')
-            if token:
-                tokens.append(token)
-        return tokens
+    @staticmethod
+    def _fmt_volume(vol: int) -> str:
+        if vol >= 10_000_000: return f"{vol/1_000_000:.0f}M"
+        if vol >= 1_000_000:  return f"{vol/1_000_000:.1f}M"
+        if vol >= 1_000:      return f"{vol/1_000:.0f}K"
+        return str(vol) if vol > 0 else "—"
 
-    def get_watchlist_data(self) -> Dict[str, Dict]:
-        """Returns the current watchlist data for saving."""
-        return self._watchlist_data.copy()
+    @staticmethod
+    def _parse_rgba(rgba: str) -> Tuple[int, int, int, int]:
+        """Parse 'rgba(r,g,b,a)' → (r, g, b, a_0_255)."""
+        try:
+            inner = rgba[5:-1]
+            parts = [p.strip() for p in inner.split(",")]
+            r, g, b = int(parts[0]), int(parts[1]), int(parts[2])
+            a = int(float(parts[3]) * 255)
+            return r, g, b, a
+        except Exception:
+            return 20, 20, 30, 80
 
-    def get_symbol_list(self) -> List[str]:
-        """Returns list of symbols for persistence"""
-        return list(self._watchlist_symbols)
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        hdr = self.horizontalHeader()
+        hdr.setSectionResizeMode(_COL_FLAG,   QHeaderView.ResizeMode.Fixed)
+        hdr.setSectionResizeMode(_COL_REMOVE, QHeaderView.ResizeMode.Fixed)
+        self.setColumnWidth(_COL_FLAG,   20)
+        self.setColumnWidth(_COL_REMOVE, 22)
 
-    def load_watchlist_data(self, symbols: List[str]):
-        """Load watchlist from a list of symbols"""
-        self._watchlist_symbols = set(symbols) if symbols else set()
-        self._watchlist_data.clear()
 
-        # Initialize data if instrument map is available
-        if self._instrument_map:
-            self._initialize_watchlist_data()
-            self._populate_full_table()
-
-        logger.info(f"Loaded {len(self._watchlist_symbols)} symbols for {self.category}")
-
+# ─────────────────────────────────────────────────────────────────────────────
+#  TABBED WATCHLIST WIDGET  (main widget)
+# ─────────────────────────────────────────────────────────────────────────────
 
 class TabbedWatchlistWidget(QWidget):
     """
-    Watchlist widget with a category dropdown and stacked tables.
+    Master watchlist widget.
+
+    Exposes the same signals as the old widget so main_window wiring is unchanged.
+    Adds: create / rename / delete watchlists via UI.
     """
-    symbol_selected = Signal(str)
-    subscribe_tokens_requested = Signal(list)
-    place_order_requested = Signal(dict)
+
+    symbol_selected              = Signal(str)
+    subscribe_tokens_requested   = Signal(list)
+    place_order_requested        = Signal(dict)
     advanced_buy_order_requested = Signal(str)
     advanced_sell_order_requested = Signal(str)
-    bracket_order_requested = Signal(str)
-    watchlist_changed = Signal()
+    bracket_order_requested      = Signal(str)
+    watchlist_changed            = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._instrument_map: Dict[str, Dict] = {}
-        self._tables: Dict[str, TradingTable] = {}
+        self._tables:  Dict[str, TradingTable] = {}   # id → table
+        self._config = _WatchlistConfig()
+
         self._setup_ui()
         self._apply_styles()
-        self._load_all_watchlists()
+        self._build_from_config()
 
-    def apply_color_theme(self, theme: Dict):
+    # ── Construction ───────────────────────────────────────────────────────
+
+    def _setup_ui(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        root.addWidget(self._build_header())
+
+        self._stack = QStackedWidget()
+        self._stack.setObjectName("wlStack")
+        root.addWidget(self._stack)
+
+    def _build_header(self) -> QFrame:
+        hdr = QFrame()
+        hdr.setObjectName("wlHeader")
+        hdr.setFixedHeight(32)
+
+        h = QHBoxLayout(hdr)
+        h.setContentsMargins(6, 0, 4, 0)
+        h.setSpacing(4)
+
+        # Static label
+        lbl = QLabel("WATCHLIST")
+        lbl.setObjectName("wlLabel")
+        lbl.setFixedWidth(72)
+        h.addWidget(lbl)
+
+        # Dropdown selector
+        self._dropdown = QComboBox()
+        self._dropdown.setObjectName("wlDropdown")
+        self._dropdown.setMinimumHeight(24)
+        self._dropdown.currentIndexChanged.connect(self._on_dropdown_change)
+        self._dropdown.installEventFilter(self)
+        h.addWidget(self._dropdown, 1)
+
+        # Add watchlist button
+        self._add_btn = QToolButton()
+        self._add_btn.setObjectName("wlAddBtn")
+        self._add_btn.setText("+")
+        self._add_btn.setFixedSize(24, 24)
+        self._add_btn.setToolTip("Create new watchlist")
+        self._add_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self._add_btn.clicked.connect(self._create_watchlist)
+        h.addWidget(self._add_btn)
+
+        # Menu (rename / delete)
+        self._menu_btn = QToolButton()
+        self._menu_btn.setObjectName("wlMenuBtn")
+        self._menu_btn.setText("⋯")
+        self._menu_btn.setFixedSize(24, 24)
+        self._menu_btn.setToolTip("Watchlist options")
+        self._menu_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self._menu_btn.clicked.connect(self._show_list_menu)
+        h.addWidget(self._menu_btn)
+
+        return hdr
+
+    def _build_from_config(self):
+        """Build table widgets from persisted config."""
+        entries = self._config.all()
+        if not entries:
+            # Safety: create a default list
+            entry = self._config.add("Watchlist 1")
+            entries = [entry]
+
+        for entry in entries:
+            self._add_table_for_entry(entry)
+
+        self._rebuild_dropdown()
+        if self._stack.count():
+            self._stack.setCurrentIndex(0)
+
+    def _add_table_for_entry(self, entry: Dict) -> TradingTable:
+        wl_id = entry["id"]
+        table = TradingTable(wl_id)
+        self._tables[wl_id] = table
+        self._stack.addWidget(table)
+
+        # Load persisted symbols
+        symbols = _load_symbols(wl_id)
+        table.load_symbols(symbols)
+        if self._instrument_map:
+            table.set_instrument_map(self._instrument_map)
+
+        # Wire signals
+        table.symbol_selected.connect(self.symbol_selected.emit)
+        table.place_order_requested.connect(self.place_order_requested.emit)
+        table.advanced_buy_order_requested.connect(self.advanced_buy_order_requested.emit)
+        table.advanced_sell_order_requested.connect(self.advanced_sell_order_requested.emit)
+        table.bracket_order_requested.connect(self.bracket_order_requested.emit)
+        table.watchlist_symbols_changed.connect(
+            partial(self._on_symbols_changed, wl_id)
+        )
+        return table
+
+    def _rebuild_dropdown(self):
+        self._dropdown.blockSignals(True)
+        current_id = self._current_wl_id()
+        self._dropdown.clear()
+
+        for entry in self._config.all():
+            self._dropdown.addItem(entry["name"], entry["id"])
+
+        # Restore selection
+        if current_id:
+            idx = self._dropdown.findData(current_id)
+            if idx >= 0:
+                self._dropdown.setCurrentIndex(idx)
+
+        self._dropdown.blockSignals(False)
+
+    # ── Public API (same interface as old widget) ───────────────────────────
+
+    def set_instrument_map(self, instrument_map: Dict[str, Dict]) -> None:
+        self._instrument_map = instrument_map
+        for table in self._tables.values():
+            table.set_instrument_map(instrument_map)
+        self._subscribe_all_tokens()
+
+    def add_symbol(self, symbol: str, category: str = None) -> bool:
+        table = self._current_table()
+        if not table:
+            return False
+        return table.add_symbol(symbol)
+
+    def get_all_tokens(self) -> List[int]:
+        tokens = []
+        for table in self._tables.values():
+            tokens.extend(table.get_all_tokens())
+        return list(set(tokens))
+
+    @Slot(list)
+    def update_data(self, ticks: List[Dict]) -> None:
+        for table in self._tables.values():
+            table.update_data(ticks)
+
+    def apply_color_theme(self, theme: Dict) -> None:
         for table in self._tables.values():
             table.apply_color_theme(theme)
 
-    def _setup_ui(self):
-        """Sets up the main UI layout with scanner-style header and dropdown."""
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+    # ── Watchlist management ────────────────────────────────────────────────
 
-        self.setMinimumWidth(280)  # matches right_panel_splitter.setMinimumWidth(280)
+    def _create_watchlist(self):
+        dlg = _AddWatchlistDialog(self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            name  = dlg.name()
+            entry = self._config.add(name)
+            self._add_table_for_entry(entry)
+            self._rebuild_dropdown()
+            # Switch to new watchlist
+            idx = self._dropdown.findData(entry["id"])
+            if idx >= 0:
+                self._dropdown.setCurrentIndex(idx)
 
-        # ── Header bar (mirrors scanner's _create_header) ──────────────────────
-        header_container = QWidget()
-        header_container.setObjectName("watchlistHeaderContainer")
-        header_layout = QHBoxLayout(header_container)
-        header_layout.setContentsMargins(6, 6, 6, 6)
-        header_layout.setSpacing(8)
+    def _rename_watchlist(self):
+        wl_id = self._current_wl_id()
+        if not wl_id:
+            return
+        current_name = self._dropdown.currentText()
+        dlg = _RenameDialog(current_name, self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self._config.rename(wl_id, dlg.name())
+            self._rebuild_dropdown()
 
-        watchlist_label = QLabel("WATCHLIST:")
-        watchlist_label.setObjectName("watchlistLabel")
-        watchlist_label.setStyleSheet("QLabel#watchlistLabel { background-color: transparent; }")
-        watchlist_label.setFixedWidth(72)
-        header_layout.addWidget(watchlist_label)
-
-        self.category_dropdown = QComboBox()
-        self.category_dropdown.setObjectName("minimalDropdown")
-        self.category_dropdown.setMinimumHeight(28)
-        header_layout.addWidget(self.category_dropdown, 1)
-
-        layout.addWidget(header_container)
-
-        # ── Stacked table area ──────────────────────────────────────────────────
-        self.table_stack = QStackedWidget()
-        self.table_stack.setObjectName("watchlistTableStack")
-        self._categories: List[str] = ["Breakouts", "EP", "Parabolic"]
-
-        for category in self._categories:
-            table = TradingTable(category)
-            self._tables[category] = table
-
-            table.symbol_selected.connect(self.symbol_selected.emit)
-            table.place_order_requested.connect(self.place_order_requested.emit)
-            table.advanced_buy_order_requested.connect(self.advanced_buy_order_requested.emit)
-            table.advanced_sell_order_requested.connect(self.advanced_sell_order_requested.emit)
-            table.bracket_order_requested.connect(self.bracket_order_requested.emit)
-            table.watchlist_symbols_changed.connect(
-                lambda c=category: self._handle_watchlist_symbols_changed(c)
-            )
-
-            self.category_dropdown.addItem(category.upper(), category)
-            self.table_stack.addWidget(table)
-
-        self.category_dropdown.currentIndexChanged.connect(self.table_stack.setCurrentIndex)
-        self.table_stack.currentChanged.connect(self.category_dropdown.setCurrentIndex)
-        self.table_stack.currentChanged.connect(self._refresh_current_table_sizing)
-
-        layout.addWidget(self.table_stack)
-        # Defer initial sizing to after the event loop has given the widget real geometry.
-        # Calling synchronously here means viewport width = 0 → columns sized wrong.
-        from PySide6.QtCore import QTimer
-        QTimer.singleShot(0, self._refresh_current_table_sizing)
-
-    def _refresh_current_table_sizing(self):
-        """Re-apply current-table sizing after stacked-widget view switches."""
-        current_table = self.table_stack.currentWidget()
-        if not isinstance(current_table, TradingTable):
+    def _delete_watchlist(self):
+        if self._dropdown.count() <= 1:
+            QMessageBox.information(self, "Cannot Delete",
+                                    "You must have at least one watchlist.")
+            return
+        wl_id = self._current_wl_id()
+        name  = self._dropdown.currentText()
+        if not wl_id:
             return
 
-        header = current_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
-        current_table.setColumnWidth(4, 24)
+        reply = QMessageBox.question(
+            self, "Delete Watchlist",
+            f"Delete '{name}' and all its symbols?\nThis cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
 
-    def _handle_watchlist_symbols_changed(self, category: str):
-        """Persist symbol list changes immediately for the given category."""
-        self._save_watchlist(category)
+        table = self._tables.pop(wl_id, None)
+        if table:
+            self._stack.removeWidget(table)
+            table.deleteLater()
+
+        self._config.remove(wl_id)
+        self._rebuild_dropdown()
         self.watchlist_changed.emit()
 
-    def _apply_dynamic_styles(self):
-        """Apply styles for header, dropdown and table stack."""
-        dynamic_stylesheet = """
-            /* Main Widget */
-            TabbedWatchlistWidget {
-                background-color: #05070b;
-                color: #e0e0e0;
-                font-family: "Segoe UI", Arial, sans-serif;
-                font-size: 13px;
-            }
+    def _show_list_menu(self):
+        menu = QMenu(self)
+        menu.setObjectName("wlOptionsMenu")
+        rename_act = menu.addAction("✎  Rename Watchlist")
+        rename_act.triggered.connect(self._rename_watchlist)
+        menu.addSeparator()
+        del_act = menu.addAction("✕  Delete Watchlist")
+        del_act.triggered.connect(self._delete_watchlist)
+        pos = self._menu_btn.mapToGlobal(
+            QPoint(0, self._menu_btn.height() + 2)
+        )
+        menu.exec(pos)
 
-            /* Header Container - matches scanner headerContainer */
-            QWidget#watchlistHeaderContainer {
-                background-color: #0b1019;
-                border-bottom: 1px solid #1f2c3f;
-            }
+    # ── Slots ──────────────────────────────────────────────────────────────
 
-            /* WATCHLIST label - matches scanner scanLabel */
-            QLabel#watchlistLabel {
-                color: #6ec8ff;
-                font-weight: 600;
-                font-size: 11px;
-            }
+    def _on_dropdown_change(self, idx: int):
+        wl_id = self._dropdown.itemData(idx)
+        if not wl_id:
+            return
+        table = self._tables.get(wl_id)
+        if table:
+            self._stack.setCurrentWidget(table)
 
-            /* Dropdown - identical to scanner minimalDropdown */
-            QComboBox#minimalDropdown {
-                background-color: #0a111b;
-                border: 1px solid #24354d;
-                color: #ffffff;
-                padding: 3px 6px;
-                font-size: 12px;
-                /* combobox-popup: 0 REMOVED — embedded popup is occluded by the
-                   QStackedWidget sibling (higher Z-order). Native popup window
-                   always floats on top regardless of widget Z-order. */
-            }
-            QComboBox#minimalDropdown:hover {
-                border-color: #505050;
-            }
-            QComboBox#minimalDropdown:focus {
-                border-color: #6a9cff;
-                outline: none;
-            }
-            QComboBox#minimalDropdown::drop-down {
-                border: none;
-                width: 18px;
-            }
-            QComboBox#minimalDropdown::down-arrow {
-                image: none;
-                border-left: 4px solid transparent;
-                border-right: 4px solid transparent;
-                border-top: 4px solid #808080;
-            }
-            QComboBox#minimalDropdown::down-arrow:hover {
-                border-top-color: #ffffff;
-            }
-            QComboBox#minimalDropdown QAbstractItemView {
-                background-color: #1a1a1a;
-                border: 1px solid #6a9cff;
-                border-radius: 2px;
-                color: #ffffff;
-                selection-background-color: #1a2840;
-                selection-color: #ffffff;
-                padding: 1px;
-                outline: none;
-            }
-            QComboBox#minimalDropdown QAbstractItemView::item {
-                padding: 5px 8px;
-                border: none;
-                margin: 0px;
-                font-size: 12px;
-            }
-            QComboBox#minimalDropdown QAbstractItemView::item:hover {
-                background-color: #2a2a2a;
-            }
-            QComboBox#minimalDropdown QAbstractItemView::item:selected {
-                background-color: #1a2840;
-                color: #ffffff;
-            }
-
-            QStackedWidget#watchlistTableStack {
-                /* border REMOVED — QWidget CSS border sets contentRect 2 px narrower
-                   without QFrame frame machinery, stealing viewport width from
-                   TradingTable. TradingTable already has its own 1 px frame border. */
-                border: none;
-                background-color: #05070b;
-            }
-
-            /* Table Styling - EXACT match to scanner table */
-            TradingTable {
-                background-color: #0f1318;
-                border: 1px solid #1a2030;
-                gridline-color: #1a2030;
-                selection-background-color: #1a2840;
-                alternate-background-color: #0f1318;
-                outline: none;
-                show-decoration-selected: 0;
-                font-size: 12px;
-                border-radius: 0px;
-            }
-
-            TradingTable::item {
-                padding: 1px 5px;
-                border-bottom: 1px solid #1a2030;
-                background-color: transparent;
-                font-size: 12px;
-                font-family: "JetBrains Mono", "Consolas", monospace;
-            }
-
-            TradingTable::item:selected {
-                background-color: #1a2840 !important;
-                outline: none;
-                border: none;
-                color: #ffffff;
-                font-weight: 600;
-            }
-
-            TradingTable::item:focus {
-                background-color: #1a2840 !important;
-                outline: none;
-                border: none;
-            }
-
-            TradingTable::item:hover {
-                background-color: #141920;
-            }
-
-            TradingTable::item:alternate {
-                background-color: #0f1318;
-            }
-
-            TradingTable::item:alternate:selected {
-                background-color: #1a2840 !important;
-                color: #ffffff;
-                font-weight: 600;
-            }
-
-            /* Header Styling - EXACT match to scanner table */
-            QHeaderView::section {
-                background-color: #0b1019;
-                color: #7fd4ff;
-                padding: 2px 5px;
-                border: none;
-                border-bottom: 1px solid #24344c;
-                border-right: 1px solid #121c2b;
-                font-weight: 600;
-                font-size: 11px;
-            }
-            QHeaderView {
-                background-color: #0b1019;
-                border: none;
-                margin: 0px;
-            }
-            QHeaderView::section:last {
-                border-right: none;
-            }
-
-            QHeaderView::section:hover {
-                background-color: #16253a;
-                color: #dbe9ff;
-            }
-
-            QHeaderView::down-arrow {
-                color: #6ec8ff;
-                width: 8px;
-                height: 8px;
-                subcontrol-position: center right;
-                subcontrol-origin: margin;
-                margin-right: 2px;
-            }
-
-            QHeaderView::up-arrow {
-                color: #6ec8ff;
-                width: 8px;
-                height: 8px;
-                subcontrol-position: center right;
-                subcontrol-origin: margin;
-                margin-right: 2px;
-            }
-
-            /* Remove Button Styling */
-            QPushButton#removeButton {
-                background-color: transparent;
-                color: #cc4444;
-                border: none;
-                font-weight: bold;
-                font-size: 12px;
-                border-radius: 0px;
-                padding: 0px;
-                margin: 0px;
-            }
-
-            QPushButton#removeButton:hover {
-                color: #ff6666;
-                background-color: #141920;
-            }
-
-            /* Enhanced Scrollbars */
-            QScrollBar:vertical {
-                background-color: #05070b;
-                width: 8px;
-                border: none;
-                margin: 0px;
-            }
-
-            QScrollBar::handle:vertical {
-                background-color: #424242;
-                min-height: 20px;
-                margin: 2px;
-            }
-
-            QScrollBar::handle:vertical:hover {
-                background-color: #616161;
-            }
-
-            QScrollBar:horizontal {
-                background-color: #05070b;
-                height: 8px;
-                border: none;
-                margin: 0px;
-            }
-
-            QScrollBar::handle:horizontal {
-                background-color: #424242;
-                min-width: 20px;
-                margin: 2px;
-            }
-
-            QScrollBar::handle:horizontal:hover {
-                background-color: #616161;
-            }
-
-            QScrollBar::add-line, QScrollBar::sub-line {
-                border: none;
-                background: none;
-                width: 0px;
-                height: 0px;
-                margin: 0px;
-            }
-        """
-
-        self.setStyleSheet(dynamic_stylesheet)
-
-    def _apply_styles(self):
-        """Apply full watchlist widget styles."""
-        self._apply_dynamic_styles()
-
-    # Method to force tab width recalculation (useful for external calls)
-    def force_update_tab_widths(self):
-        """Kept for backward compatibility. Styles are static with dropdown layout."""
-        self._apply_dynamic_styles()
-
-    def set_instrument_map(self, instrument_map: Dict[str, Dict]):
-        """Enhanced instrument map setting with proper propagation"""
-        logger.info(f"Setting instrument map with {len(instrument_map)} instruments")
-        self._instrument_map = instrument_map
-
-        # Propagate to all tables
-        for table in self._tables.values():
-            table.set_instrument_map(instrument_map)
-
-        # Request token subscription for all existing symbols
-        self._subscribe_all_tokens()
+    def _on_symbols_changed(self, wl_id: str):
+        table = self._tables.get(wl_id)
+        if table:
+            _save_symbols(wl_id, table.get_symbol_list())
+            self._subscribe_all_tokens()
+        self.watchlist_changed.emit()
 
     def _subscribe_all_tokens(self):
-        """Subscribe to all tokens across all watchlists"""
-        all_tokens = self.get_all_tokens()
-        if all_tokens:
-            self.subscribe_tokens_requested.emit(all_tokens)
-            logger.info(f"Subscribed to {len(all_tokens)} tokens across all watchlists")
+        tokens = self.get_all_tokens()
+        if tokens:
+            self.subscribe_tokens_requested.emit(tokens)
 
-    @Slot(list)
-    def update_data(self, ticks: List[Dict]):
-        """Enhanced data update with logging"""
-        if ticks:
-            # Log first tick for debugging
-            if logger.isEnabledFor(logging.DEBUG) and len(ticks) > 0:
-                logger.debug(f"Received {len(ticks)} ticks. First tick structure: {ticks[0]}")
+    # ── Helpers ────────────────────────────────────────────────────────────
 
-            # Distribute to all tables
-            for table in self._tables.values():
-                table.update_data(ticks)
+    def _current_table(self) -> Optional[TradingTable]:
+        w = self._stack.currentWidget()
+        return w if isinstance(w, TradingTable) else None
 
-    def add_symbol(self, symbol: str, category: str = None) -> bool:
-        """Enhanced symbol addition with proper persistence"""
-        if category is None:
-            current_index = self.table_stack.currentIndex()
-            category = self._categories[current_index]
+    def _current_wl_id(self) -> Optional[str]:
+        return self._dropdown.currentData()
 
-        if category in self._tables:
-            success = self._tables[category].add_symbol(symbol)
-            if success:
-                # Subscribe to token
-                if symbol in self._instrument_map:
-                    token = self._instrument_map[symbol].get('instrument_token')
-                    if token:
-                        self.subscribe_tokens_requested.emit([token])
-                logger.info(f"Successfully added {symbol} to {category}")
-                return True
-            else:
-                logger.warning(f"Failed to add {symbol} to {category}")
-        return False
-
-    def get_current_category(self) -> str:
-        """Returns the currently selected category."""
-        current_index = self.table_stack.currentIndex()
-        return self._categories[current_index]
-
-    def get_all_tokens(self) -> List[int]:
-        """Returns a list of all instrument tokens from all watchlists."""
-        all_tokens = []
-        for table in self._tables.values():
-            all_tokens.extend(table.get_all_tokens())
-        return list(set(all_tokens))  # Remove duplicates
-
-    def _load_all_watchlists(self):
-        """Enhanced watchlist loading with better error handling"""
-        for category, filepath in WATCHLIST_FILES.items():
-            if os.path.exists(filepath):
-                try:
-                    with open(filepath, 'r') as f:
-                        symbols = json.load(f)
-
-                    if isinstance(symbols, list):
-                        self._tables[category].load_watchlist_data(symbols)
-                        logger.info(f"Loaded {len(symbols)} symbols for {category} watchlist")
-                    else:
-                        logger.warning(f"Invalid format in {filepath}, expected list of symbols")
-
-                except (json.JSONDecodeError, IOError) as e:
-                    logger.error(f"Failed to load {category} watchlist: {e}")
-            else:
-                logger.info(f"No existing watchlist file for {category}")
-
-    def _save_watchlist(self, category: str):
-        """Enhanced watchlist saving"""
-        if category not in WATCHLIST_FILES or category not in self._tables:
-            return
-
-        filepath = WATCHLIST_FILES[category]
-        try:
-            # Ensure directory exists
-            dir_name = os.path.dirname(filepath)
-            if dir_name and not os.path.exists(dir_name):
-                os.makedirs(dir_name)
-
-            # Get symbol list
-            symbols = self._tables[category].get_symbol_list()
-
-            # Save to file
-            with open(filepath, 'w') as f:
-                json.dump(symbols, f, indent=4)
-
-            logger.info(f"Saved {category} watchlist with {len(symbols)} symbols to {filepath}")
-
-        except IOError as e:
-            logger.error(f"Failed to save {category} watchlist: {e}")
+    def eventFilter(self, obj, event):
+        """Right-click on dropdown → options menu."""
+        if obj is self._dropdown:
+            from PySide6.QtCore import QEvent
+            if event.type() == QEvent.Type.MouseButtonPress:
+                if event.button() == Qt.MouseButton.RightButton:
+                    self._show_list_menu()
+                    return True
+        return super().eventFilter(obj, event)
 
     def closeEvent(self, event):
-        """Enhanced close event with proper cleanup - REMOVED geometry saving"""
-        # Save all watchlists
-        for category in self._tables.keys():
-            self._save_watchlist(category)
-
-        # Stop timers
-        for table in self._tables.values():
-            if hasattr(table, '_data_update_timer'):
-                table._data_update_timer.stop()
-
+        for wl_id, table in self._tables.items():
+            _save_symbols(wl_id, table.get_symbol_list())
         super().closeEvent(event)
+
+    # ── Styles ─────────────────────────────────────────────────────────────
+
+    def _apply_styles(self):
+        self.setStyleSheet(f"""
+            /* ── Widget shell ─────────────────────────────────────── */
+            TabbedWatchlistWidget {{
+                background:{_C.BG0};
+                font-family:{_SANS};
+            }}
+
+            /* ── Header bar ───────────────────────────────────────── */
+            QFrame#wlHeader {{
+                background:{_C.BG1};
+                border-bottom:1px solid {_C.BG4};
+            }}
+            QLabel#wlLabel {{
+                color:{_C.CYAN};
+                font-family:{_SANS};
+                font-size:10px;
+                font-weight:800;
+                letter-spacing:1.5px;
+                background:transparent;
+            }}
+
+            /* ── Dropdown ─────────────────────────────────────────── */
+            QComboBox#wlDropdown {{
+                background:{_C.BG2};
+                color:{_C.T0};
+                border:1px solid {_C.BG4};
+                border-radius:0px;
+                font-family:{_SANS};
+                font-size:11px;
+                font-weight:600;
+                padding:2px 6px;
+                selection-background-color:{_C.SEL};
+            }}
+            QComboBox#wlDropdown:hover {{
+                border-color:{_C.NEU_DIM};
+            }}
+            QComboBox#wlDropdown:focus {{
+                border-color:{_C.CYAN};
+            }}
+            QComboBox#wlDropdown::drop-down {{
+                border:none; width:16px;
+            }}
+            QComboBox#wlDropdown::down-arrow {{
+                image:none;
+                border-left:4px solid transparent;
+                border-right:4px solid transparent;
+                border-top:4px solid {_C.T2};
+                margin-right:4px;
+            }}
+            QComboBox#wlDropdown QAbstractItemView {{
+                background:{_C.BG2};
+                border:1px solid {_C.CYAN};
+                color:{_C.T0};
+                selection-background-color:{_C.SEL};
+                selection-color:{_C.T0};
+                outline:none;
+                font-family:{_SANS};
+                font-size:11px;
+            }}
+            QComboBox#wlDropdown QAbstractItemView::item {{
+                padding:5px 10px;
+                border:none;
+            }}
+            QComboBox#wlDropdown QAbstractItemView::item:hover {{
+                background:{_C.BG3};
+            }}
+
+            /* ── Add / Menu buttons ───────────────────────────────── */
+            QToolButton#wlAddBtn {{
+                background:{_C.BG2};
+                color:{_C.BULL};
+                border:1px solid {_C.BULL_DIM};
+                border-radius:0px;
+                font-size:16px;
+                font-weight:400;
+            }}
+            QToolButton#wlAddBtn:hover {{
+                background:{_C.BG3};
+                color:{_C.T0};
+            }}
+            QToolButton#wlMenuBtn {{
+                background:{_C.BG2};
+                color:{_C.T2};
+                border:1px solid {_C.BG4};
+                border-radius:0px;
+                font-size:14px;
+                font-weight:700;
+                letter-spacing:1px;
+            }}
+            QToolButton#wlMenuBtn:hover {{
+                background:{_C.BG3};
+                color:{_C.T1};
+            }}
+
+            /* ── Table ────────────────────────────────────────────── */
+            TradingTable {{
+                background:{_C.BG2};
+                alternate-background-color:{_C.BG1};
+                gridline-color:{_C.BG4};
+                border:1px solid {_C.BG4};
+                border-radius:0px;
+                outline:none;
+                selection-background-color:{_C.SEL};
+                font-size:12px;
+                show-decoration-selected:0;
+            }}
+            TradingTable::item {{
+                padding:1px 4px;
+                border-bottom:1px solid {_C.BG4};
+                background:transparent;
+            }}
+            TradingTable::item:selected {{
+                background:{_C.SEL} !important;
+                color:{_C.T0};
+            }}
+            TradingTable::item:hover {{
+                background:{_C.BG3};
+            }}
+            TradingTable::item:alternate {{
+                background:{_C.BG1};
+            }}
+            TradingTable::item:alternate:selected {{
+                background:{_C.SEL} !important;
+                color:{_C.T0};
+            }}
+
+            /* ── Table header ─────────────────────────────────────── */
+            QHeaderView::section {{
+                background:{_C.BG1};
+                color:{_C.T2};
+                padding:2px 4px;
+                border:none;
+                border-bottom:1px solid {_C.BG4};
+                border-right:1px solid {_C.BG4};
+                font-family:{_SANS};
+                font-size:9px;
+                font-weight:800;
+                letter-spacing:0.8px;
+                text-transform:uppercase;
+            }}
+            QHeaderView::section:last {{ border-right:none; }}
+            QHeaderView::section:hover {{
+                background:{_C.BG3};
+                color:{_C.T1};
+            }}
+            QHeaderView {{
+                background:{_C.BG1};
+                border:none;
+            }}
+
+            /* ── Remove button ────────────────────────────────────── */
+            QPushButton#removeButton {{
+                background:transparent;
+                color:{_C.BEAR_DIM};
+                border:none;
+                font-size:14px;
+                font-weight:bold;
+                padding:0px;
+            }}
+            QPushButton#removeButton:hover {{
+                color:{_C.BEAR};
+                background:{_C.BEAR_BG};
+            }}
+
+            /* ── Context menu ─────────────────────────────────────── */
+            QMenu#wlCtxMenu, QMenu#wlOptionsMenu {{
+                background:{_C.BG1};
+                border:1px solid {_C.BG4};
+                border-radius:0px;
+                color:{_C.T0};
+                font-family:{_SANS};
+                font-size:12px;
+                padding:4px 0;
+            }}
+            QMenu#wlCtxMenu::item, QMenu#wlOptionsMenu::item {{
+                padding:6px 16px;
+            }}
+            QMenu#wlCtxMenu::item:selected,
+            QMenu#wlOptionsMenu::item:selected {{
+                background:{_C.SEL};
+                color:{_C.T0};
+            }}
+            QMenu#wlCtxMenu::separator, QMenu#wlOptionsMenu::separator {{
+                height:1px;
+                background:{_C.BG4};
+                margin:3px 8px;
+            }}
+
+            /* ── Stack ────────────────────────────────────────────── */
+            QStackedWidget#wlStack {{
+                background:{_C.BG2};
+                border:none;
+            }}
+
+            /* ── Scrollbars ───────────────────────────────────────── */
+            QScrollBar:vertical {{
+                background:transparent; width:4px; border:none; margin:0;
+            }}
+            QScrollBar::handle:vertical {{
+                background:{_C.BG4}; border-radius:2px; min-height:20px;
+            }}
+            QScrollBar::handle:vertical:hover {{ background:{_C.NEU_DIM}; }}
+            QScrollBar:horizontal {{
+                background:transparent; height:4px; border:none; margin:0;
+            }}
+            QScrollBar::handle:horizontal {{
+                background:{_C.BG4}; border-radius:2px; min-width:20px;
+            }}
+            QScrollBar::add-line, QScrollBar::sub-line {{
+                border:none; background:none; width:0; height:0;
+            }}
+        """)
