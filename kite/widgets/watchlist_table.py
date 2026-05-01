@@ -692,7 +692,7 @@ class TradingTable(QTableWidget):
             sym_item.setFont(f)
 
         # ── LTP ──
-        ltp_text = f"{ltp:,.2f}" if ltp > 0 else "—"
+        ltp_text = f"{ltp:.2f}" if ltp > 0 else "—"
         ltp_item = self.item(row, _COL_LTP)
         if ltp_item:
             ltp_item.setText(ltp_text)
@@ -708,7 +708,7 @@ class TradingTable(QTableWidget):
             vol_item.setForeground(QColor(_C.T2))
             vol_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             vol_item.setFont(self._mono_font())
-            vol_item.setToolTip(f"Volume: {vol:,}")
+            vol_item.setToolTip(f"Volume: {vol}")
 
         # ── Chg% with heat-map ──
         chg_text = f"{chg:+.2f}%" if abs(chg) > 0.005 else "0.00%"
@@ -868,9 +868,9 @@ class TradingTable(QTableWidget):
 
     @staticmethod
     def _mono_font(bold: bool = False) -> QFont:
-        f = QFont("Consolas")
+        f = QFont("JetBrains Mono")
         f.setStyleHint(QFont.StyleHint.Monospace)
-        f.setPointSize(9)
+        f.setPointSize(12)
         f.setBold(bold)
         return f
 
