@@ -24,6 +24,7 @@ from kite.widgets.order_dialog import OrderDialog
 from kite.widgets.order_history_dialog import OrderHistoryDialog
 from kite.widgets.pending_orders_dialog import PendingOrdersDialog
 from kite.widgets.performance_dialog import PerformanceDialog
+from kite.widgets.floating_positions_dialog import FloatingPositionsDialog
 from kite.core.alert_management_system import AlertSystemManager
 from kite.core.chart_lines_manager import ChartLinesManager
 from kite.core.data_cache import MarketAwareDataCache
@@ -118,6 +119,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.order_history_dialog = None
         self.pending_orders_dialog = None
         self.performance_dialog = None
+        self.floating_positions_dialog = None
 
         # --- Setup Sequence ---
         self._setup_frameless_window()
@@ -262,6 +264,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         file_menu.addAction("Order History", self._show_order_history_dialog)
         file_menu.addAction("Pending Orders", self._show_pending_orders_dialog)
         file_menu.addAction("Performance", self._show_performance_dialog)
+        file_menu.addAction("Floating Positions", self._show_floating_positions_dialog)
         file_menu.addSeparator()
         file_menu.addAction("Exit", self.close)
 
@@ -744,6 +747,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         # SIMPLIFIED: Position Manager → Positions Table (direct connection)
         self.position_manager.positions_updated.connect(self.positions_table.update_positions)
+        self.position_manager.positions_updated.connect(self._update_floating_positions_dialog)
         if hasattr(self, 'market_data_worker') and self.market_data_worker:
             self.market_data_worker.order_update.connect(self.position_manager.on_ws_order_update)
             self.market_data_worker.connection_established.connect(self.position_manager.on_ws_connected)
@@ -752,6 +756,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         # SIMPLIFIED: Positions Table → Main Window
         self.positions_table.exit_position_requested.connect(self._handle_exit_position_request)
+        self.positions_table.exit_half_position_requested.connect(self._handle_exit_half_position_request)
         self.positions_table.symbol_selected.connect(self.candlestick_chart.on_search)
         self.positions_table.subscribe_to_market_data.connect(self._subscribe_to_tokens)
 
@@ -932,6 +937,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             ltp = tick.get("last_price")
             if token is not None and ltp is not None:
                 self.positions_table.update_market_data(int(token), float(ltp))
+                if self.floating_positions_dialog and self.floating_positions_dialog.isVisible():
+                    self.floating_positions_dialog.update_market_data(int(token), float(ltp))
 
         # 3. Chart — only if token matches current symbol (cheap check)
         chart_token = getattr(self.candlestick_chart, "current_instrument_token", None)
@@ -1277,6 +1284,33 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         dialog.order_placed.connect(self._handle_exit_order_placement)
         dialog.show()
 
+    @Slot(str)
+    def _handle_exit_half_position_request(self, symbol: str):
+        """Handle half position exit request from positions widgets."""
+        position = self.positions_table.get_position_by_symbol(symbol)
+        if not position:
+            show_error(f"Position not found: {symbol}")
+            return
+
+        total_qty = abs(int(position.quantity))
+        half_qty = max(1, total_qty // 2)
+        transaction_type = "SELL" if position.quantity > 0 else "BUY"
+        ltp = self._get_fresh_ltp(symbol)
+
+        exit_order = {
+            "tradingsymbol": symbol,
+            "transaction_type": transaction_type,
+            "quantity": half_qty,
+            "order_type": "MARKET",
+            "product": position.product,
+            "ltp": ltp,
+        }
+
+        instrument = self.instrument_map.get(symbol, {})
+        dialog = OrderDialog(self, symbol, ltp, exit_order, instrument=instrument)
+        dialog.order_placed.connect(self._handle_exit_order_placement)
+        dialog.show()
+
     def _handle_order_placement(self, order_data: Dict[str, Any]):
         """
         Entry order placement handler.
@@ -1456,6 +1490,34 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         except Exception as e:
             logger.error(f"Failed to show performance dashboard: {e}")
             show_error("Failed to open performance dashboard")
+
+    def _show_floating_positions_dialog(self):
+        """Show floating positions dialog."""
+        try:
+            if self.floating_positions_dialog is None:
+                self.floating_positions_dialog = FloatingPositionsDialog(parent=self)
+                self.floating_positions_dialog.symbol_chart_requested.connect(self.candlestick_chart.on_search)
+                self.floating_positions_dialog.exit_position_requested.connect(self._handle_exit_position_request)
+                self.floating_positions_dialog.exit_half_position_requested.connect(self._handle_exit_half_position_request)
+                self.floating_positions_dialog.subscribe_to_market_data.connect(self._subscribe_to_tokens)
+
+            self._update_floating_positions_dialog(getattr(self.positions_table, 'positions_data', {}).values())
+            self.floating_positions_dialog.show()
+            self.floating_positions_dialog.raise_()
+            self.floating_positions_dialog.activateWindow()
+            logger.info("Floating positions dialog opened")
+        except Exception as e:
+            logger.error(f"Failed to show floating positions dialog: {e}")
+            show_error("Failed to open floating positions")
+
+    def _update_floating_positions_dialog(self, positions):
+        """Sync latest positions into floating positions dialog if initialized."""
+        if self.floating_positions_dialog is None:
+            return
+        try:
+            self.floating_positions_dialog.update_positions(list(positions))
+        except Exception as e:
+            logger.error(f"Failed to update floating positions dialog: {e}")
 
     def _refresh_order_history(self):
         """Handle order history refresh request"""
