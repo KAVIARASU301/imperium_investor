@@ -305,6 +305,8 @@ class AlertEngine(QObject):
         super().__init__()
         self._store = store
         self._market_data: Dict[str, Dict] = {}   # symbol → tick dict
+        self._market_data_by_token: Dict[int, Dict] = {}  # token → tick dict
+        self._token_to_symbol: Dict[int, str] = {}  # token → symbol
         self._price_history: Dict[str, List[float]] = {}  # symbol → last N prices
         self._volume_history: Dict[str, List[float]] = {}  # symbol → last N volume prints
         self._day_open: Dict[str, float] = {}
@@ -326,13 +328,28 @@ class AlertEngine(QObject):
             self._timer.stop()
         logger.info("AlertEngine stopped")
 
+    @Slot(list)
     def update_market_data(self, ticks: List[Dict]) -> None:
-        """Called by main window's _on_market_data slot."""
+        """Update internal tick cache using symbol and/or instrument token."""
         with QMutexLocker(self._mutex):
             for tick in ticks:
-                sym = tick.get("tradingsymbol")
+                raw_token = tick.get("instrument_token")
+                token = int(raw_token) if raw_token is not None else 0
+                sym = str(tick.get("tradingsymbol") or "").strip().upper()
+
+                # Resolve symbol from existing token map when tick lacks tradingsymbol.
+                if not sym and token > 0:
+                    sym = self._token_to_symbol.get(token, "")
+
+                # Keep token↔symbol map up to date.
+                if sym and token > 0:
+                    self._token_to_symbol[token] = sym
+
                 if not sym:
                     continue
+
+                if token > 0:
+                    self._market_data_by_token[token] = tick
                 self._market_data[sym] = tick
                 ltp = float(tick.get("last_price", 0))
                 if ltp > 0:
@@ -732,6 +749,7 @@ class AlertSystemManager(QObject):
     alert_sound_requested = Signal()
     engine_status_changed = Signal(str)
     _request_engine_stop  = Signal()
+    _market_data_received = Signal(list)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -744,6 +762,7 @@ class AlertSystemManager(QObject):
         self._engine_thread.setObjectName("AlertEngineThread")
         self.engine.moveToThread(self._engine_thread)
         self._engine_thread.started.connect(self.engine.start_engine)
+        self._market_data_received.connect(self.engine.update_market_data, Qt.QueuedConnection)
         self._engine_thread.start()
 
         self.engine.alert_triggered.connect(self._on_engine_alert_triggered)
@@ -762,7 +781,9 @@ class AlertSystemManager(QObject):
 
     def update_market_data(self, ticks: List[Dict]) -> None:
         """Pass live ticks from main window's _on_market_data slot."""
-        self.engine.update_market_data(ticks)
+        if not ticks:
+            return
+        self._market_data_received.emit(ticks)
 
     # ──────────────────────────────────────────────────────────────
     # ALERT CRUD  (all chart-line side-effects live here)
@@ -1121,6 +1142,9 @@ class AlertSystemManager(QObject):
             worker = getattr(p, 'market_data_worker', None)
             if worker and worker.is_connected():
                 worker.add_instruments([token])
+                # Keep alert token in the subscription universe across watchlist refreshes.
+                if hasattr(p, "_subscribed_tokens") and isinstance(p._subscribed_tokens, set):
+                    p._subscribed_tokens.add(token)
                 logger.info(f"Alert subscription: added token {token} for {symbol}")
         except Exception as e:
             logger.error(f"Failed to subscribe alert symbol {symbol}: {e}")
