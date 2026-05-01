@@ -1,4 +1,4 @@
-# login_setup/enhanced_token_manager.py
+# login_setup/token_manager.py
 """
 Token manager supporting multiple brokers (Kite and IBKR).
 Securely stores and manages credentials, session data, and preferences for both brokers.
@@ -7,7 +7,7 @@ Securely stores and manages credentials, session data, and preferences for both 
 import os
 import json
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, time
 from pathlib import Path
 from cryptography.fernet import Fernet
 from typing import Optional, Dict, Any, List
@@ -22,6 +22,61 @@ class EnhancedTokenManager:
     Enhanced token manager supporting multiple brokers with separate credential storage.
     Maintains backward compatibility with existing Kite-only token manager.
     """
+
+
+    # Kite tokens are known to be invalidated during early-morning broker refresh windows.
+    # Keep these checkpoints configurable in a single place.
+    KITE_REFRESH_CHECKPOINTS = (
+        time(hour=4, minute=30),
+        time(hour=5, minute=30),
+        time(hour=7, minute=30),
+    )
+    KITE_MAX_SESSION_AGE_HOURS = 12
+
+    def _parse_iso_datetime(self, value: Optional[str]) -> Optional[datetime]:
+        """Parse ISO datetime strings safely."""
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(value)
+        except (ValueError, TypeError):
+            return None
+
+    def _is_kite_session_valid(self, session_wrapper: Dict[str, Any]) -> bool:
+        """Validate Kite session age and early-morning refresh cutoffs."""
+        now = datetime.now()
+        session_data = session_wrapper.get('session_data', {})
+
+        token_time = self._parse_iso_datetime(session_data.get('login_time'))
+        if token_time is None:
+            token_time = self._parse_iso_datetime(session_wrapper.get('created_at'))
+
+        # Fallback to legacy date-only check when timestamp metadata is unavailable.
+        if token_time is None:
+            session_date = session_wrapper.get('date')
+            if session_date != date.today().isoformat():
+                logger.debug(f"Kite session expired (date: {session_date})")
+                return False
+            return True
+
+        age_hours = (now - token_time).total_seconds() / 3600
+        if age_hours >= self.KITE_MAX_SESSION_AGE_HOURS:
+            logger.debug(
+                f"Kite session expired (age: {age_hours:.1f}h, limit: {self.KITE_MAX_SESSION_AGE_HOURS}h)"
+            )
+            return False
+
+        # If token was created before today's completed refresh checkpoint, force relogin.
+        for checkpoint in self.KITE_REFRESH_CHECKPOINTS:
+            cutoff = datetime.combine(now.date(), checkpoint)
+            if now >= cutoff and token_time < cutoff:
+                logger.debug(
+                    f"Kite session expired at refresh checkpoint {checkpoint.strftime('%H:%M')} "
+                    f"(token created: {token_time.isoformat()})"
+                )
+                return False
+
+        return True
 
     def __init__(self):
         # Application data directory
@@ -203,15 +258,16 @@ class EnhancedTokenManager:
             if not data:
                 return None
 
-            # Check if session is for today (important for Kite daily tokens)
-            session_date = data.get('date')
-            if broker_mode == BrokerMode.INDIA and session_date != date.today().isoformat():
-                logger.debug(f"Kite session expired (date: {session_date})")
+            if broker_mode == BrokerMode.INDIA and not self._is_kite_session_valid(data):
                 return None
 
             # IBKR sessions don't expire daily, but check reasonable time limit
             if broker_mode == BrokerMode.AMERICA:
-                created_at = datetime.fromisoformat(data.get('created_at', ''))
+                created_at = self._parse_iso_datetime(data.get('created_at'))
+                if not created_at:
+                    logger.debug("IBKR session missing created_at metadata; requiring relogin")
+                    return None
+
                 age_hours = (datetime.now() - created_at).total_seconds() / 3600
                 if age_hours > 24:  # 24 hour session limit
                     logger.debug(f"IBKR session expired (age: {age_hours:.1f} hours)")

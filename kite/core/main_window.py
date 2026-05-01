@@ -591,7 +591,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         """Open relay settings and hot-reload an active RelayOrderRouter."""
         from kite.core.relay_order_router import _HMACSigner
         from kite.widgets.relay_settings_widget import RelaySettingsDialog
-        from login_setup.enhanced_token_manager import EnhancedTokenManager
+        from login_setup.token_manager import EnhancedTokenManager
 
         dialog = RelaySettingsDialog(token_manager=EnhancedTokenManager(), parent=self)
 

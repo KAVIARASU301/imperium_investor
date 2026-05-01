@@ -10,7 +10,7 @@ from typing import Union, Dict, Any, Optional, Type, List
 from abc import ABC, abstractmethod
 
 from login_setup.broker_modes import BrokerMode, TradingMode, get_broker_config, get_module_path
-from login_setup.enhanced_token_manager import EnhancedTokenManager
+from login_setup.token_manager import EnhancedTokenManager
 from kite.core.relay_integration import build_relay_client
 
 logger = logging.getLogger(__name__)

@@ -39,7 +39,7 @@ except ImportError:
     KITE_AVAILABLE = False
 
 from login_setup.broker_modes import BrokerMode, TradingMode, get_broker_config, get_display_config
-from login_setup.enhanced_token_manager import EnhancedTokenManager
+from login_setup.token_manager import EnhancedTokenManager
 from login_setup.ibkr_auth import IBKRAuth, is_ibkr_available
 from kite.widgets.relay_settings_widget import RelaySettingsDialog
 
