@@ -443,8 +443,8 @@ class HeaderToolbar(QToolBar):
         """Apply styles with status bar integration."""
         self.setStyleSheet("""
             QToolBar#enhancedHeaderToolbar {
-                background-color: #1a1a1a;
-                border-bottom: 2px solid #404040;
+                background-color: #0a0d12;
+                border-bottom: 1px solid #1a2030;
                 padding: 1px 6px;
                 spacing: 6px;
                 min-height: 28px;
@@ -463,7 +463,7 @@ class HeaderToolbar(QToolBar):
                 padding-right: 6px;
             }
             #enhancedSymbolSearch {
-                background-color: #111111;
+                background-color: #0f1318;
                 border: 1px solid transparent; 
                 color: #ffffff; 
                 padding: 3px 8px; 

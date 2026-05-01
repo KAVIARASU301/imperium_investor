@@ -400,8 +400,8 @@ class HeaderToolbar(QToolBar):
     def _apply_styles(self):
         self.setStyleSheet("""
             QToolBar#enhancedHeaderToolbar {
-                background-color: #1a1a1a;
-                border-bottom: 2px solid #404040;
+                background-color: #0a0d12;
+                border-bottom: 1px solid #1a2030;
                 padding: 1px 6px;
                 spacing: 6px;
                 min-height: 28px;
@@ -409,21 +409,21 @@ class HeaderToolbar(QToolBar):
             }
             #centerSpacer { background-color: transparent; }
             #symbolLabel {
-                background-color: #1a1a1a; color: #ffffff;
+                background-color: #0a0d12; color: #e8f0ff;
                 font-size: 11px; font-weight: 900;
                 text-transform: uppercase; letter-spacing: 1px;
                 padding-right: 6px;
             }
             #enhancedSymbolSearch {
-                background-color: #111111;
-                border: 1px solid transparent; color: #ffffff;
+                background-color: #0f1318;
+                border: 1px solid #1a2030; color: #e8f0ff;
                 padding: 3px 8px; border-radius: 0px;
                 font-size: 11px; font-weight: 500;
                 min-width: 84px; max-width: 100px; max-height: 20px;
             }
             #enhancedSymbolSearch:focus {
-                border: 1px solid #2f2f2f;
-                color: #ffffff;
+                border: 1px solid #1a2030;
+                color: #e8f0ff;
             }
             #buyButton {
                 background-color: #0f1318;
