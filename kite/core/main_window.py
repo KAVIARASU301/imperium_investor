@@ -1797,33 +1797,37 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         return False
 
     def _navigate_watchlist_symbols(self, table, direction='next'):
-        """Navigate symbols in watchlist table"""
-        if not table or not hasattr(table, '_watchlist_symbols'):
+        """Navigate symbols in watchlist table."""
+        if not table:
             return
 
-        symbols = list(table._watchlist_symbols)
-        if not symbols:
+        row_count = table.rowCount()
+        if row_count == 0:
             return
 
         current_row = table.currentRow()
-        if current_row == -1:
-            current_row = 0
-
-        if direction == 'next':
-            next_row = (current_row + 1) % len(symbols)
+        if current_row < 0:
+            next_row = 0
+        elif direction == 'previous':
+            next_row = (current_row - 1) % row_count
         else:
-            next_row = (current_row - 1) % len(symbols)
+            next_row = (current_row + 1) % row_count
 
+        symbol_col = 1
         table.selectRow(next_row)
-        table.setCurrentCell(next_row, 0)
+        table.setCurrentCell(next_row, symbol_col)
 
         try:
-            symbol_item = table.item(next_row, 0)
-            if symbol_item:
-                symbol = symbol_item.text()
-                if symbol and symbol != 'N/A':
-                    table.symbol_selected.emit(symbol)
-                    logger.debug(f"Watchlist navigation: Selected {symbol}")
+            symbol = None
+            if hasattr(table, '_symbol_at_row'):
+                symbol = table._symbol_at_row(next_row)
+            if not symbol:
+                item = table.item(next_row, symbol_col)
+                symbol = item.text().strip() if item else None
+
+            if symbol and symbol != 'N/A' and not symbol.startswith('─'):
+                table.symbol_selected.emit(symbol)
+                logger.debug(f"Watchlist navigation: Selected {symbol}")
         except Exception as e:
             logger.warning(f"Error navigating watchlist symbols: {e}")
 
