@@ -686,10 +686,6 @@ class TradingTable(QTableWidget):
             sym_item.setText(sym)
             sym_item.setForeground(QColor(_C.T0))
             sym_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            f = QFont(_SANS.split(",")[0].strip("'"))
-            f.setPointSize(9)
-            f.setBold(True)
-            sym_item.setFont(f)
 
         # ── LTP ──
         ltp_text = f"{ltp:.2f}" if ltp > 0 else "—"
@@ -698,7 +694,6 @@ class TradingTable(QTableWidget):
             ltp_item.setText(ltp_text)
             ltp_item.setForeground(QColor(_C.T0))
             ltp_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            ltp_item.setFont(self._mono_font())
 
         # ── Volume ──
         vol_text = self._fmt_volume(vol)
@@ -707,7 +702,6 @@ class TradingTable(QTableWidget):
             vol_item.setText(vol_text)
             vol_item.setForeground(QColor(_C.T2))
             vol_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            vol_item.setFont(self._mono_font())
             vol_item.setToolTip(f"Volume: {vol}")
 
         # ── Chg% with heat-map ──
@@ -718,7 +712,6 @@ class TradingTable(QTableWidget):
             chg_item.setText(chg_text)
             chg_item.setForeground(QColor(fg))
             chg_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            chg_item.setFont(self._mono_font(bold=True))
             if bg_rgba:
                 r, g, b, a = self._parse_rgba(bg_rgba)
                 chg_item.setBackground(QBrush(QColor(r, g, b, a)))
@@ -868,9 +861,9 @@ class TradingTable(QTableWidget):
 
     @staticmethod
     def _mono_font(bold: bool = False) -> QFont:
-        f = QFont("JetBrains Mono")
+        f = QFont("Consolas")
         f.setStyleHint(QFont.StyleHint.Monospace)
-        f.setPointSize(9)
+        f.setPointSize(10)
         f.setBold(bold)
         return f
 
@@ -1187,217 +1180,264 @@ class TabbedWatchlistWidget(QWidget):
     # ── Styles ─────────────────────────────────────────────────────────────
 
     def _apply_styles(self):
-        self.setStyleSheet(f"""
+        # NOTE: Removed the 'f' prefix from the string to use standard CSS braces 
+        # and directly injected the scanner_table hex colors.
+        self.setStyleSheet("""
             /* ── Widget shell ─────────────────────────────────────── */
-            TabbedWatchlistWidget {{
-                background:{_C.BG0};
-                font-family:{_SANS};
-            }}
+            TabbedWatchlistWidget {
+                background-color: #05070b;
+                color: #e0e0e0;
+                font-family: "Segoe UI", Arial, sans-serif;
+                font-size: 13px;
+            }
 
             /* ── Header bar ───────────────────────────────────────── */
-            QFrame#wlHeader {{
-                background:{_C.BG1};
-                border-bottom:1px solid {_C.BG4};
-            }}
-            QLabel#wlLabel {{
-                color:{_C.CYAN};
-                font-family:{_SANS};
-                font-size:10px;
-                font-weight:800;
-                letter-spacing:1.5px;
-                background:transparent;
-            }}
+            QFrame#wlHeader {
+                background-color: #0b1019;
+                border-bottom: 1px solid #1f2c3f;
+                padding: 5px;
+            }
+            
+            QLabel#wlLabel {
+                color: #6ec8ff;
+                font-weight: 600;
+                font-size: 11px;
+                background-color: transparent;
+            }
 
             /* ── Dropdown ─────────────────────────────────────────── */
-            QComboBox#wlDropdown {{
-                background:{_C.BG2};
-                color:{_C.T0};
-                border:1px solid {_C.BG4};
-                border-radius:0px;
-                font-family:{_SANS};
-                font-size:11px;
-                font-weight:600;
-                padding:2px 6px;
-                selection-background-color:{_C.SEL};
-            }}
-            QComboBox#wlDropdown:hover {{
-                border-color:{_C.NEU_DIM};
-            }}
-            QComboBox#wlDropdown:focus {{
-                border-color:{_C.CYAN};
-            }}
-            QComboBox#wlDropdown::drop-down {{
-                border:none; width:16px;
-            }}
-            QComboBox#wlDropdown::down-arrow {{
-                image:none;
-                border-left:4px solid transparent;
-                border-right:4px solid transparent;
-                border-top:4px solid {_C.T2};
-                margin-right:4px;
-            }}
-            QComboBox#wlDropdown QAbstractItemView {{
-                background:{_C.BG2};
-                border:1px solid {_C.CYAN};
-                color:{_C.T0};
-                selection-background-color:{_C.SEL};
-                selection-color:{_C.T0};
-                outline:none;
-                font-family:{_SANS};
-                font-size:11px;
-            }}
-            QComboBox#wlDropdown QAbstractItemView::item {{
-                padding:5px 10px;
-                border:none;
-            }}
-            QComboBox#wlDropdown QAbstractItemView::item:hover {{
-                background:{_C.BG3};
-            }}
+            QComboBox#wlDropdown {
+                background-color: #0a111b;
+                border: 1px solid #24354d;
+                color: #ffffff;
+                padding: 3px 6px;
+                border-radius: 2px;
+                font-size: 12px;
+            }
+            QComboBox#wlDropdown:hover {
+                border-color: #505050;
+            }
+            QComboBox#wlDropdown:focus {
+                border-color: #6a9cff;
+                outline: none;
+            }
+            QComboBox#wlDropdown::drop-down {
+                border: none;
+                width: 18px;
+            }
+            QComboBox#wlDropdown::down-arrow {
+                image: none;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 4px solid #808080;
+            }
+            QComboBox#wlDropdown::down-arrow:hover {
+                border-top-color: #ffffff;
+            }
+
+            QComboBox#wlDropdown QAbstractItemView {
+                background-color: #1a1a1a;
+                border: 1px solid #6a9cff;
+                border-radius: 2px;
+                color: #ffffff;
+                selection-background-color: rgba(74, 122, 191, 0.2);
+                selection-color: #ffffff;
+                padding: 1px;
+                outline: none;
+            }
+            QComboBox#wlDropdown QAbstractItemView::item {
+                padding: 5px 8px;
+                border: none;
+                border-radius: 1px;
+                margin: 0px 1px;
+                font-size: 12px;
+            }
+            QComboBox#wlDropdown QAbstractItemView::item:hover {
+                background-color: #2a2a2a;
+            }
+            QComboBox#wlDropdown QAbstractItemView::item:selected {
+                background-color: rgba(74, 122, 191, 0.2);
+                color: #ffffff;
+            }
 
             /* ── Add / Menu buttons ───────────────────────────────── */
-            QToolButton#wlAddBtn {{
-                background:{_C.BG2};
-                color:{_C.BULL};
-                border:1px solid {_C.BULL_DIM};
-                border-radius:0px;
-                font-size:16px;
-                font-weight:400;
-            }}
-            QToolButton#wlAddBtn:hover {{
-                background:{_C.BG3};
-                color:{_C.T0};
-            }}
-            QToolButton#wlMenuBtn {{
-                background:{_C.BG2};
-                color:{_C.T2};
-                border:1px solid {_C.BG4};
-                border-radius:0px;
-                font-size:14px;
-                font-weight:700;
-                letter-spacing:1px;
-            }}
-            QToolButton#wlMenuBtn:hover {{
-                background:{_C.BG3};
-                color:{_C.T1};
-            }}
+            QToolButton#wlAddBtn, QToolButton#wlMenuBtn {
+                background-color: #111b2a;
+                color: #6ec8ff;
+                font-size: 14px;
+                font-weight: 500;
+                border-radius: 3px;
+                border: 1px solid #223651;
+                padding: 3px 7px;
+            }
+            QToolButton#wlAddBtn:hover, QToolButton#wlMenuBtn:hover {
+                background-color: #16253a;
+                border-color: #365783;
+            }
+            QToolButton#wlAddBtn:pressed, QToolButton#wlMenuBtn:pressed {
+                background-color: #1a1a1a;
+                border-color: #404040;
+            }
 
             /* ── Table ────────────────────────────────────────────── */
-            TradingTable {{
-                background:{_C.BG2};
-                alternate-background-color:{_C.BG2};
-                gridline-color:{_C.BG4};
-                border:1px solid {_C.BG4};
-                border-radius:0px;
-                outline:none;
-                selection-background-color:{_C.SEL};
-                font-size:12px;
-                show-decoration-selected:0;
-            }}
-            TradingTable::item {{
-                padding:1px 5px;
-                border-bottom:1px solid {_C.BG4};
-                background:transparent;
-                font-size:12px;
-                font-family:"JetBrains Mono", "Consolas", monospace;
-            }}
-            TradingTable::item:selected {{
-                background:{_C.SEL} !important;
-                color:{_C.T0};
-            }}
-            TradingTable::item:hover {{
-                background:{_C.BG3};
-            }}
-            TradingTable::item:alternate {{
-                background:{_C.BG1};
-            }}
-            TradingTable::item:alternate:selected {{
-                background:{_C.SEL} !important;
-                color:{_C.T0};
-            }}
+            TradingTable {
+                background-color: #0f1318;
+                border: 1px solid #1a2030;
+                gridline-color: #1a2030;
+                selection-background-color: #1a2840;
+                alternate-background-color: #0f1318;
+                outline: none;
+                show-decoration-selected: 0;
+                font-size: 12px;
+                border-radius: 0px;
+            }
+
+            TradingTable::item {
+                padding: 1px 5px;
+                border-bottom: 1px solid #1a2030;
+                background-color: transparent;
+                font-size: 12px;
+                font-family: "JetBrains Mono", "Consolas", monospace;
+            }
+
+            TradingTable::item:selected {
+                background-color: #1a2840 !important;
+                outline: none;
+                border: none;
+                color: #ffffff;
+                font-weight: 600;
+            }
+
+            TradingTable::item:focus {
+                background-color: #1a2840 !important;
+                outline: none;
+                border: none;
+            }
+
+            TradingTable::item:hover {
+                background-color: #141920;
+            }
+
+            TradingTable::item:alternate {
+                background-color: #0f1318;
+            }
+
+            TradingTable::item:alternate:selected {
+                background-color: #1a2840 !important;
+                color: #ffffff;
+                font-weight: 600;
+            }
 
             /* ── Table header ─────────────────────────────────────── */
-            QHeaderView::section {{
-                background:{_C.BG1};
-                color:{_C.T2};
-                padding:2px 4px;
-                border:none;
-                border-bottom:1px solid {_C.BG4};
-                border-right:1px solid {_C.BG4};
-                font-family:{_SANS};
-                font-size:9px;
-                font-weight:800;
-                letter-spacing:0.8px;
-                text-transform:uppercase;
-            }}
-            QHeaderView::section:last {{ border-right:none; }}
-            QHeaderView::section:hover {{
-                background:{_C.BG3};
-                color:{_C.T1};
-            }}
-            QHeaderView {{
-                background:{_C.BG1};
-                border:none;
-            }}
+            QHeaderView::section {
+                background-color: #0b1019;
+                color: #7fd4ff;
+                padding: 2px 5px;
+                border: none;
+                border-bottom: 1px solid #24344c;
+                border-right: 1px solid #121c2b;
+                font-weight: 600;
+                font-size: 11px;
+                text-transform: uppercase;
+            }
+            QHeaderView::section:last {
+                border-right: none;
+            }
+            QHeaderView::section:hover {
+                background-color: #2a2a2a;
+            }
+            QHeaderView {
+                background-color: #0b1019;
+                border: none;
+            }
 
             /* ── Remove button ────────────────────────────────────── */
-            QPushButton#removeButton {{
-                background:transparent;
-                color:{_C.BEAR_DIM};
-                border:none;
-                font-size:14px;
-                font-weight:bold;
-                padding:0px;
-            }}
-            QPushButton#removeButton:hover {{
-                color:{_C.BEAR};
-                background:{_C.BEAR_BG};
-            }}
+            QPushButton#removeButton {
+                background-color: transparent;
+                color: #cc4444;
+                border: none;
+                border-radius: 4px;
+                font-size: 14px;
+                font-weight: normal;
+                padding: 0px;
+                margin: 0px;
+            }
+            QPushButton#removeButton:hover {
+                background-color: #ff6666;
+                color: #ffffff;
+            }
+            QPushButton#removeButton:pressed {
+                background-color: #aa3333;
+            }
 
             /* ── Context menu ─────────────────────────────────────── */
-            QMenu#wlCtxMenu, QMenu#wlOptionsMenu {{
-                background:{_C.BG1};
-                border:1px solid {_C.BG4};
-                border-radius:0px;
-                color:{_C.T0};
-                font-family:{_SANS};
-                font-size:12px;
-                padding:4px 0;
-            }}
-            QMenu#wlCtxMenu::item, QMenu#wlOptionsMenu::item {{
-                padding:6px 16px;
-            }}
+            QMenu#wlCtxMenu, QMenu#wlOptionsMenu {
+                background-color: #1a1a1a;
+                border: 1px solid #303030;
+                border-radius: 3px;
+                color: #ffffff;
+                font-family: "Segoe UI", Arial, sans-serif;
+                font-size: 12px;
+                padding: 4px 0;
+            }
+            QMenu#wlCtxMenu::item, QMenu#wlOptionsMenu::item {
+                padding: 6px 16px;
+            }
             QMenu#wlCtxMenu::item:selected,
-            QMenu#wlOptionsMenu::item:selected {{
-                background:{_C.SEL};
-                color:{_C.T0};
-            }}
-            QMenu#wlCtxMenu::separator, QMenu#wlOptionsMenu::separator {{
-                height:1px;
-                background:{_C.BG4};
-                margin:3px 8px;
-            }}
+            QMenu#wlOptionsMenu::item:selected {
+                background-color: rgba(74, 122, 191, 0.2);
+                color: #ffffff;
+            }
+            QMenu#wlCtxMenu::separator, QMenu#wlOptionsMenu::separator {
+                height: 1px;
+                background-color: #303030;
+                margin: 3px 8px;
+            }
 
             /* ── Stack ────────────────────────────────────────────── */
-            QStackedWidget#wlStack {{
-                background:{_C.BG2};
-                border:none;
-            }}
+            QStackedWidget#wlStack {
+                background-color: #0f1318;
+                border: none;
+            }
 
             /* ── Scrollbars ───────────────────────────────────────── */
-            QScrollBar:vertical {{
-                background:transparent; width:4px; border:none; margin:0;
-            }}
-            QScrollBar::handle:vertical {{
-                background:{_C.BG4}; border-radius:2px; min-height:20px;
-            }}
-            QScrollBar::handle:vertical:hover {{ background:{_C.NEU_DIM}; }}
-            QScrollBar:horizontal {{
-                background:transparent; height:4px; border:none; margin:0;
-            }}
-            QScrollBar::handle:horizontal {{
-                background:{_C.BG4}; border-radius:2px; min-width:20px;
-            }}
-            QScrollBar::add-line, QScrollBar::sub-line {{
-                border:none; background:none; width:0; height:0;
-            }}
+            QScrollBar:vertical {
+                background-color: #05070b;
+                width: 8px;
+                border: none;
+                margin: 0px;
+            }
+            QScrollBar::handle:vertical {
+                background-color: #424242;
+                border-radius: 4px;
+                min-height: 20px;
+                margin: 2px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background-color: #616161;
+            }
+
+            QScrollBar:horizontal {
+                background-color: #0a0a0a;
+                height: 8px;
+                border: none;
+                margin: 0px;
+            }
+            QScrollBar::handle:horizontal {
+                background-color: #424242;
+                border-radius: 4px;
+                min-width: 20px;
+                margin: 2px;
+            }
+            QScrollBar::handle:horizontal:hover {
+                background-color: #616161;
+            }
+
+            QScrollBar::add-line, QScrollBar::sub-line {
+                border: none;
+                background: none;
+                width: 0px;
+                height: 0px;
+                margin: 0px;
+            }
         """)
