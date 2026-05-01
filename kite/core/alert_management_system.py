@@ -182,11 +182,16 @@ class AlertStore:
             for d in data:
                 try:
                     a = Alert.from_dict(d)
-                    # Don't load expired/triggered unless repeating
-                    if a.status in (AlertStatus.ACTIVE.value, AlertStatus.DISABLED.value):
-                        self._alerts[a.id] = a
-                    elif a.repeat and a.status == AlertStatus.TRIGGERED.value:
+                    if a.repeat and a.status == AlertStatus.TRIGGERED.value:
                         a.status = AlertStatus.ACTIVE.value  # re-arm
+                        self._alerts[a.id] = a
+                    # Load all user-visible states so Triggered/History survive app restarts.
+                    elif a.status in (
+                        AlertStatus.ACTIVE.value,
+                        AlertStatus.DISABLED.value,
+                        AlertStatus.TRIGGERED.value,
+                        AlertStatus.EXPIRED.value,
+                    ):
                         self._alerts[a.id] = a
                 except Exception as e:
                     logger.warning(f"Skipping corrupt alert: {e}")
