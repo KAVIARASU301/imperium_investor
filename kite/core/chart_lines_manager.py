@@ -374,7 +374,7 @@ class ChartLinesManager(QObject):
                 self._remove_existing_position_lines(d)
                 d["horizontal_rays"].append(new_line)
 
-            success = self._save_symbol_drawings(symbol, current_state, interval)
+            success = self._save_to_all_intervals(symbol, _apply, current_state=current_state)
             if success:
                 self._refresh_chart()
                 logger.info(
@@ -401,6 +401,48 @@ class ChartLinesManager(QObject):
         except Exception as e:
             logger.error(f"Error removing position line: {e}")
             return False
+
+    def sync_position_lines(self, positions: List[Any]) -> None:
+        """
+        Ensure chart position lines exactly match the latest positions table.
+        Adds/updates lines for active positions and removes stale lines for symbols
+        no longer present.
+        """
+        try:
+            active_symbols = set()
+
+            for pos in positions or []:
+                symbol = getattr(pos, "symbol", "")
+                quantity = int(getattr(pos, "quantity", 0) or 0)
+                avg_price = float(getattr(pos, "avg_price", 0) or 0)
+                if not symbol or quantity == 0 or avg_price <= 0:
+                    continue
+
+                active_symbols.add(symbol)
+                order_type = "BUY" if quantity > 0 else "SELL"
+                self.add_position_line(
+                    symbol=symbol,
+                    order_type=order_type,
+                    quantity=abs(quantity),
+                    avg_price=avg_price,
+                )
+
+            for fname in os.listdir(self.drawings_dir):
+                if not fname.endswith("_state.json"):
+                    continue
+                if "_day_state.json" not in fname:
+                    continue
+
+                symbol = fname.replace("_day_state.json", "").replace("_", "/")
+                if symbol in active_symbols:
+                    continue
+
+                state = self._load_symbol_drawings(symbol, "day")
+                if self._has_existing_position_drawings(state.get("drawings", {})):
+                    self.remove_position_line(symbol)
+
+        except Exception as e:
+            logger.error(f"Error syncing position lines with positions table: {e}")
 
     def _get_existing_position_info(self, drawings: Dict) -> Optional[Dict]:
         try:

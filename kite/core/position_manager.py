@@ -387,6 +387,9 @@ class PositionManager(QObject):
         self.positions_updated.emit(positions)
         logger.debug(f"Emitted {len(positions)} positions")
 
+        if self.main_window and hasattr(self.main_window, "chart_lines_manager"):
+            self.main_window.chart_lines_manager.sync_position_lines(positions)
+
     def _handle_positions_error(self, error):
         logger.error(f"Failed to fetch positions: {error}")
         self.show_notification.emit(f"Position fetch failed: {error}", "error")
