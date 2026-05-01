@@ -1335,7 +1335,7 @@ class AlertManagementDialog(QDialog):
         if "Action" in headers:
             action_col = headers.index("Action")
             header.setSectionResizeMode(action_col, QHeaderView.ResizeMode.Fixed)
-            t.setColumnWidth(action_col, 110)
+            t.setColumnWidth(action_col, 124)
         return t
 
     @staticmethod
@@ -1404,6 +1404,7 @@ class AlertManagementDialog(QDialog):
 
             ack_btn = QPushButton("Ack")
             ack_btn.setObjectName("ackButton")
+            ack_btn.setMinimumWidth(74)
             ack_btn.clicked.connect(lambda _, aid=a.id: self._ack_alert(aid))
             t.setCellWidget(row, 4, ack_btn)
             self._set_row_alignment(t, row)
