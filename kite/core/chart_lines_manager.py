@@ -479,6 +479,20 @@ class ChartLinesManager(QObject):
             logger.error(f"Error getting existing position info: {e}")
             return None
 
+    def _has_existing_position_drawings(self, drawings: Dict) -> bool:
+        """Return True when the current trading mode has any position drawings."""
+        mode = self._get_trading_mode()
+        for ray in drawings.get("horizontal_rays", []):
+            if ray.get("type") != "horizontal_ray":
+                continue
+            is_position = (
+                ray.get("lineCategory") == "position"
+                or ray.get("color") in ["#00FF00", "#FF0000"]
+            )
+            if is_position and str(ray.get("tradingMode", "live")).lower() == mode:
+                return True
+        return False
+
     def _remove_existing_position_lines(self, drawings: Dict) -> None:
         mode = self._get_trading_mode()
         drawings["horizontal_rays"] = [
