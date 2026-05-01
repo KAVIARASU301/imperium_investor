@@ -756,6 +756,7 @@ class AlertSystemManager(QObject):
         self.store  = AlertStore()
         self.engine = AlertEngine(self.store)
         self._dialog = None
+        self._token_to_symbol: Dict[int, str] = {}
 
         # Engine runs in its own thread
         self._engine_thread = QThread(self)
@@ -783,6 +784,37 @@ class AlertSystemManager(QObject):
         """Pass live ticks from main window's _on_market_data slot."""
         if not ticks:
             return
+
+        # Normalize Kite ticks so AlertEngine can always resolve symbols.
+        # KiteTicker ticks are token-keyed and usually omit tradingsymbol.
+        parent = self.parent()
+        if parent:
+            imap = getattr(parent, "instrument_map", {}) or {}
+            if imap:
+                # Lazy/refresh cache from symbol->instrument map.
+                if not self._token_to_symbol:
+                    for sym, meta in imap.items():
+                        token = int(meta.get("instrument_token", 0) or 0)
+                        if token > 0:
+                            self._token_to_symbol[token] = str(sym).upper()
+
+                enriched_ticks: List[Dict] = []
+                for tick in ticks:
+                    token = int(tick.get("instrument_token", 0) or 0)
+                    sym = str(tick.get("tradingsymbol") or "").strip().upper()
+                    if token > 0 and sym:
+                        self._token_to_symbol[token] = sym
+                    if not sym and token > 0:
+                        sym = self._token_to_symbol.get(token, "")
+                    if sym:
+                        enriched = dict(tick)
+                        enriched["tradingsymbol"] = sym
+                        enriched_ticks.append(enriched)
+                    else:
+                        enriched_ticks.append(tick)
+                self._market_data_received.emit(enriched_ticks)
+                return
+
         self._market_data_received.emit(ticks)
 
     # ──────────────────────────────────────────────────────────────
