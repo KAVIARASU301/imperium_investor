@@ -1280,6 +1280,7 @@ class AlertManagementDialog(QDialog):
         self._refresh_timer.timeout.connect(self.refresh_tables)
         self._refresh_timer.start(3_000)
         self.refresh_tables()
+        self._wire_symbol_navigation()
 
     def _build_ui(self):
         outer = QVBoxLayout(self)
@@ -1355,6 +1356,31 @@ class AlertManagementDialog(QDialog):
             header.setSectionResizeMode(action_col, QHeaderView.ResizeMode.Fixed)
             t.setColumnWidth(action_col, 124)
         return t
+
+    def _wire_symbol_navigation(self) -> None:
+        """Open selected alert symbol in chart for faster alert triage."""
+        for table in (self.active_table, self.triggered_table, self.history_table):
+            table.itemSelectionChanged.connect(
+                lambda t=table: self._open_selected_symbol_in_chart(t)
+            )
+
+    def _open_selected_symbol_in_chart(self, table: QTableWidget) -> None:
+        selected_items = table.selectedItems()
+        if not selected_items:
+            return
+
+        row = selected_items[0].row()
+        symbol_item = table.item(row, 0)
+        if not symbol_item:
+            return
+
+        symbol = (symbol_item.text() or "").strip().upper()
+        if not symbol:
+            return
+
+        chart = getattr(self.parent(), "candlestick_chart", None)
+        if chart and hasattr(chart, "on_search"):
+            chart.on_search(symbol)
 
     @staticmethod
     def _fmt_indian_datetime(dt_text: Optional[str]) -> str:
