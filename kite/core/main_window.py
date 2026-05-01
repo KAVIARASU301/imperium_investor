@@ -1748,17 +1748,28 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         return False
 
     def _get_focused_watchlist_table(self, widget):
-        """Get focused watchlist table"""
-        if not widget:
-            return None
-        current = widget
-        while current:
-            if current == self.watchlist:
-                for category, table in self.watchlist._tables.items():
-                    if table == widget or self._is_child_of_widget(widget, table):
-                        return table
-                return None
-            current = current.parent()
+        """Get focused watchlist table.
+
+        If focus moved away from the watchlist (e.g., chart steals focus after
+        symbol load), continue using the active watchlist tab as long as it has
+        an existing row selection so spacebar navigation remains sequential.
+        """
+        if widget:
+            current = widget
+            while current:
+                if current == self.watchlist:
+                    for table in self.watchlist._tables.values():
+                        if table == widget or self._is_child_of_widget(widget, table):
+                            return table
+                    break
+                current = current.parent()
+
+        active_table = getattr(self.watchlist, '_current_table', None)
+        if callable(active_table):
+            table = active_table()
+            if table and table.currentRow() != -1:
+                return table
+
         return None
 
     def _is_positions_focused(self, widget) -> bool:
