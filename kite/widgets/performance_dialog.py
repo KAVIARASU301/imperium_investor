@@ -386,7 +386,12 @@ class PerformanceDialog(QDialog):
 
     def _update_pnl_chart(self, daily_data: List[Dict]):
         if not daily_data:
-            self._set_loading_html()
+            self.chart_view.setHtml("""
+                <html style=\"background-color: transparent; color: #67758d; font-family: Inter, 'Segoe UI', Arial, sans-serif;
+                     display: flex; align-items: center; justify-content: center; height: 100%; font-size: 11px; font-weight: bold; letter-spacing: 1px;\">
+                    <body>NO PERFORMANCE DATA AVAILABLE</body>
+                </html>
+            """)
             return
 
         dates = [item['date'] for item in daily_data]
@@ -462,7 +467,7 @@ class PerformanceDialog(QDialog):
             tickprefix=" "
         )
 
-        html = fig.to_html(include_plotlyjs='cdn', config={
+        html = fig.to_html(include_plotlyjs=True, config={
             'displayModeBar': False,
             'scrollZoom': False,
             'doubleClick': False,
