@@ -359,7 +359,7 @@ class PositionManager(QObject):
 
         logger.debug(f"Queueing background position fetch — reason: {reason}")
         self._positions_fetch_inflight = True
-        worker = Worker(self.trader.positions)
+        worker = Worker(self.trader.positions, log_exceptions=False)
         worker.signals.result.connect(self._handle_positions_result)
         worker.signals.error.connect(
             lambda err: self._handle_positions_error(err[1])

@@ -15,11 +15,12 @@ class WorkerSignals(QObject):
 class Worker(QRunnable):
     """Generic QRunnable wrapper for background function execution."""
 
-    def __init__(self, fn, *args, **kwargs):
+    def __init__(self, fn, *args, log_exceptions: bool = True, **kwargs):
         super().__init__()
         self.fn = fn
         self.args = args
         self.kwargs = kwargs
+        self.log_exceptions = log_exceptions
         self.signals = WorkerSignals()
 
     @Slot()
@@ -27,7 +28,8 @@ class Worker(QRunnable):
         try:
             result = self.fn(*self.args, **self.kwargs)
         except Exception:
-            traceback.print_exc()
+            if self.log_exceptions:
+                traceback.print_exc()
             exctype, value = sys.exc_info()[:2]
             self.signals.error.emit((exctype, value, traceback.format_exc()))
         else:
