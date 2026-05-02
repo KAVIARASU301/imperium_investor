@@ -24,6 +24,7 @@ from kite.widgets.order_dialog import OrderDialog
 from kite.widgets.order_history_dialog import OrderHistoryDialog
 from kite.widgets.pending_orders_dialog import PendingOrdersDialog
 from kite.widgets.performance_dialog import PerformanceDialog
+from kite.widgets.pnl_history_dialog import PnlHistoryDialog
 from kite.widgets.floating_positions_dialog import FloatingPositionsDialog
 from kite.core.alert_management_system import AlertSystemManager
 from kite.core.chart_lines_manager import ChartLinesManager
@@ -119,6 +120,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.order_history_dialog = None
         self.pending_orders_dialog = None
         self.performance_dialog = None
+        self.pnl_history_dialog = None
         self.floating_positions_dialog = None
 
         # --- Setup Sequence ---
@@ -262,6 +264,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         file_menu = menu_bar.addMenu("File")
         file_menu.addAction("Order History", self._show_order_history_dialog)
+        file_menu.addAction("P&L History", self._show_pnl_history_dialog)
         file_menu.addAction("Pending Orders", self._show_pending_orders_dialog)
         file_menu.addAction("Performance", self._show_performance_dialog)
         file_menu.addAction("Floating Positions", self._show_floating_positions_dialog)
@@ -1492,6 +1495,25 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         except Exception as e:
             logger.error(f"Failed to show performance dashboard: {e}")
             show_error("Failed to open performance dashboard")
+
+    def _show_pnl_history_dialog(self):
+        """Show P&L history dialog."""
+        try:
+            if self.pnl_history_dialog is None or not self.pnl_history_dialog.isVisible():
+                self.pnl_history_dialog = PnlHistoryDialog(
+                    trade_logger=self.trade_logger,
+                    parent=self,
+                )
+            else:
+                self.pnl_history_dialog._populate_calendar()
+
+            self.pnl_history_dialog.show()
+            self.pnl_history_dialog.raise_()
+            self.pnl_history_dialog.activateWindow()
+            logger.info("P&L history dialog opened")
+        except Exception as e:
+            logger.error(f"Failed to show P&L history dialog: {e}")
+            show_error("Failed to open P&L history")
 
     def _show_floating_positions_dialog(self):
         """Show floating positions dialog."""
