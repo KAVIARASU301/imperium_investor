@@ -143,7 +143,8 @@ class PerformanceDialog(QDialog):
     def _create_chart(self):
         self.chart = QWebEngineView()
         self.chart.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
-        self.chart.setStyleSheet("QWebEngineView { background: #161A25; border: 1px solid #3A4458; border-radius: 10px; }")
+        self.chart.setStyleSheet("QWebEngineView { background: #161A25; border: none; }")
+        self.chart.page().setBackgroundColor(Qt.transparent)
         return self.chart
 
     def _get_all_trades(self) -> list[dict]:
@@ -274,6 +275,7 @@ class PerformanceDialog(QDialog):
 
     def _apply_styles(self):
         self.setStyleSheet("""
+            QLabel { background-color: transparent; }
             QToolTip { background-color: #212635; color: #E0E0E0; border: 1px solid #3A4458; border-radius: 6px; padding: 6px 8px; font-size: 11px; }
             #mainContainer { background-color: #161A25; border: 1px solid #3A4458; border-radius: 14px; }
             #dialogTitle { color: #FFFFFF; font-size: 18px; font-weight: 600; }
