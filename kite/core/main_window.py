@@ -1229,7 +1229,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         order_details = {'tradingsymbol': symbol, 'ltp': ltp, 'transaction_type': 'BUY', 'quantity': default_qty}
 
         instrument = self.instrument_map.get(symbol, {})
-        dialog = OrderDialog(self, symbol, ltp, order_details, instrument=instrument)
+        dialog = OrderDialog(self, symbol, ltp, order_details, instrument=instrument, ltp_fetcher=self._get_fresh_ltp)
         dialog.order_placed.connect(self._handle_order_placement)
         dialog.show()
 
@@ -1239,7 +1239,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         if symbol:
             ltp = self._get_fresh_ltp(symbol)
             instrument = self.instrument_map.get(symbol, {})
-            dialog = OrderDialog(self, symbol, ltp, order_data, instrument=instrument)
+            dialog = OrderDialog(self, symbol, ltp, order_data, instrument=instrument, ltp_fetcher=self._get_fresh_ltp)
             dialog.order_placed.connect(self._handle_order_placement)
             dialog.show()
 
@@ -1258,7 +1258,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         order_details = {'tradingsymbol': symbol, 'ltp': ltp, 'transaction_type': 'SELL', 'quantity': default_qty}
 
         instrument = self.instrument_map.get(symbol, {})
-        dialog = OrderDialog(self, symbol, ltp, order_details, instrument=instrument)
+        dialog = OrderDialog(self, symbol, ltp, order_details, instrument=instrument, ltp_fetcher=self._get_fresh_ltp)
         dialog.order_placed.connect(self._handle_order_placement)
         dialog.show()
 
@@ -1283,7 +1283,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         }
 
         instrument = self.instrument_map.get(symbol, {})
-        dialog = OrderDialog(self, symbol, ltp, exit_order, instrument=instrument)
+        dialog = OrderDialog(self, symbol, ltp, exit_order, instrument=instrument, ltp_fetcher=self._get_fresh_ltp)
         dialog.order_placed.connect(self._handle_exit_order_placement)
         dialog.show()
 
@@ -1310,7 +1310,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         }
 
         instrument = self.instrument_map.get(symbol, {})
-        dialog = OrderDialog(self, symbol, ltp, exit_order, instrument=instrument)
+        dialog = OrderDialog(self, symbol, ltp, exit_order, instrument=instrument, ltp_fetcher=self._get_fresh_ltp)
         dialog.order_placed.connect(self._handle_exit_order_placement)
         dialog.show()
 

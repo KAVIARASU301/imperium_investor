@@ -30,7 +30,7 @@ Public API
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from PySide6.QtCore import (
     Qt, Signal, Slot, QPoint, QPropertyAnimation, QEasingCurve,
@@ -528,6 +528,7 @@ class OrderDialog(QDialog):
         ltp: float = 0.0,
         order_details: Optional[Dict[str, Any]] = None,
         instrument: Optional[Dict[str, Any]] = None,
+        ltp_fetcher: Optional[Callable[[str], float]] = None,
     ):
         super().__init__(parent)
         self.setWindowFlags(Qt.Dialog | Qt.WindowCloseButtonHint)
@@ -538,6 +539,7 @@ class OrderDialog(QDialog):
         self.symbol     = symbol.strip().upper()
         self.ltp        = max(0.0, float(ltp))
         self.instrument = instrument or {}
+        self._ltp_fetcher = ltp_fetcher
         od              = order_details or {}
 
         self._exchange     = self._infer_exchange(od, instrument)
@@ -1132,7 +1134,7 @@ class OrderDialog(QDialog):
             round(self._price_spin.value() + self._tick_size, 2)))
 
         # LTP fill
-        self._ltp_btn.clicked.connect(lambda: self._price_spin.setValue(round(self.ltp, 2)))
+        self._ltp_btn.clicked.connect(self._on_ltp_clicked)
 
         # Submit
         self._submit_btn.clicked.connect(self._handle_submit)
@@ -1140,6 +1142,24 @@ class OrderDialog(QDialog):
     # ─────────────────────────────────────────────────────────────────────────
     #  SLOT HANDLERS
     # ─────────────────────────────────────────────────────────────────────────
+
+
+    def _on_ltp_clicked(self):
+        """Fetch latest LTP (if fetcher available) and fill it into price."""
+        latest_ltp = self.ltp
+        if callable(self._ltp_fetcher) and self.symbol:
+            try:
+                fetched_ltp = float(self._ltp_fetcher(self.symbol) or 0.0)
+                if fetched_ltp > 0:
+                    latest_ltp = fetched_ltp
+            except Exception as e:
+                log.warning(f"[OrderDialog] LTP fetch failed for {self.symbol}: {e}")
+
+        if latest_ltp > 0:
+            self.ltp = latest_ltp
+            self._price_spin.setValue(round(latest_ltp, 2))
+            self._update_circuit()
+            self._update_summary()
 
     def _on_side_changed(self, side: str):
         for k, btn in self._side_group._btns.items():
