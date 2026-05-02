@@ -5,6 +5,7 @@
 import logging
 import os
 import json
+import re
 from datetime import datetime, timedelta
 from typing import List, Dict, Union, Any, Optional
 
@@ -1327,6 +1328,30 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         dialog.order_placed.connect(self._handle_exit_order_placement)
         dialog.show()
 
+
+    @staticmethod
+    def _compact_broker_error(error: Exception) -> str:
+        """Extract a concise, user-facing broker error for toast notifications."""
+        raw = str(error or "").strip()
+        if not raw:
+            return "Unknown broker error"
+
+        # Prefer broker payload message: {'message': '...'}
+        msg_match = re.search(r"['\"]message['\"]\s*:\s*['\"](.+?)['\"](?:,|})", raw)
+        message = msg_match.group(1) if msg_match else raw
+
+        # Remove markdown links and collapse whitespace.
+        message = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1", message)
+        message = re.sub(r"\s+", " ", message).strip()
+
+        # Common broker preambles/noise.
+        message = re.sub(r"^Relay/Kite error HTTP \d+\s*:\s*", "", message, flags=re.IGNORECASE)
+
+        if len(message) > 110:
+            message = message[:107].rstrip() + "..."
+
+        return message
+
     def _handle_order_placement(self, order_data: Dict[str, Any]):
         """
         Entry order placement handler.
@@ -1368,15 +1393,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 logger.warning(f"[ENTRY] Broker returned no order_id for {symbol}")
 
         except Exception as e:
-            raw = str(e)
-            if "margin" in raw.lower():
-                ui_msg = f"{order_data.get('tradingsymbol', '?')} — Insufficient margin"
-            elif "circuit" in raw.lower():
-                ui_msg = f"{order_data.get('tradingsymbol', '?')} — Price circuit limit"
-            elif "quantity" in raw.lower():
-                ui_msg = f"{order_data.get('tradingsymbol', '?')} — Invalid quantity"
-            else:
-                ui_msg = f"Order failed: {raw[:80]}"
+            symbol = order_data.get("tradingsymbol", "?")
+            compact_error = self._compact_broker_error(e)
+            ui_msg = f"{symbol} — {compact_error}"
 
             show_order_failed(ui_msg)
             logger.error(f"[ENTRY] Order placement exception: {e}", exc_info=True)
@@ -1423,13 +1442,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 logger.warning(f"[EXIT] Broker returned no order_id for exit {symbol}")
 
         except Exception as e:
-            raw = str(e)
-            if "margin" in raw.lower():
-                ui_msg = f"{order_data.get('tradingsymbol', '?')} exit — Margin error"
-            elif "quantity" in raw.lower():
-                ui_msg = f"{order_data.get('tradingsymbol', '?')} exit — Invalid quantity"
-            else:
-                ui_msg = f"Exit failed: {raw[:80]}"
+            symbol = order_data.get("tradingsymbol", "?")
+            compact_error = self._compact_broker_error(e)
+            ui_msg = f"{symbol} exit — {compact_error}"
 
             show_order_failed(ui_msg)
             logger.error(f"[EXIT] Exit placement exception: {e}", exc_info=True)

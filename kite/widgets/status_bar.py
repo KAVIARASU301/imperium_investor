@@ -287,7 +287,7 @@ class GlobalStatusManager(QObject):
 
         msg_lower = cleaned.lower()
 
-        if "market is closed" in msg_lower or "after market" in msg_lower or "amo" in msg_lower:
+        if "market is closed" in msg_lower or "markets are closed" in msg_lower or "after market" in msg_lower or "amo" in msg_lower:
             return "REJECTED: MARKET CLOSED"
 
         if "insufficient" in msg_lower and "margin" in msg_lower:
