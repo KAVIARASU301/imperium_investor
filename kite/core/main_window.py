@@ -27,6 +27,7 @@ from kite.widgets.pending_orders_dialog import PendingOrdersDialog
 from kite.widgets.performance_dialog import PerformanceDialog
 from kite.widgets.pnl_history_dialog import PnlHistoryDialog
 from kite.widgets.floating_positions_dialog import FloatingPositionsDialog
+from kite.widgets.floating_watchlist_dialog import attach_floating_watchlist
 from kite.core.alert_management_system import AlertSystemManager
 from kite.core.chart_lines_manager import ChartLinesManager
 from kite.core.data_cache import MarketAwareDataCache
@@ -123,6 +124,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.performance_dialog = None
         self.pnl_history_dialog = None
         self.floating_positions_dialog = None
+        self.floating_watchlist_dialog = None
 
         # --- Setup Sequence ---
         self._setup_frameless_window()
@@ -269,6 +271,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         file_menu.addAction("Pending Orders", self._show_pending_orders_dialog)
         file_menu.addAction("Performance", self._show_performance_dialog)
         file_menu.addAction("Floating Positions", self._show_floating_positions_dialog)
+        file_menu.addAction("Floating Watchlist", self._show_floating_watchlist_dialog)
         file_menu.addSeparator()
         file_menu.addAction("Exit", self.close)
 
@@ -780,6 +783,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.watchlist.subscribe_tokens_requested.connect(self._subscribe_to_tokens)
         self.watchlist.place_order_requested.connect(self._show_order_dialog_from_dict)
         self.watchlist.watchlist_changed.connect(self._on_watchlist_changed)
+        self.watchlist.watchlist_changed.connect(self._sync_floating_watchlist_dialog)
 
         # Header Toolbar → Main Window
         self.header_toolbar.symbol_selected.connect(self.candlestick_chart.on_search)
@@ -933,6 +937,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         # 1. Watchlist and scanner — direct dispatch (O(1) per tick per component)
         self.watchlist.update_data(ticks)
+        if self.floating_watchlist_dialog and self.floating_watchlist_dialog.isVisible():
+            self.floating_watchlist_dialog.update_data(ticks)
         self.chartink_scanner.update_data(ticks)
 
         # 2. Positions — pass raw ticks; table does O(1) token→row lookup
@@ -1561,6 +1567,46 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         except Exception as e:
             logger.error(f"Failed to show floating positions dialog: {e}")
             show_error("Failed to open floating positions")
+
+    def _show_floating_watchlist_dialog(self):
+        """Show floating watchlist dialog that shares embedded watchlist data."""
+        try:
+            if self.floating_watchlist_dialog is None:
+                self.floating_watchlist_dialog = attach_floating_watchlist(self)
+            self._sync_floating_watchlist_dialog()
+            self.floating_watchlist_dialog.show()
+            self.floating_watchlist_dialog.raise_()
+            self.floating_watchlist_dialog.activateWindow()
+            logger.info("Floating watchlist dialog opened")
+        except Exception as e:
+            logger.error(f"Failed to show floating watchlist dialog: {e}")
+            show_error("Failed to open floating watchlist")
+
+    def _sync_floating_watchlist_dialog(self):
+        """Push latest embedded watchlist symbols/data/token map into floating dialog."""
+        if self.floating_watchlist_dialog is None:
+            return
+        try:
+            meta = []
+            for entry in self.watchlist._config.all():
+                wl_id = entry.get("id")
+                table = self.watchlist._tables.get(wl_id)
+                if not wl_id or table is None:
+                    continue
+
+                symbols = table.get_symbol_list()
+                data = {sym: dict(table._watchlist_data.get(sym, {})) for sym in symbols}
+                meta.append({
+                    "id": wl_id,
+                    "name": entry.get("name", wl_id),
+                    "symbols": symbols,
+                    "data": data,
+                })
+                self.floating_watchlist_dialog._token_to_symbol[wl_id] = dict(table._token_to_symbol)
+
+            self.floating_watchlist_dialog.set_watchlists(meta)
+        except Exception as e:
+            logger.error(f"Failed to sync floating watchlist dialog: {e}")
 
     def _update_floating_positions_dialog(self, positions):
         """Sync latest positions into floating positions dialog if initialized."""
