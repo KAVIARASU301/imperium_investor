@@ -101,7 +101,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         )
 
         # SIMPLIFIED MANAGERS - NO NOTIFICATION SYSTEM
-        self.position_manager = PositionManager(self.trader, main_window=self)
+        self.position_manager = PositionManager(self.trader, main_window=self, trade_logger=self.trade_logger)
 
         self.chart_lines_manager = ChartLinesManager(self)
 
@@ -1262,6 +1262,19 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         dialog.order_placed.connect(self._handle_order_placement)
         dialog.show()
 
+    def _resolve_position_product(self, symbol: str, fallback: str = "MIS") -> str:
+        """Resolve product from latest broker positions with a safe fallback."""
+        position = self.positions_table.get_position_by_symbol(symbol)
+        if position and getattr(position, "product", None):
+            return position.product
+        try:
+            for pos_data in (self.trader.positions() or {}).get("net", []):
+                if pos_data.get("tradingsymbol") == symbol and int(pos_data.get("quantity", 0)) != 0:
+                    return pos_data.get("product") or pos_data.get("product_type") or fallback
+        except Exception:
+            pass
+        return fallback
+
     @Slot(str)
     def _handle_exit_position_request(self, symbol: str):
         """Handle position exit request from positions table."""
@@ -1278,7 +1291,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             "transaction_type": transaction_type,
             "quantity": abs(position.quantity),
             "order_type": "MARKET",
-            "product": position.product,
+            "product": self._resolve_position_product(symbol, position.product),
             "ltp": ltp,
         }
 
@@ -1305,7 +1318,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             "transaction_type": transaction_type,
             "quantity": half_qty,
             "order_type": "MARKET",
-            "product": position.product,
+            "product": self._resolve_position_product(symbol, position.product),
             "ltp": ltp,
         }
 

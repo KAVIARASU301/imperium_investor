@@ -71,6 +71,17 @@ class Position:
     product: str = "MIS"
     prev_close: float = 0.0
 
+    @classmethod
+    def from_kite_position(cls, pos_data: Dict) -> "Position":
+        return cls(
+            symbol=pos_data.get("tradingsymbol", ""),
+            quantity=int(pos_data.get("quantity", 0) or 0),
+            avg_price=float(pos_data.get("average_price", 0) or 0),
+            token=int(pos_data.get("instrument_token", 0) or 0),
+            ltp=float(pos_data.get("last_price", 0) or 0),
+            product=pos_data.get("product") or pos_data.get("product_type") or "MIS",
+        )
+
 
 class _FlashCell:
     """Tracks a single cell's flash state."""

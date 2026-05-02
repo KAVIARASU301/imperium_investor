@@ -73,10 +73,11 @@ class PositionManager(QObject):
     WS_TIMEOUT_SECONDS      = 60        # after this, REST polling kicks in
     ORDER_EXPIRY_MINUTES    = 10        # forget orders older than this
 
-    def __init__(self, trader, main_window=None):
+    def __init__(self, trader, main_window=None, trade_logger=None):
         super().__init__()
         self.trader      = trader
         self.main_window = main_window
+        self.trade_logger = trade_logger
 
         self._tracked: Dict[str, TrackedOrder] = {}
         self._confirmed: Set[str] = set()    # order IDs already handled
@@ -320,6 +321,17 @@ class PositionManager(QObject):
                         f"{tx_type} {filled_qty} @ ₹{avg_price:.2f}"
                     )
 
+        if self.trade_logger:
+            self.trade_logger.log_order_update({
+                "order_id": order_id,
+                "status": status,
+                "status_message": order_dict.get("status_message", ""),
+                "average_price": avg_price,
+                "filled_quantity": filled_qty,
+                "pending_quantity": int(order_dict.get("pending_quantity") or 0),
+                "cancelled_quantity": int(order_dict.get("cancelled_quantity") or 0),
+            })
+
         # Refresh positions
         self.fetch_positions_from_kite("order_completed")
         del self._tracked[order_id]
@@ -341,6 +353,17 @@ class PositionManager(QObject):
         tx_type = order_dict.get("transaction_type", "")
 
         global_status.show_order_update(order_dict)
+
+        if self.trade_logger:
+            self.trade_logger.log_order_update({
+                "order_id": order_id,
+                "status": status,
+                "status_message": reason,
+                "average_price": float(order_dict.get("average_price") or 0.0),
+                "filled_quantity": int(order_dict.get("filled_quantity") or 0),
+                "pending_quantity": int(order_dict.get("pending_quantity") or 0),
+                "cancelled_quantity": int(order_dict.get("cancelled_quantity") or 0),
+            })
 
         del self._tracked[order_id]
         logger.warning(
@@ -379,7 +402,7 @@ class PositionManager(QObject):
                 avg_price= pos_data.get("average_price", 0),
                 token    = pos_data.get("instrument_token", 0),
                 ltp      = pos_data.get("last_price", 0),
-                product  = pos_data.get("product", "MIS"),
+                product  = pos_data.get("product") or pos_data.get("product_type") or "MIS",
             )
             pos.pnl = (pos.ltp - pos.avg_price) * pos.quantity
             positions.append(pos)

@@ -261,11 +261,14 @@ class TradeLogger(QObject):
         self.mode   = mode
         self._shutdown_requested = False
 
-        if db_path is None:
-            db_dir = os.path.join(os.path.expanduser("~"), ".qullamaggie")
-            os.makedirs(db_dir, exist_ok=True)
-            db_name = f"trade_history_{self.broker}_{self.mode}.db"
-            self.db_path = os.path.join(db_dir, db_name)
+        db_dir = os.path.join(os.path.expanduser("~"), ".qullamaggie")
+        os.makedirs(db_dir, exist_ok=True)
+
+        scoped_default = os.path.join(db_dir, f"trade_history_{self.broker}_{self.mode}.db")
+        legacy_default = os.path.join(db_dir, "trade_history.db")
+
+        if db_path is None or os.path.abspath(db_path) == os.path.abspath(legacy_default):
+            self.db_path = scoped_default
         else:
             self.db_path = db_path
 
