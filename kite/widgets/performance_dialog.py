@@ -1,665 +1,284 @@
-# widgets/performance_dialog.py
 import logging
-import sqlite3
-from typing import Dict, Any, List
+from datetime import datetime
 
-from PySide6.QtCore import Qt, QTimer, QPoint
-from PySide6.QtGui import QMouseEvent, QColor, QFont
+import plotly.graph_objects as go
+from PySide6.QtCore import Qt, QTimer, Signal, QPoint
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QWidget,
-    QPushButton, QGroupBox, QSplitter, QTableWidget, QTableWidgetItem,
-    QHeaderView, QAbstractItemView, QFrame, QApplication
+    QDialog, QWidget, QLabel, QPushButton,
+    QVBoxLayout, QHBoxLayout, QGridLayout
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
-import plotly.graph_objects as go
-
-# Import your single-source-of-truth utilities
-from kite.utils.pnl_calculator import PnLCalculator, PerformanceMetrics
-from kite.utils.color_system import get_color_theme_manager
-from kite.widgets.pnl_history_dialog import PnlHistoryDialog
 
 logger = logging.getLogger(__name__)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  PALETTE & TYPOGRAPHY (TC2000 Institutional Dark)
-# ─────────────────────────────────────────────────────────────────────────────
-class P:
-    BG0 = "#000000"      # OLED Black app shell
-    BG1 = "#0a0c10"      # Deep charcoal for cards
-    BG2 = "#11141a"      # Slightly lighter for headers
-    BORDER = "#1f2530"   # Sharp inner divisions
-    BORDER2 = "#2a3241"  # Accent borders
-    T0 = "#ffffff"       # Pure white primary text
-    T1 = "#a5b0c2"       # Muted silver labels
-    T2 = "#67758d"       # Darker for table headers/grids
-    BUY = "#00e676"      # Neon Spring Green
-    SELL = "#ff3d00"     # Neon Deep Red
-    BLUE = "#2979ff"     # Focus / Selection
-
-
-FONT_UI = "Inter, 'Segoe UI', Arial, sans-serif"
-FONT_MONO = "Consolas, 'Roboto Mono', 'Courier New', monospace"
-
-
-def hex_to_rgba(hex_color: str, alpha: float) -> str:
-    """Safely convert hex to rgba for Plotly."""
-    hex_color = hex_color.lstrip('#')
-    if len(hex_color) in (6, 8):
-        r = int(hex_color[0:2], 16)
-        g = int(hex_color[2:4], 16)
-        b = int(hex_color[4:6], 16)
-        return f"rgba({r}, {g}, {b}, {alpha})"
-    return hex_color
-
-
 class PerformanceDialog(QDialog):
-    """
-    Professional-grade performance dashboard.
-    OLED optimized, strict monospace data rendering, institutional charting.
-    """
+    """Compact performance dashboard driven by TradeLogger public APIs."""
+
+    refresh_requested = Signal()
+
+    METRIC_TOOLTIPS = {
+        "total_pnl": "Total profit or loss across all completed trades.",
+        "expectancy": "Average expected P&L per trade.",
+        "win_rate": "Percentage of winning trades.",
+        "profit_factor": "Gross profit divided by gross loss.",
+        "avg_win": "Average profit from winning trades.",
+        "avg_loss": "Average loss from losing trades.",
+        "rr_ratio": "Average win divided by average loss.",
+        "rr_quality": "Human-friendly Risk/Reward quality.",
+        "total_trades": "Total completed trades included in this mode.",
+        "consistency": "Percent of profitable trading days.",
+        "best_day": "Highest single-day P&L.",
+        "worst_day": "Lowest single-day P&L."
+    }
 
     def __init__(self, trade_logger, parent=None):
         super().__init__(parent)
         self.trade_logger = trade_logger
-        self._drag_pos = None
-        self.kpi_labels: Dict[str, QLabel] = {}
-        self.pnl_history_dialog = None
+        self._drag_pos: QPoint | None = None
+        self.labels: dict[str, QLabel] = {}
 
-        # Bind to Color Theme System
-        self.theme_manager = get_color_theme_manager()
-        self.theme = self.theme_manager.get_theme()
-        # Fallback to pure terminal colors if theme is missing
-        self.profit_color = self.theme.get("tables", {}).get("positive", P.BUY)
-        self.loss_color = self.theme.get("tables", {}).get("negative", P.SELL)
+        if not self.trade_logger:
+            raise ValueError("trade_logger is required")
 
-        # Listen for global theme changes
-        self.theme_manager.theme_changed.connect(self._on_theme_changed)
+        self.mode = str(getattr(self.trade_logger, "mode", "live")).upper()
+        self.broker = str(getattr(self.trade_logger, "broker", "kite")).upper()
 
-        self._setup_window()
-        self._init_ui()
+        self.setWindowTitle(f"Performance Dashboard - {self.broker} {self.mode}")
+        self.setMinimumSize(1050, 720)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+
+        self._setup_ui()
+        self._connect_signals()
         self._apply_styles()
 
-        # Auto-refresh timer
-        self.refresh_timer = QTimer()
-        self.refresh_timer.timeout.connect(self.refresh_data)
+        self.refresh_timer = QTimer(self)
+        self.refresh_timer.setInterval(30000)
+        self.refresh_timer.timeout.connect(self.refresh)
 
-        # Initial load and start timer
-        self.refresh_data()
-        self.refresh_timer.start(30000)
+        self.refresh()
+        self.refresh_timer.start()
 
-    def _setup_window(self):
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog | Qt.WindowStaysOnTopHint)
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setWindowTitle("Performance Dashboard")
-        self.setMinimumSize(1200, 750)
+    def _setup_ui(self):
+        self.container = QWidget(self)
+        self.container.setObjectName("mainContainer")
 
-    def _init_ui(self):
-        container = QFrame(self)
-        container.setObjectName("mainContainer")
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.addWidget(self.container)
 
-        container.mousePressEvent = self.mousePressEvent
-        container.mouseMoveEvent = self.mouseMoveEvent
-        container.mouseReleaseEvent = self.mouseReleaseEvent
+        layout = QVBoxLayout(self.container)
+        layout.setContentsMargins(22, 14, 22, 22)
+        layout.setSpacing(18)
 
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.addWidget(container)
+        layout.addLayout(self._create_header())
+        layout.addLayout(self._create_metrics_grid())
+        layout.addWidget(self._create_chart(), 1)
 
-        container_layout = QVBoxLayout(container)
-        container_layout.setContentsMargins(12, 10, 12, 12)
-        container_layout.setSpacing(12)
+    def _create_header(self):
+        layout = QHBoxLayout()
 
-        # 1. Header
-        container_layout.addLayout(self._create_header())
-
-        # 2. Top row: KPI Dashboard
-        container_layout.addWidget(self._create_kpi_section())
-
-        # 3. Bottom row: Split view (Chart | Tables)
-        splitter = QSplitter(Qt.Horizontal)
-        splitter.setHandleWidth(2)
-        splitter.setChildrenCollapsible(False)
-
-        # Left: Chart
-        chart_container = QFrame()
-        chart_container.setObjectName("contentGroup")
-        chart_layout = QVBoxLayout(chart_container)
-        chart_layout.setContentsMargins(0, 0, 0, 0)
-        chart_layout.setSpacing(0)
-
-        # Chart Title Bar
-        chart_hdr = QLabel(" EQUITY CURVE")
-        chart_hdr.setObjectName("sectionHeader")
-        chart_layout.addWidget(chart_hdr)
-
-        self.chart_view = QWebEngineView()
-        self.chart_view.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
-        self.chart_view.setStyleSheet("background-color: transparent; border: none;")
-        self._set_loading_html()
-        chart_layout.addWidget(self.chart_view)
-
-        # Right: Breakdown Panels
-        right_panel = QWidget()
-        right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(8, 0, 0, 0)
-        right_layout.setSpacing(12)
-
-        right_layout.addWidget(self._create_advanced_stats_section())
-        right_layout.addWidget(self._create_symbol_breakdown_section(), stretch=1)
-
-        splitter.addWidget(chart_container)
-        splitter.addWidget(right_panel)
-        splitter.setStretchFactor(0, 7)  # Chart takes ~70% space
-        splitter.setStretchFactor(1, 3)  # Tables take ~30% space
-
-        container_layout.addWidget(splitter, stretch=1)
-
-    def _create_header(self) -> QHBoxLayout:
-        header_layout = QHBoxLayout()
-        header_layout.setContentsMargins(4, 0, 4, 4)
-
-        title = QLabel("PERFORMANCE ANALYTICS")
+        title = QLabel("PERFORMANCE DASHBOARD")
         title.setObjectName("dialogTitle")
 
-        history_btn = QPushButton("Calendar")
-        history_btn.setObjectName("headerBtn")
-        history_btn.clicked.connect(self._show_pnl_history)
-        history_btn.setFixedSize(72, 28)
+        mode_badge = QLabel(f"{self.broker} • {self.mode}")
+        mode_badge.setObjectName("modeBadge")
 
-        refresh_btn = QPushButton("⟳")
-        refresh_btn.setObjectName("headerBtn")
-        refresh_btn.clicked.connect(self.refresh_data)
-        refresh_btn.setFixedSize(28, 28)
+        self.refresh_btn = QPushButton("REFRESH")
+        self.refresh_btn.setObjectName("navButton")
 
-        close_btn = QPushButton("✕")
-        close_btn.setObjectName("headerBtn")
-        close_btn.clicked.connect(self.close)
-        close_btn.setFixedSize(28, 28)
+        self.close_btn = QPushButton("✕")
+        self.close_btn.setObjectName("closeButton")
 
-        header_layout.addWidget(title)
-        header_layout.addStretch()
-        header_layout.addWidget(history_btn)
-        header_layout.addWidget(refresh_btn)
-        header_layout.addWidget(close_btn)
-        return header_layout
+        layout.addWidget(title)
+        layout.addWidget(mode_badge)
+        layout.addStretch()
+        layout.addWidget(self.refresh_btn)
+        layout.addWidget(self.close_btn)
+        return layout
 
+    def _create_metrics_grid(self):
+        grid = QGridLayout()
+        grid.setSpacing(14)
 
-    def _show_pnl_history(self):
-        if self.pnl_history_dialog is None or not self.pnl_history_dialog.isVisible():
-            self.pnl_history_dialog = PnlHistoryDialog(self.trade_logger, self)
-        self.pnl_history_dialog.show()
-        self.pnl_history_dialog.raise_()
-        self.pnl_history_dialog.activateWindow()
-
-    def _create_kpi_section(self) -> QWidget:
-        kpi_container = QWidget()
-        layout = QHBoxLayout(kpi_container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
-
-        def create_kpi_card(title: str, key: str):
-            card = QFrame()
-            card.setObjectName("kpiCard")
-            card_layout = QVBoxLayout(card)
-            card_layout.setContentsMargins(12, 10, 12, 10)
-            card_layout.setSpacing(2)
-
-            lbl_title = QLabel(title.upper())
-            lbl_title.setObjectName("kpiCardTitle")
-
-            lbl_value = QLabel("–")
-            lbl_value.setObjectName("kpiCardValue")
-            self.kpi_labels[key] = lbl_value
-
-            card_layout.addWidget(lbl_title)
-            card_layout.addWidget(lbl_value)
-            return card
-
-        # Core TC2000-style top metrics
-        layout.addWidget(create_kpi_card("Net P&L", "total_pnl"))
-        layout.addWidget(create_kpi_card("Win Rate", "win_rate"))
-        layout.addWidget(create_kpi_card("Profit Factor", "profit_factor"))
-        layout.addWidget(create_kpi_card("Expectancy", "expectancy"))
-        layout.addWidget(create_kpi_card("Max Drawdown", "max_drawdown"))
-        layout.addWidget(create_kpi_card("Total Trades", "total_trades"))
-
-        return kpi_container
-
-    def _create_advanced_stats_section(self) -> QWidget:
-        group = QFrame()
-        group.setObjectName("contentGroup")
-
-        main_layout = QVBoxLayout(group)
-        main_layout.setContentsMargins(0, 0, 0, 8)
-        main_layout.setSpacing(0)
-
-        hdr = QLabel(" ADVANCED METRICS")
-        hdr.setObjectName("sectionHeader")
-        main_layout.addWidget(hdr)
-
-        grid_w = QWidget()
-        layout = QGridLayout(grid_w)
-        layout.setContentsMargins(12, 8, 12, 4)
-        layout.setSpacing(8)
-
-        stats = [
-            ("AVG WIN", "avg_win", 0, 0), ("SHARPE", "sharpe", 0, 1),
-            ("AVG LOSS", "avg_loss", 1, 0), ("SORTINO", "sortino", 1, 1),
-            ("MAX WIN", "largest_win", 2, 0), ("CALMAR", "calmar", 2, 1),
-            ("MAX LOSS", "largest_loss", 3, 0), ("AVG HOLD", "avg_hold", 3, 1),
+        metrics = [
+            ("Total P&L", "total_pnl"), ("Expectancy", "expectancy"), ("Win Rate", "win_rate"), ("Profit Factor", "profit_factor"),
+            ("Avg Win", "avg_win"), ("Avg Loss", "avg_loss"), ("Risk—Reward", "rr_ratio"), ("RR Quality", "rr_quality"),
+            ("Total Trades", "total_trades"), ("Consistency", "consistency"), ("Best Day", "best_day"), ("Worst Day", "worst_day"),
         ]
 
-        for title, key, row, col in stats:
-            lbl_title = QLabel(title)
-            lbl_title.setObjectName("statTitle")
-            lbl_value = QLabel("–")
-            lbl_value.setObjectName("statValue")
-            self.kpi_labels[key] = lbl_value
+        for i, (title, key) in enumerate(metrics):
+            row, col = divmod(i, 4)
+            self.labels[key] = self._metric_card(grid, title, key, row, col)
 
-            cell = QHBoxLayout()
-            cell.setContentsMargins(0, 0, 0, 0)
-            cell.addWidget(lbl_title)
-            cell.addStretch()
-            cell.addWidget(lbl_value)
-            layout.addLayout(cell, row, col)
+        return grid
 
-        main_layout.addWidget(grid_w)
-        return group
+    def _metric_card(self, layout, title, metric_key, row, col):
+        card = QWidget()
+        card.setObjectName("metricCard")
+        tooltip = self.METRIC_TOOLTIPS.get(metric_key)
+        if tooltip:
+            card.setToolTip(tooltip)
 
-    def _create_symbol_breakdown_section(self) -> QWidget:
-        group = QFrame()
-        group.setObjectName("contentGroup")
-        layout = QVBoxLayout(group)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        v = QVBoxLayout(card)
+        v.setContentsMargins(14, 12, 14, 12)
+        v.setSpacing(6)
 
-        hdr = QLabel(" SYMBOL BREAKDOWN")
-        hdr.setObjectName("sectionHeader")
-        layout.addWidget(hdr)
+        title_lbl = QLabel(title)
+        title_lbl.setObjectName("metricTitle")
 
-        self.symbol_table = QTableWidget(0, 4)
-        self.symbol_table.setHorizontalHeaderLabels(["SYMBOL", "TRADES", "WIN %", "NET P&L"])
-        self.symbol_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.symbol_table.horizontalHeader().setStretchLastSection(False)
-        self.symbol_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.symbol_table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.symbol_table.verticalHeader().setVisible(False)
-        self.symbol_table.setShowGrid(False)
-        self.symbol_table.setFocusPolicy(Qt.NoFocus)
-        self.symbol_table.setObjectName("symbolTable")
+        value_lbl = QLabel("—")
+        value_lbl.setObjectName("metricValue")
+        value_lbl.setAlignment(Qt.AlignCenter)
+        value_lbl.setFont(QFont("Segoe UI", 15, QFont.Weight.Bold))
 
-        # Set specific column widths for numbers
-        self.symbol_table.setColumnWidth(1, 60)
-        self.symbol_table.setColumnWidth(2, 60)
-        self.symbol_table.setColumnWidth(3, 90)
+        v.addWidget(title_lbl)
+        v.addWidget(value_lbl)
 
-        layout.addWidget(self.symbol_table)
-        return group
+        layout.addWidget(card, row, col)
+        return value_lbl
 
-    def _set_loading_html(self):
-        self.chart_view.setHtml(f"""
-            <html style="background-color: transparent; color: {P.T2}; font-family: '{FONT_UI}'; 
-                 display: flex; align-items: center; justify-content: center; height: 100%; font-size: 11px; font-weight: bold; letter-spacing: 1px;">
-                <body>LOADING ANALYTICS...</body>
-            </html>
-        """)
+    def _create_chart(self):
+        self.chart = QWebEngineView()
+        self.chart.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
+        self.chart.setStyleSheet("QWebEngineView { background: #161A25; border: 1px solid #3A4458; border-radius: 10px; }")
+        return self.chart
 
-    def refresh_data(self):
+    def _get_all_trades(self) -> list[dict]:
         try:
-            raw_trades = self._fetch_all_completed_trades()
-            metrics = PnLCalculator.get_metrics(raw_trades)
-            daily_data = PnLCalculator.get_daily_history(raw_trades)
-            symbol_data = PnLCalculator.get_symbol_breakdown(raw_trades)
-
-            self._update_kpis(metrics)
-            self._update_symbol_table(symbol_data)
-            self._update_pnl_chart(daily_data)
-
-        except Exception as e:
-            logger.error(f"Performance update failed: {e}", exc_info=True)
-            if 'total_pnl' in self.kpi_labels:
-                self.kpi_labels['total_pnl'].setText("ERR")
-
-    def _fetch_all_completed_trades(self) -> List[Dict]:
-        if not hasattr(self.trade_logger, 'db_path'): return []
-        try:
-            with sqlite3.connect(self.trade_logger.db_path, timeout=5.0) as conn:
-                conn.row_factory = sqlite3.Row
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT tradingsymbol, transaction_type, quantity, 
-                           average_price, filled_quantity, execution_timestamp, status
-                    FROM orders 
-                    WHERE status = 'COMPLETE' AND average_price > 0
-                    ORDER BY execution_timestamp ASC
-                """)
-                return [dict(row) for row in cursor.fetchall()]
-        except Exception as e:
-            logger.error(f"Failed to fetch trades: {e}")
+            return self.trade_logger.get_all_trades()
+        except Exception as exc:
+            logger.error("Error fetching trades: %s", exc, exc_info=True)
             return []
 
-    def _update_kpis(self, m: PerformanceMetrics):
-        def set_val(key, val, fmt, use_color=False, is_inverted=False):
-            if key not in self.kpi_labels: return
-            lbl = self.kpi_labels[key]
+    def _get_pnl_by_day(self) -> dict:
+        try:
+            rows = self.trade_logger.get_daily_pnl_curve()
+            return {r["date"]: r["pnl"] for r in rows}
+        except Exception as exc:
+            logger.error("Error fetching daily pnl: %s", exc, exc_info=True)
+            return {}
 
-            if isinstance(val, (int, float)) and val == float('inf'):
-                lbl.setText("∞")
-                color = self.profit_color
-            else:
-                lbl.setText(fmt.format(val))
-                if use_color:
-                    if is_inverted:
-                        color = self.loss_color if val > 0 else self.profit_color
-                    else:
-                        color = self.profit_color if val >= 0 else self.loss_color
-                else:
-                    color = P.T0
-            lbl.setStyleSheet(f"color: {color};")
-
-        # Top Cards
-        set_val('total_pnl', m.total_pnl, "{:,.2f}", use_color=True)
-        set_val('win_rate', m.win_rate, "{:.1f}%")
-        set_val('profit_factor', m.profit_factor, "{:.2f}", use_color=True)
-        set_val('expectancy', m.expectancy, "{:,.2f}", use_color=True)
-        set_val('max_drawdown', m.max_drawdown, "{:,.2f}", use_color=True, is_inverted=True)
-        self.kpi_labels['total_trades'].setText(str(m.total_trades))
-
-        # Advanced Stats
-        set_val('avg_win', m.avg_win, "{:,.2f}", use_color=True)
-        set_val('avg_loss', m.avg_loss, "{:,.2f}", use_color=True, is_inverted=True)
-        set_val('largest_win', m.largest_win, "{:,.2f}", use_color=True)
-        set_val('largest_loss', m.largest_loss, "{:,.2f}", use_color=True, is_inverted=True)
-
-        set_val('sharpe', m.sharpe_ratio, "{:.2f}", use_color=True)
-        set_val('sortino', m.sortino_ratio, "{:.2f}", use_color=True)
-        set_val('calmar', m.calmar_ratio, "{:.2f}", use_color=True)
-        self.kpi_labels['avg_hold'].setText(f"{m.avg_hold_days:.1f} d")
-
-    def _update_symbol_table(self, symbol_data: List[Dict]):
-        self.symbol_table.setRowCount(0)
-        for row, data in enumerate(symbol_data):
-            self.symbol_table.insertRow(row)
-
-            sym_item = QTableWidgetItem(data['symbol'])
-            trades_item = QTableWidgetItem(str(data['trades']))
-            win_item = QTableWidgetItem(f"{data['win_rate']:.1f}%")
-
-            pnl_val = data['pnl']
-            pnl_item = QTableWidgetItem(f"{pnl_val:,.2f}")
-            pnl_item.setForeground(QColor(self.profit_color if pnl_val >= 0 else self.loss_color))
-
-            # Alignment
-            sym_item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-            for item in (trades_item, win_item, pnl_item):
-                item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
-            self.symbol_table.setItem(row, 0, sym_item)
-            self.symbol_table.setItem(row, 1, trades_item)
-            self.symbol_table.setItem(row, 2, win_item)
-            self.symbol_table.setItem(row, 3, pnl_item)
-
-    def _update_pnl_chart(self, daily_data: List[Dict]):
-        if not daily_data:
-            self.chart_view.setHtml("""
-                <html style=\"background-color: transparent; color: #67758d; font-family: Inter, 'Segoe UI', Arial, sans-serif;
-                     display: flex; align-items: center; justify-content: center; height: 100%; font-size: 11px; font-weight: bold; letter-spacing: 1px;\">
-                    <body>NO PERFORMANCE DATA AVAILABLE</body>
-                </html>
-            """)
+    def refresh(self):
+        pnl_by_day = self._get_pnl_by_day()
+        if not pnl_by_day:
+            self._clear_metrics()
+            self._render_chart([], [])
             return
 
-        dates = [item['date'] for item in daily_data]
-        cum_pnl = [item['cumulative_pnl'] for item in daily_data]
+        self._update_metrics(pnl_by_day)
+        self._plot_equity(pnl_by_day)
+        self.refresh_requested.emit()
 
-        # Determine strict final color for the trace
-        final_pnl = cum_pnl[-1] if cum_pnl else 0
-        line_color = self.profit_color if final_pnl >= 0 else self.loss_color
-        fill_rgba = hex_to_rgba(line_color, 0.08)
+    def _clear_metrics(self):
+        for lbl in self.labels.values():
+            lbl.setText("—")
+            lbl.setStyleSheet("color: #E0E0E0;")
 
+    def _update_metrics(self, pnl_by_day: dict):
+        trades = self._get_all_trades()
+        if not trades:
+            self._clear_metrics()
+            return
+
+        pnls = [float(t.get("pnl", 0) or 0) for t in trades]
+        wins = [p for p in pnls if p > 0]
+        losses = [p for p in pnls if p < 0]
+
+        total_trades = len(pnls)
+        total_pnl = sum(pnls)
+        win_rate = (len(wins) / total_trades) * 100 if total_trades else 0
+        avg_win = sum(wins) / len(wins) if wins else 0
+        avg_loss = abs(sum(losses) / len(losses)) if losses else 0
+        expectancy = (win_rate / 100) * avg_win - ((100 - win_rate) / 100) * avg_loss
+        profit_factor = sum(wins) / abs(sum(losses)) if losses else float("inf")
+        rr_ratio = avg_win / avg_loss if avg_loss else 0
+
+        rr_quality = "Poor" if rr_ratio < 1 else "Not Bad" if rr_ratio < 1.5 else "Good" if rr_ratio < 2 else "Very Good"
+
+        daily_values = [float(v or 0) for v in pnl_by_day.values()]
+        green_days = [v for v in daily_values if v > 0]
+        consistency = (len(green_days) / len(daily_values)) * 100 if daily_values else 0
+        best_day = max(daily_values) if daily_values else 0
+        worst_day = min(daily_values) if daily_values else 0
+
+        def setv(key, text, color):
+            self.labels[key].setText(text)
+            self.labels[key].setStyleSheet(f"color:{color};")
+
+        setv("total_pnl", f"₹{total_pnl:,.0f}", "#29C7C9" if total_pnl >= 0 else "#F85149")
+        setv("expectancy", f"₹{expectancy:,.0f}", "#00D1B2" if expectancy >= 0 else "#F85149")
+        setv("win_rate", f"{win_rate:.1f}%", "#4CAF50" if win_rate >= 50 else "#F39C12")
+        setv("profit_factor", f"{profit_factor:.2f}", "#4CAF50" if profit_factor >= 1.5 else "#F39C12")
+        setv("avg_win", f"₹{avg_win:,.0f}", "#4CAF50")
+        setv("avg_loss", f"₹{avg_loss:,.0f}", "#F85149")
+        setv("rr_ratio", f"{rr_ratio:.2f}", "#29C7C9")
+        setv("rr_quality", rr_quality, "#00D1B2" if rr_ratio >= 2 else "#29C7C9" if rr_ratio >= 1.5 else "#F39C12")
+        setv("total_trades", str(total_trades), "#E0E0E0")
+        setv("consistency", f"{consistency:.1f}%", "#4CAF50" if consistency >= 50 else "#F39C12")
+        setv("best_day", f"₹{best_day:,.0f}", "#4CAF50")
+        setv("worst_day", f"₹{worst_day:,.0f}", "#F85149")
+
+    def _plot_equity(self, pnl_by_day: dict):
+        dates = sorted(pnl_by_day.keys())
+        cumulative = 0.0
+        x = []
+        y = []
+        for d in dates:
+            try:
+                dt = datetime.strptime(str(d), "%Y-%m-%d")
+            except Exception:
+                continue
+            cumulative += float(pnl_by_day[d] or 0)
+            x.append(dt)
+            y.append(cumulative)
+        self._render_chart(x, y)
+
+    def _render_chart(self, x_vals, y_vals):
         fig = go.Figure()
-
-        # Institutional Zero-line
-        fig.add_hline(y=0, line_dash="dash", line_color=P.T2, line_width=1, opacity=0.5)
-
-        # Institutional Step/Linear Curve (No Retail Splines)
-        fig.add_trace(go.Scatter(
-            x=dates,
-            y=cum_pnl,
-            mode="lines",
-            line=dict(color=line_color, width=1.5, shape='linear'),
-            fill='tozeroy',
-            fillcolor=fill_rgba,
-            hovertemplate=(
-                '<b style="font-family:Inter; font-size:10px; color:#a5b0c2;">%{x}</b><br>'
-                '<span style="font-family:Consolas; font-size:14px; color:#ffffff;"><b>%{y:,.2f}</b></span>'
-                '<extra></extra>'
-            ),
-            hoverlabel=dict(
-                bgcolor=P.BG1,
-                bordercolor=P.BORDER2,
-                font_size=12
-            )
-        ))
-
+        if x_vals:
+            fig.add_trace(go.Scatter(x=x_vals, y=y_vals, mode="lines+markers", line=dict(color="#29C7C9", width=2), marker=dict(size=6)))
         fig.update_layout(
-            plot_bgcolor='rgba(0,0,0,0)',
-            paper_bgcolor='rgba(0,0,0,0)',
-            margin=dict(l=10, r=40, t=10, b=30),
-            font=dict(color=P.T2, size=10, family="Consolas, monospace"),
-            showlegend=False,
-            hovermode='x unified',
-            dragmode=False,
-            hoverdistance=100,
-            spikedistance=1000
+            template="plotly_dark",
+            paper_bgcolor="#161A25",
+            plot_bgcolor="#161A25",
+            margin=dict(l=40, r=20, t=20, b=40),
+            xaxis_title="Date",
+            yaxis_title="Cumulative P&L",
+            font=dict(color="#A9B1C3")
         )
+        self.chart.setHtml(fig.to_html(include_plotlyjs="cdn", config={"displayModeBar": False}))
 
-        fig.update_xaxes(
-            showgrid=False,
-            zeroline=False,
-            showticklabels=True,
-            showline=True,
-            linecolor=P.BORDER,
-            linewidth=1,
-            fixedrange=True,
-            nticks=6,
-            showspikes=True,
-            spikemode="across",
-            spikesnap="cursor",
-            spikecolor=P.T2,
-            spikethickness=1,
-            spikedash="dot"
-        )
+    def mousePressEvent(self, e):
+        if e.button() == Qt.LeftButton:
+            self._drag_pos = e.globalPosition().toPoint()
 
-        fig.update_yaxes(
-            showgrid=True,
-            gridcolor=P.BORDER,
-            gridwidth=1,
-            zeroline=False,
-            showticklabels=True,
-            side='right',
-            fixedrange=True,
-            tickprefix=" "
-        )
+    def mouseMoveEvent(self, e):
+        if self._drag_pos:
+            delta = e.globalPosition().toPoint() - self._drag_pos
+            self.move(self.pos() + delta)
+            self._drag_pos = e.globalPosition().toPoint()
 
-        html = fig.to_html(include_plotlyjs=True, config={
-            'displayModeBar': False,
-            'scrollZoom': False,
-            'doubleClick': False,
-            'showAxisDragHandles': False
-        })
-
-        # Inject CSS to hide background behind webengine and remove outline
-        full_html = f"""
-        <style>
-            body {{ background-color: transparent !important; margin: 0; padding: 0; overflow: hidden; }}
-            .js-plotly-plot .plotly .cursor-crosshair {{ cursor: crosshair; }}
-        </style>
-        {html}
-        """
-
-        self.chart_view.setHtml(full_html)
-
-    def _on_theme_changed(self, new_theme: Dict):
-        self.theme = new_theme
-        self.profit_color = self.theme.get("tables", {}).get("positive", P.BUY)
-        self.loss_color = self.theme.get("tables", {}).get("negative", P.SELL)
-        self.refresh_data()
-
-    def _apply_styles(self):
-        """TC2000 strict OLED terminal stylesheet."""
-        self.setStyleSheet(f"""
-            QDialog {{ background-color: transparent; }}
-
-            #mainContainer {{
-                background-color: {P.BG0};
-                border-radius: 1px;
-                border: 1px solid {P.BORDER};
-            }}
-
-            #dialogTitle {{
-                font-family: {FONT_UI};
-                font-size: 13px;
-                font-weight: 800;
-                color: {P.T0};
-                letter-spacing: 1px;
-                background-color: transparent;
-            }}
-
-            #headerBtn {{
-                background-color: transparent;
-                border: none;
-                color: {P.T2};
-                font-size: 14px;
-                border-radius: 1px;
-            }}
-            #headerBtn:hover {{ background-color: {P.SELL}; color: #ffffff; }}
-
-            #kpiCard {{
-                background-color: {P.BG1};
-                border: 1px solid {P.BORDER};
-                border-radius: 1px;
-            }}
-
-            #kpiCardTitle {{
-                font-family: {FONT_UI};
-                font-size: 9px;
-                font-weight: 700;
-                color: {P.T1};
-                letter-spacing: 0.8px;
-                background-color: transparent;
-            }}
-
-            #kpiCardValue {{
-                font-family: {FONT_MONO};
-                font-size: 18px;
-                font-weight: bold;
-                background-color: transparent;
-            }}
-
-            #contentGroup {{
-                background-color: {P.BG1};
-                border: 1px solid {P.BORDER};
-                border-radius: 1px;
-            }}
-
-            #sectionHeader {{
-                background-color: {P.BG2};
-                color: {P.T1};
-                font-family: {FONT_UI};
-                font-size: 9px;
-                font-weight: 700;
-                letter-spacing: 1px;
-                padding: 6px 8px;
-                border-bottom: 1px solid {P.BORDER};
-            }}
-
-            #statTitle {{
-                color: {P.T1};
-                font-family: {FONT_UI};
-                font-size: 10px;
-                font-weight: 700;
-                letter-spacing: 0.5px;
-                background-color: transparent;
-            }}
-
-            #statValue {{
-                font-family: {FONT_MONO};
-                font-size: 12px;
-                font-weight: bold;
-                background-color: transparent;
-            }}
-
-            QSplitter::handle {{
-                background-color: {P.BORDER};
-            }}
-
-            QTableWidget {{
-                background-color: transparent;
-                color: {P.T0};
-                gridline-color: {P.BORDER};
-                border: none;
-                font-family: {FONT_MONO};
-                font-size: 12px;
-                font-weight: bold;
-            }}
-
-            QTableWidget::item {{
-                padding: 2px 6px;
-                border-bottom: 1px solid {P.BORDER};
-            }}
-
-            QTableWidget::item:selected {{
-                background-color: {P.BG2};
-                color: {P.BLUE};
-            }}
-
-            QHeaderView::section {{
-                background-color: {P.BG0};
-                color: {P.T2};
-                font-family: {FONT_UI};
-                font-size: 9px;
-                font-weight: 800;
-                letter-spacing: 0.5px;
-                border: none;
-                border-bottom: 1px solid {P.BORDER};
-                padding: 4px 6px;
-            }}
-
-            QScrollBar:vertical {{
-                border: none;
-                background: {P.BG1};
-                width: 6px;
-                margin: 0px;
-            }}
-
-            QScrollBar::handle:vertical {{
-                background: {P.BORDER2};
-                min-height: 20px;
-                border-radius: 3px;
-            }}
-            QScrollBar::handle:vertical:hover {{ background: {P.T2}; }}
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0px; }}
-        """)
-
-    def mousePressEvent(self, event: QMouseEvent):
-        if event.button() == Qt.LeftButton:
-            # Prevent dragging when clicking inside the webview or tables
-            w = self.childAt(event.pos())
-            if not isinstance(w, (QWebEngineView, QTableWidget)):
-                self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
-                event.accept()
-
-    def mouseMoveEvent(self, event: QMouseEvent):
-        if event.buttons() == Qt.LeftButton and self._drag_pos:
-            self.move(event.globalPosition().toPoint() - self._drag_pos)
-            event.accept()
-
-    def mouseReleaseEvent(self, event: QMouseEvent):
+    def mouseReleaseEvent(self, e):
         self._drag_pos = None
 
-    def closeEvent(self, event):
-        if hasattr(self, 'refresh_timer'):
-            self.refresh_timer.stop()
-        super().closeEvent(event)
+    def _connect_signals(self):
+        self.refresh_btn.clicked.connect(self.refresh)
+        self.close_btn.clicked.connect(self.close)
+
+    def _apply_styles(self):
+        self.setStyleSheet("""
+            QToolTip { background-color: #212635; color: #E0E0E0; border: 1px solid #3A4458; border-radius: 6px; padding: 6px 8px; font-size: 11px; }
+            #mainContainer { background-color: #161A25; border: 1px solid #3A4458; border-radius: 14px; }
+            #dialogTitle { color: #FFFFFF; font-size: 18px; font-weight: 600; }
+            #modeBadge { background-color: #212635; border: 1px solid #3A4458; border-radius: 6px; padding: 4px 10px; color: #29C7C9; font-size: 11px; font-weight: bold; }
+            #metricCard { background-color: #212635; border: 1px solid #3A4458; border-radius: 10px; }
+            #metricTitle { color: #A9B1C3; font-size: 11px; }
+            #metricValue { color: #FFFFFF; }
+            #closeButton { background: transparent; border: none; color: #8A9BA8; font-size: 16px; }
+            #closeButton:hover { color: #FFFFFF; }
+            QPushButton#navButton { background-color: #212635; border: 1px solid #3A4458; border-radius: 6px; padding: 6px 14px; color: #E0E0E0; }
+            QPushButton#navButton:hover { background-color: #29C7C9; color: #161A25; }
+        """)
