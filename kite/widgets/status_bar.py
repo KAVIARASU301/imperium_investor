@@ -24,11 +24,14 @@ class StatusBar(QWidget):
         self.setObjectName("bottomStatusBar")
         # Lock to a strict, thin ribbon size
         self.setFixedHeight(20)
+        self._layout: Optional[QHBoxLayout] = None
+        self._status_alignment = "left"
         self._build_ui()
         self._apply_styles()
 
     def _build_ui(self) -> None:
         layout = QHBoxLayout(self)
+        self._layout = layout
         # 0 vertical margin makes it sit flush against the bottom edge
         layout.setContentsMargins(10, 0, 10, 0)
         layout.setSpacing(16)
@@ -46,6 +49,30 @@ class StatusBar(QWidget):
             layout.addWidget(label)
 
         layout.addStretch(1)
+
+
+    def set_elements_alignment(self, alignment: str) -> None:
+        desired = "right" if str(alignment).lower() == "right" else "left"
+        if not self._layout or desired == self._status_alignment:
+            self._status_alignment = desired
+            return
+
+        while self._layout.count():
+            item = self._layout.takeAt(0)
+            widget = item.widget() if item else None
+            if widget:
+                widget.setParent(None)
+
+        if desired == "right":
+            self._layout.addStretch(1)
+
+        for label in (self.market_label, self.api_label, self.heartbeat_label):
+            self._layout.addWidget(label)
+
+        if desired == "left":
+            self._layout.addStretch(1)
+
+        self._status_alignment = desired
 
     def _apply_styles(self) -> None:
         self.setStyleSheet(

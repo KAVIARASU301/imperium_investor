@@ -244,6 +244,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         # Bottom status bar (quiet app-level health indicators)
         self.app_status_bar = StatusBar(self)
         self.app_status_bar.setObjectName("bottomAppStatusBar")
+        alignment = self.color_theme_manager.get_theme().get("status_bar_alignment", "left")
+        self.app_status_bar.set_elements_alignment(alignment)
         main_layout.addWidget(self.app_status_bar)
         status.initialize(self.app_status_bar)
         self._setup_status_indicators()
@@ -591,6 +593,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.watchlist.apply_color_theme(theme)
         self.positions_table.apply_color_theme(theme)
         self.candlestick_chart.apply_color_theme(theme)
+        alignment = str(theme.get("status_bar_alignment", "left"))
+        self.app_status_bar.set_elements_alignment(alignment)
 
     def _open_color_settings_dialog(self):
         dialog = ColorSettingsDialog(self.color_theme_manager.get_theme(), self)
