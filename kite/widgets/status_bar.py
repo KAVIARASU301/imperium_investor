@@ -194,8 +194,9 @@ class GlobalStatusManager(QObject):
             self._post("CANCELED", f"{direction_sign}{qty} {symbol}", "warn", 3000)
             return
 
+        # Ignore routed/acknowledgement states and any remaining non-terminal
+        # statuses to prevent toast spam.
         if raw_status in {"PUT ORDER REQ", "ROUTED"}:
-            self._post("ROUTED", f"{direction_sign}{qty} {symbol} ({order_type})", "info", 3000)
             return
 
         # Ignore any remaining non-terminal statuses to prevent toast spam.
