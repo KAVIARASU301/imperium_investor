@@ -155,7 +155,7 @@ class PerformanceDialog(QDialog):
 
     def _get_pnl_by_day(self) -> dict:
         try:
-            rows = self.trade_logger.get_daily_pnl_curve()
+            rows = self.trade_logger.get_daily_pnl_history()
             return {r["date"]: r["pnl"] for r in rows}
         except Exception as exc:
             logger.error("Error fetching daily pnl: %s", exc, exc_info=True)
@@ -171,6 +171,10 @@ class PerformanceDialog(QDialog):
         self._update_metrics(pnl_by_day)
         self._plot_equity(pnl_by_day)
         self.refresh_requested.emit()
+
+    def refresh_data(self):
+        """Backward-compatible refresh entrypoint used by main_window signals."""
+        self.refresh()
 
     def _clear_metrics(self):
         for lbl in self.labels.values():
