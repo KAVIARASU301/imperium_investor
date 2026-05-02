@@ -125,6 +125,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.pnl_history_dialog = None
         self.floating_positions_dialog = None
         self.floating_watchlist_dialog = None
+        self._last_spacebar_context = None
 
         # --- Setup Sequence ---
         self._setup_frameless_window()
@@ -788,6 +789,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.watchlist.place_order_requested.connect(self._show_order_dialog_from_dict)
         self.watchlist.watchlist_changed.connect(self._on_watchlist_changed)
         self.watchlist.watchlist_changed.connect(self._sync_floating_watchlist_dialog)
+        self.watchlist.watchlist_changed.connect(self._bind_spacebar_context_tracking)
+        self._bind_spacebar_context_tracking()
 
         # Header Toolbar → Main Window
         self.header_toolbar.symbol_selected.connect(self.candlestick_chart.on_search)
@@ -1578,6 +1581,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         try:
             if self.floating_watchlist_dialog is None:
                 self.floating_watchlist_dialog = attach_floating_watchlist(self)
+                self.floating_watchlist_dialog.table.cellClicked.connect(
+                    lambda _r, _c: self._set_last_spacebar_context("floating_watchlist")
+                )
             self._sync_floating_watchlist_dialog()
             self.floating_watchlist_dialog.show()
             self.floating_watchlist_dialog.raise_()
@@ -1792,21 +1798,35 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     def _handle_global_spacebar(self):
         """Handle spacebar press based on focused widget"""
         focused_widget = self.focusWidget()
+        context = self._resolve_spacebar_context(focused_widget)
 
         floating_watchlist = self._get_focused_floating_watchlist(focused_widget)
+        active_floating_watchlist = self._get_active_floating_watchlist()
+        if active_floating_watchlist is not None:
+            floating_watchlist = active_floating_watchlist
+            context = "floating_watchlist"
+        if context == "floating_watchlist" and floating_watchlist is None:
+            dlg = getattr(self, "floating_watchlist_dialog", None)
+            if dlg and dlg.isVisible():
+                floating_watchlist = dlg
         if floating_watchlist:
+            self._set_last_spacebar_context("floating_watchlist")
             self._navigate_floating_watchlist_symbols(floating_watchlist, direction='next')
             return
 
         # Check scanner focus
-        if self._is_scanner_focused(focused_widget):
+        if context == "scanner" or self._is_scanner_focused(focused_widget):
+            self._set_last_spacebar_context("scanner")
             if hasattr(self.chartink_scanner, '_next_symbol'):
                 self.chartink_scanner._next_symbol()
                 return
 
         # Check watchlist focus
         watchlist_table = self._get_focused_watchlist_table(focused_widget)
+        if context == "watchlist" and watchlist_table is None:
+            watchlist_table = self._get_last_selected_watchlist_table()
         if watchlist_table:
+            self._set_last_spacebar_context("watchlist")
             self._navigate_watchlist_symbols(watchlist_table, direction='next')
             return
 
@@ -1820,19 +1840,33 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     def _handle_global_shift_spacebar(self):
         """Handle Shift+spacebar press based on focused widget"""
         focused_widget = self.focusWidget()
+        context = self._resolve_spacebar_context(focused_widget)
 
         floating_watchlist = self._get_focused_floating_watchlist(focused_widget)
+        active_floating_watchlist = self._get_active_floating_watchlist()
+        if active_floating_watchlist is not None:
+            floating_watchlist = active_floating_watchlist
+            context = "floating_watchlist"
+        if context == "floating_watchlist" and floating_watchlist is None:
+            dlg = getattr(self, "floating_watchlist_dialog", None)
+            if dlg and dlg.isVisible():
+                floating_watchlist = dlg
         if floating_watchlist:
+            self._set_last_spacebar_context("floating_watchlist")
             self._navigate_floating_watchlist_symbols(floating_watchlist, direction='previous')
             return
 
-        if self._is_scanner_focused(focused_widget):
+        if context == "scanner" or self._is_scanner_focused(focused_widget):
+            self._set_last_spacebar_context("scanner")
             if hasattr(self.chartink_scanner, '_previous_symbol'):
                 self.chartink_scanner._previous_symbol()
                 return
 
         watchlist_table = self._get_focused_watchlist_table(focused_widget)
+        if context == "watchlist" and watchlist_table is None:
+            watchlist_table = self._get_last_selected_watchlist_table()
         if watchlist_table:
+            self._set_last_spacebar_context("watchlist")
             self._navigate_watchlist_symbols(watchlist_table, direction='previous')
             return
 
@@ -1841,6 +1875,46 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             return
 
         logger.debug("Shift+Space ignored: no focused scanner/watchlist/positions context")
+
+    def _set_last_spacebar_context(self, context: str):
+        """Remember where the latest user mouse selection came from."""
+        self._last_spacebar_context = context
+
+    def _resolve_spacebar_context(self, focused_widget):
+        """Resolve active navigation context from focus first, then last selection source."""
+        if self._get_focused_floating_watchlist(focused_widget):
+            return "floating_watchlist"
+        if self._is_scanner_focused(focused_widget):
+            return "scanner"
+        if self._get_focused_watchlist_table(focused_widget):
+            return "watchlist"
+        return self._last_spacebar_context
+
+    def _get_last_selected_watchlist_table(self):
+        """Return watchlist table that currently has a row selected."""
+        for table in self.watchlist._tables.values():
+            if table.currentRow() != -1:
+                return table
+        return None
+
+    def _bind_spacebar_context_tracking(self):
+        """Bind mouse-selection tracking for scanner/watchlist tables."""
+        try:
+            if hasattr(self.chartink_scanner, "table"):
+                scanner_table = self.chartink_scanner.table
+                if not getattr(scanner_table, "_spacebar_context_bound", False):
+                    scanner_table.cellClicked.connect(
+                        lambda _r, _c: self._set_last_spacebar_context("scanner")
+                    )
+                    scanner_table._spacebar_context_bound = True
+            for table in self.watchlist._tables.values():
+                if not getattr(table, "_spacebar_context_bound", False):
+                    table.cellClicked.connect(
+                        lambda _r, _c: self._set_last_spacebar_context("watchlist")
+                    )
+                    table._spacebar_context_bound = True
+        except Exception as e:
+            logger.debug(f"Failed to bind spacebar context tracking: {e}")
 
     def _get_focused_floating_watchlist(self, widget):
         """Return floating watchlist dialog when focus is inside it."""
@@ -1853,6 +1927,13 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             if current == dlg:
                 return dlg
             current = current.parent()
+        return None
+
+    def _get_active_floating_watchlist(self):
+        """Return floating watchlist when it is the active top-level window."""
+        dlg = getattr(self, "floating_watchlist_dialog", None)
+        if dlg and dlg.isVisible() and dlg.isActiveWindow():
+            return dlg
         return None
 
     def _navigate_floating_watchlist_symbols(self, dialog, direction='next'):
