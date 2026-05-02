@@ -46,7 +46,7 @@ from kiteconnect import KiteConnect
 
 from kite.widgets.status_bar import (
     StatusBar,
-    show_error, show_info, show_order_placed, show_order_failed,
+    show_error, show_info, show_order_failed,
     show_order_completed, show_order_rejected, show_order_cancelled,
     status  # Global status manager
 )
@@ -1356,9 +1356,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
             if order_id:
                 order_data["order_id"] = order_id
-                order_data["status"] = "PENDING"
+                order_data["status"] = "ROUTED"
 
-                show_order_placed(symbol)
+                status.show_order_update(order_data)
                 self.position_manager.start_tracking_order(order_id, order_data)
                 self.position_manager.fetch_positions_from_kite("entry_order_submitted")
                 self._log_order_placement_immediate(order_data, order_id)
@@ -1410,10 +1410,10 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
             if order_id:
                 order_data["order_id"] = order_id
-                order_data["status"] = "PENDING"
+                order_data["status"] = "ROUTED"
                 order_data["_is_exit_order"] = True
 
-                show_order_placed(f"{symbol} (exit)")
+                status.show_order_update(order_data)
                 self.position_manager.start_tracking_order(order_id, order_data)
                 self.position_manager.fetch_positions_from_kite("exit_order_submitted")
                 self._log_order_placement_immediate(order_data, order_id)

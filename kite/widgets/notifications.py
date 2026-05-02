@@ -22,7 +22,7 @@ class ToastNotification(QWidget):
     _active_toasts = []
 
     # Padding and sizing
-    TOAST_WIDTH = 300
+    TOAST_WIDTH = 270
     TOAST_MIN_HEIGHT = 50
     STACK_SPACING = 10
     MARGIN = 20

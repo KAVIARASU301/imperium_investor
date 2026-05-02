@@ -121,8 +121,8 @@ class GlobalStatusManager(QObject):
     # ── High-level helpers ──────────────────────────────────────────────────
 
     def show_order_placed(self, symbol: str = "") -> None:
-        msg = f"{symbol} (MKT)" if symbol else "UNKNOWN (MKT)"
-        self._post("ROUTED", msg, "info", 3000)
+        """Deprecated for order flows; kept for backwards compatibility."""
+        return
 
     def show_order_completed(self, symbol: str = "", pnl: str = "") -> None:
         msg = f"{symbol}" if symbol else "UNKNOWN"
@@ -131,10 +131,14 @@ class GlobalStatusManager(QObject):
         self._post("FILLED", msg, "success", 3000)
 
     def show_order_failed(self, reason: str = "") -> None:
-        self._post("REJECTED", self._translate_message(reason or "Unknown reason"), "error", 3000)
+        translated = self._translate_message(reason or "Unknown reason")
+        detail = translated.split(":", 1)[1].strip() if ":" in translated else translated
+        self._post("REJECTED", detail, "error", 3000)
 
     def show_order_rejected(self, reason: str = "") -> None:
-        self._post("REJECTED", self._translate_message(reason or "Unknown reason"), "error", 3000)
+        translated = self._translate_message(reason or "Unknown reason")
+        detail = translated.split(":", 1)[1].strip() if ":" in translated else translated
+        self._post("REJECTED", detail, "error", 3000)
 
     def show_order_cancelled(self, symbol: str = "") -> None:
         msg = f"{symbol}" if symbol else "UNKNOWN"
@@ -160,8 +164,11 @@ class GlobalStatusManager(QObject):
             "MODIFY PENDING",
             "OPEN",
             "PENDING",
+            "SUBMITTED",
             "TRIGGER PENDING",
             "AMO REQ RECEIVED",
+            "AMO SUBMITTED",
+            "MODIFIED",
         }
         if raw_status in ignored_states:
             return
@@ -191,7 +198,8 @@ class GlobalStatusManager(QObject):
             self._post("ROUTED", f"{direction_sign}{qty} {symbol} ({order_type})", "info", 3000)
             return
 
-        self._post(raw_status or "ORDER UPDATE", f"{symbol} | QTY: {qty}", "info", 3000)
+        # Ignore any remaining non-terminal statuses to prevent toast spam.
+        return
 
     def show_position_update(self, symbol: str, pnl: str) -> None:
         pass
@@ -199,7 +207,18 @@ class GlobalStatusManager(QObject):
     def show_error(self, message: str) -> None:
         self._post("ERROR", self._translate_message(message), "error", 6000)
 
+    @staticmethod
+    def _is_order_lifecycle_text(message: str) -> bool:
+        text = (message or "").upper()
+        order_tokens = (
+            "ORDER", "ROUTED", "FILLED", "REJECTED", "CANCELED", "CANCELLED",
+            "SUBMITTING", "ENTRY", "EXIT", "QTY", "MKT", "LMT"
+        )
+        return any(token in text for token in order_tokens)
+
     def show_info(self, message: str) -> None:
+        if self._is_order_lifecycle_text(message):
+            return
         self._post("System Info", message, "info", 4000)
 
     def show_market_status(self, status_text: str) -> None:
@@ -242,6 +261,8 @@ class GlobalStatusManager(QObject):
             "action": "info",
         }
         kind = level_map.get(level.lower(), "info")
+        if self._is_order_lifecycle_text(message):
+            return
         if kind == "error":
             message = self._translate_message(message)
         self._post("Notification", message, kind, timeout)
@@ -266,31 +287,31 @@ class GlobalStatusManager(QObject):
         msg_lower = cleaned.lower()
 
         if "market is closed" in msg_lower or "after market" in msg_lower or "amo" in msg_lower:
-            return "REJECTED: Market Is Closed"
+            return "REJECTED: MARKET CLOSED"
 
         if "insufficient" in msg_lower and "margin" in msg_lower:
-            return "REJECTED: Insufficient Funds"
+            return "REJECTED: INSUFFICIENT FUNDS"
         if "available cash" in msg_lower or "buying power" in msg_lower:
-            return "REJECTED: Not Enough Buying Power"
+            return "REJECTED: INSUFFICIENT BUYING POWER"
 
         if "trigger price" in msg_lower:
-            return "REJECTED: Invalid Trigger Price"
+            return "REJECTED: INVALID TRIGGER PRICE"
         if "limit price" in msg_lower:
-            return "REJECTED: Invalid Limit Price"
+            return "REJECTED: INVALID LIMIT PRICE"
         if any(key in msg_lower for key in ("circuit breaker", "upper circuit", "lower circuit")):
-            return "REJECTED: Stock Hit Circuit Limit"
+            return "REJECTED: CIRCUIT LIMIT"
         if "rms" in msg_lower and "blocked" in msg_lower:
-            return "BLOCKED: RMS Rule Violation"
+            return "REJECTED: RMS RULE VIOLATION"
 
         if "timeout" in msg_lower:
-            return "ERROR: Network Timeout"
+            return "ERROR: NETWORK TIMEOUT"
         if "502" in msg_lower or "bad gateway" in msg_lower:
-            return "ERROR: Broker API Down"
+            return "ERROR: BROKER API DOWN"
 
         if len(cleaned) > 65:
-            return cleaned[:62] + "..."
+            return (cleaned[:62] + "...").upper()
 
-        return cleaned
+        return cleaned.upper()
 
 
 # ─── Module-level singleton + convenience functions ───────────────────────────
