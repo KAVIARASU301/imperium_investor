@@ -114,6 +114,9 @@ _FLASH_DURATION = 400   # ms
 _REDRAW_INTERVAL = 200  # ms  (~5 fps — human-readable)
 
 
+_FLOATING_POS_STATE_KEY = "floating_positions_dialog"
+_DEFAULT_DIALOG_SIZE = QSize(560, 360)
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  POSITION DATA CLASS  (same shape as positions_table.py)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -250,7 +253,7 @@ class FloatingPositionsDialog(QDialog):
         super().__init__(parent, flags)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
         self.setMinimumSize(400, 180)
-        self.resize(560, 320)
+        self.resize(_DEFAULT_DIALOG_SIZE)
 
         # ── State ────────────────────────────────────────────────────────────
         self._positions: Dict[str, _PosRow] = {}       # symbol → row
@@ -277,6 +280,8 @@ class FloatingPositionsDialog(QDialog):
         self._flash_timer = QTimer(self)
         self._flash_timer.timeout.connect(self._decay_flashes)
         self._flash_timer.start(40)     # ~25 fps flash decay
+
+        self._restore_window_state()
 
     # ═══════════════════════════════════════════════════════════════════════
     # UI CONSTRUCTION
@@ -453,6 +458,44 @@ class FloatingPositionsDialog(QDialog):
             flags &= ~Qt.WindowType.WindowStaysOnTopHint
         self.setWindowFlags(flags)
         self.show()
+
+    def _load_state(self) -> Dict:
+        parent = self.parent()
+        cfg = getattr(parent, "config_manager", None)
+        if not cfg:
+            return {}
+        state = cfg.load_window_state() or {}
+        if not isinstance(state, dict):
+            return {}
+        return state.get(_FLOATING_POS_STATE_KEY, {}) or {}
+
+    def _save_window_state(self):
+        parent = self.parent()
+        cfg = getattr(parent, "config_manager", None)
+        if not cfg:
+            return
+        state = cfg.load_window_state() or {}
+        if not isinstance(state, dict):
+            state = {}
+        state[_FLOATING_POS_STATE_KEY] = {
+            "width": self.width(),
+            "height": self.height(),
+        }
+        cfg.save_window_state(state)
+
+    def _restore_window_state(self):
+        saved = self._load_state()
+        width = int(saved.get("width", _DEFAULT_DIALOG_SIZE.width()))
+        height = int(saved.get("height", _DEFAULT_DIALOG_SIZE.height()))
+        self.resize(max(self.minimumWidth(), width), max(self.minimumHeight(), height))
+
+    def hideEvent(self, event):
+        self._save_window_state()
+        super().hideEvent(event)
+
+    def closeEvent(self, event):
+        self._save_window_state()
+        super().closeEvent(event)
 
     # ═══════════════════════════════════════════════════════════════════════
     # RESIZE
