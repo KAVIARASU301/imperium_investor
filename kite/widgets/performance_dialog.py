@@ -183,23 +183,25 @@ class PerformanceDialog(QDialog):
             lbl.setStyleSheet("color: #E0E0E0;")
 
     def _update_metrics(self, pnl_by_day: dict):
-        trades = self._get_all_trades()
-        if not trades:
+        try:
+            metrics = self.trade_logger.get_performance_metrics()
+        except Exception as exc:
+            logger.error("Error fetching performance metrics: %s", exc, exc_info=True)
             self._clear_metrics()
             return
 
-        pnls = [float(t.get("pnl", 0) or 0) for t in trades]
-        wins = [p for p in pnls if p > 0]
-        losses = [p for p in pnls if p < 0]
+        total_trades = int(metrics.get("total_trades", 0) or 0)
+        if total_trades == 0:
+            self._clear_metrics()
+            return
 
-        total_trades = len(pnls)
-        total_pnl = sum(pnls)
-        win_rate = (len(wins) / total_trades) * 100 if total_trades else 0
-        avg_win = sum(wins) / len(wins) if wins else 0
-        avg_loss = abs(sum(losses) / len(losses)) if losses else 0
-        expectancy = (win_rate / 100) * avg_win - ((100 - win_rate) / 100) * avg_loss
-        profit_factor = sum(wins) / abs(sum(losses)) if losses else float("inf")
-        rr_ratio = avg_win / avg_loss if avg_loss else 0
+        total_pnl = float(metrics.get("total_pnl", 0) or 0)
+        expectancy = float(metrics.get("expectancy", 0) or 0)
+        win_rate = float(metrics.get("win_rate", 0) or 0)
+        profit_factor = float(metrics.get("profit_factor", 0) or 0)
+        avg_win = float(metrics.get("avg_win", 0) or 0)
+        avg_loss = abs(float(metrics.get("avg_loss", 0) or 0))
+        rr_ratio = float(metrics.get("rr_ratio", 0) or 0)
 
         rr_quality = "Poor" if rr_ratio < 1 else "Not Bad" if rr_ratio < 1.5 else "Good" if rr_ratio < 2 else "Very Good"
 

@@ -1,12 +1,12 @@
 # kite/core/trade_logger.py
 """
-TradeLogger — Unified SQLite trade logger with broker field.
+TradeLogger — SQLite trade logger with broker/mode scoping.
 
 Changes from original:
-  1. Single database file (trade_history.db) used by ALL brokers — not separate
-     files per mode. Broker is a column, not a filename suffix.
-  2. Added `broker` and `mode` columns so Kite live, Kite paper, and IBKR
-     trades all coexist and can be filtered independently.
+  1. Database files are separated by broker+mode (e.g. kite_live / kite_paper)
+     so live and paper ledgers are physically isolated by default.
+  2. Added `broker` and `mode` columns so records remain self-describing and
+     can still be filtered when reading legacy or custom shared databases.
   3. Proper async shutdown: shutdown_event + drain queue before closing DB.
   4. Uses PnLCalculator for all metrics — no inline P&L logic here.
   5. Schema migration — adds missing columns to existing databases on startup.
@@ -264,8 +264,8 @@ class TradeLogger(QObject):
         if db_path is None:
             db_dir = os.path.join(os.path.expanduser("~"), ".qullamaggie")
             os.makedirs(db_dir, exist_ok=True)
-            # Single unified DB for all brokers/modes
-            self.db_path = os.path.join(db_dir, "trade_history.db")
+            db_name = f"trade_history_{self.broker}_{self.mode}.db"
+            self.db_path = os.path.join(db_dir, db_name)
         else:
             self.db_path = db_path
 
