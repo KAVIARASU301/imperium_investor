@@ -86,6 +86,7 @@ class HeaderToolbar(QToolBar):
     buy_order_requested              = Signal(str)
     sell_order_requested             = Signal(str)
     color_settings_requested         = Signal()
+    positions_requested              = Signal()
     account_refresh_requested        = Signal()
 
     def __init__(self, trader: Union[KiteConnect, Any], parent=None):
@@ -141,6 +142,14 @@ class HeaderToolbar(QToolBar):
         self.sell_button.setFixedSize(42, 22)
         self.sell_button.clicked.connect(self._on_sell_clicked)
         self.addWidget(self.sell_button)
+
+        self._add_section_gap(4)
+        
+        self.positions_button = QPushButton("POSITIONS")
+        self.positions_button.setObjectName("tradingActionButton")
+        self.positions_button.setFixedHeight(22)
+        self.positions_button.clicked.connect(self.positions_requested.emit)
+        self.addWidget(self.positions_button)
 
     def _create_center_spacer(self):
         spacer = QWidget()
