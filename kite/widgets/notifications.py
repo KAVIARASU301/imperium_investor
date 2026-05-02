@@ -23,7 +23,7 @@ class ToastNotification(QWidget):
 
     # Padding and sizing
     TOAST_WIDTH = 270
-    TOAST_MIN_HEIGHT = 50
+    TOAST_MIN_HEIGHT = 0
     STACK_SPACING = 10
     MARGIN = 20
 
@@ -50,7 +50,7 @@ class ToastNotification(QWidget):
         self._setup_ui(title, message)
         self.setFixedWidth(self.TOAST_WIDTH)
         self.setMinimumHeight(self.TOAST_MIN_HEIGHT)
-        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.MinimumExpanding)
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
         self.adjustSize()
 
         # Shadow effect for professional depth
@@ -100,7 +100,6 @@ class ToastNotification(QWidget):
         self.message_label.adjustSize()
         text_layout.addWidget(self.message_label)
 
-        text_layout.addStretch()
         layout.addLayout(text_layout)
 
         self.adjustSize()
