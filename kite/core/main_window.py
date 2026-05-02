@@ -792,6 +792,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.header_toolbar.order_history_requested.connect(self._show_order_history_dialog)
         self.header_toolbar.pending_orders_requested.connect(self._show_pending_orders_dialog)
         self.header_toolbar.performance_dashboard_requested.connect(self._show_performance_dialog)
+        self.header_toolbar.positions_requested.connect(self._show_floating_positions_dialog)
 
         # Alert System
         if self.alert_system:
