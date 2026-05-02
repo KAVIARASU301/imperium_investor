@@ -621,8 +621,35 @@ class PerformanceDialog(QDialog):
                 title_font=dict(color='white')
             )
 
-            # Convert to HTML and display
-            html_content = fig.to_html(include_plotlyjs='cdn')
+            # Convert to HTML and display (force zero body margin to avoid white border).
+            plot_html = fig.to_html(
+                include_plotlyjs='cdn',
+                full_html=False,
+                config={'displayModeBar': False}
+            )
+            html_content = f"""
+                <html>
+                    <head>
+                        <style>
+                            html, body {{
+                                margin: 0;
+                                padding: 0;
+                                width: 100%;
+                                height: 100%;
+                                background-color: #000000;
+                                overflow: hidden;
+                            }}
+                            #plotContainer {{
+                                width: 100%;
+                                height: 100%;
+                            }}
+                        </style>
+                    </head>
+                    <body>
+                        <div id="plotContainer">{plot_html}</div>
+                    </body>
+                </html>
+            """
             self.chart_view.setHtml(html_content)
 
         except Exception as e:
@@ -704,8 +731,8 @@ class PerformanceDialog(QDialog):
             }
 
             #kpiWidget {
-                background-color: #2d2d2d;
-                border: 1px solid #444;
+                background-color: transparent;
+                border: 1px solid #3a3a3a;
                 border-radius: 6px;
             }
 
@@ -734,6 +761,7 @@ class PerformanceDialog(QDialog):
                 color: #bbbbbb;
                 font-size: 12px;
                 background-color: transparent;
+                border: none;
             }
 
             QLabel {
