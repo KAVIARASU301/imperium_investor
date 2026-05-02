@@ -204,6 +204,7 @@ class PnlHistoryDialog(QDialog):
 
     def _apply_styles(self):
         self.setStyleSheet("""
+            QLabel { background-color: transparent; }
             #mainContainer { background-color: #161A25; border: 1px solid #3A4458; border-radius: 12px; }
             #monthYearLabel { color: #FFFFFF; font-size: 20px; font-weight: 300; }
             #totalPnlLabel { font-size: 18px; font-weight: 600; }
