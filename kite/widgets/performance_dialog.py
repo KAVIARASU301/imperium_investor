@@ -16,6 +16,7 @@ import plotly.graph_objects as go
 # Import your single-source-of-truth utilities
 from kite.utils.pnl_calculator import PnLCalculator, PerformanceMetrics
 from kite.utils.color_system import get_color_theme_manager
+from kite.widgets.pnl_history_dialog import PnlHistoryDialog
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,7 @@ class PerformanceDialog(QDialog):
         self.trade_logger = trade_logger
         self._drag_pos = None
         self.kpi_labels: Dict[str, QLabel] = {}
+        self.pnl_history_dialog = None
 
         # Bind to Color Theme System
         self.theme_manager = get_color_theme_manager()
@@ -160,6 +162,11 @@ class PerformanceDialog(QDialog):
         title = QLabel("PERFORMANCE ANALYTICS")
         title.setObjectName("dialogTitle")
 
+        history_btn = QPushButton("Calendar")
+        history_btn.setObjectName("headerBtn")
+        history_btn.clicked.connect(self._show_pnl_history)
+        history_btn.setFixedSize(72, 28)
+
         refresh_btn = QPushButton("⟳")
         refresh_btn.setObjectName("headerBtn")
         refresh_btn.clicked.connect(self.refresh_data)
@@ -172,9 +179,18 @@ class PerformanceDialog(QDialog):
 
         header_layout.addWidget(title)
         header_layout.addStretch()
+        header_layout.addWidget(history_btn)
         header_layout.addWidget(refresh_btn)
         header_layout.addWidget(close_btn)
         return header_layout
+
+
+    def _show_pnl_history(self):
+        if self.pnl_history_dialog is None or not self.pnl_history_dialog.isVisible():
+            self.pnl_history_dialog = PnlHistoryDialog(self.trade_logger, self)
+        self.pnl_history_dialog.show()
+        self.pnl_history_dialog.raise_()
+        self.pnl_history_dialog.activateWindow()
 
     def _create_kpi_section(self) -> QWidget:
         kpi_container = QWidget()
