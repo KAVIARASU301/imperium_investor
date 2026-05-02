@@ -1788,6 +1788,11 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         """Handle spacebar press based on focused widget"""
         focused_widget = self.focusWidget()
 
+        floating_watchlist = self._get_focused_floating_watchlist(focused_widget)
+        if floating_watchlist:
+            self._navigate_floating_watchlist_symbols(floating_watchlist, direction='next')
+            return
+
         # Check scanner focus
         if self._is_scanner_focused(focused_widget):
             if hasattr(self.chartink_scanner, '_next_symbol'):
@@ -1805,13 +1810,16 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             self._navigate_position_symbols(direction='next')
             return
 
-        # Fallback to scanner
-        if hasattr(self.chartink_scanner, '_next_symbol'):
-            self.chartink_scanner._next_symbol()
+        logger.debug("Spacebar ignored: no focused scanner/watchlist/positions context")
 
     def _handle_global_shift_spacebar(self):
         """Handle Shift+spacebar press based on focused widget"""
         focused_widget = self.focusWidget()
+
+        floating_watchlist = self._get_focused_floating_watchlist(focused_widget)
+        if floating_watchlist:
+            self._navigate_floating_watchlist_symbols(floating_watchlist, direction='previous')
+            return
 
         if self._is_scanner_focused(focused_widget):
             if hasattr(self.chartink_scanner, '_previous_symbol'):
@@ -1827,8 +1835,44 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             self._navigate_position_symbols(direction='previous')
             return
 
-        if hasattr(self.chartink_scanner, '_previous_symbol'):
-            self.chartink_scanner._previous_symbol()
+        logger.debug("Shift+Space ignored: no focused scanner/watchlist/positions context")
+
+    def _get_focused_floating_watchlist(self, widget):
+        """Return floating watchlist dialog when focus is inside it."""
+        dlg = getattr(self, "floating_watchlist_dialog", None)
+        if not dlg or not dlg.isVisible() or not widget:
+            return None
+
+        current = widget
+        while current:
+            if current == dlg:
+                return dlg
+            current = current.parent()
+        return None
+
+    def _navigate_floating_watchlist_symbols(self, dialog, direction='next'):
+        """Navigate symbols in floating watchlist dialog."""
+        try:
+            table = getattr(dialog, "table", None)
+            if table is None:
+                return
+
+            count = table.rowCount()
+            if count <= 0:
+                return
+
+            row = table.currentRow()
+            if row < 0:
+                row = 0
+            elif direction == 'next':
+                row = (row + 1) % count
+            else:
+                row = (row - 1) % count
+
+            dialog._nav_idx = row
+            dialog._select_row(row)
+        except Exception as e:
+            logger.warning(f"Error navigating floating watchlist symbols: {e}")
 
     def _is_scanner_focused(self, widget) -> bool:
         """Check if the scanner has focus"""
