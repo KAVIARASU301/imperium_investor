@@ -164,18 +164,18 @@ class GlobalStatusManager(QObject):
             play_order_placed()
             return
         if event == "filled":
-            self._post("FILLED", f"{symbol} {detail}".strip(), "success", 3000)
+            self._post("FILLED", f"{symbol} {detail}".strip(), "success", 3000, sub_kind="filled")
             play_entry_exit()
             return
         if event == "rejected":
-            self._post("REJECTED", f"{symbol} — {detail}".strip(" —"), "error", 4000)
+            self._post("REJECTED", f"{symbol} — {detail}".strip(" —"), "error", 4000, sub_kind="rejected")
             play_error()
             return
         if event == "cancelled":
             self._post("CANCELLED", symbol, "warn", 3000)
             return
         if event == "partial":
-            self._post("PARTIAL", f"{symbol} {detail}".strip(), "warn", 3000)
+            self._post("PARTIAL", f"{symbol} {detail}".strip(), "warn", 3000, sub_kind="partial_fill")
             play_alert()
             return
 
@@ -183,17 +183,17 @@ class GlobalStatusManager(QObject):
         msg = f"{symbol}" if symbol else "UNKNOWN"
         if pnl:
             msg = f"{msg} | PNL: {pnl}"
-        self._post("FILLED", msg, "success", 3000)
+        self._post("FILLED", msg, "success", 3000, sub_kind="filled")
 
     def show_order_failed(self, reason: str = "") -> None:
         translated = self._translate_message(reason or "Unknown reason")
         detail = translated.split(":", 1)[1].strip() if ":" in translated else translated
-        self._post("REJECTED", detail, "error", 3000)
+        self._post("REJECTED", detail, "error", 3000, sub_kind="rejected")
 
     def show_order_rejected(self, reason: str = "") -> None:
         translated = self._translate_message(reason or "Unknown reason")
         detail = translated.split(":", 1)[1].strip() if ":" in translated else translated
-        self._post("REJECTED", detail, "error", 3000)
+        self._post("REJECTED", detail, "error", 3000, sub_kind="rejected")
 
     def show_order_cancelled(self, symbol: str = "") -> None:
         msg = f"{symbol}" if symbol else "UNKNOWN"
@@ -241,7 +241,7 @@ class GlobalStatusManager(QObject):
         direction_sign = "+" if side == "BUY" else "-"
 
         if raw_status in {"COMPLETE", "FILLED"}:
-            self._post("FILLED", f"{direction_sign}{qty} {symbol} @ {price}", "success", 3000)
+            self._post("FILLED", f"{direction_sign}{qty} {symbol} @ {price}", "success", 3000, sub_kind="filled")
             return
 
         if raw_status == "REJECTED":
@@ -252,7 +252,7 @@ class GlobalStatusManager(QObject):
             )
             clean_reason = self._translate_message(reason)
             short_reason = (clean_reason[:50] + "...") if len(clean_reason) > 50 else clean_reason
-            self._post("REJECTED", f"{symbol} [{short_reason}]", "error", 3000)
+            self._post("REJECTED", f"{symbol} [{short_reason}]", "error", 3000, sub_kind="rejected")
             return
 
         if raw_status in {"CANCELLED", "CANCELED"}:
@@ -266,7 +266,9 @@ class GlobalStatusManager(QObject):
         pass
 
     def show_error(self, message: str) -> None:
-        self._post("ERROR", self._translate_message(message), "error", 6000)
+        translated = self._translate_message(message)
+        sub_kind = "network" if "NETWORK" in translated else ("rate_limit" if "RATE" in translated else "rejected")
+        self._post("ERROR", translated, "error", 6000, sub_kind=sub_kind)
 
     @staticmethod
     def _is_order_lifecycle_text(message: str) -> bool:
@@ -330,11 +332,38 @@ class GlobalStatusManager(QObject):
 
     # ── Internal ──────────────────────────────────────────────────────────
 
-    def _post(self, title: str, message: str, kind: str, ttl: int) -> None:
+    @staticmethod
+    def _resolve_border_color(sub_kind: str | None) -> str | None:
+        border_by_sub_kind = {
+            "rejected": "#e05555",     # red
+            "filled": "#4ec994",       # teal
+            "network": "#d4a84b",      # amber
+            "rate_limit": "#b081ff",   # purple
+            "partial_fill": "#6a9cff", # blue
+        }
+        if not sub_kind:
+            return None
+        return border_by_sub_kind.get(str(sub_kind).lower())
+
+    def _post(
+        self,
+        title: str,
+        message: str,
+        kind: str,
+        ttl: int,
+        sub_kind: str | None = None,
+    ) -> None:
         """Creates and displays the floating popup."""
         try:
             adaptive_ttl = self._resolve_toast_ttl(message, kind, ttl)
-            toast = ToastNotification(title, message, kind, adaptive_ttl)
+            border_color = self._resolve_border_color(sub_kind)
+            toast = ToastNotification(
+                title,
+                message,
+                kind,
+                adaptive_ttl,
+                border_color=border_color,
+            )
             toast.show_toast()
         except Exception as e:
             logger.error(f"Failed to show popup: {e}")

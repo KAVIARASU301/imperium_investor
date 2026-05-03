@@ -30,7 +30,15 @@ class ToastNotification(QWidget):
     STACK_SPACING = 10
     MARGIN = 20
 
-    def __init__(self, title: str, message: str, kind: str = "info", duration: int = 3000, parent=None):
+    def __init__(
+        self,
+        title: str,
+        message: str,
+        kind: str = "info",
+        duration: int = 3000,
+        parent=None,
+        border_color: str | None = None,
+    ):
         super().__init__(parent)
 
         # Determine colors based on kind
@@ -40,6 +48,8 @@ class ToastNotification(QWidget):
             "warn": {"bg": "#2b251e", "border": "#d4a84b", "text": "#e0e0e0"},
             "info": {"bg": "#1e1e1e", "border": "#6a9cff", "text": "#e0e0e0"},
         }.get(kind, {"bg": "#1e1e1e", "border": "#888888", "text": "#e0e0e0"})
+        if border_color:
+            self.theme["border"] = border_color
 
         self.setWindowFlags(
             Qt.WindowType.Tool |
