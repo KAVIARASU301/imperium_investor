@@ -24,6 +24,7 @@ class ToastNotification(QWidget):
     # Padding and sizing
     TOAST_MIN_WIDTH = 220
     TOAST_MAX_WIDTH = 420
+    TOAST_TEXT_MAX_WIDTH = 340
     TOAST_MIN_HEIGHT = 0
     STACK_SPACING = 10
     MARGIN = 20
@@ -98,6 +99,8 @@ class ToastNotification(QWidget):
         self.message_label = QLabel(message)
         self.message_label.setStyleSheet(f"color: {self.theme['text']}; font-size: 11px;")
         self.message_label.setWordWrap(True)
+        self.message_label.setMaximumWidth(self.TOAST_TEXT_MAX_WIDTH)
+        self.message_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         self.message_label.adjustSize()
         text_layout.addWidget(self.message_label)
 
@@ -121,7 +124,7 @@ class ToastNotification(QWidget):
         toast_width = max(self.TOAST_MIN_WIDTH, min(self.TOAST_MAX_WIDTH, chrome_width + text_width))
 
         self.setFixedWidth(toast_width)
-        self.message_label.setMaximumWidth(max(1, toast_width - chrome_width))
+        self.message_label.setMaximumWidth(max(1, min(self.TOAST_TEXT_MAX_WIDTH, toast_width - chrome_width)))
         self.adjustSize()
 
     def paintEvent(self, event):
