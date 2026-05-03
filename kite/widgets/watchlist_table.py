@@ -5,7 +5,7 @@ Institutional Watchlist — TC2000-grade, production-ready.
 Features
 ────────
   • Unlimited user-named watchlists (create / rename / delete)
-  • ⚑ Flag column (20 px) — 4 states: none → green → amber → red → none
+  • ⚑ Flag column (20 px) — 2 states: none ↔ green
     Flags are per-symbol and persist globally across all watchlists.
   • Heat-map % change coloring (gradient magnitude, not binary red/green)
   • Full TC2000 color system (consistency_rules palette, zero deviation)
@@ -74,10 +74,8 @@ class _C:
     BLUE    = "#3b82f6"   # informational
     SEL     = "#1a2840"   # selected row
 
-    # Flag palette (4-state cycle)
-    FLAG_GREEN = "#00d4a8"   # level-1 importance
-    FLAG_AMBER = "#f59e0b"   # level-2 importance
-    FLAG_RED   = "#ff4d6a"   # level-3 importance / urgent
+    # Flag color (single-state)
+    FLAG_GREEN = "#00d4a8"
 
     # Heat-map change % bands
     @staticmethod
@@ -101,20 +99,16 @@ _SANS = "'Segoe UI', -apple-system, Roboto, Arial, sans-serif"
 #  FLAG STATES
 # ─────────────────────────────────────────────────────────────────────────────
 
-_FLAG_CYCLE = [None, "green", "amber", "red"]
+_FLAG_CYCLE = [None, "green"]
 
 _FLAG_DISPLAY = {
     None:    ("",  _C.T3),
     "green": ("⚑", _C.FLAG_GREEN),
-    "amber": ("⚑", _C.FLAG_AMBER),
-    "red":   ("⚑", _C.FLAG_RED),
 }
 
 _FLAG_TOOLTIP = {
     None:    "Click to flag",
-    "green": "Watching  — click to upgrade",
-    "amber": "Interested — click to upgrade",
-    "red":   "High priority — click to clear",
+    "green": "Flagged — click to remove",
 }
 
 
@@ -825,9 +819,8 @@ class TradingTable(QTableWidget):
         menu.setObjectName("wlCtxMenu")
 
         flag_state = _flag_store.get(sym)
-        next_states = {None: "🚩 Flag (Green)", "green": "🚩 Upgrade (Amber)",
-                       "amber": "🚩 Upgrade (Red)", "red": "🚩 Clear Flag"}
-        flag_act = menu.addAction(next_states.get(flag_state, "🚩 Flag"))
+        next_states = {None: "🚩 Add Flag", "green": "🚩 Remove Flag"}
+        flag_act = menu.addAction(next_states.get(flag_state, "🚩 Toggle Flag"))
         flag_act.triggered.connect(lambda: self._cycle_flag(row, sym))
         menu.addSeparator()
 
