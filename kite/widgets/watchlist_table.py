@@ -412,17 +412,16 @@ _COL_SYMBOL = 1
 _COL_LTP    = 2
 _COL_VOL    = 3
 _COL_CHG    = 4
-_COL_REMOVE = 5
-_NUM_COLS   = 6
+_NUM_COLS   = 5
 
-_HEADERS = ["", "Symbol", "LTP", "Vol", "Chg%", ""]
+_HEADERS = ["", "Symbol", "LTP", "Vol", "Chg%"]
 
 
 class TradingTable(QTableWidget):
     """
     Single watchlist table.
 
-    Columns: ⚑ | Symbol | LTP | Vol | Chg% | ×
+    Columns: ⚑ | Symbol | LTP | Vol | Chg%
 
     Flag column (20 px): click to cycle flag state.
     All numerics in monospace. Heat-map on Chg%.
@@ -485,10 +484,6 @@ class TradingTable(QTableWidget):
         # Data cols — fit content
         for col in (_COL_LTP, _COL_VOL, _COL_CHG):
             hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
-
-        # Remove btn — fixed
-        hdr.setSectionResizeMode(_COL_REMOVE, QHeaderView.ResizeMode.Fixed)
-        self.setColumnWidth(_COL_REMOVE, 22)
 
         self.verticalHeader().setVisible(False)
         self.verticalHeader().setDefaultSectionSize(22)
@@ -659,9 +654,6 @@ class TradingTable(QTableWidget):
             # Flag cell
             self._paint_flag_cell(row, sym)
 
-            # Remove button
-            self._set_remove_btn(row)
-
             data = self._watchlist_data.get(sym)
             if data:
                 self._update_row(row, data)
@@ -739,15 +731,6 @@ class TradingTable(QTableWidget):
         f.setPointSize(9)
         item.setFont(f)
 
-    def _set_remove_btn(self, row: int):
-        btn = QPushButton("×")
-        btn.setObjectName("removeButton")
-        btn.setFixedSize(16, 16)
-        btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        btn.setToolTip("Remove from watchlist")
-        btn.clicked.connect(partial(self._remove_at_row, row))
-        self.setCellWidget(row, _COL_REMOVE, btn)
-
     def _flush_dirty(self):
         if not self._dirty:
             return
@@ -800,22 +783,16 @@ class TradingTable(QTableWidget):
                 _flag_store.cycle(sym)
                 self._paint_flag_cell(row, sym)
             return
-        if col != _COL_REMOVE:
-            sym = self._symbol_at_row(row)
-            if sym and not sym.startswith("─"):
-                self.symbol_selected.emit(sym)
-
-    def _remove_at_row(self, row: int):
-        syms = list(self._symbols)
-        if 0 <= row < len(syms):
-            self.remove_symbol(syms[row])
+        sym = self._symbol_at_row(row)
+        if sym and not sym.startswith("─"):
+            self.symbol_selected.emit(sym)
 
     def _on_focus_out(self, event):
         self.clearSelection()
         QTableWidget.focusOutEvent(self, event)
 
     def _on_header_click(self, col: int):
-        if col in (_COL_FLAG, _COL_REMOVE):
+        if col == _COL_FLAG:
             return
         if self._sort_col == col:
             self._sort_asc = not self._sort_asc
@@ -856,14 +833,6 @@ class TradingTable(QTableWidget):
 
         chart_act = menu.addAction("📈  Open Chart")
         chart_act.triggered.connect(lambda: self.symbol_selected.emit(sym))
-
-        menu.addSeparator()
-        buy_act  = menu.addAction("BUY")
-        sell_act = menu.addAction("SELL")
-        bo_act   = menu.addAction("Bracket Order")
-        buy_act.triggered.connect(lambda: self.advanced_buy_order_requested.emit(sym))
-        sell_act.triggered.connect(lambda: self.advanced_sell_order_requested.emit(sym))
-        bo_act.triggered.connect(lambda: self.bracket_order_requested.emit(sym))
 
         menu.addSeparator()
         rm_act = menu.addAction("✕  Remove")
@@ -913,10 +882,8 @@ class TradingTable(QTableWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         hdr = self.horizontalHeader()
-        hdr.setSectionResizeMode(_COL_FLAG,   QHeaderView.ResizeMode.Fixed)
-        hdr.setSectionResizeMode(_COL_REMOVE, QHeaderView.ResizeMode.Fixed)
-        self.setColumnWidth(_COL_FLAG,   20)
-        self.setColumnWidth(_COL_REMOVE, 22)
+        hdr.setSectionResizeMode(_COL_FLAG, QHeaderView.ResizeMode.Fixed)
+        self.setColumnWidth(_COL_FLAG, 20)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1373,25 +1340,6 @@ class TabbedWatchlistWidget(QWidget):
             QHeaderView {
                 background-color: #0b1019;
                 border: none;
-            }
-
-            /* ── Remove button ────────────────────────────────────── */
-            QPushButton#removeButton {
-                background-color: transparent;
-                color: #cc4444;
-                border: none;
-                border-radius: 4px;
-                font-size: 14px;
-                font-weight: normal;
-                padding: 0px;
-                margin: 0px;
-            }
-            QPushButton#removeButton:hover {
-                background-color: #ff6666;
-                color: #ffffff;
-            }
-            QPushButton#removeButton:pressed {
-                background-color: #aa3333;
             }
 
             /* ── Context menu ─────────────────────────────────────── */
