@@ -151,6 +151,34 @@ class GlobalStatusManager(QObject):
         """Deprecated for order flows; kept for backwards compatibility."""
         return
 
+    def notify(self, event: str, symbol: str = "", detail: str = "") -> None:
+        """
+        Single entry point for order lifecycle notifications.
+        Handles toast and sound atomically.
+
+        event: 'submitted' | 'filled' | 'rejected' | 'cancelled' | 'partial'
+        """
+        from kite.utils.sounds import play_alert, play_entry_exit, play_error, play_order_placed
+
+        if event == "submitted":
+            play_order_placed()
+            return
+        if event == "filled":
+            self._post("FILLED", f"{symbol} {detail}".strip(), "success", 3000)
+            play_entry_exit()
+            return
+        if event == "rejected":
+            self._post("REJECTED", f"{symbol} — {detail}".strip(" —"), "error", 4000)
+            play_error()
+            return
+        if event == "cancelled":
+            self._post("CANCELLED", symbol, "warn", 3000)
+            return
+        if event == "partial":
+            self._post("PARTIAL", f"{symbol} {detail}".strip(), "warn", 3000)
+            play_alert()
+            return
+
     def show_order_completed(self, symbol: str = "", pnl: str = "") -> None:
         msg = f"{symbol}" if symbol else "UNKNOWN"
         if pnl:

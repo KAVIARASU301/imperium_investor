@@ -1397,7 +1397,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 order_data["order_id"] = order_id
                 order_data["status"] = "ROUTED"
 
-                status.show_order_update(order_data)
+                status.notify("submitted", symbol)
                 self.position_manager.start_tracking_order(order_id, order_data)
                 self.position_manager.fetch_positions_from_kite("entry_order_submitted")
                 self._log_order_placement_immediate(order_data, order_id)
@@ -1409,10 +1409,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         except Exception as e:
             symbol = order_data.get("tradingsymbol", "?")
             compact_error = self._compact_broker_error(e)
-            ui_msg = f"{symbol} — {compact_error}"
-
-            show_order_failed(ui_msg)
-            play_error()
+            status.notify("rejected", symbol, compact_error)
             logger.error(f"[ENTRY] Order placement exception: {e}", exc_info=True)
 
     def _handle_exit_order_placement(self, order_data: Dict[str, Any]):
@@ -1447,7 +1444,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 order_data["status"] = "ROUTED"
                 order_data["_is_exit_order"] = True
 
-                status.show_order_update(order_data)
+                status.notify("submitted", symbol)
                 self.position_manager.start_tracking_order(order_id, order_data)
                 self.position_manager.fetch_positions_from_kite("exit_order_submitted")
                 self._log_order_placement_immediate(order_data, order_id)
@@ -1459,10 +1456,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         except Exception as e:
             symbol = order_data.get("tradingsymbol", "?")
             compact_error = self._compact_broker_error(e)
-            ui_msg = f"{symbol} exit — {compact_error}"
-
-            show_order_failed(ui_msg)
-            play_error()
+            status.notify("rejected", symbol, compact_error)
             logger.error(f"[EXIT] Exit placement exception: {e}", exc_info=True)
 
     def _log_order_placement_immediate(self, order_data: Dict[str, Any], order_id: str):

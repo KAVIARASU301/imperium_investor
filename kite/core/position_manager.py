@@ -26,7 +26,6 @@ from datetime import datetime, timedelta
 from PySide6.QtCore import QObject, Signal, QTimer, Slot, QThreadPool
 
 from kite.widgets.status_bar import show_error, show_info, status as global_status
-from kite.utils.sounds import play_alert, play_entry_exit, play_error
 from kite.utils.worker import Worker
 
 logger = logging.getLogger(__name__)
@@ -169,7 +168,11 @@ class PositionManager(QObject):
                     f"{symbol} @ ₹{avg_fill:.2f} — {pending_qty} pending",
                     "warning",
                 )
-                play_alert()
+                global_status.notify(
+                    "partial",
+                    symbol,
+                    f"{filled_qty}/{filled_qty + pending_qty} filled @ ₹{avg_fill:.2f}",
+                )
                 logger.info(
                     f"[PARTIAL] {symbol}: {filled_qty} filled, {pending_qty} pending @ ₹{avg_fill:.2f}"
                 )
@@ -296,8 +299,7 @@ class PositionManager(QObject):
             or tx_type == "SELL"   # fallback: SELL = reducing/closing long
         )
 
-        global_status.show_order_update(order_dict)
-        play_entry_exit()
+        global_status.notify("filled", symbol, f"+{filled_qty} @ ₹{avg_price:.2f}")
 
         # ── Chart line management ──
         if self.main_window and hasattr(self.main_window, "chart_lines_manager"):
@@ -353,8 +355,10 @@ class PositionManager(QObject):
         )
         tx_type = order_dict.get("transaction_type", "")
 
-        global_status.show_order_update(order_dict)
-        play_error()
+        if str(status).upper() in {"CANCELLED", "CANCELED"}:
+            global_status.notify("cancelled", symbol)
+        else:
+            global_status.notify("rejected", symbol, str(reason))
 
         if self.trade_logger:
             self.trade_logger.log_order_update({
