@@ -1412,6 +1412,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             ui_msg = f"{symbol} — {compact_error}"
 
             show_order_failed(ui_msg)
+            play_error()
             logger.error(f"[ENTRY] Order placement exception: {e}", exc_info=True)
 
     def _handle_exit_order_placement(self, order_data: Dict[str, Any]):
@@ -1461,6 +1462,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             ui_msg = f"{symbol} exit — {compact_error}"
 
             show_order_failed(ui_msg)
+            play_error()
             logger.error(f"[EXIT] Exit placement exception: {e}", exc_info=True)
 
     def _log_order_placement_immediate(self, order_data: Dict[str, Any], order_id: str):

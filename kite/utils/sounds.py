@@ -247,9 +247,15 @@ class SoundManager(QObject):
         if not self.use_qt_audio:
             return False
 
-        # Initialize Qt sounds if not done yet
+        # Always retry Qt sound initialization: QApplication may now exist
         if not self.qt_sounds_initialized:
             self._initialize_qt_sounds()
+
+        # If still not initialized, try loading this sound on demand
+        if self.sounds.get(sound_name) is None and self.sound_files_paths.get(sound_name):
+            self.sounds[sound_name] = self._create_qt_sound_effect(
+                self.sound_files_paths[sound_name]
+            )
 
         sound_effect = self.sounds.get(sound_name)
         if sound_effect is None:
@@ -430,7 +436,14 @@ class SoundManager(QObject):
 # GLOBAL SOUND MANAGER INSTANCE
 # =============================================================================
 
-_sound_manager = SoundManager()
+_sound_manager: Optional['SoundManager'] = None
+
+
+def _get_sound_manager() -> 'SoundManager':
+    global _sound_manager
+    if _sound_manager is None:
+        _sound_manager = SoundManager()
+    return _sound_manager
 
 
 # =============================================================================
@@ -438,50 +451,50 @@ _sound_manager = SoundManager()
 # =============================================================================
 
 def play_alert() -> bool:
-    return _sound_manager.play_alert()
+    return _get_sound_manager().play_alert()
 
 def play_entry_exit() -> bool:
-    return _sound_manager.play_entry_exit()
+    return _get_sound_manager().play_entry_exit()
 
 
 def play_success() -> bool:
-    return _sound_manager.play_success()
+    return _get_sound_manager().play_success()
 
 
 def play_error() -> bool:
-    return _sound_manager.play_error()
+    return _get_sound_manager().play_error()
 
 
 def play_order_placed() -> bool:
-    return _sound_manager.play_order_placed()
+    return _get_sound_manager().play_order_placed()
 
 
 def test_all_sounds():
-    return _sound_manager.test_all_sounds()
+    return _get_sound_manager().test_all_sounds()
 
 
 def test_sound_immediate(sound_name: str) -> bool:
-    return _sound_manager.test_sound_immediate(sound_name)
+    return _get_sound_manager().test_sound_immediate(sound_name)
 
 
 def get_sound_status() -> Dict[str, bool]:
-    return _sound_manager.get_sound_status()
+    return _get_sound_manager().get_sound_status()
 
 
 def get_audio_info() -> Dict:
-    return _sound_manager.get_audio_info()
+    return _get_sound_manager().get_audio_info()
 
 
 def set_sound_volume(volume: float):
-    _sound_manager.set_volume(volume)
+    _get_sound_manager().set_volume(volume)
 
 
 def enable_sounds(enabled: bool = True):
-    _sound_manager.enable_sounds(enabled)
+    _get_sound_manager().enable_sounds(enabled)
 
 
 def disable_sounds():
-    _sound_manager.disable_sounds()
+    _get_sound_manager().disable_sounds()
 
 
 # =============================================================================
