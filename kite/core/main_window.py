@@ -1361,8 +1361,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         # Common broker preambles/noise.
         message = re.sub(r"^Relay/Kite error HTTP \d+\s*:\s*", "", message, flags=re.IGNORECASE)
 
-        if len(message) > 110:
-            message = message[:107].rstrip() + "..."
+        if len(message) > 280:
+            message = message[:277].rstrip() + "..."
 
         return message
 

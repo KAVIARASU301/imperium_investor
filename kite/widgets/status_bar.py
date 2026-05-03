@@ -333,10 +333,24 @@ class GlobalStatusManager(QObject):
     def _post(self, title: str, message: str, kind: str, ttl: int) -> None:
         """Creates and displays the floating popup."""
         try:
-            toast = ToastNotification(title, message, kind, ttl)
+            adaptive_ttl = self._resolve_toast_ttl(message, kind, ttl)
+            toast = ToastNotification(title, message, kind, adaptive_ttl)
             toast.show_toast()
         except Exception as e:
             logger.error(f"Failed to show popup: {e}")
+
+    @staticmethod
+    def _resolve_toast_ttl(message: str, kind: str, fallback_ttl: int) -> int:
+        text = (message or "").strip()
+        msg_len = len(text)
+
+        if kind == "error" and msg_len > 150:
+            return 8000
+        if msg_len < 60:
+            return 3000
+        if msg_len <= 150:
+            return 5000
+        return 8000 if kind == "error" else max(fallback_ttl, 5000)
 
     @staticmethod
     def _translate_message(message: str) -> str:

@@ -4,6 +4,7 @@ from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QPoint
 from PySide6.QtWidgets import (
     QWidget,
     QLabel,
+    QPushButton,
     QVBoxLayout,
     QHBoxLayout,
     QApplication,
@@ -106,6 +107,16 @@ class ToastNotification(QWidget):
 
         layout.addLayout(text_layout)
 
+        self.close_button = QPushButton("×")
+        self.close_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.close_button.setFixedSize(16, 16)
+        self.close_button.setStyleSheet(
+            "QPushButton { color: #a8a8a8; background: transparent; border: none; font-size: 14px; font-weight: bold; }"
+            "QPushButton:hover { color: #ffffff; }"
+        )
+        self.close_button.clicked.connect(self.fade_out)
+        layout.addWidget(self.close_button, alignment=Qt.AlignmentFlag.AlignTop)
+
         self.adjustSize()
 
     @staticmethod
@@ -120,7 +131,7 @@ class ToastNotification(QWidget):
         message_width = self._measure_text_width(self.message_label)
 
         text_width = max(title_width, message_width)
-        chrome_width = 15 + 4 + 10 + 10 + 15
+        chrome_width = 15 + 4 + 10 + 10 + 16 + 8 + 15
         toast_width = max(self.TOAST_MIN_WIDTH, min(self.TOAST_MAX_WIDTH, chrome_width + text_width))
 
         self.setFixedWidth(toast_width)
@@ -163,6 +174,12 @@ class ToastNotification(QWidget):
 
     def fade_out(self):
         """Animates out and cleans up."""
+        if hasattr(self, "timer") and self.timer.isActive():
+            self.timer.stop()
+
+        if self.animation.state() == QPropertyAnimation.State.Running:
+            return
+
         self.animation.setDuration(200)
         self.animation.setStartValue(self.pos())
         self.animation.setEndValue(QPoint(self.pos().x() + self.width() + self.MARGIN, self.pos().y()))
