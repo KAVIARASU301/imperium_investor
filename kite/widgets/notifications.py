@@ -27,6 +27,8 @@ class ToastNotification(QWidget):
     TOAST_MAX_WIDTH = 420
     TOAST_TEXT_MAX_WIDTH = 340
     TOAST_MIN_HEIGHT = 0
+    DETAILS_CHAR_THRESHOLD = 140
+    COLLAPSED_PREVIEW_CHARS = 120
     STACK_SPACING = 10
     MARGIN = 20
 
@@ -106,14 +108,31 @@ class ToastNotification(QWidget):
             self.title_label.setStyleSheet(f"color: {self.theme['border']}; font-weight: bold; font-size: 12px;")
             text_layout.addWidget(self.title_label)
 
+        self._full_message = message or ""
+        self._details_expanded = False
+        self._has_details_toggle = self._should_enable_details_toggle(self._full_message)
+
         # Message
-        self.message_label = QLabel(message)
+        initial_message = self._build_collapsed_preview(self._full_message) if self._has_details_toggle else self._full_message
+        self.message_label = QLabel(initial_message)
         self.message_label.setStyleSheet(f"color: {self.theme['text']}; font-size: 11px;")
         self.message_label.setWordWrap(True)
         self.message_label.setMaximumWidth(self.TOAST_TEXT_MAX_WIDTH)
         self.message_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         self.message_label.adjustSize()
         text_layout.addWidget(self.message_label)
+
+        self.details_button = None
+        if self._has_details_toggle:
+            self.details_button = QPushButton("▾ Details")
+            self.details_button.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.details_button.setStyleSheet(
+                "QPushButton { color: #9cbcff; background: transparent; border: none; font-size: 10px; padding: 0; text-align: left; }"
+                "QPushButton:hover { color: #c9dbff; text-decoration: underline; }"
+            )
+            self.details_button.setFlat(True)
+            self.details_button.clicked.connect(self._toggle_details)
+            text_layout.addWidget(self.details_button, alignment=Qt.AlignmentFlag.AlignLeft)
 
         layout.addLayout(text_layout)
 
@@ -128,6 +147,31 @@ class ToastNotification(QWidget):
         layout.addWidget(self.close_button, alignment=Qt.AlignmentFlag.AlignTop)
 
         self.adjustSize()
+
+    def _should_enable_details_toggle(self, message: str) -> bool:
+        if not message:
+            return False
+        return len(message) > self.DETAILS_CHAR_THRESHOLD or "\n" in message
+
+    def _build_collapsed_preview(self, message: str) -> str:
+        one_line = " ".join(message.split())
+        if len(one_line) <= self.COLLAPSED_PREVIEW_CHARS:
+            return one_line
+        return f"{one_line[: self.COLLAPSED_PREVIEW_CHARS - 1].rstrip()}…"
+
+    def _toggle_details(self):
+        self._details_expanded = not self._details_expanded
+        if self._details_expanded:
+            self.message_label.setText(self._full_message)
+            if self.details_button:
+                self.details_button.setText("▴ Hide details")
+        else:
+            self.message_label.setText(self._build_collapsed_preview(self._full_message))
+            if self.details_button:
+                self.details_button.setText("▾ Details")
+
+        self._update_dynamic_size()
+        ToastNotification._restack_visible_toasts()
 
     @staticmethod
     def _measure_text_width(label: QLabel) -> int:
