@@ -1,6 +1,6 @@
 # kite/widgets/notifications.py
 import logging
-from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QRect, QPoint
+from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QPoint
 from PySide6.QtWidgets import (
     QWidget,
     QLabel,
@@ -22,7 +22,8 @@ class ToastNotification(QWidget):
     _active_toasts = []
 
     # Padding and sizing
-    TOAST_WIDTH = 270
+    TOAST_MIN_WIDTH = 220
+    TOAST_MAX_WIDTH = 420
     TOAST_MIN_HEIGHT = 0
     STACK_SPACING = 10
     MARGIN = 20
@@ -48,10 +49,9 @@ class ToastNotification(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
 
         self._setup_ui(title, message)
-        self.setFixedWidth(self.TOAST_WIDTH)
         self.setMinimumHeight(self.TOAST_MIN_HEIGHT)
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
-        self.adjustSize()
+        self._update_dynamic_size()
 
         # Shadow effect for professional depth
         shadow = QGraphicsDropShadowEffect(self)
@@ -88,10 +88,11 @@ class ToastNotification(QWidget):
         text_layout.setContentsMargins(10, 0, 0, 0)
 
         # Title
+        self.title_label = None
         if title:
-            title_label = QLabel(title)
-            title_label.setStyleSheet(f"color: {self.theme['border']}; font-weight: bold; font-size: 12px;")
-            text_layout.addWidget(title_label)
+            self.title_label = QLabel(title)
+            self.title_label.setStyleSheet(f"color: {self.theme['border']}; font-weight: bold; font-size: 12px;")
+            text_layout.addWidget(self.title_label)
 
         # Message
         self.message_label = QLabel(message)
@@ -102,6 +103,25 @@ class ToastNotification(QWidget):
 
         layout.addLayout(text_layout)
 
+        self.adjustSize()
+
+    @staticmethod
+    def _measure_text_width(label: QLabel) -> int:
+        if not label or not label.text():
+            return 0
+        metrics = label.fontMetrics()
+        return max(metrics.horizontalAdvance(line) for line in label.text().splitlines() or [label.text()])
+
+    def _update_dynamic_size(self):
+        title_width = self._measure_text_width(self.title_label)
+        message_width = self._measure_text_width(self.message_label)
+
+        text_width = max(title_width, message_width)
+        chrome_width = 15 + 4 + 10 + 10 + 15
+        toast_width = max(self.TOAST_MIN_WIDTH, min(self.TOAST_MAX_WIDTH, chrome_width + text_width))
+
+        self.setFixedWidth(toast_width)
+        self.message_label.setMaximumWidth(max(1, toast_width - chrome_width))
         self.adjustSize()
 
     def paintEvent(self, event):
@@ -126,10 +146,10 @@ class ToastNotification(QWidget):
         y_offset = self.MARGIN + stack_height
 
         start_x = screen.width()
-        end_x = screen.width() - self.TOAST_WIDTH - self.MARGIN
+        end_x = screen.width() - self.width() - self.MARGIN
         target_y = screen.height() - self.height() - y_offset
 
-        self.setGeometry(start_x, target_y, self.TOAST_WIDTH, self.height())
+        self.setGeometry(start_x, target_y, self.width(), self.height())
         self.show()
 
         self.animation.setStartValue(QPoint(start_x, target_y))
@@ -142,7 +162,7 @@ class ToastNotification(QWidget):
         """Animates out and cleans up."""
         self.animation.setDuration(200)
         self.animation.setStartValue(self.pos())
-        self.animation.setEndValue(QPoint(self.pos().x() + self.TOAST_WIDTH + self.MARGIN, self.pos().y()))
+        self.animation.setEndValue(QPoint(self.pos().x() + self.width() + self.MARGIN, self.pos().y()))
         self.animation.finished.connect(self.close)
         self.animation.start()
 
