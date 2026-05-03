@@ -1,6 +1,6 @@
 # kite/widgets/notifications.py
 import logging
-from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QPoint
+from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QPoint, QAbstractAnimation
 from PySide6.QtWidgets import (
     QWidget,
     QLabel,
@@ -148,9 +148,30 @@ class ToastNotification(QWidget):
         painter.setPen(QColor(40, 40, 40))  # Subtle border
         painter.drawPath(path)
 
+    @classmethod
+    def _restack_visible_toasts(cls):
+        """Reflow active toasts upward so no gaps remain after dismissals."""
+        screen = QApplication.primaryScreen().availableGeometry()
+        cls._active_toasts = [t for t in cls._active_toasts if t.isVisible()]
+
+        y_offset = cls.MARGIN
+        for toast in cls._active_toasts:
+            target_y = screen.height() - toast.height() - y_offset
+            if toast.pos().y() != target_y:
+                if toast.animation.state() == QAbstractAnimation.State.Running:
+                    toast.animation.stop()
+                toast.animation.setDuration(150)
+                toast.animation.setStartValue(toast.pos())
+                toast.animation.setEndValue(QPoint(toast.pos().x(), target_y))
+                toast.animation.start()
+            y_offset += toast.height() + cls.STACK_SPACING
+
     def show_toast(self):
         """Calculates position, handles stacking, and animates in."""
         screen = QApplication.primaryScreen().availableGeometry()
+
+        # Ensure layout-derived size/height is finalized before stacking math.
+        self.adjustSize()
 
         # Clean up dead toasts from the stack tracking
         ToastNotification._active_toasts = [t for t in ToastNotification._active_toasts if t.isVisible()]
@@ -183,8 +204,13 @@ class ToastNotification(QWidget):
         self.animation.setDuration(200)
         self.animation.setStartValue(self.pos())
         self.animation.setEndValue(QPoint(self.pos().x() + self.width() + self.MARGIN, self.pos().y()))
-        self.animation.finished.connect(self.close)
+        self.animation.finished.connect(self._finalize_close)
         self.animation.start()
 
         if self in ToastNotification._active_toasts:
             ToastNotification._active_toasts.remove(self)
+
+    def _finalize_close(self):
+        """Close this toast and then reflow the remaining stack."""
+        self.close()
+        ToastNotification._restack_visible_toasts()
