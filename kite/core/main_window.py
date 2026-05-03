@@ -1835,6 +1835,20 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             self._navigate_floating_watchlist_symbols(floating_watchlist, direction='next')
             return
 
+        floating_positions = self._get_focused_floating_positions(focused_widget)
+        active_floating_positions = self._get_active_floating_positions()
+        if active_floating_positions is not None:
+            floating_positions = active_floating_positions
+            context = "floating_positions"
+        if context == "floating_positions" and floating_positions is None:
+            dlg = getattr(self, "floating_positions_dialog", None)
+            if dlg and dlg.isVisible():
+                floating_positions = dlg
+        if floating_positions:
+            self._set_last_spacebar_context("floating_positions")
+            self._navigate_floating_positions_symbols(floating_positions, direction='next')
+            return
+
         # Check scanner focus
         if context == "scanner" or self._is_scanner_focused(focused_widget):
             self._set_last_spacebar_context("scanner")
@@ -1877,6 +1891,20 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             self._navigate_floating_watchlist_symbols(floating_watchlist, direction='previous')
             return
 
+        floating_positions = self._get_focused_floating_positions(focused_widget)
+        active_floating_positions = self._get_active_floating_positions()
+        if active_floating_positions is not None:
+            floating_positions = active_floating_positions
+            context = "floating_positions"
+        if context == "floating_positions" and floating_positions is None:
+            dlg = getattr(self, "floating_positions_dialog", None)
+            if dlg and dlg.isVisible():
+                floating_positions = dlg
+        if floating_positions:
+            self._set_last_spacebar_context("floating_positions")
+            self._navigate_floating_positions_symbols(floating_positions, direction='previous')
+            return
+
         if context == "scanner" or self._is_scanner_focused(focused_widget):
             self._set_last_spacebar_context("scanner")
             if hasattr(self.chartink_scanner, '_previous_symbol'):
@@ -1905,6 +1933,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         """Resolve active navigation context from focus first, then last selection source."""
         if self._get_focused_floating_watchlist(focused_widget):
             return "floating_watchlist"
+        if self._get_focused_floating_positions(focused_widget):
+            return "floating_positions"
         if self._is_scanner_focused(focused_widget):
             return "scanner"
         if self._get_focused_watchlist_table(focused_widget):
@@ -1980,6 +2010,54 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             dialog._select_row(row)
         except Exception as e:
             logger.warning(f"Error navigating floating watchlist symbols: {e}")
+
+
+    def _get_focused_floating_positions(self, widget):
+        """Return floating positions dialog when focus is inside it."""
+        dlg = getattr(self, "floating_positions_dialog", None)
+        if not dlg or not dlg.isVisible() or not widget:
+            return None
+
+        current = widget
+        while current:
+            if current == dlg:
+                return dlg
+            current = current.parent()
+        return None
+
+    def _get_active_floating_positions(self):
+        """Return floating positions when it is the active top-level window."""
+        dlg = getattr(self, "floating_positions_dialog", None)
+        if dlg and dlg.isVisible() and dlg.isActiveWindow():
+            return dlg
+        return None
+
+    def _navigate_floating_positions_symbols(self, dialog, direction='next'):
+        """Navigate symbols in floating positions dialog."""
+        try:
+            table = getattr(dialog, "table", None)
+            if table is None:
+                return
+
+            count = table.rowCount()
+            if count <= 0:
+                return
+
+            row = table.currentRow()
+            if row < 0:
+                row = 0
+            elif direction == 'next':
+                row = (row + 1) % count
+            else:
+                row = (row - 1) % count
+
+            dialog._nav_idx = row
+            table.selectRow(row)
+            sym = dialog._symbol_at_row(row)
+            if sym:
+                dialog.symbol_chart_requested.emit(sym)
+        except Exception as e:
+            logger.warning(f"Error navigating floating positions symbols: {e}")
 
     def _is_scanner_focused(self, widget) -> bool:
         """Check if the scanner has focus"""
