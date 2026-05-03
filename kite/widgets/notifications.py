@@ -31,7 +31,7 @@ class ToastNotification(QWidget):
     COLLAPSED_PREVIEW_CHARS = 120
     STACK_SPACING = 10
     MARGIN = 20
-    BOTTOM_SAFE_GAP = 18
+    BOTTOM_SAFE_GAP = 20
 
     def __init__(
         self,
