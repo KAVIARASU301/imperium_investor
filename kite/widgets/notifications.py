@@ -31,6 +31,7 @@ class ToastNotification(QWidget):
     COLLAPSED_PREVIEW_CHARS = 120
     STACK_SPACING = 10
     MARGIN = 20
+    BOTTOM_SAFE_GAP = 18
 
     def __init__(
         self,
@@ -210,7 +211,7 @@ class ToastNotification(QWidget):
 
         y_offset = cls.MARGIN
         for toast in cls._active_toasts:
-            target_y = screen.height() - toast.height() - y_offset
+            target_y = screen.height() - toast.height() - cls.BOTTOM_SAFE_GAP - y_offset
             if toast.pos().y() != target_y:
                 if toast.animation.state() == QAbstractAnimation.State.Running:
                     toast.animation.stop()
@@ -236,7 +237,7 @@ class ToastNotification(QWidget):
 
         start_x = screen.width()
         end_x = screen.width() - self.width() - self.MARGIN
-        target_y = screen.height() - self.height() - y_offset
+        target_y = screen.height() - self.height() - self.BOTTOM_SAFE_GAP - y_offset
 
         self.setGeometry(start_x, target_y, self.width(), self.height())
         self.show()
