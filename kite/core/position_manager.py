@@ -15,7 +15,7 @@ Fix:
 Architecture:
   PositionManager.on_ws_order_update(order_dict)  ← called by MarketDataWorker
   PositionManager.start_tracking_order(...)        ← called when order placed
-  _safety_poll_timer fires every 15s ONLY if ws_confirmed = False within 60s
+  _safety_poll_timer fires every 5s for tracked orders, with WS timeout at 15s
 """
 
 import logging
@@ -26,7 +26,7 @@ from datetime import datetime, timedelta
 from PySide6.QtCore import QObject, Signal, QTimer, Slot, QThreadPool
 
 from kite.widgets.status_bar import show_error, show_info, status as global_status
-from kite.utils.sounds import play_entry_exit
+from kite.utils.sounds import play_entry_exit, play_error
 from kite.utils.worker import Worker
 
 logger = logging.getLogger(__name__)
@@ -69,8 +69,8 @@ class PositionManager(QObject):
     show_notification  = Signal(str, str)
 
     # ── Timing config ──
-    SAFETY_POLL_INTERVAL_MS = 15_000    # REST poll interval (fallback only)
-    WS_TIMEOUT_SECONDS      = 60        # after this, REST polling kicks in
+    SAFETY_POLL_INTERVAL_MS = 5_000     # REST poll interval (fallback only)
+    WS_TIMEOUT_SECONDS      = 15        # after this, REST polling kicks in
     ORDER_EXPIRY_MINUTES    = 10        # forget orders older than this
 
     def __init__(self, trader, main_window=None, trade_logger=None):
@@ -183,7 +183,7 @@ class PositionManager(QObject):
     def _safety_poll(self):
         """
         Polls Kite REST /orders for orders that haven't been WS-confirmed
-        within WS_TIMEOUT_SECONDS. Runs every 15s, not 1s.
+        within WS_TIMEOUT_SECONDS. Runs every 5s, not 1s.
         """
         needs_polling = [
             (oid, t) for oid, t in self._tracked.items()
@@ -251,16 +251,16 @@ class PositionManager(QObject):
         )
 
         if not self._ws_available:
-            # Paper trading / WS not up — start safety poll immediately
-            self._ensure_safety_timer()
             logger.info(f"Tracking order {order_id} via REST fallback (WS not available)")
         else:
             logger.info(f"Tracking order {order_id} via WebSocket postback")
-            # Also schedule safety timer in case WS confirmation never arrives
-            QTimer.singleShot(
-                self.WS_TIMEOUT_SECONDS * 1000,
-                lambda: self._ws_timeout_check(order_id)
-            )
+
+        # Always schedule a WS-timeout backstop and arm fallback polling now
+        QTimer.singleShot(
+            self.WS_TIMEOUT_SECONDS * 1000,
+            lambda: self._ws_timeout_check(order_id)
+        )
+        self._ensure_safety_timer()
 
     def _ws_timeout_check(self, order_id: str):
         """If WS hasn't confirmed this order in time, switch to REST polling."""
@@ -353,6 +353,7 @@ class PositionManager(QObject):
         tx_type = order_dict.get("transaction_type", "")
 
         global_status.show_order_update(order_dict)
+        play_error()
 
         if self.trade_logger:
             self.trade_logger.log_order_update({
