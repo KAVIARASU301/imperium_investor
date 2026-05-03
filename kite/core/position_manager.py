@@ -26,7 +26,7 @@ from datetime import datetime, timedelta
 from PySide6.QtCore import QObject, Signal, QTimer, Slot, QThreadPool
 
 from kite.widgets.status_bar import show_error, show_info, status as global_status
-from kite.utils.sounds import play_entry_exit, play_error
+from kite.utils.sounds import play_alert, play_entry_exit, play_error
 from kite.utils.worker import Worker
 
 logger = logging.getLogger(__name__)
@@ -169,6 +169,7 @@ class PositionManager(QObject):
                     f"{symbol} @ ₹{avg_fill:.2f} — {pending_qty} pending",
                     "warning",
                 )
+                play_alert()
                 logger.info(
                     f"[PARTIAL] {symbol}: {filled_qty} filled, {pending_qty} pending @ ₹{avg_fill:.2f}"
                 )

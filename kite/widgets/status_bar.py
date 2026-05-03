@@ -183,6 +183,16 @@ class GlobalStatusManager(QObject):
         side = str(order_dict.get("transaction_type") or "BUY").upper()
         order_type = str(order_dict.get("order_type") or "MKT").upper()
 
+        if raw_status in {"ROUTED", "PUT ORDER REQ RECEIVED"}:
+            # Keep routed acknowledgements silent visually but provide subtle
+            # audible feedback so submission does not feel unresponsive.
+            try:
+                from kite.utils.sounds import play_order_placed
+                play_order_placed()
+            except Exception:
+                pass
+            return
+
         ignored_states = {
             "UPDATE",
             "VALIDATION PENDING",
@@ -219,11 +229,6 @@ class GlobalStatusManager(QObject):
 
         if raw_status in {"CANCELLED", "CANCELED"}:
             self._post("CANCELED", f"{direction_sign}{qty} {symbol}", "warn", 3000)
-            return
-
-        # Ignore routed/acknowledgement states and any remaining non-terminal
-        # statuses to prevent toast spam.
-        if raw_status in {"PUT ORDER REQ", "ROUTED"}:
             return
 
         # Ignore any remaining non-terminal statuses to prevent toast spam.
