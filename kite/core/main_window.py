@@ -2,6 +2,7 @@
 #  MAIN WINDOW
 # ==============================================================================
 
+import ast
 import logging
 import os
 import json
@@ -1350,9 +1351,26 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         if not raw:
             return "Unknown broker error"
 
-        # Prefer broker payload message: {'message': '...'}
-        msg_match = re.search(r"['\"]message['\"]\s*:\s*['\"](.+?)['\"](?:,|})", raw)
-        message = msg_match.group(1) if msg_match else raw
+        message = raw
+
+        # Parse JSON-like broker payloads first: {'message': '...', 'error_type': '...'}
+        parsed_payload: Any = None
+        for parser in (json.loads, ast.literal_eval):
+            try:
+                parsed_payload = parser(raw)
+                if isinstance(parsed_payload, dict):
+                    break
+            except (json.JSONDecodeError, ValueError, SyntaxError, TypeError):
+                continue
+
+        if isinstance(parsed_payload, dict):
+            payload_message = parsed_payload.get("message")
+            if isinstance(payload_message, str) and payload_message.strip():
+                message = payload_message.strip()
+        else:
+            # Fallback extraction when payload parsing fails.
+            msg_match = re.search(r"['\"]message['\"]\s*:\s*['\"](.+?)['\"](?:,|})", raw)
+            message = msg_match.group(1) if msg_match else raw
 
         # Remove markdown links and collapse whitespace.
         message = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1", message)
@@ -1360,6 +1378,13 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         # Common broker preambles/noise.
         message = re.sub(r"^Relay/Kite error HTTP \d+\s*:\s*", "", message, flags=re.IGNORECASE)
+        message = re.sub(r"^RMS:Rule:\s*", "", message, flags=re.IGNORECASE)
+
+        # Normalize capitalization for all-caps messages.
+        if message.isupper():
+            message = message.capitalize()
+        elif message and message[0].islower():
+            message = message[0].upper() + message[1:]
 
         if len(message) > 280:
             message = message[:277].rstrip() + "..."
