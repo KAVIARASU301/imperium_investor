@@ -43,6 +43,7 @@ class PaperPosition:
     exchange: str = "NSE"
     currency: str = "INR"
     entry_time: str = field(default_factory=lambda: datetime.now().isoformat())
+    product: str = "MIS"
 
     @property
     def market_value(self) -> float:
@@ -312,7 +313,7 @@ class BasePaperTrader(QObject, ABC, metaclass=QObjectABCMeta):
             net.append({
                 "tradingsymbol": symbol,
                 "exchange": pos.exchange,
-                "product": self.PRODUCT_MIS,
+                "product": pos.product or self.PRODUCT_MIS,
                 "quantity": pos.quantity,
                 "average_price": pos.avg_price,
                 "last_price": ltp,
@@ -469,8 +470,13 @@ class BasePaperTrader(QObject, ABC, metaclass=QObjectABCMeta):
         self.balance = self.balance - net_value if is_buy else self.balance + net_value
 
         # Update position
-        self._update_position(symbol, qty if is_buy else -qty,
-                               execution_price, order.exchange)
+        self._update_position(
+            symbol,
+            qty if is_buy else -qty,
+            execution_price,
+            order.exchange,
+            order.product,
+        )
 
         # Finalise order
         now = datetime.now().isoformat()
@@ -501,7 +507,7 @@ class BasePaperTrader(QObject, ABC, metaclass=QObjectABCMeta):
                     f"@ ₹{execution_price:.2f} | Balance: ₹{self.balance:,.2f}")
 
     def _update_position(self, symbol: str, signed_qty: int,
-                          price: float, exchange: str) -> None:
+                          price: float, exchange: str, product: str) -> None:
         """
         Update the positions dict with FIFO-style averaging.
         signed_qty > 0 = buy, < 0 = sell.
@@ -514,6 +520,7 @@ class BasePaperTrader(QObject, ABC, metaclass=QObjectABCMeta):
                 quantity=signed_qty,
                 avg_price=price,
                 exchange=exchange,
+                product=product.upper() if product else self.PRODUCT_MIS,
             )
         else:
             pos = self._positions[symbol]
@@ -537,6 +544,8 @@ class BasePaperTrader(QObject, ABC, metaclass=QObjectABCMeta):
             # else: partial close — keep avg price
 
             pos.quantity = new_qty
+            if product:
+                pos.product = product.upper()
 
     # ─────────────────────────────────────────────────────────────────────────
     # HELPERS

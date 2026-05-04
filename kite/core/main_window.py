@@ -1291,6 +1291,23 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             pass
         return fallback
 
+
+    def _resolve_position_order_type(self, symbol: str, quantity: int, fallback: str = "MARKET") -> str:
+        """Resolve preferred exit order type from the most recent matching entry order."""
+        try:
+            entry_tx = "BUY" if quantity > 0 else "SELL"
+            orders = self.trader.orders() or []
+            for od in reversed(orders):
+                if (
+                    str(od.get("tradingsymbol", "")) == symbol
+                    and str(od.get("transaction_type", "")).upper() == entry_tx
+                    and str(od.get("status", "")).upper() == "COMPLETE"
+                ):
+                    return str(od.get("order_type") or fallback).upper()
+        except Exception:
+            pass
+        return fallback
+
     @Slot(str)
     def _handle_exit_position_request(self, symbol: str):
         """Handle position exit request from positions table."""
@@ -1306,7 +1323,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             "tradingsymbol": symbol,
             "transaction_type": transaction_type,
             "quantity": abs(position.quantity),
-            "order_type": "MARKET",
+            "order_type": self._resolve_position_order_type(symbol, position.quantity, "MARKET"),
             "product": self._resolve_position_product(symbol, position.product),
             "ltp": ltp,
         }
@@ -1333,7 +1350,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             "tradingsymbol": symbol,
             "transaction_type": transaction_type,
             "quantity": half_qty,
-            "order_type": "MARKET",
+            "order_type": self._resolve_position_order_type(symbol, position.quantity, "MARKET"),
             "product": self._resolve_position_product(symbol, position.product),
             "ltp": ltp,
         }
