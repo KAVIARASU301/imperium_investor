@@ -21,6 +21,7 @@ from kite.widgets.watchlist_table import TabbedWatchlistWidget
 from chart_engine import CandlestickChart as ChartWindow
 from kite.widgets.header_toolbar import HeaderToolbar
 from kite.widgets.color_settings_dialog import ColorSettingsDialog
+from kite.widgets.stock_info_dialog import show_stock_info
 
 from kite.widgets.order_dialog import OrderDialog
 from kite.widgets.order_history_dialog import OrderHistoryDialog
@@ -801,6 +802,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.header_toolbar.pending_orders_requested.connect(self._show_pending_orders_dialog)
         self.header_toolbar.performance_dashboard_requested.connect(self._show_performance_dialog)
         self.header_toolbar.positions_requested.connect(self._show_floating_positions_dialog)
+        self.header_toolbar.stock_info_requested.connect(self._show_stock_info_dialog)
 
         # Alert System
         if self.alert_system:
@@ -880,6 +882,20 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self._on_watchlist_changed()
         self.chart_init_timer.start(1000)
         logger.info("Instruments loaded successfully.")
+
+    def _show_stock_info_dialog(self, symbol: str) -> None:
+        selected_symbol = (symbol or "").strip().upper()
+        if not selected_symbol:
+            selected_symbol = self.header_toolbar.get_current_symbol()
+        if not selected_symbol:
+            show_info("Select a symbol to open stock info")
+            return
+
+        try:
+            show_stock_info(selected_symbol, parent=self)
+        except Exception as exc:
+            logger.error("Failed to open stock info dialog for %s: %s", selected_symbol, exc)
+            show_error("Failed to open stock info dialog")
 
     def _build_instrument_map_with_nse_preference(self, instruments: List[Dict]) -> Dict[str, Dict]:
         """Build instrument map prioritizing NSE over BSE for same symbols"""

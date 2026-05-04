@@ -87,6 +87,7 @@ class HeaderToolbar(QToolBar):
     sell_order_requested             = Signal(str)
     color_settings_requested         = Signal()
     positions_requested              = Signal()
+    stock_info_requested             = Signal(str)
     account_refresh_requested        = Signal()
 
     def __init__(self, trader: Union[KiteConnect, Any], parent=None):
@@ -144,7 +145,13 @@ class HeaderToolbar(QToolBar):
         self.addWidget(self.sell_button)
 
         self._add_section_gap(4)
-        
+
+        self.info_button = QPushButton("INFO")
+        self.info_button.setObjectName("tradingActionButton")
+        self.info_button.setFixedHeight(22)
+        self.info_button.clicked.connect(self._on_info_clicked)
+        self.addWidget(self.info_button)
+
         self.positions_button = QPushButton("POSITIONS")
         self.positions_button.setObjectName("tradingActionButton")
         self.positions_button.setFixedHeight(22)
@@ -268,6 +275,11 @@ class HeaderToolbar(QToolBar):
         sym = self.search_input.text().upper().strip()
         if sym and sym in self._instrument_map:
             self.sell_order_requested.emit(sym)
+
+    def _on_info_clicked(self):
+        sym = self.search_input.text().upper().strip()
+        if sym:
+            self.stock_info_requested.emit(sym)
 
     # ── Public API ────────────────────────────────────────────────────────────
 
