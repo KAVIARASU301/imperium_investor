@@ -321,7 +321,7 @@ def _build_info_html(data: dict) -> str:
 
     def row(label: str, value: str, color: str = "#e8f0ff") -> str:
         if value in ("—", "", None):
-            value = '<span style="color:#2a3a50">—</span>'
+            value = '<span style="color:#7a94b0">—</span>'
         return (
             f'<tr>'
             f'<td class="lbl">{label}</td>'
@@ -422,7 +422,7 @@ def _build_info_html(data: dict) -> str:
     --border: #1a2535;
     --t0: #e8f0ff;
     --t1: #a8bcd4;
-    --t2: #5a7090;
+    --t2: #8fa7c3;
     --cyan: #00d4ff;
     --teal: #00d4a8;
     --amber: #f59e0b;
@@ -448,7 +448,7 @@ def _build_info_html(data: dict) -> str:
     background: rgba(0,212,255,0.10);
     border: 1px solid rgba(0,212,255,0.25);
     color: var(--cyan);
-    font-family: 'Consolas', 'JetBrains Mono', monospace;
+    font-family: 'JetBrains Mono', 'Consolas', monospace;
     font-size: 11px; font-weight: 700;
     letter-spacing: 2px;
     padding: 3px 10px;
@@ -463,21 +463,25 @@ def _build_info_html(data: dict) -> str:
   .pill {{
     background: var(--bg3);
     border: 1px solid var(--border);
-    color: var(--t2);
+    color: #b5c8de;
     font-size: 10px; font-weight: 600;
     letter-spacing: 0.8px;
     padding: 2px 8px; border-radius: 2px;
   }}
   .pill.highlight {{ color: var(--amber); border-color: rgba(245,158,11,0.3); }}
   .web-link {{
-    color: var(--t2); font-size: 10px;
+    color: #b5c8de; font-size: 10px;
     text-decoration: none; letter-spacing: 0.3px;
   }}
   .web-link:hover {{ color: var(--cyan); }}
 
   /* ── Description ── */
   .desc {{
-    font-size: 11px; color: var(--t2); line-height: 1.6;
+<<<<<<< ours
+    font-size: 11px; color: #b5c8de; line-height: 1.6;
+=======
+    font-size: 13px; color: #b5c8de; line-height: 1.65;
+>>>>>>> theirs
     margin: 12px 22px 4px;
     border-left: 2px solid var(--border);
     padding-left: 12px;
@@ -497,7 +501,7 @@ def _build_info_html(data: dict) -> str:
     padding: 14px 18px;
   }}
   .sec-title {{
-    color: var(--t2);
+    color: #9db2ca;
     font-size: 9px; font-weight: 800;
     letter-spacing: 2px;
     text-transform: uppercase;
@@ -511,7 +515,7 @@ def _build_info_html(data: dict) -> str:
   .grid tr {{ border-bottom: 1px solid rgba(26,37,53,0.5); }}
   .grid tr:last-child {{ border-bottom: none; }}
   .lbl {{
-    color: var(--t2);
+    color: #b5c8de;
     font-size: 10px; font-weight: 600;
     letter-spacing: 0.3px;
     padding: 5px 0;
@@ -520,7 +524,7 @@ def _build_info_html(data: dict) -> str:
   }}
   .val {{
     color: var(--t0);
-    font-family: 'Consolas', 'JetBrains Mono', monospace;
+    font-family: 'JetBrains Mono', 'Consolas', monospace;
     font-size: 11px; font-weight: 700;
     text-align: right;
     padding: 5px 0;
@@ -728,7 +732,7 @@ class StockInfoDialog(QDialog):
             }
             QLabel#siTitle {
                 color: #00d4ff;
-                font-family: 'Consolas', 'JetBrains Mono', monospace;
+                font-family: 'JetBrains Mono', 'Consolas', monospace;
                 font-size: 10px;
                 font-weight: 700;
                 letter-spacing: 2px;
@@ -746,7 +750,7 @@ class StockInfoDialog(QDialog):
                 color: #a8bcd4;
             }
             QPushButton#siBarBtn:disabled {
-                color: #2a3a50;
+                color: #6f86a3;
             }
             QPushButton#siCloseBtn {
                 background: transparent;
@@ -764,7 +768,7 @@ class StockInfoDialog(QDialog):
                 border-top: 1px solid #1a2535;
             }
             QLabel#siStatus {
-                color: #2a3a50;
+                color: #8fa7c3;
                 font-size: 9px;
                 letter-spacing: 0.3px;
                 background: transparent;
