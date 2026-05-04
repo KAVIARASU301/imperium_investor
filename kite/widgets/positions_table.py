@@ -257,9 +257,9 @@ class PositionsTable(QWidget):
 
         # Notice: No ₹ symbols to save horizontal space
         cells = [
-            (COL_SYMBOL, pos.symbol, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, pnl_color),
+            (COL_SYMBOL, pos.symbol, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, _T0),
             (COL_QTY, f"{qty_sign}{abs(pos.quantity)}", Qt.AlignmentFlag.AlignCenter, profit_color if is_long else loss_color),
-            (COL_AVG, f"{pos.avg_price:,.2f}", Qt.AlignmentFlag.AlignCenter, pnl_color),
+            (COL_AVG, f"{pos.avg_price:,.2f}", Qt.AlignmentFlag.AlignCenter, _T0),
             (COL_OPEN_PNL, f"{'+' if pnl >= 0 else ''}{pnl:,.2f}", Qt.AlignmentFlag.AlignCenter, pnl_color),
         ]
 
@@ -267,8 +267,10 @@ class PositionsTable(QWidget):
         mono_font = QFont("JetBrains Mono", 9)
         mono_font.setStyleHint(QFont.StyleHint.Monospace)
 
-        sym_font = QFont(base_font)
+        sym_font = QFont("JetBrains Mono", 9)
+        sym_font.setStyleHint(QFont.StyleHint.Monospace)
         sym_font.setBold(True)
+        sym_font.setWeight(QFont.Weight.DemiBold)
 
         for col, text, align, color in cells:
             item = self.table.item(row, col)
@@ -291,19 +293,18 @@ class PositionsTable(QWidget):
     def _apply_open_pnl_row_style(self, row: int, pnl: float) -> None:
         if pnl > 0:
             fg = QColor(_OPEN_PROFIT)
-            bg = QColor(_OPEN_PROFIT_TINT)
+            bg = QBrush(QColor(0, 212, 168, 31))
         elif pnl < 0:
             fg = QColor(_OPEN_LOSS)
-            bg = QColor(_OPEN_LOSS_TINT)
+            bg = QBrush(QColor(255, 77, 106, 31))
         else:
             fg = QColor(_OPEN_FLAT)
-            bg = QColor(Qt.transparent)
+            bg = QBrush(QColor(_BG_BASE))
 
-        for col in range(self.table.columnCount()):
-            item = self.table.item(row, col)
-            if item:
-                item.setForeground(QBrush(fg))
-                item.setBackground(QBrush(bg))
+        pnl_item = self.table.item(row, COL_OPEN_PNL)
+        if pnl_item:
+            pnl_item.setForeground(QBrush(fg))
+            pnl_item.setBackground(bg)
 
     def _sort_key(self, col: int, pos: Position):
         pnl = (pos.ltp - pos.avg_price) * pos.quantity

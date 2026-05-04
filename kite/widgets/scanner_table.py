@@ -1106,29 +1106,29 @@ class ChartinkScannerTable(QWidget):
             self.table.setItem(row, 3, change_pct_item)
         change_pct_item.setText(f"{change_pct:+.2f}" if abs(change_pct) > 0.01 else "0.00")
 
-        # Apply color coding based on change %
-        table_colors = self._color_theme.get("tables", {})
-        directional_colors_enabled = bool(self._color_theme.get("enable_table_directional_colors", False))
-        profit_color = QColor(table_colors.get("positive", "#26a69a"))
-        loss_color = QColor(table_colors.get("negative", "#ef5350"))
-        neutral_color = QColor(table_colors.get("neutral", "#a9a9a9"))
-
-        color = neutral_color
-        if directional_colors_enabled:
-            color = profit_color if change_pct > 0 else (loss_color if change_pct < 0 else neutral_color)
-
-        # Color the LTP and change % columns
-        price_item.setForeground(color)
-        change_pct_item.setForeground(color)
-        volume_item.setForeground(QColor(table_colors.get("volume", "#45d4ff")))
-
-        # Subtle directional tint in % change cell (keeps selected-row style readable)
-        if directional_colors_enabled and change_pct > 0:
-            change_pct_item.setBackground(QBrush(QColor(18, 55, 34, 140)))
-        elif directional_colors_enabled and change_pct < 0:
-            change_pct_item.setBackground(QBrush(QColor(70, 20, 20, 140)))
+        # Watchlist-matched color coding
+        if change_pct >= 3.0:
+            chg_fg = QColor("#00d4a8")
+            chg_bg = QBrush(QColor(0, 212, 168, 31))
+        elif change_pct >= 1.0:
+            chg_fg = QColor("#22c4a0")
+            chg_bg = QBrush(QColor(34, 196, 160, 18))
+        elif change_pct >= -0.5:
+            chg_fg = QColor("#7a94b0")
+            chg_bg = QBrush(QColor("#0f1318"))
+        elif change_pct >= -1.0:
+            chg_fg = QColor("#e87060")
+            chg_bg = QBrush(QColor(232, 112, 96, 18))
         else:
-            change_pct_item.setBackground(QBrush(QColor(35, 35, 35, 100)))
+            chg_fg = QColor("#ff4d6a")
+            chg_bg = QBrush(QColor(255, 77, 106, 31))
+
+        # Match embedded watchlist column palette
+        symbol_item.setForeground(QColor("#e8f0ff"))
+        price_item.setForeground(chg_fg if abs(change_pct) > 0.005 else QColor("#e8f0ff"))
+        volume_item.setForeground(QColor("#5a7090"))
+        change_pct_item.setForeground(chg_fg)
+        change_pct_item.setBackground(chg_bg)
 
         # Set text alignments
         symbol_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
@@ -1137,7 +1137,9 @@ class ChartinkScannerTable(QWidget):
         change_pct_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 
         symbol_font = symbol_item.font()
+        symbol_font.setFamily("JetBrains Mono")
         symbol_font.setBold(True)
+        symbol_font.setWeight(QFont.Weight.DemiBold)
         symbol_item.setFont(symbol_font)
 
     @Slot(list)
