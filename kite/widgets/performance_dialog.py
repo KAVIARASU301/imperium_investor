@@ -162,7 +162,7 @@ class PerformanceDialog(QDialog):
     def _get_pnl_by_day(self) -> dict:
         try:
             rows = self.trade_logger.get_daily_pnl_history()
-            return {r["date"]: r["pnl"] for r in rows}
+            return {r["date"]: r.get("daily_pnl", r.get("pnl", 0)) for r in rows}
         except Exception as exc:
             logger.error("Error fetching daily pnl: %s", exc, exc_info=True)
             return {}
