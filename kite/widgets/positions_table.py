@@ -127,6 +127,10 @@ class PositionsTable(QWidget):
             },
         }
 
+        # Keep numeric columns visually aligned with watchlist/scanner number rendering
+        self._number_font = QFont("Consolas", 9)
+        self._number_font.setStyleHint(QFont.StyleHint.Monospace)
+
         self._setup_ui()
         self._apply_styles()
 
@@ -263,10 +267,6 @@ class PositionsTable(QWidget):
             (COL_OPEN_PNL, f"{'+' if pnl >= 0 else ''}{pnl:,.2f}", Qt.AlignmentFlag.AlignCenter, pnl_color),
         ]
 
-        base_font = QFont(_APP_FONT_FAMILY, 9)
-        mono_font = QFont("JetBrains Mono", 9)
-        mono_font.setStyleHint(QFont.StyleHint.Monospace)
-
         sym_font = QFont("JetBrains Mono", 9)
         sym_font.setStyleHint(QFont.StyleHint.Monospace)
         sym_font.setBold(True)
@@ -278,7 +278,7 @@ class PositionsTable(QWidget):
             item.setText(text)
             item.setTextAlignment(align)
             item.setForeground(QColor(color))
-            item.setFont(sym_font if col == COL_SYMBOL else mono_font)
+            item.setFont(sym_font if col == COL_SYMBOL else self._number_font)
             item.setData(Qt.ItemDataRole.UserRole, self._sort_key(col, pos))
 
         self._apply_open_pnl_row_style(row, pnl)

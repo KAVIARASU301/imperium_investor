@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
     QWidget, QHeaderView, QFrame, QHBoxLayout, QAbstractItemView, QMenu
 )
 from PySide6.QtCore import Qt, Signal, Slot
-from PySide6.QtGui import QColor, QCursor, QAction, QFontMetrics
+from PySide6.QtGui import QColor, QCursor, QAction, QFont, QFontMetrics
 from functools import partial
 
 logger = logging.getLogger(__name__)
@@ -46,6 +46,9 @@ class PositionsTable(QWidget):
         self.positions_data = {}  # symbol -> SimplePosition
         self.symbol_to_row = {}  # symbol -> row_number
         self.is_market_data_subscribed = False
+
+        # Use same numeric font treatment as watchlist/scanner for table numbers
+        self._number_font = QFont("Consolas", 9)
 
         self._setup_ui()
         self._apply_consistent_styles()
@@ -255,6 +258,12 @@ class PositionsTable(QWidget):
             pnl_item.setForeground(QColor(220, 20, 60))  # Red
         else:
             pnl_item.setForeground(QColor(169, 169, 169))  # Gray
+
+        # Apply consistent numeric font to number columns
+        for col in (1, 2, 3):
+            item = self.table.item(row, col)
+            if item:
+                item.setFont(self._number_font)
 
         # Set alignments
         self.table.item(row, 0).setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
