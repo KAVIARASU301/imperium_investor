@@ -75,6 +75,11 @@ class PerformanceDialog(QDialog):
 
         layout.addLayout(self._create_header())
         layout.addLayout(self._create_metrics_grid())
+        self.empty_state_label = QLabel("")
+        self.empty_state_label.setObjectName("emptyStateLabel")
+        self.empty_state_label.setAlignment(Qt.AlignCenter)
+        self.empty_state_label.setVisible(False)
+        layout.addWidget(self.empty_state_label)
         layout.addWidget(self._create_chart(), 1)
 
     def _create_header(self):
@@ -165,10 +170,12 @@ class PerformanceDialog(QDialog):
     def refresh(self):
         pnl_by_day = self._get_pnl_by_day()
         if not pnl_by_day:
+            self._set_empty_state_message()
             self._clear_metrics()
             self._render_chart([], [])
             return
 
+        self._hide_empty_state_message()
         self._update_metrics(pnl_by_day)
         self._plot_equity(pnl_by_day)
         self.refresh_requested.emit()
@@ -181,6 +188,27 @@ class PerformanceDialog(QDialog):
         for lbl in self.labels.values():
             lbl.setText("—")
             lbl.setStyleSheet("color: #E0E0E0;")
+
+    def _set_empty_state_message(self):
+        trades = self._get_all_trades()
+        complete = [t for t in trades if str(t.get("status", "")).upper() == "COMPLETE"]
+        side_hint = ""
+        if complete:
+            buys = sum(1 for t in complete if str(t.get("transaction_type", "")).upper() == "BUY")
+            sells = sum(1 for t in complete if str(t.get("transaction_type", "")).upper() == "SELL")
+            side_hint = f"COMPLETE orders: {len(complete)} (BUY: {buys}, SELL: {sells})."
+        else:
+            side_hint = "No COMPLETE orders found for the active Kite mode."
+
+        self.empty_state_label.setText(
+            "No Closed Trades Found Yet\n"
+            "Waiting for completed BUY → SELL round-trips.\n"
+            f"{side_hint}"
+        )
+        self.empty_state_label.setVisible(True)
+
+    def _hide_empty_state_message(self):
+        self.empty_state_label.setVisible(False)
 
     def _update_metrics(self, pnl_by_day: dict):
         try:
@@ -285,6 +313,7 @@ class PerformanceDialog(QDialog):
             #metricCard { background-color: #212635; border: 1px solid #3A4458; border-radius: 10px; }
             #metricTitle { color: #A9B1C3; font-size: 11px; }
             #metricValue { color: #FFFFFF; }
+            #emptyStateLabel { color: #A9B1C3; font-size: 12px; padding: 10px; }
             #closeButton { background: transparent; border: none; color: #8A9BA8; font-size: 16px; }
             #closeButton:hover { color: #FFFFFF; }
             QPushButton#navButton { background-color: #212635; border: 1px solid #3A4458; border-radius: 6px; padding: 6px 14px; color: #E0E0E0; }
