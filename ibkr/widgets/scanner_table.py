@@ -272,7 +272,7 @@ class ModernAddScanDialog(QDialog):
                 font-family: "Consolas", "Monaco", monospace;
             }
             QLineEdit#minimalInput:focus, QTextEdit#minimalTextArea:focus, QComboBox#minimalInput:focus {
-                border-color: #6a9cff;
+                border-color: #00d4ff;
                 background-color: #1a1a1a;
             }
             QLineEdit#minimalInput::placeholder, QTextEdit#minimalTextArea::placeholder {
@@ -1592,31 +1592,31 @@ class ChartinkScannerTable(QWidget):
         """FIXED dark theme styling with proper alternate row selection."""
         self.setStyleSheet("""
             QWidget {
-                background-color: #05070b;
-                color: #e0e0e0;
-                font-family: "Segoe UI", Arial, sans-serif;
+                background-color: #050709;
+                color: #e8f0ff;
+                font-family: "'Segoe UI', -apple-system, Roboto, Arial, sans-serif";
                 font-size: 13px;
             }
 
             /* Header Container */
             QWidget#headerContainer {
-                background-color: #0b1019;
-                border-bottom: 1px solid #1f2c3f;
+                background-color: #0a0d12;
+                border-bottom: 1px solid #1a2030;
                 padding: 5px;
             }
 
             /* Scan Label */
             QLabel#scanLabel {
-                color: #6ec8ff;
+                color: #a8bcd4;
                 font-weight: 600;
                 font-size: 11px;
             }
 
             /* Dropdown */
             QComboBox#minimalDropdown {
-                background-color: #0a111b;
-                border: 1px solid #24354d;
-                color: #ffffff;
+                background-color: #0f1318;
+                border: 1px solid #1a2030;
+                color: #e8f0ff;
                 padding: 3px 6px;
                 border-radius: 2px;
                 font-size: 12px;
@@ -1625,7 +1625,7 @@ class ChartinkScannerTable(QWidget):
                 border-color: #505050;
             }
             QComboBox#minimalDropdown:focus {
-                border-color: #6a9cff;
+                border-color: #00d4ff;
                 outline: none;
             }
             QComboBox#minimalDropdown:disabled {
@@ -1677,16 +1677,16 @@ class ChartinkScannerTable(QWidget):
             /* Settings Button */
             QPushButton#settingsMinimalButton {
                 background-color: #111b2a;
-                color: #6ec8ff;
+                color: #a8bcd4;
                 font-size: 11px;
                 font-weight: 500;
                 border-radius: 3px;
-                border: 1px solid #223651;
+                border: 1px solid #1a2030;
                 padding: 3px 7px;
             }
             QPushButton#settingsMinimalButton:hover {
-                background-color: #16253a;
-                border-color: #365783;
+                background-color: #141920;
+                border-color: #00d4ff;
             }
             QPushButton#settingsMinimalButton:pressed {
                 background-color: #1a1a1a;
@@ -1700,11 +1700,11 @@ class ChartinkScannerTable(QWidget):
 
             /* FIXED Table Styling with Proper Alternate Row Selection */
             QTableWidget {
-                background-color: #03060c;
-                border: 1px solid #1a2536;
-                gridline-color: #162131;
-                selection-background-color: #234b73;
-                alternate-background-color: #070b12;
+                background-color: #0f1318;
+                border: 1px solid #1a2030;
+                gridline-color: #1a2030;
+                selection-background-color: #1a2840;
+                alternate-background-color: #0f1318;
                 outline: none;
                 show-decoration-selected: 0;
                 font-size: 12px;
@@ -1712,14 +1712,14 @@ class ChartinkScannerTable(QWidget):
             }
 
             QTableWidget::item {
-                padding: 3px 8px;
-                border-bottom: 1px solid #101926;
+                padding: 1px 5px;
+                border-bottom: 1px solid #1a2030;
                 background-color: transparent;
                 font-size: 12px;
             }
 
             QTableWidget::item:selected {
-                background-color: #234b73 !important;
+                background-color: #1a2840 !important;
                 outline: none;
                 border: none;
                 color: #ffffff;
@@ -1727,21 +1727,21 @@ class ChartinkScannerTable(QWidget):
             }
 
             QTableWidget::item:focus {
-                background-color: #1e3a5f !important;
+                background-color: #1a2840 !important;
                 outline: none;
                 border: none;
             }
 
             QTableWidget::item:hover {
-                background-color: transparent;
+                background-color: #141920;
             }
 
             QTableWidget::item:alternate {
-                background-color: #0f0f0f;
+                background-color: #0f1318;
             }
 
             QTableWidget::item:alternate:selected {
-                background-color: #1e3a5f !important;
+                background-color: #1a2840 !important;
                 color: #ffffff;
                 font-weight: 600;
             }
@@ -1750,7 +1750,7 @@ class ChartinkScannerTable(QWidget):
             QHeaderView::section {
                 background-color: #0b1019;
                 color: #7fd4ff;
-                padding: 3px 10px;
+                padding: 2px 5px;
                 border: none;
                 border-bottom: 1px solid #24344c;
                 border-right: 1px solid #121c2b;

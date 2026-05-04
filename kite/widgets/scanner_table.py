@@ -282,7 +282,7 @@ class ModernAddScanDialog(QDialog):
                 font-family: "Consolas", "Monaco", monospace;
             }
             QLineEdit#minimalInput:focus, QTextEdit#minimalTextArea:focus, QComboBox#minimalInput:focus {
-                border-color: #6a9cff;
+                border-color: #00d4ff;
                 background-color: #1a1a1a;
             }
             QLineEdit#minimalInput::placeholder, QTextEdit#minimalTextArea::placeholder {
@@ -1655,31 +1655,31 @@ class ChartinkScannerTable(QWidget):
         """FIXED dark theme styling with proper alternate row selection."""
         self.setStyleSheet("""
             QWidget {
-                background-color: #05070b;
-                color: #e0e0e0;
-                font-family: "Segoe UI", Arial, sans-serif;
+                background-color: #050709;
+                color: #e8f0ff;
+                font-family: "'Segoe UI', -apple-system, Roboto, Arial, sans-serif";
                 font-size: 13px;
             }
 
             /* Header Container */
             QWidget#headerContainer {
-                background-color: #0b1019;
-                border-bottom: 1px solid #1f2c3f;
+                background-color: #0a0d12;
+                border-bottom: 1px solid #1a2030;
                 padding: 5px;
             }
 
             /* Scan Label */
             QLabel#scanLabel {
-                color: #6ec8ff;
+                color: #a8bcd4;
                 font-weight: 600;
                 font-size: 11px;
             }
 
             /* Dropdown */
             QComboBox#minimalDropdown {
-                background-color: #0a111b;
-                border: 1px solid #24354d;
-                color: #ffffff;
+                background-color: #0f1318;
+                border: 1px solid #1a2030;
+                color: #e8f0ff;
                 padding: 3px 6px;
                 border-radius: 2px;
                 font-size: 12px;
@@ -1688,7 +1688,7 @@ class ChartinkScannerTable(QWidget):
                 border-color: #505050;
             }
             QComboBox#minimalDropdown:focus {
-                border-color: #6a9cff;
+                border-color: #00d4ff;
                 outline: none;
             }
             QComboBox#minimalDropdown:disabled {
@@ -1740,16 +1740,16 @@ class ChartinkScannerTable(QWidget):
             /* Settings Button */
             QPushButton#settingsMinimalButton {
                 background-color: #111b2a;
-                color: #6ec8ff;
+                color: #a8bcd4;
                 font-size: 11px;
                 font-weight: 500;
                 border-radius: 3px;
-                border: 1px solid #223651;
+                border: 1px solid #1a2030;
                 padding: 3px 7px;
             }
             QPushButton#settingsMinimalButton:hover {
-                background-color: #16253a;
-                border-color: #365783;
+                background-color: #141920;
+                border-color: #00d4ff;
             }
             QPushButton#settingsMinimalButton:pressed {
                 background-color: #1a1a1a;
