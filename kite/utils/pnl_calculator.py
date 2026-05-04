@@ -113,8 +113,9 @@ class PnLCalculator:
 
         # Sort chronologically
         sorted_trades = sorted(
-            [t for t in raw_trades if t.get("status") == "COMPLETE"
-             and float(t.get("average_price", 0)) > 0],
+            [t for t in raw_trades
+             if str(t.get("status", "")).strip().upper() == "COMPLETE"
+             and float(t.get("average_price", 0) or 0) > 0],
             key=lambda t: t.get("execution_timestamp", "") or ""
         )
 
@@ -124,7 +125,7 @@ class PnLCalculator:
 
         for trade in sorted_trades:
             sym   = trade.get("tradingsymbol", "")
-            side  = trade.get("transaction_type", "").upper()
+            side  = str(trade.get("transaction_type", "")).strip().upper()
             qty   = int(trade.get("filled_quantity") or trade.get("quantity") or 0)
             price = float(trade.get("average_price", 0))
             ts    = trade.get("execution_timestamp", "")
