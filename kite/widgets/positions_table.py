@@ -127,10 +127,6 @@ class PositionsTable(QWidget):
             },
         }
 
-        # Keep numeric columns visually aligned with watchlist/scanner number rendering
-        self._number_font = QFont("Consolas", 9)
-        self._number_font.setStyleHint(QFont.StyleHint.Monospace)
-
         self._setup_ui()
         self._apply_styles()
 
@@ -267,18 +263,21 @@ class PositionsTable(QWidget):
             (COL_OPEN_PNL, f"{'+' if pnl >= 0 else ''}{pnl:,.2f}", Qt.AlignmentFlag.AlignCenter, pnl_color),
         ]
 
-        sym_font = QFont("JetBrains Mono", 9)
-        sym_font.setStyleHint(QFont.StyleHint.Monospace)
-        sym_font.setBold(True)
-        sym_font.setWeight(QFont.Weight.DemiBold)
-
         for col, text, align, color in cells:
             item = self.table.item(row, col)
             if not item: continue
             item.setText(text)
             item.setTextAlignment(align)
             item.setForeground(QColor(color))
-            item.setFont(sym_font if col == COL_SYMBOL else self._number_font)
+
+            # Apply bold JetBrains Mono ONLY to the symbol; let QSS handle numbers
+            if col == COL_SYMBOL:
+                symbol_font = item.font()
+                symbol_font.setFamily("JetBrains Mono")
+                symbol_font.setBold(True)
+                symbol_font.setWeight(QFont.Weight.DemiBold)
+                item.setFont(symbol_font)
+
             item.setData(Qt.ItemDataRole.UserRole, self._sort_key(col, pos))
 
         self._apply_open_pnl_row_style(row, pnl)
@@ -487,82 +486,100 @@ class PositionsTable(QWidget):
     def _apply_styles(self):
         self.setStyleSheet(f"""
             QWidget {{
-                background:{_BG_BASE};
-                color:{_T0};
-                font-family:'{_APP_FONT_FAMILY}';
-                font-size:9pt;
+                background-color: #050709;
+                color: #e8f0ff;
+                font-family: "'Segoe UI', -apple-system, Roboto, Arial, sans-serif";
+                font-size: 13px;
             }}
             QTableWidget {{
-                background:{_BG_BASE};
-                alternate-background-color:{_BG_ALT};
-                gridline-color:transparent;
-                border:1px solid {_BORDER};
-                border-radius:0px;
-                outline:none;
-                show-decoration-selected:0;
+                background-color: #0f1318;
+                border: 1px solid #1a2030;
+                gridline-color: #1a2030;
+                selection-background-color: #1a2840;
+                alternate-background-color: #0f1318;
+                outline: none;
+                show-decoration-selected: 0;
+                font-size: 12px;
+                border-radius: 0px;
             }}
             QTableWidget::item {{
-                padding:1px 6px; /* Tighter cell padding */
-                border-bottom:1px solid {_BORDER};
-                font-family:"JetBrains Mono","Consolas",monospace;
+                padding: 1px 5px;
+                border-bottom: 1px solid #1a2030;
+                background-color: transparent;
+                font-size: 12px;
+                font-family: "JetBrains Mono", "Consolas", monospace;
             }}
             QTableWidget::item:selected {{
-                background:{_BG_SEL} !important;
-                color:{_T0};
-            }}
-            QTableWidget::item:hover {{
-                background:{_BG_HOVER};
+                background-color: #1a2840 !important;
+                outline: none;
+                border: none;
+                color: #ffffff;
+                font-weight: 600;
             }}
             QTableWidget::item:focus {{
-                background:{_BG_SEL} !important;
-                color:{_T0};
+                background-color: #1a2840 !important;
+                outline: none;
+                border: none;
+            }}
+            QTableWidget::item:hover {{
+                background-color: #141920;
             }}
             QTableWidget::item:alternate {{
-                background:{_BG_ALT};
+                background-color: #0f1318;
+            }}
+            QTableWidget::item:alternate:selected {{
+                background-color: #1a2840 !important;
+                color: #ffffff;
+                font-weight: 600;
             }}
             QHeaderView::section {{
-                background:{_BG_HEADER};
-                color:{_T1};
-                padding:2px 6px; /* Compact header */
-                border:none;
-                border-bottom:1px solid {_BORDER};
-                border-right:1px solid {_BORDER};
-                font-family:'{_APP_FONT_FAMILY}';
-                font-size:9pt;
-                font-weight:600;
+                background-color: #0b1019;
+                color: #7fd4ff;
+                padding: 2px 5px;
+                border: none;
+                border-bottom: 1px solid #24344c;
+                border-right: 1px solid #121c2b;
+                font-weight: 600;
+                font-size: 11px;
+                text-transform: uppercase;
             }}
-            QHeaderView::section:last {{ border-right:none; }}
-            QHeaderView::section:hover {{ color:{_T0}; }}
+            QHeaderView::section:last {{ border-right: none; }}
+            QHeaderView::section:hover {{ background-color: #2a2a2a; }}
             QHeaderView::down-arrow, QHeaderView::up-arrow {{ width:0px; height:0px; }}
             #positionsFooter {{
-                background:{_BG_FOOTER};
-                border-top:1px solid {_BORDER};
+                background-color: #080d15;
+                border-top: 1px solid #1a2030;
             }}
             #footerLabel {{
-                color:{_T2};
-                font-family:'{_APP_FONT_FAMILY}';
-                font-size:9pt;
+                color: #506070;
+                font-family: "'Segoe UI', -apple-system, Roboto, Arial, sans-serif";
+                font-size: 12px;
+                font-weight: 500;
             }}
             #footerValue {{
-                color:{_T1};
-                font-family:'{_APP_FONT_FAMILY}';
-                font-size:9pt;
+                color: #8ea3bc;
+                font-family: "JetBrains Mono", "Consolas", monospace;
+                font-size: 12px;
             }}
             QMenu#posContextMenu {{
-                background:#0c121e;
-                border:1px solid {_BORDER};
-                border-radius:4px;
+                background: #0c121e;
+                border: 1px solid #1a2030;
+                border-radius: 4px;
             }}
             QMenu#posContextMenu::item {{
-                padding:6px 16px;
-                color:{_T0};
+                padding: 6px 16px;
+                color: #d8e4f0;
             }}
-            QMenu#posContextMenu::item:selected {{ background:#1a2840; }}
-            QScrollBar:vertical {{ background:transparent; width:4px; }}
-            QScrollBar::handle:vertical {{ background:#2a3850; border-radius:2px; }}
-            QScrollBar:horizontal {{ background:transparent; height:4px; }}
-            QScrollBar::handle:horizontal {{ background:#2a3850; border-radius:2px; }}
-            QScrollBar::add-line,QScrollBar::sub-line {{ border:none; background:none; width:0; height:0; }}
+            QMenu#posContextMenu::item:selected {{ background: #1a2840; }}
+
+            /* Enhanced Scrollbars from Scanner */
+            QScrollBar:vertical {{ background-color: #05070b; width: 8px; border: none; margin: 0px; }}
+            QScrollBar::handle:vertical {{ background-color: #424242; border-radius: 4px; min-height: 20px; margin: 2px; }}
+            QScrollBar::handle:vertical:hover {{ background-color: #616161; }}
+            QScrollBar:horizontal {{ background-color: #0a0a0a; height: 8px; border: none; margin: 0px; }}
+            QScrollBar::handle:horizontal {{ background-color: #424242; border-radius: 4px; min-width: 20px; margin: 2px; }}
+            QScrollBar::handle:horizontal:hover {{ background-color: #616161; }}
+            QScrollBar::add-line, QScrollBar::sub-line {{ border: none; background: none; width: 0px; height: 0px; margin: 0px; }}
         """)
 
     # ══════════════════════════════════════════════════════════════════════════
