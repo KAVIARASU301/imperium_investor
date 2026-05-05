@@ -39,7 +39,8 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QTableWidget,
     QTableWidgetItem, QHeaderView, QLabel, QPushButton, QWidget,
     QLineEdit, QComboBox, QCheckBox, QFormLayout, QMessageBox,
-    QDoubleSpinBox, QSpinBox, QAbstractItemView, QFrame
+    QDoubleSpinBox, QSpinBox, QAbstractItemView, QFrame, QApplication,
+    QAbstractButton, QAbstractSpinBox
 )
 
 from kite.utils.sounds import play_alert
@@ -1265,13 +1266,14 @@ class AlertManagementDialog(QDialog):
         self.manager = manager
         self.store   = manager.store   # kept for read-only queries
 
-        self.setWindowTitle("Alert Manager")
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
-        self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.resize(850, 500)
-        self.setMinimumSize(700, 400)
+        self.setWindowTitle("ALERT MANAGER")
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground, False)
+        self.resize(1000, 660)
+        self.setMinimumSize(900, 560)
 
-        self._drag_pos = None
+        self._drag_active = False
+        self._drag_offset = None
         self._build_ui()
         self._apply_styles()
 
@@ -1287,33 +1289,47 @@ class AlertManagementDialog(QDialog):
         outer.setContentsMargins(0, 0, 0, 0)
         container = QFrame()
         container.setObjectName("alertMgmtContainer")
-        container.mousePressEvent   = self._mouse_press
-        container.mouseMoveEvent    = self._mouse_move
-        container.mouseReleaseEvent = self._mouse_release
         outer.addWidget(container)
 
         layout = QVBoxLayout(container)
-        layout.setContentsMargins(12, 8, 12, 12)
-        layout.setSpacing(8)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
-        # Header row
-        header = QHBoxLayout()
-        title = QLabel("Alerts")
+        # Title bar (36px fixed)
+        title_bar = QFrame()
+        title_bar.setObjectName("titleBar")
+        title_bar.setFixedHeight(36)
+        header = QHBoxLayout(title_bar)
+        header.setContentsMargins(10, 0, 8, 0)
+        header.setSpacing(8)
+        badge = QLabel("ALERT")
+        badge.setObjectName("categoryBadge")
+        title = QLabel("ALERT MANAGER")
         title.setObjectName("mgmtTitle")
+        refresh_btn = QPushButton("↺")
+        refresh_btn.setObjectName("titleToolBtn")
+        refresh_btn.setFixedSize(26, 26)
+        refresh_btn.clicked.connect(self.refresh_tables)
         add_btn = QPushButton("+ New Alert")
         add_btn.setObjectName("addButton")
         add_btn.clicked.connect(self._add_new)
         close_btn = QPushButton("✕")
-        close_btn.setObjectName("closeButton")
+        close_btn.setObjectName("closeBtn")
         close_btn.setFixedSize(26, 26)
         close_btn.clicked.connect(self.close)
+        header.addWidget(badge)
         header.addWidget(title)
         header.addStretch()
+        header.addWidget(refresh_btn)
         header.addWidget(add_btn)
         header.addWidget(close_btn)
-        layout.addLayout(header)
+        layout.addWidget(title_bar)
 
-        # Tabs
+        body = QWidget()
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(16, 16, 16, 16)
+        body_layout.setSpacing(12)
+
         self.tabs = QTabWidget()
         self.active_table    = self._make_table(
             ["Symbol", "Condition", "Target", "Created", "Action"])
@@ -1325,7 +1341,20 @@ class AlertManagementDialog(QDialog):
         self.tabs.addTab(self.active_table,    "Active")
         self.tabs.addTab(self.triggered_table, "Triggered")
         self.tabs.addTab(self.history_table,   "History")
-        layout.addWidget(self.tabs)
+        body_layout.addWidget(self.tabs)
+        layout.addWidget(body)
+
+        footer = QFrame()
+        footer.setObjectName("footerBar")
+        footer.setFixedHeight(40)
+        footer_layout = QHBoxLayout(footer)
+        footer_layout.setContentsMargins(12, 0, 12, 0)
+        footer_layout.setSpacing(8)
+        self.status_label = QLabel("Auto refresh every 3s")
+        self.status_label.setObjectName("statusLabel")
+        footer_layout.addWidget(self.status_label)
+        footer_layout.addStretch()
+        layout.addWidget(footer)
 
     def _make_table(self, headers: List[str]) -> QTableWidget:
         t = QTableWidget(0, len(headers))
@@ -1419,6 +1448,9 @@ class AlertManagementDialog(QDialog):
 
         self.tabs.setTabText(0, f"Active ({len(active)})")
         self.tabs.setTabText(1, f"Triggered ({len(triggered)})")
+        self.status_label.setText(
+            f"Active: {len(active)}  |  Triggered: {len(triggered)}  |  Total: {len(alerts)}"
+        )
 
     def _populate_active(self, alerts: List[Alert]):
         t = self.active_table
@@ -1481,35 +1513,78 @@ class AlertManagementDialog(QDialog):
         self.manager.acknowledge_triggered_alert(alert_id)
         self.refresh_tables()
 
-    # ── drag support ──
-    def _mouse_press(self, event):
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._center_on_parent()
+
+    def _center_on_parent(self):
+        if self.parent():
+            parent_geo = self.parent().frameGeometry()
+            center = parent_geo.center()
+            self.move(center - self.rect().center())
+        else:
+            screen = QApplication.primaryScreen().availableGeometry()
+            self.move(screen.center() - self.rect().center())
+
+    def mousePressEvent(self, event):
+        w = self.childAt(event.pos())
+        while w:
+            if isinstance(w, (QAbstractButton, QAbstractSpinBox,
+                              QLineEdit, QComboBox, QTableWidget)):
+                return super().mousePressEvent(event)
+            w = w.parentWidget()
         if event.button() == Qt.LeftButton:
-            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            self._drag_active = True
+            self._drag_offset = (event.globalPosition().toPoint()
+                                 - self.frameGeometry().topLeft())
+            event.accept()
 
-    def _mouse_move(self, event):
-        if event.buttons() & Qt.LeftButton and self._drag_pos:
-            self.move(event.globalPosition().toPoint() - self._drag_pos)
+    def mouseMoveEvent(self, event):
+        if self._drag_active and event.buttons() & Qt.LeftButton:
+            self.move(event.globalPosition().toPoint() - self._drag_offset)
+            event.accept()
+        else:
+            super().mouseMoveEvent(event)
 
-    def _mouse_release(self, event):
-        self._drag_pos = None
+    def mouseReleaseEvent(self, event):
+        self._drag_active = False
+        super().mouseReleaseEvent(event)
 
     def _apply_styles(self):
         self.setStyleSheet("""
             QDialog {
-                background-color: #121212;
-                color: #e0e0e0;
-                font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+                background-color: #0a0d12;
+                color: #e8f0ff;
+                font-family: Inter, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
             }
             QFrame#alertMgmtContainer {
-                background-color: #121212;
-                border: 1px solid #222630;
+                background-color: #0a0d12;
+                border: 1px solid #1a2030;
                 border-radius: 2px;
             }
+            QFrame#titleBar {
+                background-color: #070a0f;
+                border-bottom: 1px solid #1a2030;
+            }
+            QLabel#categoryBadge {
+                color: #f59e0b;
+                font-family: Consolas, "JetBrains Mono", "Courier New", monospace;
+                font-size: 9px;
+                font-weight: 700;
+            }
             QLabel#mgmtTitle {
-                color: #e0e0e0;
-                font-size: 15px;
-                font-weight: 600;
+                color: #e8f0ff;
+                font-size: 11px;
+                font-weight: 800;
                 letter-spacing: 0.5px;
+            }
+            QLabel#statusLabel {
+                color: #5a7090;
+                font-size: 11px;
+            }
+            QFrame#footerBar {
+                background-color: #070a0f;
+                border-top: 1px solid #1a2030;
             }
             QTableWidget {
                 background-color: #0f1318;
@@ -1568,14 +1643,32 @@ class AlertManagementDialog(QDialog):
             QPushButton#deleteButton:hover {
                 background-color: rgba(239, 83, 80, 0.15);
             }
-            QPushButton#closeButton {
+            QPushButton#titleToolBtn {
                 background: transparent;
-                color: #7B8496;
+                color: #5a7090;
                 border: none;
-                font-size: 16px;
+                font-size: 14px;
+                font-weight: bold;
+                border-radius: 2px;
                 padding: 0;
             }
-            QPushButton#closeButton:hover { color: #FF4444; }
+            QPushButton#titleToolBtn:hover {
+                background: #141920;
+                color: #00d4ff;
+            }
+            QPushButton#closeBtn {
+                background: transparent;
+                color: #5a7090;
+                border: none;
+                font-size: 14px;
+                font-weight: bold;
+                border-radius: 2px;
+                padding: 0;
+            }
+            QPushButton#closeBtn:hover {
+                background: rgba(255, 77, 106, 0.15);
+                color: #ff4d6a;
+            }
             QLineEdit, QComboBox, QDoubleSpinBox {
                 background-color: #1B1E26;
                 border: 1px solid transparent;
