@@ -1312,6 +1312,8 @@ class AlertManagementDialog(QDialog):
 
         self._drag_active = False
         self._drag_offset = None
+        self._parent_spacebar_shortcut_prev_enabled = None
+        self._parent_shift_spacebar_shortcut_prev_enabled = None
         self._build_ui()
         self._apply_styles()
 
@@ -1321,6 +1323,37 @@ class AlertManagementDialog(QDialog):
         self._refresh_timer.start(3_000)
         self.refresh_tables()
         self._wire_symbol_navigation()
+
+    def _set_parent_spacebar_shortcuts_enabled(self, enabled: bool) -> None:
+        """Temporarily disable main-window global spacebar shortcuts while this dialog is open."""
+        parent = self.parent()
+        if not parent:
+            return
+
+        for attr_name, state_attr in (
+            ("spacebar_shortcut", "_parent_spacebar_shortcut_prev_enabled"),
+            ("shift_spacebar_shortcut", "_parent_shift_spacebar_shortcut_prev_enabled"),
+        ):
+            shortcut = getattr(parent, attr_name, None)
+            if shortcut is None:
+                continue
+            if enabled:
+                previous_state = getattr(self, state_attr)
+                if previous_state is not None:
+                    shortcut.setEnabled(previous_state)
+                    setattr(self, state_attr, None)
+            else:
+                if getattr(self, state_attr) is None:
+                    setattr(self, state_attr, shortcut.isEnabled())
+                shortcut.setEnabled(False)
+
+    def showEvent(self, event) -> None:
+        self._set_parent_spacebar_shortcuts_enabled(False)
+        super().showEvent(event)
+
+    def closeEvent(self, event) -> None:
+        self._set_parent_spacebar_shortcuts_enabled(True)
+        super().closeEvent(event)
 
     def _build_ui(self):
         outer = QVBoxLayout(self)
