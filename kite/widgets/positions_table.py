@@ -547,7 +547,7 @@ class PositionsTable(QWidget):
             QHeaderView::section:hover {{ background-color: #2a2a2a; }}
             QHeaderView::down-arrow, QHeaderView::up-arrow {{ width:0px; height:0px; }}
             #positionsFooter {{
-                background-color: #080d15;
+                background-color: transparent;
                 border-top: 1px solid #1a2030;
             }}
             #footerLabel {{
@@ -555,11 +555,13 @@ class PositionsTable(QWidget):
                 font-family: "'Segoe UI', -apple-system, Roboto, Arial, sans-serif";
                 font-size: 12px;
                 font-weight: 500;
+                background-color: transparent;
             }}
             #footerValue {{
                 color: #8ea3bc;
                 font-family: "JetBrains Mono", "Consolas", monospace;
                 font-size: 12px;
+                background-color: transparent;
             }}
             QMenu#posContextMenu {{
                 background: #0c121e;

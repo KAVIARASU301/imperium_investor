@@ -901,7 +901,7 @@ class FloatingPositionsDialog(QDialog):
 
             /* ── Footer ─────────────────────────────────────────── */
             QFrame#footer {{
-                background: {_C.BG3};
+                background: transparent;
                 border-top: 1px solid {_C.BORDER};
             }}
             QLabel#footerLabel {{

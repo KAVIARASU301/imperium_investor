@@ -532,8 +532,8 @@ class AlertCreationDialog(QDialog):
         outer.addWidget(container)
 
         layout = QVBoxLayout(container)
-        layout.setContentsMargins(16, 12, 16, 16)
-        layout.setSpacing(10)
+        layout.setContentsMargins(12, 10, 12, 12)
+        layout.setSpacing(8)
 
         # Header
         header = QHBoxLayout()
@@ -541,7 +541,7 @@ class AlertCreationDialog(QDialog):
         title.setObjectName("alertTitle")
         close_btn = QPushButton("✕")
         close_btn.setObjectName("closeButton")
-        close_btn.setFixedSize(26, 26)
+        close_btn.setFixedSize(24, 24)
         close_btn.clicked.connect(self.reject)
         header.addWidget(title)
         header.addStretch()
@@ -549,17 +549,18 @@ class AlertCreationDialog(QDialog):
         layout.addLayout(header)
 
         form = QFormLayout()
-        form.setVerticalSpacing(8)
+        form.setHorizontalSpacing(8)
+        form.setVerticalSpacing(6)
 
         # Symbol
         self.symbol_input = QLineEdit(self._symbol)
-        self.symbol_input.setFixedWidth(160)
+        self.symbol_input.setFixedWidth(140)
         form.addRow("Symbol:", self.symbol_input)
 
         # Condition
         self.condition_combo = QComboBox()
         self.condition_combo.addItems([c.value for c in AlertCondition])
-        self.condition_combo.setFixedWidth(220)
+        self.condition_combo.setFixedWidth(190)
         self.condition_combo.currentTextChanged.connect(self._update_target_label)
         form.addRow("Condition:", self.condition_combo)
 
@@ -569,13 +570,13 @@ class AlertCreationDialog(QDialog):
         self.target_spin.setRange(0, 999_999)
         self.target_spin.setDecimals(2)
         self.target_spin.setValue(self._ltp)
-        self.target_spin.setFixedWidth(160)
+        self.target_spin.setFixedWidth(140)
         form.addRow(self.target_label, self.target_spin)
 
         # Intent
         self.intent_combo = QComboBox()
         self.intent_combo.addItems([i.value for i in AlertIntent])
-        self.intent_combo.setFixedWidth(220)
+        self.intent_combo.setFixedWidth(190)
         form.addRow("Intent:", self.intent_combo)
 
         # Note
@@ -588,6 +589,8 @@ class AlertCreationDialog(QDialog):
         form.addRow("", self.repeat_check)
 
         layout.addLayout(form)
+
+        layout.addSpacing(2)
 
         # Buttons
         btns = QHBoxLayout()
