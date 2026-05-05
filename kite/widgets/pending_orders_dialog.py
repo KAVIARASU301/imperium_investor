@@ -2,7 +2,7 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from PySide6.QtCore import Qt, QTimer, Signal, QThreadPool
+from PySide6.QtCore import Qt, QTimer, Signal, QThreadPool, QPoint
 from PySide6.QtWidgets import (
     QDialog,
     QVBoxLayout,
@@ -13,11 +13,13 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QHeaderView,
-    QMessageBox,
     QSpinBox,
     QDoubleSpinBox,
     QComboBox,
     QFormLayout,
+    QAbstractButton,
+    QLineEdit,
+    QApplication,
 )
 
 from kite.widgets.status_bar import show_error, show_info, show_order_cancelled
@@ -126,10 +128,10 @@ class EditPendingOrderDialog(QDialog):
         trigger_price = float(self.trigger_input.value())
 
         if order_type in {"LIMIT", "SL"} and price <= 0:
-            QMessageBox.warning(self, "Invalid Price", "Limit/SL orders require a positive price.")
+            show_error("Limit/SL orders require a positive price.")
             return None
         if order_type in {"SL", "SL-M"} and trigger_price <= 0:
-            QMessageBox.warning(self, "Invalid Trigger", "SL/SL-M orders require a positive trigger price.")
+            show_error("SL/SL-M orders require a positive trigger price.")
             return None
 
         return {
@@ -155,8 +157,13 @@ class PendingOrdersDialog(QDialog):
         self._thread_pool = QThreadPool.globalInstance()
         self._refresh_inflight = False
 
-        self.setWindowTitle("Pending Orders")
-        self.setMinimumSize(980, 560)
+        self.setWindowTitle("PENDING ORDERS")
+        self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+        self.setMinimumSize(900, 560)
+        self.resize(1000, 660)
+        self._drag_active = False
+        self._drag_offset = QPoint()
 
         self._setup_ui()
         self._connect_signals()
@@ -169,16 +176,45 @@ class PendingOrdersDialog(QDialog):
 
     def _setup_ui(self):
         root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        title_bar = QWidget()
+        title_bar.setFixedHeight(36)
+        title_layout = QHBoxLayout(title_bar)
+        title_layout.setContentsMargins(12, 0, 8, 0)
+        title_layout.setSpacing(8)
+        badge = QLabel("ORDERS")
+        badge.setObjectName("categoryBadge")
+        self.title_label = QLabel("PENDING ORDERS")
+        self.refresh_btn = QPushButton("↺")
+        self.refresh_btn.setObjectName("toolBtn")
+        self.refresh_btn.setToolTip("Refresh pending orders")
+        self.close_btn = QPushButton("✕")
+        self.close_btn.setObjectName("closeBtn")
+        self.close_btn.setToolTip("Close")
+        title_layout.addWidget(badge)
+        title_layout.addWidget(self.title_label)
+        title_layout.addStretch()
+        title_layout.addWidget(self.refresh_btn)
+        title_layout.addWidget(self.close_btn)
+        root.addWidget(title_bar)
+
+        body = QWidget()
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(16, 16, 16, 16)
+        body_layout.setSpacing(12)
 
         header = QHBoxLayout()
         self.status_label = QLabel("Loading pending orders…")
-        self.status_label.setObjectName("statusLabel")
+        self.status_label.setObjectName("statusNeutral")
         header.addWidget(self.status_label)
         header.addStretch()
 
         self.count_label = QLabel("0 pending")
+        self.count_label.setObjectName("countLabel")
         header.addWidget(self.count_label)
-        root.addLayout(header)
+        body_layout.addLayout(header)
 
         self.table = QTableWidget()
         self.table.setColumnCount(10)
@@ -205,22 +241,49 @@ class PendingOrdersDialog(QDialog):
         header_view.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         header_view.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
 
-        root.addWidget(self.table)
+        body_layout.addWidget(self.table)
+        root.addWidget(body)
 
-        footer = QHBoxLayout()
-        self.refresh_btn = QPushButton("Refresh")
-        self.cancel_btn = QPushButton("Cancel Selected")
-        self.edit_btn = QPushButton("Edit Selected")
-        self.close_btn = QPushButton("Close")
+        footer = QWidget()
+        footer.setFixedHeight(40)
+        footer_layout = QHBoxLayout(footer)
+        footer_layout.setContentsMargins(16, 0, 16, 0)
+        footer_layout.setSpacing(8)
+        self.footer_status_label = QLabel("⚠ PENDING")
+        self.footer_status_label.setObjectName("statusWarning")
+        self.cancel_btn = QPushButton("CANCEL SELECTED")
+        self.cancel_btn.setObjectName("destructiveBtn")
+        self.edit_btn = QPushButton("EDIT SELECTED")
+        self.edit_btn.setObjectName("secondaryBtn")
+        footer_layout.addWidget(self.footer_status_label)
+        footer_layout.addStretch()
+        footer_layout.addWidget(self.edit_btn)
+        footer_layout.addWidget(self.cancel_btn)
+        root.addWidget(footer)
 
-        footer.addWidget(self.refresh_btn)
-        footer.addStretch()
-        footer.addWidget(self.edit_btn)
-        footer.addWidget(self.cancel_btn)
-        footer.addWidget(self.close_btn)
-        root.addLayout(footer)
-
+        self._apply_styles()
         self._set_action_state(False)
+
+
+    def _apply_styles(self):
+        self.setStyleSheet("""
+            QDialog { background: #0a0d12; border: 1px solid #1a2030; border-radius: 1px; }
+            QWidget { color: #a8bcd4; font-family: 'Inter', 'Segoe UI', sans-serif; }
+            QLabel#categoryBadge { color: #00d4ff; font-size: 9px; font-weight: 700; letter-spacing: 1px; }
+            QLabel { color: #a8bcd4; }
+            QLabel#countLabel { color: #e8f0ff; font-family: 'Consolas', 'JetBrains Mono', monospace; font-weight: 700; }
+            QPushButton#toolBtn, QPushButton#closeBtn { min-width: 26px; max-width: 26px; min-height: 26px; max-height: 26px; border: none; border-radius: 2px; background: transparent; color: #5a7090; font-size: 14px; font-weight: 700; }
+            QPushButton#toolBtn:hover { background: #141920; color: #e8f0ff; }
+            QPushButton#closeBtn:hover { background: rgba(255, 77, 106, 0.15); color: #ff4d6a; }
+            QPushButton#secondaryBtn { background: #0f1318; color: #a8bcd4; border: 1px solid #1a2030; border-radius: 1px; font-size: 11px; font-weight: 700; padding: 0 16px; min-height: 28px; }
+            QPushButton#secondaryBtn:hover { background: #141920; color: #e8f0ff; }
+            QPushButton#destructiveBtn { background: rgba(255, 77, 106, 0.08); color: #ff4d6a; border: 1px solid rgba(255, 77, 106, 0.25); border-radius: 1px; font-size: 11px; font-weight: 800; padding: 0 16px; min-height: 28px; }
+            QPushButton#destructiveBtn:hover { background: rgba(255, 77, 106, 0.15); border-color: #ff4d6a; }
+            QTableWidget { background: #0f1318; gridline-color: #1a2030; border: 1px solid #1a2030; color: #e8f0ff; font-family: 'Consolas', 'JetBrains Mono', monospace; font-size: 12px; selection-background-color: #1a2840; }
+            QHeaderView::section { background: #070a0f; color: #5a7090; font-size: 9px; font-weight: 800; letter-spacing: 1px; border: none; border-right: 1px solid #1a2030; border-bottom: 1px solid #1a2030; min-height: 26px; }
+            QLabel#statusNeutral { color: #5a7090; font-size: 10px; font-weight: 600; }
+            QLabel#statusWarning { color: #f59e0b; font-size: 10px; font-weight: 700; }
+        """)
 
     def _connect_signals(self):
         self.refresh_btn.clicked.connect(self.refresh_orders)
@@ -320,15 +383,6 @@ class PendingOrdersDialog(QDialog):
         symbol = order.get("tradingsymbol", "")
         variety = order.get("variety") or "regular"
 
-        confirm = QMessageBox.question(
-            self,
-            "Cancel Order",
-            f"Cancel pending order {order_id} ({symbol})?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if confirm != QMessageBox.StandardButton.Yes:
-            return
 
         try:
             self.trader.cancel_order(variety=variety, order_id=order_id)
@@ -377,3 +431,32 @@ class PendingOrdersDialog(QDialog):
     def closeEvent(self, event):
         self.auto_refresh_timer.stop()
         super().closeEvent(event)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self.parent():
+            parent_geo = self.parent().frameGeometry()
+            center = parent_geo.center()
+            self.move(center - self.rect().center())
+
+    def mousePressEvent(self, event):
+        w = self.childAt(event.position().toPoint())
+        while w:
+            if isinstance(w, (QAbstractButton, QSpinBox, QDoubleSpinBox, QLineEdit, QComboBox, QTableWidget)):
+                return super().mousePressEvent(event)
+            w = w.parentWidget()
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_active = True
+            self._drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            event.accept()
+
+    def mouseMoveEvent(self, event):
+        if self._drag_active and event.buttons() & Qt.MouseButton.LeftButton:
+            self.move(event.globalPosition().toPoint() - self._drag_offset)
+            event.accept()
+        else:
+            super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_active = False
+        super().mouseReleaseEvent(event)
