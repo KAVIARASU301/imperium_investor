@@ -320,6 +320,8 @@ class ChartLinesManager(QObject):
             self._remove_existing_alert_drawings(state["drawings"], price)
             success = self._save_symbol_drawings(symbol, state, interval)
             if success:
+                line_key = self._session_line_key(symbol, price)
+                _lines_drawn_this_session.discard(line_key)
                 self._refresh_chart()
                 logger.info(f"Removed alert line for {symbol} at {price:.2f}")
             return success

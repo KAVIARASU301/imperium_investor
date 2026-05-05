@@ -148,6 +148,10 @@ class AlertStore:
     def active(self) -> List[Alert]:
         return [a for a in self.all() if a.status == AlertStatus.ACTIVE.value]
 
+    def get(self, alert_id: str) -> Optional[Alert]:
+        with QMutexLocker(self._mutex):
+            return self._alerts.get(alert_id)
+
     def add(self, alert: Alert) -> None:
         with QMutexLocker(self._mutex):
             self._alerts[alert.id] = alert
@@ -835,6 +839,8 @@ class AlertSystemManager(QObject):
         self._add_chart_line(alert)
         # FIX #7: subscribe alert symbol to WS so engine gets price ticks
         self._ensure_alert_symbol_subscribed(alert.symbol)
+        # Also re-run restore logic so re-armed/reloaded alerts redraw mid-session too.
+        self._restore_chart_lines_on_startup()
         # Refresh open dialog if visible
         self._refresh_dialog_if_open()
 
@@ -842,11 +848,23 @@ class AlertSystemManager(QObject):
         """Remove alert from store AND erase the corresponding chart line."""
         # FIX #2: look up alert *before* removing so we know the price/symbol
         alert = next((a for a in self.store.all() if a.id == alert_id), None)
-        self.store.remove(alert_id)
         if alert:
             self._remove_chart_line(alert)
+            line_key = f"{alert.symbol}_{alert.target_value:.2f}"
+            clm_module._lines_drawn_this_session.discard(line_key)
+        self.store.remove(alert_id)
         self._refresh_dialog_if_open()
 
+
+    def get_alert_for_price(self, symbol: str, price: float, tolerance: float = 0.5) -> Optional[Alert]:
+        """Return active alert matching symbol and price within tolerance."""
+        target_symbol = str(symbol or "").strip().upper()
+        for alert in self.store.active():
+            if str(alert.symbol).strip().upper() != target_symbol:
+                continue
+            if abs(float(alert.target_value) - float(price)) <= float(tolerance):
+                return alert
+        return None
 
     def acknowledge_triggered_alert(self, alert_id: str) -> None:
         """Move a triggered alert to history and remove its chart line."""
