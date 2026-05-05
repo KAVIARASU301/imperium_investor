@@ -23,16 +23,14 @@ Usage:
 
 from __future__ import annotations
 
-import json
 import logging
-import threading
 from typing import Any, Dict, Optional
 
 from PySide6.QtCore import Qt, QPoint, QObject, Signal, QThread
-from PySide6.QtGui import QColor, QCursor, QMouseEvent
+from PySide6.QtGui import QMouseEvent
 from PySide6.QtWidgets import (
-    QDialog, QFrame, QHBoxLayout, QLabel, QPushButton,
-    QVBoxLayout, QWidget, QApplication, QSizePolicy,
+    QAbstractButton, QAbstractSpinBox, QComboBox, QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton,
+    QTableWidget, QVBoxLayout, QApplication,
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
@@ -295,7 +293,7 @@ _LOADING_HTML = """<!DOCTYPE html>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
-    background: #0b0f1a;
+    background: #0a0d12;
     color: #7a94b0;
     font-family: 'Segoe UI', Arial, sans-serif;
     display: flex; align-items: center; justify-content: center;
@@ -321,7 +319,7 @@ _ERROR_HTML_TPL = """<!DOCTYPE html>
 <style>
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
   body {{
-    background: #0b0f1a; color: #ff4d6a;
+    background: #0a0d12; color: #ff4d6a;
     font-family: 'Segoe UI', Arial, sans-serif;
     display: flex; align-items: center; justify-content: center;
     height: 100vh; flex-direction: column; gap: 12px; padding: 24px;
@@ -437,10 +435,10 @@ def _build_info_html(data: dict) -> str:
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
   :root {{
     --bg0: #070a0f;
-    --bg1: #0b0f1a;
-    --bg2: #0f1520;
-    --bg3: #141c2a;
-    --border: #1a2535;
+    --bg1: #0a0d12;
+    --bg2: #0f1318;
+    --bg3: #141920;
+    --border: #1a2030;
     --t0: #e8f0ff;
     --t1: #a8bcd4;
     --t2: #8fa7c3;
@@ -478,7 +476,7 @@ def _build_info_html(data: dict) -> str:
   }}
   .company-name {{
     font-size: 17px; font-weight: 700;
-    color: #ffffff; letter-spacing: 0.2px;
+    color: #e8f0ff; letter-spacing: 0.2px;
   }}
   .meta-pills {{ display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }}
   .pill {{
@@ -603,18 +601,15 @@ class StockInfoDialog(QDialog):
     """
 
     def __init__(self, symbol: str, parent=None):
-        flags = (
-            Qt.WindowType.Dialog |
-            Qt.WindowType.FramelessWindowHint |
-            Qt.WindowType.WindowStaysOnTopHint
-        )
+        flags = Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint
         super().__init__(parent, flags)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
-        self.setMinimumSize(820, 600)
-        self.resize(900, 660)
+        self.setMinimumSize(1000, 680)
+        self.resize(1100, 720)
 
         self._symbol = symbol.strip().upper()
-        self._drag_pos: Optional[QPoint] = None
+        self._drag_active = False
+        self._drag_offset = QPoint()
         self._fetch_thread: Optional[_FetchThread] = None
 
         self._build_ui()
@@ -639,7 +634,7 @@ class StockInfoDialog(QDialog):
     def _build_title_bar(self) -> QFrame:
         bar = QFrame()
         bar.setObjectName("siTitleBar")
-        bar.setFixedHeight(34)
+        bar.setFixedHeight(36)
 
         h = QHBoxLayout(bar)
         h.setContentsMargins(14, 0, 8, 0)
@@ -666,18 +661,15 @@ class StockInfoDialog(QDialog):
         h.addWidget(self._refresh_btn)
         h.addWidget(close_btn)
 
-        bar.mousePressEvent   = self._tb_press
-        bar.mouseMoveEvent    = self._tb_move
-        bar.mouseReleaseEvent = self._tb_release
         return bar
 
     def _build_footer(self) -> QFrame:
         f = QFrame()
         f.setObjectName("siFooter")
-        f.setFixedHeight(22)
+        f.setFixedHeight(40)
 
         h = QHBoxLayout(f)
-        h.setContentsMargins(14, 0, 14, 0)
+        h.setContentsMargins(16, 0, 16, 0)
 
         self._status_lbl = QLabel(f"Data source: yfinance  ·  {self._symbol}.NS / {self._symbol}.BO")
         self._status_lbl.setObjectName("siStatus")
@@ -720,36 +712,53 @@ class StockInfoDialog(QDialog):
         self._refresh_btn.setEnabled(True)
         self._refresh_btn.setText("↻")
 
-    # ── Drag ──────────────────────────────────────────────────────────────
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._center_on_parent()
 
-    def _tb_press(self, e: QMouseEvent):
-        if e.button() == Qt.MouseButton.LeftButton:
-            self._drag_pos = e.globalPosition().toPoint() - self.frameGeometry().topLeft()
+    def _center_on_parent(self):
+        if self.parent():
+            parent_geo = self.parent().frameGeometry()
+            center = parent_geo.center()
+            self.move(center - self.rect().center())
+        else:
+            screen = QApplication.primaryScreen().availableGeometry()
+            self.move(screen.center() - self.rect().center())
 
-    def _tb_move(self, e: QMouseEvent):
-        if self._drag_pos and e.buttons() & Qt.MouseButton.LeftButton:
-            self.move(e.globalPosition().toPoint() - self._drag_pos)
+    def mousePressEvent(self, event):
+        w = self.childAt(event.pos())
+        while w:
+            if isinstance(w, (QAbstractButton, QAbstractSpinBox, QLineEdit, QComboBox, QTableWidget)):
+                return super().mousePressEvent(event)
+            w = w.parentWidget()
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_active = True
+            self._drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            event.accept()
 
-    def _tb_release(self, _):
-        self._drag_pos = None
+    def mouseMoveEvent(self, event):
+        if self._drag_active and event.buttons() & Qt.MouseButton.LeftButton:
+            self.move(event.globalPosition().toPoint() - self._drag_offset)
+            event.accept()
+        else:
+            super().mouseMoveEvent(event)
 
-    # ── Resize grip ───────────────────────────────────────────────────────
-
-    def resizeEvent(self, ev):
-        super().resizeEvent(ev)
+    def mouseReleaseEvent(self, event):
+        self._drag_active = False
+        super().mouseReleaseEvent(event)
 
     # ── Styles ────────────────────────────────────────────────────────────
 
     def _apply_styles(self):
         self.setStyleSheet("""
             StockInfoDialog {
-                background: #0b0f1a;
-                border: 1px solid #1a2535;
+                background: #0a0d12;
+                border: 1px solid #1a2030;
                 border-radius: 2px;
             }
             QFrame#siTitleBar {
                 background: #070a0f;
-                border-bottom: 1px solid #1a2535;
+                border-bottom: 1px solid #1a2030;
             }
             QLabel#siTitle {
                 color: #00d4ff;
@@ -786,16 +795,16 @@ class StockInfoDialog(QDialog):
             }
             QFrame#siFooter {
                 background: #070a0f;
-                border-top: 1px solid #1a2535;
+                border-top: 1px solid #1a2030;
             }
             QLabel#siStatus {
-                color: #8fa7c3;
-                font-size: 9px;
+                color: #5a7090;
+                font-size: 10px;
                 letter-spacing: 0.3px;
                 background: transparent;
             }
             QWebEngineView {
-                background: #0b0f1a;
+                background: #0a0d12;
                 border: none;
             }
         """)
