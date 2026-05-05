@@ -2,11 +2,22 @@ import logging
 from datetime import datetime
 
 import plotly.graph_objects as go
-from PySide6.QtCore import Qt, QTimer, Signal, QPoint
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
-    QDialog, QWidget, QLabel, QPushButton,
-    QVBoxLayout, QHBoxLayout, QGridLayout
+    QAbstractButton,
+    QAbstractSpinBox,
+    QApplication,
+    QComboBox,
+    QDialog,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QTableWidget,
+    QVBoxLayout,
+    QWidget,
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
@@ -14,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 class PerformanceDialog(QDialog):
-    """Compact performance dashboard driven by TradeLogger public APIs."""
+    """Wide performance dashboard driven by TradeLogger public APIs."""
 
     refresh_requested = Signal()
 
@@ -30,13 +41,14 @@ class PerformanceDialog(QDialog):
         "total_trades": "Total completed trades included in this mode.",
         "consistency": "Percent of profitable trading days.",
         "best_day": "Highest single-day P&L.",
-        "worst_day": "Lowest single-day P&L."
+        "worst_day": "Lowest single-day P&L.",
     }
 
     def __init__(self, trade_logger, parent=None):
         super().__init__(parent)
         self.trade_logger = trade_logger
-        self._drag_pos: QPoint | None = None
+        self._drag_active = False
+        self._drag_offset = None
         self.labels: dict[str, QLabel] = {}
 
         if not self.trade_logger:
@@ -45,10 +57,11 @@ class PerformanceDialog(QDialog):
         self.mode = str(getattr(self.trade_logger, "mode", "live")).upper()
         self.broker = str(getattr(self.trade_logger, "broker", "kite")).upper()
 
-        self.setWindowTitle(f"Performance Dashboard - {self.broker} {self.mode}")
-        self.setMinimumSize(1050, 720)
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setWindowTitle(f"PERFORMANCE DASHBOARD - {self.broker} {self.mode}")
+        self.setMinimumSize(1000, 680)
+        self.resize(1100, 720)
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground, False)
 
         self._setup_ui()
         self._connect_signals()
@@ -62,28 +75,43 @@ class PerformanceDialog(QDialog):
         self.refresh_timer.start()
 
     def _setup_ui(self):
-        self.container = QWidget(self)
-        self.container.setObjectName("mainContainer")
-
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        self.container = QWidget(self)
+        self.container.setObjectName("mainContainer")
         root.addWidget(self.container)
 
-        layout = QVBoxLayout(self.container)
-        layout.setContentsMargins(22, 14, 22, 22)
-        layout.setSpacing(18)
+        main_layout = QVBoxLayout(self.container)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
 
-        layout.addLayout(self._create_header())
-        layout.addLayout(self._create_metrics_grid())
+        main_layout.addWidget(self._create_title_bar())
+
+        body = QWidget()
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(16, 16, 16, 16)
+        body_layout.setSpacing(12)
+        body_layout.addLayout(self._create_metrics_grid())
+
         self.empty_state_label = QLabel("")
         self.empty_state_label.setObjectName("emptyStateLabel")
         self.empty_state_label.setAlignment(Qt.AlignCenter)
         self.empty_state_label.setVisible(False)
-        layout.addWidget(self.empty_state_label)
-        layout.addWidget(self._create_chart(), 1)
+        body_layout.addWidget(self.empty_state_label)
+        body_layout.addWidget(self._create_chart(), 1)
+        main_layout.addWidget(body, 1)
 
-    def _create_header(self):
-        layout = QHBoxLayout()
+        main_layout.addWidget(self._create_footer())
+
+    def _create_title_bar(self):
+        bar = QWidget()
+        bar.setObjectName("titleBar")
+        bar.setFixedHeight(36)
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(12, 0, 8, 0)
+        layout.setSpacing(8)
 
         title = QLabel("PERFORMANCE DASHBOARD")
         title.setObjectName("dialogTitle")
@@ -91,29 +119,43 @@ class PerformanceDialog(QDialog):
         mode_badge = QLabel(f"{self.broker} • {self.mode}")
         mode_badge.setObjectName("modeBadge")
 
-        self.refresh_btn = QPushButton("REFRESH")
-        self.refresh_btn.setObjectName("navButton")
+        self.refresh_btn = QPushButton("↺")
+        self.refresh_btn.setObjectName("toolBtn")
+        self.refresh_btn.setFixedSize(26, 26)
 
         self.close_btn = QPushButton("✕")
-        self.close_btn.setObjectName("closeButton")
+        self.close_btn.setObjectName("closeBtn")
+        self.close_btn.setFixedSize(26, 26)
 
         layout.addWidget(title)
         layout.addWidget(mode_badge)
         layout.addStretch()
         layout.addWidget(self.refresh_btn)
         layout.addWidget(self.close_btn)
-        return layout
+        return bar
+
+    def _create_footer(self):
+        footer = QWidget()
+        footer.setObjectName("footerBar")
+        footer.setFixedHeight(40)
+        layout = QHBoxLayout(footer)
+        layout.setContentsMargins(12, 0, 12, 0)
+
+        self.status_label = QLabel("Auto-refresh every 30s")
+        self.status_label.setObjectName("statusLabel")
+        layout.addWidget(self.status_label)
+        layout.addStretch()
+        return footer
 
     def _create_metrics_grid(self):
         grid = QGridLayout()
-        grid.setSpacing(14)
+        grid.setSpacing(12)
 
         metrics = [
-            ("Total P&L", "total_pnl"), ("Expectancy", "expectancy"), ("Win Rate", "win_rate"), ("Profit Factor", "profit_factor"),
-            ("Avg Win", "avg_win"), ("Avg Loss", "avg_loss"), ("Risk—Reward", "rr_ratio"), ("RR Quality", "rr_quality"),
-            ("Total Trades", "total_trades"), ("Consistency", "consistency"), ("Best Day", "best_day"), ("Worst Day", "worst_day"),
+            ("TOTAL P&L", "total_pnl"), ("EXPECTANCY", "expectancy"), ("WIN RATE", "win_rate"), ("PROFIT FACTOR", "profit_factor"),
+            ("AVG WIN", "avg_win"), ("AVG LOSS", "avg_loss"), ("RISK/REWARD", "rr_ratio"), ("RR QUALITY", "rr_quality"),
+            ("TOTAL TRADES", "total_trades"), ("CONSISTENCY", "consistency"), ("BEST DAY", "best_day"), ("WORST DAY", "worst_day"),
         ]
-
         for i, (title, key) in enumerate(metrics):
             row, col = divmod(i, 4)
             self.labels[key] = self._metric_card(grid, title, key, row, col)
@@ -128,8 +170,8 @@ class PerformanceDialog(QDialog):
             card.setToolTip(tooltip)
 
         v = QVBoxLayout(card)
-        v.setContentsMargins(14, 12, 14, 12)
-        v.setSpacing(6)
+        v.setContentsMargins(14, 10, 14, 10)
+        v.setSpacing(8)
 
         title_lbl = QLabel(title)
         title_lbl.setObjectName("metricTitle")
@@ -137,7 +179,7 @@ class PerformanceDialog(QDialog):
         value_lbl = QLabel("—")
         value_lbl.setObjectName("metricValue")
         value_lbl.setAlignment(Qt.AlignCenter)
-        value_lbl.setFont(QFont("Segoe UI", 15, QFont.Weight.Bold))
+        value_lbl.setFont(QFont("Consolas", 14, QFont.Weight.Bold))
 
         v.addWidget(title_lbl)
         v.addWidget(value_lbl)
@@ -148,9 +190,22 @@ class PerformanceDialog(QDialog):
     def _create_chart(self):
         self.chart = QWebEngineView()
         self.chart.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
-        self.chart.setStyleSheet("QWebEngineView { background: #161A25; border: none; }")
-        self.chart.page().setBackgroundColor(Qt.transparent)
+        self.chart.setStyleSheet("QWebEngineView { background: #0f1318; border: 1px solid #1a2030; }")
+        self.chart.page().setBackgroundColor(Qt.GlobalColor.transparent)
         return self.chart
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._center_on_parent()
+
+    def _center_on_parent(self):
+        if self.parent():
+            parent_geo = self.parent().frameGeometry()
+            center = parent_geo.center()
+            self.move(center - self.rect().center())
+        else:
+            screen = QApplication.primaryScreen().availableGeometry()
+            self.move(screen.center() - self.rect().center())
 
     def _get_all_trades(self) -> list[dict]:
         try:
@@ -174,20 +229,18 @@ class PerformanceDialog(QDialog):
             self._clear_metrics()
             self._render_chart([], [])
             return
-
         self._hide_empty_state_message()
         self._update_metrics(pnl_by_day)
         self._plot_equity(pnl_by_day)
         self.refresh_requested.emit()
 
     def refresh_data(self):
-        """Backward-compatible refresh entrypoint used by main_window signals."""
         self.refresh()
 
     def _clear_metrics(self):
         for lbl in self.labels.values():
             lbl.setText("—")
-            lbl.setStyleSheet("color: #E0E0E0;")
+            lbl.setStyleSheet("color: #e8f0ff;")
 
     def _set_empty_state_message(self):
         trades = self._get_all_trades()
@@ -201,7 +254,7 @@ class PerformanceDialog(QDialog):
             side_hint = "No COMPLETE orders found for the active Kite mode."
 
         self.empty_state_label.setText(
-            "No Closed Trades Found Yet\n"
+            "NO CLOSED TRADES FOUND YET\n"
             "Waiting for completed BUY → SELL round-trips.\n"
             f"{side_hint}"
         )
@@ -222,7 +275,6 @@ class PerformanceDialog(QDialog):
         if total_trades == 0:
             self._clear_metrics()
             return
-
         total_pnl = float(metrics.get("total_pnl", 0) or 0)
         expectancy = float(metrics.get("expectancy", 0) or 0)
         win_rate = float(metrics.get("win_rate", 0) or 0)
@@ -230,7 +282,6 @@ class PerformanceDialog(QDialog):
         avg_win = float(metrics.get("avg_win", 0) or 0)
         avg_loss = abs(float(metrics.get("avg_loss", 0) or 0))
         rr_ratio = float(metrics.get("rr_ratio", 0) or 0)
-
         rr_quality = "Poor" if rr_ratio < 1 else "Not Bad" if rr_ratio < 1.5 else "Good" if rr_ratio < 2 else "Very Good"
 
         daily_values = [float(v or 0) for v in pnl_by_day.values()]
@@ -241,26 +292,25 @@ class PerformanceDialog(QDialog):
 
         def setv(key, text, color):
             self.labels[key].setText(text)
-            self.labels[key].setStyleSheet(f"color:{color};")
+            self.labels[key].setStyleSheet(f"color: {color};")
 
-        setv("total_pnl", f"₹{total_pnl:,.0f}", "#29C7C9" if total_pnl >= 0 else "#F85149")
-        setv("expectancy", f"₹{expectancy:,.0f}", "#00D1B2" if expectancy >= 0 else "#F85149")
-        setv("win_rate", f"{win_rate:.1f}%", "#4CAF50" if win_rate >= 50 else "#F39C12")
-        setv("profit_factor", f"{profit_factor:.2f}", "#4CAF50" if profit_factor >= 1.5 else "#F39C12")
-        setv("avg_win", f"₹{avg_win:,.0f}", "#4CAF50")
-        setv("avg_loss", f"₹{avg_loss:,.0f}", "#F85149")
-        setv("rr_ratio", f"{rr_ratio:.2f}", "#29C7C9")
-        setv("rr_quality", rr_quality, "#00D1B2" if rr_ratio >= 2 else "#29C7C9" if rr_ratio >= 1.5 else "#F39C12")
-        setv("total_trades", str(total_trades), "#E0E0E0")
-        setv("consistency", f"{consistency:.1f}%", "#4CAF50" if consistency >= 50 else "#F39C12")
-        setv("best_day", f"₹{best_day:,.0f}", "#4CAF50")
-        setv("worst_day", f"₹{worst_day:,.0f}", "#F85149")
+        setv("total_pnl", f"₹{total_pnl:,.0f}", "#00d4a8" if total_pnl >= 0 else "#ff4d6a")
+        setv("expectancy", f"₹{expectancy:,.0f}", "#00d4a8" if expectancy >= 0 else "#ff4d6a")
+        setv("win_rate", f"{win_rate:.1f}%", "#00d4a8" if win_rate >= 50 else "#f59e0b")
+        setv("profit_factor", f"{profit_factor:.2f}", "#00d4a8" if profit_factor >= 1.5 else "#f59e0b")
+        setv("avg_win", f"₹{avg_win:,.0f}", "#00d4a8")
+        setv("avg_loss", f"₹{avg_loss:,.0f}", "#ff4d6a")
+        setv("rr_ratio", f"{rr_ratio:.2f}", "#00d4ff")
+        setv("rr_quality", rr_quality, "#00d4a8" if rr_ratio >= 2 else "#00d4ff" if rr_ratio >= 1.5 else "#f59e0b")
+        setv("total_trades", str(total_trades), "#e8f0ff")
+        setv("consistency", f"{consistency:.1f}%", "#00d4a8" if consistency >= 50 else "#f59e0b")
+        setv("best_day", f"₹{best_day:,.0f}", "#00d4a8")
+        setv("worst_day", f"₹{worst_day:,.0f}", "#ff4d6a")
 
     def _plot_equity(self, pnl_by_day: dict):
         dates = sorted(pnl_by_day.keys())
         cumulative = 0.0
-        x = []
-        y = []
+        x, y = [], []
         for d in dates:
             try:
                 dt = datetime.strptime(str(d), "%Y-%m-%d")
@@ -274,30 +324,39 @@ class PerformanceDialog(QDialog):
     def _render_chart(self, x_vals, y_vals):
         fig = go.Figure()
         if x_vals:
-            fig.add_trace(go.Scatter(x=x_vals, y=y_vals, mode="lines+markers", line=dict(color="#29C7C9", width=2), marker=dict(size=6)))
+            fig.add_trace(go.Scatter(x=x_vals, y=y_vals, mode="lines+markers", line=dict(color="#00d4ff", width=2), marker=dict(size=5)))
         fig.update_layout(
             template="plotly_dark",
-            paper_bgcolor="#161A25",
-            plot_bgcolor="#161A25",
+            paper_bgcolor="#0f1318",
+            plot_bgcolor="#0f1318",
             margin=dict(l=40, r=20, t=20, b=40),
             xaxis_title="Date",
             yaxis_title="Cumulative P&L",
-            font=dict(color="#A9B1C3")
+            font=dict(color="#a8bcd4"),
         )
         self.chart.setHtml(fig.to_html(include_plotlyjs="cdn", config={"displayModeBar": False}))
 
-    def mousePressEvent(self, e):
-        if e.button() == Qt.LeftButton:
-            self._drag_pos = e.globalPosition().toPoint()
+    def mousePressEvent(self, event):
+        w = self.childAt(event.pos())
+        while w:
+            if isinstance(w, (QAbstractButton, QAbstractSpinBox, QLineEdit, QComboBox, QTableWidget)):
+                return super().mousePressEvent(event)
+            w = w.parentWidget()
+        if event.button() == Qt.LeftButton:
+            self._drag_active = True
+            self._drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            event.accept()
 
-    def mouseMoveEvent(self, e):
-        if self._drag_pos:
-            delta = e.globalPosition().toPoint() - self._drag_pos
-            self.move(self.pos() + delta)
-            self._drag_pos = e.globalPosition().toPoint()
+    def mouseMoveEvent(self, event):
+        if self._drag_active and event.buttons() & Qt.LeftButton:
+            self.move(event.globalPosition().toPoint() - self._drag_offset)
+            event.accept()
+        else:
+            super().mouseMoveEvent(event)
 
-    def mouseReleaseEvent(self, e):
-        self._drag_pos = None
+    def mouseReleaseEvent(self, event):
+        self._drag_active = False
+        super().mouseReleaseEvent(event)
 
     def _connect_signals(self):
         self.refresh_btn.clicked.connect(self.refresh)
@@ -306,16 +365,18 @@ class PerformanceDialog(QDialog):
     def _apply_styles(self):
         self.setStyleSheet("""
             QLabel { background-color: transparent; }
-            QToolTip { background-color: #212635; color: #E0E0E0; border: 1px solid #3A4458; border-radius: 6px; padding: 6px 8px; font-size: 11px; }
-            #mainContainer { background-color: #161A25; border: 1px solid #3A4458; border-radius: 14px; }
-            #dialogTitle { color: #FFFFFF; font-size: 18px; font-weight: 600; }
-            #modeBadge { background-color: #212635; border: 1px solid #3A4458; border-radius: 6px; padding: 4px 10px; color: #29C7C9; font-size: 11px; font-weight: bold; }
-            #metricCard { background-color: #212635; border: 1px solid #3A4458; border-radius: 10px; }
-            #metricTitle { color: #A9B1C3; font-size: 11px; }
-            #metricValue { color: #FFFFFF; }
-            #emptyStateLabel { color: #A9B1C3; font-size: 12px; padding: 10px; }
-            #closeButton { background: transparent; border: none; color: #8A9BA8; font-size: 16px; }
-            #closeButton:hover { color: #FFFFFF; }
-            QPushButton#navButton { background-color: #212635; border: 1px solid #3A4458; border-radius: 6px; padding: 6px 14px; color: #E0E0E0; }
-            QPushButton#navButton:hover { background-color: #29C7C9; color: #161A25; }
+            #mainContainer { background-color: #0a0d12; border: 1px solid #1a2030; }
+            #titleBar { background-color: #070a0f; border-bottom: 1px solid #1a2030; }
+            #dialogTitle { color: #e8f0ff; font-size: 11px; font-weight: 800; letter-spacing: 0.5px; }
+            #modeBadge { background-color: #0f1318; border: 1px solid #1a2030; border-radius: 2px; padding: 3px 8px; color: #00d4ff; font-size: 10px; }
+            #toolBtn { background: transparent; border: 1px solid #1a2030; color: #a8bcd4; font-size: 14px; border-radius: 2px; }
+            #toolBtn:hover { background-color: #141920; color: #00d4ff; }
+            QPushButton#closeBtn { background: transparent; color: #5a7090; border: none; font-size: 14px; font-weight: bold; border-radius: 2px; }
+            QPushButton#closeBtn:hover { background: rgba(255, 77, 106, 0.15); color: #ff4d6a; }
+            #metricCard { background-color: #0f1318; border: 1px solid #1a2030; }
+            #metricTitle { color: #a8bcd4; font-size: 9px; font-weight: 800; }
+            #metricValue { color: #e8f0ff; }
+            #footerBar { background-color: #070a0f; border-top: 1px solid #1a2030; }
+            #statusLabel, #emptyStateLabel { color: #5a7090; font-size: 11px; }
+            QToolTip { background-color: #0f1318; color: #a8bcd4; border: 1px solid #1a2030; padding: 6px 8px; font-size: 10px; }
         """)
