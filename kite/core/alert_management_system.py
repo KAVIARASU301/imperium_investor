@@ -1348,9 +1348,10 @@ class AlertManagementDialog(QDialog):
         refresh_btn.setObjectName("titleToolBtn")
         refresh_btn.setFixedSize(26, 26)
         refresh_btn.clicked.connect(self.refresh_tables)
-        add_btn = QPushButton("+ New Alert")
-        add_btn.setObjectName("addButton")
-        add_btn.clicked.connect(self._add_new)
+        minimize_btn = QPushButton("−")
+        minimize_btn.setObjectName("titleToolBtn")
+        minimize_btn.setFixedSize(26, 26)
+        minimize_btn.clicked.connect(self.showMinimized)
         close_btn = QPushButton("✕")
         close_btn.setObjectName("closeBtn")
         close_btn.setFixedSize(26, 26)
@@ -1359,7 +1360,7 @@ class AlertManagementDialog(QDialog):
         header.addWidget(title)
         header.addStretch()
         header.addWidget(refresh_btn)
-        header.addWidget(add_btn)
+        header.addWidget(minimize_btn)
         header.addWidget(close_btn)
         layout.addWidget(title_bar)
 
@@ -1664,12 +1665,10 @@ class AlertManagementDialog(QDialog):
             QPushButton:hover {
                 background-color: rgba(255, 255, 255, 0.1);
             }
-            QPushButton#addButton,
             QPushButton#ackButton {
                 background-color: rgba(0, 230, 118, 0.1);
                 color: #00E676;
             }
-            QPushButton#addButton:hover,
             QPushButton#ackButton:hover {
                 background-color: rgba(0, 230, 118, 0.15);
             }
