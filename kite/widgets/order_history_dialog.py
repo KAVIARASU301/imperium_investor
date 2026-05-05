@@ -1,11 +1,11 @@
 import logging
 from typing import List, Dict, Any, Optional
-from datetime import datetime, timedelta
+from datetime import datetime
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget,
-    QTableWidget, QTableWidgetItem, QHeaderView, QFrame, QComboBox,
+    QApplication, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget,
+    QTableWidget, QTableWidgetItem, QHeaderView, QComboBox,
     QLineEdit, QDateEdit, QCheckBox, QSplitter, QGroupBox, QGridLayout,
-    QFormLayout  # Import QFormLayout
+    QFormLayout, QAbstractButton, QAbstractSpinBox
 )
 from PySide6.QtCore import Qt, Signal, QDate, QTimer, QThreadPool
 from PySide6.QtGui import QColor, QMouseEvent, QFont
@@ -388,7 +388,8 @@ class OrderHistoryDialog(QDialog):
     def __init__(self, trade_logger, parent=None):
         super().__init__(parent)
         self.trade_logger = trade_logger
-        self._drag_pos = None
+        self._drag_active = False
+        self._drag_offset = None
         self._orders_data = []
         self._thread_pool = QThreadPool.globalInstance()
         self._refresh_inflight = False
@@ -409,10 +410,10 @@ class OrderHistoryDialog(QDialog):
     def _setup_window(self):
         """Initialize window properties."""
         self.setWindowTitle("Order History - Qullamaggie")
-        self.setMinimumSize(1100, 700)
-        # self.resize(1400, 800)
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setMinimumSize(900, 560)
+        self.resize(1000, 660)
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground, False)
 
     def _setup_ui(self):
         """Build the main UI layout."""
@@ -420,23 +421,23 @@ class OrderHistoryDialog(QDialog):
         container = QWidget(self)
         container.setObjectName("mainContainer")
 
-        # Enable window dragging
-        container.mousePressEvent = self._handle_mouse_press
-        container.mouseMoveEvent = self._handle_mouse_move
-        container.mouseReleaseEvent = self._handle_mouse_release
-
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.addWidget(container)
 
         container_layout = QVBoxLayout(container)
-        container_layout.setContentsMargins(20, 15, 20, 20)
-        container_layout.setSpacing(15)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(0)
 
         # Header
         container_layout.addLayout(self._create_header())
 
-        # Main content area with splitter
+        body_widget = QWidget()
+        body_widget.setObjectName("bodyWidget")
+        body_layout = QVBoxLayout(body_widget)
+        body_layout.setContentsMargins(16, 16, 16, 16)
+        body_layout.setSpacing(12)
+
         content_splitter = QSplitter(Qt.Orientation.Horizontal)
         content_splitter.setObjectName("contentSplitter")
 
@@ -466,7 +467,8 @@ class OrderHistoryDialog(QDialog):
         content_splitter.addWidget(right_panel)
         content_splitter.setSizes([300, 900])
 
-        container_layout.addWidget(content_splitter, 1)
+        body_layout.addWidget(content_splitter, 1)
+        container_layout.addWidget(body_widget, 1)
 
         # Footer
         container_layout.addLayout(self._create_footer())
@@ -475,18 +477,10 @@ class OrderHistoryDialog(QDialog):
         """Create dialog header."""
         header_layout = QHBoxLayout()
 
-        # Title section
-        title_layout = QVBoxLayout()
-        title_layout.setSpacing(2)
-
-        title = QLabel("Order History")
+        category_badge = QLabel("ORDER")
+        category_badge.setObjectName("categoryBadge")
+        title = QLabel("ORDER HISTORY")
         title.setObjectName("dialogTitle")
-
-        subtitle = QLabel("View and analyze your trading orders with advanced filtering")
-        subtitle.setObjectName("subtitleLabel")
-
-        title_layout.addWidget(title)
-        title_layout.addWidget(subtitle)
 
         # Status indicator
         self.status_label = QLabel("Loading...")
@@ -494,36 +488,40 @@ class OrderHistoryDialog(QDialog):
 
         # Close button
         close_btn = QPushButton("✕")
-        close_btn.setObjectName("closeButton")
+        close_btn.setObjectName("closeBtn")
         close_btn.clicked.connect(self.close)
+        close_btn.setFixedSize(26, 26)
 
-        header_layout.addLayout(title_layout)
+        header_layout.setContentsMargins(12, 0, 12, 0)
+        header_layout.setSpacing(8)
+        header_layout.addWidget(category_badge)
+        header_layout.addWidget(title)
         header_layout.addStretch()
         header_layout.addWidget(self.status_label)
-        header_layout.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignTop)
+        header_layout.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
 
         return header_layout
 
     def _create_footer(self) -> QHBoxLayout:
         """Create dialog footer."""
         footer_layout = QHBoxLayout()
-        footer_layout.setContentsMargins(0, 10, 0, 0)
+        footer_layout.setContentsMargins(12, 0, 12, 0)
 
         # Count label
         self.count_label = QLabel("0 orders displayed")
         self.count_label.setObjectName("footerLabel")
 
         # Action buttons
-        refresh_btn = QPushButton("🔄 Refresh")
-        refresh_btn.setObjectName("actionButton")
+        refresh_btn = QPushButton("REFRESH")
+        refresh_btn.setObjectName("secondaryBtn")
         refresh_btn.clicked.connect(self._refresh_data)
 
-        export_btn = QPushButton("📊 Export")
-        export_btn.setObjectName("actionButton")
+        export_btn = QPushButton("EXPORT")
+        export_btn.setObjectName("secondaryBtn")
         export_btn.clicked.connect(self._export_data)
 
-        clear_btn = QPushButton("🗑️ Clear Filters")
-        clear_btn.setObjectName("secondaryButton")
+        clear_btn = QPushButton("CLEAR FILTERS")
+        clear_btn.setObjectName("secondaryBtn")
         clear_btn.clicked.connect(self.filter_widget._clear_filters)
 
         footer_layout.addWidget(self.count_label)
@@ -625,84 +623,16 @@ class OrderHistoryDialog(QDialog):
     def _apply_styles(self):
         """Apply comprehensive dark theme styles with sharp-edged inputs."""
         self.setStyleSheet("""
-            QWidget#mainContainer {
-                background-color: #0a0a0a;
-                border: 2px solid #202020;
-                border-radius: 12px;
-                font-family: "Segoe UI", sans-serif;
-            }
-
-            QLabel#dialogTitle {
-                color: #ffffff;
-                font-size: 20px;
-                font-weight: 700;
-                margin-bottom: 2px;
-            }
-
-            QLabel#subtitleLabel {
-                color: #8a8a9e;
-                font-size: 13px;
-                font-weight: 400;
-            }
-
-            QLabel#statusLabel {
-                color: #6c7293;
-                font-size: 11px;
-                background-color: #1a1a2e;
-                padding: 4px 8px;
-                border-radius: 4px;
-                border: 1px solid #2a2a4a;
-            }
-
-            QLabel#footerLabel {
-                color: #8a8a9e;
-                font-size: 11px;
-                font-weight: 600;
-            }
-
-            QPushButton#closeButton {
-                background-color: transparent;
-                border: none;
-                color: #8a8a9e;
-                font-size: 18px;
-                font-weight: bold;
-                min-width: 30px;
-                max-width: 30px;
-                min-height: 30px;
-                max-height: 30px;
-            }
-            QPushButton#closeButton:hover {
-                color: #d63031;
-                background-color: rgba(214, 48, 49, 0.1);
-                border-radius: 15px;
-            }
-
-            QPushButton#actionButton {
-                background-color: #2d3748;
-                color: #e2e8f0;
-                border: 1px solid #4a5568;
-                padding: 8px 16px;
-                border-radius: 6px;
-                font-weight: 600;
-                font-size: 12px;
-            }
-            QPushButton#actionButton:hover {
-                background-color: #4a5568;
-                border-color: #718096;
-            }
-
-            QPushButton#secondaryButton {
-                background-color: #3a3a5a;
-                color: #e0e0e0;
-                border: 1px solid #4a4a6a;
-                padding: 8px 16px;
-                border-radius: 6px;
-                font-weight: 600;
-                font-size: 12px;
-            }
-            QPushButton#secondaryButton:hover {
-                background-color: #4a4a6a;
-            }
+            QWidget#mainContainer { background-color: #0a0d12; border: 1px solid #1a2030; font-family: "Inter","Segoe UI",sans-serif; }
+            QWidget#bodyWidget { background-color: #0a0d12; }
+            QLabel#categoryBadge { color: #00d4ff; font-size: 9px; font-weight: 700; letter-spacing: 1px; }
+            QLabel#dialogTitle { color: #e8f0ff; font-size: 11px; font-weight: 800; letter-spacing: 0.5px; }
+            QLabel#statusLabel { color: #5a7090; font-size: 10px; }
+            QLabel#footerLabel { color: #5a7090; font-size: 10px; font-weight: 500; }
+            QPushButton#closeBtn { background: transparent; color: #5a7090; border: none; font-size: 14px; font-weight: bold; border-radius: 2px; }
+            QPushButton#closeBtn:hover { background: rgba(255, 77, 106, 0.15); color: #ff4d6a; }
+            QPushButton#secondaryBtn { background: #141920; color: #a8bcd4; border: 1px solid #1a2030; border-radius: 1px; font-size: 11px; font-weight: 700; min-height: 28px; padding: 0 14px; }
+            QPushButton#secondaryBtn:hover { background: #1a2030; color: #e8f0ff; }
 
             QPushButton#clearButton {
                 background-color: #dc3545;
@@ -892,25 +822,42 @@ class OrderHistoryDialog(QDialog):
             }
         """)
 
-    # Window dragging methods
-    def _handle_mouse_press(self, event: QMouseEvent):
+    def mousePressEvent(self, event: QMouseEvent):
+        w = self.childAt(event.pos())
+        while w:
+            if isinstance(w, (QAbstractButton, QAbstractSpinBox, QLineEdit, QComboBox, QTableWidget)):
+                return super().mousePressEvent(event)
+            w = w.parentWidget()
         if event.button() == Qt.MouseButton.LeftButton:
-            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            self._drag_active = True
+            self._drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             event.accept()
 
-    def _handle_mouse_move(self, event: QMouseEvent):
-        if event.buttons() & Qt.MouseButton.LeftButton and self._drag_pos is not None:
-            self.move(event.globalPosition().toPoint() - self._drag_pos)
+    def mouseMoveEvent(self, event: QMouseEvent):
+        if self._drag_active and event.buttons() & Qt.MouseButton.LeftButton:
+            self.move(event.globalPosition().toPoint() - self._drag_offset)
             event.accept()
+        else:
+            super().mouseMoveEvent(event)
 
-    def _handle_mouse_release(self, event: QMouseEvent):
-        self._drag_pos = None
-        event.accept()
+    def mouseReleaseEvent(self, event: QMouseEvent):
+        self._drag_active = False
+        super().mouseReleaseEvent(event)
 
     def showEvent(self, event):
         """Handle dialog show event."""
         super().showEvent(event)
+        self._center_on_parent()
         self._refresh_data()
+
+    def _center_on_parent(self):
+        if self.parent():
+            parent_geo = self.parent().frameGeometry()
+            center = parent_geo.center()
+            self.move(center - self.rect().center())
+        else:
+            screen = QApplication.primaryScreen().availableGeometry()
+            self.move(screen.center() - self.rect().center())
 
     def closeEvent(self, event):
         """Handle dialog close event."""
