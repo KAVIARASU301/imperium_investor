@@ -1426,18 +1426,25 @@ class AlertManagementDialog(QDialog):
         return t
 
     def _wire_symbol_navigation(self) -> None:
-        """Open selected alert symbol in chart for faster alert triage."""
+        """Wire stable row selection: only user actions should open chart symbols."""
         for table in (self.active_table, self.triggered_table, self.history_table):
-            table.itemSelectionChanged.connect(
-                lambda t=table: self._open_selected_symbol_in_chart(t)
+            table.setSelectionMode(QAbstractItemView.SingleSelection)
+            table.setFocusPolicy(Qt.StrongFocus)
+            table.cellClicked.connect(
+                lambda row, _col, t=table: self._open_symbol_from_row(t, row)
             )
 
     def _open_selected_symbol_in_chart(self, table: QTableWidget) -> None:
-        selected_items = table.selectedItems()
-        if not selected_items:
+        """Backward-compatible helper used by keyboard navigation."""
+        row = table.currentRow()
+        if row < 0:
+            return
+        self._open_symbol_from_row(table, row)
+
+    def _open_symbol_from_row(self, table: QTableWidget, row: int) -> None:
+        if row < 0:
             return
 
-        row = selected_items[0].row()
         symbol_item = table.item(row, 0)
         if not symbol_item:
             return
@@ -1449,6 +1456,35 @@ class AlertManagementDialog(QDialog):
         chart = getattr(self.parent(), "candlestick_chart", None)
         if chart and hasattr(chart, "on_search"):
             chart.on_search(symbol)
+
+    def keyPressEvent(self, event) -> None:
+        """Support scanner/watchlist-like keyboard stepping with stable selection."""
+        key = event.key()
+        if key in (Qt.Key.Key_Space, Qt.Key.Key_Down, Qt.Key.Key_Up):
+            table = self.tabs.currentWidget()
+            if isinstance(table, QTableWidget):
+                row_count = table.rowCount()
+                if row_count == 0:
+                    event.accept()
+                    return
+
+                current_row = table.currentRow()
+                if current_row < 0:
+                    current_row = 0
+
+                if key in (Qt.Key.Key_Space, Qt.Key.Key_Down):
+                    next_row = min(current_row + 1, row_count - 1)
+                else:
+                    next_row = max(current_row - 1, 0)
+
+                table.selectRow(next_row)
+                table.setCurrentCell(next_row, 0)
+                table.setFocus()
+                self._open_symbol_from_row(table, next_row)
+                event.accept()
+                return
+
+        super().keyPressEvent(event)
 
     @staticmethod
     def _fmt_indian_datetime(dt_text: Optional[str]) -> str:
