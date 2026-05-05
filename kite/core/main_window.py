@@ -710,6 +710,41 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                     self.candlestick_chart.alert_price_updated.connect(
                         self.alert_system.update_alert_price_from_chart
                     )
+                if hasattr(self.candlestick_chart, 'alert_line_deleted'):
+                    self.candlestick_chart.alert_line_deleted.connect(
+                        self._on_alert_line_deleted_from_chart
+                    )
+
+    @Slot(str)
+    def _on_alert_line_deleted_from_chart(self, payload: str) -> None:
+        """Delete matching alert when its alert line is removed from the chart."""
+        if not self.alert_system:
+            return
+        try:
+            data = json.loads(payload or "{}")
+            symbol = str(data.get("symbol", "")).strip().upper()
+            price = float(data.get("price", 0.0))
+        except (json.JSONDecodeError, ValueError, TypeError) as exc:
+            logger.error(f"Invalid alert_line_deleted payload: {exc}")
+            return
+
+        if not symbol or price <= 0:
+            return
+
+        tolerance = 0.5
+        match = next(
+            (
+                alert for alert in self.alert_system.store.active()
+                if alert.symbol == symbol and abs(float(alert.target_value) - price) <= tolerance
+            ),
+            None,
+        )
+        if not match:
+            logger.info(f"No active alert matched deleted chart line for {symbol} @ {price:.2f}")
+            return
+
+        self.alert_system.remove_alert(match.id)
+        show_info(f"Alert deleted: {symbol} @ ₹{price:.2f}")
 
     @Slot(str)
     def _on_chart_symbol_changed(self, symbol: str):

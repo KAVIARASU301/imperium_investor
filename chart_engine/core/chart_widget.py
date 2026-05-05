@@ -78,6 +78,7 @@ class CandlestickChart(QWidget):
     order_button_clicked       = Signal(str, float)
     alert_creation_requested   = Signal(str)
     alert_price_updated        = Signal(str)   # {symbol, old_price, new_price} — alert drag
+    alert_line_deleted         = Signal(str)   # {symbol, price} — alert line deleted
     order_dialog_requested     = Signal(str)
     data_request_for_symbol    = Signal(str)
 
@@ -584,6 +585,7 @@ class CandlestickChart(QWidget):
         self.chart_bridge.drawing_tool_cleared.connect(self._clear_active_tool_ui)
         self.chart_bridge.alert_creation_requested.connect(self.alert_creation_requested)
         self.chart_bridge.alert_price_updated.connect(self._on_alert_price_updated)
+        self.chart_bridge.alert_line_deleted.connect(self.alert_line_deleted)
         self.chart_bridge.order_dialog_requested.connect(self.order_dialog_requested)
 
         self.chart_layout.addWidget(self.chart_view)

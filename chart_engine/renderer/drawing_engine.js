@@ -468,6 +468,13 @@ class DrawingEngine {
         if (!d) return;
         this._hashRemove(d);
         this.drawings.delete(id);
+        if (d.lineCategory === 'alert' && this.cs?.chartBridge && typeof this.cs.chartBridge.notify_alert_line_deleted === 'function') {
+            const symbol = this.cs.currentSymbol || '';
+            const price = Number(d.startPrice);
+            if (symbol && Number.isFinite(price)) {
+                this.cs.chartBridge.notify_alert_line_deleted(JSON.stringify({ symbol, price }));
+            }
+        }
         if (this.selectedId === id) this.selectedId = null;
         this._undoSnapshot();
         this._notify();

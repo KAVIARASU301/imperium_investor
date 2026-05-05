@@ -36,6 +36,7 @@ class ChartBridge(QObject):
     visible_candle_count_changed = Signal(int)
     alert_creation_requested = Signal(str)  # alert JSON
     alert_price_updated = Signal(str)       # {symbol, old_price, new_price} — alert drag
+    alert_line_deleted = Signal(str)        # {symbol, price} — alert line deleted
     order_dialog_requested = Signal(str)    # order JSON
     text_note_requested = Signal(str)       # mouse-pos JSON
     text_note_edit_requested = Signal(str)  # note JSON
@@ -114,6 +115,13 @@ class ChartBridge(QObject):
             logger.error(f"ChartBridge: invalid alert_price_updated JSON: {e}")
         except Exception as e:
             logger.error(f"ChartBridge: error in notify_alert_price_updated: {e}")
+
+    @Slot(str)
+    def notify_alert_line_deleted(self, payload: str) -> None:
+        if self._guard("notify_alert_line_deleted", payload):
+            return
+        if self._valid_json(payload, "alert_line_deleted"):
+            self.alert_line_deleted.emit(payload)
 
     @Slot(str)
     def notify_order_dialog_requested(self, order_json: str) -> None:
