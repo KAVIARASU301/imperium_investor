@@ -49,29 +49,46 @@ class Application:
         self.broker_manager = BrokerClientManager()
 
         try:
-            # 1. --- Authentication ---
-            login_manager = DualModeLoginManager()
-            if not login_manager.exec():
-                logger.info("Login cancelled by user. Exiting.")
-                sys.exit(0)
+            # 1. --- Authentication + Resilient Client Initialization ---
+            # Re-prompt login only when we detect a stale/invalid persisted Kite session.
+            max_login_attempts = 2
+            auth_data = None
+            trader = None
+            data_client = None
+            broker_mode = None
 
-            auth_data = login_manager.get_authentication_data()
-            if not auth_data:
-                self._show_critical_error("Authentication failed. Exiting.")
-                sys.exit(1)
+            for attempt in range(1, max_login_attempts + 1):
+                login_manager = DualModeLoginManager()
+                if not login_manager.exec():
+                    logger.info("Login cancelled by user. Exiting.")
+                    sys.exit(0)
 
-            broker_mode = auth_data.get('broker_mode')
-            logger.info(f"Authenticated for broker: {broker_mode.value}")
+                auth_data = login_manager.get_authentication_data()
+                if not auth_data:
+                    self._show_critical_error("Authentication failed. Exiting.")
+                    sys.exit(1)
 
-            # 2. --- Client Initialization ---
-            trader, data_client = self._initialize_clients(auth_data)
+                broker_mode = auth_data.get('broker_mode')
+                logger.info(f"Authenticated for broker: {broker_mode.value}")
+
+                try:
+                    trader, data_client = self._initialize_clients(auth_data)
+                    break
+                except ConnectionError as exc:
+                    if self._handle_possible_stale_kite_session(auth_data, attempt, max_login_attempts, exc):
+                        continue
+                    raise
+
+            if trader is None or data_client is None or broker_mode is None or auth_data is None:
+                raise ConnectionError("Unable to initialize broker clients after retry.")
+
             self.broker_manager.add_client(broker_mode, trader)
 
-            # 3. --- Main Window Creation ---
+            # 2. --- Main Window Creation ---
             self.window = self._create_main_window(broker_mode, trader, data_client, auth_data)
             self.window.show()
 
-            # 4. --- Event Loop ---
+            # 3. --- Event Loop ---
             logger.info("Starting application event loop.")
             sys.exit(self.app.exec())
 
@@ -102,6 +119,42 @@ class Application:
         except Exception as e:
             logger.error(f"Client initialization failed: {e}", exc_info=True)
             raise
+
+    def _handle_possible_stale_kite_session(self, auth_data: dict, attempt: int,
+                                            max_attempts: int, exception: Exception) -> bool:
+        """Handle known stale Kite session failures with a one-time recovery login prompt."""
+        broker_mode = auth_data.get('broker_mode')
+        token_manager = auth_data.get('token_manager')
+
+        is_kite = broker_mode == BrokerMode.INDIA
+        can_clear_session = token_manager is not None and hasattr(token_manager, "clear_broker_session")
+        has_remaining_attempt = attempt < max_attempts
+
+        if not (is_kite and can_clear_session and has_remaining_attempt):
+            return False
+
+        logger.warning(
+            "Detected Kite client init failure likely caused by stale active session. "
+            "Clearing persisted Kite session and prompting user to login again."
+        )
+        token_manager.clear_broker_session(BrokerMode.INDIA)
+
+        self._show_warning(
+            "Your Kite session appears to have expired or become invalid. "
+            "We've cleared the stored active session automatically. "
+            "Please login once again to continue."
+        )
+        logger.info(f"Recovery prompt shown after client init error: {exception}")
+        return True
+
+    def _show_warning(self, message: str):
+        """Displays a warning message to guide users through recoverable issues."""
+        msg_box = QMessageBox()
+        msg_box.setIcon(QMessageBox.Icon.Warning)
+        msg_box.setText("Action needed")
+        msg_box.setInformativeText(message)
+        msg_box.setWindowTitle("Session Refresh Required")
+        msg_box.exec()
 
     def _create_main_window(self, broker_mode, trader, data_client, auth_data):
         """Creates the appropriate main window for the selected broker."""
