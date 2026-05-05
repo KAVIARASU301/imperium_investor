@@ -54,7 +54,7 @@ from kite.widgets.status_bar import (
     show_order_completed, show_order_rejected, show_order_cancelled,
     status  # Global status manager
 )
-from kite.utils.sounds import play_alert, play_error
+from kite.utils.sounds import play_error
 from kite.utils.color_system import get_color_theme_manager
 
 
@@ -646,7 +646,6 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     def _init_alert_system(self):
         try:
             self.alert_system = AlertSystemManager(self)
-            self.alert_system.alert_sound_requested.connect(lambda: play_alert())
             self.alert_system.engine_status_changed.connect(self._on_alert_engine_status)
             self.alert_system.alert_triggered.connect(self._on_alert_triggered)
             logger.info("Alert system initialized successfully.")
@@ -1734,6 +1733,10 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     def _on_alert_triggered(self, alert_id: str):
         """Handle alert trigger events from alert engine."""
         logger.info(f"Alert triggered: {alert_id}")
+        if self.alert_system:
+            alert = self.alert_system.store.get(alert_id)
+            if alert:
+                status.notify("alert", alert.symbol, f"Alert triggered at ₹{alert.target_value}")
         self._update_alert_badges()
 
     @Slot()

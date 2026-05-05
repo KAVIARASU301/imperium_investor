@@ -497,7 +497,6 @@ class AlertEngine(QObject):
         alert._trigger_count += 1
         self._store.update(alert)
         self.alert_triggered.emit(alert.id)
-        play_alert()
         logger.info(f"🔔 Alert triggered: {alert.symbol} — {alert.condition} @ {alert.target_value}")
 
 
@@ -868,8 +867,13 @@ class AlertSystemManager(QObject):
     @Slot(str)
     def _on_engine_alert_triggered(self, alert_id: str) -> None:
         """Keep triggered alert lines visible until user acknowledges the alert."""
+        alert = self.store.get(alert_id)
+        if alert:
+            title = f"Alert: {alert.symbol}"
+            message = f"{alert.condition} @ {alert.target_value}"
+            ToastNotification(title, message, "warn", 5000).show_toast()
+        QTimer.singleShot(0, play_alert)
         self.alert_triggered.emit(alert_id)
-        self.alert_sound_requested.emit()
         # Refresh open dialog so it moves the row to Triggered tab
         self._refresh_dialog_if_open()
 
