@@ -1048,6 +1048,10 @@ class AlertSystemManager(QObject):
 
         # ── 4. Persist ──
         self.store.update(target)
+        old_key = f"{symbol}_{old_price:.2f}"
+        new_key = f"{symbol}_{new_price:.2f}"
+        clm_module._lines_drawn_this_session.discard(old_key)
+        clm_module._lines_drawn_this_session.add(new_key)
 
         # ── 5. Re-draw chart line at new price ──
         self._add_chart_line(target)

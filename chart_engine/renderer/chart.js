@@ -146,6 +146,7 @@ class FixedTradingChart {
         patchConstructor(this, cfg);
         if (this.drawingEngine) {
             this.drawingEngine.onToolCleared = () => this._notifyDrawingToolCleared();
+            this.drawingEngine.currentSymbol = this.currentSymbol || '';
         }
         this.activeContextMenu = null;
 
@@ -2753,6 +2754,7 @@ class FixedTradingChart {
                 new QWebChannel(qt.webChannelTransport, channel => {
                     if (channel.objects?.chartBridge) {
                         this.chartBridge = channel.objects.chartBridge;
+                        if (this.drawingEngine) this.drawingEngine.chartBridge = this.chartBridge;
                         this.webChannelInitialized = true;
                         setTimeout(() => {
                             try { this.chartBridge.set_web_channel_initialized(); } catch (e) { console.error(e); }
@@ -3355,6 +3357,7 @@ class FixedTradingChart {
     setWatermark(symbol, description = '', showDescription = false) {
         this.currentSymbol = symbol || '';
         this.currentSymbolDescription = description || '';
+        if (this.drawingEngine) this.drawingEngine.currentSymbol = this.currentSymbol;
         this.showWatermarkDescription = showDescription === true;
         this.requestDraw();
     }

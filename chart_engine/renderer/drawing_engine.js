@@ -189,6 +189,7 @@ class DrawingEngine {
         this.selectedId   = null;
         this.hoverId      = null;
         this.activeHandle = null;         // {id, which: 'start'|'end'|'body'}
+        this._activeDragAlertPrice = null;
         this.inProgress   = null;         // drawing being placed
 
         /* snap state */
@@ -645,6 +646,9 @@ class DrawingEngine {
             if (d && !d.locked && !this.locked) {
                 this.selectedId = hit.id;
                 this.activeHandle = hit;
+                this._activeDragAlertPrice = (
+                    d.type === 'horizontal_ray' && d.lineCategory === 'alert'
+                ) ? d.startPrice : null;
                 this._lastDragX = x; this._lastDragY = y;
                 this.canvas.style.cursor = 'grabbing';
                 this._undoSnapshot();  // snapshot before drag starts
@@ -662,8 +666,35 @@ class DrawingEngine {
 
         /* Finalize drag */
         if (this.activeHandle) {
+            const activeHandle = this.activeHandle;
+            const d = this.drawings.get(activeHandle.id);
+            if (
+                d &&
+                d.type === 'horizontal_ray' &&
+                d.lineCategory === 'alert' &&
+                this._activeDragAlertPrice !== null
+            ) {
+                const oldPrice = Number(this._activeDragAlertPrice);
+                const newPrice = Number(d.startPrice);
+                if (
+                    Number.isFinite(oldPrice) &&
+                    Number.isFinite(newPrice) &&
+                    Math.abs(newPrice - oldPrice) >= 0.001 &&
+                    this.chartBridge &&
+                    typeof this.chartBridge.notify_alert_price_updated === 'function'
+                ) {
+                    const payload = JSON.stringify({
+                        symbol: this.currentSymbol || '',
+                        old_price: oldPrice,
+                        new_price: newPrice,
+                    });
+                    this.chartBridge.notify_alert_price_updated(payload);
+                }
+            }
+
             this._undoSnapshot();
             this.activeHandle = null;
+            this._activeDragAlertPrice = null;
             this.canvas.style.cursor = 'default';
             return;
         }
