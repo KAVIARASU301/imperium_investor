@@ -22,6 +22,9 @@ from PySide6.QtCore import QObject, Signal, Slot, QTimer
 logger = logging.getLogger(__name__)
 
 
+_lines_drawn_this_session: set[str] = set()
+
+
 class ChartLinesManager(QObject):
     """
     Manages alert lines and position lines in the chart.
@@ -36,6 +39,7 @@ class ChartLinesManager(QObject):
         self.main_window = main_window
         self.drawings_dir = "kite/user_data/chart_drawings"
         os.makedirs(self.drawings_dir, exist_ok=True)
+        _lines_drawn_this_session.clear()
 
     def _get_trading_mode(self) -> str:
         """Return active trading mode ('live' or 'paper')."""
@@ -234,14 +238,26 @@ class ChartLinesManager(QObject):
     # ALERT LINE MANAGEMENT
     # ─────────────────────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _session_line_key(symbol: str, price: float) -> str:
+        return f"{symbol}_{price:.2f}"
+
+    # ─────────────────────────────────────────────────────────────────────────
+
     def add_alert_line(self, symbol: str, price: float, intent: str = "", interval: str = None) -> bool:
         """Add an alert line for a symbol/timeframe file."""
         try:
+            line_key = self._session_line_key(symbol, price)
+            if line_key in _lines_drawn_this_session:
+                logger.debug(f"Session dedup: alert line already processed for {symbol} at {price:.2f}")
+                return True
+
             # Load current-interval state to check for duplicates
             current_state = self._load_symbol_drawings(symbol)
             drawings = current_state["drawings"]
 
             if self._has_existing_alert_drawings(drawings, price):
+                _lines_drawn_this_session.add(line_key)
                 logger.debug(f"Alert line already exists for {symbol} at {price:.2f}")
                 return True
 
@@ -256,6 +272,7 @@ class ChartLinesManager(QObject):
 
             success = self._save_symbol_drawings(symbol, current_state, interval)
             if success:
+                _lines_drawn_this_session.add(line_key)
                 self._refresh_chart()
                 logger.info(f"Added alert line for {symbol} at {price:.2f}")
             return success

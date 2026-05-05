@@ -44,6 +44,7 @@ from PySide6.QtWidgets import (
 )
 
 from kite.utils.sounds import play_alert
+from kite.core import chart_lines_manager as clm_module
 
 logger = logging.getLogger(__name__)
 
@@ -1107,6 +1108,9 @@ class AlertSystemManager(QObject):
         clm = self._clm()
         if clm:
             try:
+                line_key = f"{alert.symbol}_{alert.target_value:.2f}"
+                if line_key in clm_module._lines_drawn_this_session:
+                    return
                 clm.add_alert_line(
                     symbol=alert.symbol,
                     price=alert.target_value,
@@ -1144,6 +1148,10 @@ class AlertSystemManager(QObject):
         active = [a for a in self.store.active() if a.symbol == symbol]
         for alert in active:
             try:
+                state = clm._load_symbol_drawings(alert.symbol)
+                drawings = state.get("drawings", {})
+                if clm._has_existing_alert_drawings(drawings, alert.target_value):
+                    continue
                 clm.add_alert_line(
                     symbol=alert.symbol,
                     price=alert.target_value,
@@ -1165,6 +1173,10 @@ class AlertSystemManager(QObject):
         active = self.store.active()
         for alert in active:
             try:
+                state = clm._load_symbol_drawings(alert.symbol)
+                drawings = state.get("drawings", {})
+                if clm._has_existing_alert_drawings(drawings, alert.target_value):
+                    continue
                 clm.add_alert_line(
                     symbol=alert.symbol,
                     price=alert.target_value,
