@@ -96,7 +96,7 @@ class _FetchWorker(QObject):
 
     @staticmethod
     def _fmt_large(val) -> str:
-        """Format large numbers (Cr, L, K)."""
+        """Format large numbers in compact international units."""
         try:
             v = float(val)
         except (TypeError, ValueError):
@@ -109,6 +109,27 @@ class _FetchWorker(QObject):
             return f"₹{v/1e7:.2f} Cr"
         if v >= 1e5:
             return f"₹{v/1e5:.2f} L"
+        return f"₹{v:,.0f}"
+
+    @staticmethod
+    def _fmt_crore_readable(val) -> str:
+        """Format INR values into crore-based wording for easier reading."""
+        try:
+            v = float(val)
+        except (TypeError, ValueError):
+            return "—"
+
+        crore = v / 1e7
+        if crore >= 1e5:
+            lakh_crore = crore / 1e5
+            return f"₹{lakh_crore:.2f} lakh crore"
+        if crore >= 1e3:
+            return f"₹{crore:,.0f} crore"
+        if crore >= 1e2:
+            return f"₹{crore:,.0f} crore"
+        if crore >= 1:
+            return f"₹{crore:,.2f} crore"
+
         return f"₹{v:,.0f}"
 
     @staticmethod
@@ -201,7 +222,7 @@ class _FetchWorker(QObject):
             "description":     description,
 
             # Valuation
-            "market_cap":      fl(g("marketCap")),
+            "market_cap":      self._fmt_crore_readable(g("marketCap")),
             "pe_ratio":        fn(g("trailingPE"), 2),
             "forward_pe":      fn(g("forwardPE"), 2),
             "pb_ratio":        fn(g("priceToBook"), 2),
