@@ -647,11 +647,9 @@ class FixedTradingChart {
         try {
             ctx.clearRect(0, 0, this.width, this.height);
 
-            // Background gradient
-            const grad = ctx.createLinearGradient(0, 0, 0, this.height);
-            grad.addColorStop(0, this.colors.bgGradTop);
-            grad.addColorStop(1, this.colors.bgGradBot);
-            ctx.fillStyle = grad;
+            // Flat background to avoid a raised/sunken seam illusion
+            // where the chart meets the embedded watchlist panel.
+            ctx.fillStyle = this.colors.bg;
             ctx.fillRect(0, 0, this.width, this.height);
 
             if (this.data.length === 0) {
