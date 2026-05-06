@@ -65,6 +65,7 @@ CHART_TYPES: List[Tuple[str, str, str]] = [
     ("bar",        "|||", "OHLC Bars"),
     ("line",       "〜",  "Line"),
     ("heikinashi", "HA",  "Heikin-Ashi"),
+    ("kagi",       "⌇",  "Kagi"),
 ]
 
 DRAWING_TOOLS: List[Tuple[str, str, str]] = [

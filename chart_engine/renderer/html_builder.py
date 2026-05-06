@@ -48,6 +48,8 @@ class ChartHtmlConfig:
     indicator_scale_labels_enabled: bool = False
     crosshair_snap_enabled:  bool  = True
     tool_selection_mode:     str   = "single_use"
+    chart_type:              str   = "candle"
+    kagi_reversal_pct:       float = 1.0
     initial_indicator_visibility:   Dict[str, bool] = field(default_factory=dict)
     qwebchannel_src:         str   = "qrc:///qtwebchannel/qwebchannel.js"
 
@@ -111,6 +113,8 @@ def build_chart_html(cfg: ChartHtmlConfig) -> str:
         "indicatorScaleLabelsEnabled": bool(cfg.indicator_scale_labels_enabled),
         "crosshairSnapEnabled":      bool(cfg.crosshair_snap_enabled),
         "toolSelectionMode":         cfg.tool_selection_mode,
+        "chartType":                 cfg.chart_type,
+        "kagiReversalPct":           cfg.kagi_reversal_pct,
         "initialIndicatorVisibility": cfg.initial_indicator_visibility,
     }
 

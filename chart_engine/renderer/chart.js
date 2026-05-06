@@ -75,6 +75,8 @@ class FixedTradingChart {
         this.currentADR = cfg.initialADR || {};
         this.percentageChanges = cfg.percentageChanges || {};
         this.currentInterval = cfg.currentInterval || 'day';
+        this._chartType = cfg.chartType || 'candle';
+        this._kagiReversalPct = cfg.kagiReversalPct || 1.0;
         this.currentSymbol = cfg.currentSymbol || '';
         this.currentSymbolDescription = cfg.watermarkDescription || '';
         this.showWatermarkDescription = cfg.showWatermarkDescription === true;
@@ -196,6 +198,7 @@ class FixedTradingChart {
             this._computeBjTrendIndicator();
             this._computeCVD();
             this._computeRSI();
+            this._computeKagi(this._kagiReversalPct || 1.0);
         }
 
         // ── Bridge ──
@@ -383,6 +386,98 @@ class FixedTradingChart {
             cumVol += vol;
             return { time: c.time, value: cumVol > 0 ? cumTPV / cumVol : tp };
         });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // KAGI COMPUTATION
+    // ═══════════════════════════════════════════════════════════════════════
+    //
+    // Kagi charts use a reversal amount to filter noise.
+    // Two methods used institutionally:
+    //   1. ATR-based reversal  (adapts to volatility — preferred)
+    //   2. Percentage reversal (fixed % of price — simpler, classic)
+    //
+    // A Kagi line has two states:
+    //   YANG (thick) = price broke above the previous peak  → bullish control
+    //   YIN  (thin)  = price broke below the previous trough → bearish control
+    //
+    // Each segment: { x1, y1, x2, y2, yang: bool, isReversal: bool }
+    // ─────────────────────────────────────────────────────────────────────
+    _computeKagi(reversalPct = 1.0) {
+        if (this.data.length < 2) { this.kagiSegments = []; return; }
+
+        const closes = this.data.map(d => d.close);
+        const reversalAmt = closes[0] * (reversalPct / 100);
+
+        // ── Build kagi turning points ────────────────────────────────────
+        // A turning point is a {price, dataIndex} where direction changes.
+        const turns = [{ price: closes[0], idx: 0 }];
+        let direction = closes[1] >= closes[0] ? 1 : -1;  // 1=up, -1=down
+
+        for (let i = 1; i < closes.length; i++) {
+            const last = turns[turns.length - 1].price;
+            const c = closes[i];
+            const reversal = Math.abs(last) * (reversalPct / 100);
+
+            if (direction === 1) {
+                if (c > last) {
+                    // Extend the current up move
+                    turns[turns.length - 1] = { price: c, idx: i };
+                } else if (last - c >= reversal) {
+                    // Reversal — add new turning point and switch direction
+                    turns.push({ price: c, idx: i });
+                    direction = -1;
+                }
+            } else {
+                if (c < last) {
+                    // Extend the current down move
+                    turns[turns.length - 1] = { price: c, idx: i };
+                } else if (c - last >= reversal) {
+                    // Reversal — add new turning point and switch direction
+                    turns.push({ price: c, idx: i });
+                    direction = 1;
+                }
+            }
+        }
+
+        // ── Determine Yang/Yin for each segment ──────────────────────────
+        // Yang = thick = price exceeded previous peak
+        // Yin  = thin  = price broke previous trough
+        // Initial state: Yang if first move is up, Yin if down
+        let yang = turns.length > 1 ? turns[1].price > turns[0].price : true;
+
+        // Track peaks and troughs for Yang/Yin transitions
+        let peaks   = [turns[0].price];   // prior highs
+        let troughs = [turns[0].price];   // prior lows
+
+        this.kagiSegments = [];
+        this.kagiTurns = turns;
+
+        for (let i = 1; i < turns.length; i++) {
+            const from = turns[i - 1];
+            const to   = turns[i];
+            const goingUp = to.price > from.price;
+
+            // Yang/Yin transition check
+            if (goingUp) {
+                const prevPeak = peaks.length >= 2 ? peaks[peaks.length - 2] : peaks[0];
+                if (to.price > prevPeak) yang = true;
+                peaks.push(to.price);
+            } else {
+                const prevTrough = troughs.length >= 2 ? troughs[troughs.length - 2] : troughs[0];
+                if (to.price < prevTrough) yang = false;
+                troughs.push(to.price);
+            }
+
+            this.kagiSegments.push({
+                fromPrice: from.price,
+                toPrice:   to.price,
+                fromIdx:   from.idx,
+                toIdx:     to.idx,
+                yang,
+                goingUp,
+            });
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -670,7 +765,13 @@ class FixedTradingChart {
             this._drawVWAP();
             this._drawEMAs();
             this._drawBjTrendIndicator();
-            this._drawCandlesticks();
+            // Chart type dispatch
+            const chartType = window.__CHART_DATA__?.chartType || this._chartType || 'candle';
+            if (chartType === 'kagi') {
+                this._drawKagi();
+            } else {
+                this._drawCandlesticks();
+            }
             this._drawATRTrendReversal();
             this._drawAxes();
             this.drawingEngine.render();
@@ -863,6 +964,91 @@ class FixedTradingChart {
                 const bodyH = Math.max(1, Math.abs(clY - openY));
                 ctx.fillStyle = col;
                 ctx.fillRect(bx, topY, bodyW, bodyH);
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // KAGI RENDERER
+    // ═══════════════════════════════════════════════════════════════════════
+    _drawKagi() {
+        if (!this.kagiSegments || this.kagiSegments.length === 0) return;
+
+        const ctx = this.ctx;
+        const area = this.chartArea;
+
+        // ── Visual constants (TC2000 style) ───────────────────────────────
+        const YANG_COLOR  = '#00c896';   // Teal — bullish thickness
+        const YIN_COLOR   = '#e84060';   // Crimson — bearish thickness
+        const YANG_WIDTH  = 2.5;
+        const YIN_WIDTH   = 0.9;
+        const HORIZ_COLOR = '#8090a8';   // neutral grey for horizontal connectors
+
+        // Map kagi index → canvas X position
+        // Kagi segments are spaced evenly regardless of time
+        const totalSegs = this.kagiSegments.length;
+        const slotW     = Math.max(8, area.width / Math.max(1, totalSegs + 2));
+
+        // Helper: segment index → canvas X center
+        const segX = (idx) => area.x + (idx + 1) * slotW;
+
+        for (let i = 0; i < this.kagiSegments.length; i++) {
+            const seg = this.kagiSegments[i];
+            const x   = segX(i);
+            const y1  = this._priceToY(seg.fromPrice);
+            const y2  = this._priceToY(seg.toPrice);
+
+            // ── Clip to chart area ────────────────────────────────────────
+            if (x < area.x - 2 || x > area.x + area.width + 2) continue;
+            if (Math.min(y1, y2) > area.y + area.height + 2) continue;
+            if (Math.max(y1, y2) < area.y - 2) continue;
+
+            const color = seg.yang ? YANG_COLOR : YIN_COLOR;
+            const lw    = seg.yang ? YANG_WIDTH : YIN_WIDTH;
+
+            // ── Horizontal connector (shoulder line) ──────────────────────
+            // At each reversal, a small horizontal line connects to next segment
+            if (i > 0) {
+                const prevX = segX(i - 1);
+                const prevSeg = this.kagiSegments[i - 1];
+                ctx.strokeStyle = HORIZ_COLOR;
+                ctx.lineWidth   = 1;
+                ctx.setLineDash([]);
+                ctx.beginPath();
+                ctx.moveTo(prevX, y1);
+                ctx.lineTo(x,     y1);
+                ctx.stroke();
+            }
+
+            // ── Vertical line ─────────────────────────────────────────────
+            ctx.strokeStyle = color;
+            ctx.lineWidth   = lw;
+            ctx.setLineDash([]);
+            ctx.beginPath();
+            ctx.moveTo(x, y1);
+            ctx.lineTo(x, y2);
+            ctx.stroke();
+
+            // ── Yang/Yin transition marker ────────────────────────────────
+            // A small circle at the transition point (where state changed)
+            if (i > 0 && this.kagiSegments[i - 1].yang !== seg.yang) {
+                ctx.fillStyle   = color;
+                ctx.strokeStyle = '#0b0f18';
+                ctx.lineWidth   = 1.2;
+                ctx.beginPath();
+                ctx.arc(x, y1, 3.5, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+            }
+        }
+
+        // ── Last price ray (same as candlestick mode) ─────────────────────
+        const lastSeg = this.kagiSegments[this.kagiSegments.length - 1];
+        if (lastSeg) {
+            const liveP = this.livePrice || lastSeg.toPrice;
+            const ly    = this._priceToY(liveP);
+            if (ly >= area.y && ly <= area.y + area.height) {
+                this._drawLivePriceRay();
             }
         }
     }
@@ -3244,6 +3430,7 @@ class FixedTradingChart {
             this._computeBjTrendIndicator();
             this._computeCVD();
             this._computeRSI();
+            this._computeKagi(this._kagiReversalPct || 1.0);
         }
 
         if (cfg.initialDrawingsJson) {
@@ -3339,6 +3526,16 @@ class FixedTradingChart {
             this.indicatorScaleLabelsEnabled = cfg.indicatorScaleLabelsEnabled === true;
         if (cfg.crosshairSnapEnabled !== undefined)
             this.crosshairSnapEnabled = cfg.crosshairSnapEnabled === true;
+        if (cfg.chartType !== undefined) {
+            this._chartType = cfg.chartType;
+            if (cfg.chartType === 'kagi') {
+                this._computeKagi(this._kagiReversalPct || 1.0);
+            }
+        }
+        if (cfg.kagiReversalPct !== undefined) {
+            this._kagiReversalPct = cfg.kagiReversalPct;
+            this._computeKagi(this._kagiReversalPct);
+        }
         if (cfg.toolSelectionMode !== undefined) {
             this.toolSelectionMode = cfg.toolSelectionMode === 'multi_use' ? 'multi_use' : 'single_use';
             if (this.drawingEngine) {

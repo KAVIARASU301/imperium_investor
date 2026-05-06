@@ -703,6 +703,13 @@ class CandlestickChart(QWidget):
 
     @Slot(dict)
     def _on_toolbar_preferences_changed(self, prefs: Dict[str, Any]) -> None:
+        chart_type = prefs.get("chart_type", "candle")
+        self._js(
+            f"if(window.chart){{"
+            f"window.chart.setChartSettings({{chartType:'{chart_type}'}});"
+            f"window.chart.requestDraw();"
+            f"}}"
+        )
         self._save_global_settings_patch({"toolbar_preferences": dict(prefs or {})})
 
     def _toggle_indicator(self, key: str, visible: bool) -> None:
@@ -794,6 +801,13 @@ class CandlestickChart(QWidget):
         self._crosshair_snap_enabled     = s.get("crosshair_snap_enabled", self._crosshair_snap_enabled)
         self._tool_selection_mode        = s.get("tool_selection_mode", self._tool_selection_mode)
         self._toolbar_symbol_display     = s.get("toolbar_symbol_display", self._toolbar_symbol_display)
+        chart_type = s.get("chart_type", "candle")
+        self._js(
+            f"if(window.chart){{"
+            f"window.chart.setChartSettings({{chartType:'{chart_type}',kagiReversalPct:1.0}});"
+            f"window.chart.requestDraw();"
+            f"}}"
+        )
         self._save_global_settings_patch(s)
         self._refresh_toolbar_symbol_text()
 
