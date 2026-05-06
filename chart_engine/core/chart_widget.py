@@ -10,8 +10,13 @@
 #
 # It is intentionally thin: all real work lives in the sub-modules.
 
+import base64
 import json
 import logging
+import os
+import re
+from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 import pandas as pd
@@ -375,7 +380,7 @@ class CandlestickChart(QWidget):
         tb.clear_drawings_btn.clicked.connect(
             lambda: self._js("if(window.chart) window.chart.clearAllDrawings();")
         )
-        tb.snapshot_btn.clicked.connect(self._save_drawings)
+        tb.snapshot_btn.clicked.connect(self._save_snapshot)
         tb.autoscale_btn.clicked.connect(self._auto_scale)
         tb.refresh_btn.clicked.connect(self._force_refresh)
         tb.settings_btn.clicked.connect(self._open_settings_dialog)
@@ -418,7 +423,7 @@ class CandlestickChart(QWidget):
 
     def _setup_shortcuts(self) -> None:
         QShortcut(QKeySequence("Ctrl+A"), self).activated.connect(self._auto_scale)
-        QShortcut(QKeySequence("Ctrl+S"), self).activated.connect(self._save_drawings)
+        QShortcut(QKeySequence("Ctrl+S"), self).activated.connect(self._save_snapshot)
         QShortcut(QKeySequence("F5"),     self).activated.connect(self._force_refresh)
 
     def resizeEvent(self, event) -> None:
@@ -741,6 +746,7 @@ class CandlestickChart(QWidget):
         self.drawing_storage.save_global_indicator_visibility(self._indicator_visibility)
 
     def _save_drawings(self) -> None:
+        """Persist chart drawings/viewport state without exporting an image."""
         if not (self.chart_view and self.current_symbol):
             return
 
@@ -757,6 +763,69 @@ class CandlestickChart(QWidget):
             "  indicator_visibility: window.chart.getIndicatorVisibility()"
             "}; return null; })()", _cb
         )
+
+    def _save_snapshot(self) -> None:
+        """Persist chart state and export a high-resolution PNG chart snapshot."""
+        if not (self.chart_view and self.current_symbol):
+            QMessageBox.information(self, "Snapshot unavailable", "Load a chart before capturing a snapshot.")
+            return
+
+        self._save_drawings()
+        self.toolbar.snapshot_btn.setEnabled(False)
+        self.toolbar.snapshot_btn.setToolTip("Capturing high quality snapshot…")
+
+        # Ask the renderer for a PNG data URL generated from the chart canvas'
+        # backing store. It preserves the WebEngine/HiDPI pixel density and can
+        # upscale when the current monitor DPR is low.
+        script = (
+            "(function(){"
+            "  if(!window.chart || !window.chart.exportSnapshot) "
+            "    return {ok:false,error:'Chart renderer is not ready'};"
+            "  try { return window.chart.exportSnapshot({scale:2, includeMetadata:true}); }"
+            "  catch(e) { return {ok:false,error:(e && e.message) ? e.message : String(e)}; }"
+            "})()"
+        )
+        self.chart_view.page().runJavaScript(script, self._on_snapshot_exported)
+
+    def _on_snapshot_exported(self, result: Any) -> None:
+        self.toolbar.snapshot_btn.setEnabled(True)
+        self.toolbar.snapshot_btn.setToolTip("Capture high quality PNG snapshot  [Ctrl+S]")
+
+        if not isinstance(result, dict) or not result.get("ok"):
+            error = result.get("error") if isinstance(result, dict) else "Unknown renderer error"
+            QMessageBox.warning(self, "Snapshot failed", f"Could not capture chart snapshot: {error}")
+            logger.error("Chart snapshot export failed: %s", error)
+            return
+
+        data_url = str(result.get("dataUrl") or "")
+        match = re.match(r"^data:image/png;base64,(.+)$", data_url, re.DOTALL)
+        if not match:
+            QMessageBox.warning(self, "Snapshot failed", "The chart renderer returned an invalid PNG image.")
+            logger.error("Chart snapshot export returned invalid data URL")
+            return
+
+        try:
+            image_bytes = base64.b64decode(match.group(1), validate=True)
+            path = self._snapshot_output_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(image_bytes)
+        except Exception as exc:
+            QMessageBox.warning(self, "Snapshot failed", f"Could not save chart snapshot: {exc}")
+            logger.error("Chart snapshot save failed: %s", exc)
+            return
+
+        width = result.get("width") or "?"
+        height = result.get("height") or "?"
+        QMessageBox.information(self, "Snapshot saved", f"Saved {width}×{height} PNG snapshot:\n{path}")
+        logger.info("Chart snapshot saved: %s", path)
+
+    def _snapshot_output_path(self) -> Path:
+        safe_symbol = re.sub(r"[^A-Za-z0-9._-]+", "_", self.current_symbol or "chart").strip("._-") or "chart"
+        safe_interval = re.sub(r"[^A-Za-z0-9._-]+", "_", self.current_interval or "interval").strip("._-") or "interval"
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{safe_symbol}_{safe_interval}_{timestamp}.png"
+        pictures_dir = Path(os.path.expanduser("~/Pictures"))
+        return pictures_dir / "Qullamaggie Snapshots" / filename
 
     # ── Text note dialogs ─────────────────────────────────────────────────
 

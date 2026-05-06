@@ -263,6 +263,77 @@ class FixedTradingChart {
         this.updateSlider();
     }
 
+    exportSnapshot(options = {}) {
+        if (!this.canvas) {
+            return { ok: false, error: 'Chart canvas is unavailable' };
+        }
+
+        // Flush the latest render synchronously so pending drawing/price changes are
+        // captured before Qt reads the PNG data URL.
+        this._dirty = false;
+        this._rafPending = false;
+        this.draw();
+
+        const source = this.canvas;
+        const sourceWidth = source.width || Math.round((this.width || 800) * (window.devicePixelRatio || 1));
+        const sourceHeight = source.height || Math.round((this.height || 500) * (window.devicePixelRatio || 1));
+        const requestedScale = Number(options.scale);
+        const exportScale = Number.isFinite(requestedScale) ? Math.min(Math.max(requestedScale, 1), 4) : 2;
+        const outputWidth = Math.round(sourceWidth * exportScale);
+        const outputHeight = Math.round(sourceHeight * exportScale);
+
+        const output = document.createElement('canvas');
+        output.width = outputWidth;
+        output.height = outputHeight;
+        const out = output.getContext('2d', { alpha: false });
+        out.imageSmoothingEnabled = true;
+        out.imageSmoothingQuality = 'high';
+        out.fillStyle = this.colors?.bg || '#0b0f18';
+        out.fillRect(0, 0, outputWidth, outputHeight);
+        out.drawImage(source, 0, 0, outputWidth, outputHeight);
+
+        if (options.includeMetadata !== false) {
+            this._drawSnapshotMetrics(out, exportScale, sourceWidth, sourceHeight);
+        }
+
+        return {
+            ok: true,
+            dataUrl: output.toDataURL('image/png'),
+            width: outputWidth,
+            height: outputHeight,
+            scale: exportScale,
+            sourceWidth,
+            sourceHeight,
+        };
+    }
+
+    _drawSnapshotMetrics(out, exportScale, sourceWidth, sourceHeight) {
+        const metricsEl = document.getElementById('metricsInfo');
+        if (!metricsEl || !metricsEl.innerText) return;
+
+        const dpr = window.devicePixelRatio || 1;
+        const sourceScale = exportScale * dpr;
+        const lines = metricsEl.innerText.split('\n').map(s => s.trim()).filter(Boolean);
+        if (!lines.length) return;
+
+        const x = Math.round(10 * sourceScale);
+        let y = Math.round(8 * sourceScale);
+        const fontPx = Math.max(12, Math.round(12 * sourceScale));
+        const lineHeight = Math.round(fontPx * 1.45);
+        out.save();
+        out.font = `600 ${fontPx}px Inter, Segoe UI, sans-serif`;
+        out.textBaseline = 'top';
+        out.shadowColor = 'rgba(0,0,0,0.75)';
+        out.shadowBlur = Math.round(2 * sourceScale);
+        out.fillStyle = '#d1dcf2';
+        for (const line of lines) {
+            out.fillText(line, x, y);
+            y += lineHeight;
+            if (y > sourceHeight * exportScale * 0.4) break;
+        }
+        out.restore();
+    }
+
     _updateChartAreas() {
         const pad = { top: 32, right: this._computeRightAxisWidth(), bottom: 20, left: 8 };
         const volumeRatio = 0.13;    // volume pane

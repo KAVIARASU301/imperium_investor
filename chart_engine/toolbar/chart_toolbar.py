@@ -489,7 +489,7 @@ class ChartToolbar(QFrame):
 
         # ── 6. RIGHT UTILITY CLUSTER ──────────────────────────────────────
         # Snapshot
-        self.snapshot_btn = self._icon_btn("⬡", "Save snapshot  [Ctrl+S]", 28)
+        self.snapshot_btn = self._icon_btn("⬡", "Capture high quality PNG snapshot  [Ctrl+S]", 28)
         lay.addWidget(self.snapshot_btn)
         lay.addWidget(_gap(2))
 
