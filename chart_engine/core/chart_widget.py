@@ -793,12 +793,13 @@ class CandlestickChart(QWidget):
         # upscale when the current monitor DPR is low.
         script = (
             "(function(){"
+            "  const encode = (payload) => JSON.stringify(payload);"
             "  if(!window.chart || !window.chart.exportSnapshot) "
-            "    return {ok:false,error:'Chart renderer is not ready — try again in a moment'};"
+            "    return encode({ok:false,error:'Chart renderer is not ready — try again in a moment'});"
             "  if(!window.chart.canvas || !window.chart.canvas.width) "
-            "    return {ok:false,error:'Canvas not yet painted — try again in a moment'};"
-            "  try { return window.chart.exportSnapshot({scale:2, includeMetadata:true}); }"
-            "  catch(e) { return {ok:false,error:(e && e.message) ? e.message : String(e)}; }"
+            "    return encode({ok:false,error:'Canvas not yet painted — try again in a moment'});"
+            "  try { return encode(window.chart.exportSnapshot({scale:2, includeMetadata:true})); }"
+            "  catch(e) { return encode({ok:false,error:(e && e.message) ? e.message : String(e)}); }"
             "})()"
         )
         self.chart_view.page().runJavaScript(
@@ -813,6 +814,8 @@ class CandlestickChart(QWidget):
             QMessageBox.warning(self, "Snapshot failed", error)
             logger.error("Chart snapshot export failed: %s", error)
             return
+
+        result = self._normalize_snapshot_result(result)
 
         if not isinstance(result, dict) or not result.get("ok"):
             error = (
@@ -855,6 +858,33 @@ class CandlestickChart(QWidget):
         height = result.get("height") or "?"
         QMessageBox.information(self, "Snapshot saved", f"Saved {width}×{height} PNG snapshot:\n{path}")
         logger.info("Chart snapshot saved: %s", path)
+
+    @staticmethod
+    def _normalize_snapshot_result(result: Any) -> Any:
+        """Normalize WebEngine snapshot responses into the expected payload dict.
+
+        Qt WebEngine versions differ in how they marshal large JavaScript return
+        values. A snapshot export may arrive as the object returned by JS, as a
+        JSON-encoded string, or (on some builds) as the PNG data URL string
+        itself. Accept all of those forms so a valid capture is not rejected as
+        an unexpected ``str`` result.
+        """
+        if not isinstance(result, str):
+            return result
+
+        text = result.strip()
+        if not text:
+            return {"ok": False, "error": "Snapshot renderer returned an empty response."}
+
+        if text.startswith("data:image/png;base64,"):
+            return {"ok": True, "dataUrl": text}
+
+        try:
+            decoded = json.loads(text)
+        except json.JSONDecodeError:
+            return {"ok": False, "error": text}
+
+        return decoded
 
     def _restore_snapshot_button(self) -> None:
         self.toolbar.snapshot_btn.setEnabled(True)
