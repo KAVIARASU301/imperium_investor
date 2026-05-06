@@ -58,6 +58,8 @@ function makeCoordSys(chart) {
         get data()            { return chart.data; },
         get candleWidth()     { return chart.candleWidth; },
         get rightAxisWidth()  { return chart.rightAxisWidth; },
+        get maxCandleIndex()  { return chart._maxFutureCandleIndex(); },
+        get maxTime()         { return chart._candleIndexToTime(chart._maxFutureCandleIndex()); },
         priceToY(price)       { return chart._priceToY(price); },
         yToPrice(y)           { return chart._yToPrice(y); },
         timeToX(time)         { return chart._timeToX(time); },

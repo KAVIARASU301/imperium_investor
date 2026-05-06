@@ -165,6 +165,7 @@ class DrawingEngine {
      *   xToCandle(x)    → int
      *   chartArea       → {x, y, width, height}
      *   data            → [{time, open, high, low, close}, …]
+     *   maxTime         → optional latest drawable time, including any future buffer
      */
     constructor(canvas, coordSys) {
         this.canvas = canvas;
@@ -937,7 +938,9 @@ class DrawingEngine {
                 out.startTime = Number(out.startTime);
                 out.startPrice = Number(out.startPrice);
                 const minTime = this.cs.data?.[0]?.time;
-                const maxTime = this.cs.data?.[this.cs.data.length - 1]?.time;
+                const maxTime = Number.isFinite(this.cs.maxTime)
+                    ? this.cs.maxTime
+                    : this.cs.data?.[this.cs.data.length - 1]?.time;
                 if (Number.isFinite(minTime) && Number.isFinite(maxTime) &&
                     (out.startTime < minTime || out.startTime > maxTime)) {
                     return null;

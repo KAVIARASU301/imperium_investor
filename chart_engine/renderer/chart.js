@@ -109,7 +109,7 @@ class FixedTradingChart {
         // Model: candleWidth + candleSpacing are FIXED (user-set).
         // visibleCount is DERIVED from chartArea.width / slotW — never set directly.
         // On resize: more/fewer candles appear automatically, no stretching.
-        this.rightBufferCandles = 5;
+        this.rightBufferCandles = 20;
         this.candleWidth   = cfg.initialCandleWidth   || 8;   // body+wick pixel width — user control
         this.candleSpacing = cfg.initialCandleSpacing || 2;   // gap between candles in px
         this.visibleCandleCount = 100;                         // computed — don't use cfg value
@@ -3156,20 +3156,36 @@ class FixedTradingChart {
     _xToCandle_coord(x) {
         const slotW = this._slotW();
         if (slotW <= 0) return -1;
-        return this.viewPortStart + Math.floor((x - this.chartArea.x) / slotW);
+        const idx = this.viewPortStart + Math.floor((x - this.chartArea.x) / slotW);
+        return Math.min(idx, this._maxFutureCandleIndex());
+    }
+
+    _maxFutureCandleIndex() {
+        return Math.max(0, this.data.length - 1 + this.rightBufferCandles);
+    }
+
+    _averageCandleTimeSpan() {
+        if (this.data.length < 2) return 24 * 60 * 60 * 1000;
+        const first = this.data[0].time;
+        const last  = this.data[this.data.length - 1].time;
+        return Math.max(1, (last - first) / Math.max(1, this.data.length - 1));
+    }
+
+    _candleIndexToTime(idx) {
+        if (this.data.length === 0) return Date.now();
+        if (idx >= 0 && idx < this.data.length) return this.data[idx].time;
+
+        const first = this.data[0].time;
+        const lastIndex = this.data.length - 1;
+        const last = this.data[lastIndex].time;
+        const avg = this._averageCandleTimeSpan();
+        const clampedIdx = Math.min(idx, this._maxFutureCandleIndex());
+        if (clampedIdx >= this.data.length) return last + avg * (clampedIdx - lastIndex);
+        return first;
     }
 
     _xToTime_coord(x) {
-        const idx = this._xToCandle_coord(x);
-        if (idx >= 0 && idx < this.data.length) return this.data[idx].time;
-        if (this.data.length === 0) return Date.now();
-        const last  = this.data[this.data.length - 1].time;
-        const first = this.data[0].time;
-        if (idx >= this.data.length) {
-            const avg = (last - first) / Math.max(1, this.data.length - 1);
-            return last + avg * (idx - (this.data.length - 1));
-        }
-        return first;
+        return this._candleIndexToTime(this._xToCandle_coord(x));
     }
 
     _timeToX(time) {
@@ -3177,24 +3193,16 @@ class FixedTradingChart {
         if (idx === -1) {
             const last = this.data.length - 1;
             if (last < 0) return this.chartArea.x;
-            return Math.min(this._candleToX(last) + this._slotW(),
-                            this.chartArea.x + this.chartArea.width);
+            const avg = this._averageCandleTimeSpan();
+            const offset = Math.round((time - this.data[last].time) / avg);
+            idx = Math.min(this._maxFutureCandleIndex(), last + Math.max(0, offset));
         }
         if (idx === 0 && time < this.data[0].time) return this.chartArea.x;
         return this._candleToX(idx);
     }
 
     _xToTime(x) {
-        const idx = this._xToCandle(x);
-        if (idx >= 0 && idx < this.data.length) return this.data[idx].time;
-        if (this.data.length === 0) return Date.now();
-        const last  = this.data[this.data.length - 1].time;
-        const first = this.data[0].time;
-        if (idx >= this.data.length) {
-            const avg = (last - first) / Math.max(1, this.data.length - 1);
-            return last + avg * (idx - (this.data.length - 1));
-        }
-        return first;
+        return this._candleIndexToTime(this._xToCandle(x));
     }
 
     _mousePos(e) {
