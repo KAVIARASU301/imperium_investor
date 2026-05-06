@@ -510,6 +510,7 @@ class CandlestickChart(QWidget):
                 "watermarkDescription": self._current_watermark_description,
                 "showWatermarkDescription": self._show_watermark_description,
                 "visibleCandleCount": initial_zoom,
+                "chartType": self.toolbar.get_chart_type(),
             }
             self._js(f"if(window.chart) window.chart.loadNewData({json.dumps(payload_dict)});")
             self._update_symbol_info(df)
@@ -544,6 +545,7 @@ class CandlestickChart(QWidget):
             indicator_scale_labels_enabled = self._indicator_scale_labels_enabled,
             crosshair_snap_enabled = self._crosshair_snap_enabled,
             tool_selection_mode    = self._tool_selection_mode,
+            chart_type             = self.toolbar.get_chart_type(),
             initial_indicator_visibility = initial_indicator_visibility,
         )
 

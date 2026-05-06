@@ -766,7 +766,7 @@ class FixedTradingChart {
             this._drawEMAs();
             this._drawBjTrendIndicator();
             // Chart type dispatch
-            const chartType = window.__CHART_DATA__?.chartType || this._chartType || 'candle';
+            const chartType = this._chartType || window.__CHART_DATA__?.chartType || 'candle';
             if (chartType === 'kagi') {
                 this._drawKagi();
             } else {
@@ -3391,6 +3391,7 @@ class FixedTradingChart {
         this._computeBjTrendIndicator();
         this._computeCVD();
         this._computeRSI();
+        this._computeKagi(this._kagiReversalPct || 1.0);
         this.calculateBounds();
         this.requestDraw();
     }
@@ -3407,6 +3408,12 @@ class FixedTradingChart {
         this.currentADR = cfg.initialADR || {};
         this.percentageChanges = cfg.percentageChanges || {};
         this.currentInterval = cfg.interval || 'day';
+        if (cfg.chartType !== undefined) {
+            this._chartType = cfg.chartType;
+        }
+        if (window.__CHART_DATA__) {
+            window.__CHART_DATA__.chartType = this._chartType;
+        }
         this.currentSymbol = cfg.symbol || '';
         this.currentSymbolDescription = cfg.watermarkDescription || '';
         this.showWatermarkDescription = cfg.showWatermarkDescription === true;
@@ -3487,6 +3494,7 @@ class FixedTradingChart {
         this._computeBjTrendIndicator();
         this._computeCVD();
         this._computeRSI();
+        this._computeKagi(this._kagiReversalPct || 1.0);
         this.calculateBounds();
         this.requestDraw();
         this.updateSlider();
@@ -3528,6 +3536,9 @@ class FixedTradingChart {
             this.crosshairSnapEnabled = cfg.crosshairSnapEnabled === true;
         if (cfg.chartType !== undefined) {
             this._chartType = cfg.chartType;
+            if (window.__CHART_DATA__) {
+                window.__CHART_DATA__.chartType = cfg.chartType;
+            }
             if (cfg.chartType === 'kagi') {
                 this._computeKagi(this._kagiReversalPct || 1.0);
             }

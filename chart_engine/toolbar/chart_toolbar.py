@@ -325,7 +325,7 @@ class ChartToolbar(QFrame):
         ct_action_grp = QActionGroup(self)
         ct_action_grp.setExclusive(True)
         self._ct_actions: Dict[str, QAction] = {}
-        glyphs = {"candle": "🕯", "bar": "▌▌▌", "line": "〜", "heikinashi": "HA"}
+        glyphs = {data: glyph for data, glyph, _ in CHART_TYPES}
         for data, glyph, label in CHART_TYPES:
             action = QAction(f"{glyph}  {label}", self)
             action.setCheckable(True)
@@ -581,7 +581,7 @@ class ChartToolbar(QFrame):
 
     def _on_chart_type(self, data: str) -> None:
         self._active_chart_type = data
-        glyphs = {"candle": "🕯", "bar": "▌▌▌", "line": "〜", "heikinashi": "HA"}
+        glyphs = {data: glyph for data, glyph, _ in CHART_TYPES}
         if self._ct_menu_btn:
             self._ct_menu_btn.setText(glyphs.get(data, "?"))
         # Sync hidden shim
