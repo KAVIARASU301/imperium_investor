@@ -140,6 +140,7 @@ def build_chart_html(cfg: ChartHtmlConfig) -> str:
         #mainCanvas {{
             position: absolute; top: 0; left: 0;
             width: 100%; height: calc(100% - 14px);
+            min-width: 200px; min-height: 200px;
             cursor: crosshair; display: block;
         }}
         #info {{
