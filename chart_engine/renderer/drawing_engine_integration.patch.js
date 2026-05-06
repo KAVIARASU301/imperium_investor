@@ -61,9 +61,9 @@ function makeCoordSys(chart) {
         priceToY(price)       { return chart._priceToY(price); },
         yToPrice(y)           { return chart._yToPrice(y); },
         timeToX(time)         { return chart._timeToX(time); },
-        xToTime(x)            { return chart._xToTime(x); },
+        xToTime(x)            { return chart._xToTime_coord(x); },
         candleToX(idx)        { return chart._candleToX(idx); },
-        xToCandle(x)          { return chart._xToCandle(x); },
+        xToCandle(x)          { return chart._xToCandle_coord(x); },
     };
 }
 

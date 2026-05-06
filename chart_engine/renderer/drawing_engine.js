@@ -382,9 +382,9 @@ class DrawingEngine {
         const sx = this.cs.timeToX(d.startTime), sy = this.cs.priceToY(d.startPrice);
         let ex = sx, ey = sy;
         if (d.endTime != null) { ex = this.cs.timeToX(d.endTime); ey = this.cs.priceToY(d.endPrice); }
-        /* For horizontal drawings extend to chart width */
+        /* For horizontal drawings extend through the right axis panel */
         if (d.type === 'horizontal_ray' || d.type === 'horizontal_line') {
-            ex = this.cs.chartArea.x + this.cs.chartArea.width;
+            ex = this.cs.chartArea.x + this.cs.chartArea.width + (this.cs.rightAxisWidth || 0);
         }
         this.spatialHash.insert(d.id, sx, sy, ex, ey);
     }
@@ -394,7 +394,7 @@ class DrawingEngine {
         let ex = sx, ey = sy;
         if (d.endTime != null) { ex = this.cs.timeToX(d.endTime); ey = this.cs.priceToY(d.endPrice); }
         if (d.type === 'horizontal_ray' || d.type === 'horizontal_line') {
-            ex = this.cs.chartArea.x + this.cs.chartArea.width;
+            ex = this.cs.chartArea.x + this.cs.chartArea.width + (this.cs.rightAxisWidth || 0);
         }
         this.spatialHash.remove(d.id, sx, sy, ex, ey);
     }
@@ -1025,7 +1025,7 @@ class DrawingEngine {
     _renderHRay(ctx, d, sel, hov) {
         const { chartArea: a } = this.cs;
         const sx = this.cs.timeToX(d.startTime), sy = this.cs.priceToY(d.startPrice);
-        const endX = a.x + a.width;
+        const endX = a.x + a.width + (this.cs.rightAxisWidth || 0);
         if (sy < a.y - 2 || sy > a.y + a.height + 2) return;
 
         ctx.setLineDash([5, 3]);

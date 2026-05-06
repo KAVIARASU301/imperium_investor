@@ -3153,6 +3153,25 @@ class FixedTradingChart {
         return this.viewPortStart + Math.floor((x - this.chartArea.x - (this.panOffsetPx || 0)) / slotW);
     }
 
+    _xToCandle_coord(x) {
+        const slotW = this._slotW();
+        if (slotW <= 0) return -1;
+        return this.viewPortStart + Math.floor((x - this.chartArea.x) / slotW);
+    }
+
+    _xToTime_coord(x) {
+        const idx = this._xToCandle_coord(x);
+        if (idx >= 0 && idx < this.data.length) return this.data[idx].time;
+        if (this.data.length === 0) return Date.now();
+        const last  = this.data[this.data.length - 1].time;
+        const first = this.data[0].time;
+        if (idx >= this.data.length) {
+            const avg = (last - first) / Math.max(1, this.data.length - 1);
+            return last + avg * (idx - (this.data.length - 1));
+        }
+        return first;
+    }
+
     _timeToX(time) {
         let idx = this.data.findIndex(d => d.time >= time);
         if (idx === -1) {
