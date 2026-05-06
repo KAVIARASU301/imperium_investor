@@ -531,7 +531,12 @@ class OrderDialog(QDialog):
         ltp_fetcher: Optional[Callable[[str], float]] = None,
     ):
         super().__init__(parent)
-        self.setWindowFlags(Qt.Dialog | Qt.WindowCloseButtonHint)
+        self.setWindowFlags(
+            Qt.WindowType.Dialog
+            | Qt.WindowType.WindowCloseButtonHint
+            | Qt.WindowType.WindowStaysOnTopHint
+        )
+        self.setModal(True)
         self.setAttribute(Qt.WA_TranslucentBackground, False)
         self.setMinimumWidth(500)
         self.resize(500, 560)
@@ -1262,6 +1267,15 @@ class OrderDialog(QDialog):
                 f"[{order_data['variety']}/{order_data['order_type']}]"
             )
             self.accept()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        # Keep the order ticket above pinned floating panels (for example,
+        # FloatingPositionsDialog uses WindowStaysOnTopHint).  A modal dialog
+        # can still be obscured by another always-on-top tool window unless it
+        # is explicitly raised and activated after the window manager maps it.
+        self.raise_()
+        self.activateWindow()
 
     def keyPressEvent(self, event: QKeyEvent):
         if event.key() == Qt.Key_Escape:
