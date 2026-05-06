@@ -268,6 +268,10 @@ class FixedTradingChart {
             return { ok: false, error: 'Chart canvas is unavailable' };
         }
 
+        // Force a resize/redraw to ensure canvas dimensions are correct
+        // (Qt WebEngine may not have painted yet on first call).
+        this._onResize();
+
         // Flush the latest render synchronously so pending drawing/price changes are
         // captured before Qt reads the PNG data URL.
         this._dirty = false;
