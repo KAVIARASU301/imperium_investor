@@ -782,7 +782,7 @@ class CandlestickChart(QWidget):
             "  if(!window.chart || !window.chart.exportSnapshot) "
             "    return {ok:false,error:'Chart renderer is not ready'};"
             "  try { return window.chart.exportSnapshot({scale:2, includeMetadata:true}); }"
-            "  catch(e) { return {ok:false,error:(e && e.message) ? e.message : String(e)}; }"
+            "  catch(e) { return {ok:false,error:e ? (e.message || String(e)) : 'Unknown JS error in exportSnapshot'}; }"
             "})()"
         )
         self.chart_view.page().runJavaScript(script, self._on_snapshot_exported)

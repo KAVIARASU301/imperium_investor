@@ -268,47 +268,56 @@ class FixedTradingChart {
             return { ok: false, error: 'Chart canvas is unavailable' };
         }
 
-        // Force a resize/redraw to ensure canvas dimensions are correct
-        // (Qt WebEngine may not have painted yet on first call).
-        this._onResize();
+        try {
+            // Force a resize/redraw to ensure canvas dimensions are correct
+            // (Qt WebEngine may not have painted yet on first call).
+            this._onResize();
 
-        // Flush the latest render synchronously so pending drawing/price changes are
-        // captured before Qt reads the PNG data URL.
-        this._dirty = false;
-        this._rafPending = false;
-        this.draw();
+            // Flush the latest render synchronously so pending drawing/price changes are
+            // captured before Qt reads the PNG data URL.
+            this._dirty = false;
+            this._rafPending = false;
+            this.draw();
 
-        const source = this.canvas;
-        const sourceWidth = source.width || Math.round((this.width || 800) * (window.devicePixelRatio || 1));
-        const sourceHeight = source.height || Math.round((this.height || 500) * (window.devicePixelRatio || 1));
-        const requestedScale = Number(options.scale);
-        const exportScale = Number.isFinite(requestedScale) ? Math.min(Math.max(requestedScale, 1), 4) : 2;
-        const outputWidth = Math.round(sourceWidth * exportScale);
-        const outputHeight = Math.round(sourceHeight * exportScale);
+            const source = this.canvas;
+            const sourceWidth = source.width;
+            const sourceHeight = source.height;
 
-        const output = document.createElement('canvas');
-        output.width = outputWidth;
-        output.height = outputHeight;
-        const out = output.getContext('2d', { alpha: false });
-        out.imageSmoothingEnabled = true;
-        out.imageSmoothingQuality = 'high';
-        out.fillStyle = this.colors?.bg || '#0b0f18';
-        out.fillRect(0, 0, outputWidth, outputHeight);
-        out.drawImage(source, 0, 0, outputWidth, outputHeight);
+            if (!sourceWidth || !sourceHeight) {
+                return { ok: false, error: `Canvas has zero dimensions (${sourceWidth}x${sourceHeight}). Chart may not be fully rendered.` };
+            }
 
-        if (options.includeMetadata !== false) {
-            this._drawSnapshotMetrics(out, exportScale, sourceWidth, sourceHeight);
+            const requestedScale = Number(options.scale);
+            const exportScale = Number.isFinite(requestedScale) ? Math.min(Math.max(requestedScale, 1), 4) : 2;
+            const outputWidth = Math.round(sourceWidth * exportScale);
+            const outputHeight = Math.round(sourceHeight * exportScale);
+
+            const output = document.createElement('canvas');
+            output.width = outputWidth;
+            output.height = outputHeight;
+            const out = output.getContext('2d', { alpha: false });
+            out.imageSmoothingEnabled = true;
+            out.imageSmoothingQuality = 'high';
+            out.fillStyle = this.colors?.bg || '#0b0f18';
+            out.fillRect(0, 0, outputWidth, outputHeight);
+            out.drawImage(source, 0, 0, outputWidth, outputHeight);
+
+            if (options.includeMetadata !== false) {
+                this._drawSnapshotMetrics(out, exportScale, sourceWidth, sourceHeight);
+            }
+
+            return {
+                ok: true,
+                dataUrl: output.toDataURL('image/png'),
+                width: outputWidth,
+                height: outputHeight,
+                scale: exportScale,
+                sourceWidth,
+                sourceHeight,
+            };
+        } catch (e) {
+            return { ok: false, error: e ? (e.message || String(e)) : 'Unknown JS error in exportSnapshot' };
         }
-
-        return {
-            ok: true,
-            dataUrl: output.toDataURL('image/png'),
-            width: outputWidth,
-            height: outputHeight,
-            scale: exportScale,
-            sourceWidth,
-            sourceHeight,
-        };
     }
 
     _drawSnapshotMetrics(out, exportScale, sourceWidth, sourceHeight) {
