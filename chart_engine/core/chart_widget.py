@@ -807,8 +807,19 @@ class CandlestickChart(QWidget):
         )
 
     def _on_snapshot_exported(self, result: Any, attempt: int = SNAPSHOT_READY_MAX_ATTEMPTS) -> None:
+        if result is None:
+            self._restore_snapshot_button()
+            error = "JavaScript returned no result. The chart may still be loading."
+            QMessageBox.warning(self, "Snapshot failed", error)
+            logger.error("Chart snapshot export failed: %s", error)
+            return
+
         if not isinstance(result, dict) or not result.get("ok"):
-            error = result.get("error") if isinstance(result, dict) else "Unknown renderer error"
+            error = (
+                result.get("error", "Unknown error")
+                if isinstance(result, dict)
+                else f"Unexpected result type: {type(result)}"
+            )
             if attempt < SNAPSHOT_READY_MAX_ATTEMPTS and self._is_snapshot_ready_error(error):
                 QTimer.singleShot(
                     SNAPSHOT_READY_RETRY_DELAY_MS,
@@ -817,7 +828,7 @@ class CandlestickChart(QWidget):
                 return
 
             self._restore_snapshot_button()
-            QMessageBox.warning(self, "Snapshot failed", f"Could not capture chart snapshot: {error}")
+            QMessageBox.warning(self, "Snapshot failed", f"Could not capture chart snapshot:\n{error}")
             logger.error("Chart snapshot export failed: %s", error)
             return
 
