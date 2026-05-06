@@ -41,6 +41,9 @@ from chart_engine.toolbar.chart_toolbar import ChartToolbar
 
 logger = logging.getLogger(__name__)
 
+SNAPSHOT_READY_RETRY_DELAY_MS = 150
+SNAPSHOT_READY_MAX_ATTEMPTS = 20
+
 DEFAULT_INDICATOR_VISIBILITY = {
     "ema10": False,
     "ema20": False,
@@ -770,9 +773,20 @@ class CandlestickChart(QWidget):
             QMessageBox.information(self, "Snapshot unavailable", "Load a chart before capturing a snapshot.")
             return
 
+        if self.current_state != ChartState.LOADED:
+            QMessageBox.information(self, "Snapshot unavailable", "Wait for the chart to finish loading.")
+            return
+
         self._save_drawings()
         self.toolbar.snapshot_btn.setEnabled(False)
         self.toolbar.snapshot_btn.setToolTip("Capturing high quality snapshot…")
+        self._request_snapshot_export(attempt=1)
+
+    def _request_snapshot_export(self, attempt: int) -> None:
+        """Ask the renderer for a PNG snapshot, retrying until the canvas is ready."""
+        if not (self.chart_view and self.current_symbol):
+            self._restore_snapshot_button()
+            return
 
         # Ask the renderer for a PNG data URL generated from the chart canvas'
         # backing store. It preserves the WebEngine/HiDPI pixel density and can
@@ -780,22 +794,34 @@ class CandlestickChart(QWidget):
         script = (
             "(function(){"
             "  if(!window.chart || !window.chart.exportSnapshot) "
-            "    return {ok:false,error:'Chart renderer is not ready'};"
+            "    return {ok:false,error:'Chart renderer is not ready — try again in a moment'};"
+            "  if(!window.chart.canvas || !window.chart.canvas.width) "
+            "    return {ok:false,error:'Canvas not yet painted — try again in a moment'};"
             "  try { return window.chart.exportSnapshot({scale:2, includeMetadata:true}); }"
-            "  catch(e) { return {ok:false,error:e ? (e.message || String(e)) : 'Unknown JS error in exportSnapshot'}; }"
+            "  catch(e) { return {ok:false,error:(e && e.message) ? e.message : String(e)}; }"
             "})()"
         )
-        self.chart_view.page().runJavaScript(script, self._on_snapshot_exported)
+        self.chart_view.page().runJavaScript(
+            script,
+            lambda result, current_attempt=attempt: self._on_snapshot_exported(result, current_attempt),
+        )
 
-    def _on_snapshot_exported(self, result: Any) -> None:
-        self.toolbar.snapshot_btn.setEnabled(True)
-        self.toolbar.snapshot_btn.setToolTip("Capture high quality PNG snapshot  [Ctrl+S]")
-
+    def _on_snapshot_exported(self, result: Any, attempt: int = SNAPSHOT_READY_MAX_ATTEMPTS) -> None:
         if not isinstance(result, dict) or not result.get("ok"):
             error = result.get("error") if isinstance(result, dict) else "Unknown renderer error"
+            if attempt < SNAPSHOT_READY_MAX_ATTEMPTS and self._is_snapshot_ready_error(error):
+                QTimer.singleShot(
+                    SNAPSHOT_READY_RETRY_DELAY_MS,
+                    lambda: self._request_snapshot_export(attempt + 1),
+                )
+                return
+
+            self._restore_snapshot_button()
             QMessageBox.warning(self, "Snapshot failed", f"Could not capture chart snapshot: {error}")
             logger.error("Chart snapshot export failed: %s", error)
             return
+
+        self._restore_snapshot_button()
 
         data_url = str(result.get("dataUrl") or "")
         match = re.match(r"^data:image/png;base64,(.+)$", data_url, re.DOTALL)
@@ -818,6 +844,15 @@ class CandlestickChart(QWidget):
         height = result.get("height") or "?"
         QMessageBox.information(self, "Snapshot saved", f"Saved {width}×{height} PNG snapshot:\n{path}")
         logger.info("Chart snapshot saved: %s", path)
+
+    def _restore_snapshot_button(self) -> None:
+        self.toolbar.snapshot_btn.setEnabled(True)
+        self.toolbar.snapshot_btn.setToolTip("Capture high quality PNG snapshot  [Ctrl+S]")
+
+    @staticmethod
+    def _is_snapshot_ready_error(error: Any) -> bool:
+        message = str(error or "").lower()
+        return "not ready" in message or "not yet painted" in message
 
     def _snapshot_output_path(self) -> Path:
         safe_symbol = re.sub(r"[^A-Za-z0-9._-]+", "_", self.current_symbol or "chart").strip("._-") or "chart"
