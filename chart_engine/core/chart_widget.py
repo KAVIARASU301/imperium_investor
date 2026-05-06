@@ -111,6 +111,7 @@ class CandlestickChart(QWidget):
         # ── Sub-modules ──
         self.drawing_storage = DrawingStorage(storage_dir)
         self.global_chart_settings = self.drawing_storage.load_global_settings()
+        self._restore_drawing_style_from_settings()
 
         self._current_up_color          = self.global_chart_settings.get("up_candle_color",   "#00c896")
         self._current_down_color        = self.global_chart_settings.get("down_candle_color", "#e84060")
@@ -300,6 +301,17 @@ class CandlestickChart(QWidget):
                 return candidate
         return None
 
+
+    def _restore_drawing_style_from_settings(self) -> None:
+        """Restore persisted drawing style into chart state before the toolbar is built."""
+        prefs = self.global_chart_settings.get("toolbar_preferences", {})
+        if not isinstance(prefs, dict):
+            return
+
+        drawing_color = prefs.get("drawing_color")
+        if isinstance(drawing_color, str) and QColor.isValidColor(drawing_color):
+            self.current_drawing_color = QColor(drawing_color).name()
+
     def _resolve_symbol_description(self, symbol: str) -> str:
         instrument = self.instrument_map.get(str(symbol or "").strip().upper(), {})
         return str(instrument.get("name", "") or "").strip()
@@ -316,6 +328,7 @@ class CandlestickChart(QWidget):
         # ── Toolbar ──
         self.toolbar = ChartToolbar(self)
         self.toolbar.apply_toolbar_preferences(self.global_chart_settings.get("toolbar_preferences", {}))
+        self.toolbar.set_drawing_color(self.current_drawing_color)
         self._wire_toolbar()
         main_layout.addWidget(self.toolbar)
 
@@ -705,6 +718,14 @@ class CandlestickChart(QWidget):
 
     @Slot(dict)
     def _on_toolbar_preferences_changed(self, prefs: Dict[str, Any]) -> None:
+        drawing_color = prefs.get("drawing_color")
+        if isinstance(drawing_color, str) and QColor.isValidColor(drawing_color):
+            self.current_drawing_color = QColor(drawing_color).name()
+            self._js(
+                "if(window.chart) "
+                f"window.chart.updateDrawingStyle('{self.current_drawing_color}', {self.current_line_width});"
+            )
+
         chart_type = prefs.get("chart_type", "candle")
         self._js(
             f"if(window.chart){{"
