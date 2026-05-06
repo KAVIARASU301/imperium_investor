@@ -332,9 +332,6 @@ class FixedTradingChart {
             }
 
             out.setTransform(1, 0, 0, 1, 0, 0);
-            if (options.includeMetadata !== false) {
-                this._drawSnapshotMetrics(out, exportScale, sourceWidth, sourceHeight);
-            }
 
             return {
                 ok: true,
@@ -349,105 +346,6 @@ class FixedTradingChart {
         } catch (e) {
             return { ok: false, error: e ? (e.message || String(e)) : 'Unknown JS error in exportSnapshot' };
         }
-    }
-
-    _drawSnapshotMetrics(out, exportScale, sourceWidth, sourceHeight) {
-        const metricsEl = document.getElementById('metricsInfo');
-        if (!metricsEl || !metricsEl.innerText) return;
-
-        const dpr = window.devicePixelRatio || 1;
-        const sourceScale = exportScale * dpr;
-        const outputWidth = Math.round(sourceWidth * exportScale);
-        const outputHeight = Math.round(sourceHeight * exportScale);
-        const rows = this._snapshotMetricRows(metricsEl, sourceScale);
-        if (!rows.length) return;
-
-        const x = Math.round(10 * sourceScale);
-        const maxX = outputWidth - Math.round(10 * sourceScale);
-        const maxY = outputHeight - Math.round(8 * sourceScale);
-        let y = Math.round(8 * sourceScale);
-        const baseFontPx = Math.max(12, Math.round(12 * sourceScale));
-
-        out.save();
-        out.textBaseline = 'top';
-        out.shadowColor = 'rgba(0,0,0,0.75)';
-        out.shadowBlur = Math.round(2 * sourceScale);
-
-        for (const row of rows) {
-            const drawnLines = this._drawSnapshotMetricRow(out, row, x, y, maxX, baseFontPx, sourceScale);
-            y += drawnLines * Math.round(baseFontPx * 1.45);
-            if (y > maxY) break;
-        }
-        out.restore();
-    }
-
-    _snapshotMetricRows(metricsEl, sourceScale) {
-        const rowEls = Array.from(metricsEl.querySelectorAll('.info-row'));
-        const sourceRows = rowEls.length ? rowEls : [metricsEl];
-        return sourceRows.map(rowEl => {
-            const tokens = [];
-            const appendNode = (node) => {
-                if (node.nodeType === Node.TEXT_NODE) {
-                    const text = node.textContent || '';
-                    if (text) tokens.push({ text, color: '#d1dcf2', weight: 600, marginLeft: 0, marginRight: 0 });
-                    return;
-                }
-                if (node.nodeType !== Node.ELEMENT_NODE) return;
-
-                const style = window.getComputedStyle(node);
-                const text = node.innerText || node.textContent || '';
-                if (!text) return;
-                tokens.push({
-                    text,
-                    color: style.color || '#d1dcf2',
-                    weight: parseInt(style.fontWeight, 10) || 600,
-                    marginLeft: (parseFloat(style.marginLeft) || 0) * sourceScale,
-                    marginRight: (parseFloat(style.marginRight) || 0) * sourceScale,
-                });
-            };
-            Array.from(rowEl.childNodes).forEach(appendNode);
-            return tokens.filter(t => String(t.text).trim().length);
-        }).filter(row => row.length);
-    }
-
-    _drawSnapshotMetricRow(out, row, x, y, maxX, baseFontPx, sourceScale) {
-        const minFontPx = Math.max(9, Math.round(9 * sourceScale));
-        const availableWidth = Math.max(baseFontPx * 8, maxX - x);
-        let fontPx = baseFontPx;
-        let lineHeight = Math.round(fontPx * 1.45);
-
-        const rowWidth = (size) => {
-            let width = 0;
-            for (const token of row) {
-                out.font = `${token.weight || 600} ${size}px Inter, Segoe UI, sans-serif`;
-                width += token.marginLeft + out.measureText(token.text).width + token.marginRight;
-            }
-            return width;
-        };
-
-        const measuredWidth = rowWidth(fontPx);
-        if (measuredWidth > availableWidth) {
-            fontPx = Math.max(minFontPx, Math.floor(fontPx * (availableWidth / measuredWidth)));
-            lineHeight = Math.round(fontPx * 1.45);
-        }
-
-        let cursorX = x;
-        let cursorY = y;
-        let lines = 1;
-        for (const token of row) {
-            out.font = `${token.weight || 600} ${fontPx}px Inter, Segoe UI, sans-serif`;
-            const tokenWidth = token.marginLeft + out.measureText(token.text).width + token.marginRight;
-            if (cursorX > x && cursorX + tokenWidth > maxX) {
-                cursorX = x;
-                cursorY += lineHeight;
-                lines += 1;
-            }
-            cursorX += token.marginLeft;
-            out.fillStyle = token.color || '#d1dcf2';
-            out.fillText(token.text, cursorX, cursorY);
-            cursorX += out.measureText(token.text).width + token.marginRight;
-        }
-        return lines;
     }
 
     _updateChartAreas() {
