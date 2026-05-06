@@ -798,7 +798,7 @@ class CandlestickChart(QWidget):
             "    return encode({ok:false,error:'Chart renderer is not ready — try again in a moment'});"
             "  if(!window.chart.canvas || !window.chart.canvas.width) "
             "    return encode({ok:false,error:'Canvas not yet painted — try again in a moment'});"
-            "  try { return encode(window.chart.exportSnapshot({scale:2, includeMetadata:true})); }"
+            "  try { return encode(window.chart.exportSnapshot({scale:3, includeMetadata:true})); }"
             "  catch(e) { return encode({ok:false,error:(e && e.message) ? e.message : String(e)}); }"
             "})()"
         )

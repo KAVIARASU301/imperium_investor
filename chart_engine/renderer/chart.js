@@ -282,26 +282,56 @@ class FixedTradingChart {
             const source = this.canvas;
             const sourceWidth = source.width;
             const sourceHeight = source.height;
+            const cssWidth = this.width || source.clientWidth || source.offsetWidth;
+            const cssHeight = this.height || source.clientHeight || source.offsetHeight;
 
-            if (!sourceWidth || !sourceHeight) {
+            if (!sourceWidth || !sourceHeight || !cssWidth || !cssHeight) {
                 return { ok: false, error: `Canvas has zero dimensions (${sourceWidth}x${sourceHeight}). Chart may not be fully rendered.` };
             }
 
+            const dpr = window.devicePixelRatio || 1;
             const requestedScale = Number(options.scale);
-            const exportScale = Number.isFinite(requestedScale) ? Math.min(Math.max(requestedScale, 1), 4) : 2;
-            const outputWidth = Math.round(sourceWidth * exportScale);
-            const outputHeight = Math.round(sourceHeight * exportScale);
+            const exportScale = Number.isFinite(requestedScale) ? Math.min(Math.max(requestedScale, 1), 5) : 2;
+            const outputWidth = Math.round(cssWidth * dpr * exportScale);
+            const outputHeight = Math.round(cssHeight * dpr * exportScale);
+            const renderScale = dpr * exportScale;
 
             const output = document.createElement('canvas');
             output.width = outputWidth;
             output.height = outputHeight;
             const out = output.getContext('2d', { alpha: false });
+            if (!out) {
+                return { ok: false, error: 'Could not create snapshot rendering context' };
+            }
             out.imageSmoothingEnabled = true;
             out.imageSmoothingQuality = 'high';
-            out.fillStyle = this.colors?.bg || '#0b0f18';
-            out.fillRect(0, 0, outputWidth, outputHeight);
-            out.drawImage(source, 0, 0, outputWidth, outputHeight);
+            out.setTransform(renderScale, 0, 0, renderScale, 0, 0);
 
+            // Re-render the chart into a larger offscreen backing store instead of
+            // scaling up the already-rasterized on-screen canvas. This preserves
+            // sharp candles, axes, text, and drawings in the exported PNG.
+            const liveCanvas = this.canvas;
+            const liveCtx = this.ctx;
+            const liveDrawingCanvas = this.drawingEngine?.canvas;
+            const liveDrawingCtx = this.drawingEngine?.ctx;
+            try {
+                this.canvas = output;
+                this.ctx = out;
+                if (this.drawingEngine) {
+                    this.drawingEngine.canvas = output;
+                    this.drawingEngine.ctx = out;
+                }
+                this.draw();
+            } finally {
+                this.canvas = liveCanvas;
+                this.ctx = liveCtx;
+                if (this.drawingEngine) {
+                    this.drawingEngine.canvas = liveDrawingCanvas;
+                    this.drawingEngine.ctx = liveDrawingCtx;
+                }
+            }
+
+            out.setTransform(1, 0, 0, 1, 0, 0);
             if (options.includeMetadata !== false) {
                 this._drawSnapshotMetrics(out, exportScale, sourceWidth, sourceHeight);
             }
@@ -312,6 +342,7 @@ class FixedTradingChart {
                 width: outputWidth,
                 height: outputHeight,
                 scale: exportScale,
+                pixelRatio: dpr,
                 sourceWidth,
                 sourceHeight,
             };
