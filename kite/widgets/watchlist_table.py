@@ -496,6 +496,13 @@ class TradingTable(QTableWidget):
         self.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
 
+        # Qt places the vertical scrollbar on the leading edge for RTL views.
+        # Keep the viewport/header LTR so watchlist columns and cell text remain
+        # in their normal left-to-right order while only the scrollbar moves left.
+        self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+        self.viewport().setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+        hdr.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+
         hdr.sectionClicked.connect(self._on_header_click)
         hdr.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
