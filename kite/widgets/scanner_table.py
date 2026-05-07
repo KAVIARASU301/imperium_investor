@@ -1044,7 +1044,7 @@ class ChartinkScannerTable(QWidget):
         self.table.verticalHeader().setDefaultSectionSize(22)
 
         header_font = QFont("Segoe UI", 9)
-        header_font.setBold(True)
+        header_font.setBold(False)
         self.table.horizontalHeader().setFont(header_font)
 
         self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -1799,7 +1799,7 @@ class ChartinkScannerTable(QWidget):
                 outline: none;
                 border: none;
                 color: #ffffff;
-                font-weight: 600;
+                font-weight: 400;
             }
 
             QTableWidget::item:focus {
@@ -1819,7 +1819,7 @@ class ChartinkScannerTable(QWidget):
             QTableWidget::item:alternate:selected {
                 background-color: #1a2840 !important;
                 color: #ffffff;
-                font-weight: 600;
+                font-weight: 400;
             }
 
             /* Header Styling */
@@ -1830,7 +1830,7 @@ class ChartinkScannerTable(QWidget):
                 border: none;
                 border-bottom: 1px solid #24344c;
                 border-right: 1px solid #121c2b;
-                font-weight: 600;
+                font-weight: 400;
                 font-size: 11px;
                 text-transform: uppercase;
             }
