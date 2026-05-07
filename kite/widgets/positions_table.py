@@ -270,14 +270,6 @@ class PositionsTable(QWidget):
             item.setTextAlignment(align)
             item.setForeground(QColor(color))
 
-            # Apply bold JetBrains Mono ONLY to the symbol; let QSS handle numbers
-            if col == COL_SYMBOL:
-                symbol_font = item.font()
-                symbol_font.setFamily("JetBrains Mono")
-                symbol_font.setBold(True)
-                symbol_font.setWeight(QFont.Weight.DemiBold)
-                item.setFont(symbol_font)
-
             item.setData(Qt.ItemDataRole.UserRole, self._sort_key(col, pos))
 
         self._apply_open_pnl_row_style(row, pnl)

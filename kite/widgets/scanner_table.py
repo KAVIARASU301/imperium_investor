@@ -1140,12 +1140,6 @@ class ChartinkScannerTable(QWidget):
         volume_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         change_pct_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        symbol_font = symbol_item.font()
-        symbol_font.setFamily("JetBrains Mono")
-        symbol_font.setBold(True)
-        symbol_font.setWeight(QFont.Weight.DemiBold)
-        symbol_item.setFont(symbol_font)
-
     @Slot(list)
     def _on_scan_complete(self, scan_results: List[Dict]):
         """Handle scan completion with EOD data from Chartink."""
