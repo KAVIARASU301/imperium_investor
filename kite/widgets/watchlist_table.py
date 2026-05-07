@@ -42,6 +42,9 @@ from PySide6.QtWidgets import (
 
 logger = logging.getLogger(__name__)
 
+CHART_TOOLBAR_HEIGHT = 32
+CHART_TOOLBAR_CONTROL_HEIGHT = 22
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  DESIGN TOKENS  (strict consistency_rules palette — zero deviation)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -925,7 +928,7 @@ class TabbedWatchlistWidget(QWidget):
     def _build_header(self) -> QFrame:
         hdr = QFrame()
         hdr.setObjectName("wlHeader")
-        hdr.setFixedHeight(32)
+        hdr.setFixedHeight(CHART_TOOLBAR_HEIGHT)
 
         h = QHBoxLayout(hdr)
         h.setContentsMargins(6, 0, 4, 0)
@@ -940,7 +943,7 @@ class TabbedWatchlistWidget(QWidget):
         # Dropdown selector
         self._dropdown = QComboBox()
         self._dropdown.setObjectName("wlDropdown")
-        self._dropdown.setMinimumHeight(24)
+        self._dropdown.setFixedHeight(CHART_TOOLBAR_CONTROL_HEIGHT)
         self._dropdown.currentIndexChanged.connect(self._on_dropdown_change)
         self._dropdown.installEventFilter(self)
         h.addWidget(self._dropdown, 1)
@@ -949,7 +952,7 @@ class TabbedWatchlistWidget(QWidget):
         self._add_btn = QToolButton()
         self._add_btn.setObjectName("wlAddBtn")
         self._add_btn.setText("+")
-        self._add_btn.setFixedSize(24, 24)
+        self._add_btn.setFixedSize(CHART_TOOLBAR_CONTROL_HEIGHT, CHART_TOOLBAR_CONTROL_HEIGHT)
         self._add_btn.setToolTip("Create new watchlist")
         self._add_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._add_btn.clicked.connect(self._create_watchlist)
@@ -959,7 +962,7 @@ class TabbedWatchlistWidget(QWidget):
         self._menu_btn = QToolButton()
         self._menu_btn.setObjectName("wlMenuBtn")
         self._menu_btn.setText("⋯")
-        self._menu_btn.setFixedSize(24, 24)
+        self._menu_btn.setFixedSize(CHART_TOOLBAR_CONTROL_HEIGHT, CHART_TOOLBAR_CONTROL_HEIGHT)
         self._menu_btn.setToolTip("Watchlist options")
         self._menu_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._menu_btn.clicked.connect(self._show_list_menu)
@@ -1179,7 +1182,9 @@ class TabbedWatchlistWidget(QWidget):
             QFrame#wlHeader {
                 background-color: #0b1019;
                 border-bottom: 1px solid #1f2c3f;
-                padding: 5px;
+                min-height: 32px;
+                max-height: 32px;
+                padding: 0px;
             }
             
             QLabel#wlLabel {
@@ -1194,9 +1199,11 @@ class TabbedWatchlistWidget(QWidget):
                 background-color: #0a111b;
                 border: 1px solid #24354d;
                 color: #ffffff;
-                padding: 3px 6px;
-                border-radius: 2px;
-                font-size: 12px;
+                min-height: 22px;
+                max-height: 22px;
+                padding: 0 6px;
+                border-radius: 3px;
+                font-size: 11px;
             }
             QComboBox#wlDropdown:hover {
                 border-color: #505050;
@@ -1248,11 +1255,13 @@ class TabbedWatchlistWidget(QWidget):
             QToolButton#wlAddBtn, QToolButton#wlMenuBtn {
                 background-color: #111b2a;
                 color: #6ec8ff;
-                font-size: 14px;
+                min-height: 22px;
+                max-height: 22px;
+                font-size: 13px;
                 font-weight: 500;
                 border-radius: 3px;
                 border: 1px solid #223651;
-                padding: 3px 7px;
+                padding: 0;
             }
             QToolButton#wlAddBtn:hover, QToolButton#wlMenuBtn:hover {
                 background-color: #16253a;

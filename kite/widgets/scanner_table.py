@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 SCAN_URL_FILE = os.path.join(os.path.expanduser("~/.qullamaggie"), "chartink_scans.json")
 SETTINGS_FILE = os.path.join(os.path.expanduser("~/.qullamaggie"), "scanner_settings.json")
 SCAN_GROUP_ORDER = ["Momentum Breakouts", "Episodic Pivot", "Parabolic", "Others"]
+CHART_TOOLBAR_HEIGHT = 32
+CHART_TOOLBAR_CONTROL_HEIGHT = 22
 
 
 class ModernAddScanDialog(QDialog):
@@ -912,22 +914,24 @@ class ChartinkScannerTable(QWidget):
         """Creates the header with scan selection."""
         header_container = QWidget()
         header_container.setObjectName("headerContainer")
+        header_container.setFixedHeight(CHART_TOOLBAR_HEIGHT)
 
         header_layout = QHBoxLayout(header_container)
-        header_layout.setContentsMargins(6, 6, 6, 6)
-        header_layout.setSpacing(8)
+        header_layout.setContentsMargins(6, 0, 6, 0)
+        header_layout.setSpacing(6)
 
         # Scan label
         scan_label = QLabel("SCAN:")
         scan_label.setObjectName("scanLabel")
         scan_label.setStyleSheet("QLabel#scanLabel { background-color: transparent; }")
         scan_label.setFixedWidth(40)
+        scan_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
         header_layout.addWidget(scan_label)
 
         # Dropdown
         self.scan_dropdown = QComboBox()
         self.scan_dropdown.setObjectName("minimalDropdown")
-        self.scan_dropdown.setMinimumHeight(28)
+        self.scan_dropdown.setFixedHeight(CHART_TOOLBAR_CONTROL_HEIGHT)
         self.scan_dropdown.currentIndexChanged.connect(self._on_scan_selection_changed)
         header_layout.addWidget(self.scan_dropdown, 1)
 
@@ -935,7 +939,7 @@ class ChartinkScannerTable(QWidget):
         self.manage_btn = QPushButton("⚙")
         self.manage_btn.setObjectName("settingsMinimalButton")
         self.manage_btn.setToolTip("Manage Scans")
-        self.manage_btn.setFixedSize(32, 28)
+        self.manage_btn.setFixedSize(32, CHART_TOOLBAR_CONTROL_HEIGHT)
         self.manage_btn.clicked.connect(self._manage_scans)
         header_layout.addWidget(self.manage_btn)
 
@@ -1667,7 +1671,9 @@ class ChartinkScannerTable(QWidget):
             QWidget#headerContainer {
                 background-color: #0a0d12;
                 border-bottom: 1px solid #1a2030;
-                padding: 5px;
+                min-height: 32px;
+                max-height: 32px;
+                padding: 0px;
             }
 
             /* Scan Label */
@@ -1682,9 +1688,11 @@ class ChartinkScannerTable(QWidget):
                 background-color: #0f1318;
                 border: 1px solid #1a2030;
                 color: #e8f0ff;
-                padding: 3px 6px;
-                border-radius: 2px;
-                font-size: 12px;
+                min-height: 22px;
+                max-height: 22px;
+                padding: 0 6px;
+                border-radius: 3px;
+                font-size: 11px;
             }
             QComboBox#minimalDropdown:hover {
                 border-color: #505050;
@@ -1743,11 +1751,13 @@ class ChartinkScannerTable(QWidget):
             QPushButton#settingsMinimalButton {
                 background-color: #111b2a;
                 color: #a8bcd4;
+                min-height: 22px;
+                max-height: 22px;
                 font-size: 11px;
                 font-weight: 500;
                 border-radius: 3px;
                 border: 1px solid #1a2030;
-                padding: 3px 7px;
+                padding: 0 7px;
             }
             QPushButton#settingsMinimalButton:hover {
                 background-color: #141920;
