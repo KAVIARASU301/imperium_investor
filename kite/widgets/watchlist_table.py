@@ -45,37 +45,38 @@ logger = logging.getLogger(__name__)
 CHART_TOOLBAR_HEIGHT = 32
 CHART_TOOLBAR_CONTROL_HEIGHT = 22
 
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  DESIGN TOKENS  (strict consistency_rules palette — zero deviation)
 # ─────────────────────────────────────────────────────────────────────────────
 
 class _C:
-    BG0     = "#050709"   # app shell
-    BG1     = "#0a0d12"   # primary panels
-    BG2     = "#0f1318"   # table rows / input bg
-    BG3     = "#141920"   # hover / selected elevated
-    BG4     = "#1a2030"   # borders / subtle dividers
+    BG0 = "#050709"  # app shell
+    BG1 = "#0a0d12"  # primary panels
+    BG2 = "#0f1318"  # table rows / input bg
+    BG3 = "#141920"  # hover / selected elevated
+    BG4 = "#1a2030"  # borders / subtle dividers
 
-    BULL    = "#00d4a8"   # teal-green — TC2000 signature
-    BULL_DIM= "#1a7a62"
+    BULL = "#00d4a8"  # teal-green — TC2000 signature
+    BULL_DIM = "#1a7a62"
     BULL_BG = "rgba(0,212,168,0.07)"
 
-    BEAR    = "#ff4d6a"   # warm crimson
-    BEAR_DIM= "#7a2030"
+    BEAR = "#ff4d6a"  # warm crimson
+    BEAR_DIM = "#7a2030"
     BEAR_BG = "rgba(255,77,106,0.07)"
 
     NEUTRAL = "#7a94b0"
     NEU_DIM = "#3a4d60"
 
-    T0      = "#e8f0ff"   # primary — prices, symbols
-    T1      = "#a8bcd4"   # secondary — headers, labels
-    T2      = "#5a7090"   # tertiary — muted metadata
-    T3      = "#2a3a50"   # disabled / placeholder
+    T0 = "#e8f0ff"  # primary — prices, symbols
+    T1 = "#a8bcd4"  # secondary — headers, labels
+    T2 = "#5a7090"  # tertiary — muted metadata
+    T3 = "#2a3a50"  # disabled / placeholder
 
-    CYAN    = "#00d4ff"   # selected / focus rings
-    AMBER   = "#f59e0b"   # alerts / warnings
-    BLUE    = "#3b82f6"   # informational
-    SEL     = "#1a2840"   # selected row
+    CYAN = "#00d4ff"  # selected / focus rings
+    AMBER = "#f59e0b"  # alerts / warnings
+    BLUE = "#3b82f6"  # informational
+    SEL = "#1a2840"  # selected row
 
     # Flag color (single-state)
     FLAG_GREEN = "#00d4a8"
@@ -94,9 +95,9 @@ class _C:
             return "#e87060", "rgba(232,112,96,0.07)"
         return "#ff4d6a", "rgba(255,77,106,0.12)"
 
+
 _MONO = "Consolas, 'JetBrains Mono', 'Courier New', monospace"
 _SANS = "'Segoe UI', -apple-system, Roboto, Arial, sans-serif"
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  FLAG STATES
@@ -105,24 +106,23 @@ _SANS = "'Segoe UI', -apple-system, Roboto, Arial, sans-serif"
 _FLAG_CYCLE = [None, "green"]
 
 _FLAG_DISPLAY = {
-    None:    ("",  _C.T3),
+    None: ("", _C.T3),
     "green": ("⚑", _C.FLAG_GREEN),
 }
 
 _FLAG_TOOLTIP = {
-    None:    "Click to flag",
+    None: "Click to flag",
     "green": "Flagged — click to remove",
 }
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  PERSISTENCE PATHS
 # ─────────────────────────────────────────────────────────────────────────────
 
-_APP_DIR     = os.path.join(os.path.expanduser("~"), ".qullamaggie")
-_DATA_DIR    = "kite/user_data"
+_APP_DIR = os.path.join(os.path.expanduser("~"), ".qullamaggie")
+_DATA_DIR = "kite/user_data"
 _CONFIG_FILE = os.path.join(_APP_DIR, "watchlist_config.json")
-_FLAGS_FILE  = os.path.join(_APP_DIR, "watchlist_flags.json")
+_FLAGS_FILE = os.path.join(_APP_DIR, "watchlist_flags.json")
 
 os.makedirs(_APP_DIR, exist_ok=True)
 os.makedirs(_DATA_DIR, exist_ok=True)
@@ -174,7 +174,7 @@ class _FlagStore:
             logger.error(f"FlagStore save failed: {e}")
 
 
-_flag_store = _FlagStore()   # module-level singleton
+_flag_store = _FlagStore()  # module-level singleton
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -189,7 +189,7 @@ class _WatchlistConfig:
 
     _DEFAULT = [
         {"id": "breakouts", "name": "Breakouts"},
-        {"id": "ep",        "name": "EP"},
+        {"id": "ep", "name": "EP"},
         {"id": "parabolic", "name": "Parabolic"},
     ]
 
@@ -293,7 +293,8 @@ class _RenameDialog(QDialog):
         layout.setSpacing(12)
 
         label = QLabel("Watchlist Name")
-        label.setStyleSheet(f"color:{_C.T1}; font-family:{_SANS}; font-size:11px; font-weight:700; letter-spacing:0.5px;")
+        label.setStyleSheet(
+            f"color:{_C.T1}; font-family:{_SANS}; font-size:11px; font-weight:700; letter-spacing:0.5px;")
 
         self.input = QLineEdit(current_name)
         self.input.selectAll()
@@ -310,14 +311,16 @@ class _RenameDialog(QDialog):
         btns = QHBoxLayout()
         btns.setSpacing(8)
         cancel = QPushButton("Cancel")
-        ok     = QPushButton("Rename")
+        ok = QPushButton("Rename")
 
         for btn, primary in ((cancel, False), (ok, True)):
             btn.setFixedHeight(28)
             if primary:
-                btn.setStyleSheet(f"background:{_C.BLUE}; color:#fff; border:none; border-radius:1px; font-family:{_SANS}; font-size:11px; font-weight:700; padding:0 16px;")
+                btn.setStyleSheet(
+                    f"background:{_C.BLUE}; color:#fff; border:none; border-radius:1px; font-family:{_SANS}; font-size:11px; font-weight:700; padding:0 16px;")
             else:
-                btn.setStyleSheet(f"background:{_C.BG2}; color:{_C.T1}; border:1px solid {_C.BG4}; border-radius:1px; font-family:{_SANS}; font-size:11px; font-weight:700; padding:0 16px;")
+                btn.setStyleSheet(
+                    f"background:{_C.BG2}; color:{_C.T1}; border:1px solid {_C.BG4}; border-radius:1px; font-family:{_SANS}; font-size:11px; font-weight:700; padding:0 16px;")
             btns.addWidget(btn)
 
         cancel.clicked.connect(self.reject)
@@ -354,7 +357,8 @@ class _AddWatchlistDialog(QDialog):
         layout.setSpacing(12)
 
         label = QLabel("Watchlist Name")
-        label.setStyleSheet(f"color:{_C.T1}; font-family:{_SANS}; font-size:11px; font-weight:700; letter-spacing:0.5px;")
+        label.setStyleSheet(
+            f"color:{_C.T1}; font-family:{_SANS}; font-size:11px; font-weight:700; letter-spacing:0.5px;")
 
         self.input = QLineEdit()
         self.input.setPlaceholderText("e.g. My Watchlist, Momentum, Breakouts…")
@@ -372,14 +376,16 @@ class _AddWatchlistDialog(QDialog):
         btns = QHBoxLayout()
         btns.setSpacing(8)
         cancel = QPushButton("Cancel")
-        ok     = QPushButton("Create")
+        ok = QPushButton("Create")
 
         for btn, primary in ((cancel, False), (ok, True)):
             btn.setFixedHeight(28)
             if primary:
-                btn.setStyleSheet(f"background:{_C.BULL}; color:#000; border:none; border-radius:1px; font-family:{_SANS}; font-size:11px; font-weight:800; padding:0 16px;")
+                btn.setStyleSheet(
+                    f"background:{_C.BULL}; color:#000; border:none; border-radius:1px; font-family:{_SANS}; font-size:11px; font-weight:800; padding:0 16px;")
             else:
-                btn.setStyleSheet(f"background:{_C.BG2}; color:{_C.T1}; border:1px solid {_C.BG4}; border-radius:1px; font-family:{_SANS}; font-size:11px; font-weight:700; padding:0 16px;")
+                btn.setStyleSheet(
+                    f"background:{_C.BG2}; color:{_C.T1}; border:1px solid {_C.BG4}; border-radius:1px; font-family:{_SANS}; font-size:11px; font-weight:700; padding:0 16px;")
             btns.addWidget(btn)
 
         cancel.clicked.connect(self.reject)
@@ -404,12 +410,12 @@ class _AddWatchlistDialog(QDialog):
 #  TRADING TABLE  (single watchlist pane)
 # ─────────────────────────────────────────────────────────────────────────────
 
-_COL_FLAG   = 0
+_COL_FLAG = 0
 _COL_SYMBOL = 1
-_COL_LTP    = 2
-_COL_VOL    = 3
-_COL_CHG    = 4
-_NUM_COLS   = 5
+_COL_LTP = 2
+_COL_VOL = 3
+_COL_CHG = 4
+_NUM_COLS = 5
 
 _HEADERS = ["", "Symbol", "LTP", "Vol", "Chg%"]
 
@@ -424,12 +430,12 @@ class TradingTable(QTableWidget):
     All numerics in monospace. Heat-map on Chg%.
     """
 
-    symbol_selected             = Signal(str)
-    place_order_requested       = Signal(dict)
+    symbol_selected = Signal(str)
+    place_order_requested = Signal(dict)
     advanced_buy_order_requested = Signal(str)
     advanced_sell_order_requested = Signal(str)
-    bracket_order_requested     = Signal(str)
-    watchlist_symbols_changed   = Signal()
+    bracket_order_requested = Signal(str)
+    watchlist_symbols_changed = Signal()
 
     def __init__(self, wl_id: str, parent=None):
         super().__init__(parent)
@@ -439,7 +445,7 @@ class TradingTable(QTableWidget):
         self._watchlist_data: Dict[str, Dict] = {}
         self._symbol_to_row: Dict[str, int] = {}
         self._token_to_symbol: Dict[int, str] = {}
-        self._symbols: List[str] = []     # ordered list
+        self._symbols: List[str] = []  # ordered list
         self._dirty: set = set()
 
         self._color_theme: Dict = {}
@@ -472,7 +478,7 @@ class TradingTable(QTableWidget):
         hdr.setStretchLastSection(False)
 
         # Flag col — fixed tight
-        hdr.setSectionResizeMode(_COL_FLAG,   QHeaderView.ResizeMode.Fixed)
+        hdr.setSectionResizeMode(_COL_FLAG, QHeaderView.ResizeMode.Fixed)
         self.setColumnWidth(_COL_FLAG, 20)
 
         # Symbol — stretches
@@ -495,13 +501,6 @@ class TradingTable(QTableWidget):
         self.setSortingEnabled(False)
         self.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
-
-        # Qt places the vertical scrollbar on the leading edge for RTL views.
-        # Keep the viewport/header LTR so watchlist columns and cell text remain
-        # in their normal left-to-right order while only the scrollbar moves left.
-        self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
-        self.viewport().setLayoutDirection(Qt.LayoutDirection.LeftToRight)
-        hdr.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
 
         hdr.sectionClicked.connect(self._on_header_click)
         hdr.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
@@ -600,7 +599,7 @@ class TradingTable(QTableWidget):
                     data["prev_close"] = float(close)
 
             prev = data.get("prev_close", 0.0)
-            cur  = data.get("ltp", 0.0)
+            cur = data.get("ltp", 0.0)
             if prev > 0 and cur > 0:
                 data["change_pct"] = (cur - prev) / prev * 100
 
@@ -616,21 +615,21 @@ class TradingTable(QTableWidget):
         self._rebuild_token_map()
 
     def _init_symbol_data(self, symbol: str):
-        inst  = self._instrument_map.get(symbol, {})
-        ohlc  = inst.get("ohlc", {}) or {}
-        prev  = ohlc.get("close", 0.0) if isinstance(ohlc, dict) else 0.0
-        ltp   = inst.get("last_price", 0.0) or 0.0
-        vol   = inst.get("volume", 0) or 0
-        chg   = (ltp - prev) / prev * 100 if prev > 0 and ltp > 0 else 0.0
+        inst = self._instrument_map.get(symbol, {})
+        ohlc = inst.get("ohlc", {}) or {}
+        prev = ohlc.get("close", 0.0) if isinstance(ohlc, dict) else 0.0
+        ltp = inst.get("last_price", 0.0) or 0.0
+        vol = inst.get("volume", 0) or 0
+        chg = (ltp - prev) / prev * 100 if prev > 0 and ltp > 0 else 0.0
 
         self._watchlist_data[symbol] = {
-            "tradingsymbol":    symbol,
+            "tradingsymbol": symbol,
             "instrument_token": inst.get("instrument_token"),
-            "exchange":         inst.get("exchange", "NSE"),
-            "ltp":              ltp,
-            "volume":           vol,
-            "prev_close":       prev,
-            "change_pct":       chg,
+            "exchange": inst.get("exchange", "NSE"),
+            "ltp": ltp,
+            "volume": vol,
+            "prev_close": prev,
+            "change_pct": chg,
         }
 
     def _rebuild_token_map(self):
@@ -668,10 +667,10 @@ class TradingTable(QTableWidget):
         if row >= self.rowCount():
             return
 
-        sym     = data.get("tradingsymbol", "")
-        ltp     = data.get("ltp", 0.0)
-        vol     = data.get("volume", 0)
-        chg     = data.get("change_pct", 0.0)
+        sym = data.get("tradingsymbol", "")
+        ltp = data.get("ltp", 0.0)
+        vol = data.get("volume", 0)
+        chg = data.get("change_pct", 0.0)
 
         # ── Flag ──
         self._paint_flag_cell(row, sym)
@@ -739,7 +738,7 @@ class TradingTable(QTableWidget):
         if not self._dirty:
             return
         for sym in tuple(self._dirty):
-            row  = self._symbol_to_row.get(sym)
+            row = self._symbol_to_row.get(sym)
             data = self._watchlist_data.get(sym)
             if row is not None and data is not None:
                 self._update_row(row, data)
@@ -755,7 +754,6 @@ class TradingTable(QTableWidget):
                 self._update_row(row, data)
 
     # ── Event handlers ─────────────────────────────────────────────────────
-
 
     def keyPressEvent(self, event):
         """Spacebar moves selection down one row and opens selected symbol chart."""
@@ -865,9 +863,9 @@ class TradingTable(QTableWidget):
 
     @staticmethod
     def _fmt_volume(vol: int) -> str:
-        if vol >= 10_000_000: return f"{vol/1_000_000:.0f}M"
-        if vol >= 1_000_000:  return f"{vol/1_000_000:.1f}M"
-        if vol >= 1_000:      return f"{vol/1_000:.0f}K"
+        if vol >= 10_000_000: return f"{vol / 1_000_000:.0f}M"
+        if vol >= 1_000_000:  return f"{vol / 1_000_000:.1f}M"
+        if vol >= 1_000:      return f"{vol / 1_000:.0f}K"
         return str(vol) if vol > 0 else "—"
 
     @staticmethod
@@ -901,18 +899,18 @@ class TabbedWatchlistWidget(QWidget):
     Adds: create / rename / delete watchlists via UI.
     """
 
-    symbol_selected              = Signal(str)
-    subscribe_tokens_requested   = Signal(list)
-    place_order_requested        = Signal(dict)
+    symbol_selected = Signal(str)
+    subscribe_tokens_requested = Signal(list)
+    place_order_requested = Signal(dict)
     advanced_buy_order_requested = Signal(str)
     advanced_sell_order_requested = Signal(str)
-    bracket_order_requested      = Signal(str)
-    watchlist_changed            = Signal()
+    bracket_order_requested = Signal(str)
+    watchlist_changed = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._instrument_map: Dict[str, Dict] = {}
-        self._tables:  Dict[str, TradingTable] = {}   # id → table
+        self._tables: Dict[str, TradingTable] = {}  # id → table
         self._config = _WatchlistConfig()
 
         self._setup_ui()
@@ -1065,7 +1063,7 @@ class TabbedWatchlistWidget(QWidget):
     def _create_watchlist(self):
         dlg = _AddWatchlistDialog(self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
-            name  = dlg.name()
+            name = dlg.name()
             entry = self._config.add(name)
             self._add_table_for_entry(entry)
             self._rebuild_dropdown()
@@ -1090,7 +1088,7 @@ class TabbedWatchlistWidget(QWidget):
                                     "You must have at least one watchlist.")
             return
         wl_id = self._current_wl_id()
-        name  = self._dropdown.currentText()
+        name = self._dropdown.currentText()
         if not wl_id:
             return
 
@@ -1174,7 +1172,7 @@ class TabbedWatchlistWidget(QWidget):
     # ── Styles ─────────────────────────────────────────────────────────────
 
     def _apply_styles(self):
-        # NOTE: Removed the 'f' prefix from the string to use standard CSS braces 
+        # NOTE: Removed the 'f' prefix from the string to use standard CSS braces
         # and directly injected the scanner_table hex colors.
         self.setStyleSheet("""
             /* ── Widget shell ─────────────────────────────────────── */
@@ -1193,7 +1191,7 @@ class TabbedWatchlistWidget(QWidget):
                 max-height: 32px;
                 padding: 0px;
             }
-            
+
             QLabel#wlLabel {
                 color: #6ec8ff;
                 font-weight: 600;
