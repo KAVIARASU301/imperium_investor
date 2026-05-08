@@ -787,6 +787,11 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         except Exception as e:
             logger.error(f"Error refreshing chart drawings: {e}")
 
+    @Slot(str, str)
+    def _show_position_manager_notification(self, message: str, level: str):
+        """Surface PositionManager lifecycle events as toast notifications."""
+        status.show_notification(message, level)
+
     # ==============================================================================
     # SIMPLIFIED SIGNAL CONNECTIONS
     # ==============================================================================
@@ -798,11 +803,12 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         # SIMPLIFIED: Position Manager → Positions Table (direct connection)
         self.position_manager.positions_updated.connect(self.positions_table.update_positions)
         self.position_manager.positions_updated.connect(self._update_floating_positions_dialog)
+        self.position_manager.show_notification.connect(self._show_position_manager_notification)
         if hasattr(self, 'market_data_worker') and self.market_data_worker:
             self.market_data_worker.order_update.connect(self.position_manager.on_ws_order_update)
             self.market_data_worker.connection_established.connect(self.position_manager.on_ws_connected)
             self.market_data_worker.connection_closed.connect(self.position_manager.on_ws_disconnected)
-        # NO MORE NOTIFICATION SIGNALS - Position manager uses global status directly
+        # Position manager notifications route through the Qt signal so WS callbacks stay visible/audible.
 
         # SIMPLIFIED: Positions Table → Main Window
         self.positions_table.exit_position_requested.connect(self._handle_exit_position_request)

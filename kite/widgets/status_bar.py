@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QWidget
 
 # Import our new professional popups
 from kite.widgets.notifications import ToastNotification
+from kite.utils.sounds import play_alert, play_entry_exit, play_error
 
 logger = logging.getLogger(__name__)
 
@@ -312,6 +313,50 @@ class GlobalStatusManager(QObject):
 
     def clear_status(self) -> None:
         pass
+
+    def show_notification(self, message: str, level: str = "info", timeout: int = 4000) -> None:
+        """Show an explicit component notification without lifecycle text filtering."""
+        normalized_level = (level or "info").lower()
+        kind_map = {
+            "error": "error",
+            "danger": "error",
+            "warning": "warn",
+            "warn": "warn",
+            "success": "success",
+            "info": "info",
+            "action": "info",
+        }
+        title_map = {
+            "error": "Order Alert",
+            "warn": "Order Update",
+            "success": "Order Filled",
+            "info": "Notification",
+        }
+        kind = kind_map.get(normalized_level, "info")
+        display_message = self._translate_message(message) if kind == "error" else (message or "")
+        sub_kind = None
+        text_upper = display_message.upper()
+        if kind == "success" and ("FILL" in text_upper or "COMPLETE" in text_upper):
+            sub_kind = "filled"
+        elif kind == "error":
+            sub_kind = "rejected"
+        elif "PARTIAL" in text_upper:
+            sub_kind = "partial_fill"
+
+        self._post(title_map.get(kind, "Notification"), display_message, kind, timeout, sub_kind=sub_kind)
+        self._play_notification_sound(kind)
+
+    @staticmethod
+    def _play_notification_sound(kind: str) -> None:
+        try:
+            if kind == "success":
+                play_entry_exit()
+            elif kind == "error":
+                play_error()
+            elif kind == "warn":
+                play_alert()
+        except Exception as e:
+            logger.debug(f"Notification sound failed: {e}")
 
     def set_message(self, message: str, timeout: int = 3000, level: str = "info") -> None:
         # Route generic string messages purely to toasts

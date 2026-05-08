@@ -25,7 +25,7 @@ from datetime import datetime, timedelta
 
 from PySide6.QtCore import QObject, Signal, QTimer, Slot, QThreadPool
 
-from kite.widgets.status_bar import show_error, show_info, status as global_status
+from kite.widgets.status_bar import status as global_status
 from kite.utils.worker import Worker
 
 logger = logging.getLogger(__name__)
@@ -148,7 +148,7 @@ class PositionManager(QObject):
         if order_status in ("COMPLETE", "FILLED"):
             self._handle_completion(order_id, order_dict, order_status)
 
-        elif order_status in ("REJECTED", "CANCELLED"):
+        elif order_status in ("REJECTED", "CANCELLED", "CANCELED"):
             self._handle_failure(order_id, order_dict, order_status)
 
         elif order_status == "OPEN":
@@ -167,11 +167,6 @@ class PositionManager(QObject):
                     f"⚠ Partial fill: {tx_type} {filled_qty}/{filled_qty + pending_qty} "
                     f"{symbol} @ ₹{avg_fill:.2f} — {pending_qty} pending",
                     "warning",
-                )
-                global_status.notify(
-                    "partial",
-                    symbol,
-                    f"{filled_qty}/{filled_qty + pending_qty} filled @ ₹{avg_fill:.2f}",
                 )
                 logger.info(
                     f"[PARTIAL] {symbol}: {filled_qty} filled, {pending_qty} pending @ ₹{avg_fill:.2f}"
@@ -299,7 +294,10 @@ class PositionManager(QObject):
             or tx_type == "SELL"   # fallback: SELL = reducing/closing long
         )
 
-        global_status.notify("filled", symbol, f"+{filled_qty} @ ₹{avg_price:.2f}")
+        self.show_notification.emit(
+            f"✅ Filled: {tx_type} {filled_qty} {symbol} @ ₹{avg_price:.2f}",
+            "success",
+        )
 
         # ── Chart line management ──
         if self.main_window and hasattr(self.main_window, "chart_lines_manager"):
@@ -356,9 +354,9 @@ class PositionManager(QObject):
         tx_type = order_dict.get("transaction_type", "")
 
         if str(status).upper() in {"CANCELLED", "CANCELED"}:
-            global_status.notify("cancelled", symbol)
+            self.show_notification.emit(f"⚠ Order cancelled: {symbol}", "warning")
         else:
-            global_status.notify("rejected", symbol, str(reason))
+            self.show_notification.emit(f"❌ Order rejected: {symbol} — {reason}", "error")
 
         if self.trade_logger:
             self.trade_logger.log_order_update({
@@ -443,7 +441,7 @@ class PositionManager(QObject):
 
             if status in ("COMPLETE", "FILLED"):
                 self._handle_completion(oid, kite_order, status)
-            elif status in ("REJECTED", "CANCELLED"):
+            elif status in ("REJECTED", "CANCELLED", "CANCELED"):
                 self._handle_failure(oid, kite_order, status)
 
     # ─────────────────────────────────────────────────────────────────────────
