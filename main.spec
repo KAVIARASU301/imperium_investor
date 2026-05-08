@@ -118,6 +118,11 @@ a = Analysis(
         'PySide6.QtMultimedia',
         'PySide6.QtMultimediaWidgets',
 
+        # Broker main windows are imported dynamically by BrokerFactory;
+        # list them explicitly so PyInstaller bundles them for frozen builds.
+        'kite.core.main_window',
+        'ibkr.core.main_window',
+
         # Broker libraries.
         'kiteconnect',
         'kiteconnect.exceptions',
