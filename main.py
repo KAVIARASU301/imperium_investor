@@ -17,6 +17,8 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox, QWidget
 from PySide6.QtCore import QTimer
 
+from app_paths import get_app_icon_path
+
 # --- Local Imports ---
 from login_setup.dual_mode_login_manager import DualModeLoginManager
 from login_setup.broker_factory import BrokerFactory, BrokerClientManager
@@ -43,8 +45,14 @@ class Application:
         logger.info("🚀 Starting Qullamaggie Application...")
         self.app = QApplication(sys.argv)
         self.app.setApplicationName("Qullamaggie")
-        app_icon = QIcon("assets/qullamaggie_icon.svg")
-        self.app.setWindowIcon(app_icon)
+        icon_path = get_app_icon_path()
+        if icon_path is not None:
+            app_icon = QIcon(str(icon_path))
+            self.app.setWindowIcon(app_icon)
+            self.app.setDesktopFileName("qullamaggie")
+            logger.info(f"Application icon loaded from: {icon_path}")
+        else:
+            logger.warning("Application icon not found; desktop environment may show a fallback icon.")
 
         self.broker_manager = BrokerClientManager()
 

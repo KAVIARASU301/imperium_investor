@@ -10,6 +10,8 @@ from PySide6.QtMultimedia import QSoundEffect
 from PySide6.QtCore import QUrl, QObject, QTimer, Signal, Slot, QThread
 from PySide6.QtWidgets import QApplication
 
+from app_paths import find_project_root as find_app_project_root, get_sound_assets_dir
+
 logger = logging.getLogger(__name__)
 
 
@@ -100,48 +102,14 @@ class SoundManager(QObject):
             logger.warning("No system audio players found")
 
     def find_project_root(self):
-        """Find the project root directory"""
-        # Start from the current file location
-        current_file = os.path.abspath(__file__)
-        current_dir = os.path.dirname(current_file)
-
-        # Look for indicators of project root
-        indicators = ['main.py', 'sounds.py', 'assets', 'core']
-
-        # Check current directory and parent directories
-        check_dir = current_dir
-        for _ in range(5):  # Check up to 5 levels up
-            if any(os.path.exists(os.path.join(check_dir, indicator)) for indicator in indicators):
-                return check_dir
-            parent = os.path.dirname(check_dir)
-            if parent == check_dir:  # Reached root
-                break
-            check_dir = parent
-
-        # Fallback to current working directory
-        return os.getcwd()
+        """Find the project root directory without relying on the launch cwd."""
+        return str(find_app_project_root(__file__))
 
     def find_assets_directory(self):
-        """Find the assets directory with sound files"""
-        project_root = self.find_project_root()
-
-        # Try different possible locations
-        possible_assets_dirs = [
-            os.path.join(project_root, "assets"),
-            os.path.join(project_root, "sounds"),
-            os.path.join(project_root, "audio"),
-            os.path.join(os.getcwd(), "assets"),
-            os.path.join(os.getcwd(), "sounds"),
-            "assets",
-            "sounds"
-        ]
-
-        for assets_dir in possible_assets_dirs:
-            if os.path.exists(assets_dir) and os.path.isdir(assets_dir):
-                # Check if it actually contains sound files
-                sound_files = ['alert.wav', 'pop.wav', 'error.wav']
-                if any(os.path.exists(os.path.join(assets_dir, sf)) for sf in sound_files):
-                    return assets_dir
+        """Find the assets directory with bundled notification sound files."""
+        assets_dir = get_sound_assets_dir()
+        if assets_dir is not None:
+            return str(assets_dir)
 
         return None
 
@@ -532,6 +500,7 @@ def diagnose_audio():
 if __name__ == "__main__":
     # Quick test when run directly
     from PySide6.QtWidgets import QApplication
+
     import sys
 
     app = QApplication(sys.argv)
