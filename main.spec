@@ -2,6 +2,11 @@
 # main.spec
 import os
 import sys
+
+SPEC_DIR = os.path.abspath(os.path.dirname(__file__))
+if SPEC_DIR not in sys.path:
+    sys.path.insert(0, SPEC_DIR)
+
 from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_all
 from utils.resource_path import resource_path
 
@@ -96,6 +101,7 @@ a = Analysis(
         'chart_engine',
         'login_setup',
         'utils',
+        'utils.resource_path',
 
     ] + pyside6_hiddenimports,
 
