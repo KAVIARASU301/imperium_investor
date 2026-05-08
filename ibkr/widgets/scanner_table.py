@@ -10,7 +10,8 @@ from PySide6.QtCore import Signal, Slot, Qt, QThread, QTimer
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem, QHeaderView,
     QAbstractItemView, QPushButton, QHBoxLayout, QLabel, QComboBox, QMessageBox,
-    QDialog, QLineEdit, QFormLayout, QGroupBox, QFrame, QTextEdit
+    QDialog, QLineEdit, QFormLayout, QGroupBox, QFrame, QTextEdit,
+    QStyledItemDelegate, QStyleOptionViewItem, QApplication, QStyle
 )
 from PySide6.QtGui import QColor, QFont, QBrush, QCursor
 from PySide6.QtCore import QItemSelectionModel
@@ -19,6 +20,77 @@ logger = logging.getLogger(__name__)
 SCAN_URL_FILE = os.path.join(os.path.expanduser("~/.qullamaggie"), "chartink_scans.json")
 SETTINGS_FILE = os.path.join(os.path.expanduser("~/.qullamaggie"), "scanner_settings.json")
 SCAN_GROUP_ORDER = ["Momentum Breakouts", "Episodic Pivot", "Parabolic", "Others"]
+
+VOLUME_STRENGTH_ENABLED_ROLE = Qt.ItemDataRole.UserRole + 101
+VOLUME_STRENGTH_LEVEL_ROLE = Qt.ItemDataRole.UserRole + 102
+VOLUME_STRENGTH_COLOR_ROLE = Qt.ItemDataRole.UserRole + 103
+
+
+class VolumeStrengthDelegate(QStyledItemDelegate):
+    """Paint scanner volume strength as a compact TC2000-style progress bar."""
+
+    def paint(self, painter, option, index):
+        enabled = bool(index.data(VOLUME_STRENGTH_ENABLED_ROLE))
+        if not enabled:
+            super().paint(painter, option, index)
+            return
+
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        volume_text = opt.text
+        opt.text = ""
+        QApplication.style().drawControl(QStyle.ControlElement.CE_ItemViewItem, opt, painter, opt.widget)
+
+        level = max(0, min(3, int(index.data(VOLUME_STRENGTH_LEVEL_ROLE) or 0)))
+        fill_color = QColor(index.data(VOLUME_STRENGTH_COLOR_ROLE) or "#45d4ff")
+        track_color = QColor(fill_color)
+        track_color.setAlpha(45)
+        empty_color = QColor(70, 82, 98, 120)
+        text_color = QColor(fill_color)
+        if opt.state & QStyle.StateFlag.State_Selected:
+            text_color = opt.palette.highlightedText().color()
+            empty_color = QColor(220, 235, 255, 70)
+            track_color = QColor(220, 235, 255, 50)
+
+        rect = opt.rect.adjusted(5, 0, -5, 0)
+        segment_count = 3
+        gap = 2
+        bar_width = min(34, max(24, rect.width() // 2))
+        segment_width = max(6, (bar_width - gap * (segment_count - 1)) // segment_count)
+        used_bar_width = segment_width * segment_count + gap * (segment_count - 1)
+        bar_height = 7
+        bar_x = rect.left()
+        bar_y = rect.center().y() - bar_height // 2
+
+        painter.save()
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(track_color)
+        painter.drawRoundedRect(bar_x, bar_y, used_bar_width, bar_height, 3, 3)
+        for i in range(segment_count):
+            segment_x = bar_x + i * (segment_width + gap)
+            painter.setBrush(fill_color if i < level else empty_color)
+            painter.drawRoundedRect(segment_x, bar_y, segment_width, bar_height, 3, 3)
+
+        painter.setPen(text_color)
+        text_rect = rect.adjusted(used_bar_width + 7, 0, 0, 0)
+        painter.drawText(text_rect, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, volume_text)
+        painter.restore()
+
+    def sizeHint(self, option, index):
+        size = super().sizeHint(option, index)
+        if bool(index.data(VOLUME_STRENGTH_ENABLED_ROLE)):
+            size.setWidth(max(size.width(), 82))
+        return size
+
+
+def _volume_strength_level(volume: int) -> int:
+    if volume >= 5_000_000:
+        return 3
+    if volume >= 1_000_000:
+        return 2
+    if volume >= 250_000:
+        return 1
+    return 0
 
 
 class ModernAddScanDialog(QDialog):
@@ -787,6 +859,7 @@ class ChartinkScannerTable(QWidget):
         main_layout.addWidget(self.table)
 
         self.table.cellClicked.connect(self._on_cell_clicked)
+        self.table.setItemDelegateForColumn(2, VolumeStrengthDelegate(self.table))
         self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.table.setFocus()
 
@@ -1031,19 +1104,16 @@ class ChartinkScannerTable(QWidget):
         else:
             volume_text = "-"
         show_volume_strength = bool(self._color_theme.get("enable_volume_strength_indicator", False))
-        if show_volume_strength:
-            if volume >= 5_000_000:
-                strength = "3pt"
-            elif volume >= 1_000_000:
-                strength = "2pt"
-            elif volume >= 250_000:
-                strength = "1pt"
-            else:
-                strength = "0pt"
-            volume_item.setText(f"{strength} {volume_text}")
-        else:
-            volume_item.setText(volume_text)
-        volume_item.setToolTip(f"Reported volume: {volume:,.0f}")
+        volume_strength_level = _volume_strength_level(volume) if show_volume_strength else 0
+        volume_item.setText(volume_text)
+        volume_item.setData(VOLUME_STRENGTH_ENABLED_ROLE, show_volume_strength)
+        volume_item.setData(VOLUME_STRENGTH_LEVEL_ROLE, volume_strength_level)
+        volume_item.setData(
+            VOLUME_STRENGTH_COLOR_ROLE,
+            self._color_theme.get("tables", {}).get("volume", "#45d4ff")
+        )
+        strength_label = f" | Strength: {volume_strength_level}/3" if show_volume_strength else ""
+        volume_item.setToolTip(f"Reported volume: {volume:,.0f}{strength_label}")
 
         # Change % column
         change_pct = data.get('change_pct', 0.0)

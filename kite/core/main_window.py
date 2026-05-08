@@ -20,7 +20,7 @@ from kite.widgets.positions_table import PositionsTable
 from kite.widgets.watchlist_table import TabbedWatchlistWidget
 from chart_engine import CandlestickChart as ChartWindow
 from kite.widgets.header_toolbar import HeaderToolbar
-from kite.widgets.color_settings_dialog import ColorSettingsDialog
+from kite.widgets.settings_dialog import ColorSettingsDialog
 from kite.widgets.stock_info_dialog import show_stock_info
 
 from kite.widgets.order_dialog import OrderDialog

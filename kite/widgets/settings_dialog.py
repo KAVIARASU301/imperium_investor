@@ -165,7 +165,7 @@ class ColorSettingsDialog(QDialog):
         more_layout = QVBoxLayout(more_tab)
         more_layout.setContentsMargins(0, 12, 0, 0)
 
-        self.volume_strength_toggle_checkbox = _Toggle("SHOW VOLUME STRENGTH INDICATOR (1/2/3 POINTS)")
+        self.volume_strength_toggle_checkbox = _Toggle("SHOW VOLUME STRENGTH PROGRESS BAR")
         self.volume_strength_toggle_checkbox.setChecked(
             bool(self._theme.get("enable_volume_strength_indicator", False)))
         more_layout.addWidget(self.volume_strength_toggle_checkbox)
