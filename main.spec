@@ -1,3 +1,4 @@
+# -*- mode: python ; coding: utf-8 -*-
 # main.spec
 import os
 import sys
