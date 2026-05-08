@@ -3,8 +3,12 @@
 import os
 import sys
 from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_all
+from utils.resource_path import resource_path
 
 block_cipher = None
+
+ASSETS_DIR = resource_path('assets')
+APP_ICON = resource_path('assets/imperium_icon.png')
 
 # Collect ALL PySide6 data (this is the most important part for a GUI app)
 pyside6_datas, pyside6_binaries, pyside6_hiddenimports = collect_all('PySide6')
@@ -15,7 +19,7 @@ a = Analysis(
     binaries=pyside6_binaries,
     datas=[
         # Your app's asset files - (source, destination_in_bundle)
-        ('assets', 'assets'),
+        (ASSETS_DIR, 'assets'),
 
         # JavaScript files the chart engine needs
         ('chart_engine/renderer/chart.js', 'chart_engine/renderer'),
@@ -133,7 +137,7 @@ exe = EXE(
     console=False,            # No terminal window shown
     disable_windowed_traceback=False,
     argv_emulation=False,
-    icon='assets/imperium_icon.png',
+    icon=APP_ICON,
 )
 
 coll = COLLECT(
