@@ -17,8 +17,8 @@ from PySide6.QtGui import QColor, QFont, QBrush, QCursor
 from PySide6.QtCore import QItemSelectionModel
 
 logger = logging.getLogger(__name__)
-SCAN_URL_FILE = os.path.join(os.path.expanduser("~/.qullamaggie"), "chartink_scans.json")
-SETTINGS_FILE = os.path.join(os.path.expanduser("~/.qullamaggie"), "scanner_settings.json")
+SCAN_URL_FILE = os.path.join(os.path.expanduser("~/.imperium"), "chartink_scans.json")
+SETTINGS_FILE = os.path.join(os.path.expanduser("~/.imperium"), "scanner_settings.json")
 SCAN_GROUP_ORDER = ["Momentum Breakouts", "Episodic Pivot", "Parabolic", "Others"]
 
 VOLUME_STRENGTH_ENABLED_ROLE = Qt.ItemDataRole.UserRole + 101

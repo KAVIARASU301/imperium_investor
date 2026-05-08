@@ -33,7 +33,7 @@ if getattr(sys, "frozen", False):
 
 
 """
-Main entry point for the Qullamaggie application.
+Main entry point for the Imperium application.
 
 This script initializes the application, handles user login for different
 brokers (Kite for India, Interactive Brokers for America), creates the
@@ -75,14 +75,14 @@ class Application:
 
     def run(self):
         """Main entry point to run the application."""
-        logger.info("🚀 Starting Qullamaggie Application...")
+        logger.info("🚀 Starting Imperium Application...")
         self.app = QApplication(sys.argv)
-        self.app.setApplicationName("Qullamaggie")
+        self.app.setApplicationName("Imperium Swing Trader")
         icon_path = get_app_icon_path()
         if icon_path is not None:
             app_icon = QIcon(str(icon_path))
             self.app.setWindowIcon(app_icon)
-            self.app.setDesktopFileName("qullamaggie")
+            self.app.setDesktopFileName("imperium")
             logger.info(f"Application icon loaded from: {icon_path}")
         else:
             logger.warning("Application icon not found; desktop environment may show a fallback icon.")

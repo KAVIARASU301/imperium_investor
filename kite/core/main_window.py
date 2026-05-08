@@ -61,7 +61,7 @@ from kite.utils.color_system import get_color_theme_manager
 logger = logging.getLogger(__name__)
 
 
-class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
+class ImperiumWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     """
     SIMPLIFIED Main Window with subtle bottom status bar:
     - Simple Position Manager (only works when tracking orders)
@@ -118,6 +118,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             paper_trader.set_main_window(self)
             integrate_paper_trading(self, paper_trader)
 
+        self.setWindowTitle("Imperium Swing Trader")
+
         # --- Window Dragging Variables ---
         self._drag_pos = None
         self._is_maximized = False
@@ -142,7 +144,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self._apply_dark_theme()
         self.restore_window_state()
 
-        logger.info("Simplified Qullamaggie Window with Status Bar Initialized Successfully.")
+        logger.info("Simplified Imperium Window with Status Bar Initialized Successfully.")
 
         # Start position manager after a delay
         QTimer.singleShot(2000, self._initialize_position_system)
@@ -307,7 +309,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         tools_menu.addAction("Relay Server Settings", self._show_relay_settings_dialog)
 
         about_menu = menu_bar.addMenu("About")
-        about_menu.addAction("About Qullamaggie", self._show_about_dialog)
+        about_menu.addAction("About Imperium", self._show_about_dialog)
 
         return menu_bar
 
@@ -334,11 +336,11 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     def _show_about_dialog(self):
         """Display detailed application summary information."""
         message = QMessageBox(self)
-        message.setWindowTitle("About Qullamaggie")
+        message.setWindowTitle("About Imperium")
         message.setIcon(QMessageBox.Icon.Information)
         message.setTextFormat(Qt.TextFormat.RichText)
         message.setText("""
-            <h2>Qullamaggie Swing Trader</h2>
+            <h2>Imperium Swing Trader</h2>
             <p>
                 A desktop swing-trading command center for scanning Indian equity
                 markets, reviewing charts, managing watchlists, and monitoring
@@ -359,7 +361,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             </p>
             <h3>Important note</h3>
             <p>
-                Qullamaggie is a decision-support tool, not financial advice. Always
+                Imperium is a decision-support tool, not financial advice. Always
                 verify market data, order details, risk, and broker confirmations before
                 placing or modifying trades.
             </p>
@@ -540,7 +542,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         title_layout.setContentsMargins(0, 0, 0, 0)
         title_layout.setSpacing(4)
 
-        self.title_label = QLabel("Qullamaggie")
+        self.title_label = QLabel("Imperium")
         self.title_label.setObjectName("appTitle")
         title_layout.addWidget(self.title_label)
 
@@ -1763,7 +1765,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         try:
             # Create exports directory
             home = os.path.expanduser("~")
-            exports_dir = os.path.join(home, ".qullamaggie", "exports")
+            exports_dir = os.path.join(home, ".imperium", "exports")
             os.makedirs(exports_dir, exist_ok=True)
 
             # Generate filename with timestamp
@@ -1773,7 +1775,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
             # Add metadata
             export_data.update({
-                'export_source': 'qullamaggie_order_history',
+                'export_source': 'imperium_order_history',
                 'trading_mode': self.trading_mode,
                 'export_timestamp': timestamp
             })

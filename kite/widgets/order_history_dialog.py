@@ -378,7 +378,7 @@ class OrderSummaryWidget(QWidget):
 
 class OrderHistoryDialog(QDialog):
     """
-    Comprehensive order history dialog for the swing trading app.
+    Comprehensive order history dialog for Imperium Swing Trader.
     Displays orders from TradeLogger with filtering, summary, and export capabilities.
     """
 
@@ -409,7 +409,7 @@ class OrderHistoryDialog(QDialog):
 
     def _setup_window(self):
         """Initialize window properties."""
-        self.setWindowTitle("Order History - Qullamaggie")
+        self.setWindowTitle("Order History - Imperium")
         self.setMinimumSize(900, 560)
         self.resize(1000, 660)
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)

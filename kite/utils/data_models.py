@@ -1,6 +1,6 @@
 # src/utils/data_models.py
 
-"""Data models for Swing Trading application - Stocks Only"""
+"""Data models for Imperium Swing Trader - Stocks Only"""
 
 from dataclasses import dataclass, field
 from datetime import date

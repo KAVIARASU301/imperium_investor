@@ -965,12 +965,12 @@ class FloatingPositionsDialog(QDialog):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  INTEGRATION HELPER — call from QullamaggieWindow
+#  INTEGRATION HELPER — call from ImperiumWindow
 # ─────────────────────────────────────────────────────────────────────────────
 
 def attach_floating_positions(main_window) -> FloatingPositionsDialog:
     """
-    Create and wire a FloatingPositionsDialog into an existing QullamaggieWindow.
+    Create and wire a FloatingPositionsDialog into an existing ImperiumWindow.
 
     Call once after __init__:
         self.floating_positions = attach_floating_positions(self)

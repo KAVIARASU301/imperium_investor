@@ -17,8 +17,8 @@ from PySide6.QtGui import QColor, QFont, QBrush, QCursor, QFontMetrics
 from PySide6.QtCore import QItemSelectionModel
 
 logger = logging.getLogger(__name__)
-SCAN_URL_FILE = os.path.join(os.path.expanduser("~/.qullamaggie"), "chartink_scans.json")
-SETTINGS_FILE = os.path.join(os.path.expanduser("~/.qullamaggie"), "scanner_settings.json")
+SCAN_URL_FILE = os.path.join(os.path.expanduser("~/.imperium"), "chartink_scans.json")
+SETTINGS_FILE = os.path.join(os.path.expanduser("~/.imperium"), "scanner_settings.json")
 SCAN_GROUP_ORDER = ["Momentum Breakouts", "Episodic Pivot", "Parabolic", "Others"]
 CHART_TOOLBAR_HEIGHT = 32
 CHART_TOOLBAR_CONTROL_HEIGHT = 22

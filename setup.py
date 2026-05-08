@@ -1,6 +1,6 @@
 # setup.py
 """
-Setup script for Options Scalper
+Setup script for Imperium Swing Trader
 """
 
 from setuptools import setup, find_packages
@@ -10,15 +10,15 @@ try:
     with open("README.md", "r", encoding="utf-8") as fh:
         long_description = fh.read()
 except FileNotFoundError:
-    long_description = "Desktop application for options scalping with Zerodha Kite"
+    long_description = "Imperium Swing Trader desktop application for broker-assisted swing trading"
 
 setup(
-    name="Swing Trading App",
+    name="Imperium Swing Trader",
     version="1.0.0",
     author="Kaviarasu",
     author_email="kaviarasu301@gmail.com",
     url="https://github.com/kaviarasu301/",
-    description="Desktop application for options scalping with Zerodha Kite",
+    description="Imperium Swing Trader desktop application for broker-assisted swing trading",
     long_description=long_description,
     long_description_content_type="text/markdown",
     packages=find_packages(),
@@ -37,7 +37,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "options-scalper=main:main",
+            "imperium=main:main",
         ],
     },
     zip_safe=False, # Recommended for PySide6/GUI applications

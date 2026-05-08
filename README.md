@@ -1,1 +1,1 @@
-#swing trading app
+# Imperium Swing Trader

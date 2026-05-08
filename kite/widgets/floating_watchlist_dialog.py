@@ -1072,12 +1072,12 @@ class FloatingWatchlistDialog(QDialog):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  INTEGRATION HELPER  — call from QullamaggieWindow.__init__
+#  INTEGRATION HELPER  — call from ImperiumWindow.__init__
 # ─────────────────────────────────────────────────────────────────────────────
 
 def attach_floating_watchlist(main_window) -> FloatingWatchlistDialog:
     """
-    Create and wire a FloatingWatchlistDialog into an existing QullamaggieWindow.
+    Create and wire a FloatingWatchlistDialog into an existing ImperiumWindow.
 
     Call once after __init__:
         self.floating_watchlist = attach_floating_watchlist(self)

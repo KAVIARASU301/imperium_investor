@@ -82,7 +82,7 @@ class IBKRMainWindow(QMainWindow):
         self._load_initial_data()
 
         # Window properties
-        self.setWindowTitle(f"IBKR Trading - {trading_mode.value.title()} Mode")
+        self.setWindowTitle(f"Imperium - IBKR Trading - {trading_mode.value.title()} Mode")
         self.resize(1200, 800)
 
     def _setup_ui(self):
@@ -1085,3 +1085,13 @@ class IBKRMainWindow(QMainWindow):
         self._update_watchlist_display()
         self._update_market_data_display()  # ibkr/core/enhanced_main_window.py
 
+
+
+class ImperiumWindow(IBKRMainWindow):
+    """Application-named IBKR main window entry point used by BrokerFactory."""
+
+    def __init__(self, trader=None, real_ibkr_client=None, client_id=None, ib_client=None):
+        trading_client = real_ibkr_client or trader
+        trading_mode_value = getattr(trading_client, "connection_info", {}).get("trading_mode", TradingMode.PAPER.value)
+        trading_mode = TradingMode(trading_mode_value) if isinstance(trading_mode_value, str) else trading_mode_value
+        super().__init__(trading_client=trading_client, trading_mode=trading_mode)

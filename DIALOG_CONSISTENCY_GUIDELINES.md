@@ -1,5 +1,5 @@
 # Dialog Consistency Guidelines
-## Qullamaggie Trading Terminal — Kite Mode
+## Imperium Trading Terminal — Kite Mode
 
 **Version:** 1.0 — Production Reference  
 **Scope:** Every modal dialog, floating panel, and overlay in the Kite module

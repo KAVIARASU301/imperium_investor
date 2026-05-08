@@ -125,7 +125,7 @@ class AlertStore:
     def __init__(self):
         self._alerts: Dict[str, Alert] = {}
         self._mutex  = QMutex()
-        app_dir = os.path.join(os.path.expanduser("~"), ".qullamaggie")
+        app_dir = os.path.join(os.path.expanduser("~"), ".imperium")
         os.makedirs(app_dir, exist_ok=True)
         self._path = os.path.join(app_dir, "alerts.db")
         self._legacy_json_path = os.path.join(app_dir, "alerts.json")
