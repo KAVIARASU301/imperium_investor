@@ -1,4 +1,37 @@
 # main.py
+
+import os
+import sys
+
+if getattr(sys, "frozen", False):
+    base_path = sys._MEIPASS
+
+    os.environ["QTWEBENGINE_DISABLE_SANDBOX"] = "1"
+
+    os.environ["QTWEBENGINEPROCESS_PATH"] = os.path.join(
+        base_path,
+        "PySide6",
+        "Qt",
+        "libexec",
+        "QtWebEngineProcess"
+    )
+
+    os.environ["QTWEBENGINE_RESOURCES_PATH"] = os.path.join(
+        base_path,
+        "PySide6",
+        "Qt",
+        "resources"
+    )
+
+    os.environ["QTWEBENGINE_LOCALES_PATH"] = os.path.join(
+        base_path,
+        "PySide6",
+        "Qt",
+        "translations",
+        "qtwebengine_locales"
+    )
+
+
 """
 Main entry point for the Qullamaggie application.
 

@@ -332,17 +332,40 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         status.set_market_indicator(market_status)
 
     def _show_about_dialog(self):
-        """Display application summary information."""
-        QMessageBox.information(
-            self,
-            "About Qullamaggie",
-            (
-                "Qullamaggie\n"
-                "\n"
-                "A desktop swing-trading workspace with scanner, chart, watchlist, "
-                "and position monitoring tools."
-            )
-        )
+        """Display detailed application summary information."""
+        message = QMessageBox(self)
+        message.setWindowTitle("About Qullamaggie")
+        message.setIcon(QMessageBox.Icon.Information)
+        message.setTextFormat(Qt.TextFormat.RichText)
+        message.setText("""
+            <h2>Qullamaggie Swing Trader</h2>
+            <p>
+                A desktop swing-trading command center for scanning Indian equity
+                markets, reviewing charts, managing watchlists, and monitoring
+                positions from one focused workspace.
+            </p>
+            <h3>What this workspace includes</h3>
+            <ul>
+                <li><b>Market scanner:</b> Chartink and Finviz workflows for finding setups quickly.</li>
+                <li><b>Interactive charts:</b> candlesticks, indicators, drawings, and persisted chart notes.</li>
+                <li><b>Watchlists:</b> tabbed symbol lists with quick chart access and stock details.</li>
+                <li><b>Trading tools:</b> order entry, pending orders, order history, and P&amp;L views.</li>
+                <li><b>Risk visibility:</b> live positions, floating panels, alerts, and app health indicators.</li>
+            </ul>
+            <h3>Broker and data context</h3>
+            <p>
+                This build is wired for Kite/Zerodha market access with paper-trading
+                support for safer workflow validation before live execution.
+            </p>
+            <h3>Important note</h3>
+            <p>
+                Qullamaggie is a decision-support tool, not financial advice. Always
+                verify market data, order details, risk, and broker confirmations before
+                placing or modifying trades.
+            </p>
+        """)
+        message.setStandardButtons(QMessageBox.StandardButton.Ok)
+        message.exec()
 
     def _apply_intelligent_main_splitter_layout(self, preferred_sizes=None):
         """Keep scanner/watchlist compact and protect chart space during resize/drag."""
