@@ -1920,17 +1920,23 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             self._navigate_floating_positions_symbols(floating_positions, direction='next')
             return
 
-        # Check scanner focus
+        # Check scanner focus — evaluated before watchlist so chart interaction
+        # cannot steal the "scanner" context away mid-session.
         if context == "scanner" or self._is_scanner_focused(focused_widget):
             self._set_last_spacebar_context("scanner")
             if hasattr(self.chartink_scanner, '_next_symbol'):
                 self.chartink_scanner._next_symbol()
                 return
 
-        # Check watchlist focus
-        watchlist_table = self._get_focused_watchlist_table(focused_widget)
-        if context == "watchlist" and watchlist_table is None:
-            watchlist_table = self._get_last_selected_watchlist_table()
+        # Check watchlist focus — only resolve the table when context is "watchlist".
+        # Previously, _get_focused_watchlist_table() returned the active tab's table
+        # via its fallback branch even when the scanner was the intended context,
+        # causing spacebar to jump to the watchlist after any chart interaction.
+        watchlist_table = None
+        if context == "watchlist":
+            watchlist_table = self._get_focused_watchlist_table(focused_widget)
+            if watchlist_table is None:
+                watchlist_table = self._get_last_selected_watchlist_table()
         if watchlist_table:
             self._set_last_spacebar_context("watchlist")
             self._navigate_watchlist_symbols(watchlist_table, direction='next')
@@ -1982,9 +1988,11 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 self.chartink_scanner._previous_symbol()
                 return
 
-        watchlist_table = self._get_focused_watchlist_table(focused_widget)
-        if context == "watchlist" and watchlist_table is None:
-            watchlist_table = self._get_last_selected_watchlist_table()
+        watchlist_table = None
+        if context == "watchlist":
+            watchlist_table = self._get_focused_watchlist_table(focused_widget)
+            if watchlist_table is None:
+                watchlist_table = self._get_last_selected_watchlist_table()
         if watchlist_table:
             self._set_last_spacebar_context("watchlist")
             self._navigate_watchlist_symbols(watchlist_table, direction='previous')
