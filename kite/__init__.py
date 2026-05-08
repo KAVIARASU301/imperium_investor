@@ -1,1 +1,1 @@
-"""Kite broker package for Imperium Swing Trader."""
+"""Kite broker package for qullamaggie."""

@@ -1,1 +1,1 @@
-# Imperium Swing Trader
+# qullamaggie

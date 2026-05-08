@@ -1,4 +1,4 @@
-"""Helpers for locating Imperium files independent of the launch cwd."""
+"""Helpers for locating qullamaggie files independent of the launch cwd."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from typing import Iterable, Optional, Union
 from utils.resource_path import resource_path
 
 
-APP_NAME = "Imperium Swing Trader"
+APP_NAME = "qullamaggie"
 _PROJECT_MARKERS = ("main.py", "assets")
 _ASSET_SOUND_FILES = ("alert.wav", "pop.wav", "error.wav")
 
@@ -22,7 +22,7 @@ def get_resource_path(relative_path: str) -> Path:
 
 def _candidate_roots(anchor: Optional[Path] = None) -> Iterable[Path]:
     """Yield likely project roots from stable paths before the volatile cwd."""
-    env_root = os.environ.get("IMPERIUM_ROOT")
+    env_root = os.environ.get("QULLAMAGGIE_ROOT")
     if env_root:
         yield Path(env_root).expanduser()
 
@@ -93,7 +93,7 @@ def get_asset_path(*parts: str, required: bool = False) -> Optional[Path]:
 
 def get_app_icon_path() -> Optional[Path]:
     """Return the preferred application icon path for Qt and desktop launchers."""
-    for filename in ("imperium_swing_trader_icon.svg", "imperium_swing_trader_icon.png"):
+    for filename in ("qullamaggie_swing_trader_icon.svg", "qullamaggie_swing_trader_icon.png"):
         icon_path = get_asset_path(filename, required=True)
         if icon_path is not None:
             return icon_path

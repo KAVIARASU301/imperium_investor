@@ -15,9 +15,9 @@ Features
   • Context menu: chart, advanced buy/sell, bracket, remove
   • Keyboard: focus → Space navigates symbols into chart
   • Persistence:
-      watchlist config  → ~/.imperium/watchlist_config.json
+      watchlist config  → ~/.qullamaggie/watchlist_config.json
       per-list symbols  → kite/user_data/watchlist_{id}.json
-      flags             → ~/.imperium/watchlist_flags.json
+      flags             → ~/.qullamaggie/watchlist_flags.json
 """
 
 from __future__ import annotations
@@ -119,7 +119,7 @@ _FLAG_TOOLTIP = {
 #  PERSISTENCE PATHS
 # ─────────────────────────────────────────────────────────────────────────────
 
-_APP_DIR = os.path.join(os.path.expanduser("~"), ".imperium")
+_APP_DIR = os.path.join(os.path.expanduser("~"), ".qullamaggie")
 _DATA_DIR = "kite/user_data"
 _CONFIG_FILE = os.path.join(_APP_DIR, "watchlist_config.json")
 _FLAGS_FILE = os.path.join(_APP_DIR, "watchlist_flags.json")

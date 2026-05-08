@@ -80,7 +80,7 @@ class EnhancedTokenManager:
 
     def __init__(self):
         # Application data directory
-        self.app_dir = Path.home() / ".imperium"
+        self.app_dir = Path.home() / ".qullamaggie"
         self.app_dir.mkdir(exist_ok=True)
 
         # Broker-specific directories

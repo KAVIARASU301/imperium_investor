@@ -2,7 +2,7 @@
 
 
 # Application info
-APP_NAME = "Imperium Swing Trader"
+APP_NAME = "qullamaggie"
 APP_VERSION = "1.0.0"
 APP_AUTHOR = "Trading Tools Inc."
 

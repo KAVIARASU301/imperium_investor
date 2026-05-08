@@ -34,7 +34,7 @@ from utils.resource_path import resource_path
 block_cipher = None
 
 ASSETS_DIR = resource_path('assets')
-APP_ICON = resource_path('assets/imperium_swing_trader_icon.png')
+APP_ICON = resource_path('assets/qullamaggie_swing_trader_icon.png')
 
 APP_PACKAGES = (
     'kite',
@@ -196,7 +196,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='imperium',
+    name='qullamaggie',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -215,5 +215,5 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name='imperium',
+    name='qullamaggie',
 )

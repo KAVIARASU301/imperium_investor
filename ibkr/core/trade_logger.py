@@ -196,7 +196,7 @@ class TradeLogger(QObject):
 
         if db_path is None:
             home = os.path.expanduser("~")
-            db_dir = os.path.join(home, ".imperium")
+            db_dir = os.path.join(home, ".qullamaggie")
             os.makedirs(db_dir, exist_ok=True)
             db_filename = f"trade_history_{mode}.db"
             self.db_path = os.path.join(db_dir, db_filename)

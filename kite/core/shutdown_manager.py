@@ -15,7 +15,7 @@ This module provides:
   5. WS connection properly closed before Kite session ends
   6. UI stays responsive (QApplication.processEvents between steps)
 
-Usage in ImperiumWindow.closeEvent():
+Usage in QullamaggieWindow.closeEvent():
     def closeEvent(self, event):
         event.accept()   # Accept immediately — we manage cleanup ourselves
         ShutdownManager(self).execute()
@@ -227,8 +227,8 @@ class CleanShutdownMixin:
     """
     Drop-in closeEvent replacement.
 
-    Add to ImperiumWindow:
-        class ImperiumWindow(CleanShutdownMixin, QMainWindow):
+    Add to QullamaggieWindow:
+        class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
             ...
 
     And remove the existing closeEvent implementation.

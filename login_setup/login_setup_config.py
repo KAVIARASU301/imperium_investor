@@ -9,7 +9,7 @@ from pathlib import Path
 from datetime import datetime
 
 # --- Application Constants ---
-APP_NAME = "Imperium Swing Trader"
+APP_NAME = "qullamaggie"
 APP_VERSION = "1.0.0"
 
 # --- UI & Theming Constants ---
@@ -39,13 +39,13 @@ def setup_logging():
     Logs are saved to a file and also printed to the console.
     """
     try:
-        # All logs will be stored in the .imperium/logs directory
-        log_dir = Path.home() / ".imperium" / "logs"
+        # All logs will be stored in the .qullamaggie/logs directory
+        log_dir = Path.home() / ".qullamaggie" / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
 
         # Create a unique, timestamped log file for each session
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_file = log_dir / f"imperium_{timestamp}.log"
+        log_file = log_dir / f"qullamaggie_{timestamp}.log"
 
         logging.basicConfig(
             level=logging.INFO,

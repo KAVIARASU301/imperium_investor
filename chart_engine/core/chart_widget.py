@@ -901,7 +901,7 @@ class CandlestickChart(QWidget):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"{safe_symbol}_{safe_interval}_{timestamp}.png"
         pictures_dir = Path(os.path.expanduser("~/Pictures"))
-        return pictures_dir / "Imperium Snapshots" / filename
+        return pictures_dir / "qullamaggie Snapshots" / filename
 
     # ── Text note dialogs ─────────────────────────────────────────────────
 

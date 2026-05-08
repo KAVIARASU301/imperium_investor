@@ -1,4 +1,4 @@
-"""Utility modules for Imperium Swing Trader"""
+"""Utility modules for qullamaggie"""
 
 from .config_manager import ConfigManager
 from .constants import *

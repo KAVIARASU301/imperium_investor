@@ -6,10 +6,10 @@ echo "Building trading terminal..."
 pyinstaller main.spec --clean --noconfirm
 
 echo "Setting permissions..."
-chmod +x dist/imperium/imperium
+chmod +x dist/qullamaggie/qullamaggie
 
 echo "Build complete. Size:"
-du -sh dist/imperium/
+du -sh dist/qullamaggie/
 
 echo "Test run:"
-cd dist/imperium && ./imperium
+cd dist/qullamaggie && ./qullamaggie

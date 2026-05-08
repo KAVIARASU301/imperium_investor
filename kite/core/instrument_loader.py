@@ -27,7 +27,7 @@ class InstrumentLoader(QThread):
     def __init__(self, kite_client: KiteConnect, cache_dir: str = None):
         super().__init__()
         self.kite = kite_client
-        self.cache_dir = cache_dir or os.path.expanduser("~/.imperium/cache")
+        self.cache_dir = cache_dir or os.path.expanduser("~/.qullamaggie/cache")
         self.cache_file = os.path.join(self.cache_dir, "instruments_cache.pkl")
         self.cache_info_file = os.path.join(self.cache_dir, "cache_info.pkl")
         self._stop_requested = False

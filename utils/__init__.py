@@ -1,1 +1,1 @@
-"""Shared utility helpers for Imperium."""
+"""Shared utility helpers for qullamaggie."""

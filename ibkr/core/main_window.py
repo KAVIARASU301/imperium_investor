@@ -82,7 +82,7 @@ class IBKRMainWindow(QMainWindow):
         self._load_initial_data()
 
         # Window properties
-        self.setWindowTitle(f"Imperium - IBKR Trading - {trading_mode.value.title()} Mode")
+        self.setWindowTitle(f"qullamaggie - IBKR Trading - {trading_mode.value.title()} Mode")
         self.resize(1200, 800)
 
     def _setup_ui(self):
@@ -1087,7 +1087,7 @@ class IBKRMainWindow(QMainWindow):
 
 
 
-class ImperiumWindow(IBKRMainWindow):
+class QullamaggieWindow(IBKRMainWindow):
     """Application-named IBKR main window entry point used by BrokerFactory."""
 
     def __init__(self, trader=None, real_ibkr_client=None, client_id=None, ib_client=None):

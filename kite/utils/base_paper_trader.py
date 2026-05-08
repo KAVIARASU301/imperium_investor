@@ -164,7 +164,7 @@ class BasePaperTrader(QObject, ABC, metaclass=QObjectABCMeta):
         self.execution_rules: Dict[str, OrderExecutionRule] = self._build_execution_rules()
 
         # ── Persistent storage paths ──
-        app_dir = os.path.join(os.path.expanduser("~"), ".imperium")
+        app_dir = os.path.join(os.path.expanduser("~"), ".qullamaggie")
         os.makedirs(app_dir, exist_ok=True)
         self._state_path  = os.path.join(app_dir, f"paper_account_{broker}.json")
         self._trades_path = os.path.join(app_dir, f"paper_trades_{broker}.json")

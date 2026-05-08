@@ -104,7 +104,7 @@ class KiteRequestTokenServer(QThread):
                     self.wfile.write(
                         b"<html><body style='font-family:Segoe UI,sans-serif;background:#111;color:#eee;text-align:center;padding-top:40px;'>"
                         b"<h2>Login successful</h2>"
-                        b"<p>You can now return to Imperium.</p>"
+                        b"<p>You can now return to qullamaggie.</p>"
                         b"</body></html>"
                     )
 
@@ -200,7 +200,7 @@ class DualModeLoginManager(QDialog):
     # --------------------------------------------------------------------------
 
     def _setup_window(self):
-        self.setWindowTitle("Imperium - Login")
+        self.setWindowTitle("qullamaggie - Login")
         self.setMinimumSize(500, 560)
         self.setModal(True)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
@@ -242,7 +242,7 @@ class DualModeLoginManager(QDialog):
         layout = QHBoxLayout()
         left_spacer = QLabel("")
         left_spacer.setFixedSize(30, 30)
-        title = QLabel("Imperium Login")
+        title = QLabel("qullamaggie Login")
         title.setObjectName("dialogTitle")
         close_btn = QPushButton("✕")
         close_btn.setObjectName("closeButton")

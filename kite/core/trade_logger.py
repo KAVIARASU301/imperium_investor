@@ -261,7 +261,7 @@ class TradeLogger(QObject):
         self.mode   = mode
         self._shutdown_requested = False
 
-        db_dir = os.path.join(os.path.expanduser("~"), ".imperium")
+        db_dir = os.path.join(os.path.expanduser("~"), ".qullamaggie")
         os.makedirs(db_dir, exist_ok=True)
 
         scoped_default = os.path.join(db_dir, f"trade_history_{self.broker}_{self.mode}.db")
@@ -462,7 +462,7 @@ class TradeLogger(QObject):
     def cleanup(self):
         """
         Graceful shutdown — drains the DB queue before closing.
-        Called by ImperiumWindow.closeEvent().
+        Called by QullamaggieWindow.closeEvent().
         """
         if self._shutdown_requested:
             return

@@ -9,7 +9,7 @@ configure_qtwebengine_runtime()
 
 
 """
-Main entry point for the Imperium application.
+Main entry point for the qullamaggie application.
 
 This script initializes the application, handles user login for different
 brokers (Kite for India, Interactive Brokers for America), creates the
@@ -50,14 +50,14 @@ class Application:
 
     def run(self):
         """Main entry point to run the application."""
-        logger.info("🚀 Starting Imperium Application...")
+        logger.info("🚀 Starting qullamaggie Application...")
         self.app = QApplication(sys.argv)
-        self.app.setApplicationName("Imperium Swing Trader")
+        self.app.setApplicationName("qullamaggie")
         icon_path = get_app_icon_path()
         if icon_path is not None:
             app_icon = QIcon(str(icon_path))
             self.app.setWindowIcon(app_icon)
-            self.app.setDesktopFileName("imperium_swing_trader")
+            self.app.setDesktopFileName("qullamaggie_swing_trader")
             logger.info(f"Application icon loaded from: {icon_path}")
         else:
             logger.warning("Application icon not found; desktop environment may show a fallback icon.")
