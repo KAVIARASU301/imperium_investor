@@ -57,7 +57,7 @@ class Application:
         if icon_path is not None:
             app_icon = QIcon(str(icon_path))
             self.app.setWindowIcon(app_icon)
-            self.app.setDesktopFileName("imperium")
+            self.app.setDesktopFileName("imperium_swing_trader")
             logger.info(f"Application icon loaded from: {icon_path}")
         else:
             logger.warning("Application icon not found; desktop environment may show a fallback icon.")

@@ -93,7 +93,7 @@ def get_asset_path(*parts: str, required: bool = False) -> Optional[Path]:
 
 def get_app_icon_path() -> Optional[Path]:
     """Return the preferred application icon path for Qt and desktop launchers."""
-    for filename in ("imperium_icon.svg", "imperium_icon.png"):
+    for filename in ("imperium_swing_trader_icon.svg", "imperium_swing_trader_icon.png"):
         icon_path = get_asset_path(filename, required=True)
         if icon_path is not None:
             return icon_path
