@@ -357,8 +357,10 @@ class BrokerFactory:
 
             return MainWindowClass
         except (ImportError, AttributeError) as e:
-            logger.error(f"Failed to load main window for {broker_mode.value}: {e}")
-            raise RuntimeError(f"Could not load main window for {broker_mode.value}") from e
+            logger.error(f"Failed to load main window for {broker_mode.value}: {e}", exc_info=True)
+            raise RuntimeError(
+                f"Could not load main window for {broker_mode.value}: {e}"
+            ) from e
 
     @staticmethod
     def create_client(broker_mode: BrokerMode,

@@ -54,6 +54,28 @@ def existing_datas(*entries):
     return result
 
 
+def collect_qtwebengine_runtime_files():
+    """Collect QtWebEngine helper files that are easy to miss in onedir builds."""
+    try:
+        import PySide6
+    except Exception:
+        return []
+
+    pyside_dir = Path(PySide6.__file__).resolve().parent
+    qt_dir = pyside_dir / 'Qt'
+    entries = []
+
+    for source, destination in (
+        (qt_dir / 'libexec' / 'QtWebEngineProcess', 'PySide6/Qt/libexec'),
+        (qt_dir / 'resources', 'PySide6/Qt/resources'),
+        (qt_dir / 'translations' / 'qtwebengine_locales', 'PySide6/Qt/translations/qtwebengine_locales'),
+    ):
+        if source.exists():
+            entries.append((str(source), destination))
+
+    return entries
+
+
 # Keep PySide6 collection focused.  Collecting every PySide6 submodule pulls in
 # deployment scripts and optional Qt modules that are not needed by the app and
 # can create noisy/broken hidden imports in frozen builds.
@@ -81,7 +103,7 @@ a = Analysis(
         # Optional bundled starter data, when present in a local checkout.
         ('kite/user_data', 'kite/user_data'),
         ('ibkr/user_data', 'ibkr/user_data'),
-    ) + pyside6_datas,
+    ) + pyside6_datas + collect_qtwebengine_runtime_files(),
 
     hiddenimports=[
         # PySide6 modules used directly or by widgets that are loaded dynamically.
@@ -140,7 +162,7 @@ a = Analysis(
 
     hookspath=['hooks'],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=['hooks/rthook_qtwebengine.py'],
     excludes=[
         # Things you definitely don't need - reduces bundle size.
         'tkinter',

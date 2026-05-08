@@ -1,35 +1,11 @@
 # main.py
 
-import os
 import sys
 
-if getattr(sys, "frozen", False):
-    base_path = sys._MEIPASS
+from utils.qtwebengine_runtime import configure_qtwebengine_runtime
 
-    os.environ["QTWEBENGINE_DISABLE_SANDBOX"] = "1"
-
-    os.environ["QTWEBENGINEPROCESS_PATH"] = os.path.join(
-        base_path,
-        "PySide6",
-        "Qt",
-        "libexec",
-        "QtWebEngineProcess"
-    )
-
-    os.environ["QTWEBENGINE_RESOURCES_PATH"] = os.path.join(
-        base_path,
-        "PySide6",
-        "Qt",
-        "resources"
-    )
-
-    os.environ["QTWEBENGINE_LOCALES_PATH"] = os.path.join(
-        base_path,
-        "PySide6",
-        "Qt",
-        "translations",
-        "qtwebengine_locales"
-    )
+# Configure QtWebEngine before importing any PySide6 WebEngine modules.
+configure_qtwebengine_runtime()
 
 
 """
@@ -40,7 +16,6 @@ brokers (Kite for India, Interactive Brokers for America), creates the
 appropriate main window, and manages the application lifecycle.
 """
 
-import sys
 import logging
 import signal
 import atexit
