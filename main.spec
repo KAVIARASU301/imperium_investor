@@ -4,7 +4,27 @@ import os
 import sys
 from pathlib import Path
 
-SPEC_DIR = os.path.abspath(os.path.dirname(__file__))
+
+def _resolve_spec_dir():
+    """Return the directory containing this spec file.
+
+    PyInstaller executes spec files with helper globals such as SPECPATH, but
+    does not always define __file__.  Using SPECPATH first keeps the spec
+    compatible with `pyinstaller main.spec --clean`; the __file__ branch keeps
+    the file friendly to direct Python tooling.
+    """
+    spec_path = globals().get('SPECPATH')
+    if spec_path:
+        return os.path.abspath(spec_path)
+
+    spec_file = globals().get('__file__')
+    if spec_file:
+        return os.path.abspath(os.path.dirname(spec_file))
+
+    return os.getcwd()
+
+
+SPEC_DIR = _resolve_spec_dir()
 if SPEC_DIR not in sys.path:
     sys.path.insert(0, SPEC_DIR)
 

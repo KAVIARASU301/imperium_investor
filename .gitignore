@@ -3,7 +3,10 @@
 .idea/
 logging/
 logging
-
+dist
+dist/
+build
+build/
 # User data
 user_data/
 user_data
