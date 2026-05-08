@@ -11,6 +11,8 @@ DEFAULT_COLOR_THEME: Dict[str, Any] = {
     "enable_table_directional_colors": False,
     "enable_volume_strength_indicator": False,
     "status_bar_alignment": "left",
+    "show_account_name": True,
+    "show_account_balance": True,
     "candles": {
         "up": "#00c896",
         "down": "#e84060",
@@ -76,6 +78,8 @@ class ColorThemeManager(QObject):
         )
         alignment = str(custom.get("status_bar_alignment", merged["status_bar_alignment"]))
         merged["status_bar_alignment"] = "right" if alignment.lower() == "right" else "left"
+        merged["show_account_name"] = bool(custom.get("show_account_name", merged["show_account_name"]))
+        merged["show_account_balance"] = bool(custom.get("show_account_balance", merged["show_account_balance"]))
 
         for section in ("candles", "volume", "tables"):
             section_data = custom.get(section, {})

@@ -98,6 +98,8 @@ class HeaderToolbar(QToolBar):
         self._instrument_map: Dict[str, Dict] = {}
         self._recent_symbols: List[str] = []
         self._account_info = {"available_balance": DEFAULT_PAPER_BALANCE, "user_id": "N/A"}
+        self._show_account_name = True
+        self._show_account_balance = True
         self._symbol_index = SymbolIndex()
         self.threadpool = QThreadPool()
 
@@ -231,7 +233,8 @@ class HeaderToolbar(QToolBar):
         self.user_id_label = QLabel("KE6286")
         self.user_id_label.setObjectName("userIdLabel")
         account_layout.addWidget(self.user_id_label)
-        account_layout.addWidget(self._create_separator_dot())
+        self.account_separator = self._create_separator_dot()
+        account_layout.addWidget(self.account_separator)
 
         self.balance_label = QLabel("₹0")
         self.balance_label.setObjectName("balanceLabel")
@@ -314,6 +317,12 @@ class HeaderToolbar(QToolBar):
             self._account_info["user_id"] = "DEMO"
         self._update_account_display()
 
+    def apply_color_theme(self, theme: Dict[str, Any]) -> None:
+        theme = theme or {}
+        self._show_account_name = bool(theme.get("show_account_name", True))
+        self._show_account_balance = bool(theme.get("show_account_balance", True))
+        self._update_account_display_visibility()
+
     def update_performance_metrics(self, performance_data: Dict[str, Any]) -> None:
         daily_pnl = performance_data.get("daily_pnl", 0)
         if daily_pnl > 0:
@@ -390,6 +399,15 @@ class HeaderToolbar(QToolBar):
         self.user_id_label.setText(self._account_info.get("user_id", "DEMO"))
         balance = self._account_info.get("available_balance", 0.0)
         self.balance_label.setText(self._format_account_balance(balance))
+        self._update_account_display_visibility()
+
+    def _update_account_display_visibility(self) -> None:
+        show_name = bool(self._show_account_name)
+        show_balance = bool(self._show_account_balance)
+        self.user_id_label.setVisible(show_name)
+        self.balance_label.setVisible(show_balance)
+        self.account_separator.setVisible(show_name and show_balance)
+        self.account_info_widget.setVisible(show_name or show_balance)
 
     @staticmethod
     def _format_account_balance(amount: float) -> str:

@@ -175,6 +175,21 @@ class ColorSettingsDialog(QDialog):
             str(self._theme.get("status_bar_alignment", "left")).lower() == "right"
         )
         more_layout.addWidget(self.status_bar_align_right_checkbox)
+
+        account_group = QGroupBox("ACCOUNT HEADER")
+        account_layout = QVBoxLayout(account_group)
+        account_layout.setContentsMargins(12, 16, 12, 12)
+        account_layout.setSpacing(8)
+
+        self.show_account_name_checkbox = _Toggle("SHOW ACCOUNT NAME")
+        self.show_account_name_checkbox.setChecked(bool(self._theme.get("show_account_name", True)))
+        account_layout.addWidget(self.show_account_name_checkbox)
+
+        self.show_account_balance_checkbox = _Toggle("SHOW ACCOUNT BALANCE")
+        self.show_account_balance_checkbox.setChecked(bool(self._theme.get("show_account_balance", True)))
+        account_layout.addWidget(self.show_account_balance_checkbox)
+
+        more_layout.addWidget(account_group)
         more_layout.addStretch()
 
         self.tabs.addTab(more_tab, "ADVANCED")
@@ -397,6 +412,8 @@ class ColorSettingsDialog(QDialog):
         self._theme["status_bar_alignment"] = (
             "right" if self.status_bar_align_right_checkbox.isChecked() else "left"
         )
+        self._theme["show_account_name"] = self.show_account_name_checkbox.isChecked()
+        self._theme["show_account_balance"] = self.show_account_balance_checkbox.isChecked()
         return self._theme
 
     def _reset_default_candle_colors(self):

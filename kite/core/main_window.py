@@ -203,6 +203,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.positions_table = PositionsTable(parent=self)
 
         initial_theme = self.color_theme_manager.get_theme()
+        self.header_toolbar.apply_color_theme(initial_theme)
         self.chartink_scanner.apply_color_theme(initial_theme)
         self.watchlist.apply_color_theme(initial_theme)
         self.positions_table.apply_color_theme(initial_theme)
@@ -592,6 +593,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
     @Slot(dict)
     def _on_color_theme_changed(self, theme: Dict[str, Any]):
+        self.header_toolbar.apply_color_theme(theme)
         self.chartink_scanner.apply_color_theme(theme)
         self.watchlist.apply_color_theme(theme)
         self.positions_table.apply_color_theme(theme)
