@@ -7,10 +7,17 @@ import sys
 from pathlib import Path
 from typing import Iterable, Optional, Union
 
+from utils.resource_path import resource_path
+
 
 APP_NAME = "Qullamaggie"
 _PROJECT_MARKERS = ("main.py", "assets")
 _ASSET_SOUND_FILES = ("alert.wav", "pop.wav", "error.wav")
+
+
+def get_resource_path(relative_path: str) -> Path:
+    """Return an absolute resource path as a Path object."""
+    return Path(resource_path(relative_path)).resolve()
 
 
 def _candidate_roots(anchor: Optional[Path] = None) -> Iterable[Path]:
@@ -67,6 +74,10 @@ def find_assets_dir(anchor: Optional[Union[Path, str]] = None, required_files: I
 
 def get_asset_path(*parts: str, required: bool = False) -> Optional[Path]:
     """Build an absolute path to an asset file."""
+    bundled_asset_path = get_resource_path(os.path.join("assets", *parts))
+    if not required or bundled_asset_path.exists():
+        return bundled_asset_path
+
     assets_dir = find_assets_dir(required_files=parts[-1:] if required and parts else ())
     if assets_dir is None:
         return None

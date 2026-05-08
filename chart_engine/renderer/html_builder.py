@@ -8,15 +8,16 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
+from utils.resource_path import resource_path
+
 logger = logging.getLogger(__name__)
 
-_CHART_JS_PATH          = os.path.join(os.path.dirname(__file__), "chart.js")
-_DRAWING_ENGINE_PATH    = os.path.join(os.path.dirname(__file__), "drawing_engine.js")
-_INTEGRATION_PATCH_PATH = os.path.join(os.path.dirname(__file__), "drawing_engine_integration.patch.js")
+_CHART_JS_PATH          = resource_path("chart_engine/renderer/chart.js")
+_DRAWING_ENGINE_PATH    = resource_path("chart_engine/renderer/drawing_engine.js")
+_INTEGRATION_PATCH_PATH = resource_path("chart_engine/renderer/drawing_engine_integration.patch.js")
 
 
 # ─── Config dataclass ─────────────────────────────────────────────────────────

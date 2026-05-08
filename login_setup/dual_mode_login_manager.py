@@ -24,6 +24,8 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Optional, Dict, Any, List
 from urllib.parse import urlparse, parse_qs
 
+from utils.resource_path import resource_path
+
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QMessageBox, QWidget, QStackedWidget, QCheckBox, QFrame,
@@ -876,12 +878,7 @@ class DualModeLoginManager(QDialog):
 
     def _apply_styles(self):
         texture_path = os.path.normpath(
-            os.path.join(
-                os.path.dirname(os.path.dirname(__file__)),
-                "assets",
-                "textures",
-                "login_manager_texture.png",
-            )
+            resource_path("assets/textures/login_manager_texture.png")
         ).replace("\\", "/")
 
         stylesheet = """
