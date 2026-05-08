@@ -511,6 +511,17 @@ class EnhancedSearchInput(QLineEdit):
     def arm_replace_on_next_input(self) -> None:
         self._replace_on_next = True
 
+    def start_symbol_entry(self, text: str) -> None:
+        """Focus the input and seed it with the first typed symbol character."""
+        upper = (text or "").upper()
+        self._replace_on_next = False
+        self.setFocus()
+        self.setText(upper)
+        self.setCursorPosition(len(upper))
+        self.deselect()
+        if upper:
+            self._debounce.start()
+
     def set_loading(self, loading: bool) -> None:
         pass  # placeholder for visual loading indicator
 

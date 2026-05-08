@@ -2586,12 +2586,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             if not (event.modifiers() & (Qt.KeyboardModifier.ControlModifier |
                                          Qt.KeyboardModifier.AltModifier |
                                          Qt.KeyboardModifier.MetaModifier)):
-                # Clear and focus the symbol input
-                self.header_toolbar.search_input.clear()
-                self.header_toolbar.search_input.setFocus()
-
-                # Send the key to the input field
-                self.header_toolbar.search_input.setText(event.text())
+                # Seed the symbol input with the initiating key without leaving
+                # that character selected; otherwise the next keystroke replaces it.
+                self.header_toolbar.search_input.start_symbol_entry(event.text())
                 return
 
         # Call parent implementation for all other keys
