@@ -10,7 +10,7 @@ from PySide6.QtCore import Signal, Slot, Qt, QThread, QTimer
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem, QHeaderView,
     QAbstractItemView, QPushButton, QHBoxLayout, QLabel, QComboBox, QMessageBox,
-    QDialog, QLineEdit, QFormLayout, QGroupBox, QFrame, QTextEdit,
+    QDialog, QLineEdit, QGroupBox, QTextEdit,
     QStyledItemDelegate, QStyleOptionViewItem, QApplication, QStyle
 )
 from PySide6.QtGui import QColor, QFont, QBrush, QCursor, QFontMetrics
@@ -105,7 +105,7 @@ class ModernAddScanDialog(QDialog):
 
         self.setWindowTitle("Edit Chartink Scan" if self.is_edit else "Add New Chartink Scan")
         self.setModal(True)
-        self.setFixedSize(600, 500)
+        self.setFixedSize(600, 410)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self._drag_pos = None
@@ -117,7 +117,7 @@ class ModernAddScanDialog(QDialog):
         self.name_input.selectAll()  # Optional: select all text if any exists
 
     def _setup_ui(self):
-        # Main container for the "frosted" background effect
+        # Main container
         main_container = QWidget()
         main_container.setObjectName("dialogContainer")
 
@@ -127,7 +127,7 @@ class ModernAddScanDialog(QDialog):
 
         container_layout = QVBoxLayout(main_container)
         container_layout.setContentsMargins(20, 16, 20, 20)
-        container_layout.setSpacing(15)
+        container_layout.setSpacing(14)
 
         # Header with title and close button
         header_layout = QHBoxLayout()
@@ -185,28 +185,6 @@ class ModernAddScanDialog(QDialog):
         form_layout.addWidget(self.tag_input)
 
         container_layout.addWidget(form_group)
-
-        # Help section
-        help_frame = QFrame()
-        help_frame.setObjectName("helpFrame")
-        help_layout = QVBoxLayout(help_frame)
-        help_layout.setContentsMargins(12, 8, 12, 8)
-
-        help_title = QLabel("💡 How to get scan clauses:")
-        help_title.setObjectName("helpTitle")
-
-        help_text = QLabel(
-            "• Go to chartink.com and create your scan\n"
-            "• Copy the URL or just the clause part\n"
-            "• Example: ( {57960} ( latest \"close\" > latest \"sma( close , 20 )\" ) )"
-        )
-        help_text.setObjectName("helpText")
-        help_text.setWordWrap(True)
-
-        help_layout.addWidget(help_title)
-        help_layout.addWidget(help_text)
-
-        container_layout.addWidget(help_frame)
 
         # Button section
         button_layout = QHBoxLayout()
@@ -296,115 +274,100 @@ class ModernAddScanDialog(QDialog):
     def _apply_styles(self):
         self.setStyleSheet("""
             QWidget#dialogContainer {
-                background-color: rgba(0, 0, 0, 0.8);
-                border: 1px solid rgba(60, 60, 60, 0.5);
-                border-radius: 8px;
+                background-color: #0a0d12;
+                border: 1px solid #1a2030;
+                border-radius: 0px;
             }
 
             QLabel#dialogTitle {
-                color: #ffffff;
+                color: #e8f0ff;
                 font-size: 16px;
                 font-weight: 600;
             }
 
             QPushButton#closeButton {
-                background-color: transparent;
-                color: #a0a0a0;
-                border: none;
-                border-radius: 4px;
+                background-color: #0a0d12;
+                color: #5a7090;
+                border: 1px solid #1a2030;
+                border-radius: 0px;
                 font-size: 14px;
             }
             QPushButton#closeButton:hover {
-                background-color: rgba(50, 50, 50, 0.5);
-                color: #ffffff;
+                background-color: #141920;
+                color: #e8f0ff;
             }
 
             QGroupBox#formGroup {
-                background-color: rgba(20, 20, 20, 0.7);
-                border: 1px solid rgba(50, 50, 50, 0.5);
-                border-radius: 6px;
+                background-color: #0f1318;
+                border: 1px solid #1a2030;
+                border-radius: 0px;
                 font-weight: 500;
                 font-size: 12px;
-                color: #e0e0e0;
+                color: #a8bcd4;
                 padding-top: 10px;
             }
             QGroupBox#formGroup::title {
                 subcontrol-origin: margin;
                 left: 10px;
                 padding: 0 5px;
-                color: #6a9cff;
+                color: #a8bcd4;
             }
 
             QLabel#fieldLabel {
-                color: #e0e0e0;
+                color: #a8bcd4;
                 font-size: 12px;
                 font-weight: 500;
                 margin-bottom: 2px;
             }
 
             QLineEdit#minimalInput, QTextEdit#minimalTextArea, QComboBox#minimalInput {
-                background-color: #0d0d0d;
-                border: 1px solid #303030;
-                border-radius: 3px;
-                color: #ffffff;
+                background-color: #0f1318;
+                border: 1px solid #1a2030;
+                border-radius: 0px;
+                color: #e8f0ff;
                 padding: 6px 8px;
                 font-size: 13px;
-                selection-background-color: #6a9cff;
+                selection-background-color: #1a2840;
+                selection-color: #e8f0ff;
                 font-family: "Segoe UI", sans-serif;
             }
             QTextEdit#minimalTextArea {
-                font-family: "Consolas", "Monaco", monospace;
+                font-family: "Consolas", "JetBrains Mono", monospace;
             }
             QLineEdit#minimalInput:focus, QTextEdit#minimalTextArea:focus, QComboBox#minimalInput:focus {
-                border-color: #00d4ff;
-                background-color: #1a1a1a;
+                border: 1px solid #00d4ff;
+                background-color: #141920;
             }
             QLineEdit#minimalInput::placeholder, QTextEdit#minimalTextArea::placeholder {
-                color: #808080;
-            }
-
-            QFrame#helpFrame {
-                background-color: rgba(10, 10, 20, 0.7);
-                border: 1px solid rgba(40, 40, 60, 0.5);
-                border-radius: 6px;
-            }
-            QLabel#helpTitle {
-                color: #a0c0ff;
-                font-size: 12px;
-                font-weight: 600;
-                margin-bottom: 5px;
-            }
-            QLabel#helpText {
-                color: #c0c0c0;
-                font-size: 11px;
-                line-height: 1.3;
+                color: #5a7090;
             }
 
             QPushButton#primaryMinimalButton, QPushButton#secondaryMinimalButton {
-                border: none;
-                border-radius: 4px;
+                border: 1px solid #1a2030;
+                border-radius: 0px;
                 font-size: 12px;
                 font-weight: 600;
                 padding: 8px 15px;
                 min-width: 70px;
             }
             QPushButton#primaryMinimalButton {
-                background-color: #6a9cff;
-                color: #ffffff;
+                background-color: #00d4a8;
+                color: #050709;
             }
             QPushButton#primaryMinimalButton:hover {
-                background-color: #5a8be0;
+                background-color: #22c4a0;
             }
             QPushButton#primaryMinimalButton:disabled {
-                background-color: #303030;
-                color: #707070;
+                background-color: #0f1318;
+                color: #2a3a50;
             }
             QPushButton#secondaryMinimalButton {
-                background-color: #303030;
-                color: #e0e0e0;
+                background-color: #0f1318;
+                color: #a8bcd4;
             }
             QPushButton#secondaryMinimalButton:hover {
-                background-color: #404040;
+                background-color: #141920;
+                color: #e8f0ff;
             }
         """)
 
@@ -417,7 +380,7 @@ class ModernManageScansDialog(QDialog):
         self.scans = scans.copy()
         self.setWindowTitle("Manage Chartink Scans")
         self.setModal(True)
-        self.setFixedSize(720, 520)
+        self.setFixedSize(760, 540)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self._drag_pos = None
@@ -436,15 +399,25 @@ class ModernManageScansDialog(QDialog):
 
         container_layout = QVBoxLayout(main_container)
         container_layout.setContentsMargins(20, 16, 20, 20)
-        container_layout.setSpacing(15)
+        container_layout.setSpacing(14)
 
         # Header
         header_layout = QHBoxLayout()
+        header_layout.setSpacing(12)
+
+        title_stack = QVBoxLayout()
+        title_stack.setSpacing(2)
 
         title_label = QLabel("Manage Scans")
         title_label.setObjectName("dialogTitle")
 
-        self.add_btn = QPushButton("+ Add New")
+        subtitle_label = QLabel("Edit saved scans, organize tags, and remove stale clauses.")
+        subtitle_label.setObjectName("dialogSubtitle")
+
+        title_stack.addWidget(title_label)
+        title_stack.addWidget(subtitle_label)
+
+        self.add_btn = QPushButton("+ Add Scan")
         self.add_btn.setObjectName("addMinimalButton")
         self.add_btn.clicked.connect(self._add_scan)
 
@@ -453,9 +426,9 @@ class ModernManageScansDialog(QDialog):
         close_btn.setFixedSize(24, 24)
         close_btn.clicked.connect(self.reject)
 
-        header_layout.addWidget(title_label)
-        header_layout.addWidget(self.add_btn)
+        header_layout.addLayout(title_stack)
         header_layout.addStretch()
+        header_layout.addWidget(self.add_btn)
         header_layout.addWidget(close_btn)
 
         container_layout.addLayout(header_layout)
@@ -521,17 +494,20 @@ class ModernManageScansDialog(QDialog):
             # Name
             name_item = QTableWidgetItem(scan.get("name", "Unnamed"))
             name_item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+            name_item.setForeground(QBrush(QColor("#e8f0ff")))
             self.scans_table.setItem(row, 0, name_item)
 
             # Tag
             tag_item = QTableWidgetItem(scan.get("tag", "Others"))
+            tag_item.setForeground(QBrush(QColor("#a8bcd4")))
             self.scans_table.setItem(row, 1, tag_item)
 
-            # URL preview (truncated)
-            url = scan.get("url", "")
-            preview = url[:60] + "..." if len(url) > 60 else url
+            # Clause preview (truncated)
+            clause = scan.get("url", "")
+            preview = clause[:72] + "..." if len(clause) > 72 else clause
             preview_item = QTableWidgetItem(preview)
             preview_item.setFont(QFont("Consolas", 8))
+            preview_item.setForeground(QBrush(QColor("#7a94b0")))
             self.scans_table.setItem(row, 2, preview_item)
 
             # Actions buttons
@@ -623,64 +599,72 @@ class ModernManageScansDialog(QDialog):
     def _apply_styles(self):
         self.setStyleSheet("""
             QWidget#dialogContainer {
-                background-color: rgba(0, 0, 0, 0.8);
-                border: 1px solid rgba(60, 60, 60, 0.5);
-                border-radius: 8px;
+                background-color: #0a0d12;
+                border: 1px solid #1a2030;
+                border-radius: 0px;
             }
 
             QLabel#dialogTitle {
-                color: #ffffff;
+                color: #e8f0ff;
                 font-size: 16px;
                 font-weight: 600;
             }
+            QLabel#dialogSubtitle {
+                color: #5a7090;
+                font-size: 11px;
+                font-weight: 500;
+            }
 
             QPushButton#addMinimalButton {
-                background-color: #2e8b57;
-                color: #ffffff;
-                border: none;
-                border-radius: 4px;
+                background-color: #00d4a8;
+                color: #050709;
+                border: 1px solid #1a2030;
+                border-radius: 0px;
                 font-size: 12px;
-                font-weight: 600;
+                font-weight: 700;
                 padding: 6px 12px;
             }
             QPushButton#addMinimalButton:hover {
-                background-color: #246b43;
+                background-color: #22c4a0;
             }
 
             QPushButton#editMinimalButton {
-                background-color: #3a3a3a;
-                color: #d8d8d8;
-                border: none;
-                border-radius: 3px;
+                background-color: #0f1318;
+                color: #a8bcd4;
+                border: 1px solid #1a2030;
+                border-radius: 0px;
                 font-size: 11px;
             }
             QPushButton#editMinimalButton:hover {
-                background-color: #505050;
+                background-color: #141920;
+                color: #e8f0ff;
             }
 
             QPushButton#closeButton {
-                background-color: transparent;
-                color: #a0a0a0;
-                border: none;
-                border-radius: 4px;
+                background-color: #0a0d12;
+                color: #5a7090;
+                border: 1px solid #1a2030;
+                border-radius: 0px;
                 font-size: 14px;
             }
             QPushButton#closeButton:hover {
-                background-color: rgba(50, 50, 50, 0.5);
-                color: #ffffff;
+                background-color: #141920;
+                color: #e8f0ff;
             }
 
             QTableWidget#minimalTable {
                 background-color: #0f1318;
+                alternate-background-color: #0f1318;
                 border: 1px solid #1a2030;
                 border-radius: 0px;
                 gridline-color: #1a2030;
                 selection-background-color: #1a2840;
-                selection-color: #ffffff;
+                selection-color: #e8f0ff;
+                color: #a8bcd4;
                 font-size: 13px;
             }
             QTableWidget#minimalTable::item {
-                padding: 1px 1px;
+                padding: 1px 6px;
                 border-bottom: 1px solid #1a2030;
                 background-color: transparent;
             }
@@ -689,7 +673,7 @@ class ModernManageScansDialog(QDialog):
             }
             QTableWidget#minimalTable::item:selected {
                 background-color: #1a2840;
-                color: #ffffff;
+                color: #e8f0ff;
                 font-weight: 600;
             }
             QTableWidget#minimalTable::item:alternate {
@@ -697,12 +681,12 @@ class ModernManageScansDialog(QDialog):
             }
 
             QHeaderView::section {
-                background-color: #1a1a1a;
-                color: #a0c0ff;
-                padding: 4px 8px;
+                background-color: #0a0d12;
+                color: #a8bcd4;
+                padding: 5px 8px;
                 border: none;
-                border-bottom: 1px solid #303030;
-                border-right: 1px solid #101010;
+                border-bottom: 1px solid #1a2030;
+                border-right: 1px solid #1a2030;
                 font-weight: 600;
                 font-size: 11px;
             }
@@ -710,55 +694,58 @@ class ModernManageScansDialog(QDialog):
                 border-right: none;
             }
             QHeaderView::section:hover {
-                background-color: #2a2a2a;
+                background-color: #141920;
             }
 
             QPushButton#deleteMinimalButton {
-                background-color: #cc4444;
-                color: #ffffff;
-                border: none;
-                border-radius: 4px;
-                font-size: 14px;
+                background-color: #0f1318;
+                color: #ff4d6a;
+                border: 1px solid #1a2030;
+                border-radius: 0px;
+                font-size: 13px;
                 font-weight: normal;
                 padding: 0px;
                 margin: 0px;
             }
             QPushButton#deleteMinimalButton:hover {
-                background-color: #ff6666;
-                border: 1px solid #ff8888;
+                background-color: #141920;
+                color: #ff4d6a;
+                border: 1px solid #ff4d6a;
             }
             QPushButton#deleteMinimalButton:pressed {
-                background-color: #aa3333;
-                border: 1px solid #883333;
+                background-color: #200a10;
+                color: #ff4d6a;
+                border: 1px solid #7a2030;
             }
 
             QLabel#infoLabel {
-                color: #a0c0ff;
+                color: #7a94b0;
                 font-size: 12px;
                 font-weight: 500;
             }
 
             QPushButton#primaryMinimalButton, QPushButton#secondaryMinimalButton {
-                border: none;
-                border-radius: 4px;
+                border: 1px solid #1a2030;
+                border-radius: 0px;
                 font-size: 12px;
                 font-weight: 600;
                 padding: 8px 15px;
                 min-width: 70px;
             }
             QPushButton#primaryMinimalButton {
-                background-color: #6a9cff;
-                color: #ffffff;
+                background-color: #00d4a8;
+                color: #050709;
             }
             QPushButton#primaryMinimalButton:hover {
-                background-color: #5a8be0;
+                background-color: #22c4a0;
             }
             QPushButton#secondaryMinimalButton {
-                background-color: #303030;
-                color: #e0e0e0;
+                background-color: #0f1318;
+                color: #a8bcd4;
             }
             QPushButton#secondaryMinimalButton:hover {
-                background-color: #404040;
+                background-color: #141920;
+                color: #e8f0ff;
             }
         """)
 
