@@ -1884,11 +1884,18 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
     def _setup_watchlist_shortcuts(self):
         """Setup keyboard shortcuts"""
-        # Watchlist shortcuts
-        shortcut_map = {"Ctrl+Shift+1": "Breakouts", "Ctrl+Shift+2": "EP", "Ctrl+Shift+3": "Parabolic"}
-        for key, category in shortcut_map.items():
-            shortcut = QShortcut(QKeySequence(key), self)
-            shortcut.activated.connect(lambda cat=category: self._add_symbol_to_watchlist_from_chart(cat))
+        self._watchlist_shortcuts = []
+
+        # Ctrl+Shift+1..9 -> add to watchlist index 1..9
+        for num in range(1, 10):
+            shortcut = QShortcut(QKeySequence(f"Ctrl+Shift+{num}"), self)
+            shortcut.activated.connect(lambda idx=num - 1: self._add_symbol_to_watchlist_from_chart_index(idx))
+            self._watchlist_shortcuts.append(shortcut)
+
+        # Ctrl+Shift+0 -> add to currently active watchlist
+        active_shortcut = QShortcut(QKeySequence("Ctrl+Shift+0"), self)
+        active_shortcut.activated.connect(self._add_symbol_to_active_watchlist_from_chart)
+        self._watchlist_shortcuts.append(active_shortcut)
 
         # Order history shortcut (Ctrl+H)
         order_history_shortcut = QShortcut(QKeySequence("Ctrl+H"), self)
@@ -1902,17 +1909,35 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self._setup_global_shortcuts()
         logger.info("Keyboard shortcuts initialized")
 
-    def _add_symbol_to_watchlist_from_chart(self, category: str):
-        """Add current chart symbol to watchlist"""
+    def _add_symbol_to_watchlist_from_chart_index(self, index: int):
+        """Add current chart symbol to watchlist by zero-based index."""
         current_symbol = getattr(self.candlestick_chart, 'current_symbol', None)
         if not current_symbol:
             status.show_info("No symbol on chart")
             return
 
-        if self.watchlist.add_symbol(current_symbol, category):
-            status.show_info(f"Added {current_symbol} to {category}")
+        watchlist_name = self.watchlist.get_watchlist_name_by_index(index)
+        if not watchlist_name:
+            status.show_info(f"Watchlist slot {index + 1} is empty")
+            return
+
+        if self.watchlist.add_symbol_to_watchlist_index(current_symbol, index):
+            status.show_info(f"Added {current_symbol} to {watchlist_name}")
         else:
-            status.show_info(f"{current_symbol} already in {category}")
+            status.show_info(f"{current_symbol} already in {watchlist_name}")
+
+    def _add_symbol_to_active_watchlist_from_chart(self):
+        """Add current chart symbol to the active watchlist."""
+        current_symbol = getattr(self.candlestick_chart, 'current_symbol', None)
+        if not current_symbol:
+            status.show_info("No symbol on chart")
+            return
+
+        active_name = self.watchlist.get_active_watchlist_name()
+        if self.watchlist.add_symbol_to_active_watchlist(current_symbol):
+            status.show_info(f"Added {current_symbol} to {active_name or 'active watchlist'}")
+        else:
+            status.show_info(f"{current_symbol} already in {active_name or 'active watchlist'}")
 
     def _setup_global_shortcuts(self):
         """Setup global navigation shortcuts"""

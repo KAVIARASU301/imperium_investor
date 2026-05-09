@@ -1043,6 +1043,37 @@ class TabbedWatchlistWidget(QWidget):
             return False
         return table.add_symbol(symbol)
 
+    def add_symbol_to_watchlist_index(self, symbol: str, index: int) -> bool:
+        """Add symbol to watchlist at zero-based index."""
+        entries = self._config.all()
+        if index < 0 or index >= len(entries):
+            return False
+
+        wl_id = entries[index].get("id")
+        if not wl_id:
+            return False
+
+        table = self._tables.get(wl_id)
+        if not table:
+            return False
+
+        return table.add_symbol(symbol)
+
+    def get_watchlist_name_by_index(self, index: int) -> Optional[str]:
+        """Return watchlist name at zero-based index."""
+        entries = self._config.all()
+        if index < 0 or index >= len(entries):
+            return None
+        return entries[index].get("name")
+
+    def get_active_watchlist_name(self) -> Optional[str]:
+        """Return currently active watchlist name."""
+        return self._dropdown.currentText() or None
+
+    def add_symbol_to_active_watchlist(self, symbol: str) -> bool:
+        """Add symbol to currently active watchlist."""
+        return self.add_symbol(symbol)
+
     def get_all_tokens(self) -> List[int]:
         tokens = []
         for table in self._tables.values():
