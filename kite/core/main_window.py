@@ -366,6 +366,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         message.setWindowTitle("Keyboard Shortcuts")
         message.setIcon(QMessageBox.Icon.Information)
         message.setTextFormat(Qt.TextFormat.RichText)
+        message.setStyleSheet("QLabel { background-color: transparent; }")
         message.setText(
             """
             <h3>Keyboard Shortcuts Reference</h3>
@@ -1387,8 +1388,15 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     # ==============================================================================
 
     @Slot(str, float)
-    def _show_order_dialog(self, symbol: str, ltp_from_chart: float = 0.0):
+    def _show_order_dialog(self, symbol: str = "", ltp_from_chart: float = 0.0):
         """Show order dialog - simplified"""
+        symbol = (symbol or "").strip().upper()
+        if not symbol:
+            symbol = self._get_active_symbol_for_shortcuts()
+        if not symbol:
+            show_info("Select a symbol on chart before placing an order")
+            return
+
         ltp = ltp_from_chart if ltp_from_chart > 0.0 else self._get_fresh_ltp(symbol)
         if ltp == 0.0:
             show_error(f"Could not fetch LTP for {symbol}")
