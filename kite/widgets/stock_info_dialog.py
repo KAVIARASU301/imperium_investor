@@ -27,7 +27,7 @@ import logging
 from typing import Any, Dict, Optional
 
 from PySide6.QtCore import Qt, QPoint, QObject, Signal, QThread
-from PySide6.QtGui import QMouseEvent
+from PySide6.QtGui import QMouseEvent, QCursor
 from PySide6.QtWidgets import (
     QAbstractButton, QAbstractSpinBox, QComboBox, QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QTableWidget, QVBoxLayout, QApplication,
@@ -649,11 +649,13 @@ class StockInfoDialog(QDialog):
         self._refresh_btn.setObjectName("siBarBtn")
         self._refresh_btn.setFixedSize(26, 26)
         self._refresh_btn.setToolTip("Refresh data from yfinance")
+        self._refresh_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._refresh_btn.clicked.connect(self._start_fetch)
 
         close_btn = QPushButton("✕")
         close_btn.setObjectName("siCloseBtn")
         close_btn.setFixedSize(26, 26)
+        close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         close_btn.clicked.connect(self.close)
 
         h.addWidget(self._title_lbl)

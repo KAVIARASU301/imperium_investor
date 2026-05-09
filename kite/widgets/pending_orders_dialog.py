@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from PySide6.QtCore import Qt, QTimer, Signal, QThreadPool, QPoint
+from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import (
     QDialog,
     QVBoxLayout,
@@ -190,9 +191,11 @@ class PendingOrdersDialog(QDialog):
         self.refresh_btn = QPushButton("↺")
         self.refresh_btn.setObjectName("toolBtn")
         self.refresh_btn.setToolTip("Refresh pending orders")
+        self.refresh_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.close_btn = QPushButton("✕")
         self.close_btn.setObjectName("closeBtn")
         self.close_btn.setToolTip("Close")
+        self.close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         title_layout.addWidget(badge)
         title_layout.addWidget(self.title_label)
         title_layout.addStretch()

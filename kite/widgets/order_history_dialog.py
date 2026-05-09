@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QFormLayout, QAbstractButton, QAbstractSpinBox
 )
 from PySide6.QtCore import Qt, Signal, QDate, QTimer, QThreadPool
-from PySide6.QtGui import QColor, QMouseEvent, QFont
+from PySide6.QtGui import QColor, QMouseEvent, QFont, QCursor
 
 logger = logging.getLogger(__name__)
 from kite.utils.worker import Worker
@@ -491,6 +491,7 @@ class OrderHistoryDialog(QDialog):
         close_btn.setObjectName("closeBtn")
         close_btn.clicked.connect(self.close)
         close_btn.setFixedSize(26, 26)
+        close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
         header_layout.setContentsMargins(12, 0, 12, 0)
         header_layout.setSpacing(8)

@@ -3,7 +3,7 @@ from datetime import datetime
 
 import plotly.graph_objects as go
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QCursor
 from PySide6.QtWidgets import (
     QAbstractButton,
     QAbstractSpinBox,
@@ -122,10 +122,12 @@ class PerformanceDialog(QDialog):
         self.refresh_btn = QPushButton("↺")
         self.refresh_btn.setObjectName("toolBtn")
         self.refresh_btn.setFixedSize(26, 26)
+        self.refresh_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
         self.close_btn = QPushButton("✕")
         self.close_btn.setObjectName("closeBtn")
         self.close_btn.setFixedSize(26, 26)
+        self.close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
         layout.addWidget(title)
         layout.addWidget(mode_badge)
