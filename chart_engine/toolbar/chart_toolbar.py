@@ -903,8 +903,8 @@ class ChartToolbar(QFrame):
             QPushButton#orderBtn {{
                 background: rgba(0,212,255,0.08);
                 color: #5ddeff;
-                border: 1px solid rgba(0,212,255,0.20);
-                border-radius: 3px;
+                border: 1px solid rgba(0,212,255,0.16);
+                border-radius: 1px;
                 font-family: -apple-system, "Segoe UI", sans-serif;
                 font-size: 9px;
                 font-weight: 800;
@@ -912,12 +912,12 @@ class ChartToolbar(QFrame):
             }}
             QPushButton#orderBtn:hover {{
                 background: rgba(0,212,255,0.16);
-                border-color: rgba(0,212,255,0.45);
+                border-color: rgba(0,212,255,0.34);
                 color: #9aedff;
             }}
             QPushButton#orderBtn:pressed {{
                 background: rgba(0,212,255,0.22);
-                border-color: rgba(0,212,255,0.60);
+                border-color: rgba(0,212,255,0.42);
             }}
 
             /* ─ ALL DROPDOWN MENUS ────────────────────────────────────── */

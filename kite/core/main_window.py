@@ -545,7 +545,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         title_layout.setContentsMargins(0, 0, 0, 0)
         title_layout.setSpacing(4)
 
-        self.title_label = QLabel("qullamaggie")
+        self.title_label = QLabel("Qullamaggie")
         self.title_label.setObjectName("appTitle")
         title_layout.addWidget(self.title_label)
 
