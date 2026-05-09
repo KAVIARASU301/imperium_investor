@@ -537,6 +537,7 @@ class OrderDialog(QDialog):
             | Qt.WindowType.WindowStaysOnTopHint
         )
         self.setModal(True)
+        self.setWindowTitle("Order Dialog")
         self.setAttribute(Qt.WA_TranslucentBackground, False)
         self.setMinimumWidth(500)
         self.resize(500, 560)
@@ -626,12 +627,6 @@ class OrderDialog(QDialog):
         h.addWidget(self._sym_label)
         h.addStretch()
 
-        self._close_btn = QPushButton("✕")
-        self._close_btn.setObjectName("closeBtn")
-        self._close_btn.setFixedSize(26, 26)
-        self._close_btn.setCursor(QCursor(Qt.PointingHandCursor))
-        self._close_btn.clicked.connect(self.close)
-        h.addWidget(self._close_btn)
         return f
 
     # ── FORM PANEL ───────────────────────────────────────────────────────────
@@ -1035,18 +1030,6 @@ class OrderDialog(QDialog):
             }}
             QFrame#formPanel {{
                 background:{P.BG1};
-            }}
-            QPushButton#closeBtn {{
-                background: transparent;
-                color: #5a7090;
-                border: none;
-                font-size: 14px;
-                font-weight: 700;
-                border-radius: 2px;
-            }}
-            QPushButton#closeBtn:hover {{
-                background: rgba(255, 77, 106, 0.15);
-                color: #ff4d6a;
             }}
             QFrame#depthPanel {{
                 background:{P.BG1};
