@@ -308,12 +308,8 @@ class FloatingWatchlistDialog(QDialog):
         title = QLabel("WATCHLIST")
         title.setObjectName("floatWlTitle")
 
-        self._count_badge = QLabel("0")
-        self._count_badge.setObjectName("floatWlBadge")
-
         h.addWidget(self._dot)
         h.addWidget(title)
-        h.addWidget(self._count_badge)
         h.addStretch()
 
         # Pin toggle
@@ -619,7 +615,6 @@ class FloatingWatchlistDialog(QDialog):
             rec = data.get(sym, {})
             self._write_row(row, sym, rec)
 
-        self._count_badge.setText(str(len(sorted_syms)))
         self._sym_count_lbl.setText(f"{len(sorted_syms)} symbols")
         self._dot.setStyleSheet(
             f"color: {'#00d4a8' if sorted_syms else '#2a3a50'}; background: transparent;"

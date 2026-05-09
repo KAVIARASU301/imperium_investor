@@ -325,12 +325,8 @@ class FloatingPositionsDialog(QDialog):
         title = QLabel("POSITIONS")
         title.setObjectName("barTitle")
 
-        self._count_badge = QLabel("0")
-        self._count_badge.setObjectName("countBadge")
-
         h.addWidget(self._dot)
         h.addWidget(title)
-        h.addWidget(self._count_badge)
         h.addStretch()
 
         # Right controls
@@ -555,7 +551,6 @@ class FloatingPositionsDialog(QDialog):
 
         self._subscribe_new_tokens()
         self._update_footer()
-        self._count_badge.setText(str(len(new_data)))
         self._dot.setStyleSheet(
             f"color: {'#00d4a8' if new_data else '#2a3a50'}; background: transparent;"
         )
