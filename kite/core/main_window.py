@@ -33,6 +33,7 @@ from kite.widgets.floating_watchlist_dialog import attach_floating_watchlist
 from kite.core.alert_management_system import AlertSystemManager
 from kite.core.chart_lines_manager import ChartLinesManager
 from kite.core.data_cache import MarketAwareDataCache
+from kite.core.account_manager import AccountManager
 
 from kite.core.position_manager import PositionManager
 from kite.core.shutdown_manager import CleanShutdownMixin
@@ -185,7 +186,15 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         # Header toolbar dedicated to trading actions
         # Use the raw Kite client for live data, but keep the paper trader for paper mode
         toolbar_client = self.trader if self.trading_mode == 'paper' else self.real_kite_client
-        self.header_toolbar = HeaderToolbar(toolbar_client, self)
+        self.header_toolbar = HeaderToolbar(toolbar_client, self, enable_account_polling=False)
+
+        self.account_manager = AccountManager(toolbar_client, parent=self)
+        self.account_manager.margins_updated.connect(self.header_toolbar._handle_account_info_update)
+        self.account_manager.margins_updated.connect(self._on_account_info_updated)
+        self.account_manager.refresh_margins(force=True)
+        self._account_refresh_timer = QTimer(self)
+        self._account_refresh_timer.timeout.connect(self.account_manager.refresh_if_stale)
+        self._account_refresh_timer.start(60_000)
         self.header_toolbar.color_settings_requested.connect(self._open_color_settings_dialog)
         main_layout.addWidget(self.header_toolbar)
 
@@ -1317,6 +1326,18 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         except Exception as e:
             logger.error(f"Failed to subscribe to tokens: {e}")
 
+
+    @Slot(dict)
+    def _on_account_info_updated(self, account_info: Dict[str, Any]) -> None:
+        self._latest_account_info = account_info or {}
+
+    def _build_order_details_with_account(self, base_order_details: Dict[str, Any]) -> Dict[str, Any]:
+        order_details = dict(base_order_details or {})
+        if hasattr(self, "account_manager"):
+            self.account_manager.refresh_if_stale()
+            order_details["available_margin"] = self.account_manager.get_cached_balance()
+        return order_details
+
     # ==============================================================================
     # SIMPLIFIED ORDER HANDLING WITH STATUS BAR
     # ==============================================================================
@@ -1334,6 +1355,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         default_qty = self.config_manager.load_settings().get('default_quantity', 1)
         order_details = {'tradingsymbol': symbol, 'ltp': ltp, 'transaction_type': 'BUY', 'quantity': default_qty}
+        order_details = self._build_order_details_with_account(order_details)
 
         instrument = self.instrument_map.get(symbol, {})
         dialog = OrderDialog(self, symbol, ltp, order_details, instrument=instrument, ltp_fetcher=self._get_fresh_ltp)
@@ -1346,7 +1368,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         if symbol:
             ltp = self._get_fresh_ltp(symbol)
             instrument = self.instrument_map.get(symbol, {})
-            dialog = OrderDialog(self, symbol, ltp, order_data, instrument=instrument, ltp_fetcher=self._get_fresh_ltp)
+            dialog = OrderDialog(self, symbol, ltp, self._build_order_details_with_account(order_data), instrument=instrument, ltp_fetcher=self._get_fresh_ltp)
             dialog.order_placed.connect(self._handle_order_placement)
             dialog.show()
 
@@ -1363,6 +1385,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         default_qty = self.config_manager.load_settings().get('default_quantity', 1)
         order_details = {'tradingsymbol': symbol, 'ltp': ltp, 'transaction_type': 'SELL', 'quantity': default_qty}
+        order_details = self._build_order_details_with_account(order_details)
 
         instrument = self.instrument_map.get(symbol, {})
         dialog = OrderDialog(self, symbol, ltp, order_details, instrument=instrument, ltp_fetcher=self._get_fresh_ltp)
@@ -1420,7 +1443,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         }
 
         instrument = self.instrument_map.get(symbol, {})
-        dialog = OrderDialog(self, symbol, ltp, exit_order, instrument=instrument, ltp_fetcher=self._get_fresh_ltp)
+        dialog = OrderDialog(self, symbol, ltp, self._build_order_details_with_account(exit_order), instrument=instrument, ltp_fetcher=self._get_fresh_ltp)
         dialog.order_placed.connect(self._handle_exit_order_placement)
         dialog.show()
 
@@ -1447,7 +1470,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         }
 
         instrument = self.instrument_map.get(symbol, {})
-        dialog = OrderDialog(self, symbol, ltp, exit_order, instrument=instrument, ltp_fetcher=self._get_fresh_ltp)
+        dialog = OrderDialog(self, symbol, ltp, self._build_order_details_with_account(exit_order), instrument=instrument, ltp_fetcher=self._get_fresh_ltp)
         dialog.order_placed.connect(self._handle_exit_order_placement)
         dialog.show()
 

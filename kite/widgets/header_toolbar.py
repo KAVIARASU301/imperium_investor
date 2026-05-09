@@ -90,7 +90,7 @@ class HeaderToolbar(QToolBar):
     stock_info_requested             = Signal(str)
     account_refresh_requested        = Signal()
 
-    def __init__(self, trader: Union[KiteConnect, Any], parent=None):
+    def __init__(self, trader: Union[KiteConnect, Any], parent=None, enable_account_polling: bool = True):
         super().__init__(parent)
         self.setMovable(False)
         self.setObjectName("enhancedHeaderToolbar")
@@ -102,10 +102,12 @@ class HeaderToolbar(QToolBar):
         self._show_account_balance = True
         self._symbol_index = SymbolIndex()
         self.threadpool = QThreadPool()
+        self._enable_account_polling = bool(enable_account_polling)
 
         self._init_ui()
         self._apply_styles()
-        self._setup_timers()
+        if self._enable_account_polling:
+            self._setup_timers()
 
     # ── UI construction ───────────────────────────────────────────────────────
 
