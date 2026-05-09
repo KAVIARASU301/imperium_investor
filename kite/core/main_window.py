@@ -207,6 +207,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         initial_theme = self.color_theme_manager.get_theme()
         self.header_toolbar.apply_color_theme(initial_theme)
         self.chartink_scanner.apply_color_theme(initial_theme)
+        self.chartink_scanner.set_live_ticks_enabled(
+            bool(initial_theme.get("scanner_live_ticks", True))
+        )
         self.watchlist.apply_color_theme(initial_theme)
         self.positions_table.apply_color_theme(initial_theme)
         self.candlestick_chart.apply_color_theme(initial_theme)
@@ -623,6 +626,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.watchlist.apply_color_theme(theme)
         self.positions_table.apply_color_theme(theme)
         self.candlestick_chart.apply_color_theme(theme)
+        self.chartink_scanner.set_live_ticks_enabled(
+            bool(theme.get("scanner_live_ticks", True))
+        )
         alignment = str(theme.get("status_bar_alignment", "left"))
         self.app_status_bar.set_elements_alignment(alignment)
 
@@ -1267,9 +1273,11 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         logger.info(f"Added {len(watchlist_tokens)} watchlist tokens")
 
         # Priority 4: Scanner-visible symbols
-        scanner_tokens = self._get_scanner_visible_tokens()
-        all_tokens.update(scanner_tokens)
-        logger.info(f"Added {len(scanner_tokens)} scanner tokens")
+        theme = self.color_theme_manager.get_theme()
+        if theme.get("scanner_live_ticks", True):
+            scanner_tokens = self._get_scanner_visible_tokens()
+            all_tokens.update(scanner_tokens)
+            logger.info(f"Added {len(scanner_tokens)} scanner tokens")
 
         # Priority 5: Alert tokens
         alert_tokens = self._get_alert_tokens()

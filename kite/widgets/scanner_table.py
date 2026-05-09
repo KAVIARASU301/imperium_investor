@@ -861,6 +861,7 @@ class ChartinkScannerTable(QWidget):
         self._instrument_map: Dict[str, Dict] = {}
         self._token_to_symbol: Dict[int, str] = {}
         self._dirty_symbols = set()
+        self._live_ticks_enabled: bool = True
         self._dropdown_scan_indices: List[int] = []
         self._current_symbol_index = 0  # Track current symbol for spacebar navigation
         self._last_visible_tokens: set = set()  # track to avoid redundant re-subs
@@ -922,6 +923,11 @@ class ChartinkScannerTable(QWidget):
             data = self._symbol_data.get(symbol)
             if data is not None:
                 self._update_row_data(row, data)
+
+    def set_live_ticks_enabled(self, enabled: bool) -> None:
+        self._live_ticks_enabled = enabled
+        if not enabled:
+            self._dirty_symbols.clear()
 
     def _next_symbol(self):
         """Navigate to the next symbol in the scanner list."""
@@ -1553,6 +1559,9 @@ class ChartinkScannerTable(QWidget):
 
     def update_data(self, ticks: list) -> None:
         """Apply live tick updates to scanner rows for price, volume and change %."""
+        if not self._live_ticks_enabled:
+            return
+
         if not ticks or not self._token_to_symbol:
             return
 

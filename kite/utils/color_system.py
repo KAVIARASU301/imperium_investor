@@ -10,6 +10,7 @@ DEFAULT_COLOR_THEME: Dict[str, Any] = {
     "link_all_sections": True,
     "enable_table_directional_colors": False,
     "enable_volume_strength_indicator": False,
+    "scanner_live_ticks": True,
     "status_bar_alignment": "left",
     "show_account_name": True,
     "show_account_balance": True,
@@ -76,6 +77,7 @@ class ColorThemeManager(QObject):
         merged["enable_volume_strength_indicator"] = bool(
             custom.get("enable_volume_strength_indicator", merged["enable_volume_strength_indicator"])
         )
+        merged["scanner_live_ticks"] = bool(custom.get("scanner_live_ticks", True))
         alignment = str(custom.get("status_bar_alignment", merged["status_bar_alignment"]))
         merged["status_bar_alignment"] = "right" if alignment.lower() == "right" else "left"
         merged["show_account_name"] = bool(custom.get("show_account_name", merged["show_account_name"]))
