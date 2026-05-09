@@ -194,8 +194,10 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 exe = EXE(
     pyz,
     a.scripts,
-    [],
-    exclude_binaries=True,
+    a.binaries,    # Added: includes libraries in the file
+    a.zipfiles,    # Added: includes zipped data
+    a.datas,
+
     name='qullamaggie',
     debug=False,
     bootloader_ignore_signals=False,
@@ -207,13 +209,13 @@ exe = EXE(
     icon=APP_ICON,
 )
 
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=False,
-    upx_exclude=[],
-    name='qullamaggie',
-)
+#coll = COLLECT(
+#    exe,
+#    a.binaries,
+#    a.zipfiles,
+#    a.datas,
+#    strip=False,
+#    upx=False,
+#    upx_exclude=[],
+#    name='qullamaggie',
+#)
