@@ -12,7 +12,7 @@ from typing import List, Dict, Union, Any, Optional
 
 from PySide6.QtCore import Qt, QByteArray, QTimer, Slot, Signal, QEvent
 from PySide6.QtWidgets import QMainWindow, QSplitter, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, \
-    QPushButton, QLabel, QApplication, QMessageBox, QMenuBar, QSizePolicy
+    QPushButton, QLabel, QApplication, QMessageBox, QMenuBar, QSizePolicy, QDialog, QLineEdit
 from PySide6.QtGui import QMouseEvent, QKeySequence, QShortcut, QKeyEvent, QAction
 
 from kite.widgets.scanner_table import ChartinkScannerTable
@@ -1901,8 +1901,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         order_history_shortcut = QShortcut(QKeySequence("Ctrl+H"), self)
         order_history_shortcut.activated.connect(self._show_order_history_dialog)
 
-        # Performance dashboard shortcut (Ctrl+P)
-        performance_shortcut = QShortcut(QKeySequence("Ctrl+P"), self)
+        # Performance dashboard shortcut (Ctrl+D)
+        performance_shortcut = QShortcut(QKeySequence("Ctrl+D"), self)
         performance_shortcut.activated.connect(self._show_performance_dialog)
 
         # Global navigation shortcuts
@@ -1940,8 +1940,35 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             status.show_info(f"{current_symbol} already in {active_name or 'active watchlist'}")
 
     def _setup_global_shortcuts(self):
-        """Setup global navigation shortcuts"""
+        """Setup global trading/navigation shortcuts."""
         from PySide6.QtGui import QShortcut, QKeySequence
+
+        # --- Execution shortcuts (institutional function-key standard) ---
+        self.buy_shortcut_f1 = QShortcut(QKeySequence("F1"), self)
+        self.buy_shortcut_f1.activated.connect(self._on_buy_shortcut)
+        self.buy_shortcut_shift_b = QShortcut(QKeySequence("Shift+B"), self)
+        self.buy_shortcut_shift_b.activated.connect(self._on_buy_shortcut)
+
+        self.sell_shortcut_f2 = QShortcut(QKeySequence("F2"), self)
+        self.sell_shortcut_f2.activated.connect(self._on_sell_shortcut)
+        self.sell_shortcut_shift_s = QShortcut(QKeySequence("Shift+S"), self)
+        self.sell_shortcut_shift_s.activated.connect(self._on_sell_shortcut)
+
+        self.order_entry_shortcut_f3 = QShortcut(QKeySequence("F3"), self)
+        self.order_entry_shortcut_f3.activated.connect(self._on_order_entry_shortcut)
+        self.order_entry_shortcut_shift_o = QShortcut(QKeySequence("Shift+O"), self)
+        self.order_entry_shortcut_shift_o.activated.connect(self._on_order_entry_shortcut)
+
+        # --- View shortcuts ---
+        self.positions_toggle_shortcut_ctrl_p = QShortcut(QKeySequence("Ctrl+P"), self)
+        self.positions_toggle_shortcut_ctrl_p.activated.connect(self._toggle_floating_positions_shortcut)
+        self.positions_toggle_shortcut_shift_p = QShortcut(QKeySequence("Shift+P"), self)
+        self.positions_toggle_shortcut_shift_p.activated.connect(self._toggle_floating_positions_shortcut)
+
+        self.stock_info_shortcut_ctrl_i = QShortcut(QKeySequence("Ctrl+I"), self)
+        self.stock_info_shortcut_ctrl_i.activated.connect(self._show_stock_info_for_active_symbol)
+        self.stock_info_shortcut_shift_i = QShortcut(QKeySequence("Shift+I"), self)
+        self.stock_info_shortcut_shift_i.activated.connect(self._show_stock_info_for_active_symbol)
 
         # Global spacebar shortcut for symbol navigation
         self.spacebar_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Space), self)
@@ -1951,7 +1978,64 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.shift_spacebar_shortcut = QShortcut(QKeySequence("Shift+Space"), self)
         self.shift_spacebar_shortcut.activated.connect(self._handle_global_shift_spacebar)
 
-        logger.info("Global navigation shortcuts initialized")
+        self.escape_shortcut = QShortcut(QKeySequence("Esc"), self)
+        self.escape_shortcut.activated.connect(self._handle_escape_shortcut)
+
+        logger.info("Global trading/navigation shortcuts initialized")
+
+    def _get_active_symbol_for_shortcuts(self) -> str:
+        symbol = (getattr(self.candlestick_chart, "current_symbol", "") or "").strip().upper()
+        if not symbol:
+            symbol = (self.header_toolbar.get_current_symbol() or "").strip().upper()
+        return symbol
+
+    def _focus_order_quantity_input(self):
+        active_modal = QApplication.activeModalWidget()
+        if isinstance(active_modal, QDialog):
+            qty_input = active_modal.findChild(QLineEdit, "qt_spinbox_lineedit")
+            if qty_input:
+                qty_input.setFocus(Qt.FocusReason.ShortcutFocusReason)
+                qty_input.selectAll()
+
+    def _open_order_ticket_for_side(self, side: str):
+        symbol = self._get_active_symbol_for_shortcuts()
+        if not symbol:
+            show_info("Select a symbol on chart before placing an order")
+            return
+        if side.upper() == "SELL":
+            self._on_header_sell_order(symbol)
+        else:
+            self._show_order_dialog(symbol)
+        QTimer.singleShot(0, self._focus_order_quantity_input)
+        status.show_info(f"{side.upper()} TICKET: {symbol}")
+
+    def _on_buy_shortcut(self):
+        self._open_order_ticket_for_side("BUY")
+
+    def _on_sell_shortcut(self):
+        self._open_order_ticket_for_side("SELL")
+
+    def _on_order_entry_shortcut(self):
+        self._open_order_ticket_for_side("BUY")
+
+    def _toggle_floating_positions_shortcut(self):
+        if self.floating_positions_dialog and self.floating_positions_dialog.isVisible():
+            self.floating_positions_dialog.close()
+        else:
+            self._show_floating_positions_dialog()
+
+    def _show_stock_info_for_active_symbol(self):
+        self._show_stock_info_dialog(self._get_active_symbol_for_shortcuts())
+
+    def _handle_escape_shortcut(self):
+        active_modal = QApplication.activeModalWidget()
+        if isinstance(active_modal, QDialog):
+            active_modal.close()
+            return
+        focused_widget = QApplication.focusWidget()
+        if focused_widget == self.header_toolbar.search_input:
+            self.header_toolbar.search_input.clearFocus()
+            return
 
     def _handle_global_spacebar(self):
         """Handle spacebar press based on focused widget"""
