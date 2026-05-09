@@ -500,6 +500,7 @@ class AlertManagementDialog(QDialog):
         refresh_btn.setObjectName("alertBarBtn")
         refresh_btn.setFixedSize(22, 22)
         refresh_btn.setToolTip("Refresh")
+        refresh_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         refresh_btn.clicked.connect(self.refresh_tables)
 
         self._pin_btn = QToolButton()
@@ -509,6 +510,7 @@ class AlertManagementDialog(QDialog):
         self._pin_btn.setToolTip("Toggle always-on-top")
         self._pin_btn.setCheckable(True)
         self._pin_btn.setChecked(True)
+        self._pin_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._pin_btn.toggled.connect(self._toggle_pin)
 
         close_btn = QToolButton()
@@ -516,6 +518,7 @@ class AlertManagementDialog(QDialog):
         close_btn.setObjectName("alertCloseBtn")
         close_btn.setFixedSize(22, 22)
         close_btn.setToolTip("Close")
+        close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         close_btn.clicked.connect(self.close)
 
         layout.addWidget(refresh_btn)

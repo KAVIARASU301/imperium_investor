@@ -197,6 +197,19 @@ def mouseReleaseEvent(self, event):
     super().mouseReleaseEvent(event)
 ```
 
+### 3.5 Cursor Behavior for Draggable Title Bars
+
+For frameless dialogs with draggable title bars, cursor states must distinguish draggable regions from clickable controls:
+
+- The title bar drag region may use a move cursor (for example `SizeAllCursor`).
+- Every interactive title-bar control (`QToolButton`/`QPushButton` such as refresh, pin, minimize, close) must explicitly set a click cursor:
+
+```python
+btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+```
+
+**Rule:** Window-control buttons must never display the drag cursor while hovered.
+
 ---
 
 ## 4. Typography

@@ -322,18 +322,21 @@ class FloatingWatchlistDialog(QDialog):
         self._pin_btn.setText("📌")
         self._pin_btn.setToolTip("Toggle always-on-top")
         self._pin_btn.setFixedSize(20, 20)
+        self._pin_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._pin_btn.clicked.connect(self._toggle_pin)
 
         min_btn = QToolButton()
         min_btn.setObjectName("floatWlBarBtn")
         min_btn.setText("—")
         min_btn.setFixedSize(20, 20)
+        min_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         min_btn.clicked.connect(self.showMinimized)
 
         close_btn = QToolButton()
         close_btn.setObjectName("floatWlCloseBtn")
         close_btn.setText("✕")
         close_btn.setFixedSize(20, 20)
+        close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         close_btn.clicked.connect(self.hide)
 
         h.addWidget(self._pin_btn)
