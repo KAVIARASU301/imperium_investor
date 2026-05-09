@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, date
 from typing import Dict
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import (
     QAbstractButton,
     QAbstractItemView,
@@ -67,11 +68,13 @@ class PnlHistoryDialog(QDialog):
         self.refresh_btn = QPushButton("↺")
         self.refresh_btn.setObjectName("toolBtn")
         self.refresh_btn.setFixedSize(26, 26)
+        self.refresh_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.refresh_btn.clicked.connect(self._populate_calendar)
 
         close_btn = QPushButton("✕")
         close_btn.setObjectName("closeBtn")
         close_btn.setFixedSize(26, 26)
+        close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         close_btn.clicked.connect(self.close)
 
         title_layout.addWidget(self.title_label)

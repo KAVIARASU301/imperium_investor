@@ -624,6 +624,14 @@ class OrderDialog(QDialog):
         self._sym_label = _Label(self.symbol, P.T0, 16, bold=True)
         self._sym_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         h.addWidget(self._sym_label)
+        h.addStretch()
+
+        self._close_btn = QPushButton("✕")
+        self._close_btn.setObjectName("closeBtn")
+        self._close_btn.setFixedSize(26, 26)
+        self._close_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        self._close_btn.clicked.connect(self.close)
+        h.addWidget(self._close_btn)
         return f
 
     # ── FORM PANEL ───────────────────────────────────────────────────────────
@@ -1027,6 +1035,18 @@ class OrderDialog(QDialog):
             }}
             QFrame#formPanel {{
                 background:{P.BG1};
+            }}
+            QPushButton#closeBtn {{
+                background: transparent;
+                color: #5a7090;
+                border: none;
+                font-size: 14px;
+                font-weight: 700;
+                border-radius: 2px;
+            }}
+            QPushButton#closeBtn:hover {{
+                background: rgba(255, 77, 106, 0.15);
+                color: #ff4d6a;
             }}
             QFrame#depthPanel {{
                 background:{P.BG1};
@@ -1450,4 +1470,3 @@ def _sep_v() -> QFrame:
     f.setFixedWidth(1)
     f.setStyleSheet(f"background:{P.BORDER};border:none;")
     return f
-
