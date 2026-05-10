@@ -831,11 +831,12 @@ class CandlestickChart(QWidget):
             )
 
         chart_type = prefs.get("chart_type", "candle")
+        chart_type_js = json.dumps(chart_type)
         self._js(
-            f"if(window.chart){{"
-            f"window.chart.setChartSettings({{chartType:'{chart_type}'}});"
-            f"window.chart.requestDraw();"
-            f"}}"
+            "if(window.chart){"
+            f"window.chart.setChartSettings({{chartType:{chart_type_js}}});"
+            "window.chart.requestDraw();"
+            "}"
         )
         self._save_global_settings_patch({"toolbar_preferences": dict(prefs or {})})
 
@@ -1069,11 +1070,12 @@ class CandlestickChart(QWidget):
         self._history_days_by_interval    = dict(DEFAULT_DAYS_BACK)
         self._history_days_by_interval.update(s.get("history_days_by_interval", {}))
         chart_type = s.get("chart_type", "candle")
+        chart_type_js = json.dumps(chart_type)
         self._js(
-            f"if(window.chart){{"
-            f"window.chart.setChartSettings({{chartType:'{chart_type}',kagiReversalPct:1.0}});"
-            f"window.chart.requestDraw();"
-            f"}}"
+            "if(window.chart){"
+            f"window.chart.setChartSettings({{chartType:{chart_type_js},kagiReversalPct:1.0}});"
+            "window.chart.requestDraw();"
+            "}"
         )
         self._save_global_settings_patch(s)
         self._refresh_toolbar_symbol_text()
