@@ -138,6 +138,8 @@ class CandlestickChart(QWidget):
         self._tool_selection_mode       = self.global_chart_settings.get("tool_selection_mode", "single_use")
         self._toolbar_symbol_display    = self.global_chart_settings.get("toolbar_symbol_display", "symbol")
         self.current_visible_candle_count = self.global_chart_settings.get("default_visible_candles", 100)
+        self._history_days_by_interval = dict(DEFAULT_DAYS_BACK)
+        self._history_days_by_interval.update(self.global_chart_settings.get("history_days_by_interval", {}))
         self._indicator_visibility = self.drawing_storage.load_global_indicator_visibility()
         self._current_watermark_description = ""
 
@@ -481,6 +483,7 @@ class CandlestickChart(QWidget):
             instrument_token=token,
             interval=self.current_interval,
             force_refresh=force_refresh,
+            days_back_overrides=self._history_days_by_interval,
         )
         self.data_loader_thread.data_loaded.connect(
             lambda df, key: self._on_data_loaded(df, key)
@@ -1033,6 +1036,7 @@ class CandlestickChart(QWidget):
             "crosshair_snap_enabled": self._crosshair_snap_enabled,
             "tool_selection_mode": self._tool_selection_mode,
             "toolbar_symbol_display": self._toolbar_symbol_display,
+            "history_days_by_interval": dict(self._history_days_by_interval),
         }
         dlg = ChartSettingsDialog(current, self)
         dlg.settings_changed.connect(self._apply_chart_settings)
@@ -1057,6 +1061,8 @@ class CandlestickChart(QWidget):
         self._crosshair_snap_enabled     = s.get("crosshair_snap_enabled", self._crosshair_snap_enabled)
         self._tool_selection_mode        = s.get("tool_selection_mode", self._tool_selection_mode)
         self._toolbar_symbol_display     = s.get("toolbar_symbol_display", self._toolbar_symbol_display)
+        self._history_days_by_interval    = dict(DEFAULT_DAYS_BACK)
+        self._history_days_by_interval.update(s.get("history_days_by_interval", {}))
         chart_type = s.get("chart_type", "candle")
         self._js(
             f"if(window.chart){{"

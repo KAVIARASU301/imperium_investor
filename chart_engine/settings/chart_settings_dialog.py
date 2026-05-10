@@ -21,6 +21,9 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QPushButton,
     QSpinBox,
+    QTabWidget,
+    QWidget,
+    QVBoxLayout,
 )
 
 
@@ -41,8 +44,16 @@ class ChartSettingsDialog(QDialog):
     # ─── Build ────────────────────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
-        layout = QFormLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(16, 16, 16, 16)
+        root.setSpacing(10)
+
+        tabs = QTabWidget()
+        root.addWidget(tabs)
+
+        display_tab = QWidget()
+        layout = QFormLayout(display_tab)
+        layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(10)
 
         # ── Candle dimensions ──
@@ -132,6 +143,34 @@ class ChartSettingsDialog(QDialog):
         self.wm_font_size.setToolTip("0 = auto size")
         layout.addRow("Watermark Font Size:", self.wm_font_size)
 
+        tabs.addTab(display_tab, "Display")
+
+        chart_tab = QWidget()
+        chart_layout = QFormLayout(chart_tab)
+        chart_layout.setContentsMargins(8, 8, 8, 8)
+        chart_layout.setSpacing(10)
+        self.history_days_inputs: Dict[str, QSpinBox] = {}
+        interval_rows = [
+            ("minute", "1 minute"),
+            ("3minute", "3 minute"),
+            ("5minute", "5 minute"),
+            ("10minute", "10 minute"),
+            ("15minute", "15 minute"),
+            ("30minute", "30 minute"),
+            ("60minute", "1 hour"),
+            ("day", "Day"),
+            ("week", "Week"),
+            ("month", "Month"),
+        ]
+        saved_days = dict(self._s.get("history_days_by_interval", {}))
+        for key, label in interval_rows:
+            spin = QSpinBox()
+            spin.setRange(1, 4000)
+            spin.setValue(int(saved_days.get(key, 365)))
+            chart_layout.addRow(f"{label} (days):", spin)
+            self.history_days_inputs[key] = spin
+        tabs.addTab(chart_tab, "Chart")
+
         # ── Buttons ──
         btn_row = QHBoxLayout()
         apply_btn = QPushButton("Apply")
@@ -141,7 +180,7 @@ class ChartSettingsDialog(QDialog):
         btn_row.addStretch()
         btn_row.addWidget(apply_btn)
         btn_row.addWidget(cancel_btn)
-        layout.addRow(btn_row)
+        root.addLayout(btn_row)
 
     def _color_row(self, key: str, default: str) -> QHBoxLayout:
         row = QHBoxLayout()
@@ -182,6 +221,10 @@ class ChartSettingsDialog(QDialog):
             "indicator_scale_labels_enabled": self.indicator_scale_labels_enabled.isChecked(),
             "crosshair_snap_enabled": self.crosshair_snap_enabled.isChecked(),
             "tool_selection_mode": self.tool_selection_mode.currentData(),
+            "history_days_by_interval": {
+                interval: spin.value()
+                for interval, spin in self.history_days_inputs.items()
+            },
         }
         self.settings_changed.emit(new)
         self.accept()

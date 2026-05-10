@@ -15,18 +15,29 @@ logger = logging.getLogger(__name__)
 # Kite historical API max lookback windows by interval.
 # Keep requests at/under these ceilings so the chart does not fail with
 # "interval exceeds max limit: <N> days".
-_DAYS_BACK: Dict[str, int] = {
-    "minute":    60,
-    "3minute":  100,
-    "5minute":  100,
+DEFAULT_DAYS_BACK: Dict[str, int] = {
+    "minute":     5,
+    "3minute":   10,
+    "5minute":   10,
     "10minute": 100,
-    "15minute": 200,
-    "30minute": 200,
-    "60minute": 400,
+    "15minute":  30,
+    "30minute":  50,
+    "60minute": 100,
     "day":     2000,
     "week":    2000,
     "month":   2000,
 }
+
+
+def resolve_days_back(interval: str, overrides: Optional[Dict[str, int]] = None) -> int:
+    base = int(DEFAULT_DAYS_BACK.get(interval, 365))
+    if not isinstance(overrides, dict):
+        return base
+    raw = overrides.get(interval)
+    try:
+        return max(1, int(raw)) if raw is not None else base
+    except (TypeError, ValueError):
+        return base
 
 
 # ─── DataFetcher ─────────────────────────────────────────────────────────────
@@ -122,6 +133,7 @@ class ChartDataLoaderThread(QThread):
         interval: str,
         force_refresh: bool = False,
         parent=None,
+        days_back_overrides: Optional[Dict[str, int]] = None,
     ):
         super().__init__(parent)
         self.data_fetcher     = data_fetcher
@@ -132,6 +144,7 @@ class ChartDataLoaderThread(QThread):
         self.force_refresh    = force_refresh
         self.cache_key        = f"{symbol}_{interval}"
         self._stop_requested  = False
+        self.days_back_overrides = dict(days_back_overrides or {})
 
     def stop(self) -> None:
         """
@@ -169,7 +182,7 @@ class ChartDataLoaderThread(QThread):
 
         # ── Build date range ──────────────────────────────────────────────
         to_date   = datetime.now()
-        days_back = _DAYS_BACK.get(self.interval, 365)
+        days_back = resolve_days_back(self.interval, self.days_back_overrides)
         from_date = to_date - timedelta(days=days_back)
         self._emit_progress(25)
 

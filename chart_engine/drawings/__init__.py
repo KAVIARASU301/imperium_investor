@@ -31,6 +31,18 @@ _DEFAULT_GLOBAL_SETTINGS: Dict[str, Any] = {
     "indicator_scale_labels_enabled": False,
     "crosshair_snap_enabled": True,
     "tool_selection_mode": "single_use",
+    "history_days_by_interval": {
+        "minute": 5,
+        "3minute": 10,
+        "5minute": 10,
+        "10minute": 100,
+        "15minute": 30,
+        "30minute": 50,
+        "60minute": 100,
+        "day": 2000,
+        "week": 2000,
+        "month": 2000,
+    },
     "indicator_visibility": {},
 }
 
