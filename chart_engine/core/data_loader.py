@@ -12,31 +12,20 @@ logger = logging.getLogger(__name__)
 
 # ─── Date range config per interval ──────────────────────────────────────────
 #
-# Rule: (desired_trading_days × 1.45) rounded up to the next clean number,
-#       then add a 10-day safety buffer for holidays.
-#
-# Kite API hard limits (trading days):
-#   minute       → 60 td  → need ≤ 60×1.45+10 ≈ 97  cd  → use 100
-#   3minute      → 100 td → need ≤ 100×1.45+10 ≈ 155 cd  → use 160
-#   5minute      → 100 td → same as 3minute                → use 160
-#   10minute     → 100 td → same                           → use 160
-#   15minute     → 200 td → need ≤ 200×1.45+10 ≈ 300 cd  → use 300
-#   30minute     → 200 td → same as 15minute               → use 300
-#   60minute     → 400 td → need ≤ 400×1.45+10 ≈ 590 cd  → use 600
-#   day          → 2000 td→ need ≤ 2000×1.45+10 ≈ 2910 cd → use 2900
-#   week / month → full   → 3000 cd is safe and well within limits
-#
+# Kite historical API max lookback windows by interval.
+# Keep requests at/under these ceilings so the chart does not fail with
+# "interval exceeds max limit: <N> days".
 _DAYS_BACK: Dict[str, int] = {
-    "day":      1800,   # was 2000 — fixes missing candles near holidays
-    "week":     1800,
-    "month":    1800,
-    "60minute": 600,    # was 90  — fixes truncated intraday history
-    "30minute": 300,    # was 60
-    "15minute": 300,    # was 45
-    "10minute": 160,    # was 21
-    "5minute":  160,    # was 14
-    "3minute":  160,    # was 10
-    "minute":   100,    # was 5  — critical fix: 5 cal days = 3–4 trading days
+    "minute":    60,
+    "3minute":  100,
+    "5minute":  100,
+    "10minute": 100,
+    "15minute": 200,
+    "30minute": 200,
+    "60minute": 400,
+    "day":     2000,
+    "week":    2000,
+    "month":   2000,
 }
 
 

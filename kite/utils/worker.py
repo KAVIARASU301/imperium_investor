@@ -23,6 +23,16 @@ class Worker(QRunnable):
         self.log_exceptions = log_exceptions
         self.signals = WorkerSignals()
 
+    @staticmethod
+    def _safe_emit(signal, *args):
+        """Emit Qt signals defensively during shutdown/object teardown."""
+        try:
+            signal.emit(*args)
+        except RuntimeError:
+            # The owning QObject can be destroyed during app shutdown.
+            # Ignore late emissions from background workers.
+            pass
+
     @Slot()
     def run(self):
         try:
@@ -31,8 +41,8 @@ class Worker(QRunnable):
             if self.log_exceptions:
                 traceback.print_exc()
             exctype, value = sys.exc_info()[:2]
-            self.signals.error.emit((exctype, value, traceback.format_exc()))
+            self._safe_emit(self.signals.error, (exctype, value, traceback.format_exc()))
         else:
-            self.signals.result.emit(result)
+            self._safe_emit(self.signals.result, result)
         finally:
-            self.signals.finished.emit()
+            self._safe_emit(self.signals.finished)
