@@ -160,7 +160,10 @@ class DatabaseWorker(QObject):
         conn = None
         try:
             conn = sqlite3.connect(self.db_path, timeout=5.0, check_same_thread=False)
-            if op_type == "log_order_placement":
+            if op_type == "init_schema":
+                self._init_schema(conn)
+                return True, "schema initialized"
+            elif op_type == "log_order_placement":
                 self._insert_order(conn, data)
                 return True, "order_placement logged"
             elif op_type == "log_order_update":
@@ -206,6 +209,25 @@ class DatabaseWorker(QObject):
             data.get("tag", ""),
             data.get("order_source", "manual"),
         ))
+        conn.commit()
+
+    def _init_schema(self, conn: sqlite3.Connection):
+        """Create tables and run migrations inside the worker thread."""
+        conn.executescript(SCHEMA_SQL)
+
+        existing_cols = {
+            row[1] for row in conn.execute("PRAGMA table_info(orders)")
+        }
+        for col_name, col_def in MIGRATION_COLUMNS:
+            if col_name not in existing_cols:
+                try:
+                    conn.execute(
+                        f"ALTER TABLE orders ADD COLUMN {col_name} {col_def}"
+                    )
+                    logger.info(f"Migration: added column '{col_name}' to orders table")
+                except Exception as e:
+                    logger.warning(f"Migration column '{col_name}' failed: {e}")
+
         conn.commit()
 
     def _update_order(self, conn: sqlite3.Connection, data: dict):
@@ -274,9 +296,6 @@ class TradeLogger(QObject):
 
         logger.info(f"TradeLogger [{broker}/{mode}] → {self.db_path}")
 
-        # Init schema synchronously on startup (fast)
-        self._init_schema()
-
         # Background worker
         self.worker_thread = QThread()
         self.worker_thread.setObjectName("TradeLoggerWorker")
@@ -286,6 +305,7 @@ class TradeLogger(QObject):
         self.worker_thread.started.connect(self.db_worker.start_processing)
         self.worker_thread.finished.connect(self.worker_thread.deleteLater)
         self.worker_thread.start()
+        self.db_worker.add_operation("init_schema", {})
 
     # ─────────────────────────────────────────────────────────────────────────
     # WRITE API
@@ -498,32 +518,8 @@ class TradeLogger(QObject):
     # INTERNAL
     # ─────────────────────────────────────────────────────────────────────────
 
-    def _init_schema(self):
-        """Create tables and run migrations synchronously."""
-        try:
-            conn = sqlite3.connect(self.db_path, timeout=10.0)
-            conn.executescript(SCHEMA_SQL)
-
-            # Migration: add columns that didn't exist in older databases
-            existing_cols = {
-                row[1] for row in conn.execute("PRAGMA table_info(orders)")
-            }
-            for col_name, col_def in MIGRATION_COLUMNS:
-                if col_name not in existing_cols:
-                    try:
-                        conn.execute(
-                            f"ALTER TABLE orders ADD COLUMN {col_name} {col_def}"
-                        )
-                        logger.info(f"Migration: added column '{col_name}' to orders table")
-                    except Exception as e:
-                        logger.warning(f"Migration column '{col_name}' failed: {e}")
-
-            conn.commit()
-            conn.close()
-            logger.info(f"Trade DB schema ready: {self.db_path}")
-        except Exception as e:
-            logger.error(f"Schema init failed: {e}")
-
     def _on_op_completed(self, success: bool, message: str):
         if not success:
             logger.error(f"DB operation failed: {message}")
+        elif message == "schema initialized":
+            logger.info(f"Trade DB schema ready: {self.db_path}")

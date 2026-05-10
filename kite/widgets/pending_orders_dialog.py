@@ -171,7 +171,6 @@ class PendingOrdersDialog(QDialog):
 
         self.auto_refresh_timer = QTimer(self)
         self.auto_refresh_timer.timeout.connect(self.refresh_orders)
-        self.auto_refresh_timer.start(7000)
 
         self.refresh_orders()
 
@@ -313,6 +312,9 @@ class PendingOrdersDialog(QDialog):
         return self._orders_by_id.get(order_id_item.text())
 
     def refresh_orders(self):
+        if not self.isVisible():
+            return
+
         if self._refresh_inflight:
             logger.debug("Pending order refresh skipped — previous broker request still running")
             return
@@ -435,8 +437,13 @@ class PendingOrdersDialog(QDialog):
         self.auto_refresh_timer.stop()
         super().closeEvent(event)
 
+    def hideEvent(self, event):
+        self.auto_refresh_timer.stop()
+        super().hideEvent(event)
+
     def showEvent(self, event):
         super().showEvent(event)
+        self.auto_refresh_timer.start(7000)
         if self.parent():
             parent_geo = self.parent().frameGeometry()
             center = parent_geo.center()

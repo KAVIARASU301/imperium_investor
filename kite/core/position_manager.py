@@ -113,7 +113,6 @@ class PositionManager(QObject):
         """Called when WebSocket disconnects."""
         self._ws_available = False
         logger.warning("PositionManager: WebSocket lost — switching to REST polling fallback")
-        self._ensure_safety_timer()
 
     # ─────────────────────────────────────────────────────────────────────────
     # PRIMARY PATH: WebSocket order updates
@@ -184,6 +183,11 @@ class PositionManager(QObject):
         Polls Kite REST /orders for orders that haven't been WS-confirmed
         within WS_TIMEOUT_SECONDS. Runs every 5s, not 1s.
         """
+        if not self._tracked:
+            self._safety_timer.stop()
+            logger.debug("Safety poll timer stopped — no tracked orders")
+            return
+
         needs_polling = [
             (oid, t) for oid, t in self._tracked.items()
             if not t.ws_confirmed and oid not in self._confirmed
@@ -271,7 +275,6 @@ class PositionManager(QObject):
                 f"Order {order_id} not confirmed via WS within {self.WS_TIMEOUT_SECONDS}s "
                 "— enabling REST fallback"
             )
-            self._ensure_safety_timer()
 
     # ─────────────────────────────────────────────────────────────────────────
     # COMPLETION HANDLERS
@@ -336,6 +339,7 @@ class PositionManager(QObject):
         # Refresh positions
         self.fetch_positions_from_kite("order_completed")
         del self._tracked[order_id]
+        self._stop_safety_timer_if_idle()
         logger.info(
             f"✅ Order complete: {order_id} | {tx_type} {filled_qty} {symbol} @ ₹{avg_price:.2f}"
         )
@@ -370,6 +374,7 @@ class PositionManager(QObject):
             })
 
         del self._tracked[order_id]
+        self._stop_safety_timer_if_idle()
         logger.warning(
             f"⚠️ Order {status}: {order_id} | {tx_type} {symbol} | Reason: {reason}"
         )
@@ -477,6 +482,12 @@ class PositionManager(QObject):
         for oid in expired:
             logger.warning(f"Purging expired unconfirmed order: {oid}")
             del self._tracked[oid]
+        self._stop_safety_timer_if_idle()
+
+    def _stop_safety_timer_if_idle(self):
+        if not self._tracked and self._safety_timer.isActive():
+            self._safety_timer.stop()
+            logger.debug("Safety poll timer stopped — no tracked orders remain")
 
     def stop_tracking(self):
         """Graceful shutdown — stop all timers."""

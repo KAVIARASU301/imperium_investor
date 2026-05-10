@@ -562,6 +562,9 @@ class FloatingPositionsDialog(QDialog):
     @Slot(int, float)
     def update_market_data(self, token: int, ltp: float) -> None:
         """Buffer tick; flushed by redraw timer (~5 fps)."""
+        if not self.isVisible():
+            return
+
         self._pending_ticks[token] = ltp
 
     # ═══════════════════════════════════════════════════════════════════════

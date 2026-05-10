@@ -138,6 +138,10 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self._tick_flush_timer.setInterval(60)
         self._tick_flush_timer.timeout.connect(self._flush_market_data_ticks)
         self._tick_flush_timer.start()
+        self._subscription_rebuild_timer = QTimer(self)
+        self._subscription_rebuild_timer.setSingleShot(True)
+        self._subscription_rebuild_timer.setInterval(300)
+        self._subscription_rebuild_timer.timeout.connect(self._rebuild_subscription_universe)
 
         # --- Setup Sequence ---
         self._setup_frameless_window()
@@ -787,7 +791,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 logger.info(f"Subscribed to chart token: {self.candlestick_chart.current_instrument_token}")
             except Exception as e:
                 logger.error(f"Failed to subscribe to chart: {e}")
-        self._on_watchlist_changed()
+        self._schedule_subscription_rebuild()
 
     def _connect_chart_signals(self):
         """Connect chart signals"""
@@ -850,7 +854,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 if self.market_data_worker and self.market_data_worker.is_connected():
                     self.market_data_worker.add_instruments([token])
                     logger.info(f"Added chart symbol {symbol} to subscription")
-                QTimer.singleShot(100, self._on_watchlist_changed)
+                self._schedule_subscription_rebuild()
             except Exception as e:
                 logger.error(f"Failed to subscribe to chart symbol {symbol}: {e}")
 
@@ -918,12 +922,12 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.chartink_scanner.symbol_selected.connect(self.candlestick_chart.on_search)
         self.chartink_scanner.symbol_selected.connect(self._on_scanner_symbol_selected)
         # Re-evaluate subscription universe whenever scan results refresh or user scrolls
-        self.chartink_scanner.scan_results_changed.connect(self._on_watchlist_changed)
-        self.chartink_scanner.visible_rows_changed.connect(self._on_watchlist_changed)
+        self.chartink_scanner.scan_results_changed.connect(self._schedule_subscription_rebuild)
+        self.chartink_scanner.visible_rows_changed.connect(self._schedule_subscription_rebuild)
         self.watchlist.symbol_selected.connect(self.candlestick_chart.on_search)
         self.watchlist.subscribe_tokens_requested.connect(self._subscribe_to_tokens)
         self.watchlist.place_order_requested.connect(self._show_order_dialog_from_dict)
-        self.watchlist.watchlist_changed.connect(self._on_watchlist_changed)
+        self.watchlist.watchlist_changed.connect(self._schedule_subscription_rebuild)
         self.watchlist.watchlist_changed.connect(self._sync_floating_watchlist_dialog)
         self.watchlist.watchlist_changed.connect(self._bind_spacebar_context_tracking)
         self._bind_spacebar_context_tracking()
@@ -1012,7 +1016,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         # Fetch positions after instruments are loaded
         QTimer.singleShot(1000, lambda: self.position_manager.fetch_positions_from_kite("instruments_loaded"))
 
-        self._on_watchlist_changed()
+        self._schedule_subscription_rebuild()
         self.chart_init_timer.start(1000)
         logger.info("Instruments loaded successfully.")
 
@@ -1076,7 +1080,23 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.watchlist.update_data(ticks)
         if self.floating_watchlist_dialog and self.floating_watchlist_dialog.isVisible():
             self.floating_watchlist_dialog.update_data(ticks)
-        self.chartink_scanner.update_data(ticks)
+        scanner_token_map = getattr(self.chartink_scanner, "_token_to_symbol", None)
+        if scanner_token_map:
+            scanner_ticks = []
+            for tick in ticks:
+                token = tick.get("instrument_token")
+                if token is None:
+                    continue
+                if token in scanner_token_map:
+                    scanner_ticks.append(tick)
+                    continue
+                try:
+                    if int(token) in scanner_token_map:
+                        scanner_ticks.append(tick)
+                except (TypeError, ValueError):
+                    continue
+            if scanner_ticks:
+                self.chartink_scanner.update_data(scanner_ticks)
 
         # 2. Positions — pass raw ticks; table does O(1) token→row lookup
         for tick in ticks:
@@ -1288,8 +1308,21 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             logger.debug(f"Market data exchange distribution: {exchange_counts}")
 
     @Slot()
+    def _schedule_subscription_rebuild(self):
+        """Debounce expensive subscription-universe rebuilds."""
+        if not hasattr(self, '_subscription_rebuild_timer'):
+            return
+
+        self._subscription_rebuild_timer.start()
+
+    @Slot()
     def _on_watchlist_changed(self):
-        """Handle watchlist changes with position priority"""
+        """Backward-compatible entrypoint for subscription rebuild triggers."""
+        self._schedule_subscription_rebuild()
+
+    @Slot()
+    def _rebuild_subscription_universe(self):
+        """Handle watchlist and UI changes with position-priority subscriptions."""
         logger.info("Watchlist changed - updating subscriptions")
         all_tokens = set()
 

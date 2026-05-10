@@ -541,6 +541,9 @@ class FloatingWatchlistDialog(QDialog):
         Receive the same tick list as the embedded watchlist.
         Buffers ticks; flushed at _REDRAW_INTERVAL.
         """
+        if not self.isVisible():
+            return
+
         if not ticks or not self._active_wl_id:
             return
 

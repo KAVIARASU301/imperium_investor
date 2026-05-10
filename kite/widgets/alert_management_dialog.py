@@ -434,6 +434,8 @@ class AlertManagementDialog(QDialog):
         self._prev_spacebar_enabled = None
         self._prev_shift_spacebar_enabled = None
         self._geometry_restored = False
+        self._last_snapshot = None
+        self._table_snapshots = {"active": {}, "triggered": {}, "history": {}}
 
         self._build_ui()
         self._apply_styles()
@@ -670,15 +672,24 @@ class AlertManagementDialog(QDialog):
             if alert.status in (AlertStatus.TRIGGERED.value, AlertStatus.EXPIRED.value)
         ]
 
-        self._populate_active(active)
-        self._populate_triggered(triggered)
-        self._populate_history(history)
+        snapshot = (
+            tuple(self._snapshot_alert(a) for a in active),
+            tuple(self._snapshot_alert(a) for a in triggered),
+            tuple(self._snapshot_alert(a) for a in history),
+        )
+        if snapshot == self._last_snapshot:
+            return
+
+        self._update_table_incremental("active", self.active_table, active, self._apply_active_row)
+        self._update_table_incremental("triggered", self.triggered_table, triggered, self._apply_triggered_row)
+        self._update_table_incremental("history", self.history_table, history, self._apply_history_row)
 
         self.tabs.setTabText(0, f"Active ({len(active)})")
         self.tabs.setTabText(1, f"Triggered ({len(triggered)})")
         self.tabs.setTabText(2, f"History ({len(history)})")
         self._count_lbl.setText(f"{len(active)} active")
         self._status_lbl.setText(f"Active: {len(active)}  ·  Triggered: {len(triggered)}")
+        self._last_snapshot = snapshot
 
     @staticmethod
     def _fmt_indian_datetime(dt_text: Optional[str]) -> str:
@@ -709,78 +720,126 @@ class AlertManagementDialog(QDialog):
             item.setFont(QFont("Consolas, JetBrains Mono", 9))
         return item
 
+    @staticmethod
+    def _snapshot_alert(alert):
+        return (
+            alert.id,
+            alert.status,
+            alert.symbol,
+            alert.condition,
+            float(alert.target_value),
+            alert.triggered_at,
+        )
+
+    def _update_table_incremental(self, table_key, table, alerts, row_updater):
+        new_ids = [alert.id for alert in alerts]
+        old_ids = [
+            table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+            for row in range(table.rowCount())
+            if table.item(row, 0) is not None
+        ]
+        if old_ids != new_ids:
+            table.setRowCount(len(alerts))
+            for row, alert in enumerate(alerts):
+                row_updater(table, row, alert)
+            self._table_snapshots[table_key] = {a.id: self._snapshot_alert(a) for a in alerts}
+            return
+
+        cached = self._table_snapshots.get(table_key, {})
+        for row, alert in enumerate(alerts):
+            fresh = self._snapshot_alert(alert)
+            if cached.get(alert.id) != fresh:
+                row_updater(table, row, alert)
+                cached[alert.id] = fresh
+        self._table_snapshots[table_key] = cached
+
+    def _apply_active_row(self, table, row, alert):
+        symbol_item = self._cell(alert.symbol, color=_T0)
+        symbol_item.setData(Qt.ItemDataRole.UserRole, alert.id)
+        table.setItem(row, 0, symbol_item)
+        table.setItem(row, 1, self._cell(alert.condition, color=_T2))
+        table.setItem(
+            row,
+            2,
+            self._cell(
+                f"₹{alert.target_value:.2f}",
+                Qt.AlignmentFlag.AlignRight,
+                _AMBER,
+                mono=True,
+            ),
+        )
+        del_btn = _action_btn(
+            "✕",
+            _BEAR,
+            f"Delete alert for {alert.symbol}",
+            lambda _checked=False, aid=alert.id: self._delete_alert(aid),
+        )
+        table.setCellWidget(row, 3, _ActionCell(del_btn))
+
+    def _apply_triggered_row(self, table, row, alert):
+        symbol_item = self._cell(alert.symbol, color=_AMBER)
+        symbol_item.setData(Qt.ItemDataRole.UserRole, alert.id)
+        table.setItem(row, 0, symbol_item)
+        table.setItem(row, 1, self._cell(alert.condition, color=_T2))
+        table.setItem(
+            row,
+            2,
+            self._cell(
+                f"₹{alert.target_value:.2f}",
+                Qt.AlignmentFlag.AlignRight,
+                _AMBER,
+                mono=True,
+            ),
+        )
+        table.setItem(row, 3, self._cell(self._fmt_dt(alert.triggered_at), color=_T2, mono=True))
+        ack_btn = _action_btn(
+            "✓",
+            _BULL,
+            "Acknowledge & move to history",
+            lambda _checked=False, aid=alert.id: self._ack_alert(aid),
+        )
+        del_btn = _action_btn(
+            "✕",
+            _BEAR,
+            "Delete",
+            lambda _checked=False, aid=alert.id: self._delete_alert(aid),
+        )
+        table.setCellWidget(row, 4, _ActionCell(ack_btn, del_btn))
+
+    def _apply_history_row(self, table, row, alert):
+        symbol_item = self._cell(alert.symbol, color=_T1)
+        symbol_item.setData(Qt.ItemDataRole.UserRole, alert.id)
+        table.setItem(row, 0, symbol_item)
+        table.setItem(row, 1, self._cell(alert.condition, color=_T2))
+        table.setItem(
+            row,
+            2,
+            self._cell(
+                f"₹{alert.target_value:.2f}",
+                Qt.AlignmentFlag.AlignRight,
+                _T2,
+                mono=True,
+            ),
+        )
+        table.setItem(row, 3, self._cell(self._fmt_dt(alert.triggered_at), color=_T3, mono=True))
+
     def _populate_active(self, alerts):
         table = self.active_table
         table.setRowCount(len(alerts))
         for row, alert in enumerate(alerts):
-            table.setItem(row, 0, self._cell(alert.symbol, color=_T0))
-            table.setItem(row, 1, self._cell(alert.condition, color=_T2))
-            table.setItem(
-                row,
-                2,
-                self._cell(
-                    f"₹{alert.target_value:.2f}",
-                    Qt.AlignmentFlag.AlignRight,
-                    _AMBER,
-                    mono=True,
-                ),
-            )
-            del_btn = _action_btn(
-                "✕",
-                _BEAR,
-                f"Delete alert for {alert.symbol}",
-                lambda _checked=False, aid=alert.id: self._delete_alert(aid),
-            )
-            table.setCellWidget(row, 3, _ActionCell(del_btn))
+            self._apply_active_row(table, row, alert)
 
     def _populate_triggered(self, alerts):
         table = self.triggered_table
         table.setRowCount(len(alerts))
         for row, alert in enumerate(alerts):
-            table.setItem(row, 0, self._cell(alert.symbol, color=_AMBER))
-            table.setItem(row, 1, self._cell(alert.condition, color=_T2))
-            table.setItem(
-                row,
-                2,
-                self._cell(
-                    f"₹{alert.target_value:.2f}",
-                    Qt.AlignmentFlag.AlignRight,
-                    _AMBER,
-                    mono=True,
-                ),
-            )
-            table.setItem(row, 3, self._cell(self._fmt_dt(alert.triggered_at), color=_T2, mono=True))
-            ack_btn = _action_btn(
-                "✓",
-                _BULL,
-                "Acknowledge & move to history",
-                lambda _checked=False, aid=alert.id: self._ack_alert(aid),
-            )
-            del_btn = _action_btn(
-                "✕",
-                _BEAR,
-                "Delete",
-                lambda _checked=False, aid=alert.id: self._delete_alert(aid),
-            )
-            table.setCellWidget(row, 4, _ActionCell(ack_btn, del_btn))
+            self._apply_triggered_row(table, row, alert)
 
     def _populate_history(self, alerts):
         table = self.history_table
         table.setRowCount(len(alerts))
         for row, alert in enumerate(alerts):
-            table.setItem(row, 0, self._cell(alert.symbol, color=_T1))
-            table.setItem(row, 1, self._cell(alert.condition, color=_T2))
-            table.setItem(
-                row,
-                2,
-                self._cell(
-                    f"₹{alert.target_value:.2f}",
-                    Qt.AlignmentFlag.AlignRight,
-                    _T2,
-                    mono=True,
-                ),
-            )
-            table.setItem(row, 3, self._cell(self._fmt_dt(alert.triggered_at), color=_T3, mono=True))
+            self._apply_history_row(table, row, alert)
 
     def _wire_symbol_navigation(self):
         for table in (self.active_table, self.triggered_table, self.history_table):
