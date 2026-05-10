@@ -3851,7 +3851,14 @@ class FixedTradingChart {
 
     _notifyZoomChange() {
         if (!this.chartBridge || !this.webChannelInitialized) return;
-        try { this.chartBridge.notify_zoom_changed(this.visibleCandleCount); }
+        try {
+            this.chartBridge.notify_zoom_changed(this.visibleCandleCount);
+            this.chartBridge.notify_zoom_preferences_changed(
+                Math.round(this.visibleCandleCount),
+                Math.round(this.candleWidth),
+                Math.round(this.candleSpacing),
+            );
+        }
         catch (e) { console.error('notify_zoom_changed error:', e); }
     }
 

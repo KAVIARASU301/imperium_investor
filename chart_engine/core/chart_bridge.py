@@ -34,6 +34,7 @@ class ChartBridge(QObject):
     chart_ready = Signal()
     drawings_changed = Signal(str)          # drawings JSON
     visible_candle_count_changed = Signal(int)
+    zoom_preferences_changed = Signal(int, int, int)  # visible count, candle width, candle spacing
     alert_creation_requested = Signal(str)  # alert JSON
     alert_price_updated = Signal(str)       # {symbol, old_price, new_price} — alert drag
     alert_line_deleted = Signal(str)        # {symbol, price} — alert line deleted
@@ -76,6 +77,11 @@ class ChartBridge(QObject):
     def notify_zoom_changed(self, count: int) -> None:
         if self.webChannelInitialized:
             self.visible_candle_count_changed.emit(count)
+
+    @Slot(int, int, int)
+    def notify_zoom_preferences_changed(self, count: int, candle_width: int, candle_spacing: int) -> None:
+        if self.webChannelInitialized:
+            self.zoom_preferences_changed.emit(count, candle_width, candle_spacing)
 
     @Slot(str)
     def notify_text_note_requested(self, mouse_pos_json: str) -> None:

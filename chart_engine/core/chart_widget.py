@@ -645,6 +645,7 @@ class CandlestickChart(QWidget):
         self.chart_bridge.chart_ready.connect(self._on_chart_ready)
         self.chart_bridge.drawings_changed.connect(self._on_drawings_changed)
         self.chart_bridge.visible_candle_count_changed.connect(self._on_zoom_changed)
+        self.chart_bridge.zoom_preferences_changed.connect(self._on_zoom_preferences_changed)
         self.chart_bridge.text_note_requested.connect(self._open_text_note_dialog)
         self.chart_bridge.text_note_edit_requested.connect(self._open_text_note_edit_dialog)
         self.chart_bridge.drawing_tool_cleared.connect(self._clear_active_tool_ui)
@@ -737,6 +738,23 @@ class CandlestickChart(QWidget):
             state = self.drawing_storage.load_state(self.current_symbol, self.current_interval)
             state["visible_candle_count"] = count
             self.drawing_storage.save_state(self.current_symbol, self.current_interval, state)
+
+    @Slot(int, int, int)
+    def _on_zoom_preferences_changed(self, count: int, candle_width: int, candle_spacing: int) -> None:
+        self.current_visible_candle_count = int(count)
+        self._current_candle_width = int(candle_width)
+        self._current_candle_spacing = int(candle_spacing)
+
+        if self.current_symbol and self.current_state == ChartState.LOADED:
+            state = self.drawing_storage.load_state(self.current_symbol, self.current_interval)
+            state["visible_candle_count"] = self.current_visible_candle_count
+            self.drawing_storage.save_state(self.current_symbol, self.current_interval, state)
+
+        self._save_global_settings_patch({
+            "candle_width": self._current_candle_width,
+            "candle_spacing": self._current_candle_spacing,
+            "default_visible_candles": self.current_visible_candle_count,
+        })
 
     @Slot(str)
     def _on_alert_price_updated(self, payload: str) -> None:
