@@ -374,6 +374,12 @@ class AlertEngine(QObject):
                     if day_open > 0:
                         self._day_open[sym] = day_open
 
+    @Slot(dict)
+    def set_token_symbol_map(self, token_to_symbol: Dict[int, str]) -> None:
+        """Replace token→symbol cache with a prebuilt map from manager."""
+        with QMutexLocker(self._mutex):
+            self._token_to_symbol = dict(token_to_symbol)
+
     def _evaluate_all(self):
         if not self._running:
             return
@@ -553,37 +559,6 @@ class AlertSystemManager(QObject):
         """Pass live ticks from main window's _on_market_data slot."""
         if not ticks:
             return
-
-        # Normalize Kite ticks so AlertEngine can always resolve symbols.
-        # KiteTicker ticks are token-keyed and usually omit tradingsymbol.
-        parent = self.parent()
-        if parent:
-            imap = getattr(parent, "instrument_map", {}) or {}
-            if imap:
-                # Lazy/refresh cache from symbol->instrument map.
-                if not self._token_to_symbol:
-                    for sym, meta in imap.items():
-                        token = int(meta.get("instrument_token", 0) or 0)
-                        if token > 0:
-                            self._token_to_symbol[token] = str(sym).upper()
-
-                enriched_ticks: List[Dict] = []
-                for tick in ticks:
-                    token = int(tick.get("instrument_token", 0) or 0)
-                    sym = str(tick.get("tradingsymbol") or "").strip().upper()
-                    if token > 0 and sym:
-                        self._token_to_symbol[token] = sym
-                    if not sym and token > 0:
-                        sym = self._token_to_symbol.get(token, "")
-                    if sym:
-                        enriched = dict(tick)
-                        enriched["tradingsymbol"] = sym
-                        enriched_ticks.append(enriched)
-                    else:
-                        enriched_ticks.append(tick)
-                self._market_data_received.emit(enriched_ticks)
-                return
-
         self._market_data_received.emit(ticks)
 
     # ──────────────────────────────────────────────────────────────
@@ -1021,8 +996,15 @@ class AlertSystemManager(QObject):
     # ──────────────────────────────────────────────────────────────
 
     def set_instrument_map(self, instrument_map: Dict[str, Dict]) -> None:
-        """Compatibility shim — instrument_map lives on the main window."""
-        pass   # No-op; we access it via self.parent().instrument_map
+        """Build token→symbol cache once and push it to AlertEngine thread."""
+        token_to_symbol: Dict[int, str] = {}
+        for symbol, meta in (instrument_map or {}).items():
+            token = int((meta or {}).get("instrument_token", 0) or 0)
+            if token > 0:
+                token_to_symbol[token] = str(symbol).strip().upper()
+
+        self._token_to_symbol = token_to_symbol
+        self.engine.set_token_symbol_map(token_to_symbol)
 
     def get_notification_counts(self) -> tuple:
         alerts = self.store.all()
