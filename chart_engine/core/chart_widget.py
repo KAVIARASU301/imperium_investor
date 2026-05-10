@@ -31,7 +31,12 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QColor, QShortcut, QKeySequence
 
 from chart_engine.core.chart_bridge import ChartBridge
-from chart_engine.core.data_loader import ChartDataLoaderThread, DataCache, DataFetcher
+from chart_engine.core.data_loader import (
+    DEFAULT_DAYS_BACK,
+    ChartDataLoaderThread,
+    DataCache,
+    DataFetcher,
+)
 from chart_engine.core.metrics import calculate_metrics
 from chart_engine.drawings import DrawingStorage
 from chart_engine.renderer.html_builder import ChartHtmlConfig, build_chart_html
