@@ -2,7 +2,6 @@
 #
 # Modal dialog for adjusting global chart appearance:
 #   - Candle + volume colors
-#   - Default visible candle count (zoom level)
 #   - Symbol watermark options
 #
 # Emits settings_changed(dict) on Apply so the chart can react live.
@@ -55,23 +54,6 @@ class ChartSettingsDialog(QDialog):
         layout = QFormLayout(display_tab)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(10)
-
-        # ── Candle dimensions ──
-        self.candle_width = QSpinBox()
-        self.candle_width.setRange(1, 10)
-        self.candle_width.setValue(self._s.get("candle_width", 3))
-        layout.addRow("Candle Width:", self.candle_width)
-
-        self.candle_spacing = QSpinBox()
-        self.candle_spacing.setRange(0, 5)
-        self.candle_spacing.setValue(self._s.get("candle_spacing", 3))
-        layout.addRow("Candle Spacing:", self.candle_spacing)
-
-        self.visible_candles = QSpinBox()
-        self.visible_candles.setRange(20, 500)
-        self.visible_candles.setSingleStep(10)
-        self.visible_candles.setValue(self._s.get("default_visible_candles", 100))
-        layout.addRow("Default Visible Candles:", self.visible_candles)
 
         # ── Candle colors ──
         layout.addRow("Up Candle Color:", self._color_row("up_candle_color", "#00c896"))
@@ -204,9 +186,6 @@ class ChartSettingsDialog(QDialog):
 
     def _apply(self) -> None:
         new = {
-            "candle_width": self.candle_width.value(),
-            "candle_spacing": self.candle_spacing.value(),
-            "default_visible_candles": self.visible_candles.value(),
             "up_candle_color": self._s.get("up_candle_color", "#00c896"),
             "down_candle_color": self._s.get("down_candle_color", "#e84060"),
             "up_volume_color": self._s.get("up_volume_color", self._s.get("up_candle_color", "#00c896")),
