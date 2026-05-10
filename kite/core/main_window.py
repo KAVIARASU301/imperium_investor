@@ -7,6 +7,7 @@ import logging
 import os
 import json
 import re
+from collections import deque
 from datetime import datetime, timedelta
 from typing import List, Dict, Union, Any, Optional
 
@@ -131,6 +132,12 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.floating_positions_dialog = None
         self.floating_watchlist_dialog = None
         self._last_spacebar_context = None
+        self._tick_buffer_by_token: Dict[Any, Dict] = {}
+        self._tick_buffer_without_token = deque()
+        self._tick_flush_timer = QTimer(self)
+        self._tick_flush_timer.setInterval(60)
+        self._tick_flush_timer.timeout.connect(self._flush_market_data_ticks)
+        self._tick_flush_timer.start()
 
         # --- Setup Sequence ---
         self._setup_frameless_window()
@@ -762,7 +769,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.instrument_loader.start()
 
         self.market_data_worker = MarketDataWorker(self.api_key, self.access_token)
-        self.market_data_worker.data_received.connect(self._on_market_data)
+        self.market_data_worker.data_received.connect(self._enqueue_market_data)
         self.market_data_worker.connection_established.connect(self._on_websocket_connect)
         self.market_data_worker.start()
 
@@ -1078,9 +1085,34 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             logger.error(f"Error in chart auto-loading: {e}")
 
     @Slot(list)
+    def _enqueue_market_data(self, ticks: List[Dict]):
+        """Ultra-light slot for raw websocket ticks; just coalesce into buffer."""
+        if not ticks:
+            return
+
+        for tick in ticks:
+            token = tick.get("instrument_token")
+            if token is None:
+                self._tick_buffer_without_token.append(tick)
+            else:
+                self._tick_buffer_by_token[token] = tick
+
+    @Slot()
+    def _flush_market_data_ticks(self):
+        """Flush coalesced ticks on a fixed timer to reduce UI work on market open."""
+        if not self._tick_buffer_by_token and not self._tick_buffer_without_token:
+            return
+
+        ticks = list(self._tick_buffer_by_token.values())
+        self._tick_buffer_by_token.clear()
+        while self._tick_buffer_without_token:
+            ticks.append(self._tick_buffer_without_token.popleft())
+
+        self._on_market_data(ticks)
+
     def _on_market_data(self, ticks: List[Dict]):
         """
-        Hot path — called on every WebSocket tick batch.
+        Hot path — called on each aggregated flush.
         Keep this MINIMAL: no filtering, no allocation, no logging.
         Each component does its own O(1) lookup.
         """
