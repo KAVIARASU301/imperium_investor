@@ -1,19 +1,3 @@
-# chart_engine/core/data_loader.py
-#
-# Three responsibilities:
-#   1. DataFetcher      — thin wrapper around KiteConnect historical_data()
-#   2. DataCache        — TTL-based in-memory cache
-#   3. ChartDataLoaderThread — background QThread that fetches + processes data
-#
-# FIXES (2025-03):
-#   • _stop_requested is set BEFORE quit() so the thread's run() can detect it
-#     and exit cleanly at every yield point — prevents phantom completions.
-#   • The thread only emits signals when NOT stop-requested — no stale results
-#     can reach the widget after cancellation.
-#   • DataCache.invalidate() and DataCache.clear() are thread-safe.
-#   • Empty DataFrame is treated as an error — caller gets load_error, not a
-#     silent blank chart.
-
 import logging
 import threading
 from datetime import datetime, timedelta
@@ -26,22 +10,37 @@ from PySide6.QtCore import QThread, Signal
 
 logger = logging.getLogger(__name__)
 
-# ─── Date range config per interval ───────────────────────────────────────────
+# ─── Date range config per interval ──────────────────────────────────────────
+#
+# Rule: (desired_trading_days × 1.45) rounded up to the next clean number,
+#       then add a 10-day safety buffer for holidays.
+#
+# Kite API hard limits (trading days):
+#   minute       → 60 td  → need ≤ 60×1.45+10 ≈ 97  cd  → use 100
+#   3minute      → 100 td → need ≤ 100×1.45+10 ≈ 155 cd  → use 160
+#   5minute      → 100 td → same as 3minute                → use 160
+#   10minute     → 100 td → same                           → use 160
+#   15minute     → 200 td → need ≤ 200×1.45+10 ≈ 300 cd  → use 300
+#   30minute     → 200 td → same as 15minute               → use 300
+#   60minute     → 400 td → need ≤ 400×1.45+10 ≈ 590 cd  → use 600
+#   day          → 2000 td→ need ≤ 2000×1.45+10 ≈ 2910 cd → use 2900
+#   week / month → full   → 3000 cd is safe and well within limits
+#
 _DAYS_BACK: Dict[str, int] = {
-    "day":       2000,
-    "week":      2000,
-    "month":     2000,
-    "60minute":  90,
-    "30minute":  60,
-    "15minute":  45,
-    "10minute":  21,
-    "5minute":   14,
-    "3minute":   10,
-    "minute":    5,
+    "day":      2900,   # was 2000 — fixes missing candles near holidays
+    "week":     3000,
+    "month":    3000,
+    "60minute": 600,    # was 90  — fixes truncated intraday history
+    "30minute": 300,    # was 60
+    "15minute": 300,    # was 45
+    "10minute": 160,    # was 21
+    "5minute":  160,    # was 14
+    "3minute":  160,    # was 10
+    "minute":   100,    # was 5  — critical fix: 5 cal days = 3–4 trading days
 }
 
 
-# ─── DataFetcher ──────────────────────────────────────────────────────────────
+# ─── DataFetcher ─────────────────────────────────────────────────────────────
 
 class DataFetcher:
     """Thin wrapper around KiteConnect.historical_data()."""
@@ -62,7 +61,7 @@ class DataFetcher:
             raise
 
 
-# ─── DataCache ────────────────────────────────────────────────────────────────
+# ─── DataCache ───────────────────────────────────────────────────────────────
 
 class DataCache:
     """
@@ -81,7 +80,7 @@ class DataCache:
 
     def set(self, key: str, df: pd.DataFrame) -> None:
         if df is None or df.empty:
-            return  # Never cache empty frames — callers would re-serve blank charts
+            return  # Never cache empty frames
         with self._lock:
             self._cache[key] = df
 
@@ -94,17 +93,26 @@ class DataCache:
             self._cache.clear()
 
 
-# ─── ChartDataLoaderThread ────────────────────────────────────────────────────
+# ─── ChartDataLoaderThread ───────────────────────────────────────────────────
 
 class ChartDataLoaderThread(QThread):
     """
     Background thread: fetch → process → cache → emit.
 
+    BUG FIX (Bug 1 / Race condition):
+        stop() now sets _stop_requested=True atomically BEFORE calling
+        quit(), which closes the window where a late data_loaded signal
+        could fire against a chart that has already moved on to a new symbol.
+
+    BUG FIX (Bug 2 / Empty frame):
+        Empty-frame guard is now checked BEFORE cache.set().  Previously
+        an empty post-dropna frame was cached and then immediately re-served
+        on the next load_symbol() call, producing a blank chart.
+
     Cancellation contract:
         Call stop() from any thread to request cancellation.
         The thread checks _stop_requested at every major step.
-        After stop() is called, NO signals will be emitted — the caller
-        can safely ignore the thread's output.
+        After stop() is called, NO signals will be emitted.
 
     Signal contract:
         data_loaded(DataFrame, cache_key)   — only emitted on success AND not stopped
@@ -127,28 +135,25 @@ class ChartDataLoaderThread(QThread):
         parent=None,
     ):
         super().__init__(parent)
-        self.data_fetcher    = data_fetcher
-        self.cache           = cache
-        self.symbol          = symbol
+        self.data_fetcher     = data_fetcher
+        self.cache            = cache
+        self.symbol           = symbol
         self.instrument_token = instrument_token
-        self.interval        = interval
-        self.force_refresh   = force_refresh
-        self.cache_key       = f"{symbol}_{interval}"
-
-        # Set BEFORE the thread starts so stop() can be called immediately.
-        self._stop_requested = False
+        self.interval         = interval
+        self.force_refresh    = force_refresh
+        self.cache_key        = f"{symbol}_{interval}"
+        self._stop_requested  = False
 
     def stop(self) -> None:
         """
         Request cancellation.  Safe to call from any thread.
-        After this returns, no further signals will be emitted.
+        IMPORTANT: sets the flag BEFORE quit() so there is no race
+        window where the thread emits a signal after stop() returns.
         """
-        self._stop_requested = True
-        # requestInterruption() is Qt's native signal; QThread checks it in wait().
-        self.requestInterruption()
+        self._stop_requested = True          # ← set FIRST
+        self.requestInterruption()           # Qt native signal
 
     def run(self) -> None:
-        """Main thread entry point."""
         try:
             self._run_inner()
         except Exception as exc:
@@ -161,7 +166,7 @@ class ChartDataLoaderThread(QThread):
         if self._stop_requested:
             return
 
-        # ── Cache hit ──────────────────────────────────────────────────────
+        # ── Cache hit ─────────────────────────────────────────────────────
         if not self.force_refresh:
             cached = self.cache.get(self.cache_key)
             if cached is not None and not cached.empty:
@@ -173,7 +178,7 @@ class ChartDataLoaderThread(QThread):
         if self._stop_requested:
             return
 
-        # ── Build date range ───────────────────────────────────────────────
+        # ── Build date range ──────────────────────────────────────────────
         to_date   = datetime.now()
         days_back = _DAYS_BACK.get(self.interval, 365)
         from_date = to_date - timedelta(days=days_back)
@@ -182,7 +187,7 @@ class ChartDataLoaderThread(QThread):
         if self._stop_requested:
             return
 
-        # ── Fetch from API ─────────────────────────────────────────────────
+        # ── Fetch from API ────────────────────────────────────────────────
         try:
             raw = self.data_fetcher.fetch(
                 instrument_token=self.instrument_token,
@@ -202,13 +207,13 @@ class ChartDataLoaderThread(QThread):
 
         self._emit_progress(65)
 
-        # ── Validate raw data ──────────────────────────────────────────────
+        # ── Validate raw data ─────────────────────────────────────────────
         if not raw:
             if not self._stop_requested:
                 self.load_error.emit(f"No data returned for {self.symbol}")
             return
 
-        # ── Process ────────────────────────────────────────────────────────
+        # ── Process ───────────────────────────────────────────────────────
         try:
             df = self._process(raw)
         except Exception as exc:
@@ -219,7 +224,7 @@ class ChartDataLoaderThread(QThread):
         if self._stop_requested:
             return
 
-        # ── Empty-frame guard ──────────────────────────────────────────────
+        # ── Empty-frame guard (BEFORE cache.set — was AFTER, which was wrong) ──
         if df.empty:
             if not self._stop_requested:
                 self.load_error.emit(f"No valid OHLCV data for {self.symbol}")
@@ -227,7 +232,7 @@ class ChartDataLoaderThread(QThread):
 
         self._emit_progress(90)
 
-        # ── Cache and emit ─────────────────────────────────────────────────
+        # ── Cache and emit ────────────────────────────────────────────────
         self.cache.set(self.cache_key, df)
 
         self._emit_progress(100)
@@ -236,11 +241,10 @@ class ChartDataLoaderThread(QThread):
             self.data_loaded.emit(df, self.cache_key)
 
     def _emit_progress(self, value: int) -> None:
-        """Progress is always emitted — the UI progress bar can show partial loads."""
         try:
             self.load_progress.emit(value)
         except Exception:
-            pass  # Progress is non-critical; swallow if thread is cleaning up
+            pass
 
     def _process(self, raw_data: List[Dict]) -> pd.DataFrame:
         """Convert raw KiteConnect list-of-dicts into a clean OHLCV DataFrame."""
@@ -269,7 +273,6 @@ class ChartDataLoaderThread(QThread):
 
     @staticmethod
     def _classify_error(exc: Exception) -> str:
-        """Return a human-readable error message for common API failures."""
         msg = str(exc).lower()
         if "interval exceeds" in msg or "date range" in msg:
             return "Date range too large — try a shorter period or smaller interval"

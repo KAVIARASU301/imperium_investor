@@ -3491,26 +3491,43 @@ class FixedTradingChart {
     }
 
     updateLivePrice(price) {
+        // ── FIX (Bug 4): do NOT call calculateBounds() here ──────────────
+        //
+        // The old implementation called:
+        //   this._computeATRTrendReversal();
+        //   this._computeBjTrendIndicator();
+        //   this._computeCVD();
+        //   this._computeRSI();
+        //   this._computeKagi();
+        //   this.calculateBounds();   ← THIS was the culprit
+        //
+        // calculateBounds() → _updateChartAreas() → _computeRightAxisWidth()
+        // which calls ctx.measureText() and can return a different integer
+        // on each call at high DPR.  Any change in rightAxisWidth changes
+        // chartArea.width, which changes visibleCandleCount in _updateViewport().
+        //
+        // New contract: updateLivePrice() ONLY mutates the last candle's
+        // price fields and schedules a redraw.  It never touches the viewport.
+        // calculateBounds() is called only on: initial load, symbol switch,
+        // zoom/pan, and settings change.
+
         this.livePrice = price;
         this._hasLiveTicks = true;
+
         if (this.data.length > 0) {
             const last = this.data[this.data.length - 1];
             last.close = price;
-            last.high  = Math.max(last.high, price);
-            last.low   = Math.min(last.low,  price);
+            if (price > last.high) last.high = price;
+            if (price < last.low)  last.low  = price;
         }
-        this._computeATRTrendReversal();
-        this._computeBjTrendIndicator();
-        this._computeCVD();
-        this._computeRSI();
-        this._computeKagi(this._kagiReversalPct || 1.0);
-        this.calculateBounds();
+
+        // Redraw — uses cached bounds and geometry, no recalculation.
         this.requestDraw();
     }
 
     loadNewData(cfg) {
-        // Reset per-symbol live overlay so previous symbol LTP never distorts
-        // the first frame of the newly loaded history.
+        // Reset live-tick state so the previous symbol's LTP never
+        // pollutes the first rendered frame of the new symbol.
         this.livePrice = null;
         this._hasLiveTicks = false;
 
@@ -3530,14 +3547,40 @@ class FixedTradingChart {
         this.currentSymbolDescription = cfg.watermarkDescription || '';
         this.showWatermarkDescription = cfg.showWatermarkDescription === true;
 
+        // Reset viewport state.
         this.panOffsetPx = 0;
-        this.isUserYRange = false;
+        this.isUserYRange = false;          // always reset auto-scale on symbol switch
         this._volVpKey = null;
         this._cachedMaxVolume = 1;
         this.maxVolume = 1;
-        this.visibleCandleCount = cfg.visibleCandleCount || this.visibleCandleCount;
+
+        // ── FIX (Bug 3): reset rightBufferCandles and viewPortEnd FIRST ──
+        // Then call _updateChartAreas() → _updateViewport() in order so
+        // visibleCandleCount is computed from the correct chartArea.width.
+        // Previously _updateViewport() was called before _updateChartAreas(),
+        // so chartArea could still have the previous symbol's geometry.
         this.viewPortEnd = Math.max(0, this.data.length - 1 + this.rightBufferCandles);
 
+        // Recompute chart geometry with fresh data length / indicator visibility.
+        this._updateChartAreas();           // ← must come BEFORE _updateViewport
+        this._updateViewport();             // derives visibleCandleCount from fresh chartArea
+
+        // Honour the Python-supplied zoom preference only when it would produce
+        // a meaningfully different candleWidth from what _updateViewport chose.
+        // This preserves "same zoom across symbols" without corrupting the layout.
+        if (cfg.visibleCandleCount && cfg.visibleCandleCount > 0 && this.chartArea) {
+            const desiredW = Math.max(2, Math.min(60,
+                Math.floor(this.chartArea.width / cfg.visibleCandleCount) - this.candleSpacing
+            ));
+            // Only apply if the difference is meaningful (> 1 px) to avoid
+            // tiny float differences causing visible jumps.
+            if (Math.abs(desiredW - this.candleWidth) > 1) {
+                this.candleWidth = desiredW;
+                this._updateViewport();     // recalculate after candleWidth change
+            }
+        }
+
+        // Recompute indicators with clean data.
         this.vwapData = [];
         this.atrTrendReversal = [];
         this.bjTrendData = { fast: [], slow: [], trendUp: [] };
@@ -3552,6 +3595,7 @@ class FixedTradingChart {
             this._computeKagi(this._kagiReversalPct || 1.0);
         }
 
+        // Load drawings.
         if (cfg.initialDrawingsJson) {
             try {
                 this.updateDrawings(JSON.parse(cfg.initialDrawingsJson));
@@ -3562,8 +3606,9 @@ class FixedTradingChart {
             this.clearAllDrawings();
         }
 
-        this._updateViewport();
+        // Recompute price bounds with the new data and correct geometry.
         this.calculateBounds();
+
         this.requestDraw();
         this.updateSlider();
         this._displayLatestCandleDetails();

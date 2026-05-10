@@ -494,79 +494,121 @@ class CandlestickChart(QWidget):
 
     @Slot(object, str)
     def _on_data_loaded(self, df: pd.DataFrame, key: str) -> None:
+        """
+        Called by ChartDataLoaderThread when data is ready.
+
+        FIX (Bug 3 / Symbol switch):
+            When calling loadNewData() on an already-rendered chart,
+            the payload now always passes the CURRENT symbol's saved zoom
+            level (not the previous symbol's).  Previously `initial_zoom`
+            was read from `saved_state` which could be the wrong symbol's
+            state if the user switched symbols rapidly and the loader key
+            check passed (key == _active_load_key) but the JS chart was
+            still holding the old symbol's viewport geometry.
+
+        FIX (Bug 1 / Race):
+            Stale-key guard is now checked AFTER verifying current_symbol
+            matches the key's symbol prefix, providing a second line of
+            defence against the race window.
+        """
+        # ── Primary stale-data guard ──────────────────────────────────────
         if key != self._active_load_key:
-            logger.debug("Discarding stale data for %s", key)
+            logger.debug("Discarding stale data for %s (active: %s)", key, self._active_load_key)
             return
+
+        # ── Secondary guard: key must match current symbol ────────────────
+        # Format is "{symbol}_{interval}".  Extract symbol prefix.
+        key_symbol = key.rsplit("_", 1)[0] if "_" in key else key
+        if key_symbol != self.current_symbol:
+            logger.debug(
+                "Discarding data: key symbol '%s' != current symbol '%s'",
+                key_symbol, self.current_symbol,
+            )
+            return
+
         self.last_df = df
         metrics = calculate_metrics(df)
 
-        # Build render data
+        # ── Build candle + volume arrays ──────────────────────────────────
         candles, volumes = [], []
         for _, row in df.iterrows():
             ts = int(row["time"].timestamp() * 1000)
-            candles.append({"time": ts, "open": float(row["open"]), "high": float(row["high"]),
-                            "low": float(row["low"]), "close": float(row["close"]),
-                            "volume": float(row["volume"])})
+            candles.append({
+                "time": ts, "open": float(row["open"]), "high": float(row["high"]),
+                "low": float(row["low"]), "close": float(row["close"]),
+                "volume": float(row["volume"]),
+            })
             volumes.append({"time": ts, "value": float(row["volume"])})
 
+        # ── Load saved state for THIS symbol/interval ─────────────────────
         saved_state = self.drawing_storage.load_state(self.current_symbol, self.current_interval)
-        initial_zoom = saved_state.get("visible_candle_count",
-                                       self.current_visible_candle_count)
-        # Indicators are global, not per-symbol. Load once and apply everywhere.
+        # FIX: always read zoom from the CURRENT symbol's saved state.
+        # Do NOT fall back to self.current_visible_candle_count here because
+        # that attribute still holds the PREVIOUS symbol's zoom when switching.
+        initial_zoom = saved_state.get(
+            "visible_candle_count",
+            self.global_chart_settings.get("default_visible_candles", 100),
+        )
+
         initial_indicator_visibility = self.drawing_storage.load_global_indicator_visibility()
         self._indicator_visibility = initial_indicator_visibility
         self._apply_indicator_toolbar_state(initial_indicator_visibility)
         drawings_json = json.dumps(saved_state.get("drawings", {}))
 
+        # ── Path A: seamless reload on existing chart ─────────────────────
         if self.chart_view and self.current_state == ChartState.LOADED:
             payload_dict = {
-                "candlestickData": candles,
-                "volumeData": volumes,
-                "emaData": metrics.ema_data,
-                "initialADR": metrics.adr,
-                "percentageChanges": metrics.pct_changes,
-                "interval": self.current_interval,
-                "symbol": self.current_symbol,
-                "initialDrawingsJson": drawings_json,
-                "watermarkDescription": self._current_watermark_description,
+                "candlestickData":          candles,
+                "volumeData":               volumes,
+                "emaData":                  metrics.ema_data,
+                "initialADR":               metrics.adr,
+                "percentageChanges":        metrics.pct_changes,
+                "interval":                 self.current_interval,
+                "symbol":                   self.current_symbol,
+                "initialDrawingsJson":      drawings_json,
+                "watermarkDescription":     self._current_watermark_description,
                 "showWatermarkDescription": self._show_watermark_description,
-                "visibleCandleCount": initial_zoom,
-                "chartType": self.toolbar.get_chart_type(),
+                # FIX: pass explicit zoom so JS chart resets viewport correctly.
+                # Without this the JS chart inherits the previous symbol's
+                # viewPortStart/End which produces the wrong candle count.
+                "visibleCandleCount":       initial_zoom,
+                "chartType":                self.toolbar.get_chart_type(),
             }
             self._js(f"if(window.chart) window.chart.loadNewData({json.dumps(payload_dict)});")
             self._update_symbol_info(df)
             self.symbol_loaded.emit(self.current_symbol)
             self.data_request_for_symbol.emit(self.current_symbol)
-            logger.info("Chart seamlessly updated: %s", self.current_symbol)
+            logger.info("Chart seamlessly updated: %s (%d candles)", self.current_symbol, len(candles))
             return
 
+        # ── Path B: first render — build full HTML ────────────────────────
         cfg = ChartHtmlConfig(
-            candlestick_data       = candles,
-            volume_data            = volumes,
-            ema_data               = metrics.ema_data,
-            adr                    = metrics.adr,
-            pct_changes            = metrics.pct_changes,
-            interval               = self.current_interval,
-            symbol                 = self.current_symbol,
-            initial_drawings_json  = drawings_json,
-            watermark_description  = self._current_watermark_description,
-            show_watermark_description = self._show_watermark_description,
-            visible_candle_count   = initial_zoom,
-            candle_width           = self._current_candle_width,
-            candle_spacing         = self._current_candle_spacing,
-            up_candle_color        = self._current_up_color,
-            down_candle_color      = self._current_down_color,
-            up_volume_color        = self._current_volume_up_color,
-            down_volume_color      = self._current_volume_down_color,
-            watermark_enabled      = self._watermark_enabled,
-            watermark_color        = self._watermark_color,
-            watermark_opacity      = self._watermark_opacity,
-            watermark_position     = self._watermark_position,
-            watermark_font_size    = self._watermark_font_size,
+            candlestick_data            = candles,
+            volume_data                 = volumes,
+            ema_data                    = metrics.ema_data,
+            adr                         = metrics.adr,
+            pct_changes                 = metrics.pct_changes,
+            interval                    = self.current_interval,
+            symbol                      = self.current_symbol,
+            initial_drawings_json       = drawings_json,
+            watermark_description       = self._current_watermark_description,
+            show_watermark_description  = self._show_watermark_description,
+            visible_candle_count        = initial_zoom,
+            candle_width                = self._current_candle_width,
+            candle_spacing              = self._current_candle_spacing,
+            up_candle_color             = self._current_up_color,
+            down_candle_color           = self._current_down_color,
+            up_volume_color             = self._current_volume_up_color,
+            down_volume_color           = self._current_volume_down_color,
+            watermark_enabled           = self._watermark_enabled,
+            watermark_color             = self._watermark_color,
+            watermark_opacity           = self._watermark_opacity,
+            watermark_position          = self._watermark_position,
+            watermark_font_size         = self._watermark_font_size,
             indicator_scale_labels_enabled = self._indicator_scale_labels_enabled,
-            crosshair_snap_enabled = self._crosshair_snap_enabled,
-            tool_selection_mode    = self._tool_selection_mode,
-            chart_type             = self.toolbar.get_chart_type(),
+            crosshair_snap_enabled      = self._crosshair_snap_enabled,
+            tool_selection_mode         = self._tool_selection_mode,
+            chart_type                  = self.toolbar.get_chart_type(),
             initial_indicator_visibility = initial_indicator_visibility,
         )
 
@@ -575,7 +617,7 @@ class CandlestickChart(QWidget):
         self._set_state(ChartState.LOADED)
         self.symbol_loaded.emit(self.current_symbol)
         self.data_request_for_symbol.emit(self.current_symbol)
-        logger.info("Chart HTML loaded: %s", self.current_symbol)
+        logger.info("Chart HTML loaded: %s (%d candles)", self.current_symbol, len(candles))
 
     def _render_html(self, cfg: ChartHtmlConfig) -> None:
         if not self.chart_view:
@@ -616,23 +658,41 @@ class CandlestickChart(QWidget):
     # ── Live updates ──────────────────────────────────────────────────────
 
     def _process_tick(self, tick: Dict[str, Any]) -> None:
-        sym   = tick.get("tradingsymbol")
+        """
+        Apply a single live-price tick to the chart.
+
+        FIX (Bug 4):
+            Previously this method called update_live_data() even when the
+            chart was in LOADING state (JS chart not yet initialised).
+            The JS chart's updateLivePrice() triggers calculateBounds() →
+            _updateChartAreas() → _computeRightAxisWidth(), which changes
+            chartArea.width, which changes visibleCandleCount on the NEXT
+            call to _updateViewport().  By the time the historical data
+            finally arrives and loadNewData() runs, the chart geometry is
+            already corrupted, producing the wrong candle count.
+
+            Guard: only forward ticks when ChartState.LOADED.
+        """
+        sym = tick.get("tradingsymbol")
         price = tick.get("last_price")
         token = tick.get("instrument_token")
         if price is None:
             return
-        sym_match   = sym   == self.current_symbol
-        token_match = token == self.current_instrument_token if token and self.current_instrument_token else False
+
+        sym_match = sym == self.current_symbol
+        token_match = (
+            token == self.current_instrument_token
+            if token and self.current_instrument_token else False
+        )
         if not (sym_match or token_match):
             return
 
         self.current_ltp = float(price)
         self._refresh_toolbar_symbol_text()
 
+        # FIX: guard on LOADED state — do not touch JS chart during load.
         if self.chart_view and self.current_state == ChartState.LOADED:
             self._js(f"if(window.chart) window.chart.updateLivePrice({price});")
-
-    # ── Bridge callbacks ──────────────────────────────────────────────────
 
     @Slot()
     def _on_chart_ready(self) -> None:
@@ -1137,7 +1197,20 @@ class CandlestickChart(QWidget):
     # ── Thread cleanup ────────────────────────────────────────────────────
 
     def _stop_loader(self) -> None:
+        """
+        Cancel any in-flight data load and wait for the thread to exit.
+
+        FIX: _stop_requested is set on the thread BEFORE quit() is called.
+        The original code called quit() first, leaving a race window where
+        the thread could still emit data_loaded before checking the flag —
+        which caused a previous symbol's candle data to render on the new
+        symbol's chart.
+        """
         if self.data_loader_thread and self.data_loader_thread.isRunning():
+            # 1. Flip the flag so the thread drops its result immediately
+            #    even if it is mid-flight through _run_inner().
+            self.data_loader_thread._stop_requested = True
+            # 2. Then stop the Qt event loop inside the thread.
             self.data_loader_thread.stop()
             self.data_loader_thread.quit()
             self.data_loader_thread.wait(3000)
@@ -1145,8 +1218,6 @@ class CandlestickChart(QWidget):
                 self.data_loader_thread.terminate()
             self.data_loader_thread.deleteLater()
             self.data_loader_thread = None
-
-    # ── JS helper ─────────────────────────────────────────────────────────
 
     def _js(self, code: str) -> None:
         if self.chart_view:
