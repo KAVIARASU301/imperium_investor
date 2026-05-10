@@ -3821,6 +3821,8 @@ class FixedTradingChart {
 
         getAllDrawings()         { return this.drawings; }
     getVisibleCandleCount() { return this.visibleCandleCount; }
+    getCandleWidth() { return this.candleWidth; }
+    getCandleSpacing() { return this.candleSpacing; }
 
     // ═══════════════════════════════════════════════════════════════════════
     // NOTIFICATIONS TO PYTHON

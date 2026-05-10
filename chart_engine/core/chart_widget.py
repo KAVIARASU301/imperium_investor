@@ -542,13 +542,11 @@ class CandlestickChart(QWidget):
 
         # ── Load saved state for THIS symbol/interval ─────────────────────
         saved_state = self.drawing_storage.load_state(self.current_symbol, self.current_interval)
-        # FIX: always read zoom from the CURRENT symbol's saved state.
-        # Do NOT fall back to self.current_visible_candle_count here because
-        # that attribute still holds the PREVIOUS symbol's zoom when switching.
-        initial_zoom = saved_state.get(
-            "visible_candle_count",
-            self.global_chart_settings.get("default_visible_candles", 100),
-        )
+
+        # Keep zoom/slot preferences CONSISTENT across symbol switches:
+        # always reuse the most recent chart preferences (global/current),
+        # not per-symbol historical zoom snapshots.
+        initial_zoom = int(self.current_visible_candle_count or self.global_chart_settings.get("default_visible_candles", 100))
 
         initial_indicator_visibility = self.drawing_storage.load_global_indicator_visibility()
         self._indicator_visibility = initial_indicator_visibility
@@ -645,7 +643,6 @@ class CandlestickChart(QWidget):
         self.chart_bridge.chart_ready.connect(self._on_chart_ready)
         self.chart_bridge.drawings_changed.connect(self._on_drawings_changed)
         self.chart_bridge.visible_candle_count_changed.connect(self._on_zoom_changed)
-        self.chart_bridge.zoom_preferences_changed.connect(self._on_zoom_preferences_changed)
         self.chart_bridge.text_note_requested.connect(self._open_text_note_dialog)
         self.chart_bridge.text_note_edit_requested.connect(self._open_text_note_edit_dialog)
         self.chart_bridge.drawing_tool_cleared.connect(self._clear_active_tool_ui)
@@ -734,27 +731,40 @@ class CandlestickChart(QWidget):
     @Slot(int)
     def _on_zoom_changed(self, count: int) -> None:
         self.current_visible_candle_count = count
+
+        # Persist the latest global preference immediately so symbol switches
+        # and app restarts both reopen with the same density.
+        self._save_global_settings_patch({"default_visible_candles": count})
+
         if self.current_symbol and self.current_state == ChartState.LOADED:
             state = self.drawing_storage.load_state(self.current_symbol, self.current_interval)
             state["visible_candle_count"] = count
             self.drawing_storage.save_state(self.current_symbol, self.current_interval, state)
 
-    @Slot(int, int, int)
-    def _on_zoom_preferences_changed(self, count: int, candle_width: int, candle_spacing: int) -> None:
-        self.current_visible_candle_count = int(count)
-        self._current_candle_width = int(candle_width)
-        self._current_candle_spacing = int(candle_spacing)
+        # Also persist current candle slot dimensions because zoom operations
+        # modify candleWidth in JS.
+        if self.chart_view and self.current_state == ChartState.LOADED:
+            self.chart_view.page().runJavaScript(
+                "(function(){ if(!window.chart) return null;"
+                "return { candle_width: window.chart.getCandleWidth(), candle_spacing: window.chart.getCandleSpacing() }; })()",
+                self._persist_candle_slot_preferences,
+            )
 
-        if self.current_symbol and self.current_state == ChartState.LOADED:
-            state = self.drawing_storage.load_state(self.current_symbol, self.current_interval)
-            state["visible_candle_count"] = self.current_visible_candle_count
-            self.drawing_storage.save_state(self.current_symbol, self.current_interval, state)
 
-        self._save_global_settings_patch({
-            "candle_width": self._current_candle_width,
-            "candle_spacing": self._current_candle_spacing,
-            "default_visible_candles": self.current_visible_candle_count,
-        })
+    def _persist_candle_slot_preferences(self, payload: Any) -> None:
+        if not isinstance(payload, dict):
+            return
+        cw = payload.get("candle_width")
+        cs = payload.get("candle_spacing")
+        patch: Dict[str, Any] = {}
+        if isinstance(cw, (int, float)):
+            self._current_candle_width = float(cw)
+            patch["candle_width"] = self._current_candle_width
+        if isinstance(cs, (int, float)):
+            self._current_candle_spacing = float(cs)
+            patch["candle_spacing"] = self._current_candle_spacing
+        if patch:
+            self._save_global_settings_patch(patch)
 
     @Slot(str)
     def _on_alert_price_updated(self, payload: str) -> None:
@@ -1180,6 +1190,8 @@ class CandlestickChart(QWidget):
             "(function(){ if(!window.chart) return null;"
             "return { drawings: window.chart.getAllDrawings(),"
             "         visible_candle_count: window.chart.getVisibleCandleCount(),"
+            "         candle_width: window.chart.getCandleWidth(),"
+            "         candle_spacing: window.chart.getCandleSpacing(),"
             "         indicator_visibility: window.chart.getIndicatorVisibility() }; })()", _cb
         )
 
@@ -1193,6 +1205,11 @@ class CandlestickChart(QWidget):
             state["drawings"] = snapshot["drawings"]
         if "visible_candle_count" in snapshot:
             state["visible_candle_count"] = snapshot["visible_candle_count"]
+        if "candle_width" in snapshot and isinstance(snapshot["candle_width"], (int, float)):
+            self._current_candle_width = float(snapshot["candle_width"])
+        if "candle_spacing" in snapshot and isinstance(snapshot["candle_spacing"], (int, float)):
+            self._current_candle_spacing = float(snapshot["candle_spacing"])
+
         if "indicator_visibility" in snapshot and isinstance(snapshot["indicator_visibility"], dict):
             self._indicator_visibility = {
                 **DEFAULT_INDICATOR_VISIBILITY,
@@ -1200,6 +1217,11 @@ class CandlestickChart(QWidget):
             }
             self.drawing_storage.save_global_indicator_visibility(self._indicator_visibility)
 
+        self._save_global_settings_patch({
+            "default_visible_candles": state.get("visible_candle_count", self.current_visible_candle_count),
+            "candle_width": self._current_candle_width,
+            "candle_spacing": self._current_candle_spacing,
+        })
         self.drawing_storage.save_state(symbol, interval, state)
 
     def _apply_indicator_toolbar_state(self, visibility: Dict[str, bool]) -> None:
