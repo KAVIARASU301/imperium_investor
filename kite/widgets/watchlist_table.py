@@ -1075,6 +1075,14 @@ class TabbedWatchlistWidget(QWidget):
         return self.add_symbol(symbol)
 
     def get_all_tokens(self) -> List[int]:
+        """Return tokens from the currently selected watchlist only."""
+        table = self._current_table()
+        if not table:
+            return []
+        return list(set(table.get_all_tokens()))
+
+    def get_all_watchlist_tokens(self) -> List[int]:
+        """Return tokens from all watchlists (for diagnostics/utilities)."""
         tokens = []
         for table in self._tables.values():
             tokens.extend(table.get_all_tokens())
@@ -1163,6 +1171,8 @@ class TabbedWatchlistWidget(QWidget):
         table = self._tables.get(wl_id)
         if table:
             self._stack.setCurrentWidget(table)
+            self._subscribe_all_tokens()
+        self.watchlist_changed.emit()
 
     def _on_symbols_changed(self, wl_id: str):
         table = self._tables.get(wl_id)

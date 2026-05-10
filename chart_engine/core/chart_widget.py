@@ -1049,11 +1049,11 @@ class CandlestickChart(QWidget):
 
     @Slot(dict)
     def _apply_chart_settings(self, s: Dict[str, Any]) -> None:
-        self._current_candle_width       = s["candle_width"]
-        self._current_candle_spacing     = s["candle_spacing"]
-        self.current_visible_candle_count = s["default_visible_candles"]
-        self._current_up_color           = s["up_candle_color"]
-        self._current_down_color         = s["down_candle_color"]
+        self._current_candle_width       = int(s.get("candle_width", self._current_candle_width))
+        self._current_candle_spacing     = int(s.get("candle_spacing", self._current_candle_spacing))
+        self.current_visible_candle_count = int(s.get("default_visible_candles", self.current_visible_candle_count))
+        self._current_up_color           = s.get("up_candle_color", self._current_up_color)
+        self._current_down_color         = s.get("down_candle_color", self._current_down_color)
         self._current_volume_up_color    = s.get("up_volume_color",   self._current_up_color)
         self._current_volume_down_color  = s.get("down_volume_color", self._current_down_color)
         self._watermark_enabled          = s.get("watermark_enabled",  self._watermark_enabled)
