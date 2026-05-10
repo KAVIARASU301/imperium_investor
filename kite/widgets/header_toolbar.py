@@ -288,18 +288,24 @@ class HeaderToolbar(QToolBar):
 
     # ── Public API ────────────────────────────────────────────────────────────
 
-    def set_instrument_data(self, instruments: List[Dict[str, Any]]) -> None:
-        """Build the fast index and update internal map. O(n) once."""
-        self._instrument_map = {
+    def set_instrument_data(
+        self,
+        instruments: List[Dict[str, Any]],
+        instrument_map: Dict[str, Dict[str, Any]] | None = None,
+        symbol_index: SymbolIndex | None = None,
+    ) -> None:
+        """Set instrument data, optionally with pre-built map/index from worker thread."""
+        self._instrument_map = instrument_map or {
             inst["tradingsymbol"]: inst
             for inst in instruments
             if "tradingsymbol" in inst
         }
-        # Build index in-place (fast even for 100k instruments)
-        self._symbol_index.build(instruments)
-        # Hand the index to the search input — it uses it from now on
+        if symbol_index is not None:
+            self._symbol_index = symbol_index
+        else:
+            self._symbol_index.build(instruments)
         self.search_input.set_symbol_index(self._symbol_index)
-        logger.info(f"Search index built: {len(self._instrument_map)} instruments")
+        logger.info(f"Search index ready: {len(self._instrument_map)} instruments")
 
     def update_alert_counts(self, active_count: int, triggered_today: int) -> None:
         self.alerts_badge.update_count(triggered_today)

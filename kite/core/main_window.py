@@ -984,21 +984,20 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     # CORE EVENT HANDLERS (SIMPLIFIED)
     # ==============================================================================
 
-    def _on_instruments_loaded(self, instruments: List[Dict]):
-        """Handle instrument loading with NSE preference"""
-        logger.info(f"Successfully loaded {len(instruments)} instruments.")
+    def _on_instruments_loaded(self, payload: Dict[str, Any]):
+        """Handle pre-processed instrument payload emitted by InstrumentLoader."""
+        instruments = payload.get("instruments", [])
         self.instrument_list = instruments
+        self.instrument_map = payload.get("instrument_map", {})
+        self._token_to_symbol = payload.get("token_to_symbol", {})
 
-        # BUILD INSTRUMENT MAP WITH NSE PREFERENCE
-        self.instrument_map = self._build_instrument_map_with_nse_preference(instruments)
-        self._token_to_symbol = {
-            int(inst.get('instrument_token')): symbol
-            for symbol, inst in self.instrument_map.items()
-            if inst.get('instrument_token') is not None
-        }
+        logger.info(f"Successfully loaded {len(instruments)} instruments.")
 
-        # Set instrument data in components
-        self.header_toolbar.set_instrument_data(instruments)
+        self.header_toolbar.set_instrument_data(
+            instruments,
+            instrument_map=self.instrument_map,
+            symbol_index=payload.get("symbol_index"),
+        )
         self.candlestick_chart.set_instrument_list(instruments)
         self.watchlist.set_instrument_map(self.instrument_map)
         self.chartink_scanner.set_instrument_map(self.instrument_map)
@@ -1030,52 +1029,6 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         except Exception as exc:
             logger.error("Failed to open stock info dialog for %s: %s", selected_symbol, exc)
             show_error("Failed to open stock info dialog")
-
-    def _build_instrument_map_with_nse_preference(self, instruments: List[Dict]) -> Dict[str, Dict]:
-        """Build instrument map prioritizing NSE over BSE for same symbols"""
-        instrument_map = {}
-
-        # Sort instruments to process NSE first, then BSE, then others
-        def exchange_priority(inst):
-            exchange = inst.get('exchange', '')
-            if exchange == 'NSE':
-                return 0  # Highest priority
-            elif exchange == 'BSE':
-                return 1  # Second priority
-            else:
-                return 2  # Lowest priority
-
-        sorted_instruments = sorted(instruments, key=exchange_priority)
-
-        # Build map - NSE will be processed first and won't be overwritten
-        nse_count = 0
-        bse_count = 0
-        bse_overridden = 0
-
-        for inst in sorted_instruments:
-            symbol = inst.get('tradingsymbol')
-            exchange = inst.get('exchange', '')
-
-            if symbol:
-                if symbol not in instrument_map:
-                    # First time seeing this symbol
-                    instrument_map[symbol] = inst
-                    if exchange == 'NSE':
-                        nse_count += 1
-                    elif exchange == 'BSE':
-                        bse_count += 1
-                else:
-                    # Symbol already exists - this means BSE is trying to override NSE
-                    existing_exchange = instrument_map[symbol].get('exchange', '')
-                    if existing_exchange == 'NSE' and exchange == 'BSE':
-                        bse_overridden += 1
-                        logger.debug(f"Kept NSE version of {symbol} (ignored BSE)")
-                    # Don't overwrite - keep the NSE version
-
-        logger.info(f"Built instrument map: {nse_count} NSE symbols, {bse_count} BSE-only symbols")
-        logger.info(f"BSE duplicates ignored: {bse_overridden}")
-
-        return instrument_map
 
     def _initialize_chart_after_instruments(self):
         """Initialize chart after instruments are ready"""

@@ -7,9 +7,10 @@ import time
 import pickle
 import os
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from PySide6.QtCore import QThread, Signal
 from kiteconnect import KiteConnect
+from kite.widgets.search_bar import SymbolIndex
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -20,7 +21,7 @@ logger = logging.getLogger(__name__)
 class InstrumentLoader(QThread):
     """Background thread for loading instruments from Zerodha with robust retry logic and caching"""
 
-    instruments_loaded = Signal(list)
+    instruments_loaded = Signal(dict)
     error_occurred = Signal(str)
     progress_update = Signal(str)  # For status updates
 
@@ -177,6 +178,34 @@ class InstrumentLoader(QThread):
 
         return []
 
+    @staticmethod
+    def _build_instrument_map_with_nse_preference(instruments: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+        """Build instrument map prioritizing NSE over BSE for same symbols."""
+        instrument_map: Dict[str, Dict[str, Any]] = {}
+
+        def exchange_priority(inst: Dict[str, Any]) -> int:
+            exchange = inst.get("exchange", "")
+            if exchange == "NSE":
+                return 0
+            if exchange == "BSE":
+                return 1
+            return 2
+
+        sorted_instruments = sorted(instruments, key=exchange_priority)
+        for inst in sorted_instruments:
+            symbol = inst.get("tradingsymbol")
+            if symbol and symbol not in instrument_map:
+                instrument_map[symbol] = inst
+        return instrument_map
+
+    @staticmethod
+    def _build_token_to_symbol(instrument_map: Dict[str, Dict[str, Any]]) -> Dict[int, str]:
+        return {
+            int(inst.get("instrument_token")): symbol
+            for symbol, inst in instrument_map.items()
+            if inst.get("instrument_token") is not None
+        }
+
     def run(self):
         """Load instruments with caching and robust error handling"""
         try:
@@ -185,7 +214,16 @@ class InstrumentLoader(QThread):
                 cached_instruments = self.load_cached_instruments()
                 if cached_instruments:
                     self.progress_update.emit("Using cached instruments")
-                    self.instruments_loaded.emit(cached_instruments)
+                    instrument_map = self._build_instrument_map_with_nse_preference(cached_instruments)
+                    token_to_symbol = self._build_token_to_symbol(instrument_map)
+                    symbol_index = SymbolIndex()
+                    symbol_index.build(cached_instruments)
+                    self.instruments_loaded.emit({
+                        "instruments": cached_instruments,
+                        "instrument_map": instrument_map,
+                        "token_to_symbol": token_to_symbol,
+                        "symbol_index": symbol_index,
+                    })
                     return
 
             # If no valid cache, fetch from API
@@ -194,7 +232,16 @@ class InstrumentLoader(QThread):
 
             if not self._stop_requested:
                 self.progress_update.emit(f"Loaded {len(instruments)} instruments successfully")
-                self.instruments_loaded.emit(instruments)
+                instrument_map = self._build_instrument_map_with_nse_preference(instruments)
+                token_to_symbol = self._build_token_to_symbol(instrument_map)
+                symbol_index = SymbolIndex()
+                symbol_index.build(instruments)
+                self.instruments_loaded.emit({
+                    "instruments": instruments,
+                    "instrument_map": instrument_map,
+                    "token_to_symbol": token_to_symbol,
+                    "symbol_index": symbol_index,
+                })
 
         except Exception as e:
             if not self._stop_requested:
@@ -208,7 +255,16 @@ class InstrumentLoader(QThread):
                     if cached_instruments:
                         logger.warning("Using expired cached instruments as fallback")
                         self.progress_update.emit("Using cached instruments (fallback)")
-                        self.instruments_loaded.emit(cached_instruments)
+                        instrument_map = self._build_instrument_map_with_nse_preference(cached_instruments)
+                        token_to_symbol = self._build_token_to_symbol(instrument_map)
+                        symbol_index = SymbolIndex()
+                        symbol_index.build(cached_instruments)
+                        self.instruments_loaded.emit({
+                            "instruments": cached_instruments,
+                            "instrument_map": instrument_map,
+                            "token_to_symbol": token_to_symbol,
+                            "symbol_index": symbol_index,
+                        })
                         return
 
                 self.error_occurred.emit(error_msg)
