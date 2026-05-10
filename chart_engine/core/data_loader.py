@@ -27,9 +27,9 @@ logger = logging.getLogger(__name__)
 #   week / month → full   → 3000 cd is safe and well within limits
 #
 _DAYS_BACK: Dict[str, int] = {
-    "day":      2900,   # was 2000 — fixes missing candles near holidays
-    "week":     3000,
-    "month":    3000,
+    "day":      1800,   # was 2000 — fixes missing candles near holidays
+    "week":     1800,
+    "month":    1800,
     "60minute": 600,    # was 90  — fixes truncated intraday history
     "30minute": 300,    # was 60
     "15minute": 300,    # was 45
@@ -188,12 +188,14 @@ class ChartDataLoaderThread(QThread):
             return
 
         # ── Fetch from API ────────────────────────────────────────────────
+        fetch_interval = "day" if self.interval in {"week", "month"} else self.interval
+
         try:
             raw = self.data_fetcher.fetch(
                 instrument_token=self.instrument_token,
                 from_date=from_date,
                 to_date=to_date,
-                interval=self.interval,
+                interval=fetch_interval,
             )
         except Exception as exc:
             if not self._stop_requested:
@@ -267,6 +269,23 @@ class ChartDataLoaderThread(QThread):
             logger.debug("Dropped %d rows with NaN OHLC values", before_drop - len(df))
 
         df = df.drop_duplicates(subset="date").sort_values("date")
+
+        if self.interval in {"week", "month"}:
+            rule = "W-MON" if self.interval == "week" else "MS"
+            df = (
+                df.set_index("date")
+                  .resample(rule)
+                  .agg({
+                      "open": "first",
+                      "high": "max",
+                      "low": "min",
+                      "close": "last",
+                      "volume": "sum",
+                  })
+                  .dropna(subset=["open", "high", "low", "close"])
+                  .reset_index()
+            )
+
         df = df.rename(columns={"date": "time"})
         df["symbol"] = self.symbol
         return df
