@@ -37,6 +37,7 @@ from kite.core.data_cache import MarketAwareDataCache
 from kite.core.account_manager import AccountManager
 
 from kite.core.position_manager import PositionManager
+from kite.core.stop_loss_manager import StopLossManager
 from kite.core.shutdown_manager import CleanShutdownMixin
 
 from kite.core.market_data_worker import MarketDataWorker
@@ -108,6 +109,22 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         # SIMPLIFIED MANAGERS - NO NOTIFICATION SYSTEM
         self.position_manager = PositionManager(self.trader, main_window=self, trade_logger=self.trade_logger)
+
+        self.sl_manager = StopLossManager(
+            trader=self.trader,
+            position_manager=self.position_manager,
+            parent=self,
+        )
+
+        # Wire notifications through the same toast system
+        self.sl_manager.show_notification.connect(
+            self._show_position_manager_notification
+        )
+
+        # Auto-cancel ghost SLs when positions change
+        self.position_manager.positions_updated.connect(
+            self.sl_manager.sync_with_positions
+        )
 
         self.chart_lines_manager = ChartLinesManager(self)
 
@@ -1132,6 +1149,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         # 5. Alert engine
         if self.alert_system:
             self.alert_system.update_market_data(ticks)
+
+        if hasattr(self, "sl_manager"):
+            self.sl_manager.on_ticks(ticks)
 
     @Slot(str)
     def _on_scanner_symbol_selected(self, symbol: str):

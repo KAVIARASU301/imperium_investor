@@ -78,6 +78,11 @@ class ShutdownManager:
                 timeout_ms=1_000,
             ),
             ShutdownStep(
+                name="stop_sl_manager",
+                fn=lambda: None,  # StopLossManager is stateless at shutdown — DB writes are synchronous
+                timeout_ms=500,
+            ),
+            ShutdownStep(
                 name="stop_market_data_worker",
                 fn=self._stop_market_data_worker,
                 timeout_ms=5_000,

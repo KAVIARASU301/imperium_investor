@@ -101,11 +101,11 @@ _SANS = "\"-apple-system\", \"Segoe UI\", Roboto, sans-serif"
 
 _COLS = [
     ("Symbol",  "symbol",   110, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
-    ("Qty",     "quantity",  56, Qt.AlignmentFlag.AlignCenter),
-    ("Avg",     "avg_price", 76, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
-    ("LTP",     "ltp",       76, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
-    ("P&L",     "pnl",       90, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
-    ("Chg%",    "chg_pct",   64, Qt.AlignmentFlag.AlignCenter),
+    ("Qty",     "quantity",  48, Qt.AlignmentFlag.AlignCenter),
+    ("Avg",     "avg_price", 72, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
+    ("LTP",     "ltp",       72, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
+    ("P&L",     "pnl",       80, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
+    ("SL",      "sl",        80, Qt.AlignmentFlag.AlignCenter),
 ]
 
 _COL_IDX = {name: i for i, (name, *_) in enumerate(_COLS)}
@@ -606,6 +606,29 @@ class FloatingPositionsDialog(QDialog):
     # INTERNAL: ROW RENDERING
     # ═══════════════════════════════════════════════════════════════════════
 
+    def _get_sl_manager(self):
+        parent = self.parent()
+        return getattr(parent, "stop_loss_manager", None)
+
+    def _get_sl_display(self, pos: _PosRow) -> tuple[str, str]:
+        """Returns (text, color) for the SL column."""
+        sl_mgr = self._get_sl_manager()
+        if not sl_mgr:
+            return "—", "#2a3a50"
+
+        rec = sl_mgr.get_sl_for(pos.symbol, pos.product)
+        if not rec:
+            return "—", "#2a3a50"
+
+        if pos.ltp > 0:
+            dist_pct = abs(pos.ltp - rec.sl_price) / pos.ltp * 100
+            color = "#f59e0b" if dist_pct < 1.0 else "#5a7090"
+        else:
+            color = "#5a7090"
+
+        trail_mark = "⟳ " if rec.trailing_sl else ""
+        return f"{trail_mark}₹{rec.sl_price:.2f}", color
+
     def _write_row(self, row: int, pos: _PosRow):
         if row >= self.table.rowCount():
             return
@@ -621,13 +644,14 @@ class FloatingPositionsDialog(QDialog):
         chg_sign = "+" if pos.chg_pct >= 0 else ""
         pnl_sign = "+" if pos.pnl >= 0 else ""
 
+        sl_text, sl_color = self._get_sl_display(pos)
         values = [
             (pos.symbol,                                       _C.T0,   True),
             (f"{qty_sign}{abs(pos.quantity)}",                 qty_col, False),
             (f"{pos.avg_price:,.2f}",                          _C.T1,   False),
             (f"{pos.ltp:,.2f}" if pos.ltp > 0 else "—",       _C.T0,   False),
             (f"{pnl_sign}{pos.pnl:,.2f}",                     pnl_col, True),
-            (f"{chg_sign}{pos.chg_pct:.2f}%",                 pnl_col, False),
+            (sl_text,                                           sl_color, False),
         ]
 
         align_map = [a for _, _, _, a in _COLS]
@@ -754,6 +778,10 @@ class FloatingPositionsDialog(QDialog):
         if not sym:
             return
 
+        position = self._positions.get(sym)
+        if not position:
+            return
+
         menu = QMenu(self)
         menu.setObjectName("posCtxMenu")
 
@@ -761,13 +789,88 @@ class FloatingPositionsDialog(QDialog):
         chart_act.triggered.connect(lambda: self.symbol_chart_requested.emit(sym))
         menu.addSeparator()
 
+        # ── Stop-Loss section ────────────────────────────────────────────────
+        sl_mgr = self._get_sl_manager()
+        existing_sl = sl_mgr.get_sl_for(sym, position.product) if sl_mgr else None
+
+        if existing_sl:
+            sl_price = existing_sl.sl_price
+            dist_pct = existing_sl.distance_pct
+            sl_lbl = (
+                f"⚙  Modify SL @ ₹{sl_price:.2f} "
+                f"({existing_sl.sl_quantity.lower()}, {dist_pct:.1f}% away)"
+            )
+            sl_act = menu.addAction(sl_lbl)
+            sl_act.triggered.connect(
+                lambda: self._open_sl_dialog(sym, position, existing_sl.sl_price)
+            )
+            remove_sl_act = menu.addAction("✕  Remove Stop-Loss")
+            remove_sl_act.triggered.connect(
+                lambda: sl_mgr.cancel_stop_loss(sym, position.product)
+            )
+        else:
+            set_sl_act = menu.addAction("🛡  Set Stop-Loss…")
+            set_sl_act.triggered.connect(
+                lambda: self._open_sl_dialog(sym, position, None)
+            )
+
+        menu.addSeparator()
+
         exit_act = menu.addAction("✕  Exit Full Position")
         exit_act.triggered.connect(lambda: self.exit_position_requested.emit(sym))
 
-        half_act = menu.addAction("½  Exit Half")
+        # Show count dynamically
+        half_qty = max(1, abs(position.quantity) // 2)
+        half_act = menu.addAction(f"½  Exit Half ({half_qty} shares)")
         half_act.triggered.connect(lambda: self.exit_half_position_requested.emit(sym))
 
         menu.exec(self.table.viewport().mapToGlobal(pos))
+
+    def _open_sl_dialog(self, symbol: str, position, current_sl_price: Optional[float]):
+        """Open the SL configuration dialog."""
+        from kite.widgets.stop_loss_dialog import StopLossDialog
+        sl_mgr = self._get_sl_manager()
+        if not sl_mgr:
+            return
+
+        ltp = position.ltp if position.ltp > 0 else position.avg_price
+
+        dlg = StopLossDialog(
+            symbol=symbol,
+            ltp=ltp,
+            avg_price=position.avg_price,
+            quantity=position.quantity,
+            product=position.product,
+            current_sl=current_sl_price,
+            parent=self,
+        )
+
+        def _on_sl_confirmed(sym, sl_price, sl_qty_type, custom_qty,
+                             order_type, trailing, trail_pct):
+            sl_mgr.set_stop_loss(
+                symbol=sym,
+                sl_price=sl_price,
+                quantity=position.quantity,
+                avg_price=position.avg_price,
+                product=position.product,
+                sl_quantity=sl_qty_type,
+                custom_qty=custom_qty,
+                sl_type=order_type,
+                trailing=trailing,
+                trail_pct=trail_pct,
+            )
+
+        def _on_sl_remove(sym):
+            sl_mgr.cancel_stop_loss(sym, position.product)
+
+        dlg.sl_confirmed.connect(_on_sl_confirmed)
+        dlg.sl_cancelled_by_user.connect(_on_sl_remove)
+        dlg.exec()
+
+    def _get_sl_manager(self):
+        """Return the StopLossManager from the main window, if available."""
+        parent = self.parent()
+        return getattr(parent, "sl_manager", None)
 
     # ═══════════════════════════════════════════════════════════════════════
     # KEYBOARD NAV
