@@ -3487,6 +3487,32 @@ class FixedTradingChart {
         }
     }
 
+    _intervalToMs(interval) {
+        const key = String(interval || 'day').toLowerCase();
+        const minutesMap = {
+            minute: 1,
+            '1minute': 1,
+            '3minute': 3,
+            '5minute': 5,
+            '10minute': 10,
+            '15minute': 15,
+            '30minute': 30,
+            '60minute': 60,
+        };
+        if (minutesMap[key]) return minutesMap[key] * 60 * 1000;
+        if (key === 'day') return 24 * 60 * 60 * 1000;
+        if (key === 'week') return 7 * 24 * 60 * 60 * 1000;
+        if (key === 'month') return 30 * 24 * 60 * 60 * 1000;
+        return 0;
+    }
+
+    _bucketStartMs(epochMs, intervalMs) {
+        if (!Number.isFinite(epochMs) || !Number.isFinite(intervalMs) || intervalMs <= 0) {
+            return epochMs;
+        }
+        return Math.floor(epochMs / intervalMs) * intervalMs;
+    }
+
     updateLivePrice(price) {
         // ── FIX (Bug 4): do NOT call calculateBounds() here ──────────────
         //
@@ -3513,9 +3539,34 @@ class FixedTradingChart {
 
         if (this.data.length > 0) {
             const last = this.data[this.data.length - 1];
-            last.close = price;
-            if (price > last.high) last.high = price;
-            if (price < last.low)  last.low  = price;
+            const intervalMs = this._intervalToMs(this.currentInterval);
+            const lastTimeMs = Number(last.time);
+            const nowMs = Date.now();
+
+            if (intervalMs > 0 && Number.isFinite(lastTimeMs)) {
+                const lastBucket = this._bucketStartMs(lastTimeMs, intervalMs);
+                const nowBucket = this._bucketStartMs(nowMs, intervalMs);
+
+                if (nowBucket > lastBucket) {
+                    const seedClose = Number.isFinite(last.close) ? last.close : price;
+                    for (let bucket = lastBucket + intervalMs; bucket <= nowBucket; bucket += intervalMs) {
+                        this.data.push({
+                            time: bucket,
+                            open: seedClose,
+                            high: seedClose,
+                            low: seedClose,
+                            close: seedClose,
+                            volume: 0,
+                        });
+                    }
+                    this.viewPortEnd = Math.max(this.viewPortEnd, this.data.length - 1 + this.rightBufferCandles);
+                }
+            }
+
+            const active = this.data[this.data.length - 1];
+            active.close = price;
+            if (price > active.high) active.high = price;
+            if (price < active.low)  active.low  = price;
         }
 
         // Redraw — uses cached bounds and geometry, no recalculation.
