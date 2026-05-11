@@ -2555,6 +2555,10 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     def save_window_state(self):
         """Save window state"""
         try:
+            existing_state = self.config_manager.load_window_state()
+            if not isinstance(existing_state, dict):
+                existing_state = {}
+
             state = {
                 'geometry': self.saveGeometry().toBase64().data().decode('utf-8'),
                 'main_splitter': self.main_splitter.saveState().toBase64().data().decode('utf-8'),
@@ -2569,7 +2573,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 state['right_panel_splitter'] = self.right_panel_splitter.saveState().toBase64().data().decode('utf-8')
                 state['right_panel_splitter_sizes'] = self.right_panel_splitter.sizes()
 
-            self.config_manager.save_window_state(state)
+            existing_state.update(state)
+            self.config_manager.save_window_state(existing_state)
             logger.info("Window state saved")
         except Exception as e:
             logger.error(f"Failed to save window state: {e}")
