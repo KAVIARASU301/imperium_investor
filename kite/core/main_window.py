@@ -1339,10 +1339,19 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             all_tokens.add(self.candlestick_chart.current_instrument_token)
             logger.info(f"Added chart token: {self.candlestick_chart.current_instrument_token}")
 
-        # Priority 3: Watchlist tokens
-        watchlist_tokens = self.watchlist.get_all_tokens()
-        all_tokens.update(watchlist_tokens)
-        logger.info(f"Added {len(watchlist_tokens)} watchlist tokens")
+        # Priority 3: Watchlist tokens (only when a watchlist UI is visible)
+        watchlist_tokens = []
+        watchlist_ui_visible = self.watchlist.isVisible()
+        floating_watchlist_visible = bool(
+            self.floating_watchlist_dialog and self.floating_watchlist_dialog.isVisible()
+        )
+
+        if watchlist_ui_visible or floating_watchlist_visible:
+            watchlist_tokens = self.watchlist.get_all_tokens()
+            all_tokens.update(watchlist_tokens)
+            logger.info(f"Added {len(watchlist_tokens)} watchlist tokens")
+        else:
+            logger.info("Watchlist hidden - skipped watchlist token subscriptions")
 
         # Priority 4: Scanner-visible symbols
         theme = self.color_theme_manager.get_theme()
