@@ -1417,10 +1417,7 @@ class FixedTradingChart {
         const area  = this.volumeArea;
 
         // ── 1. Axis panel background (same dark fill as price axis) ─────────
-        const panelGrad = ctx.createLinearGradient(axisX, 0, axisX + axisW, 0);
-        panelGrad.addColorStop(0, 'rgba(15,20,32,0.98)');
-        panelGrad.addColorStop(1, 'rgba(11,15,24,0.95)');
-        ctx.fillStyle = panelGrad;
+        ctx.fillStyle = '#0f1420';
         ctx.fillRect(axisX, area.y, axisW, area.height);
 
         // ── 2. Top separator rule (volume pane top) ─────────────────────────
@@ -1750,10 +1747,7 @@ class FixedTradingChart {
         const axisBot  = this.chartArea.y + this.chartArea.height;
 
         // ── Axis panel background ──────────────────────────────────────────
-        const panelGrad = ctx.createLinearGradient(axisX, 0, axisX + axisW, 0);
-        panelGrad.addColorStop(0, 'rgba(15,20,32,0.98)');
-        panelGrad.addColorStop(1, 'rgba(11,15,24,0.95)');
-        ctx.fillStyle = panelGrad;
+        ctx.fillStyle = '#0f1420';
         ctx.fillRect(axisX, axisTop, axisW, axisBot - axisTop);
 
         // ── Left border line of axis panel ────────────────────────────────
