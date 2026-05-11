@@ -1458,8 +1458,14 @@ class FixedTradingChart {
         const minGapPx = 18;
         let lastTickY  = Infinity;
 
-        ctx.font         = this._axisFont(10, 500);
-        ctx.textAlign    = 'right';
+        // Keep tick labels optically aligned and away from the hard right edge.
+        const tickLabelPadLeft  = 10;
+        const tickLabelPadRight = 8;
+        const tickLabelX        = axisX + tickLabelPadLeft;
+        const tickLabelMaxW     = Math.max(0, axisW - tickLabelPadLeft - tickLabelPadRight);
+
+        ctx.font         = this._axisFont(10, 600);
+        ctx.textAlign    = 'left';
         ctx.textBaseline = 'middle';
 
         for (const v of ticks) {
@@ -1483,9 +1489,9 @@ class FixedTradingChart {
             ctx.lineTo(axisX + 5, y);
             ctx.stroke();
 
-            // Label — right-aligned with 6 px right padding
+            // Label — left-aligned inside the axis gutter for cleaner visual rhythm
             ctx.fillStyle = 'rgba(122,168,216,0.80)';
-            ctx.fillText(this._fmtVol(v), axisX + axisW - 6, y);
+            ctx.fillText(this._fmtVol(v), tickLabelX, y, tickLabelMaxW);
 
             lastTickY = y;
         }
@@ -1767,8 +1773,14 @@ class FixedTradingChart {
         const maxR     = Math.ceil(this.maxPrice  / step) * step;
         const decimals = this._priceDecimals(step);
 
-        ctx.font         = this._axisFont(10, 500);
-        ctx.textAlign    = 'right';
+        // Keep tick labels optically aligned and away from the hard right edge.
+        const tickLabelPadLeft  = 10;
+        const tickLabelPadRight = 8;
+        const tickLabelX        = axisX + tickLabelPadLeft;
+        const tickLabelMaxW     = Math.max(0, axisW - tickLabelPadLeft - tickLabelPadRight);
+
+        ctx.font         = this._axisFont(10, 600);
+        ctx.textAlign    = 'left';
         ctx.textBaseline = 'middle';
 
         const priceChartBottom = this.chartArea.y + this.chartArea.height;
@@ -1795,9 +1807,9 @@ class FixedTradingChart {
             ctx.lineTo(axisX + 5, y);
             ctx.stroke();
 
-            // Label — right-aligned with 6px right padding
+            // Label — left-aligned inside the axis gutter for cleaner visual rhythm
             ctx.fillStyle = this.colors.textBright;
-            ctx.fillText(p.toFixed(decimals), axisX + axisW - 6, y);
+            ctx.fillText(p.toFixed(decimals), tickLabelX, y, tickLabelMaxW);
             lastY = y;
         }
     }
