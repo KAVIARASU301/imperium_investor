@@ -496,58 +496,67 @@ def _build_info_html(data: dict) -> str:
 
   /* ── Description ── */
   .desc {{
-<<<<<<< ours
-    font-size: 11px; color: #b5c8de; line-height: 1.6;
-=======
-    font-size: 13px; color: #b5c8de; line-height: 1.65;
->>>>>>> theirs
-    margin: 12px 22px 4px;
-    border-left: 2px solid var(--border);
-    padding-left: 12px;
+    font-size: 13px;
+    color: #c4d4e8;
+    line-height: 1.7;
+    margin: 12px 22px 10px;
+    border-left: 2px solid #253147;
+    padding: 4px 0 4px 12px;
+    max-width: 96ch;
   }}
 
   /* ── Grid layout ── */
   .panels {{
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 1px;
+    gap: 8px;
     background: var(--border);
-    margin-top: 1px;
+    margin-top: 8px;
+    padding: 8px;
   }}
 
   .section {{
-    background: var(--bg1);
-    padding: 14px 18px;
+    background: #0b1017;
+    border: 1px solid #1b2638;
+    padding: 10px 12px;
+    border-radius: 3px;
   }}
   .sec-title {{
     color: #9db2ca;
     font-size: 9px; font-weight: 800;
     letter-spacing: 2px;
     text-transform: uppercase;
-    margin-bottom: 10px;
-    padding-bottom: 6px;
+    margin-bottom: 6px;
+    padding-bottom: 4px;
     border-bottom: 1px solid var(--border);
   }}
 
   /* ── Data table ── */
   .grid {{ width: 100%; border-collapse: collapse; }}
-  .grid tr {{ border-bottom: 1px solid rgba(26,37,53,0.5); }}
+  .grid tr {{ border-bottom: 1px solid rgba(26,37,53,0.4); }}
   .grid tr:last-child {{ border-bottom: none; }}
   .lbl {{
     color: #b5c8de;
-    font-size: 10px; font-weight: 600;
-    letter-spacing: 0.3px;
-    padding: 5px 0;
-    width: 48%;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+    padding: 3px 0;
+    width: 52%;
     vertical-align: middle;
   }}
   .val {{
     color: var(--t0);
     font-family: 'JetBrains Mono', 'Consolas', monospace;
-    font-size: 11px; font-weight: 700;
+    font-size: 11px;
+    font-weight: 700;
     text-align: right;
-    padding: 5px 0;
+    padding: 3px 0;
     vertical-align: middle;
+    white-space: nowrap;
+  }}
+
+  @media (max-width: 940px) {{
+    .panels {{ grid-template-columns: 1fr; }}
   }}
 
   /* ── Scrollbar ── */
@@ -577,9 +586,11 @@ def _build_info_html(data: dict) -> str:
 
 <div class="panels">
   {section("VALUATION", valuation_rows)}
-  {section("PER SHARE", per_share_rows) + section("PROFITABILITY & GROWTH", profitability_rows)}
+  {section("PER SHARE", per_share_rows)}
+  {section("PROFITABILITY & GROWTH", profitability_rows)}
   {section("MARKET DATA", market_rows)}
-  {section("DIVIDENDS &amp; EVENTS", dividend_rows) + section("ANALYST COVERAGE", analyst_rows)}
+  {section("DIVIDENDS &amp; EVENTS", dividend_rows)}
+  {section("ANALYST COVERAGE", analyst_rows)}
 </div>
 
 </body></html>"""
