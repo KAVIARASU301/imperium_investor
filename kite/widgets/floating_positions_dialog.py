@@ -393,7 +393,14 @@ class FloatingPositionsDialog(QDialog):
         t.customContextMenuRequested.connect(self._ctx_menu)
         t.cellDoubleClicked.connect(self._on_double_click)
         t.cellClicked.connect(self._on_cell_click)
+        t.focusOutEvent = self._on_table_focus_out
         return t
+
+    def _on_table_focus_out(self, event):
+        """Clear row highlight when focus moves away (e.g., clicking empty chart area)."""
+        if self.table:
+            self.table.clearSelection()
+        QTableWidget.focusOutEvent(self.table, event)
 
     def _build_footer(self) -> QFrame:
         f = QFrame()
