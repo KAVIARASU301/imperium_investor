@@ -486,6 +486,8 @@ class FloatingPositionsDialog(QDialog):
         state[_FLOATING_POS_STATE_KEY] = {
             "width": self.width(),
             "height": self.height(),
+            "x": self.x(),
+            "y": self.y(),
         }
         cfg.save_window_state(state)
 
@@ -494,6 +496,8 @@ class FloatingPositionsDialog(QDialog):
         width = int(saved.get("width", _DEFAULT_DIALOG_SIZE.width()))
         height = int(saved.get("height", _DEFAULT_DIALOG_SIZE.height()))
         self.resize(max(self.minimumWidth(), width), max(self.minimumHeight(), height))
+        if "x" in saved and "y" in saved:
+            self.move(int(saved["x"]), int(saved["y"]))
 
     def hideEvent(self, event):
         self._save_window_state()
@@ -514,6 +518,11 @@ class FloatingPositionsDialog(QDialog):
                 self.width()  - _ResizeGrip.SIZE,
                 self.height() - _ResizeGrip.SIZE
             )
+        self._save_window_state()
+
+    def moveEvent(self, ev):
+        super().moveEvent(ev)
+        self._save_window_state()
 
     # ═══════════════════════════════════════════════════════════════════════
     # PUBLIC: POSITION FEED
