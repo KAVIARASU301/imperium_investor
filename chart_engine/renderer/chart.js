@@ -1440,13 +1440,6 @@ class FixedTradingChart {
         ctx.lineTo(axisX, area.y + area.height);
         ctx.stroke();
 
-        // ── 3b. Pane name tag ────────────────────────────────────────────────
-        ctx.font         = this._axisFont(10, 700);
-        ctx.textAlign    = 'left';
-        ctx.textBaseline = 'top';
-        ctx.fillStyle    = 'rgba(122,168,216,0.88)';
-        ctx.fillText('VOL', axisX + 6, area.y + 4);
-
         // ── 4. Compute a nice set of tick values ─────────────────────────────
         // Pick 2-3 human-friendly volume levels using a "nice step" approach,
         // similar to how the price axis works.  Skip the 0 tick — it sits at
@@ -1522,19 +1515,15 @@ class FixedTradingChart {
         const label    = this._fmtVol(vol);
         const lw       = axisW;
 
-        ctx.fillStyle = 'rgba(30,45,70,0.92)';
-        ctx.beginPath();
-        ctx.moveTo(axisX,        clampedY);
-        ctx.lineTo(axisX + 5,    clampedY - lh/2);
-        ctx.lineTo(axisX + lw,   clampedY - lh/2);
-        ctx.lineTo(axisX + lw,   clampedY + lh/2);
-        ctx.lineTo(axisX + 5,    clampedY + lh/2);
-        ctx.closePath();
-        ctx.fill();
+        const ly = Math.round(clampedY - lh / 2);
 
-        ctx.strokeStyle = 'rgba(80,120,180,0.55)';
+        // Rectangular volume label to match price-scale styling
+        ctx.fillStyle = '#1e2d45';
+        ctx.fillRect(axisX, ly, lw, lh);
+
+        ctx.strokeStyle = 'rgba(120,165,230,0.55)';
         ctx.lineWidth   = 0.8;
-        ctx.stroke();
+        ctx.strokeRect(axisX + 0.5, ly + 0.5, lw - 1, lh - 1);
 
         // Dashed ray from bar top to axis
         ctx.strokeStyle = 'rgba(122,168,216,0.28)';
@@ -1549,8 +1538,8 @@ class FixedTradingChart {
         ctx.font         = 'bold 9px "Segoe UI Mono", monospace';
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillStyle    = '#a8c8e8';
-        ctx.fillText(label, axisX + 5 + (lw - 5)/2, clampedY);
+        ctx.fillStyle    = '#7ed957';
+        ctx.fillText(label, axisX + lw / 2, clampedY);
     }
 
     _niceVolStep(rough) {
