@@ -103,6 +103,8 @@ class Alert:
     _prev_price:         float = field(default=0.0, repr=False, compare=False)
     _trigger_count:      int   = field(default=0,   repr=False, compare=False)
     _last_state:         bool  = field(default=False, repr=False, compare=False)
+    _last_trigger_epoch: float = field(default=0.0, repr=False, compare=False)
+    _last_trigger_day:   str   = field(default="", repr=False, compare=False)
 
     def to_dict(self) -> Dict:
         d = asdict(self)
@@ -132,6 +134,8 @@ class AlertStore:
         self._init_db()
         self._migrate_from_legacy_json_if_needed()
         self._load()
+        self._last_save_at = 0.0
+        self._dirty = False
 
     def all(self) -> List[Alert]:
         with QMutexLocker(self._mutex):
@@ -157,9 +161,14 @@ class AlertStore:
     def remove(self, alert_id: str) -> None:
         with QMutexLocker(self._mutex):
             self._alerts.pop(alert_id, None)
-        self._save()
+        self._save(force=True)
 
-    def _save(self):
+    def _save(self, force: bool = False):
+        now = time.time()
+        # Coalesce high-frequency writes from the engine loop.
+        if not force and (now - self._last_save_at) < 0.5:
+            self._dirty = True
+            return
         try:
             payload = json.dumps([a.to_dict() for a in self._alerts.values()])
             with sqlite3.connect(self._path, timeout=5.0) as conn:
@@ -167,6 +176,10 @@ class AlertStore:
                 conn.execute("UPDATE alerts_store SET payload_json = ?, updated_at = ? WHERE id = 1",
                              (payload, datetime.now().isoformat()))
                 conn.commit()
+            self._last_save_at = now
+            if self._dirty:
+                self._dirty = False
+                self._save(force=True)
         except Exception as e:
             logger.error(f"AlertStore save failed: {e}")
 
@@ -315,6 +328,7 @@ class AlertEngine(QObject):
         self._day_open: Dict[str, float] = {}
         self._mutex = QMutex()
         self._running = False
+        self._repeat_cooldown_seconds = 10
 
     @Slot()
     def start_engine(self):
@@ -494,9 +508,22 @@ class AlertEngine(QObject):
 
     def _fire(self, alert: Alert):
         """Mark alert as triggered and emit signal."""
+        now = datetime.now()
+        now_epoch = time.time()
+        # Prevent alert storms for repeat alerts on noisy ticks.
+        if alert.repeat and (now_epoch - alert._last_trigger_epoch) < self._repeat_cooldown_seconds:
+            return
+        # Time-based alerts should only fire once per day.
+        if alert.condition == AlertCondition.TIME_BASED.value:
+            day_key = now.strftime("%Y-%m-%d")
+            if alert._last_trigger_day == day_key:
+                return
+            alert._last_trigger_day = day_key
+
         if not alert.repeat:
             alert.status = AlertStatus.TRIGGERED.value
-        alert.triggered_at = datetime.now().isoformat()
+        alert.triggered_at = now.isoformat()
+        alert._last_trigger_epoch = now_epoch
         alert._trigger_count += 1
         self._store.update(alert)
         self.alert_triggered.emit(alert.id)
@@ -567,6 +594,26 @@ class AlertSystemManager(QObject):
 
     def add_alert(self, alert: Alert) -> None:
         """Add alert to store AND draw the corresponding chart line."""
+        validation_error = self._validate_alert(alert)
+        if validation_error:
+            logger.warning(f"Rejected alert {alert.id}: {validation_error}")
+            return
+
+        duplicate = next(
+            (
+                a for a in self.store.active()
+                if a.symbol == alert.symbol
+                and a.condition == alert.condition
+                and abs(float(a.target_value) - float(alert.target_value)) < 0.001
+            ),
+            None,
+        )
+        if duplicate:
+            logger.info(
+                f"Skipping duplicate alert for {alert.symbol}: {alert.condition} @ {alert.target_value}"
+            )
+            return
+
         self.store.add(alert)
         logger.info(f"Alert added: {alert.symbol} {alert.condition} @ {alert.target_value}")
         # FIX #1: draw chart line immediately after saving
@@ -1028,6 +1075,31 @@ class AlertSystemManager(QObject):
                 self._dialog.refresh_tables()
             except Exception:
                 pass
+
+    def _validate_alert(self, alert: Alert) -> Optional[str]:
+        if not alert.symbol or not str(alert.symbol).strip():
+            return "symbol is required"
+
+        try:
+            target = float(alert.target_value)
+        except (TypeError, ValueError):
+            return "target value must be numeric"
+
+        if alert.condition != AlertCondition.TIME_BASED.value and target <= 0:
+            return "target value must be > 0"
+
+        if alert.condition in (AlertCondition.RSI_ABOVE.value, AlertCondition.RSI_BELOW.value):
+            if target < 0 or target > 100:
+                return "RSI alerts require target in range 0..100"
+
+        if alert.condition == AlertCondition.TIME_BASED.value:
+            hhmm = int(target)
+            hour = hhmm // 100
+            minute = hhmm % 100
+            if hour < 0 or hour > 23 or minute < 0 or minute > 59:
+                return "time-based alerts require HHMM format (e.g. 915, 1530)"
+
+        return None
 
     def stop_engine(self) -> None:
         self._request_engine_stop.emit()

@@ -100,6 +100,10 @@ class StopLossManager(QObject):
         if sl_price <= 0:
             self.show_notification.emit("Invalid SL price", "error")
             return False
+        if trailing:
+            if trail_pct is None or trail_pct <= 0:
+                self.show_notification.emit("Trailing SL requires trail % > 0", "error")
+                return False
 
         position_id = f"{symbol}:{product}"
         rec = StopLossRecord(
@@ -144,6 +148,9 @@ class StopLossManager(QObject):
             return False
 
         is_long = rec.quantity > 0
+        if new_sl_price <= 0:
+            self.show_notification.emit("Modified SL price must be > 0", "error")
+            return False
         if is_long and new_sl_price >= rec.avg_price:
             self.show_notification.emit("Modified SL must be below entry for long", "error")
             return False
@@ -306,6 +313,7 @@ class StopLossManager(QObject):
                 order_params["order_id"] = order_id
                 order_params["status"]   = "ROUTED"
                 self.position_manager.start_tracking_order(order_id, order_params)
+                self._execution_inflight.discard(rec.position_id)
             else:
                 logger.error("SL exit order returned no order_id for %s", rec.symbol)
                 self._execution_inflight.discard(rec.position_id)
