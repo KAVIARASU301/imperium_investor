@@ -519,6 +519,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     def _set_watchlist_visible(self, visible: bool):
         self.watchlist.setVisible(visible)
         self._sync_right_panel_visibility()
+        # Rebuild immediately so watchlist tokens subscribe/unsubscribe exactly
+        # when the user toggles visibility from View → Watchlist.
+        self._rebuild_subscription_universe()
         self._queue_window_state_save()
 
     def _set_positions_visible(self, visible: bool):
