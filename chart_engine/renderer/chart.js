@@ -3543,23 +3543,16 @@ class FixedTradingChart {
             const lastTimeMs = Number(last.time);
             const nowMs = Date.now();
 
+            // Do not auto-append synthetic candles from wall-clock time.
+            // A lone post-market (or stale) tick must update the latest candle,
+            // not create a brand-new candle with near-zero activity.
+            // Fresh candles should only come from real OHLC snapshots loaded
+            // via loadNewData(), not from live LTP updates.
             if (intervalMs > 0 && Number.isFinite(lastTimeMs)) {
                 const lastBucket = this._bucketStartMs(lastTimeMs, intervalMs);
                 const nowBucket = this._bucketStartMs(nowMs, intervalMs);
-
                 if (nowBucket > lastBucket) {
-                    const seedClose = Number.isFinite(last.close) ? last.close : price;
-                    for (let bucket = lastBucket + intervalMs; bucket <= nowBucket; bucket += intervalMs) {
-                        this.data.push({
-                            time: bucket,
-                            open: seedClose,
-                            high: seedClose,
-                            low: seedClose,
-                            close: seedClose,
-                            volume: 0,
-                        });
-                    }
-                    this.viewPortEnd = Math.max(this.viewPortEnd, this.data.length - 1 + this.rightBufferCandles);
+                    // Intentionally no-op.
                 }
             }
 
