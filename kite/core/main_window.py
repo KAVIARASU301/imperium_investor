@@ -514,6 +514,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     def _set_scanner_visible(self, visible: bool):
         self.chartink_scanner.setVisible(visible)
         self._apply_intelligent_main_splitter_layout()
+        # Rebuild immediately so scanner tokens subscribe/unsubscribe exactly
+        # when the user toggles visibility from View → Scanner.
+        self._rebuild_subscription_universe()
         self._queue_window_state_save()
 
     def _set_watchlist_visible(self, visible: bool):
@@ -697,6 +700,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.chartink_scanner.set_live_ticks_enabled(
             bool(theme.get("scanner_live_ticks", True))
         )
+        # Apply scanner live-tick subscription changes immediately after
+        # Settings dialog updates, without waiting for symbol/navigation events.
+        self._rebuild_subscription_universe()
         alignment = str(theme.get("status_bar_alignment", "left"))
         self.app_status_bar.set_elements_alignment(alignment)
 
