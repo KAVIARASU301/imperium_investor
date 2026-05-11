@@ -1758,7 +1758,7 @@ class FixedTradingChart {
         const axisX    = this.chartArea.x + this.chartArea.width;
         const axisW    = this.rightAxisWidth;
         const axisTop  = this.chartArea.y;
-        const axisBot  = this._paneBottom();
+        const axisBot  = this.chartArea.y + this.chartArea.height;
 
         // ── Axis panel background ──────────────────────────────────────────
         const panelGrad = ctx.createLinearGradient(axisX, 0, axisX + axisW, 0);
@@ -1788,10 +1788,12 @@ class FixedTradingChart {
         ctx.textAlign    = 'right';
         ctx.textBaseline = 'middle';
 
+        const priceChartBottom = this.chartArea.y + this.chartArea.height;
+
         let lastY = -Infinity;
         for (let p = minR; p <= maxR + step * 0.5; p += step) {
             const y = this._priceToY(p);
-            if (y < axisTop + 8 || y > this.chartArea.y + this.chartArea.height - 8) continue;
+            if (y < axisTop + 8 || y > priceChartBottom - 8) continue;
             if (Math.abs(y - lastY) < minGapPx) continue;
 
             // Grid line echo — a very faint horizontal rule inside the axis panel
