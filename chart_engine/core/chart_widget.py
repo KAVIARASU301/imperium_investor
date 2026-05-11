@@ -1162,8 +1162,15 @@ class CandlestickChart(QWidget):
 
     def _set_state(self, state: ChartState) -> None:
         self.current_state = state
-        idx = {ChartState.IDLE: 0, ChartState.LOADING: 0,
-               ChartState.ERROR: 1, ChartState.LOADED: 2}.get(state, 0)
+        # Keep already-rendered chart visible during background reloads to avoid
+        # "blink/flicker" UX when switching symbols or refreshing data.
+        # We only show the dedicated loading page for true first-load scenarios
+        # where no chart view exists yet.
+        if state == ChartState.LOADING and self.chart_view:
+            idx = 2
+        else:
+            idx = {ChartState.IDLE: 0, ChartState.LOADING: 0,
+                   ChartState.ERROR: 1, ChartState.LOADED: 2}.get(state, 0)
         self.stack.setCurrentIndex(idx)
 
     def _show_error(self, msg: str) -> None:
