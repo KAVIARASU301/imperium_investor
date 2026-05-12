@@ -153,7 +153,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self._tick_buffer_without_token = deque()
         self._chart_tick_queue = deque()
         self._tick_flush_timer = QTimer(self)
-        self._tick_flush_timer.setInterval(60)
+        self._tick_flush_timer.setInterval(30)
         self._tick_flush_timer.timeout.connect(self._flush_market_data_ticks)
         self._tick_flush_timer.start()
         self._subscription_rebuild_timer = QTimer(self)
