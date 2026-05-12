@@ -302,7 +302,7 @@ _LOADING_HTML = """<!DOCTYPE html>
   .spinner {
     width: 36px; height: 36px;
     border: 3px solid #1a2840;
-    border-top-color: #00d4ff;
+    border-top-color: #6ed3ff;
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
   }
@@ -336,11 +336,11 @@ _ERROR_HTML_TPL = """<!DOCTYPE html>
 
 
 def _build_info_html(data: dict) -> str:
-    """Render a Bloomberg-dark info page from parsed data dict."""
+    """Render a vivid, modern market dashboard page from parsed data dict."""
 
-    def row(label: str, value: str, color: str = "#e8f0ff") -> str:
+    def row(label: str, value: str, color: str = "#e6eefb") -> str:
         if value in ("—", "", None):
-            value = '<span style="color:#7a94b0">—</span>'
+            value = '<span style="color:#6d7f9f">—</span>'
         return (
             f'<tr>'
             f'<td class="lbl">{label}</td>'
@@ -348,252 +348,110 @@ def _build_info_html(data: dict) -> str:
             f'</tr>'
         )
 
-    def section(title: str, rows_html: str) -> str:
+    def section(title: str, rows_html: str, accent: str) -> str:
         return (
             f'<div class="section">'
-            f'<div class="sec-title">{title}</div>'
+            f'<div class="sec-title" style="--accent:{accent}">{title}</div>'
             f'<table class="grid">{rows_html}</table>'
             f'</div>'
         )
 
     d = data
-
-    # Recommendation color
-    rec_color = "#7a94b0"
+    rec_color = "#94a8c6"
     rec = d.get("recommendation", "—").lower()
     if "buy" in rec or "strong" in rec:
-        rec_color = "#00d4a8"
+        rec_color = "#00f2a6"
     elif "sell" in rec:
-        rec_color = "#ff4d6a"
+        rec_color = "#ff5f7f"
     elif "hold" in rec or "neutral" in rec:
-        rec_color = "#f59e0b"
+        rec_color = "#ffc857"
 
-    # Description (truncate)
+    def tone(value: str, up="#00e5a8", down="#ff5d84", neutral="#d6e2f3"):
+        if not value or value == "—":
+            return "#6d7f9f"
+        t = str(value).strip()
+        if t.startswith("-"):
+            return down
+        if t.startswith("+") or ("%" in t and not t.startswith("-")):
+            return up
+        return neutral
+
     desc = d.get("description", "")
     desc_html = f'<p class="desc">{desc}</p>' if desc else ""
-
-    # Website link
     website = d.get("website", "")
-    web_html = (
-        f'<a href="{website}" class="web-link" target="_blank">{website}</a>'
-        if website else ""
-    )
+    web_html = f'<a href="{website}" class="web-link" target="_blank">Website</a>' if website else ""
 
     valuation_rows = (
-        row("Market Cap",   d["market_cap"]) +
-        row("P/E (TTM)",    d["pe_ratio"],   "#4a9eff" if d["pe_ratio"] != "—" else "#2a3a50") +
-        row("Forward P/E",  d["forward_pe"]) +
-        row("P/B Ratio",    d["pb_ratio"]) +
-        row("EV/EBITDA",    d["ev_ebitda"]) +
-        row("P/S Ratio",    d["ps_ratio"]) +
-        row("PEG Ratio",    d["peg"]) +
-        row("EV",           d["ev"])
-    )
-
-    per_share_rows = (
-        row("EPS (TTM)",    d["eps_ttm"]) +
-        row("EPS (Fwd)",    d["eps_fwd"]) +
-        row("Book Value",   d["book_value"])
+        row("Market Cap", d["market_cap"], "#8fe3ff") +
+        row("P/E (TTM)", d["pe_ratio"], "#5aa9ff") +
+        row("Forward P/E", d["forward_pe"]) +
+        row("P/B Ratio", d["pb_ratio"]) +
+        row("EV/EBITDA", d["ev_ebitda"]) +
+        row("P/S Ratio", d["ps_ratio"]) +
+        row("PEG Ratio", d["peg"]) +
+        row("EV", d["ev"], "#97f0cd")
     )
 
     profitability_rows = (
-        row("ROE",              d["roe"]) +
-        row("ROA",              d["roa"]) +
-        row("Net Margin",       d["profit_margin"]) +
-        row("Gross Margin",     d["gross_margin"]) +
-        row("Operating Margin", d["operating_margin"]) +
-        row("Rev Growth (YoY)", d["rev_growth"]) +
-        row("EPS Growth (YoY)", d["earn_growth"])
+        row("ROE", d["roe"], tone(d["roe"])) +
+        row("ROA", d["roa"], tone(d["roa"])) +
+        row("Net Margin", d["profit_margin"], tone(d["profit_margin"])) +
+        row("Gross Margin", d["gross_margin"], tone(d["gross_margin"])) +
+        row("Operating Margin", d["operating_margin"], tone(d["operating_margin"])) +
+        row("Rev Growth (YoY)", d["rev_growth"], tone(d["rev_growth"])) +
+        row("EPS Growth (YoY)", d["earn_growth"], tone(d["earn_growth"]))
     )
 
     market_rows = (
-        row("52-Week Range", d["range52"]) +
-        row("Beta",          d["beta"]) +
-        row("Avg Volume",    d["avg_volume"]) +
-        row("Float",         d["float_shares"]) +
-        row("Employees",     d["employees"])
+        row("52-Week Range", d["range52"], "#ffd16a") +
+        row("Beta", d["beta"]) +
+        row("Avg Volume", d["avg_volume"]) +
+        row("Float", d["float_shares"]) +
+        row("Employees", d["employees"])
     )
 
-    dividend_rows = (
-        row("Dividend Yield",  d["div_yield"]) +
-        row("Dividend Rate",   d["div_rate"]) +
-        row("Ex-Dividend Date",d["ex_div"])
-    )
-
-    analyst_rows = (
-        row("Price Target",    d["analyst_target"]) +
-        row("Recommendation",  d["recommendation"], rec_color) +
-        row("Analyst Count",   d["num_analysts"]) +
-        row("Next Earnings",   d["earnings_date"],
-            "#f59e0b" if d["earnings_date"] != "—" else "#2a3a50") +
-        row("Fiscal Year End", d["fiscal_year_end"])
-    )
+    per_share_rows = row("EPS (TTM)", d["eps_ttm"]) + row("EPS (Fwd)", d["eps_fwd"]) + row("Book Value", d["book_value"])
+    dividend_rows = row("Dividend Yield", d["div_yield"], tone(d["div_yield"])) + row("Dividend Rate", d["div_rate"]) + row("Ex-Dividend Date", d["ex_div"])
+    analyst_rows = row("Price Target", d["analyst_target"], "#8be9ff") + row("Recommendation", d["recommendation"], rec_color) + row("Analyst Count", d["num_analysts"]) + row("Next Earnings", d["earnings_date"], "#ffc857") + row("Fiscal Year End", d["fiscal_year_end"])
 
     return f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <style>
-  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-  :root {{
-    --bg0: #070a0f;
-    --bg1: #0a0d12;
-    --bg2: #0f1318;
-    --bg3: #141920;
-    --border: #1a2030;
-    --t0: #e8f0ff;
-    --t1: #a8bcd4;
-    --t2: #8fa7c3;
-    --cyan: #00d4ff;
-    --teal: #00d4a8;
-    --amber: #f59e0b;
-  }}
-  html, body {{ height: 100%; }}
-  body {{
-    background: var(--bg1);
-    color: var(--t0);
-    font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
-    font-size: 12px;
-    overflow-x: hidden;
-    line-height: 1.45;
-  }}
-
-  /* ── Hero header ── */
-  .hero {{
-    background: linear-gradient(135deg, #0a1020 0%, #0d1628 100%);
-    border-bottom: 1px solid var(--border);
-    padding: 18px 22px 14px;
-  }}
-  .hero-row {{ display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; }}
-  .ticker-badge {{
-    background: rgba(0,212,255,0.10);
-    border: 1px solid rgba(0,212,255,0.25);
-    color: var(--cyan);
-    font-family: 'JetBrains Mono', 'Consolas', monospace;
-    font-size: 11px; font-weight: 700;
-    letter-spacing: 2px;
-    padding: 3px 10px;
-    border-radius: 2px;
-    align-self: center;
-  }}
-  .company-name {{
-    font-size: 17px; font-weight: 700;
-    color: #e8f0ff; letter-spacing: 0.2px;
-  }}
-  .meta-pills {{ display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }}
-  .pill {{
-    background: var(--bg3);
-    border: 1px solid var(--border);
-    color: #b5c8de;
-    font-size: 10px; font-weight: 600;
-    letter-spacing: 0.8px;
-    padding: 2px 8px; border-radius: 2px;
-  }}
-  .pill.highlight {{ color: var(--amber); border-color: rgba(245,158,11,0.3); }}
-  .web-link {{
-    color: #b5c8de; font-size: 10px;
-    text-decoration: none; letter-spacing: 0.3px;
-  }}
-  .web-link:hover {{ color: var(--cyan); }}
-
-  /* ── Description ── */
-  .desc {{
-    font-size: 13px;
-    color: #c4d4e8;
-    line-height: 1.7;
-    margin: 12px 22px 10px;
-    border-left: 2px solid #253147;
-    padding: 4px 0 4px 12px;
-    max-width: 96ch;
-  }}
-
-  /* ── Grid layout ── */
-  .panels {{
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-    background: var(--border);
-    margin-top: 8px;
-    padding: 8px;
-  }}
-
-  .section {{
-    background: #0b1017;
-    border: 1px solid #1b2638;
-    padding: 10px 12px;
-    border-radius: 3px;
-  }}
-  .sec-title {{
-    color: #9db2ca;
-    font-size: 9px; font-weight: 800;
-    letter-spacing: 2px;
-    text-transform: uppercase;
-    margin-bottom: 6px;
-    padding-bottom: 4px;
-    border-bottom: 1px solid var(--border);
-  }}
-
-  /* ── Data table ── */
-  .grid {{ width: 100%; border-collapse: collapse; }}
-  .grid tr {{ border-bottom: 1px solid rgba(26,37,53,0.4); }}
-  .grid tr:last-child {{ border-bottom: none; }}
-  .lbl {{
-    color: #b5c8de;
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.2px;
-    padding: 3px 0;
-    width: 52%;
-    vertical-align: middle;
-  }}
-  .val {{
-    color: var(--t0);
-    font-family: 'JetBrains Mono', 'Consolas', monospace;
-    font-size: 11px;
-    font-weight: 700;
-    text-align: right;
-    padding: 3px 0;
-    vertical-align: middle;
-    white-space: nowrap;
-  }}
-
-  @media (max-width: 940px) {{
-    .panels {{ grid-template-columns: 1fr; }}
-  }}
-
-  /* ── Scrollbar ── */
-  ::-webkit-scrollbar {{ width: 4px; }}
-  ::-webkit-scrollbar-track {{ background: var(--bg1); }}
-  ::-webkit-scrollbar-thumb {{ background: var(--border); border-radius: 2px; }}
-</style>
-</head><body>
-
-<div class="hero">
-  <div class="hero-row">
-    <span class="ticker-badge">{d['symbol']}</span>
-    <div>
-      <div class="company-name">{d['name']}</div>
-      <div class="meta-pills">
-        <span class="pill highlight">{d['sector']}</span>
-        <span class="pill">{d['industry']}</span>
-        <span class="pill">{d['exchange']}</span>
-        <span class="pill">{d['country']}</span>
-        {web_html}
-      </div>
-    </div>
-  </div>
-</div>
-
+* {{ box-sizing: border-box; margin: 0; padding: 0; }}
+:root {{
+  --bg:#070d1a; --panel:#111a2b; --line:#243654; --ink:#e6eefb; --muted:#8ea5c4;
+}}
+html,body{{height:100%}}
+body{{background:radial-gradient(circle at 15% 0%,#1e2b49 0%,#070d1a 38%,#050913 100%);color:var(--ink);font-family:'Segoe UI','Inter',Arial,sans-serif;font-size:12px;line-height:1.45;}}
+.hero{{padding:18px 20px;background:linear-gradient(120deg,rgba(50,75,130,.45),rgba(18,33,62,.75));border-bottom:1px solid var(--line);box-shadow:inset 0 -20px 80px rgba(0,0,0,.25);}}
+.hero-row{{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}}
+.ticker-badge{{padding:6px 11px;border-radius:999px;background:linear-gradient(90deg,#22d3ee,#3b82f6);color:#061120;font-weight:900;letter-spacing:1.1px;font-size:10px;}}
+.company-name{{font-size:22px;font-weight:800;letter-spacing:.2px;text-shadow:0 1px 16px rgba(84,183,255,.25)}}
+.meta-pills{{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center}}
+.pill{{padding:4px 9px;border-radius:999px;border:1px solid #365079;background:rgba(16,26,45,.82);color:#a8c1df;font-size:10px;font-weight:700;letter-spacing:.7px}}
+.pill.highlight{{border-color:#846623;background:rgba(250,197,82,.14);color:#ffd76e}}
+.web-link{{color:#68f0c3;text-decoration:none;font-size:10px;font-weight:700;padding:4px 9px;border:1px solid rgba(0,242,166,.35);border-radius:999px;background:rgba(0,242,166,.08)}}
+.desc{{margin:12px 20px 8px;padding:10px 12px;border:1px solid #2e4367;border-radius:10px;background:rgba(18,30,50,.72);color:#d9e7fa;line-height:1.65}}
+.panels{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:10px 10px 12px}}
+.section{{background:linear-gradient(180deg,#111b2d,#0d1626);border:1px solid #2a3f64;border-radius:12px;padding:11px 12px;box-shadow:0 10px 25px rgba(0,0,0,.22)}}
+.sec-title{{color:#b8cae3;font-size:10px;font-weight:900;letter-spacing:1.8px;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #294066;position:relative}}
+.sec-title::after{{content:'';position:absolute;left:0;bottom:-1px;height:2px;width:78px;background:var(--accent);box-shadow:0 0 10px var(--accent)}}
+.grid{{width:100%;border-collapse:collapse}}.grid tr{{border-bottom:1px dashed rgba(66,93,132,.45)}}.grid tr:last-child{{border-bottom:none}}
+.lbl{{color:#a8bdd9;font-size:11px;font-weight:600;padding:4px 0;width:56%}}.val{{font-family:'JetBrains Mono','Consolas',monospace;font-weight:800;text-align:right;padding:4px 0;white-space:nowrap}}
+@media(max-width:940px){{.panels{{grid-template-columns:1fr}}.company-name{{font-size:18px}}}}
+::-webkit-scrollbar{{width:7px}}::-webkit-scrollbar-thumb{{background:#2a4064;border-radius:8px}}
+</style></head><body>
+<div class="hero"><div class="hero-row"><span class="ticker-badge">{d['symbol']}</span><div><div class="company-name">{d['name']}</div><div class="meta-pills"><span class="pill highlight">{d['sector']}</span><span class="pill">{d['industry']}</span><span class="pill">{d['exchange']}</span><span class="pill">{d['country']}</span>{web_html}</div></div></div></div>
 {desc_html}
-
 <div class="panels">
-  {section("VALUATION", valuation_rows)}
-  {section("PER SHARE", per_share_rows)}
-  {section("PROFITABILITY & GROWTH", profitability_rows)}
-  {section("MARKET DATA", market_rows)}
-  {section("DIVIDENDS &amp; EVENTS", dividend_rows)}
-  {section("ANALYST COVERAGE", analyst_rows)}
-</div>
+{section('VALUATION', valuation_rows, '#4bc4ff')}
+{section('PER SHARE', per_share_rows, '#18e0ab')}
+{section('PROFITABILITY & GROWTH', profitability_rows, '#ff6b8d')}
+{section('MARKET DATA', market_rows, '#ffca63')}
+{section('DIVIDENDS & EVENTS', dividend_rows, '#8e9fff')}
+{section('ANALYST COVERAGE', analyst_rows, '#34f5ca')}
+</div></body></html>"""
 
-</body></html>"""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -616,7 +474,7 @@ class StockInfoDialog(QDialog):
         super().__init__(parent, flags)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
         self.setMinimumSize(1000, 680)
-        self.resize(1100, 720)
+        self.resize(1180, 780)
 
         self._symbol = symbol.strip().upper()
         self._drag_active = False
@@ -765,16 +623,16 @@ class StockInfoDialog(QDialog):
     def _apply_styles(self):
         self.setStyleSheet("""
             StockInfoDialog {
-                background: #0a0d12;
-                border: 1px solid #1a2030;
-                border-radius: 2px;
+                background: #070d1a;
+                border: 1px solid #2b4470;
+                border-radius: 10px;
             }
             QFrame#siTitleBar {
-                background: #070a0f;
-                border-bottom: 1px solid #1a2030;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0f1c32, stop:1 #12213a);
+                border-bottom: 1px solid #2b4470;
             }
             QLabel#siTitle {
-                color: #00d4ff;
+                color: #6ed3ff;
                 font-family: 'JetBrains Mono', 'Consolas', monospace;
                 font-size: 10px;
                 font-weight: 700;
@@ -807,8 +665,8 @@ class StockInfoDialog(QDialog):
                 color: #ff4d6a;
             }
             QFrame#siFooter {
-                background: #070a0f;
-                border-top: 1px solid #1a2030;
+                background: #0b1628;
+                border-top: 1px solid #2b4470;
             }
             QLabel#siStatus {
                 color: #5a7090;

@@ -305,14 +305,21 @@ class PendingOrdersDialog(QDialog):
         selected = self.table.selectionModel().selectedRows()
         if not selected:
             return None
+
         row = selected[0].row()
         order_id_item = self.table.item(row, 1)
         if order_id_item is None:
             return None
-        return self._orders_by_id.get(order_id_item.text())
+
+        row_order = order_id_item.data(Qt.ItemDataRole.UserRole)
+        if isinstance(row_order, dict):
+            return row_order
+
+        order_id = (order_id_item.text() or "").strip()
+        return self._orders_by_id.get(order_id)
 
     def refresh_orders(self):
-        if not self.isVisible():
+        if not self.isVisible() and self._orders:
             return
 
         if self._refresh_inflight:
@@ -362,7 +369,9 @@ class PendingOrdersDialog(QDialog):
 
             ts = order.get("order_timestamp") or order.get("exchange_timestamp") or "-"
             self.table.setItem(row, 0, QTableWidgetItem(str(ts)))
-            self.table.setItem(row, 1, QTableWidgetItem(str(order.get("order_id", ""))))
+            order_id_item = QTableWidgetItem(str(order.get("order_id", "")))
+            order_id_item.setData(Qt.ItemDataRole.UserRole, order)
+            self.table.setItem(row, 1, order_id_item)
             self.table.setItem(row, 2, QTableWidgetItem(str(order.get("tradingsymbol", ""))))
             self.table.setItem(row, 3, QTableWidgetItem(str(order.get("transaction_type", ""))))
             self.table.setItem(row, 4, QTableWidgetItem(str(order.get("quantity", 0))))
@@ -444,6 +453,7 @@ class PendingOrdersDialog(QDialog):
     def showEvent(self, event):
         super().showEvent(event)
         self.auto_refresh_timer.start(7000)
+        self.refresh_orders()
         if self.parent():
             parent_geo = self.parent().frameGeometry()
             center = parent_geo.center()
