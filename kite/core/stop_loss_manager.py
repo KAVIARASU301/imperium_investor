@@ -265,7 +265,15 @@ class StopLossManager(QObject):
 
     def _fire_exit(self, rec: StopLossRecord, trigger_ltp: float) -> None:
         """Fire the exit order for a triggered SL."""
-        self._execution_inflight.add(rec.position_id)
+        pid = rec.position_id
+
+        # Atomic guard — prevents re-entry from concurrent ticks
+        with QMutexLocker(self._mutex):
+            if pid in self._execution_inflight:
+                return
+            if pid not in self._active:
+                return  # Already cancelled or triggered
+            self._execution_inflight.add(pid)
 
         try:
             exit_qty  = rec.exit_quantity
@@ -294,36 +302,44 @@ class StopLossManager(QObject):
             if rec.sl_type == "LIMIT":
                 order_params["price"] = rec.sl_price
 
-            order_id = self.trader.place_order(**order_params)
+            try:
+                order_id = self.trader.place_order(**order_params)
+            except Exception as e:
+                logger.error("SL exit order FAILED for %s: %s", rec.symbol, e)
+                self.show_notification.emit(f"SL order FAILED: {rec.symbol} — {e}", "error")
+                return  # Leave SL active; will retry on next tick
 
-            if order_id:
-                # Mark triggered in DB immediately
-                with QMutexLocker(self._mutex):
-                    self._active.pop(rec.position_id, None)
-                self.store.mark_triggered(rec.position_id)
+            if not order_id:
+                logger.error("SL exit returned no order_id for %s — leaving SL active", rec.symbol)
+                return
 
-                self.sl_triggered.emit(rec.symbol, rec.sl_price)
-                self.show_notification.emit(
-                    f"🛑 SL triggered: {rec.symbol} @ ₹{trigger_ltp:.2f} "
-                    f"→ {exit_side} {exit_qty} [{rec.sl_type}]",
-                    "warning",
-                )
+            # Only remove from active AFTER confirmed order placement
+            with QMutexLocker(self._mutex):
+                self._active.pop(pid, None)
 
-                # Let PositionManager handle tracking via the same pipeline
-                order_params["order_id"] = order_id
-                order_params["status"]   = "ROUTED"
-                self.position_manager.start_tracking_order(order_id, order_params)
-                self._execution_inflight.discard(rec.position_id)
-            else:
-                logger.error("SL exit order returned no order_id for %s", rec.symbol)
-                self._execution_inflight.discard(rec.position_id)
+            self.store.mark_triggered(pid)
+            self._rebuild_token_map()
+
+            self.sl_triggered.emit(rec.symbol, rec.sl_price)
+            self.show_notification.emit(
+                f"🛑 SL triggered: {rec.symbol} @ ₹{trigger_ltp:.2f} "
+                f"→ {exit_side} {exit_qty} [{rec.sl_type}]",
+                "warning",
+            )
+
+            # Let PositionManager handle tracking via the same pipeline
+            order_params["order_id"] = order_id
+            order_params["status"]   = "ROUTED"
+            self.position_manager.start_tracking_order(order_id, order_params)
 
         except Exception as e:
             logger.error("SL exit order failed for %s: %s", rec.symbol, e)
-            self._execution_inflight.discard(rec.position_id)
             self.show_notification.emit(
                 f"SL order FAILED for {rec.symbol}: {e}", "error"
             )
+        finally:
+            # Always remove from inflight so future ticks aren't blocked
+            self._execution_inflight.discard(pid)
 
     # ═════════════════════════════════════════════════════════════════════
     # POSITION SYNC (auto-cancel ghost SLs)
