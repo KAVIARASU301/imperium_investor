@@ -391,7 +391,7 @@ class PositionManager(QObject):
 
         logger.debug(f"Queueing background position fetch — reason: {reason}")
         self._positions_fetch_inflight = True
-        worker = Worker(self.trader.positions, log_exceptions=False)
+        worker = Worker(self._fetch_positions_payload, log_exceptions=False)
         worker.signals.result.connect(self._handle_positions_result)
         worker.signals.error.connect(
             lambda err: self._handle_positions_error(err[1])
@@ -399,9 +399,25 @@ class PositionManager(QObject):
         worker.signals.finished.connect(self._on_positions_fetch_finished)
         self._thread_pool.start(worker)
 
+    def _fetch_positions_payload(self):
+        """Fetch positions plus holdings so CNC carry holdings can appear in positions UI."""
+        payload = {
+            "positions": self.trader.positions(),
+            "holdings": []
+        }
+        try:
+            if hasattr(self.trader, "holdings"):
+                payload["holdings"] = self.trader.holdings() or []
+        except Exception as exc:
+            logger.warning(f"Holdings fetch failed while loading positions UI: {exc}")
+        return payload
+
     @Slot(object)
-    def _handle_positions_result(self, kite_positions):
+    def _handle_positions_result(self, payload):
         positions: List[Position] = []
+        kite_positions = payload.get("positions", {}) if isinstance(payload, dict) else (payload or {})
+        holdings = payload.get("holdings", []) if isinstance(payload, dict) else []
+
         for pos_data in (kite_positions or {}).get("net", []):
             if pos_data.get("quantity", 0) == 0:
                 continue
@@ -412,6 +428,28 @@ class PositionManager(QObject):
                 token    = pos_data.get("instrument_token", 0),
                 ltp      = pos_data.get("last_price", 0),
                 product  = pos_data.get("product") or pos_data.get("product_type") or "MIS",
+            )
+            pos.pnl = (pos.ltp - pos.avg_price) * pos.quantity
+            positions.append(pos)
+
+        existing_symbols = {p.symbol for p in positions}
+        for hold in holdings or []:
+            settled_qty = int(hold.get("quantity") or 0)
+            t1_qty = int(hold.get("t1_quantity") or 0)
+            qty = settled_qty + t1_qty
+            symbol = hold.get("tradingsymbol", "")
+            if qty <= 0 or not symbol or symbol in existing_symbols:
+                continue
+
+            avg_price = float(hold.get("average_price") or 0.0)
+            last_price = float(hold.get("last_price") or hold.get("ltp") or avg_price or 0.0)
+            pos = Position(
+                symbol=symbol,
+                quantity=qty,
+                avg_price=avg_price,
+                token=int(hold.get("instrument_token") or 0),
+                ltp=last_price,
+                product=str(hold.get("product") or "CNC"),
             )
             pos.pnl = (pos.ltp - pos.avg_price) * pos.quantity
             positions.append(pos)
