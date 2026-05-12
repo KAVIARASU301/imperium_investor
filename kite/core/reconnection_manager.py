@@ -54,6 +54,9 @@ class ReconnectionManager(QObject):
 
     def attach(self, main_window) -> None:
         self._main_window = main_window
+        mdw = getattr(main_window, "market_data_worker", None)
+        if mdw and hasattr(mdw, "set_external_reconnection_manager"):
+            mdw.set_external_reconnection_manager(True)
 
     # ── Public slots called by NetworkMonitor ──────────────────────────────
 

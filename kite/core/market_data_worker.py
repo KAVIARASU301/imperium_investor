@@ -49,6 +49,7 @@ class MarketDataWorker(QObject):
         self.is_running        = False
         self.subscribed_tokens: Set[int] = set()
         self._shutdown_requested = False
+        self._external_reconnection_manager = False
         self._ticker_log_level_before_shutdown: Optional[int] = None
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -252,7 +253,17 @@ class MarketDataWorker(QObject):
     def _on_reconnect(self, ws: KiteTicker, attempts: int) -> None:
         logger.info(f"WebSocket reconnecting — attempt {attempts}")
 
+    def set_external_reconnection_manager(self, enabled: bool = True) -> None:
+        """Tell the worker whether reconnects are coordinated externally."""
+        self._external_reconnection_manager = enabled
+
     def _retry_connection(self) -> None:
+        # Let ReconnectionManager own the retry when it exists.
+        # Only self-retry if no external manager is present.
+        if self._external_reconnection_manager:
+            logger.info("External ReconnectionManager present — skipping internal retry")
+            return
+
         if not self.is_running and not self._shutdown_requested:
             logger.info("Retrying WebSocket connection…")
             self.start()
