@@ -3513,6 +3513,51 @@ class FixedTradingChart {
         return Math.floor(epochMs / intervalMs) * intervalMs;
     }
 
+    _tradingDayKey(epochMs) {
+        if (!Number.isFinite(epochMs)) return '';
+
+        // Kite daily candles are timestamped at exchange-day midnight
+        // (Asia/Kolkata).  Comparing 24h UTC buckets makes the same trading
+        // day look like two different days: e.g. 2026-05-12 00:00 IST is
+        // 2026-05-11T18:30Z, while live ticks later on 2026-05-12 IST are in
+        // the next UTC bucket.  Use the exchange calendar day so live ticks
+        // update the historical daily candle instead of appending a duplicate.
+        try {
+            const parts = new Intl.DateTimeFormat('en-CA', {
+                timeZone: 'Asia/Kolkata',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+            }).formatToParts(new Date(epochMs));
+            const values = {};
+            for (const part of parts) {
+                if (part.type !== 'literal') values[part.type] = part.value;
+            }
+            if (values.year && values.month && values.day) {
+                return `${values.year}-${values.month}-${values.day}`;
+            }
+        } catch (e) {
+            // Extremely old/limited JS runtimes may not support IANA zones.
+            // Fall back to UTC date keys rather than failing live updates.
+        }
+
+        return new Date(epochMs).toISOString().slice(0, 10);
+    }
+
+    _shouldAppendLiveCandle(lastTimeMs, nowMs, intervalMs) {
+        const key = String(this.currentInterval || 'day').toLowerCase();
+
+        if (key === 'day') {
+            const lastDay = this._tradingDayKey(lastTimeMs);
+            const nowDay = this._tradingDayKey(nowMs);
+            return Boolean(lastDay && nowDay && nowDay > lastDay);
+        }
+
+        const lastBucket = this._bucketStartMs(lastTimeMs, intervalMs);
+        const nowBucket = this._bucketStartMs(nowMs, intervalMs);
+        return nowBucket > lastBucket;
+    }
+
     _coerceEpochMs(value) {
         if (value === undefined || value === null || value === '') return NaN;
         if (value instanceof Date) return value.getTime();
@@ -3568,10 +3613,9 @@ class FixedTradingChart {
             // from the visible historical candles.  Append only the active live
             // bucket so the chart stays contiguous while preserving its time.
             if (intervalMs > 0 && Number.isFinite(lastTimeMs)) {
-                const lastBucket = this._bucketStartMs(lastTimeMs, intervalMs);
                 const nowBucket = this._bucketStartMs(nowMs, intervalMs);
 
-                if (nowBucket > lastBucket) {
+                if (this._shouldAppendLiveCandle(lastTimeMs, nowMs, intervalMs)) {
                     const carryClose = Number.isFinite(last.close) ? last.close : price;
                     this.data.push({
                         time: nowBucket,
