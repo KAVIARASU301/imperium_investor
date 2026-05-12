@@ -15,6 +15,7 @@ Bugs fixed:
 import json
 import os
 import logging
+import time
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 from PySide6.QtCore import QObject, Signal, Slot, QTimer
@@ -22,7 +23,22 @@ from PySide6.QtCore import QObject, Signal, Slot, QTimer
 logger = logging.getLogger(__name__)
 
 
-_lines_drawn_this_session: set[str] = set()
+_recent_draws: dict[str, float] = {}
+_DRAW_COOLDOWN_SECONDS = 1.0
+
+
+def _is_recently_drawn(key: str) -> bool:
+    ts = _recent_draws.get(key)
+    if ts is None:
+        return False
+    if (time.time() - ts) > _DRAW_COOLDOWN_SECONDS:
+        _recent_draws.pop(key, None)
+        return False
+    return True
+
+
+def _mark_drawn(key: str) -> None:
+    _recent_draws[key] = time.time()
 
 
 class ChartLinesManager(QObject):
@@ -39,7 +55,7 @@ class ChartLinesManager(QObject):
         self.main_window = main_window
         self.drawings_dir = "kite/user_data/chart_drawings"
         os.makedirs(self.drawings_dir, exist_ok=True)
-        _lines_drawn_this_session.clear()
+        _recent_draws.clear()
 
     def _get_trading_mode(self) -> str:
         """Return active trading mode ('live' or 'paper')."""
@@ -248,8 +264,8 @@ class ChartLinesManager(QObject):
         """Add an alert line for a symbol/timeframe file."""
         try:
             line_key = self._session_line_key(symbol, price)
-            if line_key in _lines_drawn_this_session:
-                logger.debug(f"Session dedup: alert line already processed for {symbol} at {price:.2f}")
+            if _is_recently_drawn(line_key):
+                logger.debug(f"Write coalescing: alert line recently processed for {symbol} at {price:.2f}")
                 return True
 
             # Load current-interval state to check for duplicates
@@ -257,7 +273,7 @@ class ChartLinesManager(QObject):
             drawings = current_state["drawings"]
 
             if self._has_existing_alert_drawings(drawings, price):
-                _lines_drawn_this_session.add(line_key)
+                _mark_drawn(line_key)
                 logger.debug(f"Alert line already exists for {symbol} at {price:.2f}")
                 return True
 
@@ -272,7 +288,7 @@ class ChartLinesManager(QObject):
 
             success = self._save_symbol_drawings(symbol, current_state, interval)
             if success:
-                _lines_drawn_this_session.add(line_key)
+                _mark_drawn(line_key)
                 self._refresh_chart()
                 logger.info(f"Added alert line for {symbol} at {price:.2f}")
             return success
@@ -321,7 +337,7 @@ class ChartLinesManager(QObject):
             success = self._save_symbol_drawings(symbol, state, interval)
             if success:
                 line_key = self._session_line_key(symbol, price)
-                _lines_drawn_this_session.discard(line_key)
+                _recent_draws.pop(line_key, None)
                 self._refresh_chart()
                 logger.info(f"Removed alert line for {symbol} at {price:.2f}")
             return success
