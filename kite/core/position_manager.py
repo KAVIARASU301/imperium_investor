@@ -534,17 +534,26 @@ class PositionManager(QObject):
 
     def _handle_safety_poll_orders_result(self, kite_orders, needs_polling):
         for oid, tracked in needs_polling:
-            kite_order = next((o for o in (kite_orders or []) if o.get("order_id") == oid), None)
+            kite_order = next(
+                (o for o in (kite_orders or []) if o.get("order_id") == oid),
+                None,
+            )
             if not kite_order:
                 continue
 
             status = kite_order.get("status", "").upper()
+            filled = int(kite_order.get("filled_quantity") or 0)
+            pending = int(kite_order.get("pending_quantity") or 0)
             tracked.rest_confirmed = True
 
             if status in ("COMPLETE", "FILLED"):
                 self._handle_completion(oid, kite_order, status)
             elif status in ("REJECTED", "CANCELLED", "CANCELED"):
                 self._handle_failure(oid, kite_order, status)
+            elif status == "OPEN" and filled > 0:
+                # Partial fill detected via REST fallback. Re-route through the
+                # WebSocket update path so partial handling stays unified.
+                self.on_ws_order_update(kite_order)
 
     # ─────────────────────────────────────────────────────────────────────────
     # CHART LINE HELPERS
