@@ -419,15 +419,23 @@ class PositionManager(QObject):
         holdings = payload.get("holdings", []) if isinstance(payload, dict) else []
 
         for pos_data in (kite_positions or {}).get("net", []):
-            if pos_data.get("quantity", 0) == 0:
+            quantity = int(pos_data.get("quantity") or 0)
+            if quantity == 0:
                 continue
+
+            product = str(pos_data.get("product") or pos_data.get("product_type") or "MIS").upper()
+            # Kite can report same-day CNC exits as negative quantity (greyed out in Kite UI).
+            # These are not active short positions and should not appear in active positions table.
+            if product == "CNC" and quantity < 0:
+                continue
+
             pos = Position(
                 symbol   = pos_data.get("tradingsymbol", ""),
-                quantity = pos_data.get("quantity", 0),
+                quantity = quantity,
                 avg_price= pos_data.get("average_price", 0),
                 token    = pos_data.get("instrument_token", 0),
                 ltp      = pos_data.get("last_price", 0),
-                product  = pos_data.get("product") or pos_data.get("product_type") or "MIS",
+                product  = product,
             )
             pos.pnl = (pos.ltp - pos.avg_price) * pos.quantity
             positions.append(pos)
