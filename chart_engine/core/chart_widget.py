@@ -728,9 +728,18 @@ class CandlestickChart(QWidget):
         # FIX: guard on LOADED state — do not touch JS chart during load.
         if self.chart_view and self.current_state == ChartState.LOADED:
             tick_time_ms = self._tick_time_ms(tick)
+
+            # Extract today's OHLC from the tick so the JS chart can keep the
+            # active live candle aligned with broker-provided session values.
+            ohlc = tick.get("ohlc") or {}
+            tick_open = float(ohlc.get("open", 0) or 0)
+            tick_high = float(ohlc.get("high", 0) or 0)
+            tick_low = float(ohlc.get("low", 0) or 0)
+
             self._js(
                 "if(window.chart) window.chart.updateLivePrice("
-                f"{json.dumps(float(price))}, {json.dumps(tick_time_ms)}"
+                f"{json.dumps(float(price))}, {json.dumps(tick_time_ms)}, "
+                f"{json.dumps(tick_open)}, {json.dumps(tick_high)}, {json.dumps(tick_low)}"
                 ");"
             )
 

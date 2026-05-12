@@ -3516,32 +3516,26 @@ class FixedTradingChart {
     _tradingDayKey(epochMs) {
         if (!Number.isFinite(epochMs)) return '';
 
-        // Kite daily candles are timestamped at exchange-day midnight
-        // (Asia/Kolkata).  Comparing 24h UTC buckets makes the same trading
-        // day look like two different days: e.g. 2026-05-12 00:00 IST is
-        // 2026-05-11T18:30Z, while live ticks later on 2026-05-12 IST are in
-        // the next UTC bucket.  Use the exchange calendar day so live ticks
-        // update the historical daily candle instead of appending a duplicate.
+        // Primary: use Intl with IST timezone (IANA name supported in modern Chromium)
         try {
             const parts = new Intl.DateTimeFormat('en-CA', {
                 timeZone: 'Asia/Kolkata',
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit',
+                year: 'numeric', month: '2-digit', day: '2-digit',
             }).formatToParts(new Date(epochMs));
-            const values = {};
-            for (const part of parts) {
-                if (part.type !== 'literal') values[part.type] = part.value;
-            }
-            if (values.year && values.month && values.day) {
-                return `${values.year}-${values.month}-${values.day}`;
-            }
-        } catch (e) {
-            // Extremely old/limited JS runtimes may not support IANA zones.
-            // Fall back to UTC date keys rather than failing live updates.
-        }
+            const v = {};
+            for (const p of parts) if (p.type !== 'literal') v[p.type] = p.value;
+            if (v.year && v.month && v.day) return `${v.year}-${v.month}-${v.day}`;
+        } catch (_) {}
 
-        return new Date(epochMs).toISOString().slice(0, 10);
+        // Fallback: manual IST offset = UTC + 5h30m = +19800 seconds
+        // Avoids incorrect UTC-date comparison in environments where Intl/IANA fails.
+        const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;  // 19800000
+        const istMs   = epochMs + IST_OFFSET_MS;
+        const d       = new Date(istMs);
+        const yyyy    = d.getUTCFullYear();
+        const mm      = String(d.getUTCMonth() + 1).padStart(2, '0');
+        const dd      = String(d.getUTCDate()).padStart(2, '0');
+        return `${yyyy}-${mm}-${dd}`;
     }
 
     _shouldAppendLiveCandle(lastTimeMs, nowMs, intervalMs) {
