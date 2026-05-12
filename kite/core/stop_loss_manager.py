@@ -20,7 +20,7 @@ Wired in main_window:
 import logging
 from typing import Dict, List, Optional
 
-from PySide6.QtCore import QObject, Signal, Slot, QMutex, QMutexLocker
+from PySide6.QtCore import QObject, Signal, Slot, QMutex, QMutexLocker, QTimer
 
 from kite.core.stop_loss_store import StopLossRecord, StopLossStore
 
@@ -54,6 +54,10 @@ class StopLossManager(QObject):
         self._active: Dict[str, StopLossRecord] = {}  # position_id → record
         self._mutex           = QMutex()
         self._execution_inflight: set = set()          # prevent double-fire
+        self._trailing_dirty: set = set()               # position_ids needing DB sync
+        self._trailing_persist_timer = QTimer(self)
+        self._trailing_persist_timer.timeout.connect(self._flush_trailing_updates)
+        self._trailing_persist_timer.start(2000)        # write every 2s, not every tick
 
         # Load persisted active SLs on startup
         self._load_active_from_db()
@@ -239,7 +243,7 @@ class StopLossManager(QObject):
                 if new_sl > rec.sl_price:
                     old_sl = rec.sl_price
                     rec.sl_price = new_sl
-                    self.store.upsert(rec)
+                    self._trailing_dirty.add(rec.position_id)
                     self.sl_updated.emit(rec.symbol, new_sl)
                     logger.info(
                         "Trailing SL raised: %s ₹%.2f → ₹%.2f (LTP ₹%.2f)",
@@ -252,12 +256,24 @@ class StopLossManager(QObject):
                 if new_sl < rec.sl_price:
                     old_sl = rec.sl_price
                     rec.sl_price = new_sl
-                    self.store.upsert(rec)
+                    self._trailing_dirty.add(rec.position_id)
                     self.sl_updated.emit(rec.symbol, new_sl)
                     logger.info(
                         "Trailing SL lowered: %s ₹%.2f → ₹%.2f (LTP ₹%.2f)",
                         rec.symbol, old_sl, new_sl, ltp,
                     )
+
+
+    def _flush_trailing_updates(self) -> None:
+        with QMutexLocker(self._mutex):
+            dirty = set(self._trailing_dirty)
+            self._trailing_dirty.clear()
+
+        for pid in dirty:
+            with QMutexLocker(self._mutex):
+                rec = self._active.get(pid)
+            if rec:
+                self.store.upsert(rec)
 
     # ═════════════════════════════════════════════════════════════════════
     # ORDER EXECUTION
@@ -364,9 +380,12 @@ class StopLossManager(QObject):
             ghost_ids = [pid for pid in self._active if pid not in active_keys]
 
         for pid in ghost_ids:
-            symbol = pid.split(":")[0]
+            # Safe split — never assume format
+            parts = pid.split(":", 1)
+            symbol = parts[0] if parts else pid
+            product = parts[1] if len(parts) > 1 else "MIS"
             logger.info("Ghost SL removed (position closed externally): %s", symbol)
-            self.cancel_stop_loss(symbol, pid.split(":")[1] if ":" in pid else "MIS")
+            self.cancel_stop_loss(symbol, product)
 
     # ═════════════════════════════════════════════════════════════════════
     # STARTUP RECOVERY

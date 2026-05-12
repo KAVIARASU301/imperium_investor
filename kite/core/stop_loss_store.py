@@ -67,11 +67,14 @@ class StopLossRecord:
 
     @property
     def exit_quantity(self) -> int:
+        abs_qty = abs(self.quantity)
         if self.sl_quantity == "HALF":
-            return max(1, abs(self.quantity) // 2)
+            # For 1 share, half = 1 (cannot exit 0 shares)
+            half = abs_qty // 2
+            return half if half > 0 else abs_qty
         if self.sl_quantity == "CUSTOM" and self.custom_qty:
-            return min(abs(self.custom_qty), abs(self.quantity))
-        return abs(self.quantity)  # FULL
+            return min(abs(self.custom_qty), abs_qty)
+        return abs_qty  # FULL
 
     @property
     def distance_pct(self) -> float:
