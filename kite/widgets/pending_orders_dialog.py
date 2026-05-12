@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from PySide6.QtCore import Qt, QTimer, Signal, QThreadPool, QPoint
-from PySide6.QtGui import QCursor
+from PySide6.QtGui import QColor, QCursor
 from PySide6.QtWidgets import (
     QDialog,
     QVBoxLayout,
@@ -366,26 +366,47 @@ class PendingOrdersDialog(QDialog):
         for order in self._orders:
             row = self.table.rowCount()
             self.table.insertRow(row)
-
-            ts = order.get("order_timestamp") or order.get("exchange_timestamp") or "-"
-            self.table.setItem(row, 0, QTableWidgetItem(str(ts)))
-            order_id_item = QTableWidgetItem(str(order.get("order_id", "")))
-            order_id_item.setData(Qt.ItemDataRole.UserRole, order)
-            self.table.setItem(row, 1, order_id_item)
-            self.table.setItem(row, 2, QTableWidgetItem(str(order.get("tradingsymbol", ""))))
-            self.table.setItem(row, 3, QTableWidgetItem(str(order.get("transaction_type", ""))))
-            self.table.setItem(row, 4, QTableWidgetItem(str(order.get("quantity", 0))))
-            self.table.setItem(row, 5, QTableWidgetItem(str(order.get("filled_quantity", 0))))
-            self.table.setItem(row, 6, QTableWidgetItem(str(order.get("pending_quantity", 0))))
-
-            price = float(order.get("price") or 0.0)
-            trigger = float(order.get("trigger_price") or 0.0)
-            self.table.setItem(row, 7, QTableWidgetItem("Market" if price <= 0 else f"₹{price:.2f}"))
-            self.table.setItem(row, 8, QTableWidgetItem("-" if trigger <= 0 else f"₹{trigger:.2f}"))
-            self.table.setItem(row, 9, QTableWidgetItem(str(order.get("status", ""))))
+            self._populate_row(row, order)
 
         self.table.setSortingEnabled(True)
         self._set_action_state(self.selected_order() is not None)
+
+    def _populate_row(self, row: int, order: Dict[str, Any]):
+        ts = order.get("order_timestamp") or order.get("exchange_timestamp") or "-"
+        self.table.setItem(row, 0, QTableWidgetItem(str(ts)))
+        order_id_item = QTableWidgetItem(str(order.get("order_id", "")))
+        order_id_item.setData(Qt.ItemDataRole.UserRole, order)
+        self.table.setItem(row, 1, order_id_item)
+        self.table.setItem(row, 2, QTableWidgetItem(str(order.get("tradingsymbol", ""))))
+        self.table.setItem(row, 3, QTableWidgetItem(str(order.get("transaction_type", ""))))
+
+        filled = int(order.get("filled_quantity") or 0)
+        pending = int(order.get("pending_quantity") or 0)
+        total = filled + pending
+        is_partial = filled > 0 and pending > 0
+
+        if is_partial:
+            qty_item = QTableWidgetItem(f"{filled}/{total}")
+            qty_item.setForeground(QColor("#f59e0b"))
+            qty_item.setToolTip(f"Partial fill: {filled} of {total} shares filled")
+        else:
+            qty_item = QTableWidgetItem(str(total))
+
+        self.table.setItem(row, 4, qty_item)
+        self.table.setItem(row, 5, QTableWidgetItem(str(filled)))
+        self.table.setItem(row, 6, QTableWidgetItem(str(pending)))
+
+        price = float(order.get("price") or 0.0)
+        trigger = float(order.get("trigger_price") or 0.0)
+        self.table.setItem(row, 7, QTableWidgetItem("Market" if price <= 0 else f"₹{price:.2f}"))
+        self.table.setItem(row, 8, QTableWidgetItem("-" if trigger <= 0 else f"₹{trigger:.2f}"))
+
+        if is_partial:
+            status_item = QTableWidgetItem("PARTIAL")
+            status_item.setForeground(QColor("#f59e0b"))
+        else:
+            status_item = QTableWidgetItem(str(order.get("status", "")))
+        self.table.setItem(row, 9, status_item)
 
     def cancel_selected_order(self):
         order = self.selected_order()

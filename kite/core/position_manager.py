@@ -50,6 +50,8 @@ class TrackedOrder:
     placed_at: datetime
     ws_confirmed: bool = False      # True once WS postback received
     rest_confirmed: bool = False    # True once REST fallback confirms
+    partial_fill_seen: bool = False  # True after a partial fill update is logged
+    last_partial_filled_qty: int = 0  # Last cumulative fill quantity persisted
 
 
 class PositionManager(QObject):
@@ -167,6 +169,16 @@ class PositionManager(QObject):
                     f"{symbol} @ ₹{avg_fill:.2f} — {pending_qty} pending",
                     "warning",
                 )
+                if filled_qty > tracked.last_partial_filled_qty:
+                    if self.trade_logger:
+                        self.trade_logger.log_partial_fill(
+                            order_id=order_id,
+                            filled_qty=filled_qty,
+                            avg_price=avg_fill,
+                            pending_qty=pending_qty,
+                        )
+                    tracked.partial_fill_seen = True
+                    tracked.last_partial_filled_qty = filled_qty
                 logger.info(
                     f"[PARTIAL] {symbol}: {filled_qty} filled, {pending_qty} pending @ ₹{avg_fill:.2f}"
                 )
@@ -326,13 +338,22 @@ class PositionManager(QObject):
                     )
 
         if self.trade_logger:
+            pending_qty = int(order_dict.get("pending_quantity") or 0)
+            if tracked and tracked.partial_fill_seen:
+                self.trade_logger.log_partial_fill(
+                    order_id=order_id,
+                    filled_qty=filled_qty,
+                    avg_price=avg_price,
+                    pending_qty=pending_qty,
+                )
+                tracked.last_partial_filled_qty = filled_qty
             self.trade_logger.log_order_update({
                 "order_id": order_id,
                 "status": status,
                 "status_message": order_dict.get("status_message", ""),
                 "average_price": avg_price,
                 "filled_quantity": filled_qty,
-                "pending_quantity": int(order_dict.get("pending_quantity") or 0),
+                "pending_quantity": pending_qty,
                 "cancelled_quantity": int(order_dict.get("cancelled_quantity") or 0),
             })
 

@@ -330,6 +330,21 @@ class TradeLogger(QObject):
             return
         self.db_worker.add_operation("log_order_update", order_data)
 
+    def log_partial_fill(self, order_id: str, filled_qty: int,
+                         avg_price: float, pending_qty: int) -> None:
+        """Log each partial fill increment for audit trail."""
+        if self._shutdown_requested:
+            return
+        self.db_worker.add_operation("log_order_update", {
+            "order_id": order_id,
+            "status": "PARTIAL",
+            "average_price": avg_price,
+            "filled_quantity": filled_qty,
+            "pending_quantity": pending_qty,
+            "cancelled_quantity": 0,
+            "status_message": f"Partial fill: {filled_qty} filled, {pending_qty} pending",
+        })
+
     # ─────────────────────────────────────────────────────────────────────────
     # READ API (synchronous — open own connection)
     # ─────────────────────────────────────────────────────────────────────────

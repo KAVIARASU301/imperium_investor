@@ -182,7 +182,7 @@ class GlobalStatusManager(QObject):
             self._post("CANCELLED", symbol, "warn", 3000)
             return
         if event == "partial":
-            self._post("PARTIAL", f"{symbol} {detail}".strip(), "warn", 3000, sub_kind="partial_fill")
+            self._post("PARTIAL FILL", f"{symbol} {detail}".strip(), "warn", 6000, sub_kind="partial_fill")
             play_alert()
             return
 
@@ -390,7 +390,7 @@ class GlobalStatusManager(QObject):
             "filled": "#4ec994",       # teal
             "network": "#d4a84b",      # amber
             "rate_limit": "#b081ff",   # purple
-            "partial_fill": "#6a9cff", # blue
+            "partial_fill": "#f59e0b", # amber
         }
         if not sub_kind:
             return None
