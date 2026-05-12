@@ -11,7 +11,7 @@ Upgrades:
 """
 
 import logging
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Set
 from dataclasses import dataclass, field
 
 from PySide6.QtWidgets import (
@@ -70,6 +70,7 @@ class Position:
     pnl: float = 0.0
     product: str = "MIS"
     prev_close: float = 0.0
+    is_partial_building: bool = False
 
     @classmethod
     def from_kite_position(cls, pos_data: Dict) -> "Position":
@@ -109,6 +110,7 @@ class PositionsTable(QWidget):
         self.symbol_to_row: Dict[str, int] = {}
         self._token_to_symbol: Dict[int, str] = {}
         self._subscribed_tokens: set = set()
+        self._partial_fill_symbols: Set[str] = set()
 
         self._tick_dirs: Dict[str, int] = {}
         self._prev_ltps: Dict[str, float] = {}
@@ -256,8 +258,9 @@ class PositionsTable(QWidget):
         pnl_color = self._open_pnl_text_color(pnl)
 
         # Notice: No ₹ symbols to save horizontal space
+        symbol_text = f"⚡ {pos.symbol}" if pos.symbol in self._partial_fill_symbols else pos.symbol
         cells = [
-            (COL_SYMBOL, pos.symbol, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, _T0),
+            (COL_SYMBOL, symbol_text, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, _T0),
             (COL_QTY, f"{qty_sign}{abs(pos.quantity)}", Qt.AlignmentFlag.AlignCenter, profit_color if is_long else loss_color),
             (COL_AVG, f"{pos.avg_price:,.2f}", Qt.AlignmentFlag.AlignCenter, _T0),
             (COL_OPEN_PNL, f"{'+' if pnl >= 0 else ''}{pnl:,.2f}", Qt.AlignmentFlag.AlignCenter, pnl_color),
@@ -271,8 +274,30 @@ class PositionsTable(QWidget):
             item.setForeground(QColor(color))
 
             item.setData(Qt.ItemDataRole.UserRole, self._sort_key(col, pos))
+            if col == COL_SYMBOL:
+                if pos.symbol in self._partial_fill_symbols:
+                    item.setToolTip("Position building — partial fill in progress")
+                else:
+                    item.setToolTip("")
 
         self._apply_open_pnl_row_style(row, pnl)
+
+
+    @Slot(object)
+    def mark_partial_symbols(self, symbols):
+        """Mark position rows whose entry order is still partially filling."""
+        partial_symbols = {str(symbol) for symbol in (symbols or set()) if symbol}
+        if partial_symbols == self._partial_fill_symbols:
+            return
+
+        affected_symbols = self._partial_fill_symbols | partial_symbols
+        self._partial_fill_symbols = partial_symbols
+
+        for symbol in affected_symbols:
+            row = self.symbol_to_row.get(symbol)
+            pos = self.positions_data.get(symbol)
+            if row is not None and pos:
+                self._refresh_row(row, pos)
 
     def _open_pnl_text_color(self, pnl: float) -> str:
         if pnl > 0:

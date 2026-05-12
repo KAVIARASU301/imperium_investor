@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QAbstractButton,
     QLineEdit,
     QApplication,
+    QMenu,
 )
 
 from kite.widgets.status_bar import show_error, show_info, show_order_cancelled
@@ -237,6 +238,7 @@ class PendingOrdersDialog(QDialog):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
         self.table.setSortingEnabled(True)
+        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
 
         header_view = self.table.horizontalHeader()
         header_view.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
@@ -293,6 +295,7 @@ class PendingOrdersDialog(QDialog):
         self.edit_btn.clicked.connect(self.edit_selected_order)
         self.close_btn.clicked.connect(self.close)
         self.table.itemSelectionChanged.connect(self._on_selection_changed)
+        self.table.customContextMenuRequested.connect(self._show_context_menu)
 
     def _set_action_state(self, enabled: bool):
         self.cancel_btn.setEnabled(enabled)
@@ -407,6 +410,47 @@ class PendingOrdersDialog(QDialog):
         else:
             status_item = QTableWidgetItem(str(order.get("status", "")))
         self.table.setItem(row, 9, status_item)
+
+    def _show_context_menu(self, pos):
+        row = self.table.indexAt(pos).row()
+        if row >= 0:
+            self.table.selectRow(row)
+
+        order = self.selected_order()
+        if not order:
+            return
+
+        filled = int(order.get("filled_quantity") or 0)
+        pending = int(order.get("pending_quantity") or 0)
+
+        menu = QMenu(self)
+        if filled > 0 and pending > 0:
+            cancel_rest = menu.addAction(
+                f"✕ Cancel remaining {pending} shares"
+            )
+            cancel_rest.triggered.connect(
+                lambda: self._cancel_remaining(order)
+            )
+
+        modify_act = menu.addAction("✎ Modify Order")
+        modify_act.triggered.connect(self.edit_selected_order)
+        menu.exec(self.table.viewport().mapToGlobal(pos))
+
+    def _cancel_remaining(self, order):
+        """Cancel the unfilled portion of a partially-filled order."""
+        order_id = order.get("order_id")
+        variety = order.get("variety") or "regular"
+        symbol = order.get("tradingsymbol", "")
+        pending = int(order.get("pending_quantity") or 0)
+
+        try:
+            self.trader.cancel_order(variety=variety, order_id=order_id)
+            show_info(f"Cancelled remaining {pending} shares of {symbol}")
+            logger.info("Cancelled remaining quantity for partially-filled order %s", order_id)
+            self.refresh_orders()
+        except Exception as exc:
+            logger.error("Cancel remaining failed for %s: %s", order_id, exc, exc_info=True)
+            show_error(f"Cancel failed: {exc}")
 
     def cancel_selected_order(self):
         order = self.selected_order()

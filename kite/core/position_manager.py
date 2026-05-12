@@ -41,6 +41,7 @@ class Position:
     pnl:  float = 0.0
     product: str = "MIS"
     prev_close: float = 0.0
+    is_partial_building: bool = False
 
 
 @dataclass
@@ -52,6 +53,11 @@ class TrackedOrder:
     rest_confirmed: bool = False    # True once REST fallback confirms
     partial_fill_seen: bool = False  # True after a partial fill update is logged
     last_partial_filled_qty: int = 0  # Last cumulative fill quantity persisted
+
+    @property
+    def is_partial(self) -> bool:
+        """Return True while an open tracked order has a partial fill."""
+        return self.partial_fill_seen and self.last_partial_filled_qty > 0
 
 
 class PositionManager(QObject):
@@ -67,6 +73,7 @@ class PositionManager(QObject):
     """
 
     positions_updated  = Signal(list)   # emits List[Position]
+    partial_fill_symbols_updated = Signal(object)  # emits Set[str] with open partial fills
     show_notification  = Signal(str, str)
 
     # ── Timing config ──
@@ -179,6 +186,7 @@ class PositionManager(QObject):
                         )
                     tracked.partial_fill_seen = True
                     tracked.last_partial_filled_qty = filled_qty
+                    self._emit_partial_fill_symbols()
                 logger.info(
                     f"[PARTIAL] {symbol}: {filled_qty} filled, {pending_qty} pending @ ₹{avg_fill:.2f}"
                 )
@@ -275,7 +283,21 @@ class PositionManager(QObject):
             self.WS_TIMEOUT_SECONDS * 1000,
             lambda: self._ws_timeout_check(order_id)
         )
+        self._emit_partial_fill_symbols()
         self._ensure_safety_timer()
+
+
+    def partial_fill_symbols(self) -> Set[str]:
+        """Return symbols with an open tracked order that has partially filled."""
+        return {
+            tracked.order_data.get("tradingsymbol", "")
+            for tracked in self._tracked.values()
+            if tracked.is_partial and tracked.order_data.get("tradingsymbol", "")
+        }
+
+    def _emit_partial_fill_symbols(self):
+        """Notify UI consumers which symbols are still building from partial fills."""
+        self.partial_fill_symbols_updated.emit(self.partial_fill_symbols())
 
     def _ws_timeout_check(self, order_id: str):
         """If WS hasn't confirmed this order in time, switch to REST polling."""
@@ -359,7 +381,8 @@ class PositionManager(QObject):
 
         # Refresh positions
         self.fetch_positions_from_kite("order_completed")
-        del self._tracked[order_id]
+        self._tracked.pop(order_id, None)
+        self._emit_partial_fill_symbols()
         self._stop_safety_timer_if_idle()
         logger.info(
             f"✅ Order complete: {order_id} | {tx_type} {filled_qty} {symbol} @ ₹{avg_price:.2f}"
@@ -394,7 +417,8 @@ class PositionManager(QObject):
                 "cancelled_quantity": int(order_dict.get("cancelled_quantity") or 0),
             })
 
-        del self._tracked[order_id]
+        self._tracked.pop(order_id, None)
+        self._emit_partial_fill_symbols()
         self._stop_safety_timer_if_idle()
         logger.warning(
             f"⚠️ Order {status}: {order_id} | {tx_type} {symbol} | Reason: {reason}"
@@ -458,6 +482,11 @@ class PositionManager(QObject):
                 ltp      = pos_data.get("last_price", 0),
                 product  = product,
             )
+            for tracked in self._tracked.values():
+                t_sym = tracked.order_data.get("tradingsymbol", "")
+                if t_sym == pos.symbol and tracked.is_partial:
+                    pos.is_partial_building = True
+                    break
             pos.pnl = (pos.ltp - pos.avg_price) * pos.quantity
             positions.append(pos)
 
@@ -484,6 +513,7 @@ class PositionManager(QObject):
             positions.append(pos)
 
         self.positions_updated.emit(positions)
+        self._emit_partial_fill_symbols()
         logger.debug(f"Emitted {len(positions)} positions")
 
         if self.main_window and hasattr(self.main_window, "chart_lines_manager"):
@@ -549,6 +579,8 @@ class PositionManager(QObject):
         for oid in expired:
             logger.warning(f"Purging expired unconfirmed order: {oid}")
             del self._tracked[oid]
+        if expired:
+            self._emit_partial_fill_symbols()
         self._stop_safety_timer_if_idle()
 
     def _stop_safety_timer_if_idle(self):
@@ -561,4 +593,5 @@ class PositionManager(QObject):
         self._safety_timer.stop()
         self._pos_refresh_timer.stop()
         self._tracked.clear()
+        self._emit_partial_fill_symbols()
         logger.info("PositionManager stopped")
