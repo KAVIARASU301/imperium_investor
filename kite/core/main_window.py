@@ -166,6 +166,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self._init_alert_system()
         self._init_background_workers()
         self._connect_signals()
+        self._init_network_resilience()
         self.color_theme_manager.theme_changed.connect(self._on_color_theme_changed)
         self._connect_chart_signals()
         self._setup_watchlist_shortcuts()
@@ -372,13 +373,22 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     def _setup_status_indicators(self) -> None:
         """Drive subtle bottom-bar operational indicators."""
         self._heartbeat_timer = QTimer(self)
-        self._heartbeat_timer.timeout.connect(status.pulse_heartbeat)
+        self._heartbeat_timer.timeout.connect(self._refresh_heartbeat)
         self._heartbeat_timer.start(1000)
 
         self._market_status_timer = QTimer(self)
         self._market_status_timer.timeout.connect(self._refresh_market_status)
         self._market_status_timer.start(60_000)
         self._refresh_market_status()
+
+    def _refresh_heartbeat(self) -> None:
+        """Update heartbeat pulse while reflecting network connectivity state."""
+        nm = getattr(self, "network_monitor", None)
+        if nm and not nm.is_online():
+            # Force red, no pulse animation while offline.
+            self.app_status_bar.set_heartbeat("●", color="#ff4d6a")
+        else:
+            status.pulse_heartbeat()
 
     def _refresh_market_status(self) -> None:
         """Update bottom status bar with NSE session status based on IST."""
@@ -925,6 +935,62 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     def _show_position_manager_notification(self, message: str, level: str):
         """Surface PositionManager lifecycle events as toast notifications."""
         status.show_notification(message, level)
+
+    def _init_network_resilience(self):
+        """
+        Wire up network monitoring and automatic reconnection.
+        Must be called after market_data_worker and position_manager exist.
+        """
+        from kite.core.network_monitor import NetworkMonitor
+        from kite.core.reconnection_manager import ReconnectionManager
+
+        self.network_monitor = NetworkMonitor(self)
+        self.reconnection_manager = ReconnectionManager(self)
+        self.reconnection_manager.attach(self)
+
+        # Network monitor → reconnection manager
+        self.network_monitor.went_offline.connect(self.reconnection_manager.on_network_offline)
+        self.network_monitor.came_online.connect(self.reconnection_manager.on_network_online)
+
+        # Network monitor → UI indicators
+        self.network_monitor.went_offline.connect(self._on_network_offline_ui)
+        self.network_monitor.came_online.connect(self._on_network_online_ui)
+
+        # Reconnection manager → UI
+        self.reconnection_manager.reconnection_started.connect(
+            lambda: status.show_notification("Reconnecting to Kite…", "warn", 0))
+        self.reconnection_manager.reconnection_complete.connect(
+            lambda: status.show_notification("✅ Reconnected to Kite", "success", 4000))
+        self.reconnection_manager.reconnection_failed.connect(
+            lambda r: status.show_notification(f"Reconnect failed: {r}", "error", 8000))
+
+        self.network_monitor.start()
+        logger.info("Network resilience layer initialized")
+
+    @Slot()
+    def _on_network_offline_ui(self):
+        """Immediate UI feedback when network drops."""
+        from kite.widgets.notifications import ToastNotification
+
+        ToastNotification(
+            "Network Offline",
+            "Lost connection to Kite. Reconnecting automatically…",
+            "error",
+            0,       # 0 = persist until dismissed
+        ).show_toast()
+
+        # Heartbeat goes red immediately
+        if hasattr(self, "app_status_bar"):
+            self.app_status_bar._heartbeat_pulse_on = False
+            self.app_status_bar.set_heartbeat("●")
+            self.app_status_bar.set_api_status("OFFLINE")
+
+    @Slot()
+    def _on_network_online_ui(self):
+        """UI feedback when network returns."""
+        # Toast is shown by reconnection_manager.reconnection_started
+        if hasattr(self, "app_status_bar"):
+            self.app_status_bar.set_api_status("CONNECTED")
 
     # ==============================================================================
     # SIMPLIFIED SIGNAL CONNECTIONS

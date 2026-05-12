@@ -114,9 +114,15 @@ class StatusBar(QWidget):
         dot_color = dot_color_map.get(status, "#7b8496")
         self.api_label.setText(f'API: {status} <span style="color:{dot_color};">●</span>')
 
-    def set_heartbeat(self, text: str) -> None:
-        pulse_color = "#00d4a8" if self._heartbeat_pulse_on else "#2a3a50"
-        self.heartbeat_label.setText(f'HEARTBEAT: <span style="color:{pulse_color};">{text}</span>')
+    def set_heartbeat(self, text: str, color: Optional[str] = None) -> None:
+        # If offline, force red regardless of pulse state.
+        if color:
+            pulse_color = color
+        else:
+            pulse_color = "#00d4a8" if self._heartbeat_pulse_on else "#2a3a50"
+        self.heartbeat_label.setText(
+            f'HEARTBEAT: <span style="color:{pulse_color};">{text}</span>'
+        )
 
     def set_message(self, text: str) -> None:
         # Dummy method to prevent crashes since we removed message_label
