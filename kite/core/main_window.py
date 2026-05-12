@@ -894,6 +894,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     @Slot(str)
     def _on_chart_symbol_changed(self, symbol: str):
         """Handle chart symbol changes"""
+        self._chart_tick_queue.clear()
         logger.info(f"Chart symbol changed to: {symbol}")
         if symbol in self.instrument_map:
             token = self.instrument_map[symbol]['instrument_token']
@@ -1167,24 +1168,23 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
     @Slot()
     def _flush_market_data_ticks(self):
-        """Flush queued chart ticks and coalesced ticks on a fixed timer."""
-        if (
-            not self._chart_tick_queue
-            and not self._tick_buffer_by_token
-            and not self._tick_buffer_without_token
-        ):
-            return
+        # Flush chart ticks first — highest priority, no batching delay
+        if self._chart_tick_queue:
+            chart_ticks = list(self._chart_tick_queue)
+            self._chart_tick_queue.clear()
+            for tick in chart_ticks:
+                self.candlestick_chart.update_live_data(tick)
 
-        while self._chart_tick_queue:
-            self.candlestick_chart.update_live_data(self._chart_tick_queue.popleft())
+        # Flush the coalesced buffer for everything else (watchlist, positions, scanner)
+        if not self._tick_buffer_by_token and not self._tick_buffer_without_token:
+            return
 
         ticks = list(self._tick_buffer_by_token.values())
         self._tick_buffer_by_token.clear()
         while self._tick_buffer_without_token:
             ticks.append(self._tick_buffer_without_token.popleft())
 
-        if ticks:
-            self._on_market_data(ticks)
+        self._on_market_data(ticks)
 
     def _on_market_data(self, ticks: List[Dict]):
         """
@@ -1226,20 +1226,12 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 if self.floating_positions_dialog and self.floating_positions_dialog.isVisible():
                     self.floating_positions_dialog.update_market_data(int(token), float(ltp))
 
-        # 3. Chart — only if token matches current symbol (cheap check)
-        chart_token = getattr(self.candlestick_chart, "current_instrument_token", None)
-        if chart_token:
-            for tick in ticks:
-                if tick.get("instrument_token") == chart_token:
-                    self.candlestick_chart.update_live_data(tick)
-                    break  # only one match possible
-
-        # 4. Paper trader (only in paper mode, lightweight)
+        # 3. Paper trader (only in paper mode, lightweight)
         paper_trader = self._get_paper_trading_manager()
         if paper_trader:
             paper_trader.update_market_data(ticks)
 
-        # 5. Alert engine
+        # 4. Alert engine
         if self.alert_system:
             self.alert_system.update_market_data(ticks)
 

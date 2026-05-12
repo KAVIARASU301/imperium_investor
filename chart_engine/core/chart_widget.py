@@ -274,6 +274,9 @@ class CandlestickChart(QWidget):
     @Slot(str)
     def on_search(self, symbol: Optional[str] = None) -> None:
         """Compatibility API used by UI symbol-selection signals."""
+        if hasattr(self, "_chart_tick_queue"):
+            self._chart_tick_queue.clear()
+
         resolved_symbol = self._resolve_symbol(symbol)
         if not resolved_symbol:
             if symbol:
