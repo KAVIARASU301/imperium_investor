@@ -32,6 +32,7 @@ from login_setup.dual_mode_login_manager import DualModeLoginManager
 from login_setup.broker_factory import BrokerFactory, BrokerClientManager
 from login_setup.broker_modes import BrokerMode
 from login_setup.login_setup_config import setup_logging
+from login_setup.token_manager import EnhancedTokenManager
 
 # --- Setup Logging ---
 # It's crucial to set up logging at the very beginning.
@@ -64,54 +65,66 @@ class Application:
 
         self.broker_manager = BrokerClientManager()
 
-        try:
-            # 1. --- Authentication + Resilient Client Initialization ---
-            # Re-prompt login only when we detect a stale/invalid persisted Kite session.
-            max_login_attempts = 2
-            auth_data = None
-            trader = None
-            data_client = None
-            broker_mode = None
+        while True:
+            try:
+                # 1. --- Authentication + Resilient Client Initialization ---
+                # Re-prompt login only when we detect a stale/invalid persisted Kite session.
+                max_login_attempts = 2
+                auth_data = None
+                trader = None
+                data_client = None
+                broker_mode = None
 
-            for attempt in range(1, max_login_attempts + 1):
-                login_manager = DualModeLoginManager()
-                if not login_manager.exec():
-                    logger.info("Login cancelled by user. Exiting.")
-                    sys.exit(0)
+                for attempt in range(1, max_login_attempts + 1):
+                    login_manager = DualModeLoginManager()
+                    if not login_manager.exec():
+                        logger.info("Login cancelled by user. Exiting.")
+                        sys.exit(0)
 
-                auth_data = login_manager.get_authentication_data()
-                if not auth_data:
-                    self._show_critical_error("Authentication failed. Exiting.")
-                    sys.exit(1)
+                    auth_data = login_manager.get_authentication_data()
+                    if not auth_data:
+                        self._show_critical_error("Authentication failed. Exiting.")
+                        sys.exit(1)
 
-                broker_mode = auth_data.get('broker_mode')
-                logger.info(f"Authenticated for broker: {broker_mode.value}")
+                    broker_mode = auth_data.get('broker_mode')
+                    logger.info(f"Authenticated for broker: {broker_mode.value}")
 
-                try:
-                    trader, data_client = self._initialize_clients(auth_data)
-                    break
-                except ConnectionError as exc:
-                    if self._handle_possible_stale_kite_session(auth_data, attempt, max_login_attempts, exc):
-                        continue
-                    raise
+                    try:
+                        trader, data_client = self._initialize_clients(auth_data)
+                        break
+                    except ConnectionError as exc:
+                        if self._handle_possible_stale_kite_session(auth_data, attempt, max_login_attempts, exc):
+                            continue
+                        raise
 
-            if trader is None or data_client is None or broker_mode is None or auth_data is None:
-                raise ConnectionError("Unable to initialize broker clients after retry.")
+                if trader is None or data_client is None or broker_mode is None or auth_data is None:
+                    raise ConnectionError("Unable to initialize broker clients after retry.")
 
-            self.broker_manager.add_client(broker_mode, trader)
+                self.broker_manager.add_client(broker_mode, trader)
 
-            # 2. --- Main Window Creation ---
-            self.window = self._create_main_window(broker_mode, trader, data_client, auth_data)
-            self.window.show()
+                # 2. --- Main Window Creation ---
+                self.window = self._create_main_window(broker_mode, trader, data_client, auth_data)
+                self.window.show()
 
-            # 3. --- Event Loop ---
-            logger.info("Starting application event loop.")
-            sys.exit(self.app.exec())
+                # 3. --- Event Loop ---
+                logger.info("Starting application event loop.")
+                exit_code = self.app.exec()
+                sys.exit(exit_code)
 
-        except Exception as e:
-            logger.critical(f"An unhandled error occurred: {e}", exc_info=True)
-            self._show_critical_error(str(e))
-            sys.exit(1)
+            except Exception as e:
+                if self._should_force_relogin(e):
+                    logger.warning("Detected invalid/expired Kite session at runtime. Forcing fresh login.")
+                    self._clear_persisted_kite_session()
+                    self._show_warning(
+                        "Your Kite session is no longer valid. "
+                        "Please login again to continue."
+                    )
+                    self._cleanup()
+                    continue
+
+                logger.critical(f"An unhandled error occurred: {e}", exc_info=True)
+                self._show_critical_error(str(e))
+                sys.exit(1)
 
     def _initialize_clients(self, auth_data: dict):
         """Initializes and validates broker clients."""
@@ -171,6 +184,31 @@ class Application:
         msg_box.setInformativeText(message)
         msg_box.setWindowTitle("Session Refresh Required")
         msg_box.exec()
+
+    @staticmethod
+    def _should_force_relogin(exception: Exception) -> bool:
+        """Return True when an exception indicates Kite auth/session expiry."""
+        error_text = str(exception or "").lower()
+        auth_markers = (
+            "tokenexception",
+            "invalid token",
+            "token is invalid",
+            "session expired",
+            "session has expired",
+            "invalid session",
+            "access token",
+            "authorization",
+            "403",
+        )
+        return any(marker in error_text for marker in auth_markers)
+
+    @staticmethod
+    def _clear_persisted_kite_session():
+        """Clear stored Kite session so next app cycle starts with fresh login."""
+        try:
+            EnhancedTokenManager().clear_broker_session(BrokerMode.INDIA)
+        except Exception as clear_error:
+            logger.warning(f"Failed to clear persisted Kite session: {clear_error}")
 
     def _create_main_window(self, broker_mode, trader, data_client, auth_data):
         """Creates the appropriate main window for the selected broker."""
