@@ -827,6 +827,11 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             self.candlestick_chart.data_request_for_symbol.connect(self._ensure_chart_subscription)
             # FIX #9: redraw alert lines whenever the chart switches symbol
             if self.alert_system:
+                # Restore alert lines only after chart JS is fully initialized
+                self.candlestick_chart.chart_bridge_ready.connect(
+                    lambda: QTimer.singleShot(200, self._restore_alert_lines)
+                )
+                # Also restore on each symbol load (handles interval switches too)
                 self.candlestick_chart.symbol_loaded.connect(
                     self.alert_system.sync_chart_lines_for_symbol
                 )
@@ -839,6 +844,12 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                     self.candlestick_chart.alert_line_deleted.connect(
                         self._on_alert_line_deleted_from_chart
                     )
+
+    def _restore_alert_lines(self) -> None:
+        """Redraw all active alert lines after chart is confirmed ready."""
+        if self.alert_system:
+            current_symbol = getattr(self.candlestick_chart, 'current_symbol', '')
+            self.alert_system.sync_chart_lines_for_symbol(current_symbol)
 
     @Slot(str)
     def _on_alert_line_deleted_from_chart(self, payload: str) -> None:

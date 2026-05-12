@@ -94,6 +94,7 @@ class CandlestickChart(QWidget):
     alert_line_deleted         = Signal(str)   # {symbol, price} — alert line deleted
     order_dialog_requested     = Signal(str)
     data_request_for_symbol    = Signal(str)
+    chart_bridge_ready         = Signal()
 
     def __init__(
         self,
@@ -708,6 +709,7 @@ class CandlestickChart(QWidget):
             self._current_watermark_description,
             self._show_watermark_description,
         )
+        self.chart_bridge_ready.emit()
 
     def set_watermark(self, symbol: str, description: str = "", show_description: bool = False) -> None:
         """Push watermark symbol/description state into the JS renderer."""

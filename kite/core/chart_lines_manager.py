@@ -279,18 +279,23 @@ class ChartLinesManager(QObject):
 
             new_line = self._create_horizontal_ray_line(
                 price=price, color="#FFD700", start_time=0, text="",
-                metadata={"lineCategory": "alert", "tradingMode": self._get_trading_mode()},
+                metadata={
+                    "lineCategory": "alert",
+                    "intent": intent,
+                    "tradingMode": self._get_trading_mode(),
+                },
             )
 
-            # Remove stale alert at the same price before inserting
-            self._remove_existing_alert_drawings(drawings, price)
-            drawings["horizontal_rays"].append(new_line)
+            def _apply(d):
+                self._remove_existing_alert_drawings(d, price)
+                d["horizontal_rays"].append(new_line)
 
-            success = self._save_symbol_drawings(symbol, current_state, interval)
+            success = self._save_to_all_intervals(symbol, _apply,
+                                                  current_state=current_state)
             if success:
                 _mark_drawn(line_key)
                 self._refresh_chart()
-                logger.info(f"Added alert line for {symbol} at {price:.2f}")
+                logger.info(f"Alert line drawn: {symbol} @ {price:.2f} (all intervals)")
             return success
 
         except Exception as e:

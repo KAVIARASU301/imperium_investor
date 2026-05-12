@@ -573,10 +573,6 @@ class AlertSystemManager(QObject):
         self.engine_status_changed.emit("running")
         logger.info("AlertSystemManager ready")
 
-        # FIX #8: Restore chart lines for alerts loaded from disk.
-        # Use a short delay so the chart and chart_lines_manager are fully
-        # initialised before we try to draw.
-        QTimer.singleShot(2000, self._restore_chart_lines_on_startup)
 
     # ──────────────────────────────────────────────────────────────
     # MARKET DATA
@@ -666,15 +662,35 @@ class AlertSystemManager(QObject):
 
     @Slot(str)
     def _on_engine_alert_triggered(self, alert_id: str) -> None:
-        """Keep triggered alert lines visible until user acknowledges the alert."""
         alert = self.store.get(alert_id)
-        if alert:
-            title = f"Alert: {alert.symbol}"
-            message = f"{alert.condition} @ {alert.target_value}"
-            ToastNotification(title, message, "warn", 5000).show_toast()
+        if not alert:
+            return
+
+        # CRITICAL FIX: remove the chart line immediately at trigger time.
+        # Do NOT wait for the user to acknowledge. A triggered alert's line
+        # is no longer meaningful — the price has already passed the level.
+        self._remove_chart_line(alert)
+
+        # Clear session draw cache so the line can be re-added if re-armed
+        from kite.core import chart_lines_manager as clm_module
+        line_key = f"{alert.symbol}_{alert.target_value:.2f}"
+        clm_module._recent_draws.pop(line_key, None)
+
+        title = f"Alert: {alert.symbol}"
+        message = (f"{alert.condition} @ ₹{alert.target_value:,.2f} "
+                   f"— {alert.intent}")
+        ToastNotification(title, message, "warn", 6000).show_toast()
+
+        # Re-arm if configured as repeat (line will be redrawn by engine
+        # on next tick if the condition still holds)
+        if alert.repeat:
+            alert.status = AlertStatus.ACTIVE.value
+            alert.triggered_at = datetime.now().isoformat()
+            self.store.update(alert)
+        # else leave as TRIGGERED — do not re-draw line
+
         QTimer.singleShot(0, play_alert)
         self.alert_triggered.emit(alert_id)
-        # Refresh open dialog so it moves the row to Triggered tab
         self._refresh_dialog_if_open()
 
     # ──────────────────────────────────────────────────────────────
@@ -770,6 +786,42 @@ class AlertSystemManager(QObject):
     # ──────────────────────────────────────────────────────────────
 
     @Slot(str)
+
+    def audit_chart_lines(self, symbol: str) -> None:
+        """
+        Remove any alert lines in the chart that have no corresponding
+        active alert in the store. Prevents orphans from crashes/deletes.
+        """
+        clm = self._clm()
+        if not clm or not symbol:
+            return
+
+        active_prices = {
+            float(a.target_value)
+            for a in self.store.active()
+            if a.symbol == symbol
+        }
+
+        state = clm._load_symbol_drawings(symbol)
+        drawings = state.get("drawings", {})
+        rays = drawings.get("horizontal_rays", [])
+        mode = clm._get_trading_mode()
+
+        orphans = []
+        for ray in rays:
+            if ray.get("lineCategory") != "alert":
+                continue
+            if str(ray.get("tradingMode", "live")).lower() != mode:
+                continue
+            ray_price = float(ray.get("startPrice", 0))
+            has_owner = any(abs(ray_price - p) < 0.01 for p in active_prices)
+            if not has_owner:
+                orphans.append(ray_price)
+
+        for price in orphans:
+            logger.info(f"Removing orphan alert line: {symbol} @ {price:.2f}")
+            clm.remove_alert_line(symbol=symbol, price=price)
+
     def update_alert_price_from_chart(self, payload: str) -> None:
         """
         Called when user drags an alert line to a new price on the chart.
@@ -830,14 +882,30 @@ class AlertSystemManager(QObject):
         self._remove_chart_line(target)
 
         # ── 3. Mutate the alert in-place ──
-        # Re-evaluate condition based on current LTP
+        # Preserve condition family; only adjust directional variant.
         ltp = self._get_current_ltp(symbol)
+        is_level_condition = target.condition in (
+            AlertCondition.PRICE_IS_ABOVE.value,
+            AlertCondition.PRICE_IS_BELOW.value,
+        )
+        is_cross_condition = target.condition in (
+            AlertCondition.PRICE_CROSSED_UP.value,
+            AlertCondition.PRICE_CROSSED_DOWN.value,
+        )
         if ltp > 0:
-            if new_price > ltp:
-                target.condition = AlertCondition.PRICE_CROSSED_UP.value
-            else:
-                target.condition = AlertCondition.PRICE_CROSSED_DOWN.value
-        # else keep old condition; we don't want to silently corrupt it
+            if is_level_condition:
+                target.condition = (
+                    AlertCondition.PRICE_IS_ABOVE.value
+                    if new_price > ltp
+                    else AlertCondition.PRICE_IS_BELOW.value
+                )
+            elif is_cross_condition:
+                target.condition = (
+                    AlertCondition.PRICE_CROSSED_UP.value
+                    if new_price > ltp
+                    else AlertCondition.PRICE_CROSSED_DOWN.value
+                )
+        # Non-price conditions remain unchanged.
 
         target.target_value = new_price
         target.note = (
@@ -853,6 +921,7 @@ class AlertSystemManager(QObject):
         new_key = f"{symbol}_{new_price:.2f}"
         clm_module._lines_drawn_this_session.discard(old_key)
         clm_module._lines_drawn_this_session.add(new_key)
+        clm_module._recent_draws.pop(old_key, None)
 
         # ── 5. Re-draw chart line at new price ──
         self._add_chart_line(target)
@@ -950,47 +1019,123 @@ class AlertSystemManager(QObject):
         clm = self._clm()
         if not clm or not symbol:
             return
+
         active = [a for a in self.store.active() if a.symbol == symbol]
+        drawn = 0
+
         for alert in active:
             try:
-                state = clm._load_symbol_drawings(alert.symbol)
-                drawings = state.get("drawings", {})
-                if clm._has_existing_alert_drawings(drawings, alert.target_value):
-                    continue
-                clm.add_alert_line(
-                    symbol=alert.symbol,
-                    price=alert.target_value,
-                    intent=alert.intent,
-                    interval=self._current_chart_interval(),
-                )
+                # Check EVERY existing interval file for this symbol.
+                paths = clm._get_all_interval_file_paths(alert.symbol)
+                needs_draw = True
+                for path in paths:
+                    interval = clm._extract_interval_from_path(path, alert.symbol)
+                    state = clm._load_symbol_drawings(alert.symbol, interval)
+                    if clm._has_existing_alert_drawings(
+                        state.get("drawings", {}),
+                        alert.target_value,
+                    ):
+                        needs_draw = False
+                        break
+
+                if needs_draw:
+                    self._add_chart_line(alert)
+                    drawn += 1
             except Exception as e:
                 logger.error(f"sync_chart_lines: error for {symbol}: {e}")
-        if active:
-            logger.info(f"Synced {len(active)} alert line(s) for {symbol}")
 
-    # FIX #8: restore chart lines for all active alerts loaded from disk
+        # Run orphan audit while we're here.
+        self.audit_chart_lines(symbol)
+
+        if drawn:
+            logger.info(f"Synced {drawn} alert line(s) for {symbol}")
+
+    # FIX #8: deferred startup scan writes persisted lines for active alerts
     def _restore_chart_lines_on_startup(self) -> None:
-        """Draw chart lines for every active alert persisted to disk."""
+        """
+        Called only after chart bridge is confirmed ready.
+        Writes lines to all interval JSON files for every active alert.
+        The chart itself will render from the JSON on next symbol load.
+        """
         clm = self._clm()
         if not clm:
-            logger.warning("_restore_chart_lines_on_startup: chart_lines_manager not ready yet")
             return
+
         active = self.store.active()
+        if not active:
+            return
+
+        by_symbol: Dict[str, list] = {}
         for alert in active:
+            by_symbol.setdefault(alert.symbol, []).append(alert)
+
+        for symbol, alerts in by_symbol.items():
+            for alert in alerts:
+                def _apply(drawings, a=alert):
+                    if not clm._has_existing_alert_drawings(drawings, a.target_value):
+                        new_line = clm._create_horizontal_ray_line(
+                            price=a.target_value,
+                            color="#FFD700",
+                            start_time=0,
+                            text="",
+                            metadata={
+                                "lineCategory": "alert",
+                                "intent": a.intent,
+                                "tradingMode": clm._get_trading_mode(),
+                            },
+                        )
+                        drawings["horizontal_rays"].append(new_line)
+
+                clm._save_to_all_intervals(symbol, _apply)
+
+        current = getattr(
+            getattr(self.parent(), 'candlestick_chart', None),
+            'current_symbol', '',
+        )
+        if current:
+            clm._refresh_chart()
+
+        logger.info(f"Restored lines for {len(active)} active alert(s) across all timeframes")
+
+    def purge_all_alert_lines_from_chart_files(self) -> int:
+        """
+        Nuclear option: remove every alert line from every drawing JSON file.
+        Then redraw only lines that have a live active alert in the store.
+        Returns the count of orphan lines removed.
+        """
+        clm = self._clm()
+        if not clm:
+            return 0
+
+        removed = 0
+        drawings_dir = clm.drawings_dir
+
+        for fname in os.listdir(drawings_dir):
+            if not fname.endswith("_state.json"):
+                continue
+            fpath = os.path.join(drawings_dir, fname)
             try:
-                state = clm._load_symbol_drawings(alert.symbol)
-                drawings = state.get("drawings", {})
-                if clm._has_existing_alert_drawings(drawings, alert.target_value):
+                with open(fpath, "r") as f:
+                    state = json.load(f)
+                if "drawings" not in state:
                     continue
-                clm.add_alert_line(
-                    symbol=alert.symbol,
-                    price=alert.target_value,
-                    intent=alert.intent,
-                    interval=self._current_chart_interval(),
-                )
+                rays = state["drawings"].get("horizontal_rays", [])
+                before = len(rays)
+                state["drawings"]["horizontal_rays"] = [
+                    r for r in rays
+                    if r.get("lineCategory") != "alert"
+                ]
+                after = len(state["drawings"]["horizontal_rays"])
+                if after < before:
+                    with open(fpath, "w") as f:
+                        json.dump(state, f, indent=2)
+                    removed += before - after
             except Exception as e:
-                logger.error(f"Startup restore: failed for {alert.symbol}: {e}")
-        logger.info(f"Restored chart lines for {len(active)} active alert(s) on startup")
+                logger.error(f"purge_all_alert_lines: error in {fname}: {e}")
+
+        self._restore_chart_lines_on_startup()
+        logger.info(f"Purged {removed} orphan alert lines; redrawn from store")
+        return removed
 
     # ──────────────────────────────────────────────────────────────
     # WS SUBSCRIPTION  (FIX #7)
