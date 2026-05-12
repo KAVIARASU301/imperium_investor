@@ -1671,7 +1671,7 @@ class ChartinkScannerTable(QWidget):
             /* Header Container */
             QWidget#headerContainer {
                 background-color: #0a0d12;
-                border-bottom: 1px solid #1a2030;
+                border-bottom: 1px solid #1e2737;
                 padding: 5px;
             }
 
@@ -1684,7 +1684,7 @@ class ChartinkScannerTable(QWidget):
 
             /* Dropdown */
             QComboBox#minimalDropdown {
-                background-color: #0f1318;
+                background-color: #0b0f14;
                 border: 1px solid #1a2030;
                 color: #e8f0ff;
                 padding: 3px 6px;
@@ -1755,7 +1755,7 @@ class ChartinkScannerTable(QWidget):
                 padding: 3px 7px;
             }
             QPushButton#settingsMinimalButton:hover {
-                background-color: #141920;
+                background-color: #121a25;
                 border-color: #00d4ff;
             }
             QPushButton#settingsMinimalButton:pressed {
@@ -1770,11 +1770,11 @@ class ChartinkScannerTable(QWidget):
 
             /* FIXED Table Styling with Proper Alternate Row Selection */
             QTableWidget {
-                background-color: #0f1318;
+                background-color: #0b0f14;
                 border: 1px solid #1a2030;
-                gridline-color: #1a2030;
-                selection-background-color: #1a2840;
-                alternate-background-color: #0f1318;
+                gridline-color: #1d2636;
+                selection-background-color: #223552;
+                alternate-background-color: #0b0f14;
                 outline: none;
                 show-decoration-selected: 0;
                 font-size: 12px;
@@ -1783,7 +1783,7 @@ class ChartinkScannerTable(QWidget):
 
             QTableWidget::item {
                 padding: 1px 5px;
-                border-bottom: 1px solid #1a2030;
+                border-bottom: 1px solid #1e2737;
                 background-color: transparent;
                 font-size: 12px;
             }
@@ -1803,11 +1803,11 @@ class ChartinkScannerTable(QWidget):
             }
 
             QTableWidget::item:hover {
-                background-color: #141920;
+                background-color: #121a25;
             }
 
             QTableWidget::item:alternate {
-                background-color: #0f1318;
+                background-color: #0b0f14;
             }
 
             QTableWidget::item:alternate:selected {
@@ -1818,12 +1818,12 @@ class ChartinkScannerTable(QWidget):
 
             /* Header Styling */
             QHeaderView::section {
-                background-color: #0b1019;
+                background-color: #0a0f17;
                 color: #7fd4ff;
                 padding: 2px 5px;
                 border: none;
-                border-bottom: 1px solid #24344c;
-                border-right: 1px solid #121c2b;
+                border-bottom: 1px solid #293a54;
+                border-right: 1px solid #182437;
                 font-weight: 600;
                 font-size: 11px;
                 text-transform: uppercase;
