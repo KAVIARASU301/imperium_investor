@@ -3567,74 +3567,82 @@ class FixedTradingChart {
         return Number.isFinite(parsed) ? parsed : NaN;
     }
 
-    updateLivePrice(price, tickTime = null) {
-        // ── FIX (Bug 4): do NOT call calculateBounds() here ──────────────
-        //
-        // The old implementation called:
-        //   this._computeATRTrendReversal();
-        //   this._computeBjTrendIndicator();
-        //   this._computeCVD();
-        //   this._computeRSI();
-        //   this._computeKagi();
-        //   this.calculateBounds();   ← THIS was the culprit
-        //
-        // calculateBounds() → _updateChartAreas() → _computeRightAxisWidth()
-        // which calls ctx.measureText() and can return a different integer
-        // on each call at high DPR.  Any change in rightAxisWidth changes
-        // chartArea.width, which changes visibleCandleCount in _updateViewport().
-        //
-        // New contract: updateLivePrice() ONLY mutates the last candle's
-        // price fields and schedules a redraw.  It never touches the viewport.
-        // calculateBounds() is called only on: initial load, symbol switch,
-        // zoom/pan, and settings change.
-
-        this.livePrice = price;
+    updateLivePrice(price, tickTime = null, tickOpen = 0, tickHigh = 0, tickLow = 0) {
+        this.livePrice   = price;
         this._hasLiveTicks = true;
 
         if (this.data.length > 0) {
-            const last = this.data[this.data.length - 1];
+            const last      = this.data[this.data.length - 1];
             const intervalMs = this._intervalToMs(this.currentInterval);
             const lastTimeMs = Number(last.time);
-            const tickMs = this._coerceEpochMs(tickTime);
-            const nowMs = Number.isFinite(tickMs) ? tickMs : Date.now();
+            const tickMs     = this._coerceEpochMs(tickTime);
+            const nowMs      = Number.isFinite(tickMs) ? tickMs : Date.now();
 
-            // If live time has moved to a newer interval bucket, roll the active
-            // candle forward so ticks land in the correct candle instead of
-            // mutating an old one.  Do not back-fill every missing wall-clock
-            // interval: intraday historical data intentionally omits overnight,
-            // weekend and other non-trading buckets.  Inserting thousands of
-            // synthetic empty candles makes the live candle appear far away
-            // from the visible historical candles.  Append only the active live
-            // bucket so the chart stays contiguous while preserving its time.
             if (intervalMs > 0 && Number.isFinite(lastTimeMs)) {
                 const nowBucket = this._bucketStartMs(nowMs, intervalMs);
 
                 if (this._shouldAppendLiveCandle(lastTimeMs, nowMs, intervalMs)) {
+                    // ── Use tick OHLC for today's candle open/high/low ───────
+                    // tickOpen > 0 means Kite sent today's real session open.
+                    // Falling back to carryClose (prev close) only when OHLC is absent.
                     const carryClose = Number.isFinite(last.close) ? last.close : price;
+                    const openPrice  = tickOpen  > 0 ? tickOpen  : carryClose;
+                    const highPrice  = tickHigh  > 0 ? Math.max(tickHigh,  price) : Math.max(openPrice, price);
+                    const lowPrice   = tickLow   > 0 ? Math.min(tickLow,   price) : Math.min(openPrice, price);
+                    // ─────────────────────────────────────────────────────────
+
                     this.data.push({
-                        time: nowBucket,
-                        open: carryClose,
-                        high: carryClose,
-                        low: carryClose,
-                        close: carryClose,
+                        time:   nowBucket,
+                        open:   openPrice,
+                        high:   highPrice,
+                        low:    lowPrice,
+                        close:  price,
                         volume: 0,
                     });
                     this.volumeData.push({ time: nowBucket, value: 0 });
                     this._volVpKey = null;
 
-                    this.viewPortEnd = Math.max(this.viewPortEnd, this.data.length - 1 + this.rightBufferCandles);
+                    this.viewPortEnd = Math.max(
+                        this.viewPortEnd,
+                        this.data.length - 1 + this.rightBufferCandles,
+                    );
                     this._updateViewport();
                     this.calculateBounds();
                 }
             }
 
+            // ── Update the active candle (last in array) ──────────────────────
             const active = this.data[this.data.length - 1];
             active.close = price;
-            if (price > active.high) active.high = price;
-            if (price < active.low)  active.low  = price;
+
+            // When tick OHLC is present, use it as the authoritative session range.
+            // This corrects the live candle even when historical data was slightly stale.
+            if (tickHigh > 0) active.high = Math.max(active.high, tickHigh, price);
+            else if (price > active.high) active.high = price;
+
+            if (tickLow > 0) active.low = Math.min(active.low, tickLow, price);
+            else if (price < active.low) active.low = price;
+
+            // For the Day interval: if today's candle was just created from historical
+            // data and the tick carries the real session open, fix the open price.
+            // Only do this if the current candle's open looks like a carry-over
+            // (i.e. equals the previous candle's close) and we have a real tick open.
+            if (
+                tickOpen > 0 &&
+                this.currentInterval === 'day' &&
+                this.data.length >= 2 &&
+                active === this.data[this.data.length - 1]
+            ) {
+                const prev = this.data[this.data.length - 2];
+                // If open was carried from previous close (within 0.01%), replace it.
+                if (Math.abs(active.open - prev.close) / (prev.close || 1) < 0.0001) {
+                    active.open = tickOpen;
+                    active.high = Math.max(active.open, active.high);
+                    active.low  = Math.min(active.open, active.low);
+                }
+            }
         }
 
-        // Redraw — uses cached bounds and geometry, no recalculation.
         this.requestDraw();
     }
 
