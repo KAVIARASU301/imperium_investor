@@ -129,6 +129,7 @@ class StopLossManager(QObject):
             self._active[position_id] = rec
 
         self.store.upsert(rec)
+        self._rebuild_token_map()
         self.sl_set.emit(symbol, sl_price)
         dist_pct = rec.distance_pct
         logger.info(
@@ -178,6 +179,7 @@ class StopLossManager(QObject):
 
         if removed:
             self.store.cancel(position_id)
+            self._rebuild_token_map()
             self.sl_cancelled.emit(symbol)
             logger.info("SL cancelled: %s", symbol)
         return bool(removed)

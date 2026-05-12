@@ -273,7 +273,7 @@ class StopLossDialog(QDialog):
     def _on_confirm(self) -> None:
         sl_price = self.sl_price_spin.value()
 
-        # Validate direction
+        # Direction validation
         if self.is_long and sl_price >= self.avg_price:
             self._dist_label.setText("⚠ SL must be BELOW entry for long positions")
             self._dist_label.setStyleSheet("color: #ff4d6a; font-size: 10px;")
@@ -282,6 +282,21 @@ class StopLossDialog(QDialog):
             self._dist_label.setText("⚠ SL must be ABOVE entry for short positions")
             self._dist_label.setStyleSheet("color: #ff4d6a; font-size: 10px;")
             return
+
+        # LTP proximity warning — SL would trigger immediately
+        if self.ltp > 0:
+            if self.is_long and sl_price >= self.ltp:
+                self._dist_label.setText(
+                    "⚠ SL is at or above current price — order will trigger immediately"
+                )
+                self._dist_label.setStyleSheet("color: #f59e0b; font-size: 10px;")
+                # Don't block — warn only. User may intend an immediate exit.
+            elif not self.is_long and sl_price <= self.ltp:
+                self._dist_label.setText(
+                    "⚠ SL is at or below current price — order will trigger immediately"
+                )
+                self._dist_label.setStyleSheet("color: #f59e0b; font-size: 10px;")
+                # Don't block — warn only. User may intend an immediate exit.
 
         idx = self.qty_combo.currentIndex()
         sl_qty_type = ["FULL", "HALF", "CUSTOM"][idx]
