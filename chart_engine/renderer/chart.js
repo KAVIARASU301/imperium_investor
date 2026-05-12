@@ -3513,7 +3513,22 @@ class FixedTradingChart {
         return Math.floor(epochMs / intervalMs) * intervalMs;
     }
 
-    updateLivePrice(price) {
+    _coerceEpochMs(value) {
+        if (value === undefined || value === null || value === '') return NaN;
+        if (value instanceof Date) return value.getTime();
+
+        const numeric = Number(value);
+        if (Number.isFinite(numeric)) {
+            // Broker timestamps are normally milliseconds.  If seconds are
+            // supplied, normalize them to milliseconds.
+            return numeric < 1e12 ? numeric * 1000 : numeric;
+        }
+
+        const parsed = Date.parse(value);
+        return Number.isFinite(parsed) ? parsed : NaN;
+    }
+
+    updateLivePrice(price, tickTime = null) {
         // ── FIX (Bug 4): do NOT call calculateBounds() here ──────────────
         //
         // The old implementation called:
@@ -3541,31 +3556,33 @@ class FixedTradingChart {
             const last = this.data[this.data.length - 1];
             const intervalMs = this._intervalToMs(this.currentInterval);
             const lastTimeMs = Number(last.time);
-            const nowMs = Date.now();
+            const tickMs = this._coerceEpochMs(tickTime);
+            const nowMs = Number.isFinite(tickMs) ? tickMs : Date.now();
 
             // If live time has moved to a newer interval bucket, roll the active
             // candle forward so ticks land in the correct candle instead of
-            // mutating an old one.
+            // mutating an old one.  Do not back-fill every missing wall-clock
+            // interval: intraday historical data intentionally omits overnight,
+            // weekend and other non-trading buckets.  Inserting thousands of
+            // synthetic empty candles makes the live candle appear far away
+            // from the visible historical candles.  Append only the active live
+            // bucket so the chart stays contiguous while preserving its time.
             if (intervalMs > 0 && Number.isFinite(lastTimeMs)) {
                 const lastBucket = this._bucketStartMs(lastTimeMs, intervalMs);
                 const nowBucket = this._bucketStartMs(nowMs, intervalMs);
 
                 if (nowBucket > lastBucket) {
-                    const prev = this.data[this.data.length - 1];
-                    let nextBucket = lastBucket + intervalMs;
-                    while (nextBucket <= nowBucket) {
-                        const carryClose = Number.isFinite(prev.close) ? prev.close : price;
-                        this.data.push({
-                            time: nextBucket,
-                            open: carryClose,
-                            high: carryClose,
-                            low: carryClose,
-                            close: carryClose,
-                            volume: 0,
-                        });
-                        this.volumeData.push(0);
-                        nextBucket += intervalMs;
-                    }
+                    const carryClose = Number.isFinite(last.close) ? last.close : price;
+                    this.data.push({
+                        time: nowBucket,
+                        open: carryClose,
+                        high: carryClose,
+                        low: carryClose,
+                        close: carryClose,
+                        volume: 0,
+                    });
+                    this.volumeData.push({ time: nowBucket, value: 0 });
+                    this._volVpKey = null;
 
                     this.viewPortEnd = Math.max(this.viewPortEnd, this.data.length - 1 + this.rightBufferCandles);
                     this._updateViewport();

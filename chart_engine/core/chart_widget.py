@@ -664,6 +664,31 @@ class CandlestickChart(QWidget):
 
     # ── Live updates ──────────────────────────────────────────────────────
 
+    @staticmethod
+    def _tick_time_ms(tick: Dict[str, Any]) -> Optional[int]:
+        """Return a broker tick timestamp as Unix milliseconds, if available."""
+        for key in ("exchange_timestamp", "last_trade_time", "timestamp"):
+            value = tick.get(key)
+            if value in (None, ""):
+                continue
+
+            if isinstance(value, datetime):
+                return int(value.timestamp() * 1000)
+
+            if isinstance(value, (int, float)):
+                numeric = float(value)
+                # Normalize Unix seconds to milliseconds; leave ms timestamps as-is.
+                return int(numeric * 1000 if numeric < 1_000_000_000_000 else numeric)
+
+            if isinstance(value, str):
+                try:
+                    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                    return int(parsed.timestamp() * 1000)
+                except ValueError:
+                    continue
+
+        return None
+
     def _process_tick(self, tick: Dict[str, Any]) -> None:
         """
         Apply a single live-price tick to the chart.
@@ -699,7 +724,12 @@ class CandlestickChart(QWidget):
 
         # FIX: guard on LOADED state — do not touch JS chart during load.
         if self.chart_view and self.current_state == ChartState.LOADED:
-            self._js(f"if(window.chart) window.chart.updateLivePrice({price});")
+            tick_time_ms = self._tick_time_ms(tick)
+            self._js(
+                "if(window.chart) window.chart.updateLivePrice("
+                f"{json.dumps(float(price))}, {json.dumps(tick_time_ms)}"
+                ");"
+            )
 
     @Slot()
     def _on_chart_ready(self) -> None:
