@@ -151,6 +151,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self._last_spacebar_context = None
         self._tick_buffer_by_token: Dict[Any, Dict] = {}
         self._tick_buffer_without_token = deque()
+        self._chart_tick_queue = deque()
         self._tick_flush_timer = QTimer(self)
         self._tick_flush_timer.setInterval(60)
         self._tick_flush_timer.timeout.connect(self._flush_market_data_ticks)
@@ -1145,12 +1146,20 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
     @Slot(list)
     def _enqueue_market_data(self, ticks: List[Dict]):
-        """Ultra-light slot for raw websocket ticks; just coalesce into buffer."""
+        """Ultra-light slot for raw websocket ticks; split chart ticks before coalescing."""
         if not ticks:
             return
 
+        chart_token = getattr(self.candlestick_chart, 'current_instrument_token', None)
+
         for tick in ticks:
             token = tick.get("instrument_token")
+
+            # Chart ticks go into a separate deque — never coalesced
+            if chart_token and token == chart_token:
+                self._chart_tick_queue.append(tick)
+                continue  # skip the coalescing buffer for chart ticks
+
             if token is None:
                 self._tick_buffer_without_token.append(tick)
             else:
@@ -1158,16 +1167,24 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
     @Slot()
     def _flush_market_data_ticks(self):
-        """Flush coalesced ticks on a fixed timer to reduce UI work on market open."""
-        if not self._tick_buffer_by_token and not self._tick_buffer_without_token:
+        """Flush queued chart ticks and coalesced ticks on a fixed timer."""
+        if (
+            not self._chart_tick_queue
+            and not self._tick_buffer_by_token
+            and not self._tick_buffer_without_token
+        ):
             return
+
+        while self._chart_tick_queue:
+            self.candlestick_chart.update_live_data(self._chart_tick_queue.popleft())
 
         ticks = list(self._tick_buffer_by_token.values())
         self._tick_buffer_by_token.clear()
         while self._tick_buffer_without_token:
             ticks.append(self._tick_buffer_without_token.popleft())
 
-        self._on_market_data(ticks)
+        if ticks:
+            self._on_market_data(ticks)
 
     def _on_market_data(self, ticks: List[Dict]):
         """
