@@ -314,6 +314,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         # menubar, making it appear missing from the app window.
         menu_bar.setNativeMenuBar(False)
 
+        file_menu = menu_bar.addMenu("File")
+        file_menu.addAction("Exit", self.close)
+
         view_menu = menu_bar.addMenu("View")
         self.scanner_action = QAction("Scanner", self)
         self.scanner_action.setCheckable(True)
@@ -357,10 +360,11 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         tools_menu.addAction("Color Settings", self._open_color_settings_dialog)
         tools_menu.addAction("Relay Server Settings", self._show_relay_settings_dialog)
-        tools_menu.addAction("Keyboard Shortcuts", self._show_shortcuts_reference_dialog)
-        tools_menu.addAction("About qullamaggie", self._show_about_dialog)
-        tools_menu.addSeparator()
-        tools_menu.addAction("Exit", self.close)
+
+        about_menu = menu_bar.addMenu("About")
+        about_menu.addAction("Keyboard Shortcuts", self._show_shortcuts_reference_dialog)
+        about_menu.addSeparator()
+        about_menu.addAction("About qullamaggie", self._show_about_dialog)
 
         return menu_bar
 
