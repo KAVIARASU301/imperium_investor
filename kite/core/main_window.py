@@ -306,39 +306,13 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self._apply_intelligent_main_splitter_layout()
 
     def _create_menu_bar(self) -> QMenuBar:
-        """Create a classic top-level menu bar for quick access to key actions."""
+        """Create a compact menu bar with flat action lists for quick access."""
         menu_bar = QMenuBar()
         menu_bar.setObjectName("mainMenuBar")
         # Keep the menu rendered inside our custom title bar.
         # Without this, some desktop environments may move it to a system/global
         # menubar, making it appear missing from the app window.
         menu_bar.setNativeMenuBar(False)
-
-        file_menu = menu_bar.addMenu("File")
-        file_menu.addAction("Exit", self.close)
-
-        trading_menu = menu_bar.addMenu("Trading")
-        open_order_action = trading_menu.addAction("Open Order Dialog", self._show_order_dialog)
-        open_order_action.setShortcut(QKeySequence("F3"))
-        open_order_action.setShortcutVisibleInContextMenu(True)
-        trading_menu.addAction("Pending Orders", self._show_pending_orders_dialog)
-
-        reports_menu = menu_bar.addMenu("Reports")
-        order_history_action = reports_menu.addAction("Order History", self._show_order_history_dialog)
-        order_history_action.setShortcut(QKeySequence("Ctrl+H"))
-        order_history_action.setShortcutVisibleInContextMenu(True)
-
-        reports_menu.addAction("P&L History", self._show_pnl_history_dialog)
-
-        performance_action = reports_menu.addAction("Performance", self._show_performance_dialog)
-        performance_action.setShortcut(QKeySequence("Ctrl+D"))
-        performance_action.setShortcutVisibleInContextMenu(True)
-
-        windows_menu = menu_bar.addMenu("Windows")
-        floating_positions_action = windows_menu.addAction("Floating Positions", self._show_floating_positions_dialog)
-        floating_positions_action.setShortcut(QKeySequence("Ctrl+P"))
-        floating_positions_action.setShortcutVisibleInContextMenu(True)
-        windows_menu.addAction("Floating Watchlist", self._show_floating_watchlist_dialog)
 
         view_menu = menu_bar.addMenu("View")
         self.scanner_action = QAction("Scanner", self)
@@ -360,13 +334,33 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         view_menu.addAction(self.positions_action)
 
         tools_menu = menu_bar.addMenu("Tools")
-        tools_menu.addAction("Color Settings", self._open_color_settings_dialog)
-        tools_menu.addAction("Keyboard Shortcuts", self._show_shortcuts_reference_dialog)
+        open_order_action = tools_menu.addAction("Open Order Dialog", self._show_order_dialog)
+        open_order_action.setShortcut(QKeySequence("F3"))
+        open_order_action.setShortcutVisibleInContextMenu(True)
+        tools_menu.addAction("Pending Orders", self._show_pending_orders_dialog)
         tools_menu.addSeparator()
-        tools_menu.addAction("Relay Server Settings", self._show_relay_settings_dialog)
 
-        about_menu = menu_bar.addMenu("About")
-        about_menu.addAction("About qullamaggie", self._show_about_dialog)
+        floating_positions_action = tools_menu.addAction("Floating Positions", self._show_floating_positions_dialog)
+        floating_positions_action.setShortcut(QKeySequence("Ctrl+P"))
+        floating_positions_action.setShortcutVisibleInContextMenu(True)
+        tools_menu.addAction("Floating Watchlist", self._show_floating_watchlist_dialog)
+        tools_menu.addSeparator()
+
+        order_history_action = tools_menu.addAction("Order History", self._show_order_history_dialog)
+        order_history_action.setShortcut(QKeySequence("Ctrl+H"))
+        order_history_action.setShortcutVisibleInContextMenu(True)
+        tools_menu.addAction("P&L History", self._show_pnl_history_dialog)
+        performance_action = tools_menu.addAction("Performance", self._show_performance_dialog)
+        performance_action.setShortcut(QKeySequence("Ctrl+D"))
+        performance_action.setShortcutVisibleInContextMenu(True)
+        tools_menu.addSeparator()
+
+        tools_menu.addAction("Color Settings", self._open_color_settings_dialog)
+        tools_menu.addAction("Relay Server Settings", self._show_relay_settings_dialog)
+        tools_menu.addAction("Keyboard Shortcuts", self._show_shortcuts_reference_dialog)
+        tools_menu.addAction("About qullamaggie", self._show_about_dialog)
+        tools_menu.addSeparator()
+        tools_menu.addAction("Exit", self.close)
 
         return menu_bar
 
