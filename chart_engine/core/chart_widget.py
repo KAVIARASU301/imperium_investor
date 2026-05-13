@@ -15,7 +15,7 @@ import json
 import logging
 import os
 import re
-from datetime import datetime
+from datetime import datetime, time as dt_time, timedelta
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -721,6 +721,17 @@ class CandlestickChart(QWidget):
         )
         if not (sym_match or token_match):
             return
+
+        # Kite emits ticks outside regular NSE hours (pre-open quotes,
+        # post-market moves, etc.). For the Day interval these ticks have no
+        # meaningful OHLC context and can fall on the next calendar date, which
+        # would let JS create a phantom duplicate day candle.
+        if self.current_interval == "day":
+            now_ist = datetime.utcnow() + timedelta(hours=5, minutes=30)
+            nse_open = dt_time(9, 15)
+            nse_close = dt_time(15, 30)
+            if not (nse_open <= now_ist.time() <= nse_close):
+                return
 
         self.current_ltp = float(price)
         self._refresh_toolbar_symbol_text()

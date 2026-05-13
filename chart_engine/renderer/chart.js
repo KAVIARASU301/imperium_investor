@@ -3544,7 +3544,20 @@ class FixedTradingChart {
         if (key === 'day') {
             const lastDay = this._tradingDayKey(lastTimeMs);
             const nowDay = this._tradingDayKey(nowMs);
-            return Boolean(lastDay && nowDay && nowDay > lastDay);
+
+            // Calendar date must advance before a new day candle can be opened.
+            if (!lastDay || !nowDay || nowDay <= lastDay) return false;
+
+            // Guard: only open a new day candle after the NSE session opens.
+            // Kite may emit pre-market/post-market ticks whose timestamps fall
+            // on the next calendar date; those must not create phantom candles.
+            const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+            const nowIst = new Date(nowMs + IST_OFFSET_MS);
+            const nowTotalMinutes = nowIst.getUTCHours() * 60 + nowIst.getUTCMinutes();
+            const NSE_OPEN_MINUTES = 9 * 60 + 15;
+            const NSE_CLOSE_MINUTES = 15 * 60 + 30;
+            return nowTotalMinutes >= NSE_OPEN_MINUTES &&
+                   nowTotalMinutes <= NSE_CLOSE_MINUTES;
         }
 
         const lastBucket = this._bucketStartMs(lastTimeMs, intervalMs);
