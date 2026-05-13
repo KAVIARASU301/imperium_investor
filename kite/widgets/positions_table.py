@@ -54,7 +54,7 @@ COL_SYMBOL = 1
 COL_QTY = 2
 COL_OPEN_PNL = 3
 
-HEADERS = ["", "Symbol", "Qty", "P&L"]
+HEADERS = ["", "Symbol", "Qty", "%Chg"]
 
 _FLAG_CYCLE = [None, "green"]
 _FLAG_DISPLAY = {
@@ -302,6 +302,7 @@ class PositionsTable(QWidget):
 
         pnl = (pos.ltp - pos.avg_price) * pos.quantity
         pos.pnl = pnl
+        entry_change_pct = self._entry_change_pct(pos)
         is_long = pos.quantity > 0
         qty_sign = "+" if is_long else "−"
 
@@ -312,7 +313,7 @@ class PositionsTable(QWidget):
         loss_color = table_colors.get("negative", _RED)
         neutral_color = table_colors.get("neutral", _T2)
 
-        pnl_color = self._open_pnl_text_color(pnl)
+        change_color = self._open_pnl_text_color(entry_change_pct)
 
         # Notice: No ₹ symbols to save horizontal space
         symbol_text = f"⚡ {pos.symbol}" if pos.symbol in self._partial_fill_symbols else pos.symbol
@@ -320,7 +321,7 @@ class PositionsTable(QWidget):
             (COL_SYMBOL, symbol_text, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, _T0),
             (COL_FLAG, "", Qt.AlignmentFlag.AlignCenter, _T2),
             (COL_QTY, f"{qty_sign}{abs(pos.quantity)}", Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, profit_color if is_long else loss_color),
-            (COL_OPEN_PNL, f"{'+' if pnl >= 0 else ''}{pnl:,.2f}", Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, pnl_color),
+            (COL_OPEN_PNL, f"{entry_change_pct:+.2f}%", Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, change_color),
         ]
 
         for col, text, align, color in cells:
@@ -338,7 +339,7 @@ class PositionsTable(QWidget):
                     item.setToolTip("")
 
         self._paint_flag_cell(row, pos.symbol)
-        self._apply_open_pnl_row_style(row, pnl)
+        self._apply_open_pnl_row_style(row, entry_change_pct)
 
 
     @Slot(object)
@@ -356,6 +357,13 @@ class PositionsTable(QWidget):
             pos = self.positions_data.get(symbol)
             if row is not None and pos:
                 self._refresh_row(row, pos)
+
+
+    @staticmethod
+    def _entry_change_pct(pos: Position) -> float:
+        if not pos.avg_price:
+            return 0.0
+        return ((pos.ltp - pos.avg_price) / pos.avg_price) * 100.0
 
     def _open_pnl_text_color(self, pnl: float) -> str:
         if pnl > 0:
@@ -385,7 +393,7 @@ class PositionsTable(QWidget):
         mapping = {
             COL_SYMBOL: pos.symbol,
             COL_QTY: pos.quantity,
-            COL_OPEN_PNL: pnl,
+            COL_OPEN_PNL: self._entry_change_pct(pos),
         }
         return mapping.get(col, 0)
 

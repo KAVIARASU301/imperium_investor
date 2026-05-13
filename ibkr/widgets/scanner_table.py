@@ -1061,7 +1061,7 @@ class ChartinkScannerTable(QWidget):
         header_font = QFont("Segoe UI", 10)
         header_font.setBold(True)
         self.table.horizontalHeader().setFont(header_font)
-        self.table.horizontalHeader().setSortIndicatorShown(True)
+        self.table.horizontalHeader().setSortIndicatorShown(False)
         self.table.horizontalHeader().setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
 
         # FIXED: Add focus policy for better behavior (from positions table)
