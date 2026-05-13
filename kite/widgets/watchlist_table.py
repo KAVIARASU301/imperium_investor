@@ -451,6 +451,7 @@ class TradingTable(QTableWidget):
         self._color_theme: Dict = {}
         self._sort_col: int = _COL_SYMBOL
         self._sort_asc: bool = True
+        self._chg_sort_state = None  # None -> asc -> desc -> None
         self._last_tick_time: float = 0.0
 
         self._configure_table()
@@ -545,7 +546,12 @@ class TradingTable(QTableWidget):
         return True
 
     def get_symbol_list(self) -> List[str]:
-        return list(self._symbols)
+        symbols: List[str] = []
+        for row in range(self.rowCount()):
+            sym = self._symbol_at_row(row)
+            if sym:
+                symbols.append(sym)
+        return symbols
 
     def get_all_tokens(self) -> List[int]:
         return list(self._token_to_symbol.keys())
@@ -796,6 +802,23 @@ class TradingTable(QTableWidget):
     def _on_header_click(self, col: int):
         if col == _COL_FLAG:
             return
+        if col == _COL_CHG:
+            if self._chg_sort_state is None:
+                self._chg_sort_state = "asc"
+                self._sort_col = _COL_CHG
+                self._sort_asc = True
+            elif self._chg_sort_state == "asc":
+                self._chg_sort_state = "desc"
+                self._sort_col = _COL_CHG
+                self._sort_asc = False
+            else:
+                self._chg_sort_state = None
+                self._sort_col = _COL_SYMBOL
+                self._sort_asc = True
+            self._sort_and_repopulate()
+            return
+
+        self._chg_sort_state = None
         if self._sort_col == col:
             self._sort_asc = not self._sort_asc
         else:

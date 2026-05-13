@@ -93,6 +93,7 @@ class TradingTable(QTableWidget):
         # Initialize sorting state
         self._sort_column = -1
         self._sort_order = Qt.SortOrder.AscendingOrder
+        self._chg_sort_state = None  # None -> asc -> desc -> None
 
 
     def _adjust_symbol_column_width(self):
@@ -147,6 +148,29 @@ class TradingTable(QTableWidget):
         """Handle header clicks for sorting."""
         if logical_index == 4:  # Don't sort on remove button column
             return
+
+        if logical_index == 3:
+            if self._chg_sort_state is None:
+                self._chg_sort_state = "asc"
+                self._sort_column = 3
+                self._sort_order = Qt.SortOrder.AscendingOrder
+            elif self._chg_sort_state == "asc":
+                self._chg_sort_state = "desc"
+                self._sort_column = 3
+                self._sort_order = Qt.SortOrder.DescendingOrder
+            else:
+                self._chg_sort_state = None
+                self._sort_column = -1
+                self._sort_order = Qt.SortOrder.AscendingOrder
+                self._populate_full_table()
+                self._update_header_sort_indicator()
+                return
+
+            self._sort_table_by_column(3, self._sort_order)
+            self._update_header_sort_indicator()
+            return
+
+        self._chg_sort_state = None
 
         # Toggle sort order if clicking the same column
         if self._sort_column == logical_index:
@@ -615,9 +639,9 @@ class TradingTable(QTableWidget):
     def _remove_symbol_at_row(self, row: int):
         """Enhanced symbol removal by row"""
         if 0 <= row < self.rowCount():
-            symbols_list = sorted(self._watchlist_symbols)
-            if row < len(symbols_list):
-                symbol_to_remove = symbols_list[row]
+            symbol_item = self.item(row, 0)
+            symbol_to_remove = symbol_item.text().strip() if symbol_item else ""
+            if symbol_to_remove:
                 self.remove_symbol(symbol_to_remove)
 
     def _on_cell_clicked(self, row, column):
@@ -800,7 +824,15 @@ class TradingTable(QTableWidget):
 
     def get_symbol_list(self) -> List[str]:
         """Returns list of symbols for persistence"""
-        return list(self._watchlist_symbols)
+        symbols: List[str] = []
+        for row in range(self.rowCount()):
+            item = self.item(row, 0)
+            if not item:
+                continue
+            symbol = item.text().strip()
+            if symbol:
+                symbols.append(symbol)
+        return symbols
 
     def load_watchlist_data(self, symbols: List[str]):
         """Load watchlist from a list of symbols"""
