@@ -3,7 +3,7 @@
 Institutional-grade Positions Table — Ultra-Compact Mode.
 
 Upgrades:
-  • Strictly 4 columns: Symbol, Qty, Avg, PnL
+  • Strictly 3 columns: Symbol, Qty, PnL
   • Stripped heavy monospace fonts; matches native app UI (Sans-serif)
   • Compact headers and cell paddings to minimize horizontal space
   • Zero visual noise (no currency symbols inline)
@@ -49,10 +49,9 @@ _OPEN_FLAT = "#7a94b0"
 # Column indices
 COL_SYMBOL = 0
 COL_QTY = 1
-COL_AVG = 2
-COL_OPEN_PNL = 3
+COL_OPEN_PNL = 2
 
-HEADERS = ["Symbol", "Qty", "Avg", "P&L"]
+HEADERS = ["Symbol", "Qty", "P&L"]
 
 # Throttle: refresh table visuals at 250 ms intervals (≈4 fps)
 _REFRESH_INTERVAL_MS = 250
@@ -184,7 +183,7 @@ class PositionsTable(QWidget):
         hdr = self.table.horizontalHeader()
         hdr.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
         hdr.setSectionResizeMode(COL_SYMBOL, QHeaderView.ResizeMode.Stretch)
-        for col in (COL_QTY, COL_AVG, COL_OPEN_PNL):
+        for col in (COL_QTY, COL_OPEN_PNL):
             hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
 
         hdr.setMinimumSectionSize(35)  # Reduced for compactness
@@ -264,7 +263,6 @@ class PositionsTable(QWidget):
         cells = [
             (COL_SYMBOL, symbol_text, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, _T0),
             (COL_QTY, f"{qty_sign}{abs(pos.quantity)}", Qt.AlignmentFlag.AlignCenter, profit_color if is_long else loss_color),
-            (COL_AVG, f"{pos.avg_price:,.2f}", Qt.AlignmentFlag.AlignCenter, _T0),
             (COL_OPEN_PNL, f"{'+' if pnl >= 0 else ''}{pnl:,.2f}", Qt.AlignmentFlag.AlignCenter, pnl_color),
         ]
 
@@ -329,7 +327,6 @@ class PositionsTable(QWidget):
         mapping = {
             COL_SYMBOL: pos.symbol,
             COL_QTY: pos.quantity,
-            COL_AVG: pos.avg_price,
             COL_OPEN_PNL: pnl,
         }
         return mapping.get(col, 0)
