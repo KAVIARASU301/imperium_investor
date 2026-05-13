@@ -1781,22 +1781,26 @@ class ChartinkScannerTable(QWidget):
                 color: #8f99a8;
                 font-size: 11px;
                 font-weight: 500;
-                padding: 0 6px;
-                border: none;
-                background: transparent;
+                padding: 0 8px;
+                border: 1px solid #1a2030;
+                background: #0f1318;
+                border-radius: 0px;
                 text-align: left;
             }
             QPushButton#scanRefreshButton:hover {
                 color: #b2bdcd;
-                background: rgba(255, 255, 255, 0.03);
-                border-radius: 4px;
+                background: #111720;
+                border-color: #253049;
             }
             QPushButton#scanRefreshButton:pressed {
                 color: #d5dce7;
-                background: rgba(255, 255, 255, 0.06);
+                background: #151d29;
+                border-color: #2f3d5a;
             }
             QPushButton#scanRefreshButton:disabled {
                 color: #6c7481;
+                background: #0d1015;
+                border-color: #161c29;
             }
 
             /* Dropdown */
