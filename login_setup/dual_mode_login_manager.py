@@ -24,8 +24,6 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Optional, Dict, Any, List
 from urllib.parse import urlparse, parse_qs
 
-from utils.resource_path import resource_path
-
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QMessageBox, QWidget, QStackedWidget, QCheckBox, QFrame,
@@ -204,7 +202,7 @@ class DualModeLoginManager(QDialog):
         self.setMinimumSize(500, 560)
         self.setModal(True)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
-        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WA_TranslucentBackground, False)
 
     def _setup_ui(self):
         container = QFrame()
@@ -218,9 +216,9 @@ class DualModeLoginManager(QDialog):
         main_layout.addWidget(container)
 
         container_layout = QVBoxLayout(container)
-        container_layout.setContentsMargins(18, 12, 18, 14)
-        container_layout.setSpacing(8)
-        container_layout.addLayout(self._create_header())
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(0)
+        container_layout.addWidget(self._create_header())
 
         self.stacked_widget = QStackedWidget()
         self.stacked_widget.currentChanged.connect(self._on_page_changed)
@@ -238,22 +236,28 @@ class DualModeLoginManager(QDialog):
         self.stacked_widget.addWidget(self._create_kite_token_page())
         self.stacked_widget.addWidget(self._create_ibkr_connection_page())
 
-    def _create_header(self) -> QHBoxLayout:
-        layout = QHBoxLayout()
-        left_spacer = QLabel("")
-        left_spacer.setFixedSize(30, 30)
-        title = QLabel("qullamaggie Login")
+    def _create_header(self) -> QWidget:
+        header = QFrame()
+        header.setObjectName("titleBar")
+        header.setFixedHeight(36)
+
+        layout = QHBoxLayout(header)
+        layout.setContentsMargins(12, 0, 8, 0)
+        layout.setSpacing(8)
+
+        title = QLabel("LOGIN MANAGER")
         title.setObjectName("dialogTitle")
+
         close_btn = QPushButton("✕")
         close_btn.setObjectName("closeButton")
-        close_btn.setFixedSize(30, 30)
+        close_btn.setFixedSize(26, 26)
+        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         close_btn.clicked.connect(self._on_close)
-        layout.addWidget(left_spacer)
-        layout.addStretch()
-        layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        layout.addWidget(title)
         layout.addStretch()
         layout.addWidget(close_btn)
-        return layout
+        return header
 
     def _on_close(self):
         self._stop_request_token_server()
@@ -877,33 +881,30 @@ class DualModeLoginManager(QDialog):
     # --------------------------------------------------------------------------
 
     def _apply_styles(self):
-        texture_path = os.path.normpath(
-            resource_path("assets/textures/login_manager_texture.png")
-        ).replace("\\", "/")
-
         stylesheet = """
             #mainContainer {
-                background-color: #080b12;
-                background-image: url("{texture_path}");
-                background-position: center;
-                background-repeat: repeat;
-                border-radius: 10px;
-                border: 1px solid #1f2733;
+                background-color: #0a0d12;
+                border-radius: 0px;
+                border: 1px solid #1a2030;
+            }
+            #titleBar {
+                background: #070a0f;
+                border-bottom: 1px solid #1a2030;
             }
             #dialogTitle {
-                font-size: 14px;
-                font-weight: 700;
-                color: #d6deeb;
+                font-size: 11px;
+                font-weight: 800;
+                color: #e8f0ff;
                 letter-spacing: 0.5px;
             }
             #closeButton {
                 background: transparent;
-                color: #6b7380;
+                color: #5a7090;
                 border: none;
                 font-size: 16px;
                 border-radius: 4px;
             }
-            #closeButton:hover { color: #e5edf8; background: #17202c; }
+            #closeButton:hover { color: #ff4d6a; background: #2a1320; }
             #pageTitle, #welcomeTitle {
                 font-size: 16px;
                 font-weight: 700;
@@ -1017,4 +1018,4 @@ class DualModeLoginManager(QDialog):
             }
             QCheckBox { color: #c4d1e3; font-size: 12px; }
         """
-        self.setStyleSheet(stylesheet.replace("{texture_path}", texture_path))
+        self.setStyleSheet(stylesheet)
