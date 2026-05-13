@@ -170,6 +170,18 @@ class ColorSettingsDialog(QDialog):
             bool(self._theme.get("enable_volume_strength_indicator", False)))
         more_layout.addWidget(self.volume_strength_toggle_checkbox)
 
+        self.show_scanner_volume_checkbox = _Toggle("SHOW VOLUME COLUMN IN SCANNER TABLE")
+        self.show_scanner_volume_checkbox.setChecked(
+            bool(self._theme.get("show_scanner_volume_column", True))
+        )
+        more_layout.addWidget(self.show_scanner_volume_checkbox)
+
+        self.show_watchlist_volume_checkbox = _Toggle("SHOW VOLUME COLUMN IN WATCHLIST TABLE")
+        self.show_watchlist_volume_checkbox.setChecked(
+            bool(self._theme.get("show_watchlist_volume_column", True))
+        )
+        more_layout.addWidget(self.show_watchlist_volume_checkbox)
+
         self.scanner_live_ticks_checkbox = _Toggle("PASS LIVE TICK DATA TO SCANNER TABLE")
         self.scanner_live_ticks_checkbox.setChecked(
             bool(self._theme.get("scanner_live_ticks", True))
@@ -415,6 +427,8 @@ class ColorSettingsDialog(QDialog):
         self._theme["link_all_sections"] = self.link_checkbox.isChecked()
         self._theme["enable_table_directional_colors"] = self.table_color_toggle_checkbox.isChecked()
         self._theme["enable_volume_strength_indicator"] = self.volume_strength_toggle_checkbox.isChecked()
+        self._theme["show_scanner_volume_column"] = self.show_scanner_volume_checkbox.isChecked()
+        self._theme["show_watchlist_volume_column"] = self.show_watchlist_volume_checkbox.isChecked()
         self._theme["scanner_live_ticks"] = self.scanner_live_ticks_checkbox.isChecked()
         self._theme["status_bar_alignment"] = (
             "right" if self.status_bar_align_right_checkbox.isChecked() else "left"

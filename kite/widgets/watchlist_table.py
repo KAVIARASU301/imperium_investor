@@ -505,6 +505,7 @@ class TradingTable(QTableWidget):
 
         hdr.sectionClicked.connect(self._on_header_click)
         hdr.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.setColumnHidden(_COL_VOL, not bool(self._color_theme.get("show_watchlist_volume_column", True)))
 
     def _connect_signals(self):
         self.cellClicked.connect(self._on_cell_click)
@@ -558,6 +559,7 @@ class TradingTable(QTableWidget):
 
     def apply_color_theme(self, theme: Dict) -> None:
         self._color_theme = theme
+        self.setColumnHidden(_COL_VOL, not bool(self._color_theme.get("show_watchlist_volume_column", True)))
         for sym, row in self._symbol_to_row.items():
             data = self._watchlist_data.get(sym)
             if data:

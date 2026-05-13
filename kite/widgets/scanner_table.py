@@ -918,6 +918,7 @@ class ChartinkScannerTable(QWidget):
 
     def apply_color_theme(self, theme: Dict):
         self._color_theme = theme or self._color_theme
+        self.table.setColumnHidden(2, not bool(self._color_theme.get("show_scanner_volume_column", True)))
         for symbol, row in self._symbol_to_row.items():
             data = self._symbol_data.get(symbol)
             if data is not None:
@@ -1116,6 +1117,7 @@ class ChartinkScannerTable(QWidget):
         self.table.horizontalHeader().setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
 
         self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.table.setColumnHidden(2, not bool(self._color_theme.get("show_scanner_volume_column", True)))
 
     def _on_header_clicked(self, section: int) -> None:
         """Toggle tri-state sorting for %CHG column when header is clicked."""
