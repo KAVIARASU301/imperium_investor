@@ -182,6 +182,14 @@ class ChartDataLoaderThread(QThread):
 
         # ── Build date range ──────────────────────────────────────────────
         to_date   = datetime.now()
+        # Kite daily candles are session-based and timestamped at IST midnight.
+        # When this app runs in non-IST environments (e.g. UTC), a strict
+        # "to_date = now" can occasionally exclude the most recently completed
+        # daily candle around day-boundary/timezone edges. Extending the upper
+        # bound by one day keeps intraday behaviour unchanged while ensuring
+        # the previous trading day's candle is present on Day/Week/Month views.
+        if self.interval in {"day", "week", "month"}:
+            to_date = to_date + timedelta(days=1)
         days_back = resolve_days_back(self.interval, self.days_back_overrides)
         from_date = to_date - timedelta(days=days_back)
         self._emit_progress(25)

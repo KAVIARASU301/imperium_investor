@@ -1,10 +1,33 @@
 # src/utils/data_fetcher.py
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone, time
 from kiteconnect import KiteConnect
 
 logger = logging.getLogger(__name__)
+
+_IST = timezone(timedelta(hours=5, minutes=30))
+_MARKET_OPEN = time(9, 15)
+
+
+def _today_ist():
+    """Return current calendar date in IST."""
+    return datetime.now(tz=_IST).date()
+
+
+def _effective_to_date(interval: str):
+    """
+    Return a stable end date for historical queries.
+
+    For higher timeframes (day/week/month), between 00:00 and market open in
+    IST there is no completed candle for "today" yet. Querying through today's
+    date can therefore surface an incomplete/empty leading bar and visually
+    hide the last completed day. Use the previous IST date until market opens.
+    """
+    now_ist = datetime.now(tz=_IST)
+    if interval in {"day", "week", "month"} and now_ist.time() < _MARKET_OPEN:
+        return now_ist.date() - timedelta(days=1)
+    return now_ist.date()
 
 
 class DataFetcher:
@@ -80,7 +103,7 @@ class DataFetcher:
         Returns:
             tuple: (from_date, to_date)
         """
-        to_date = datetime.now().date()
+        to_date = _effective_to_date(interval)
 
         if max_days:
             from_date = to_date - timedelta(days=max_days)
