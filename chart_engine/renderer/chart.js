@@ -3610,39 +3610,18 @@ class FixedTradingChart {
     }
 
     _shouldAppendLiveCandle(lastTimeMs, nowMs, intervalMs) {
-        const key = String(this.currentInterval || 'day').toLowerCase();
+        const _key = String(this.currentInterval || 'day').toLowerCase();
 
-        if (key === 'day') {
-            // Daily candle: only append when the IST date has changed AND
-            // the new day's market session is actually open (09:15–15:30 IST).
-            //
-            // Without the market-hours guard, a tick arriving at 00:05 IST
-            // (after the IST date rolled over but before market open) would
-            // incorrectly create a phantom new candle for the new day, making
-            // the previous day's candle disappear from the chart.
+        if (_key === 'day') {
             const lastDay = this._tradingDayKey(lastTimeMs);
             const nowDay  = this._tradingDayKey(nowMs);
             if (!lastDay || !nowDay || nowDay <= lastDay) return false;
 
-            // IST date has changed. Only start a new candle if we are inside
-            // the trading session on the NEW day.
-            const IST_OFFSET_MS   = 5.5 * 60 * 60 * 1000;
-            const nowIstMs = nowMs + IST_OFFSET_MS;
-            const d = new Date(nowIstMs);
-            const minuteOfDay = d.getUTCHours() * 60 + d.getUTCMinutes();
+            // If IST date has changed, always append a new daily candle so
+            // pre-market ticks cannot overwrite the completed prior day's bar.
+            if (nowDay > lastDay) return true;
 
-            const MARKET_OPEN_MIN  = 9 * 60 + 15;   // 555
-            const MARKET_CLOSE_MIN = 15 * 60 + 30;  // 930
-
-            // Before 09:15 IST on the new day: tick is pre-market.
-            // Update the LAST candle of the previous session — do NOT append.
-            if (minuteOfDay < MARKET_OPEN_MIN) return false;
-
-            // After 15:30 IST: post-market tick. Update last candle, no append.
-            if (minuteOfDay > MARKET_CLOSE_MIN) return false;
-
-            // We are inside 09:15–15:30 IST on the new day: append.
-            return true;
+            return false;
         }
 
         // Intraday: use IST-aligned buckets so candles are never split
