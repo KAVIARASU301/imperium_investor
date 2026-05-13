@@ -1,7 +1,7 @@
 # chart_engine/drawings/__init__.py
 #
 # Manages persistent storage of chart drawings, zoom level, and global settings.
-# Saves one JSON file per (symbol, interval) pair in a user_data directory.
+# Saves one JSON file per symbol in a user_data directory (interval-independent).
 # Also handles global chart settings (candle colors, watermark, etc.)
 # and the last-viewed symbol so the chart restores state on reopen.
 
@@ -118,7 +118,7 @@ class DrawingStorage:
     # ─── Per-symbol state ─────────────────────────────────────────────────────
 
     def save_state(self, symbol: str, interval: str, state: Dict[str, Any]) -> None:
-        """Persist drawings + view state for a (symbol, interval) pair."""
+        """Persist drawings + view state for a symbol (interval-independent)."""
         if not isinstance(state, dict):
             logger.warning("save_state: invalid state type %s for %s", type(state), symbol)
             return
@@ -142,12 +142,16 @@ class DrawingStorage:
             logger.error("Failed to save state for %s: %s", symbol, exc)
 
     def load_state(self, symbol: str, interval: str) -> Dict[str, Any]:
-        """Load drawings + view state for a (symbol, interval) pair."""
+        """Load drawings + view state for a symbol (interval-independent)."""
         filepath = self._state_path(symbol, interval)
-        if not os.path.exists(filepath):
+        legacy_filepath = self._legacy_state_path(symbol, interval)
+        source_path = filepath
+        if not os.path.exists(source_path):
+            source_path = legacy_filepath
+        if not source_path or not os.path.exists(source_path):
             return self._default_state()
         try:
-            with open(filepath, "r") as f:
+            with open(source_path, "r") as f:
                 state = json.load(f)
             if not isinstance(state, dict):
                 return self._default_state()
@@ -160,6 +164,8 @@ class DrawingStorage:
                 "Loaded state for %s (%s) — %d drawings",
                 symbol, interval, self._count_drawings(state["drawings"]),
             )
+            if source_path == legacy_filepath:
+                self.save_state(symbol, interval, state)
             return state
         except Exception as exc:
             logger.error("Failed to load state for %s: %s", symbol, exc)
@@ -173,6 +179,11 @@ class DrawingStorage:
         }
 
     def _state_path(self, symbol: str, interval: str) -> str:
+        del interval
+        safe = symbol.replace("/", "_").replace(":", "_")
+        return os.path.join(self.storage_dir, f"{safe}_state.json")
+
+    def _legacy_state_path(self, symbol: str, interval: str) -> str:
         safe = symbol.replace("/", "_").replace(":", "_")
         return os.path.join(self.storage_dir, f"{safe}_{interval}_state.json")
 
