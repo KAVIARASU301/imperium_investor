@@ -19,7 +19,7 @@ from PySide6.QtCore import QItemSelectionModel
 logger = logging.getLogger(__name__)
 SCAN_URL_FILE = os.path.join(os.path.expanduser("~/.qullamaggie"), "chartink_scans.json")
 SETTINGS_FILE = os.path.join(os.path.expanduser("~/.qullamaggie"), "scanner_settings.json")
-SCAN_GROUP_ORDER = ["Momentum Breakouts", "Episodic Pivot", "Parabolic", "Others"]
+SCAN_GROUP_ORDER = ["Momentum Breakouts", "Episodic Pivot", "Parabolic", "Intraday", "Others"]
 CHART_TOOLBAR_HEIGHT = 32
 CHART_TOOLBAR_CONTROL_HEIGHT = 22
 
@@ -1031,6 +1031,10 @@ class ChartinkScannerTable(QWidget):
             "pivot": "Episodic Pivot",
             "episodic pivot": "Episodic Pivot",
             "parabolic move": "Parabolic",
+            "day trade": "Intraday",
+            "day trading": "Intraday",
+            "intra day": "Intraday",
+            "intraday scan": "Intraday",
             "other": "Others",
         }
         return aliases.get(lower_tag, raw_tag)
