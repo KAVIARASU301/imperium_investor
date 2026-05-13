@@ -310,6 +310,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self._pending_main_splitter_sizes = None
         self._pending_right_splitter_sizes = None
         self._saved_watchlist_panel_width = None
+        self._saved_scanner_panel_width = None
         self._apply_intelligent_main_splitter_layout()
 
     def _create_menu_bar(self) -> QMenuBar:
@@ -498,6 +499,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         if right_visible and self._saved_watchlist_panel_width:
             right = int(self._saved_watchlist_panel_width)
+        if left_visible and self._saved_scanner_panel_width:
+            left = int(self._saved_scanner_panel_width)
 
         # Start from user ratio if available, then clamp side columns.
         left = max(left_min, min(left, left_max))
@@ -549,6 +552,15 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
     def _set_scanner_visible(self, visible: bool):
         self.chartink_scanner.setVisible(visible)
+        if visible and self._saved_scanner_panel_width:
+            sizes = self.main_splitter.sizes()
+            if len(sizes) == 3:
+                total = max(1, sum(sizes))
+                left = max(200, int(self._saved_scanner_panel_width))
+                right = sizes[2]
+                center = max(520, total - left - right)
+                left = max(200, total - center - right)
+                self.main_splitter.setSizes([left, center, right])
         self._apply_intelligent_main_splitter_layout()
         # Rebuild immediately so scanner tokens subscribe/unsubscribe exactly
         # when the user toggles visibility from View → Scanner.
@@ -603,8 +615,11 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     def _on_main_splitter_moved(self, _pos: int, _index: int):
         """Prevent one pane from taking all width when dragging splitter handles."""
         sizes = self.main_splitter.sizes()
-        if len(sizes) == 3 and self.right_panel_splitter.isVisible():
-            self._saved_watchlist_panel_width = int(sizes[2])
+        if len(sizes) == 3:
+            if self.chartink_scanner.isVisible():
+                self._saved_scanner_panel_width = int(sizes[0])
+            if self.right_panel_splitter.isVisible():
+                self._saved_watchlist_panel_width = int(sizes[2])
         self._apply_intelligent_main_splitter_layout()
 
     def _queue_window_state_save(self, *_args):
@@ -2704,6 +2719,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 'scanner_visible': self.chartink_scanner.isVisible(),
                 'watchlist_visible': self.watchlist_action.isChecked(),
                 'positions_visible': self.positions_action.isChecked(),
+                'scanner_panel_width': int(self.main_splitter.sizes()[0]) if self.chartink_scanner.isVisible() else self._saved_scanner_panel_width,
                 'watchlist_panel_width': int(self.main_splitter.sizes()[2]) if self.right_panel_splitter.isVisible() else self._saved_watchlist_panel_width
             }
 
@@ -2748,6 +2764,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                     self._pending_right_splitter_sizes = state['right_panel_splitter_sizes']
 
                 self._saved_watchlist_panel_width = state.get('watchlist_panel_width')
+                self._saved_scanner_panel_width = state.get('scanner_panel_width')
 
                 scanner_visible = state.get('scanner_visible', True)
                 watchlist_visible = state.get('watchlist_visible', True)

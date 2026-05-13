@@ -417,17 +417,17 @@ _COL_VOL = 3
 _COL_CHG = 4
 _NUM_COLS = 5
 
-_HEADERS = ["", "Symbol", "LTP", "Vol", "Chg%"]
+_HEADERS = ["", "Symbol", "LTP", "Vol", "%Chg"]
 
 
 class TradingTable(QTableWidget):
     """
     Single watchlist table.
 
-    Columns: ⚑ | Symbol | LTP | Vol | Chg%
+    Columns: ⚑ | Symbol | LTP | Vol | %Chg
 
     Flag column (20 px): click to cycle flag state.
-    All numerics in monospace. Heat-map on Chg%.
+    All numerics in monospace. Heat-map on %Chg.
     """
 
     symbol_selected = Signal(str)
@@ -708,7 +708,7 @@ class TradingTable(QTableWidget):
             vol_item.setToolTip(f"Volume: {vol}")
 
         # ── Chg% with heat-map ──
-        chg_text = f"{chg:+.2f}%" if abs(chg) > 0.005 else "0.00%"
+        chg_text = f"{chg:+.2f}" if abs(chg) > 0.005 else "0.00"
         fg, bg_rgba = _C.change_color(chg)
         chg_item = self.item(row, _COL_CHG)
         if chg_item:

@@ -382,7 +382,7 @@ class ChartToolbar(QFrame):
 
         self.indicator_menu_button = QToolButton()
         self.indicator_menu_button.setObjectName("pillMenuBtn")
-        self.indicator_menu_button.setText("Indicators")
+        self.indicator_menu_button.setText("Ind")
         self.indicator_menu_button.setToolTip("Toggle chart indicators")
         self.indicator_menu_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.indicator_menu_button.setFixedHeight(22)
