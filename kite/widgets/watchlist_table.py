@@ -1323,7 +1323,7 @@ class TabbedWatchlistWidget(QWidget):
                 background-color: #0f1318;
                 border: 1px solid #1a2030;
                 gridline-color: #1a2030;
-                selection-background-color: #1a2840;
+                selection-background-color: rgba(74, 122, 191, 0.12);
                 alternate-background-color: #0f1318;
                 outline: none;
                 show-decoration-selected: 0;
@@ -1340,15 +1340,14 @@ class TabbedWatchlistWidget(QWidget):
             }
 
             TradingTable::item:selected {
-                background-color: #1a2840 !important;
+                background-color: rgba(74, 122, 191, 0.12) !important;
                 outline: none;
                 border: none;
-                color: #ffffff;
                 font-weight: 600;
             }
 
             TradingTable::item:focus {
-                background-color: #1a2840 !important;
+                background-color: rgba(74, 122, 191, 0.12) !important;
                 outline: none;
                 border: none;
             }
@@ -1362,8 +1361,7 @@ class TabbedWatchlistWidget(QWidget):
             }
 
             TradingTable::item:alternate:selected {
-                background-color: #1a2840 !important;
-                color: #ffffff;
+                background-color: rgba(74, 122, 191, 0.12) !important;
                 font-weight: 600;
             }
 
