@@ -1555,8 +1555,16 @@ class ChartinkScannerTable(QWidget):
     # ─────────────────────────────────────────────────────────────────────
 
     def get_current_symbols(self) -> List[str]:
-        """Get list of current symbols in the table."""
-        return list(self._symbol_data.keys())
+        """Get list of current symbols in the CURRENT visual table order."""
+        symbols: List[str] = []
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 0)
+            if not item:
+                continue
+            symbol = item.text().strip()
+            if symbol and symbol in self._symbol_data:
+                symbols.append(symbol)
+        return symbols
 
     def get_symbol_data(self, symbol: str) -> Optional[Dict]:
         """Get complete data for a specific symbol."""
