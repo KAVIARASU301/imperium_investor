@@ -827,6 +827,7 @@ class ChartinkScannerTable(QWidget):
         self._dropdown_scan_indices: List[int] = []
         self._current_symbol_index = 0  # Track current symbol for spacebar navigation
         self._last_visible_tokens: set = set()  # track to avoid redundant re-subs
+        self._change_sort_state: Optional[str] = None  # None -> asc -> desc -> None
         self._color_theme = {
             "enable_volume_strength_indicator": False,
             "tables": {"positive": "#26a69a", "negative": "#ef5350", "neutral": "#a9a9a9", "volume": "#45d4ff"}
@@ -859,6 +860,7 @@ class ChartinkScannerTable(QWidget):
         main_layout.addWidget(self.table)
 
         self.table.cellClicked.connect(self._on_cell_clicked)
+        self.table.horizontalHeader().sectionClicked.connect(self._on_header_clicked)
         self.table.setItemDelegateForColumn(2, VolumeStrengthDelegate(self.table))
         self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.table.setFocus()
@@ -1059,9 +1061,51 @@ class ChartinkScannerTable(QWidget):
         header_font = QFont("Segoe UI", 10)
         header_font.setBold(True)
         self.table.horizontalHeader().setFont(header_font)
+        self.table.horizontalHeader().setSortIndicatorShown(True)
+        self.table.horizontalHeader().setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
 
         # FIXED: Add focus policy for better behavior (from positions table)
         self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+    def _on_header_clicked(self, section: int) -> None:
+        """Toggle tri-state sorting for %CHG column when header is clicked."""
+        if section != 3:
+            return
+
+        if self._change_sort_state is None:
+            self._change_sort_state = "asc"
+        elif self._change_sort_state == "asc":
+            self._change_sort_state = "desc"
+        else:
+            self._change_sort_state = None
+
+        self._apply_table_ordering()
+
+    def _apply_table_ordering(self) -> None:
+        """Rebuild table rows based on current sort mode."""
+        symbols = list(self._symbol_data.keys())
+        if not symbols:
+            self.table.horizontalHeader().setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
+            return
+
+        if self._change_sort_state == "asc":
+            symbols.sort(key=lambda s: float(self._symbol_data.get(s, {}).get("change_pct", 0.0) or 0.0))
+            self.table.horizontalHeader().setSortIndicator(3, Qt.SortOrder.AscendingOrder)
+        elif self._change_sort_state == "desc":
+            symbols.sort(key=lambda s: float(self._symbol_data.get(s, {}).get("change_pct", 0.0) or 0.0), reverse=True)
+            self.table.horizontalHeader().setSortIndicator(3, Qt.SortOrder.DescendingOrder)
+        else:
+            symbols.sort(key=lambda s: s)
+            self.table.horizontalHeader().setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
+
+        self.table.setRowCount(len(symbols))
+        self._symbol_to_row.clear()
+        for row, symbol in enumerate(symbols):
+            self._symbol_to_row[symbol] = row
+            for col in range(4):
+                if not self.table.item(row, col):
+                    self.table.setItem(row, col, QTableWidgetItem())
+            self._update_row_data(row, self._symbol_data[symbol])
 
     def _update_row_data(self, row: int, data: Dict):
         """Updates the display for a single row with EOD data."""
@@ -1169,29 +1213,16 @@ class ChartinkScannerTable(QWidget):
             for col in range(1, 4):
                 self.table.setItem(0, col, QTableWidgetItem(""))
         else:
-            # Sort results by symbol name for consistency
-            sorted_results = sorted(scan_results, key=lambda x: x.get('symbol', ''))
-
-            self.table.setRowCount(len(sorted_results))
-
-            for i, result in enumerate(sorted_results):
+            for result in scan_results:
                 symbol = result.get('symbol', '')
                 if not symbol:
                     continue
 
-                self._symbol_to_row[symbol] = i
                 self._symbol_data[symbol] = result
-
-                # Create table items for each column
-                for col in range(4):
-                    if not self.table.item(i, col):
-                        self.table.setItem(i, col, QTableWidgetItem())
-
-                # Update row with data
-                self._update_row_data(i, result)
+            self._apply_table_ordering()
 
             # Select first row automatically
-            if len(sorted_results) > 0:
+            if len(scan_results) > 0:
                 index = self.table.model().index(0, 0)
                 self.table.selectionModel().select(
                     index,
