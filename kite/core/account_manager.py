@@ -15,10 +15,10 @@ class AccountManager(QObject):
 
     margins_updated = Signal(dict)
 
-    def __init__(self, trader: Any, refresh_interval_minutes: int = 30, parent: Optional[QObject] = None):
+    def __init__(self, trader: Any, refresh_interval_seconds: int = 15, parent: Optional[QObject] = None):
         super().__init__(parent)
         self.trader = trader
-        self._ttl = timedelta(minutes=refresh_interval_minutes)
+        self._ttl = timedelta(seconds=max(5, int(refresh_interval_seconds)))
         self._threadpool = QThreadPool(self)
         self._is_refreshing = False
         self._last_updated: Optional[datetime] = None

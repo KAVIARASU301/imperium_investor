@@ -224,7 +224,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.account_manager.refresh_margins(force=True)
         self._account_refresh_timer = QTimer(self)
         self._account_refresh_timer.timeout.connect(self.account_manager.refresh_if_stale)
-        self._account_refresh_timer.start(60_000)
+        self._account_refresh_timer.start(10_000)
         self.header_toolbar.color_settings_requested.connect(self._open_color_settings_dialog)
         main_layout.addWidget(self.header_toolbar)
 
@@ -1800,6 +1800,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 status.notify("submitted", symbol)
                 self.position_manager.start_tracking_order(order_id, order_data)
                 self.position_manager.fetch_positions_from_kite("entry_order_submitted")
+                self.account_manager.refresh_margins(force=True)
+                QTimer.singleShot(2000, lambda: self.account_manager.refresh_margins(force=True))
                 self._log_order_placement_immediate(order_data, order_id)
                 logger.info(f"[ENTRY] Order accepted by broker: {order_id}")
             else:
@@ -1847,6 +1849,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 status.notify("submitted", symbol)
                 self.position_manager.start_tracking_order(order_id, order_data)
                 self.position_manager.fetch_positions_from_kite("exit_order_submitted")
+                self.account_manager.refresh_margins(force=True)
+                QTimer.singleShot(2000, lambda: self.account_manager.refresh_margins(force=True))
                 self._log_order_placement_immediate(order_data, order_id)
                 logger.info(f"[EXIT] Exit order accepted: {order_id}")
             else:
