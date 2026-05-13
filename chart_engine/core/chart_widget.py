@@ -722,12 +722,22 @@ class CandlestickChart(QWidget):
         if not (sym_match or token_match):
             return
 
+        tick_time_ms = self._tick_time_ms(tick)
+
         # Kite emits ticks outside regular NSE hours (pre-open quotes,
         # post-market moves, etc.). For the Day interval these ticks have no
         # meaningful OHLC context and can fall on the next calendar date, which
         # would let JS create a phantom duplicate day candle.
+        #
+        # Use the tick timestamp itself when available rather than local wall
+        # clock time, so midnight/session boundary handling stays correct even
+        # if the GUI host clock drifts or the tick arrives with buffering delay.
         if self.current_interval == "day":
-            now_ist = datetime.utcnow() + timedelta(hours=5, minutes=30)
+            reference_utc = (
+                datetime.utcfromtimestamp(tick_time_ms / 1000)
+                if isinstance(tick_time_ms, int) else datetime.utcnow()
+            )
+            now_ist = reference_utc + timedelta(hours=5, minutes=30)
             nse_open = dt_time(9, 15)
             nse_close = dt_time(15, 30)
             if not (nse_open <= now_ist.time() <= nse_close):
@@ -738,8 +748,6 @@ class CandlestickChart(QWidget):
 
         # FIX: guard on LOADED state — do not touch JS chart during load.
         if self.chart_view and self.current_state == ChartState.LOADED:
-            tick_time_ms = self._tick_time_ms(tick)
-
             # Extract today's OHLC from the tick so the JS chart can keep the
             # active live candle aligned with broker-provided session values.
             ohlc = tick.get("ohlc") or {}
