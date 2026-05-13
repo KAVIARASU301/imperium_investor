@@ -3513,6 +3513,34 @@ class FixedTradingChart {
         return Math.floor(epochMs / intervalMs) * intervalMs;
     }
 
+    _nextAlignedIntradayCandleTimeMs(lastTimeMs, nowMs, intervalMs) {
+        // Kite historical intraday candles are timestamped from the NSE session
+        // grid (09:15, then +interval).  Do not rebucket live ticks on absolute
+        // UTC boundaries: for 60minute that creates 09:00/10:00 candles beside
+        // Kite's 09:15/10:15 candles, and for non-divisor intervals it can hide
+        // expected candles.  Advance strictly from the last Kite candle time.
+        if (!Number.isFinite(lastTimeMs) || !Number.isFinite(nowMs) ||
+            !Number.isFinite(intervalMs) || intervalMs <= 0) {
+            return NaN;
+        }
+        const elapsed = nowMs - lastTimeMs;
+        if (elapsed < intervalMs) return NaN;
+
+        const steps = Math.max(1, Math.floor(elapsed / intervalMs));
+        return lastTimeMs + steps * intervalMs;
+    }
+
+    _isWithinNseSession(epochMs) {
+        if (!Number.isFinite(epochMs)) return false;
+
+        const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+        const d = new Date(epochMs + IST_OFFSET_MS);
+        const minutes = d.getUTCHours() * 60 + d.getUTCMinutes();
+        const NSE_OPEN_MINUTES = 9 * 60 + 15;
+        const NSE_CLOSE_MINUTES = 15 * 60 + 30;
+        return minutes >= NSE_OPEN_MINUTES && minutes <= NSE_CLOSE_MINUTES;
+    }
+
     _tradingDayKey(epochMs) {
         if (!Number.isFinite(epochMs)) return '';
 
@@ -3551,18 +3579,11 @@ class FixedTradingChart {
             // Guard: only open a new day candle after the NSE session opens.
             // Kite may emit pre-market/post-market ticks whose timestamps fall
             // on the next calendar date; those must not create phantom candles.
-            const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
-            const nowIst = new Date(nowMs + IST_OFFSET_MS);
-            const nowTotalMinutes = nowIst.getUTCHours() * 60 + nowIst.getUTCMinutes();
-            const NSE_OPEN_MINUTES = 9 * 60 + 15;
-            const NSE_CLOSE_MINUTES = 15 * 60 + 30;
-            return nowTotalMinutes >= NSE_OPEN_MINUTES &&
-                   nowTotalMinutes <= NSE_CLOSE_MINUTES;
+            return this._isWithinNseSession(nowMs);
         }
 
-        const lastBucket = this._bucketStartMs(lastTimeMs, intervalMs);
-        const nowBucket = this._bucketStartMs(nowMs, intervalMs);
-        return nowBucket > lastBucket;
+        return this._isWithinNseSession(nowMs) &&
+               Number.isFinite(this._nextAlignedIntradayCandleTimeMs(lastTimeMs, nowMs, intervalMs));
     }
 
     _coerceEpochMs(value) {
@@ -3587,12 +3608,15 @@ class FixedTradingChart {
         if (this.data.length > 0) {
             const last      = this.data[this.data.length - 1];
             const intervalMs = this._intervalToMs(this.currentInterval);
+            const key        = String(this.currentInterval || 'day').toLowerCase();
             const lastTimeMs = Number(last.time);
             const tickMs     = this._coerceEpochMs(tickTime);
             const nowMs      = Number.isFinite(tickMs) ? tickMs : Date.now();
 
             if (intervalMs > 0 && Number.isFinite(lastTimeMs)) {
-                const nowBucket = this._bucketStartMs(nowMs, intervalMs);
+                const nextCandleTimeMs = key === 'day'
+                    ? this._bucketStartMs(nowMs, intervalMs)
+                    : this._nextAlignedIntradayCandleTimeMs(lastTimeMs, nowMs, intervalMs);
 
                 if (this._shouldAppendLiveCandle(lastTimeMs, nowMs, intervalMs)) {
                     // ── Use tick OHLC for today's candle open/high/low ───────
@@ -3605,14 +3629,14 @@ class FixedTradingChart {
                     // ─────────────────────────────────────────────────────────
 
                     this.data.push({
-                        time:   nowBucket,
+                        time:   nextCandleTimeMs,
                         open:   openPrice,
                         high:   highPrice,
                         low:    lowPrice,
                         close:  price,
                         volume: 0,
                     });
-                    this.volumeData.push({ time: nowBucket, value: 0 });
+                    this.volumeData.push({ time: nextCandleTimeMs, value: 0 });
                     this._volVpKey = null;
 
                     this.viewPortEnd = Math.max(
