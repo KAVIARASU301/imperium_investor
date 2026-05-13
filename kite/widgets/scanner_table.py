@@ -901,7 +901,7 @@ class ChartinkScannerTable(QWidget):
         self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.table.setFocus()
 
-        # Add focus out event to clear selection (from positions table pattern)
+        # Preserve scanner row selection while the user works on the chart.
         self.table.focusOutEvent = self._on_table_focus_out
 
         # Emit visible_rows_changed on scroll so main_window can re-evaluate subscriptions
@@ -967,14 +967,11 @@ class ChartinkScannerTable(QWidget):
             logger.debug(f"Scanner: Selected symbol {symbol} at index {index}")
 
     def _on_table_focus_out(self, event):
-        """Clear selection when table loses focus (from positions table)."""
+        """Keep the scanner selection visible when focus moves to the chart."""
         try:
-            self.table.clearSelection()
-            # Call the original focusOutEvent if it exists
-            if hasattr(QTableWidget, 'focusOutEvent'):
-                QTableWidget.focusOutEvent(self.table, event)
+            QTableWidget.focusOutEvent(self.table, event)
         except Exception as e:
-            logger.debug(f"Error clearing selection on focus out: {e}")
+            logger.debug(f"Error preserving selection on focus out: {e}")
 
     def _create_header(self) -> QWidget:
         """Creates the header with scan selection."""

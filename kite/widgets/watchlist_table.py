@@ -790,7 +790,7 @@ class TradingTable(QTableWidget):
             self.symbol_selected.emit(sym)
 
     def _on_focus_out(self, event):
-        self.clearSelection()
+        """Keep the watchlist selection visible when focus moves to the chart."""
         QTableWidget.focusOutEvent(self, event)
 
     def _on_header_click(self, col: int):

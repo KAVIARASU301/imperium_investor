@@ -121,7 +121,7 @@ class TradingTable(QTableWidget):
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_enhanced_context_menu)
 
-        # Connect focus events to clear selection (from position table)
+        # Preserve row selection while the user works on the chart.
         self.focusOutEvent = self._on_table_focus_out
 
     def _on_cell_double_clicked(self, row: int, column: int):
@@ -137,14 +137,11 @@ class TradingTable(QTableWidget):
                 logger.warning(f"Could not get symbol from double-clicked row {row}.")
 
     def _on_table_focus_out(self, event):
-        """Clear selection when table loses focus (from position table)."""
+        """Keep the watchlist selection visible when focus moves to the chart."""
         try:
-            self.clearSelection()
-            # Call the original focusOutEvent if it exists
-            if hasattr(QTableWidget, 'focusOutEvent'):
-                QTableWidget.focusOutEvent(self, event)
+            QTableWidget.focusOutEvent(self, event)
         except Exception as e:
-            logger.debug(f"Error clearing selection on focus out: {e}")
+            logger.debug(f"Error preserving selection on focus out: {e}")
 
     def _on_header_clicked(self, logical_index: int):
         """Handle header clicks for sorting."""

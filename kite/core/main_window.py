@@ -2378,16 +2378,32 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self._last_spacebar_context = context
 
     def _resolve_spacebar_context(self, focused_widget):
-        """Resolve active navigation context from focus first, then last selection source."""
+        """Resolve navigation context without letting chart focus reset table choice.
+
+        Focus inside a table always wins.  When focus moves to the chart after a
+        symbol load, keep using the last manually selected table instead of
+        falling back to whichever watchlist tab still has a current row.
+        """
         if self._get_focused_floating_watchlist(focused_widget):
             return "floating_watchlist"
         if self._get_focused_floating_positions(focused_widget):
             return "floating_positions"
         if self._is_scanner_focused(focused_widget):
             return "scanner"
-        if self._get_focused_watchlist_table(focused_widget):
+        if self._is_watchlist_focused(focused_widget):
             return "watchlist"
         return self._last_spacebar_context
+
+    def _is_watchlist_focused(self, widget) -> bool:
+        """Return True only when focus is actually within the docked watchlist."""
+        if not widget:
+            return False
+        current = widget
+        while current:
+            if current == self.watchlist:
+                return True
+            current = current.parent()
+        return False
 
     def _get_last_selected_watchlist_table(self):
         """Return watchlist table that currently has a row selected."""
