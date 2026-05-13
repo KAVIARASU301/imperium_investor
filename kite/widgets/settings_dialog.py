@@ -194,6 +194,12 @@ class ColorSettingsDialog(QDialog):
         )
         more_layout.addWidget(self.status_bar_align_right_checkbox)
 
+        self.status_pnl_exposure_right_checkbox = _Toggle("KEEP OPEN P&L + EXPOSURE ON RIGHT")
+        self.status_pnl_exposure_right_checkbox.setChecked(
+            bool(self._theme.get("status_bar_metrics_right", True))
+        )
+        more_layout.addWidget(self.status_pnl_exposure_right_checkbox)
+
         account_group = QGroupBox("ACCOUNT HEADER")
         account_layout = QVBoxLayout(account_group)
         account_layout.setContentsMargins(12, 16, 12, 12)
@@ -433,6 +439,7 @@ class ColorSettingsDialog(QDialog):
         self._theme["status_bar_alignment"] = (
             "right" if self.status_bar_align_right_checkbox.isChecked() else "left"
         )
+        self._theme["status_bar_metrics_right"] = self.status_pnl_exposure_right_checkbox.isChecked()
         self._theme["show_account_name"] = self.show_account_name_checkbox.isChecked()
         self._theme["show_account_balance"] = self.show_account_balance_checkbox.isChecked()
         return self._theme

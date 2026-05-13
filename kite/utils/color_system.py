@@ -14,6 +14,7 @@ DEFAULT_COLOR_THEME: Dict[str, Any] = {
     "show_watchlist_volume_column": True,
     "scanner_live_ticks": True,
     "status_bar_alignment": "left",
+    "status_bar_metrics_right": True,
     "show_account_name": True,
     "show_account_balance": True,
     "candles": {
@@ -88,6 +89,9 @@ class ColorThemeManager(QObject):
         merged["scanner_live_ticks"] = bool(custom.get("scanner_live_ticks", True))
         alignment = str(custom.get("status_bar_alignment", merged["status_bar_alignment"]))
         merged["status_bar_alignment"] = "right" if alignment.lower() == "right" else "left"
+        merged["status_bar_metrics_right"] = bool(
+            custom.get("status_bar_metrics_right", merged["status_bar_metrics_right"])
+        )
         merged["show_account_name"] = bool(custom.get("show_account_name", merged["show_account_name"]))
         merged["show_account_balance"] = bool(custom.get("show_account_balance", merged["show_account_balance"]))
 

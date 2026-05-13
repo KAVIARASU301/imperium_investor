@@ -27,6 +27,7 @@ class StatusBar(QWidget):
         self.setFixedHeight(20)
         self._layout: Optional[QHBoxLayout] = None
         self._status_alignment = "left"
+        self._metrics_on_right = True
         self._build_ui()
         self._apply_styles()
 
@@ -41,39 +42,76 @@ class StatusBar(QWidget):
         self.market_label = QLabel("MARKET: --")
         self.api_label = QLabel("API: --")
         self.heartbeat_label = QLabel("HEARTBEAT: ●")
+        self.open_pnl_label = QLabel("OPEN P&L: --")
+        self.exposure_label = QLabel("EXPOSURE: --")
         self._heartbeat_pulse_on = False
 
         # Add indicators to layout
-        for label in (self.market_label, self.api_label, self.heartbeat_label):
+        for label in (
+            self.market_label,
+            self.api_label,
+            self.heartbeat_label,
+            self.open_pnl_label,
+            self.exposure_label,
+        ):
             label.setObjectName("statusLabel")
             label.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
-            layout.addWidget(label)
-
-        layout.addStretch(1)
+        self._rebuild_layout()
 
 
     def set_elements_alignment(self, alignment: str) -> None:
         desired = "right" if str(alignment).lower() == "right" else "left"
-        if not self._layout or desired == self._status_alignment:
+        if not self._layout:
             self._status_alignment = desired
             return
-
-        while self._layout.count():
-            item = self._layout.takeAt(0)
-            widget = item.widget() if item else None
-            if widget:
-                widget.setParent(None)
-
-        if desired == "right":
-            self._layout.addStretch(1)
-
-        for label in (self.market_label, self.api_label, self.heartbeat_label):
-            self._layout.addWidget(label)
-
-        if desired == "left":
-            self._layout.addStretch(1)
-
+        if desired == self._status_alignment:
+            self._rebuild_layout()
+            return
         self._status_alignment = desired
+        self._rebuild_layout()
+
+    def set_metrics_alignment(self, on_right: bool) -> None:
+        self._metrics_on_right = bool(on_right)
+        self._rebuild_layout()
+
+    def _rebuild_layout(self) -> None:
+        if not self._layout:
+            return
+        while self._layout.count():
+            self._layout.takeAt(0)
+
+        base_labels = (self.market_label, self.api_label, self.heartbeat_label)
+        metric_labels = (self.open_pnl_label, self.exposure_label)
+
+        if self._status_alignment == "right":
+            self._layout.addStretch(1)
+
+        if self._metrics_on_right:
+            for label in base_labels:
+                self._layout.addWidget(label)
+            self._layout.addStretch(1)
+            for label in metric_labels:
+                self._layout.addWidget(label)
+            if self._status_alignment == "right":
+                self._layout.addSpacing(0)
+        else:
+            for label in metric_labels:
+                self._layout.addWidget(label)
+            for label in base_labels:
+                self._layout.addWidget(label)
+            if self._status_alignment == "left":
+                self._layout.addStretch(1)
+
+    def set_positions_metrics(self, has_data: bool, open_pnl: float = 0.0, exposure: float = 0.0) -> None:
+        if not has_data:
+            self.open_pnl_label.setText("OPEN P&L: --")
+            self.exposure_label.setText("EXPOSURE: --")
+            return
+        pnl_color = "#00d4a8" if open_pnl >= 0 else "#ff4d6a"
+        self.open_pnl_label.setText(
+            f'OPEN P&L: <span style="color:{pnl_color};">{"+" if open_pnl >= 0 else ""}{open_pnl:,.0f}</span>'
+        )
+        self.exposure_label.setText(f"EXPOSURE: {exposure:,.0f}")
 
     def _apply_styles(self) -> None:
         self.setStyleSheet(

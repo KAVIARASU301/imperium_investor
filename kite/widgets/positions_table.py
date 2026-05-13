@@ -102,6 +102,7 @@ class PositionsTable(QWidget):
     exit_half_position_requested = Signal(str)
     symbol_selected = Signal(str)
     subscribe_to_market_data = Signal(list)
+    footer_metrics_changed = Signal(dict)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -154,7 +155,8 @@ class PositionsTable(QWidget):
         self._configure_table()
         main_layout.addWidget(self.table, 1)
 
-        main_layout.addWidget(self._build_footer())
+        self._footer_frame = self._build_footer()
+        main_layout.addWidget(self._footer_frame)
 
         self.table.cellClicked.connect(self._on_cell_clicked)
         self.table.cellDoubleClicked.connect(self._on_cell_double_clicked)
@@ -431,6 +433,9 @@ class PositionsTable(QWidget):
         if not self.positions_data:
             self._footer_open_pnl.setText("–")
             self._footer_exposure.setText("–")
+            self.footer_metrics_changed.emit(
+                {"has_data": False, "open_pnl": 0.0, "exposure": 0.0}
+            )
             return
 
         total_pnl = sum(p.pnl for p in self.positions_data.values())
@@ -440,6 +445,12 @@ class PositionsTable(QWidget):
         self._footer_open_pnl.setText(f"{'+' if total_pnl >= 0 else ''}{total_pnl:,.0f}")
         self._footer_open_pnl.setStyleSheet(f"color:{pnl_color}; font-weight:bold;")
         self._footer_exposure.setText(f"{exposure:,.0f}")
+        self.footer_metrics_changed.emit(
+            {"has_data": True, "open_pnl": total_pnl, "exposure": exposure}
+        )
+
+    def set_footer_metrics_visible(self, visible: bool) -> None:
+        self._footer_frame.setVisible(bool(visible))
 
     def _on_cell_clicked(self, row: int, col: int):
         if symbol := self._symbol_at_row(row):

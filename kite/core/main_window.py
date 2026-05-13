@@ -251,6 +251,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         )
         self.watchlist.apply_color_theme(initial_theme)
         self.positions_table.apply_color_theme(initial_theme)
+        self.positions_table.set_footer_metrics_visible(False)
         self.candlestick_chart.apply_color_theme(initial_theme)
 
         # Create right panel splitter
@@ -294,6 +295,10 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.app_status_bar.setObjectName("bottomAppStatusBar")
         alignment = self.color_theme_manager.get_theme().get("status_bar_alignment", "left")
         self.app_status_bar.set_elements_alignment(alignment)
+        self.app_status_bar.set_metrics_alignment(
+            bool(self.color_theme_manager.get_theme().get("status_bar_metrics_right", True))
+        )
+        self.positions_table.footer_metrics_changed.connect(self._on_positions_footer_metrics_changed)
         main_layout.addWidget(self.app_status_bar)
         status.initialize(self.app_status_bar)
         self._setup_status_indicators()
@@ -560,6 +565,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
     def _set_positions_visible(self, visible: bool):
         self.positions_table.setVisible(visible)
+        if not visible:
+            self.app_status_bar.set_positions_metrics(False)
         self._sync_right_panel_visibility()
         self._queue_window_state_save()
 
@@ -748,6 +755,16 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self._rebuild_subscription_universe()
         alignment = str(theme.get("status_bar_alignment", "left"))
         self.app_status_bar.set_elements_alignment(alignment)
+        self.app_status_bar.set_metrics_alignment(bool(theme.get("status_bar_metrics_right", True)))
+
+    @Slot(dict)
+    def _on_positions_footer_metrics_changed(self, payload: Dict[str, Any]):
+        has_data = bool(payload.get("has_data", False)) and self.positions_action.isChecked()
+        self.app_status_bar.set_positions_metrics(
+            has_data=has_data,
+            open_pnl=float(payload.get("open_pnl", 0.0) or 0.0),
+            exposure=float(payload.get("exposure", 0.0) or 0.0),
+        )
 
     def _open_color_settings_dialog(self):
         dialog = ColorSettingsDialog(self.color_theme_manager.get_theme(), self)
