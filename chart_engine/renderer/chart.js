@@ -3512,6 +3512,17 @@ class FixedTradingChart {
         if (!Number.isFinite(epochMs) || !Number.isFinite(intervalMs) || intervalMs <= 0) {
             return epochMs;
         }
+
+        // IMPORTANT: keep daily candles aligned to IST midnight (Kite convention).
+        // A plain UTC floor would roll the day at 00:00 UTC instead of 00:00 IST.
+        const key = String(this.currentInterval || "").toLowerCase();
+        if (key === "day") {
+            const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+            const istMs = epochMs + IST_OFFSET_MS;
+            const d = new Date(istMs);
+            return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - IST_OFFSET_MS;
+        }
+
         return Math.floor(epochMs / intervalMs) * intervalMs;
     }
 

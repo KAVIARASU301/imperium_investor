@@ -78,13 +78,14 @@ DEFAULT_TTL = 300
 @dataclass
 class CacheEntry:
     data: pd.DataFrame
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     # FIXED: store as IST date, not UTC date
     created_date: date = field(default_factory=_today_ist)
     interval: str = "day"
 
     def is_stale(self, ttl: int) -> bool:
-        elapsed = (datetime.now() - self.created_at).total_seconds()
+        now = datetime.now(self.created_at.tzinfo) if self.created_at.tzinfo is not None else datetime.now()
+        elapsed = (now - self.created_at).total_seconds()
         return elapsed >= ttl
 
     def is_from_previous_session(self) -> bool:
@@ -216,7 +217,7 @@ class MarketAwareDataCache(QObject):
 
             self._store[key] = CacheEntry(
                 data=data.copy(),
-                created_at=datetime.now(),
+                created_at=datetime.now(timezone.utc),
                 created_date=_today_ist(),   # FIXED: IST date, not UTC
                 interval=interval,
             )
