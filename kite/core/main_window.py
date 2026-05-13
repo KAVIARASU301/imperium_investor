@@ -270,7 +270,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         # Keep side panels compact while preserving readability.
         self.chartink_scanner.setMinimumWidth(220)
-        right_panel_splitter.setMinimumWidth(280)
+        right_panel_splitter.setMinimumWidth(220)
         self.candlestick_chart.setMinimumWidth(520)
 
         # Add to the main splitter
@@ -484,7 +484,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         right_visible = self.right_panel_splitter.isVisible()
 
         left_min = 200 if left_visible else 0
-        right_min = 280 if right_visible else 0
+        right_min = 220 if right_visible else 0
         center_min = max(520, int(splitter_width * 0.45))
 
         left_max = int(splitter_width * 0.3) if left_visible else 0
