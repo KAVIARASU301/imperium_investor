@@ -991,7 +991,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             return
 
         if self.sl_manager.modify_stop_loss(symbol, new_price, rec.product):
-            self._refresh_floating_positions_sl_values()
+            self._refresh_floating_positions_sl_values(symbol)
             show_info(f"Stop-loss updated: {symbol} @ ₹{new_price:.2f}")
             return
 
@@ -1021,11 +1021,19 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             return
 
         if self.sl_manager.cancel_stop_loss(symbol, rec.product):
-            self._refresh_floating_positions_sl_values()
+            self._refresh_floating_positions_sl_values(symbol)
             show_info(f"Stop-loss removed: {symbol}")
 
-    def _refresh_floating_positions_sl_values(self) -> None:
+    def _refresh_floating_positions_sl_values(self, symbol: str = "") -> None:
         """Refresh the floating positions SL column after SL-only changes."""
+        dialog = getattr(self, "floating_positions_dialog", None)
+        if dialog is not None and hasattr(dialog, "refresh_stop_loss_values"):
+            try:
+                dialog.refresh_stop_loss_values(symbol)
+                return
+            except Exception as exc:
+                logger.error(f"Failed to refresh floating positions SL cells: {exc}")
+
         self._update_floating_positions_dialog(
             getattr(self.positions_table, 'positions_data', {}).values()
         )
@@ -2123,7 +2131,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         """Draw/update stop-loss line immediately after SL set/modify/trailing updates."""
         try:
             self.chart_lines_manager.add_stop_loss_line(symbol, float(sl_price))
-            self._refresh_floating_positions_sl_values()
+            self._refresh_floating_positions_sl_values(symbol)
         except Exception as e:
             logger.error(f"Failed to draw stop-loss line for {symbol}: {e}")
 
@@ -2131,7 +2139,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         """Remove stop-loss line when SL is cancelled/triggered."""
         try:
             self.chart_lines_manager.remove_stop_loss_line(symbol)
-            self._refresh_floating_positions_sl_values()
+            self._refresh_floating_positions_sl_values(symbol)
         except Exception as e:
             logger.error(f"Failed to remove stop-loss line for {symbol}: {e}")
 

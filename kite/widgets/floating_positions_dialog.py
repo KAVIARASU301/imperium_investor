@@ -571,6 +571,22 @@ class FloatingPositionsDialog(QDialog):
             f"color: {'#00d4a8' if new_data else '#2a3a50'}; background: transparent;"
         )
 
+    @Slot(str)
+    def refresh_stop_loss_values(self, symbol: str = "") -> None:
+        """Repaint SL cells after a stop-loss-only change such as chart-line drag."""
+        target = str(symbol or "").strip().upper()
+        symbols = [
+            sym for sym in self._positions.keys()
+            if not target or str(sym).strip().upper() == target
+        ]
+        for sym in symbols:
+            pos = self._positions.get(sym)
+            row = self._sym_to_row.get(sym)
+            if pos is None or row is None:
+                continue
+            self._write_row(row, pos)
+        self._update_footer()
+
     # ═══════════════════════════════════════════════════════════════════════
     # PUBLIC: TICK FEED
     # ═══════════════════════════════════════════════════════════════════════

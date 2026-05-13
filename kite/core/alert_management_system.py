@@ -1267,6 +1267,8 @@ class AlertSystemManager(QObject):
         """Refresh the open dialog's tables, if it exists and is visible."""
         if self._dialog and self._dialog.isVisible():
             try:
+                self._dialog.refresh_tables(force=True)
+            except TypeError:
                 self._dialog.refresh_tables()
             except Exception:
                 pass

@@ -663,7 +663,11 @@ class AlertManagementDialog(QDialog):
                     setattr(self, state_attr, shortcut.isEnabled())
                 shortcut.setEnabled(False)
 
-    def refresh_tables(self):
+    def refresh_tables(self, force: bool = False):
+        if force:
+            self._last_snapshot = None
+            self._table_snapshots = {"active": {}, "triggered": {}, "history": {}}
+
         all_alerts = self.store.all()
         active = [alert for alert in all_alerts if alert.status == AlertStatus.ACTIVE.value]
         triggered = [alert for alert in all_alerts if alert.status == AlertStatus.TRIGGERED.value]
