@@ -454,12 +454,13 @@ class FixedTradingChart {
         let cumTPV = 0, cumVol = 0;
         this.vwapData = this.data.map((c, i) => {
             if (i > 0) {
-                const prev = new Date(this.data[i - 1].time);
-                const curr = new Date(c.time);
+                const IST_OFFSET_MS_VWAP = 5.5 * 60 * 60 * 1000;
+                const prevIst = new Date(this.data[i - 1].time + IST_OFFSET_MS_VWAP);
+                const currIst = new Date(c.time + IST_OFFSET_MS_VWAP);
                 const isNewSession =
-                    prev.getFullYear() !== curr.getFullYear() ||
-                    prev.getMonth() !== curr.getMonth() ||
-                    prev.getDate() !== curr.getDate();
+                    prevIst.getUTCFullYear() !== currIst.getUTCFullYear() ||
+                    prevIst.getUTCMonth()    !== currIst.getUTCMonth()    ||
+                    prevIst.getUTCDate()     !== currIst.getUTCDate();
                 if (isNewSession) {
                     cumTPV = 0;
                     cumVol = 0;
@@ -583,11 +584,12 @@ class FixedTradingChart {
         this.cvdData = this.data.map((c, i) => {
             // Intraday session reset
             if (i > 0 && this.currentInterval && this.currentInterval.includes('minute')) {
-                const prev = new Date(this.data[i - 1].time);
-                const curr = new Date(c.time);
-                if (prev.getDate() !== curr.getDate() ||
-                    prev.getMonth() !== curr.getMonth() ||
-                    prev.getFullYear() !== curr.getFullYear()) {
+                const IST_OFF = 5.5 * 60 * 60 * 1000;
+                const prevIstDate = new Date(this.data[i - 1].time + IST_OFF);
+                const currIstDate = new Date(c.time + IST_OFF);
+                if (prevIstDate.getUTCDate()  !== currIstDate.getUTCDate()  ||
+                    prevIstDate.getUTCMonth() !== currIstDate.getUTCMonth() ||
+                    prevIstDate.getUTCFullYear() !== currIstDate.getUTCFullYear()) {
                     cumDelta = 0;
                 }
             }
@@ -3513,6 +3515,44 @@ class FixedTradingChart {
         return Math.floor(epochMs / intervalMs) * intervalMs;
     }
 
+    _istBucketStartMs(epochMs, intervalMs) {
+        // Floor epoch to an IST-aligned intraday bucket anchored at 09:15 IST.
+        // This prevents buckets from straddling session boundaries or midnight UTC.
+        //
+        // Why not plain floor(epochMs / intervalMs) * intervalMs?
+        // Because UTC midnight ≠ IST midnight (18:30 UTC = 00:00 IST).
+        // UTC-aligned buckets split the 09:00–09:30 IST candle across two UTC days.
+        //
+        // Algorithm:
+        //   1. Find IST midnight of the current day.
+        //   2. Add 09:15 to get market open epoch.
+        //   3. Compute ms elapsed since market open.
+        //   4. Floor to nearest intervalMs.
+        //   5. Return absolute bucket start epoch.
+        if (!Number.isFinite(epochMs) || !Number.isFinite(intervalMs) || intervalMs <= 0) {
+            return epochMs;
+        }
+        const IST_OFFSET_MS   = 5.5 * 60 * 60 * 1000;
+        const MARKET_OPEN_MS  = (9 * 60 + 15) * 60 * 1000;  // 09:15 as ms from IST midnight
+
+        const istMs = epochMs + IST_OFFSET_MS;
+        const d = new Date(istMs);
+        // IST midnight expressed as UTC epoch
+        const istMidnightUtc = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - IST_OFFSET_MS;
+        // Market open as UTC epoch
+        const marketOpenEpoch = istMidnightUtc + MARKET_OPEN_MS;
+
+        if (epochMs < marketOpenEpoch) {
+            // Pre-market tick: slot it into the *previous* session's last bucket
+            // so it doesn't trigger a new-candle append.
+            return marketOpenEpoch - intervalMs;
+        }
+
+        const msFromOpen = epochMs - marketOpenEpoch;
+        const bucketIdx  = Math.floor(msFromOpen / intervalMs);
+        return marketOpenEpoch + bucketIdx * intervalMs;
+    }
+
     _nextAlignedIntradayCandleTimeMs(lastTimeMs, nowMs, intervalMs) {
         // Kite historical intraday candles are timestamped from the NSE session
         // grid (09:15, then +interval).  Do not rebucket live ticks on absolute
@@ -3543,47 +3583,62 @@ class FixedTradingChart {
 
     _tradingDayKey(epochMs) {
         if (!Number.isFinite(epochMs)) return '';
-
-        // Primary: use Intl with IST timezone (IANA name supported in modern Chromium)
-        try {
-            const parts = new Intl.DateTimeFormat('en-CA', {
-                timeZone: 'Asia/Kolkata',
-                year: 'numeric', month: '2-digit', day: '2-digit',
-            }).formatToParts(new Date(epochMs));
-            const v = {};
-            for (const p of parts) if (p.type !== 'literal') v[p.type] = p.value;
-            if (v.year && v.month && v.day) return `${v.year}-${v.month}-${v.day}`;
-        } catch (_) {}
-
-        // Fallback: manual IST offset = UTC + 5h30m = +19800 seconds
-        // Avoids incorrect UTC-date comparison in environments where Intl/IANA fails.
-        const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;  // 19800000
-        const istMs   = epochMs + IST_OFFSET_MS;
-        const d       = new Date(istMs);
-        const yyyy    = d.getUTCFullYear();
-        const mm      = String(d.getUTCMonth() + 1).padStart(2, '0');
-        const dd      = String(d.getUTCDate()).padStart(2, '0');
-        return `${yyyy}-${mm}-${dd}`;
+        // IST = UTC+5:30. Use pure offset arithmetic so this works even in
+        // Chromium-embedded environments where IANA timezone data may be
+        // incomplete (some QtWebEngine builds on Linux).
+        // NEVER fall back to toISOString().slice(0,10) — that is UTC, not IST,
+        // and causes the day to "change" at 18:30 UTC (= 00:00 IST) rather than
+        // at the correct IST midnight.
+        const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000; // 330 minutes in ms
+        const istMs = epochMs + IST_OFFSET_MS;
+        const d = new Date(istMs);
+        const year  = d.getUTCFullYear();
+        const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+        const day   = String(d.getUTCDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
     }
 
     _shouldAppendLiveCandle(lastTimeMs, nowMs, intervalMs) {
         const key = String(this.currentInterval || 'day').toLowerCase();
 
         if (key === 'day') {
+            // Daily candle: only append when the IST date has changed AND
+            // the new day's market session is actually open (09:15–15:30 IST).
+            //
+            // Without the market-hours guard, a tick arriving at 00:05 IST
+            // (after the IST date rolled over but before market open) would
+            // incorrectly create a phantom new candle for the new day, making
+            // the previous day's candle disappear from the chart.
             const lastDay = this._tradingDayKey(lastTimeMs);
-            const nowDay = this._tradingDayKey(nowMs);
-
-            // Calendar date must advance before a new day candle can be opened.
+            const nowDay  = this._tradingDayKey(nowMs);
             if (!lastDay || !nowDay || nowDay <= lastDay) return false;
 
-            // Guard: only open a new day candle after the NSE session opens.
-            // Kite may emit pre-market/post-market ticks whose timestamps fall
-            // on the next calendar date; those must not create phantom candles.
-            return this._isWithinNseSession(nowMs);
+            // IST date has changed. Only start a new candle if we are inside
+            // the trading session on the NEW day.
+            const IST_OFFSET_MS   = 5.5 * 60 * 60 * 1000;
+            const nowIstMs = nowMs + IST_OFFSET_MS;
+            const d = new Date(nowIstMs);
+            const minuteOfDay = d.getUTCHours() * 60 + d.getUTCMinutes();
+
+            const MARKET_OPEN_MIN  = 9 * 60 + 15;   // 555
+            const MARKET_CLOSE_MIN = 15 * 60 + 30;  // 930
+
+            // Before 09:15 IST on the new day: tick is pre-market.
+            // Update the LAST candle of the previous session — do NOT append.
+            if (minuteOfDay < MARKET_OPEN_MIN) return false;
+
+            // After 15:30 IST: post-market tick. Update last candle, no append.
+            if (minuteOfDay > MARKET_CLOSE_MIN) return false;
+
+            // We are inside 09:15–15:30 IST on the new day: append.
+            return true;
         }
 
-        return this._isWithinNseSession(nowMs) &&
-               Number.isFinite(this._nextAlignedIntradayCandleTimeMs(lastTimeMs, nowMs, intervalMs));
+        // Intraday: use IST-aligned buckets so candles are never split
+        // across UTC midnight or missing at session open.
+        const lastBucket = this._istBucketStartMs(lastTimeMs, intervalMs);
+        const nowBucket  = this._istBucketStartMs(nowMs, intervalMs);
+        return nowBucket > lastBucket;
     }
 
     _coerceEpochMs(value) {
@@ -3615,33 +3670,34 @@ class FixedTradingChart {
             const nowMs      = Number.isFinite(tickMs) ? tickMs : Date.now();
 
             if (intervalMs > 0 && Number.isFinite(lastTimeMs)) {
-                const nextCandleTimeMs = isDailyInterval
-                    ? this._bucketStartMs(nowMs, intervalMs)
-                    : this._nextAlignedIntradayCandleTimeMs(lastTimeMs, nowMs, intervalMs);
-
                 if (this._shouldAppendLiveCandle(lastTimeMs, nowMs, intervalMs)) {
-                    // Kite tick OHLC is session/day OHLC, not per-interval OHLC.
-                    // Only the daily candle should consume it; intraday live
-                    // candles must build their own range from live traded prices
-                    // or the latest 3m/5m/etc. candle gets the full day's low/high.
                     const carryClose = Number.isFinite(last.close) ? last.close : price;
-                    const openPrice  = isDailyInterval && tickOpen > 0 ? tickOpen : carryClose;
-                    const highPrice  = isDailyInterval && tickHigh > 0
-                        ? Math.max(tickHigh, price)
-                        : Math.max(openPrice, price);
-                    const lowPrice   = isDailyInterval && tickLow > 0
-                        ? Math.min(tickLow, price)
-                        : Math.min(openPrice, price);
+
+                    // Compute the correct new candle timestamp in IST:
+                    // - Daily candles: IST midnight of the new trading day
+                    //   (Kite convention: daily candles are stamped at IST midnight = 18:30 UTC prev day)
+                    // - Intraday candles: IST-aligned bucket start
+                    const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+                    let newCandleTime;
+                    const _key = String(this.currentInterval || 'day').toLowerCase();
+                    if (_key === 'day') {
+                        const istMs = nowMs + IST_OFFSET_MS;
+                        const _d = new Date(istMs);
+                        // IST midnight as UTC epoch (= what Kite uses for daily candles)
+                        newCandleTime = Date.UTC(_d.getUTCFullYear(), _d.getUTCMonth(), _d.getUTCDate()) - IST_OFFSET_MS;
+                    } else {
+                        newCandleTime = this._istBucketStartMs(nowMs, intervalMs);
+                    }
 
                     this.data.push({
-                        time:   nextCandleTimeMs,
-                        open:   openPrice,
-                        high:   highPrice,
-                        low:    lowPrice,
-                        close:  price,
+                        time:   newCandleTime,
+                        open:   carryClose,
+                        high:   carryClose,
+                        low:    carryClose,
+                        close:  carryClose,
                         volume: 0,
                     });
-                    this.volumeData.push({ time: nextCandleTimeMs, value: 0 });
+                    this.volumeData.push({ time: newCandleTime, value: 0 });
                     this._volVpKey = null;
 
                     this.viewPortEnd = Math.max(

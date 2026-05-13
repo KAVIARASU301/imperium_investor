@@ -2,24 +2,20 @@
 """
 MarketAwareDataCache — Replaces the naive TTL-only DataCache.
 
-Problems with old TTLCache(maxsize=100, ttl=300):
-  1. A 5-minute candle fetched at 9:14 AM (before open) stays valid until 9:19 AM.
-     The first live bar at 9:15 AM is completely missed.
-  2. Same 5-min TTL used for BOTH minute-level data (stale in seconds)
-     AND daily data (fine to cache for hours).
-  3. Cache survives midnight — you get yesterday's EOD prices at next session open.
-  4. No awareness of market holidays or weekends.
+KEY FIX: All date comparisons now use IST (Asia/Kolkata = UTC+5:30) instead of
+the system's local time or UTC. On Linux servers, `date.today()` returns UTC,
+which causes cache entries created at e.g. 14:00 IST on May 13 to be wrongly
+treated as "today" after 00:00 IST May 14 (when UTC is still May 13 18:30).
 
-Fix:
-  - Interval-appropriate TTLs
-  - Automatic invalidation at market open (9:15 AM IST)
-  - Date-stamp check — any entry from a previous calendar date is always stale
-  - Thread-safe via RLock (same as original)
+This also prevents:
+  - Missing previous-day daily candle after midnight IST
+  - Cache not flushing at market open (09:15 IST) correctly
+  - Pre-market data served as current after market opens
 """
 
 import logging
 import threading
-from datetime import datetime, time, date, timedelta
+from datetime import datetime, time, date, timedelta, timezone
 from typing import Optional, Dict, Any, Tuple
 from dataclasses import dataclass, field
 
@@ -30,28 +26,49 @@ logger = logging.getLogger(__name__)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# IST HELPERS  (single source of truth for timezone-aware comparisons)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_IST = timezone(timedelta(hours=5, minutes=30))
+
+
+def _now_ist() -> datetime:
+    """Return current datetime in IST."""
+    return datetime.now(tz=_IST)
+
+
+def _today_ist() -> date:
+    """Return today's date in IST, not UTC or system local time."""
+    return _now_ist().date()
+
+
+def _time_ist() -> time:
+    """Return current time-of-day in IST."""
+    return _now_ist().time()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # MARKET SCHEDULE (IST)
 # ─────────────────────────────────────────────────────────────────────────────
 
-MARKET_OPEN  = time(9, 15)   # NSE equity market opens
-MARKET_CLOSE = time(15, 30)  # NSE equity market closes
+MARKET_OPEN  = time(9, 15)    # NSE equity market opens
+MARKET_CLOSE = time(15, 30)   # NSE equity market closes
 
 # Interval → max cache TTL in seconds
-# Intraday data is short-lived; daily/weekly data can be cached longer.
 INTERVAL_TTL: Dict[str, int] = {
-    "minute":    60,      #  1-min bars → 60s TTL
+    "minute":    60,
     "3minute":   180,
     "5minute":   300,
     "10minute":  600,
     "15minute":  900,
     "30minute":  1_800,
     "60minute":  3_600,
-    "day":       3_600,   # Daily bars → 1h (updated once/day anyway)
+    "day":       3_600,   # Daily bars → 1h
     "week":      86_400,  # Weekly bars → 24h
     "month":     86_400,
 }
 
-DEFAULT_TTL = 300  # fallback if interval not found
+DEFAULT_TTL = 300
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -62,7 +79,8 @@ DEFAULT_TTL = 300  # fallback if interval not found
 class CacheEntry:
     data: pd.DataFrame
     created_at: datetime = field(default_factory=datetime.now)
-    created_date: date = field(default_factory=date.today)
+    # FIXED: store as IST date, not UTC date
+    created_date: date = field(default_factory=_today_ist)
     interval: str = "day"
 
     def is_stale(self, ttl: int) -> bool:
@@ -70,20 +88,40 @@ class CacheEntry:
         return elapsed >= ttl
 
     def is_from_previous_session(self) -> bool:
-        """True if this entry was created on a different calendar date."""
-        return self.created_date < date.today()
+        """
+        True if this entry was created on a different IST calendar date.
+
+        FIXED: Uses IST date, not UTC. Before this fix, on Linux systems
+        date.today() returned UTC, so between 00:00 and 05:30 IST, entries
+        from the previous IST day were NOT detected as stale (UTC date
+        hadn't changed yet).
+        """
+        return self.created_date < _today_ist()
 
     def is_pre_market_data(self) -> bool:
         """
-        True if data was fetched before today's market open.
-        Intraday entries fetched before 9:15 AM IST may be missing today's bars.
+        True if data was fetched before today's market open (09:15 IST).
+        Intraday entries fetched before 09:15 IST may be missing today's bars.
+
+        FIXED: Compares times in IST, not system local time.
         """
-        now = datetime.now()
-        # Only relevant for intraday intervals on today's date
-        if self.created_date != date.today():
+        today_ist = _today_ist()
+        if self.created_date != today_ist:
             return False
         if _is_intraday(self.interval):
-            return self.created_at.time() < MARKET_OPEN
+            # created_at may be naive (system local). Convert via UTC round-trip.
+            try:
+                # Prefer timezone-aware path
+                if self.created_at.tzinfo is not None:
+                    created_ist_time = self.created_at.astimezone(_IST).time()
+                else:
+                    # Naive datetime: assume it's UTC (Linux default), shift to IST
+                    created_utc = self.created_at.replace(tzinfo=timezone.utc)
+                    created_ist_time = created_utc.astimezone(_IST).time()
+            except Exception:
+                # Last resort fallback: add IST offset to naive datetime
+                created_ist_time = (self.created_at + timedelta(hours=5, minutes=30)).time()
+            return created_ist_time < MARKET_OPEN
         return False
 
 
@@ -92,8 +130,9 @@ def _is_intraday(interval: str) -> bool:
 
 
 def _is_market_hours() -> bool:
-    now = datetime.now().time()
-    return MARKET_OPEN <= now <= MARKET_CLOSE
+    """Check if NSE market is currently open (IST-aware)."""
+    now_ist = _time_ist()
+    return MARKET_OPEN <= now_ist <= MARKET_CLOSE
 
 
 def _ttl_for(interval: str) -> int:
@@ -106,14 +145,14 @@ def _ttl_for(interval: str) -> int:
 
 class MarketAwareDataCache(QObject):
     """
-    Thread-safe chart data cache that understands Indian market hours.
+    Thread-safe chart data cache that understands Indian market hours (IST).
 
     Key behaviours:
-      • Different TTLs per timeframe (minute bars expire quickly, daily bars linger).
-      • Any entry from a previous calendar date is immediately stale.
-      • Intraday entries fetched before 9:15 AM are stale once market opens.
-      • Entire cache is flushed at market open each trading day.
-      • get() / set() / invalidate() / clear() API (same as original DataCache).
+      • Different TTLs per timeframe.
+      • Any entry from a previous IST calendar date is immediately stale.
+      • Intraday entries fetched before 09:15 IST are stale once market opens.
+      • Entire intraday cache is flushed at market open each trading day.
+      • All date/time comparisons use IST, never UTC or system local time.
     """
 
     def __init__(self, maxsize: int = 150, parent=None):
@@ -123,12 +162,12 @@ class MarketAwareDataCache(QObject):
         self._maxsize = maxsize
         self._last_flush_date: Optional[date] = None
 
-        # Schedule flush at market open
+        # Schedule flush at market open — checked every minute
         self._open_flush_timer = QTimer(self)
         self._open_flush_timer.timeout.connect(self._check_market_open_flush)
-        self._open_flush_timer.start(60_000)  # check every minute
+        self._open_flush_timer.start(60_000)
 
-        logger.info("MarketAwareDataCache initialised")
+        logger.info("MarketAwareDataCache initialised (IST-aware)")
 
     # ──────────────────────────────────────────────────────────────
     # Public API
@@ -147,14 +186,14 @@ class MarketAwareDataCache(QObject):
             interval = entry.interval
             ttl      = _ttl_for(interval)
 
-            # Stale checks (order matters — cheapest first)
+            # Stale checks (cheapest first)
             if entry.is_from_previous_session():
-                logger.debug(f"Cache miss (prev session): {key}")
+                logger.debug(f"Cache miss (prev IST session): {key}")
                 del self._store[key]
                 return None
 
             if entry.is_pre_market_data() and _is_market_hours():
-                logger.debug(f"Cache miss (pre-market data, market now open): {key}")
+                logger.debug(f"Cache miss (pre-market data, market now open IST): {key}")
                 del self._store[key]
                 return None
 
@@ -172,24 +211,19 @@ class MarketAwareDataCache(QObject):
             return
 
         with self._lock:
-            # Evict LRU if at capacity
             if len(self._store) >= self._maxsize and key not in self._store:
                 self._evict_one()
 
             self._store[key] = CacheEntry(
                 data=data.copy(),
                 created_at=datetime.now(),
-                created_date=date.today(),
+                created_date=_today_ist(),   # FIXED: IST date, not UTC
                 interval=interval,
             )
-            logger.debug(f"Cache set: {key} ({len(data)} rows, interval={interval})")
+            logger.debug(f"Cache set: {key} ({len(data)} rows, interval={interval}, "
+                         f"ist_date={_today_ist()})")
 
     def invalidate(self, symbol: str, interval: Optional[str] = None) -> int:
-        """
-        Invalidate all cache entries for a symbol.
-        If interval is given, only that interval is removed.
-        Returns number of entries removed.
-        """
         with self._lock:
             if interval:
                 key = f"{symbol}_{interval}"
@@ -206,19 +240,19 @@ class MarketAwareDataCache(QObject):
         return removed
 
     def clear(self) -> None:
-        """Flush the entire cache."""
         with self._lock:
             count = len(self._store)
             self._store.clear()
         logger.info(f"Cache cleared ({count} entries)")
 
     def stats(self) -> Dict[str, Any]:
-        """Return cache statistics for debugging."""
         with self._lock:
             return {
-                "entries":   len(self._store),
-                "capacity":  self._maxsize,
-                "keys":      list(self._store.keys()),
+                "entries":        len(self._store),
+                "capacity":       self._maxsize,
+                "keys":           list(self._store.keys()),
+                "current_ist":    str(_now_ist()),
+                "today_ist":      str(_today_ist()),
             }
 
     # ──────────────────────────────────────────────────────────────
@@ -227,24 +261,29 @@ class MarketAwareDataCache(QObject):
 
     def _check_market_open_flush(self) -> None:
         """
-        Called every minute. On the first tick at/after 9:15 AM IST on a new
+        Called every minute. On the first tick at/after 09:15 IST on a new
         trading date, flush all intraday cache entries so fresh bars are fetched.
+
+        FIXED: Uses IST date and time, not system local or UTC.
         """
-        today = date.today()
-        now   = datetime.now().time()
+        today_ist   = _today_ist()
+        now_ist_time = _time_ist()
 
         # Only act once per trading day
-        if self._last_flush_date == today:
+        if self._last_flush_date == today_ist:
             return
 
-        # Is it a weekday (Mon–Fri) and past 9:15?
-        if datetime.today().weekday() < 5 and now >= MARKET_OPEN:
+        # IST weekday (Mon=0 ... Fri=4) and past 09:15 IST
+        weekday = _now_ist().weekday()
+        if weekday < 5 and now_ist_time >= MARKET_OPEN:
             self._flush_intraday()
-            self._last_flush_date = today
-            logger.info("Market-open flush complete — all intraday cache entries cleared")
+            self._last_flush_date = today_ist
+            logger.info(
+                f"Market-open flush complete (IST date={today_ist}, "
+                f"IST time={now_ist_time}) — all intraday cache entries cleared"
+            )
 
     def _flush_intraday(self) -> None:
-        """Remove all intraday cache entries (minute → 60min)."""
         with self._lock:
             to_del = [
                 k for k, v in self._store.items()
@@ -255,7 +294,6 @@ class MarketAwareDataCache(QObject):
         logger.debug(f"Flushed {len(to_del)} intraday cache entries")
 
     def _evict_one(self) -> None:
-        """Evict the oldest entry (simple LRU approximation)."""
         if not self._store:
             return
         oldest_key = min(self._store, key=lambda k: self._store[k].created_at)
