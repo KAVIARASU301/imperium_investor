@@ -3609,24 +3609,29 @@ class FixedTradingChart {
             const last      = this.data[this.data.length - 1];
             const intervalMs = this._intervalToMs(this.currentInterval);
             const key        = String(this.currentInterval || 'day').toLowerCase();
+            const isDailyInterval = key === 'day';
             const lastTimeMs = Number(last.time);
             const tickMs     = this._coerceEpochMs(tickTime);
             const nowMs      = Number.isFinite(tickMs) ? tickMs : Date.now();
 
             if (intervalMs > 0 && Number.isFinite(lastTimeMs)) {
-                const nextCandleTimeMs = key === 'day'
+                const nextCandleTimeMs = isDailyInterval
                     ? this._bucketStartMs(nowMs, intervalMs)
                     : this._nextAlignedIntradayCandleTimeMs(lastTimeMs, nowMs, intervalMs);
 
                 if (this._shouldAppendLiveCandle(lastTimeMs, nowMs, intervalMs)) {
-                    // ── Use tick OHLC for today's candle open/high/low ───────
-                    // tickOpen > 0 means Kite sent today's real session open.
-                    // Falling back to carryClose (prev close) only when OHLC is absent.
+                    // Kite tick OHLC is session/day OHLC, not per-interval OHLC.
+                    // Only the daily candle should consume it; intraday live
+                    // candles must build their own range from live traded prices
+                    // or the latest 3m/5m/etc. candle gets the full day's low/high.
                     const carryClose = Number.isFinite(last.close) ? last.close : price;
-                    const openPrice  = tickOpen  > 0 ? tickOpen  : carryClose;
-                    const highPrice  = tickHigh  > 0 ? Math.max(tickHigh,  price) : Math.max(openPrice, price);
-                    const lowPrice   = tickLow   > 0 ? Math.min(tickLow,   price) : Math.min(openPrice, price);
-                    // ─────────────────────────────────────────────────────────
+                    const openPrice  = isDailyInterval && tickOpen > 0 ? tickOpen : carryClose;
+                    const highPrice  = isDailyInterval && tickHigh > 0
+                        ? Math.max(tickHigh, price)
+                        : Math.max(openPrice, price);
+                    const lowPrice   = isDailyInterval && tickLow > 0
+                        ? Math.min(tickLow, price)
+                        : Math.min(openPrice, price);
 
                     this.data.push({
                         time:   nextCandleTimeMs,
@@ -3652,12 +3657,13 @@ class FixedTradingChart {
             const active = this.data[this.data.length - 1];
             active.close = price;
 
-            // When tick OHLC is present, use it as the authoritative session range.
-            // This corrects the live candle even when historical data was slightly stale.
-            if (tickHigh > 0) active.high = Math.max(active.high, tickHigh, price);
+            // Tick OHLC is the broker's session/day range.  Applying it to
+            // intraday candles (3m, 5m, etc.) makes the live candle inherit the
+            // day's low/high and draws a false oversized wick.
+            if (isDailyInterval && tickHigh > 0) active.high = Math.max(active.high, tickHigh, price);
             else if (price > active.high) active.high = price;
 
-            if (tickLow > 0) active.low = Math.min(active.low, tickLow, price);
+            if (isDailyInterval && tickLow > 0) active.low = Math.min(active.low, tickLow, price);
             else if (price < active.low) active.low = price;
 
             // For the Day interval: if today's candle was just created from historical
@@ -3666,7 +3672,7 @@ class FixedTradingChart {
             // (i.e. equals the previous candle's close) and we have a real tick open.
             if (
                 tickOpen > 0 &&
-                this.currentInterval === 'day' &&
+                isDailyInterval &&
                 this.data.length >= 2 &&
                 active === this.data[this.data.length - 1]
             ) {
