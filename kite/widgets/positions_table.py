@@ -224,7 +224,7 @@ class PositionsTable(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setShowGrid(False)
+        self.table.setShowGrid(True)
         self.table.setAlternatingRowColors(True)
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -232,7 +232,7 @@ class PositionsTable(QWidget):
         self.table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.table.setSortingEnabled(False)
 
-        self.table.verticalHeader().setDefaultSectionSize(22)  # Tighter rows
+        self.table.verticalHeader().setDefaultSectionSize(22)
 
         hdr = self.table.horizontalHeader()
         hdr.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -242,7 +242,7 @@ class PositionsTable(QWidget):
         for col in (COL_QTY, COL_OPEN_PNL):
             hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
 
-        hdr.setMinimumSectionSize(35)  # Reduced for compactness
+        hdr.setMinimumSectionSize(20)
         hdr.setHighlightSections(False)
         hdr.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
@@ -319,8 +319,8 @@ class PositionsTable(QWidget):
         cells = [
             (COL_SYMBOL, symbol_text, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, _T0),
             (COL_FLAG, "", Qt.AlignmentFlag.AlignCenter, _T2),
-            (COL_QTY, f"{qty_sign}{abs(pos.quantity)}", Qt.AlignmentFlag.AlignCenter, profit_color if is_long else loss_color),
-            (COL_OPEN_PNL, f"{'+' if pnl >= 0 else ''}{pnl:,.2f}", Qt.AlignmentFlag.AlignCenter, pnl_color),
+            (COL_QTY, f"{qty_sign}{abs(pos.quantity)}", Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, profit_color if is_long else loss_color),
+            (COL_OPEN_PNL, f"{'+' if pnl >= 0 else ''}{pnl:,.2f}", Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, pnl_color),
         ]
 
         for col, text, align, color in cells:
@@ -615,11 +615,11 @@ class PositionsTable(QWidget):
                 border-radius: 0px;
             }}
             QTableWidget::item {{
-                padding: 1px 5px;
+                padding: 2px 6px;
                 border-bottom: 1px solid #1a2030;
                 background-color: transparent;
                 font-size: 12px;
-                font-family: "JetBrains Mono", "Consolas", monospace;
+                font-family: "Consolas", "JetBrains Mono", "Courier New", monospace;
             }}
             QTableWidget::item:selected {{
                 background-color: #1a2840 !important;
@@ -647,7 +647,7 @@ class PositionsTable(QWidget):
             QHeaderView::section {{
                 background-color: #0b1019;
                 color: #7fd4ff;
-                padding: 2px 5px;
+                padding: 3px 6px;
                 border: none;
                 border-bottom: 1px solid #24344c;
                 border-right: 1px solid #121c2b;
