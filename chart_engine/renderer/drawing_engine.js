@@ -190,7 +190,7 @@ class DrawingEngine {
         this.selectedId   = null;
         this.hoverId      = null;
         this.activeHandle = null;         // {id, which: 'start'|'end'|'body'}
-        this._activeDragAlertPrice = null;
+        this._activeDragLine = null;
         this.inProgress   = null;         // drawing being placed
 
         /* snap state */
@@ -469,11 +469,13 @@ class DrawingEngine {
         if (!d) return;
         this._hashRemove(d);
         this.drawings.delete(id);
-        if (d.lineCategory === 'alert' && this.cs?.chartBridge && typeof this.cs.chartBridge.notify_alert_line_deleted === 'function') {
-            const symbol = this.cs.currentSymbol || '';
-            const price = Number(d.startPrice);
-            if (symbol && Number.isFinite(price)) {
+        const symbol = this.cs.currentSymbol || '';
+        const price = Number(d.startPrice);
+        if (symbol && Number.isFinite(price)) {
+            if (d.lineCategory === 'alert' && this.cs?.chartBridge && typeof this.cs.chartBridge.notify_alert_line_deleted === 'function') {
                 this.cs.chartBridge.notify_alert_line_deleted(JSON.stringify({ symbol, price }));
+            } else if (d.lineCategory === 'stop_loss' && this.cs?.chartBridge && typeof this.cs.chartBridge.notify_stop_loss_line_deleted === 'function') {
+                this.cs.chartBridge.notify_stop_loss_line_deleted(JSON.stringify({ symbol, price }));
             }
         }
         if (this.selectedId === id) this.selectedId = null;
@@ -654,9 +656,9 @@ class DrawingEngine {
             if (d && !d.locked && !this.locked) {
                 this.selectedId = hit.id;
                 this.activeHandle = hit;
-                this._activeDragAlertPrice = (
-                    d.type === 'horizontal_ray' && d.lineCategory === 'alert'
-                ) ? d.startPrice : null;
+                this._activeDragLine = (
+                    d.type === 'horizontal_ray' && ['alert', 'stop_loss'].includes(d.lineCategory)
+                ) ? { category: d.lineCategory, price: d.startPrice } : null;
                 this._lastDragX = x; this._lastDragY = y;
                 this.canvas.style.cursor = 'grabbing';
                 this._undoSnapshot();  // snapshot before drag starts
@@ -679,30 +681,36 @@ class DrawingEngine {
             if (
                 d &&
                 d.type === 'horizontal_ray' &&
-                d.lineCategory === 'alert' &&
-                this._activeDragAlertPrice !== null
+                ['alert', 'stop_loss'].includes(d.lineCategory) &&
+                this._activeDragLine !== null
             ) {
-                const oldPrice = Number(this._activeDragAlertPrice);
+                const oldPrice = Number(this._activeDragLine.price);
                 const newPrice = Number(d.startPrice);
+                const symbol = this.cs.currentSymbol || '';
+                const bridge = this.cs?.chartBridge;
                 if (
+                    symbol &&
                     Number.isFinite(oldPrice) &&
                     Number.isFinite(newPrice) &&
                     Math.abs(newPrice - oldPrice) >= 0.001 &&
-                    this.chartBridge &&
-                    typeof this.chartBridge.notify_alert_price_updated === 'function'
+                    bridge
                 ) {
                     const payload = JSON.stringify({
-                        symbol: this.currentSymbol || '',
+                        symbol,
                         old_price: oldPrice,
                         new_price: newPrice,
                     });
-                    this.chartBridge.notify_alert_price_updated(payload);
+                    if (d.lineCategory === 'alert' && typeof bridge.notify_alert_price_updated === 'function') {
+                        bridge.notify_alert_price_updated(payload);
+                    } else if (d.lineCategory === 'stop_loss' && typeof bridge.notify_stop_loss_price_updated === 'function') {
+                        bridge.notify_stop_loss_price_updated(payload);
+                    }
                 }
             }
 
             this._undoSnapshot();
             this.activeHandle = null;
-            this._activeDragAlertPrice = null;
+            this._activeDragLine = null;
             this.canvas.style.cursor = 'default';
             return;
         }

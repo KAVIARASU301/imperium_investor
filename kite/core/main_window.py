@@ -905,6 +905,14 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                     self.candlestick_chart.alert_line_deleted.connect(
                         self._on_alert_line_deleted_from_chart
                     )
+            if hasattr(self.candlestick_chart, 'stop_loss_price_updated'):
+                self.candlestick_chart.stop_loss_price_updated.connect(
+                    self._on_stop_loss_line_moved_from_chart
+                )
+            if hasattr(self.candlestick_chart, 'stop_loss_line_deleted'):
+                self.candlestick_chart.stop_loss_line_deleted.connect(
+                    self._on_stop_loss_line_deleted_from_chart
+                )
 
     def _restore_alert_lines(self) -> None:
         """Redraw all active alert lines after chart is confirmed ready."""
@@ -942,6 +950,85 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         self.alert_system.remove_alert(match.id)
         show_info(f"Alert deleted: {symbol} @ ₹{price:.2f}")
+
+    def _find_stop_loss_record_for_chart_line(self, symbol: str, price: float):
+        """Find the active stop-loss record matching a dragged/deleted chart line."""
+        if not getattr(self, "sl_manager", None):
+            return None
+        tolerance = 0.5
+        matches = [
+            rec for rec in self.sl_manager.get_all_active()
+            if str(rec.symbol).upper() == symbol and abs(float(rec.sl_price) - price) <= tolerance
+        ]
+        if matches:
+            return matches[0]
+
+        # Fallback for the common case of only one active SL per symbol.
+        symbol_matches = [
+            rec for rec in self.sl_manager.get_all_active()
+            if str(rec.symbol).upper() == symbol
+        ]
+        return symbol_matches[0] if len(symbol_matches) == 1 else None
+
+    @Slot(str)
+    def _on_stop_loss_line_moved_from_chart(self, payload: str) -> None:
+        """Modify the StopLossManager record when a chart SL line is dragged."""
+        try:
+            data = json.loads(payload or "{}")
+            symbol = str(data.get("symbol", "")).strip().upper()
+            old_price = float(data.get("old_price", 0.0))
+            new_price = float(data.get("new_price", 0.0))
+        except (json.JSONDecodeError, ValueError, TypeError) as exc:
+            logger.error(f"Invalid stop_loss_price_updated payload: {exc}")
+            return
+
+        if not symbol or old_price <= 0 or new_price <= 0:
+            return
+
+        rec = self._find_stop_loss_record_for_chart_line(symbol, old_price)
+        if not rec:
+            logger.info("No active stop-loss matched moved chart line for %s @ %.2f", symbol, old_price)
+            return
+
+        if self.sl_manager.modify_stop_loss(symbol, new_price, rec.product):
+            self._refresh_floating_positions_sl_values()
+            show_info(f"Stop-loss updated: {symbol} @ ₹{new_price:.2f}")
+            return
+
+        # Validation failed (for example, dragged beyond entry). Restore the persisted SL line.
+        try:
+            self.chart_lines_manager.add_stop_loss_line(symbol, float(rec.sl_price))
+        except Exception as exc:
+            logger.error(f"Failed to restore stop-loss line for {symbol}: {exc}")
+
+    @Slot(str)
+    def _on_stop_loss_line_deleted_from_chart(self, payload: str) -> None:
+        """Cancel the matching stop-loss when its chart line is deleted."""
+        try:
+            data = json.loads(payload or "{}")
+            symbol = str(data.get("symbol", "")).strip().upper()
+            price = float(data.get("price", 0.0))
+        except (json.JSONDecodeError, ValueError, TypeError) as exc:
+            logger.error(f"Invalid stop_loss_line_deleted payload: {exc}")
+            return
+
+        if not symbol or price <= 0:
+            return
+
+        rec = self._find_stop_loss_record_for_chart_line(symbol, price)
+        if not rec:
+            logger.info("No active stop-loss matched deleted chart line for %s @ %.2f", symbol, price)
+            return
+
+        if self.sl_manager.cancel_stop_loss(symbol, rec.product):
+            self._refresh_floating_positions_sl_values()
+            show_info(f"Stop-loss removed: {symbol}")
+
+    def _refresh_floating_positions_sl_values(self) -> None:
+        """Refresh the floating positions SL column after SL-only changes."""
+        self._update_floating_positions_dialog(
+            getattr(self.positions_table, 'positions_data', {}).values()
+        )
 
     @Slot(str)
     def _on_chart_symbol_changed(self, symbol: str):
@@ -2036,6 +2123,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         """Draw/update stop-loss line immediately after SL set/modify/trailing updates."""
         try:
             self.chart_lines_manager.add_stop_loss_line(symbol, float(sl_price))
+            self._refresh_floating_positions_sl_values()
         except Exception as e:
             logger.error(f"Failed to draw stop-loss line for {symbol}: {e}")
 
@@ -2043,6 +2131,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         """Remove stop-loss line when SL is cancelled/triggered."""
         try:
             self.chart_lines_manager.remove_stop_loss_line(symbol)
+            self._refresh_floating_positions_sl_values()
         except Exception as e:
             logger.error(f"Failed to remove stop-loss line for {symbol}: {e}")
 
