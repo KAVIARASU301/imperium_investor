@@ -10,9 +10,11 @@ Upgrades:
   • Flash animations and quick sorting retained
 """
 
+import json
 import logging
+import os
 from typing import List, Dict, Optional, Set
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
@@ -47,11 +49,63 @@ _OPEN_LOSS_TINT = "#200a10"
 _OPEN_FLAT = "#7a94b0"
 
 # Column indices
-COL_SYMBOL = 0
-COL_QTY = 1
-COL_OPEN_PNL = 2
+COL_FLAG = 0
+COL_SYMBOL = 1
+COL_QTY = 2
+COL_OPEN_PNL = 3
 
-HEADERS = ["Symbol", "Qty", "P&L"]
+HEADERS = ["", "Symbol", "Qty", "P&L"]
+
+_FLAG_CYCLE = [None, "green"]
+_FLAG_DISPLAY = {
+    None: ("", _T2),
+    "green": ("⚑", _GREEN),
+}
+_FLAG_TOOLTIP = {
+    None: "Click to flag",
+    "green": "Flagged — click to remove",
+}
+_FLAGS_FILE = os.path.join(os.path.expanduser("~"), ".qullamaggie", "watchlist_flags.json")
+
+
+class _FlagStore:
+    def __init__(self):
+        self._flags: Dict[str, Optional[str]] = {}
+        self._load()
+
+    def get(self, symbol: str) -> Optional[str]:
+        return self._flags.get(symbol.upper())
+
+    def cycle(self, symbol: str) -> Optional[str]:
+        sym = symbol.upper()
+        cur = self._flags.get(sym)
+        idx = _FLAG_CYCLE.index(cur) if cur in _FLAG_CYCLE else 0
+        nxt = _FLAG_CYCLE[(idx + 1) % len(_FLAG_CYCLE)]
+        if nxt is None:
+            self._flags.pop(sym, None)
+        else:
+            self._flags[sym] = nxt
+        self._save()
+        return nxt
+
+    def _load(self):
+        try:
+            if os.path.exists(_FLAGS_FILE):
+                with open(_FLAGS_FILE, "r") as f:
+                    self._flags = json.load(f)
+        except Exception as e:
+            logger.error(f"Positions flag store load failed: {e}")
+
+    def _save(self):
+        try:
+            os.makedirs(os.path.dirname(_FLAGS_FILE), exist_ok=True)
+            with open(_FLAGS_FILE, "w") as f:
+                json.dump(self._flags, f, indent=2)
+        except Exception as e:
+            logger.error(f"Positions flag store save failed: {e}")
+
+
+_flag_store = _FlagStore()
 
 # Throttle: refresh table visuals at 250 ms intervals (≈4 fps)
 _REFRESH_INTERVAL_MS = 250
@@ -182,6 +236,8 @@ class PositionsTable(QWidget):
 
         hdr = self.table.horizontalHeader()
         hdr.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
+        hdr.setSectionResizeMode(COL_FLAG, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(COL_FLAG, 20)
         hdr.setSectionResizeMode(COL_SYMBOL, QHeaderView.ResizeMode.Stretch)
         for col in (COL_QTY, COL_OPEN_PNL):
             hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
@@ -262,6 +318,7 @@ class PositionsTable(QWidget):
         symbol_text = f"⚡ {pos.symbol}" if pos.symbol in self._partial_fill_symbols else pos.symbol
         cells = [
             (COL_SYMBOL, symbol_text, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, _T0),
+            (COL_FLAG, "", Qt.AlignmentFlag.AlignCenter, _T2),
             (COL_QTY, f"{qty_sign}{abs(pos.quantity)}", Qt.AlignmentFlag.AlignCenter, profit_color if is_long else loss_color),
             (COL_OPEN_PNL, f"{'+' if pnl >= 0 else ''}{pnl:,.2f}", Qt.AlignmentFlag.AlignCenter, pnl_color),
         ]
@@ -280,6 +337,7 @@ class PositionsTable(QWidget):
                 else:
                     item.setToolTip("")
 
+        self._paint_flag_cell(row, pos.symbol)
         self._apply_open_pnl_row_style(row, pnl)
 
 
@@ -450,8 +508,14 @@ class PositionsTable(QWidget):
         self._footer_frame.setVisible(bool(visible))
 
     def _on_cell_clicked(self, row: int, col: int):
-        if symbol := self._symbol_at_row(row):
-            self.symbol_selected.emit(symbol)
+        symbol = self._symbol_at_row(row)
+        if not symbol:
+            return
+        if col == COL_FLAG:
+            _flag_store.cycle(symbol)
+            self._paint_flag_cell(row, symbol)
+            return
+        self.symbol_selected.emit(symbol)
 
     def _on_cell_double_clicked(self, row: int, col: int):
         self._on_cell_clicked(row, col)
@@ -465,6 +529,12 @@ class PositionsTable(QWidget):
         menu = QMenu(self)
         menu.setObjectName("posContextMenu")
 
+        flag_state = _flag_store.get(symbol)
+        next_states = {None: "🚩 Add Flag", "green": "🚩 Remove Flag"}
+        flag_act = menu.addAction(next_states.get(flag_state, "🚩 Toggle Flag"))
+        flag_act.triggered.connect(lambda: self._cycle_flag(row, symbol))
+        menu.addSeparator()
+
         chart_act = menu.addAction("📈  Open Chart")
         chart_act.triggered.connect(lambda: self.symbol_selected.emit(symbol))
         menu.addSeparator()
@@ -476,6 +546,23 @@ class PositionsTable(QWidget):
         half_act.triggered.connect(lambda: self.exit_half_position_requested.emit(symbol))
 
         menu.exec(self.table.viewport().mapToGlobal(pos))
+
+
+    def _paint_flag_cell(self, row: int, symbol: str):
+        state = _flag_store.get(symbol)
+        glyph, color = _FLAG_DISPLAY[state]
+        item = self.table.item(row, COL_FLAG)
+        if not item:
+            item = QTableWidgetItem()
+            self.table.setItem(row, COL_FLAG, item)
+        item.setText(glyph)
+        item.setForeground(QColor(color))
+        item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        item.setToolTip(_FLAG_TOOLTIP[state])
+
+    def _cycle_flag(self, row: int, symbol: str):
+        _flag_store.cycle(symbol)
+        self._paint_flag_cell(row, symbol)
 
     def _symbol_at_row(self, row: int) -> Optional[str]:
         return next((s for s, r in self.symbol_to_row.items() if r == row), None)
