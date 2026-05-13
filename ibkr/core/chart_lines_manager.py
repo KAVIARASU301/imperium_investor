@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 class ChartLinesManager(QObject):
     """
     Manages alert lines and position lines in the chart
-    Compatible with existing drawing system: user_data/chart_drawings/SYMBOL_<interval>_state.json
+    Compatible with existing drawing system: user_data/chart_drawings/SYMBOL_state.json
     """
 
     # Signals to communicate with chart
@@ -23,20 +23,10 @@ class ChartLinesManager(QObject):
         self.drawings_dir = "user_data/chart_drawings"
         os.makedirs(self.drawings_dir, exist_ok=True)
 
-    def _get_current_interval(self) -> str:
-        """Get current chart interval, defaulting to day."""
-        if hasattr(self.main_window, "candlestick_chart"):
-            chart = self.main_window.candlestick_chart
-            if hasattr(chart, "current_interval") and chart.current_interval:
-                return chart.current_interval
-        return "day"
-
     def _get_symbol_file_path(self, symbol: str, interval: str = None) -> str:
-        """Get the path to the symbol's drawings JSON file for the target interval."""
-        if interval is None:
-            interval = self._get_current_interval()
+        """Get the path to the symbol's drawings JSON file (shared across intervals)."""
         safe_symbol = symbol.replace("/", "_").replace(":", "_")
-        return os.path.join(self.drawings_dir, f"{safe_symbol}_{interval}_state.json")
+        return os.path.join(self.drawings_dir, f"{safe_symbol}_state.json")
 
     def _load_symbol_drawings(self, symbol: str, interval: str = None) -> Dict:
         """Load existing drawings for a symbol or create new structure"""
@@ -555,8 +545,8 @@ class ChartLinesManager(QObject):
         """Remove all alert lines from all symbol files (cleanup utility)"""
         try:
             for filename in os.listdir(self.drawings_dir):
-                if filename.endswith("_day_state.json"):
-                    symbol = filename.replace("_day_state.json", "").replace("_", "/")
+                if filename.endswith("_state.json"):
+                    symbol = filename.replace("_state.json", "").replace("_", "/")
 
                     try:
                         state = self._load_symbol_drawings(symbol)

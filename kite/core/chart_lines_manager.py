@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 _recent_draws: dict[str, float] = {}
+_lines_drawn_this_session: set[str] = set()
 _DRAW_COOLDOWN_SECONDS = 1.0
 
 
@@ -45,7 +46,7 @@ class ChartLinesManager(QObject):
     """
     Manages alert lines and position lines in the chart.
     Compatible with existing drawing system:
-        kite/user_data/chart_drawings/SYMBOL_<interval>_state.json
+        kite/user_data/chart_drawings/SYMBOL_state.json
     """
 
     chart_refresh_requested = Signal()
@@ -56,6 +57,7 @@ class ChartLinesManager(QObject):
         self.drawings_dir = "kite/user_data/chart_drawings"
         os.makedirs(self.drawings_dir, exist_ok=True)
         _recent_draws.clear()
+        _lines_drawn_this_session.clear()
 
     def _get_trading_mode(self) -> str:
         """Return active trading mode ('live' or 'paper')."""
@@ -67,36 +69,10 @@ class ChartLinesManager(QObject):
     # FILE PATH HELPERS
     # ─────────────────────────────────────────────────────────────────────────
 
-    def _get_current_interval(self) -> str:
-        """Return the interval currently shown in the chart widget."""
-        if hasattr(self.main_window, 'candlestick_chart'):
-            chart = self.main_window.candlestick_chart
-            if hasattr(chart, 'current_interval') and chart.current_interval:
-                return chart.current_interval
-        return "day"
-
     def _get_symbol_file_path(self, symbol: str, interval: str = None) -> str:
-        """Return the state file path for a symbol/interval pair."""
-        if interval is None:
-            interval = self._get_current_interval()
+        """Return the single state file path for a symbol (shared across intervals)."""
         safe_symbol = symbol.replace("/", "_").replace(":", "_")
-        return os.path.join(self.drawings_dir, f"{safe_symbol}_{interval}_state.json")
-
-    def _get_all_interval_file_paths(self, symbol: str) -> List[str]:
-        """
-        Return paths for ALL timeframe state files that already exist for a symbol.
-        If none exist yet, return the current-interval path so we create at least one.
-        """
-        safe_symbol = symbol.replace("/", "_").replace(":", "_")
-        existing = [
-            os.path.join(self.drawings_dir, fname)
-            for fname in os.listdir(self.drawings_dir)
-            if fname.startswith(safe_symbol + "_") and fname.endswith("_state.json")
-        ]
-        if not existing:
-            # No files yet — use current interval so we create one
-            existing = [self._get_symbol_file_path(symbol)]
-        return existing
+        return os.path.join(self.drawings_dir, f"{safe_symbol}_state.json")
 
     # ─────────────────────────────────────────────────────────────────────────
     # STATE I/O
@@ -163,57 +139,17 @@ class ChartLinesManager(QObject):
             logger.error(f"Error saving drawings for {symbol}: {e}")
             return False
 
-    def _save_to_all_intervals(self, symbol: str,
-                                apply_fn,
-                                current_state: Dict = None) -> bool:
+    def _save_to_all_intervals(self, symbol: str, apply_fn, current_state: Dict = None) -> bool:
         """
-        Apply apply_fn(drawings_dict) to every existing interval file for symbol.
-
-        apply_fn receives the 'drawings' dict and modifies it in-place.
-        Returns True if at least one file was written successfully.
+        Backward-compatible wrapper: apply and save to the single symbol state file.
         """
-        paths = self._get_all_interval_file_paths(symbol)
-        any_success = False
-
-        for path in paths:
-            interval = self._extract_interval_from_path(path, symbol)
-
-            # Load existing state for this interval
-            if os.path.exists(path):
-                try:
-                    with open(path, 'r') as f:
-                        state = json.load(f)
-                    if "drawings" not in state:
-                        state = {"drawings": state, "visible_candle_count": 100}
-                except Exception:
-                    state = self._empty_state()
-            else:
-                # Use the already-modified current state for the current interval
-                state = current_state if current_state is not None else self._empty_state()
-
-            # Ensure drawings structure is intact
-            drawings = state.setdefault("drawings", {})
-            for key in ["lines", "rectangles", "notes", "horizontal_lines",
-                        "horizontal_rays", "arrow_lines", "fibonacci"]:
-                drawings.setdefault(key, [])
-
-            apply_fn(drawings)
-
-            if self._save_symbol_drawings(symbol, state, interval):
-                any_success = True
-
-        return any_success
-
-    @staticmethod
-    def _extract_interval_from_path(path: str, symbol: str) -> str:
-        """Extract interval string from a state file path."""
-        fname = os.path.basename(path)
-        safe_symbol = symbol.replace("/", "_").replace(":", "_")
-        prefix = safe_symbol + "_"
-        suffix = "_state.json"
-        if fname.startswith(prefix) and fname.endswith(suffix):
-            return fname[len(prefix): -len(suffix)]
-        return "day"
+        state = current_state if current_state is not None else self._load_symbol_drawings(symbol)
+        drawings = state.setdefault("drawings", {})
+        for key in ["lines", "rectangles", "notes", "horizontal_lines",
+                    "horizontal_rays", "arrow_lines", "fibonacci"]:
+            drawings.setdefault(key, [])
+        apply_fn(drawings)
+        return self._save_symbol_drawings(symbol, state)
 
     @staticmethod
     def _empty_state() -> Dict:
@@ -264,6 +200,9 @@ class ChartLinesManager(QObject):
         """Add an alert line for a symbol/timeframe file."""
         try:
             line_key = self._session_line_key(symbol, price)
+            if line_key in _lines_drawn_this_session:
+                logger.debug(f"Alert line already drawn this session for {symbol} at {price:.2f}")
+                return True
             if _is_recently_drawn(line_key):
                 logger.debug(f"Write coalescing: alert line recently processed for {symbol} at {price:.2f}")
                 return True
@@ -274,6 +213,7 @@ class ChartLinesManager(QObject):
 
             if self._has_existing_alert_drawings(drawings, price):
                 _mark_drawn(line_key)
+                _lines_drawn_this_session.add(line_key)
                 logger.debug(f"Alert line already exists for {symbol} at {price:.2f}")
                 return True
 
@@ -294,6 +234,7 @@ class ChartLinesManager(QObject):
                                                   current_state=current_state)
             if success:
                 _mark_drawn(line_key)
+                _lines_drawn_this_session.add(line_key)
                 self._refresh_chart()
                 logger.info(f"Alert line drawn: {symbol} @ {price:.2f} (all intervals)")
             return success
@@ -335,14 +276,22 @@ class ChartLinesManager(QObject):
         ]
 
     def remove_alert_line(self, symbol: str, price: float, interval: str = None) -> bool:
-        """Remove alert line for a symbol/timeframe file."""
+        """Remove alert line for a symbol/timeframe file, or all files if interval is omitted."""
         try:
-            state = self._load_symbol_drawings(symbol, interval)
-            self._remove_existing_alert_drawings(state["drawings"], price)
-            success = self._save_symbol_drawings(symbol, state, interval)
+            if interval is None:
+                success = self._save_to_all_intervals(
+                    symbol,
+                    lambda drawings: self._remove_existing_alert_drawings(drawings, price),
+                )
+            else:
+                state = self._load_symbol_drawings(symbol, interval)
+                self._remove_existing_alert_drawings(state["drawings"], price)
+                success = self._save_symbol_drawings(symbol, state, interval)
+
             if success:
                 line_key = self._session_line_key(symbol, price)
                 _recent_draws.pop(line_key, None)
+                _lines_drawn_this_session.discard(line_key)
                 self._refresh_chart()
                 logger.info(f"Removed alert line for {symbol} at {price:.2f}")
             return success
@@ -530,10 +479,7 @@ class ChartLinesManager(QObject):
             for fname in os.listdir(self.drawings_dir):
                 if not fname.endswith("_state.json"):
                     continue
-                if "_day_state.json" not in fname:
-                    continue
-
-                symbol = fname.replace("_day_state.json", "").replace("_", "/")
+                symbol = fname.replace("_state.json", "").replace("_", "/")
                 if symbol in active_symbols:
                     continue
 

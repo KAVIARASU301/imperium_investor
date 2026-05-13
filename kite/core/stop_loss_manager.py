@@ -58,9 +58,41 @@ class StopLossManager(QObject):
         self._trailing_persist_timer = QTimer(self)
         self._trailing_persist_timer.timeout.connect(self._flush_trailing_updates)
         self._trailing_persist_timer.start(2000)        # write every 2s, not every tick
+        self._token_to_positions: Dict[int, set] = {}    # instrument_token -> {position_id}
 
         # Load persisted active SLs on startup
         self._load_active_from_db()
+
+
+    def _rebuild_token_map(self) -> None:
+        """Rebuild cached instrument-token map for active SL records."""
+        token_map: Dict[int, set] = {}
+        with QMutexLocker(self._mutex):
+            records = list(self._active.values())
+
+        for rec in records:
+            token = self._resolve_token(rec.symbol)
+            if token is None:
+                continue
+            token_map.setdefault(token, set()).add(rec.position_id)
+
+        with QMutexLocker(self._mutex):
+            self._token_to_positions = token_map
+
+    def _resolve_token(self, symbol: str) -> Optional[int]:
+        """Best-effort symbol -> instrument token lookup from main window state."""
+        main_window = self.parent()
+        instrument_map = getattr(main_window, "instrument_map", None)
+        if not isinstance(instrument_map, dict):
+            return None
+        info = instrument_map.get(symbol) or {}
+        token = info.get("instrument_token")
+        if token is None:
+            return None
+        try:
+            return int(token)
+        except (TypeError, ValueError):
+            return None
 
     # ═════════════════════════════════════════════════════════════════════
     # PUBLIC API (called by UI / context menu)

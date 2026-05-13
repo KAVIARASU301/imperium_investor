@@ -627,8 +627,7 @@ class AlertSystemManager(QObject):
         alert = next((a for a in self.store.all() if a.id == alert_id), None)
         if alert:
             self._remove_chart_line(alert)
-            line_key = f"{alert.symbol}_{alert.target_value:.2f}"
-            clm_module._lines_drawn_this_session.discard(line_key)
+            self._discard_chart_line_cache(alert.symbol, alert.target_value)
         self.store.remove(alert_id)
         self._refresh_dialog_if_open()
 
@@ -672,9 +671,7 @@ class AlertSystemManager(QObject):
         self._remove_chart_line(alert)
 
         # Clear session draw cache so the line can be re-added if re-armed
-        from kite.core import chart_lines_manager as clm_module
-        line_key = f"{alert.symbol}_{alert.target_value:.2f}"
-        clm_module._recent_draws.pop(line_key, None)
+        self._discard_chart_line_cache(alert.symbol, alert.target_value)
 
         title = f"Alert: {alert.symbol}"
         message = (f"{alert.condition} @ ₹{alert.target_value:,.2f} "
@@ -917,11 +914,9 @@ class AlertSystemManager(QObject):
 
         # ── 4. Persist ──
         self.store.update(target)
-        old_key = f"{symbol}_{old_price:.2f}"
-        new_key = f"{symbol}_{new_price:.2f}"
-        clm_module._lines_drawn_this_session.discard(old_key)
-        clm_module._lines_drawn_this_session.add(new_key)
-        clm_module._recent_draws.pop(old_key, None)
+        self._discard_chart_line_cache(symbol, old_price)
+        # Ensure the newly moved line is not skipped by stale session/coalescing caches.
+        self._discard_chart_line_cache(symbol, new_price)
 
         # ── 5. Re-draw chart line at new price ──
         self._add_chart_line(target)
@@ -960,6 +955,21 @@ class AlertSystemManager(QObject):
     # CHART-LINE HELPERS
     # ──────────────────────────────────────────────────────────────
 
+
+    @staticmethod
+    def _chart_line_key(symbol: str, price: float) -> str:
+        return f"{symbol}_{price:.2f}"
+
+    def _discard_chart_line_cache(self, symbol: str, price: float) -> None:
+        """Best-effort cleanup for chart-line session/coalescing caches."""
+        line_key = self._chart_line_key(symbol, price)
+        session_lines = getattr(clm_module, "_lines_drawn_this_session", None)
+        if session_lines is not None:
+            session_lines.discard(line_key)
+        recent_draws = getattr(clm_module, "_recent_draws", None)
+        if recent_draws is not None:
+            recent_draws.pop(line_key, None)
+
     def _current_chart_interval(self) -> str:
         """Best-effort current chart timeframe (Kite interval string)."""
         try:
@@ -982,8 +992,9 @@ class AlertSystemManager(QObject):
         clm = self._clm()
         if clm:
             try:
-                line_key = f"{alert.symbol}_{alert.target_value:.2f}"
-                if line_key in clm_module._lines_drawn_this_session:
+                line_key = self._chart_line_key(alert.symbol, alert.target_value)
+                session_lines = getattr(clm_module, "_lines_drawn_this_session", set())
+                if line_key in session_lines:
                     return
                 clm.add_alert_line(
                     symbol=alert.symbol,
@@ -1003,7 +1014,6 @@ class AlertSystemManager(QObject):
                 clm.remove_alert_line(
                     symbol=alert.symbol,
                     price=alert.target_value,
-                    interval=self._current_chart_interval(),
                 )
                 logger.debug(f"Chart line removed for {alert.symbol} @ {alert.target_value}")
             except Exception as e:
@@ -1026,10 +1036,10 @@ class AlertSystemManager(QObject):
         for alert in active:
             try:
                 # Check EVERY existing interval file for this symbol.
-                paths = clm._get_all_interval_file_paths(alert.symbol)
+                paths = self._get_all_interval_file_paths(clm, alert.symbol)
                 needs_draw = True
                 for path in paths:
-                    interval = clm._extract_interval_from_path(path, alert.symbol)
+                    interval = self._extract_interval_from_path(clm, path, alert.symbol)
                     state = clm._load_symbol_drawings(alert.symbol, interval)
                     if clm._has_existing_alert_drawings(
                         state.get("drawings", {}),
@@ -1096,6 +1106,46 @@ class AlertSystemManager(QObject):
             clm._refresh_chart()
 
         logger.info(f"Restored lines for {len(active)} active alert(s) across all timeframes")
+
+
+    def _get_all_interval_file_paths(self, clm, symbol: str) -> List[str]:
+        """Return all existing chart state paths, with a fallback for older CLM objects."""
+        method = getattr(clm, "_get_all_interval_file_paths", None)
+        if callable(method):
+            return method(symbol)
+
+        safe_symbol = symbol.replace("/", "_").replace(":", "_")
+        drawings_dir = getattr(clm, "drawings_dir", "kite/user_data/chart_drawings")
+        try:
+            paths = [
+                os.path.join(drawings_dir, fname)
+                for fname in os.listdir(drawings_dir)
+                if fname.startswith(safe_symbol + "_") and fname.endswith("_state.json")
+            ]
+        except OSError:
+            paths = []
+
+        if paths:
+            return paths
+
+        path_method = getattr(clm, "_get_symbol_file_path", None)
+        if callable(path_method):
+            return [path_method(symbol)]
+        return [os.path.join(drawings_dir, f"{safe_symbol}_{self._current_chart_interval()}_state.json")]
+
+    def _extract_interval_from_path(self, clm, path: str, symbol: str) -> str:
+        """Extract timeframe from a state path, with a fallback for older CLM objects."""
+        method = getattr(clm, "_extract_interval_from_path", None)
+        if callable(method):
+            return method(path, symbol)
+
+        fname = os.path.basename(path)
+        safe_symbol = symbol.replace("/", "_").replace(":", "_")
+        prefix = safe_symbol + "_"
+        suffix = "_state.json"
+        if fname.startswith(prefix) and fname.endswith(suffix):
+            return fname[len(prefix): -len(suffix)]
+        return self._current_chart_interval()
 
     def purge_all_alert_lines_from_chart_files(self) -> int:
         """
