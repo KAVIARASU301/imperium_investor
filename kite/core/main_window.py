@@ -120,6 +120,10 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.sl_manager.show_notification.connect(
             self._show_position_manager_notification
         )
+        self.sl_manager.sl_set.connect(self._on_stop_loss_set)
+        self.sl_manager.sl_updated.connect(self._on_stop_loss_set)
+        self.sl_manager.sl_cancelled.connect(self._on_stop_loss_cancelled)
+        self.sl_manager.sl_triggered.connect(self._on_stop_loss_cancelled)
 
         # Auto-cancel ghost SLs when positions change
         self.position_manager.positions_updated.connect(
@@ -2027,6 +2031,20 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             self.floating_positions_dialog.update_positions(list(positions))
         except Exception as e:
             logger.error(f"Failed to update floating positions dialog: {e}")
+
+    def _on_stop_loss_set(self, symbol: str, sl_price: float) -> None:
+        """Draw/update stop-loss line immediately after SL set/modify/trailing updates."""
+        try:
+            self.chart_lines_manager.add_stop_loss_line(symbol, float(sl_price))
+        except Exception as e:
+            logger.error(f"Failed to draw stop-loss line for {symbol}: {e}")
+
+    def _on_stop_loss_cancelled(self, symbol: str, *_args) -> None:
+        """Remove stop-loss line when SL is cancelled/triggered."""
+        try:
+            self.chart_lines_manager.remove_stop_loss_line(symbol)
+        except Exception as e:
+            logger.error(f"Failed to remove stop-loss line for {symbol}: {e}")
 
     def _refresh_order_history(self):
         """Handle order history refresh request"""
