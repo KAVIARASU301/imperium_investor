@@ -44,6 +44,7 @@ Signals
 
 from __future__ import annotations
 
+import json
 import logging
 from functools import partial
 from typing import Dict, List, Optional, Tuple
@@ -213,6 +214,7 @@ class _ResizeGrip(QWidget):
 # ─────────────────────────────────────────────────────────────────────────────
 
 class FloatingWatchlistDialog(QDialog):
+    _STATE_KEY = "floating_watchlist_dialog_geometry"
     """
     Always-on-top floating watchlist that mirrors the embedded TabbedWatchlistWidget.
 
@@ -265,6 +267,7 @@ class FloatingWatchlistDialog(QDialog):
         # ── Build ────────────────────────────────────────────────────────────
         self._build_ui()
         self._apply_styles()
+        self._restore_geometry()
 
         # ── Timers ───────────────────────────────────────────────────────────
         self._redraw_timer = QTimer(self)
@@ -427,6 +430,39 @@ class FloatingWatchlistDialog(QDialog):
         h.addWidget(hint)
         return f
 
+
+    def _restore_geometry(self):
+        cfg = getattr(self.parent(), "config_manager", None)
+        if not cfg:
+            return
+        try:
+            raw = cfg.load_dialog_state(self._STATE_KEY)
+            if not raw:
+                return
+            data = json.loads(raw)
+            width = int(data.get("w", self.width()))
+            height = int(data.get("h", self.height()))
+            self.resize(max(self.minimumWidth(), width), max(self.minimumHeight(), height))
+            if "x" in data and "y" in data:
+                self.move(int(data["x"]), int(data["y"]))
+        except Exception as exc:
+            logger.debug("Failed to restore floating watchlist geometry: %s", exc)
+
+    def _save_geometry(self):
+        cfg = getattr(self.parent(), "config_manager", None)
+        if not cfg:
+            return
+        try:
+            payload = json.dumps({
+                "x": int(self.x()),
+                "y": int(self.y()),
+                "w": int(self.width()),
+                "h": int(self.height()),
+            })
+            cfg.save_dialog_state(self._STATE_KEY, payload)
+        except Exception as exc:
+            logger.debug("Failed to save floating watchlist geometry: %s", exc)
+
     # ═══════════════════════════════════════════════════════════════════════
     # TITLE BAR DRAG
     # ═══════════════════════════════════════════════════════════════════════
@@ -464,6 +500,14 @@ class FloatingWatchlistDialog(QDialog):
                 self.width()  - _ResizeGrip.SIZE,
                 self.height() - _ResizeGrip.SIZE,
             )
+
+    def hideEvent(self, event):
+        self._save_geometry()
+        super().hideEvent(event)
+
+    def closeEvent(self, event):
+        self._save_geometry()
+        super().closeEvent(event)
 
     # ═══════════════════════════════════════════════════════════════════════
     # PUBLIC: DATA FEED

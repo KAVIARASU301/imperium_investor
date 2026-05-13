@@ -304,6 +304,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self._window_state_save_timer.timeout.connect(self.save_window_state)
         self._pending_main_splitter_sizes = None
         self._pending_right_splitter_sizes = None
+        self._saved_watchlist_panel_width = None
         self._apply_intelligent_main_splitter_layout()
 
     def _create_menu_bar(self) -> QMenuBar:
@@ -490,6 +491,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         left_max = int(splitter_width * 0.3) if left_visible else 0
         right_max = int(splitter_width * 0.34) if right_visible else 0
 
+        if right_visible and self._saved_watchlist_panel_width:
+            right = int(self._saved_watchlist_panel_width)
+
         # Start from user ratio if available, then clamp side columns.
         left = max(left_min, min(left, left_max))
         right = max(right_min, min(right, right_max))
@@ -567,6 +571,15 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.right_panel_splitter.setVisible(right_visible)
 
         if right_visible:
+            if self._saved_watchlist_panel_width and self.watchlist_action.isChecked():
+                sizes = self.main_splitter.sizes()
+                if len(sizes) == 3:
+                    total = max(1, sum(sizes))
+                    left = sizes[0]
+                    right = max(220, int(self._saved_watchlist_panel_width))
+                    center = max(520, total - left - right)
+                    right = max(220, total - left - center)
+                    self.main_splitter.setSizes([left, center, right])
             # Recover splitter sizes after both right-side panes were hidden.
             pane_sizes = self.right_panel_splitter.sizes()
             if len(pane_sizes) == 2:
@@ -582,6 +595,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
     def _on_main_splitter_moved(self, _pos: int, _index: int):
         """Prevent one pane from taking all width when dragging splitter handles."""
+        sizes = self.main_splitter.sizes()
+        if len(sizes) == 3 and self.right_panel_splitter.isVisible():
+            self._saved_watchlist_panel_width = int(sizes[2])
         self._apply_intelligent_main_splitter_layout()
 
     def _queue_window_state_save(self, *_args):
@@ -2670,7 +2686,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 'is_maximized': self.isMaximized(),
                 'scanner_visible': self.chartink_scanner.isVisible(),
                 'watchlist_visible': self.watchlist_action.isChecked(),
-                'positions_visible': self.positions_action.isChecked()
+                'positions_visible': self.positions_action.isChecked(),
+                'watchlist_panel_width': int(self.main_splitter.sizes()[2]) if self.right_panel_splitter.isVisible() else self._saved_watchlist_panel_width
             }
 
             if hasattr(self, 'right_panel_splitter'):
@@ -2712,6 +2729,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                     self.right_panel_splitter.setSizes([320, 220])
                 if hasattr(self, 'right_panel_splitter') and state.get('right_panel_splitter_sizes'):
                     self._pending_right_splitter_sizes = state['right_panel_splitter_sizes']
+
+                self._saved_watchlist_panel_width = state.get('watchlist_panel_width')
 
                 scanner_visible = state.get('scanner_visible', True)
                 watchlist_visible = state.get('watchlist_visible', True)
