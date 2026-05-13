@@ -941,12 +941,14 @@ class ChartinkScannerTable(QWidget):
         header_layout.setContentsMargins(6, 6, 6, 6)
         header_layout.setSpacing(8)
 
-        # Scan label
-        scan_label = QLabel("SCAN:")
-        scan_label.setObjectName("scanLabel")
-        scan_label.setStyleSheet("QLabel#scanLabel { background-color: transparent; }")
-        scan_label.setFixedWidth(40)
-        header_layout.addWidget(scan_label)
+        # Subtle refresh button replacing static scan label
+        self.scan_refresh_btn = QPushButton("Scan")
+        self.scan_refresh_btn.setObjectName("scanRefreshButton")
+        self.scan_refresh_btn.setToolTip("Refresh current scan")
+        self.scan_refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.scan_refresh_btn.setFixedHeight(28)
+        self.scan_refresh_btn.clicked.connect(self._run_current_scan)
+        header_layout.addWidget(self.scan_refresh_btn)
 
         # Dropdown
         self.scan_dropdown = QComboBox()
@@ -1711,11 +1713,27 @@ class ChartinkScannerTable(QWidget):
                 padding: 5px;
             }
 
-            /* Scan Label */
-            QLabel#scanLabel {
-                color: #a8bcd4;
-                font-weight: 600;
+            /* Subtle scan refresh button */
+            QPushButton#scanRefreshButton {
+                color: #8f99a8;
                 font-size: 11px;
+                font-weight: 500;
+                padding: 0 6px;
+                border: none;
+                background: transparent;
+                text-align: left;
+            }
+            QPushButton#scanRefreshButton:hover {
+                color: #b2bdcd;
+                background: rgba(255, 255, 255, 0.03);
+                border-radius: 4px;
+            }
+            QPushButton#scanRefreshButton:pressed {
+                color: #d5dce7;
+                background: rgba(255, 255, 255, 0.06);
+            }
+            QPushButton#scanRefreshButton:disabled {
+                color: #6c7481;
             }
 
             /* Dropdown */
