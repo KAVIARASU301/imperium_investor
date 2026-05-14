@@ -35,6 +35,9 @@
 const CHART_FIB_LEVELS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0];
 const FIB_COLORS = ['#FFD700', '#FF9800', '#4CAF50', '#2196F3', '#9C27B0', '#F44336', '#FFD700'];
 const FIB_LABELS = ['0%', '23.6%', '38.2%', '50%', '61.8%', '78.6%', '100%'];
+const IST_OFFSET_MS = 330 * 60 * 1000;
+const NSE_OPEN_MINUTES = 9 * 60 + 15;
+const NSE_CLOSE_MINUTES = 15 * 60 + 30;
 
 // ─── Indicator persistence key (global — intentionally not per-symbol) ────────
 // User toggles apply across ALL symbols, timeframes, and sessions.
@@ -80,6 +83,7 @@ class FixedTradingChart {
         this.currentSymbol = cfg.currentSymbol || '';
         this.currentSymbolDescription = cfg.watermarkDescription || '';
         this.showWatermarkDescription = cfg.showWatermarkDescription === true;
+        this._intradayTimestampsAlreadyIst = null;
 
         // ── Settings ──
         this.colors = {
@@ -928,8 +932,8 @@ class FixedTradingChart {
         ctx.setLineDash([3, 5]);
 
         for (let i = Math.max(0, this.viewPortStart - 1); i <= this.viewPortEnd + 1 && i < this.data.length; i++) {
-            const d = new Date(this.data[i].time);
-            if (d.getHours() === MARKET_OPEN_HOUR && d.getMinutes() === MARKET_OPEN_MIN) {
+            const d = this._exchangeDate(this.data[i].time);
+            if (d.getUTCHours() === MARKET_OPEN_HOUR && d.getUTCMinutes() === MARKET_OPEN_MIN) {
                 const x = this._candleToX(i) + this.candleWidth / 2;
                 ctx.beginPath();
                 ctx.moveTo(x, this.chartArea.y);
@@ -1951,7 +1955,7 @@ class FixedTradingChart {
         // ── Time label at bottom ────────────────────────────────────────────
         const ci = this._xToCandle(x);
         if (ci >= 0 && ci < this.data.length) {
-            const tlabel = this._fmtTimeLabel(new Date(this.data[ci].time));
+            const tlabel = this._fmtTimeLabel(this.data[ci].time);
             ctx.font      = 'bold 10px "Segoe UI", sans-serif';
             ctx.textAlign = 'center';
             const ttw = ctx.measureText(tlabel).width;
@@ -3448,7 +3452,7 @@ class FixedTradingChart {
         const idx = this._xToCandle(x);
         if (idx < 0 || idx >= this.data.length) { this._displayLatestCandleDetails(); return; }
         const c = this.data[idx];
-        this._renderPriceInfo(c, this._fmtTimeLabel(new Date(c.time)), idx);
+        this._renderPriceInfo(c, this._fmtTimeLabel(c.time), idx);
     }
 
     _displayLatestCandleDetails() {
@@ -3457,7 +3461,7 @@ class FixedTradingChart {
         if (this.data.length === 0) { el.textContent = 'No data'; return; }
         const idx = this.data.length - 1;
         const c = this.data[idx];
-        const dateStr = new Date(c.time).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' });
+        const dateStr = this._fmtDateLabel(c.time, true);
         this._renderPriceInfo(c, dateStr, idx);
     }
 
@@ -3787,6 +3791,7 @@ class FixedTradingChart {
         this.currentSymbol = cfg.symbol || '';
         this.currentSymbolDescription = cfg.watermarkDescription || '';
         this.showWatermarkDescription = cfg.showWatermarkDescription === true;
+        this._intradayTimestampsAlreadyIst = null;
 
         // Reset viewport state.
         this.panOffsetPx = 0;
@@ -3928,6 +3933,7 @@ class FixedTradingChart {
         if (cfg.watermarkFontSize !== undefined) this.watermark.fontSize = cfg.watermarkFontSize;
         if (cfg.showWatermarkDescription !== undefined)
             this.showWatermarkDescription = cfg.showWatermarkDescription === true;
+        this._intradayTimestampsAlreadyIst = null;
         if (cfg.indicatorScaleLabelsEnabled !== undefined)
             this.indicatorScaleLabelsEnabled = cfg.indicatorScaleLabelsEnabled === true;
         if (cfg.crosshairSnapEnabled !== undefined)
@@ -4162,17 +4168,87 @@ class FixedTradingChart {
         return Math.round(vol).toLocaleString('en-US');
     }
 
-    _fmtTimeLabel(date) {
-        const now       = new Date();
-        const isSameDay = date.toDateString() === now.toDateString();
+    _fmtTimeLabel(timeOrDate) {
+        const epochMs = timeOrDate instanceof Date ? timeOrDate.getTime() : Number(timeOrDate);
         if (this.currentInterval.includes('minute')) {
-            const time = date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-            return isSameDay ? time : `${date.toLocaleDateString('en-GB',{day:'2-digit',month:'short'})} ${time}`;
+            const date = this._exchangeDate(epochMs);
+            const time = this._fmtExchangeTime(date);
+            return this._exchangeDayKey(epochMs) === this._actualIstDayKey(Date.now())
+                ? time
+                : `${this._fmtExchangeDayMonth(date)} ${time}`;
         }
+
+        const date = timeOrDate instanceof Date ? timeOrDate : new Date(epochMs);
+        const now = new Date();
         const daysDiff = Math.floor((now - date) / 86400000);
-        return date.toLocaleDateString('en-GB', {
-            day: '2-digit', month: 'short', year: daysDiff > 330 ? 'numeric' : undefined
+        return this._fmtDateLabel(epochMs, daysDiff > 330);
+    }
+
+    _fmtDateLabel(epochMs, includeYear = false) {
+        if (this.currentInterval.includes('minute')) {
+            const d = this._exchangeDate(epochMs);
+            return includeYear ? this._fmtExchangeDayMonthYear(d) : this._fmtExchangeDayMonth(d);
+        }
+        return new Date(epochMs).toLocaleDateString('en-GB', {
+            day: '2-digit', month: 'short', year: includeYear ? 'numeric' : undefined
         });
+    }
+
+    _exchangeDate(epochMs) {
+        const ms = Number(epochMs);
+        if (!Number.isFinite(ms)) return new Date(NaN);
+        return new Date(this._exchangeDisplayMs(ms));
+    }
+
+    _exchangeDisplayMs(epochMs) {
+        if (!String(this.currentInterval || '').includes('minute')) return epochMs;
+        return this._intradayDataUsesIstClock() ? epochMs : epochMs + IST_OFFSET_MS;
+    }
+
+    _intradayDataUsesIstClock() {
+        if (this._intradayTimestampsAlreadyIst !== null) return this._intradayTimestampsAlreadyIst;
+        let directSession = 0;
+        let shiftedSession = 0;
+        const sample = (this.data || []).slice(0, Math.min(80, (this.data || []).length));
+        for (const candle of sample) {
+            const t = Number(candle?.time);
+            if (!Number.isFinite(t)) continue;
+            if (this._minutesUtc(t) >= NSE_OPEN_MINUTES && this._minutesUtc(t) <= NSE_CLOSE_MINUTES) directSession++;
+            if (this._minutesUtc(t + IST_OFFSET_MS) >= NSE_OPEN_MINUTES && this._minutesUtc(t + IST_OFFSET_MS) <= NSE_CLOSE_MINUTES) shiftedSession++;
+        }
+        this._intradayTimestampsAlreadyIst = directSession >= shiftedSession;
+        return this._intradayTimestampsAlreadyIst;
+    }
+
+    _minutesUtc(epochMs) {
+        const d = new Date(epochMs);
+        return d.getUTCHours() * 60 + d.getUTCMinutes();
+    }
+
+    _exchangeDayKey(epochMs) {
+        const d = this._exchangeDate(epochMs);
+        return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+    }
+
+    _actualIstDayKey(epochMs) {
+        const d = new Date(Number(epochMs) + IST_OFFSET_MS);
+        return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+    }
+
+    _fmtExchangeTime(d) {
+        return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+    }
+
+    _fmtExchangeDayMonth(d) {
+        return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', timeZone: 'UTC' });
+    }
+
+    _fmtExchangeDayMonthYear(d) {
+        return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' });
+    }
+
+    _fmtExchangeMonthYear(d) {
+        return d.toLocaleDateString('en-GB', { month: 'short', year: '2-digit', timeZone: 'UTC' });
     }
 
     _hexToRgba(hex, alpha) {
@@ -4203,7 +4279,7 @@ class FixedTradingChart {
         const end   = Math.min(this.data.length - 1, this.viewPortEnd + 1);
 
         for (let i = start; i <= end; i++) {
-            const d     = new Date(this.data[i].time);
+            const d     = this._exchangeDate(this.data[i].time);
             const label = this._timeCandidateLabel(d, tf);
             if (label) candidates.push({ time: this.data[i].time, label });
         }
@@ -4211,16 +4287,16 @@ class FixedTradingChart {
     }
 
     _timeCandidateLabel(d, tf) {
-        const m = d.getMinutes(), h = d.getHours(), dom = d.getDate(), dow = d.getDay(), mon = d.getMonth();
+        const m = d.getUTCMinutes(), h = d.getUTCHours(), dom = d.getUTCDate(), dow = d.getUTCDay(), mon = d.getUTCMonth();
         if (tf === 'minute')   return m % 15 === 0 ? `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}` : null;
         if (tf === '3minute')  return m % 30 === 0 ? `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}` : null;
         if (tf === '5minute')  return m % 30 === 0 ? `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}` : null;
         if (tf === '15minute') return h % 2 === 0 && m === 0 ? `${String(h).padStart(2,'0')}:00` : null;
         if (tf === '30minute') return m === 0 ? `${String(h).padStart(2,'0')}:00` : null;
-        if (tf === '60minute') return h === 9  ? d.toLocaleDateString('en-GB',{day:'2-digit',month:'short'}) : null;
-        if (tf === 'day')      return dow === 1 ? d.toLocaleDateString('en-GB',{day:'2-digit',month:'short'}) : null;
-        if (tf === 'week')     return mon % 3 === 0 && dom <= 7 ? d.toLocaleDateString('en-GB',{month:'short',year:'2-digit'}) : null;
-        if (tf === 'month')    return mon === 0 ? String(d.getFullYear()) : null;
+        if (tf === '60minute') return h === 9  ? this._fmtExchangeDayMonth(d) : null;
+        if (tf === 'day')      return dow === 1 ? this._fmtExchangeDayMonth(d) : null;
+        if (tf === 'week')     return mon % 3 === 0 && dom <= 7 ? this._fmtExchangeMonthYear(d) : null;
+        if (tf === 'month')    return mon === 0 ? String(d.getUTCFullYear()) : null;
         return null;
     }
 }
