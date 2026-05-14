@@ -83,9 +83,16 @@ DRAWING_TOOLS: List[Tuple[str, str, str]] = [
 TOOL_DISPLAY: Dict[str, str] = {tid: label for tid, _, label in DRAWING_TOOLS}
 
 ICON_ASSETS: Dict[str, str] = {
+    # Primary chart controls
     "chart_candle": "candlestick.svg",
     "indicator": "indicator.svg",
     "drawing_menu": "drawing_tool.svg",
+    "snapshot": "snapshot.svg",
+    "auto_scale": "auto_scale.svg",
+    "refresh": "refresh.svg",
+    "settings": "gear_setting.svg",
+
+    # Drawing tools
     "line": "trend_line.svg",
     "horizontal_line": "horizontal_line.svg",
     "horizontal_ray": "horizontal_ray.svg",
@@ -94,7 +101,14 @@ ICON_ASSETS: Dict[str, str] = {
     "arrow_line": "arrow.svg",
     "note": "text.svg",
     "measure": "measuring_scale.svg",
-    "settings": "gear_setting.svg",
+    "clear": "clear.svg",
+    "delete": "delete.svg",
+
+    # Shared application/status icons kept available for toolbar extensions.
+    "alert": "alert.svg",
+    "connected": "connected.svg",
+    "disconnected": "disconnected.svg",
+    "portfolio": "portfolio.svg",
 }
 
 
@@ -161,7 +175,11 @@ def _icon_path(icon_key: str) -> str:
 
 
 def _icon(icon_key: str) -> QIcon:
-    return QIcon(_icon_path(icon_key))
+    """Return a bundled toolbar SVG icon, or an empty icon for unknown keys."""
+    asset_name = ICON_ASSETS.get(icon_key)
+    if not asset_name:
+        return QIcon()
+    return QIcon(resource_path(f"assets/icons/{asset_name}"))
 
 
 def _icon_pixmap(icon_key: str, size: int = 16) -> QPixmap:
@@ -525,8 +543,9 @@ class ChartToolbar(QFrame):
         self.color_btn.setToolTip("Drawing color")
         dt_lay.addWidget(self.color_btn)
 
-        self.clear_drawings_btn = QPushButton("✕")
+        self.clear_drawings_btn = QPushButton()
         self.clear_drawings_btn.setObjectName("clearBtn")
+        _apply_icon(self.clear_drawings_btn, "clear", 14)
         self.clear_drawings_btn.setFixedSize(24, 22)
         self.clear_drawings_btn.setToolTip("Clear all drawings")
         dt_lay.addWidget(self.clear_drawings_btn)
@@ -538,7 +557,7 @@ class ChartToolbar(QFrame):
 
         # ── 6. RIGHT UTILITY CLUSTER ──────────────────────────────────────
         # Snapshot
-        self.snapshot_btn = self._icon_btn("⬡", "Capture high quality PNG snapshot  [Ctrl+S]", 28)
+        self.snapshot_btn = self._icon_btn("", "Capture high quality PNG snapshot  [Ctrl+S]", 28, "snapshot")
         lay.addWidget(self.snapshot_btn)
         lay.addWidget(_gap(2))
 
@@ -546,12 +565,12 @@ class ChartToolbar(QFrame):
         lay.addWidget(_gap(4))
 
         # Autoscale
-        self.autoscale_btn = self._icon_btn("⊡", "Auto-scale  [Ctrl+A]", 28)
+        self.autoscale_btn = self._icon_btn("", "Auto-scale  [Ctrl+A]", 28, "auto_scale")
         lay.addWidget(self.autoscale_btn)
         lay.addWidget(_gap(2))
 
         # Refresh
-        self.refresh_btn = self._icon_btn("↺", "Refresh  [F5]", 28)
+        self.refresh_btn = self._icon_btn("", "Refresh  [F5]", 28, "refresh")
         lay.addWidget(self.refresh_btn)
         lay.addWidget(_gap(2))
 
