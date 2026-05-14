@@ -18,7 +18,7 @@
 from typing import Dict, List, Optional, Tuple
 
 from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QAction, QActionGroup, QColor, QFont, QIcon
+from PySide6.QtGui import QAction, QActionGroup, QColor, QFont, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup,
     QComboBox,
@@ -82,6 +82,22 @@ DRAWING_TOOLS: List[Tuple[str, str, str]] = [
 
 TOOL_DISPLAY: Dict[str, str] = {tid: label for tid, _, label in DRAWING_TOOLS}
 
+ICON_ASSETS: Dict[str, str] = {
+    "chart_candle": "candlestick.svg",
+    "indicator": "indicator.svg",
+    "drawing_menu": "drawing_tool.svg",
+    "line": "trend_line.svg",
+    "horizontal_line": "horizontal_line.svg",
+    "horizontal_ray": "horizontal_ray.svg",
+    "rectangle": "rectangle.svg",
+    "fibonacci": "fibonacci.svg",
+    "arrow_line": "arrow.svg",
+    "note": "text.svg",
+    "measure": "measuring_scale.svg",
+    "settings": "gear_setting.svg",
+}
+
+
 
 # ─── Palette constants ────────────────────────────────────────────────────────
 
@@ -140,6 +156,24 @@ def _hex_to_rgb(h: str) -> str:
         return "255,255,255"
 
 
+def _icon_path(icon_key: str) -> str:
+    return resource_path(f"assets/icons/{ICON_ASSETS[icon_key]}")
+
+
+def _icon(icon_key: str) -> QIcon:
+    return QIcon(_icon_path(icon_key))
+
+
+def _icon_pixmap(icon_key: str, size: int = 16) -> QPixmap:
+    return _icon(icon_key).pixmap(QSize(size, size))
+
+
+def _apply_icon(button, icon_key: str, size: int = 16) -> None:
+    button.setIcon(_icon(icon_key))
+    button.setIconSize(QSize(size, size))
+
+
+
 # ─── Drawing tool menu row ────────────────────────────────────────────────────
 
 class ToolMenuItemWidget(QWidget):
@@ -147,7 +181,7 @@ class ToolMenuItemWidget(QWidget):
     favorite_toggled = Signal(str, bool)
 
     def __init__(self, tool_id: str, glyph: str, label: str,
-                 is_fav: bool, parent=None):
+                 is_fav: bool, icon_key: Optional[str] = None, parent=None):
         super().__init__(parent)
         self.tool_id = tool_id
         self.setObjectName("menuItem")
@@ -159,12 +193,15 @@ class ToolMenuItemWidget(QWidget):
         lay.setSpacing(10)
 
         icon = QLabel(glyph)
-        icon.setFixedWidth(18)
+        icon.setFixedSize(18, 18)
         icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         icon.setStyleSheet(
             "font-size:14px; color:#7090b0; background:transparent;"
             "font-family:'Segoe UI Symbol','Noto Sans Symbols',sans-serif;"
         )
+        if icon_key:
+            icon.setText("")
+            icon.setPixmap(_icon_pixmap(icon_key, 16))
 
         text = QLabel(label)
         text.setStyleSheet(
@@ -333,6 +370,7 @@ class ChartToolbar(QFrame):
             action.setCheckable(True)
             action.setData(data)
             if data == "candle":
+                action.setIcon(_icon("chart_candle"))
                 action.setChecked(True)
             action.triggered.connect(lambda _=False, d=data: self._on_chart_type(d))
             ct_action_grp.addAction(action)
@@ -341,7 +379,7 @@ class ChartToolbar(QFrame):
 
         self._ct_menu_btn = QToolButton()
         self._ct_menu_btn.setObjectName("pillMenuBtn")
-        self._ct_menu_btn.setText("🕯")
+        _apply_icon(self._ct_menu_btn, "chart_candle")
         self._ct_menu_btn.setToolTip("Chart type")
         self._ct_menu_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self._ct_menu_btn.setFixedSize(36, 22)
@@ -384,8 +422,7 @@ class ChartToolbar(QFrame):
 
         self.indicator_menu_button = QToolButton()
         self.indicator_menu_button.setObjectName("pillMenuBtn")
-        self.indicator_menu_button.setIcon(QIcon(resource_path("assets/icons/indicator.svg")))
-        self.indicator_menu_button.setIconSize(QSize(16, 16))
+        _apply_icon(self.indicator_menu_button, "indicator")
         self.indicator_menu_button.setToolTip("Toggle chart indicators")
         self.indicator_menu_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.indicator_menu_button.setFixedSize(32, 22)
@@ -412,12 +449,19 @@ class ChartToolbar(QFrame):
 
         for tool_id, glyph, tip in DRAWING_TOOLS:
             action = QAction(tip, self)
+            action.setIcon(_icon(tool_id))
             action.setCheckable(True)
             self._drawing_action_group.addAction(action)
             self._drawing_actions[tool_id] = action
 
-            item = ToolMenuItemWidget(tool_id, glyph, tip,
-                                      tool_id in self._favorite_tools, self)
+            item = ToolMenuItemWidget(
+                tool_id,
+                glyph,
+                tip,
+                tool_id in self._favorite_tools,
+                ICON_ASSETS.get(tool_id) and tool_id,
+                self,
+            )
             item.triggered.connect(self._on_drawing_tool_from_menu)
             item.favorite_toggled.connect(self._on_fav_toggled)
             wa = QWidgetAction(self)
@@ -426,7 +470,7 @@ class ChartToolbar(QFrame):
 
         self.drawing_menu_btn = QToolButton()
         self.drawing_menu_btn.setObjectName("drawMenuBtn")
-        self.drawing_menu_btn.setText("✏")
+        _apply_icon(self.drawing_menu_btn, "drawing_menu")
         self.drawing_menu_btn.setToolTip("Drawing tools")
         self.drawing_menu_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.drawing_menu_btn.setFixedSize(32, 22)
@@ -459,8 +503,10 @@ class ChartToolbar(QFrame):
         dt_lay.addWidget(div2)
         dt_lay.addWidget(_gap(2))
 
-        self.measure_btn = QPushButton("⤢")
+        self.measure_btn = QPushButton()
         self.measure_btn.setObjectName("toolBtn")
+        self.measure_btn.setProperty("toolRole", "measure")
+        _apply_icon(self.measure_btn, "measure", 17)
         self.measure_btn.setFixedSize(28, 22)
         self.measure_btn.setCheckable(True)
         self.measure_btn.setToolTip("Measure  [E]")
@@ -510,7 +556,7 @@ class ChartToolbar(QFrame):
         lay.addWidget(_gap(2))
 
         # Settings
-        self.settings_btn = self._icon_btn("⚙", "Chart settings", 28)
+        self.settings_btn = self._icon_btn("⚙", "Chart settings", 28, "settings")
         lay.addWidget(self.settings_btn)
 
         lay.addWidget(_gap(8))
@@ -529,8 +575,11 @@ class ChartToolbar(QFrame):
         self._refresh_color_btn()
 
     @staticmethod
-    def _icon_btn(icon: str, tip: str, size: int = 28) -> QPushButton:
+    def _icon_btn(icon: str, tip: str, size: int = 28, icon_key: str = "") -> QPushButton:
         btn = QPushButton(icon)
+        if icon_key:
+            btn.setText("")
+            _apply_icon(btn, icon_key, 16)
         btn.setObjectName("iconBtn")
         btn.setFixedSize(size, 22)
         btn.setToolTip(tip)
@@ -557,6 +606,10 @@ class ChartToolbar(QFrame):
                 continue
             btn = QPushButton(glyph)
             btn.setObjectName("toolBtn")
+            icon_key = tool_id if tool_id in ICON_ASSETS else ""
+            if icon_key:
+                btn.setText("")
+                _apply_icon(btn, icon_key, 16)
             btn.setCheckable(True)
             btn.setFixedSize(28, 22)
             btn.setToolTip(TOOL_DISPLAY.get(tool_id, tool_id))
@@ -586,7 +639,12 @@ class ChartToolbar(QFrame):
         self._active_chart_type = data
         glyphs = {data: glyph for data, glyph, _ in CHART_TYPES}
         if self._ct_menu_btn:
-            self._ct_menu_btn.setText(glyphs.get(data, "?"))
+            if data == "candle":
+                self._ct_menu_btn.setText("")
+                self._ct_menu_btn.setIcon(_icon("chart_candle"))
+            else:
+                self._ct_menu_btn.setIcon(QIcon())
+                self._ct_menu_btn.setText(glyphs.get(data, "?"))
         # Sync hidden shim
         for i in range(self.chart_type_combo.count()):
             if self.chart_type_combo.itemData(i) == data:
@@ -861,7 +919,7 @@ class ChartToolbar(QFrame):
             }}
 
             /* Measure button */
-            QPushButton#toolBtn[objectName="measure_btn"]:checked {{
+            QPushButton#toolBtn[toolRole="measure"]:checked {{
                 color: {P.AMBER};
                 background: rgba(251,191,36,0.10);
                 border-left: 2px solid {P.AMBER};
