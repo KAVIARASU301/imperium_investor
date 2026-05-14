@@ -3610,75 +3610,103 @@ class FixedTradingChart {
     }
 
     _shouldAppendLiveCandle(lastTimeMs, nowMs, intervalMs) {
+        // Validate inputs — a NaN nowMs (from a bad tick timestamp) must never
+        // trigger a new candle. Fall back to nothing rather than creating a ghost.
+        if (!Number.isFinite(lastTimeMs) || !Number.isFinite(nowMs)) return false;
+        if (nowMs <= 0 || lastTimeMs <= 0) return false;
+
         const _key = String(this.currentInterval || 'day').toLowerCase();
 
         if (_key === 'day') {
+            // IST-day comparison: use _tradingDayKey which uses pure IST arithmetic.
+            // Both keys must be non-empty strings for a valid comparison.
             const lastDay = this._tradingDayKey(lastTimeMs);
             const nowDay  = this._tradingDayKey(nowMs);
-            if (!lastDay || !nowDay || nowDay <= lastDay) return false;
+            if (!lastDay || !nowDay) return false;
 
-            // If IST date has changed, always append a new daily candle so
-            // pre-market ticks cannot overwrite the completed prior day's bar.
-            if (nowDay > lastDay) return true;
-
-            return false;
+            // Only append when the IST calendar date has actually advanced.
+            // nowDay === lastDay  → same session, update existing candle.
+            // nowDay  > lastDay   → new IST day, append new candle.
+            // nowDay  < lastDay   → tick from the past (stale/replay), ignore.
+            return nowDay > lastDay;
         }
 
-        // Intraday: use IST-aligned buckets so candles are never split
-        // across UTC midnight or missing at session open.
+        // Intraday: use IST-aligned session buckets.
+        if (!Number.isFinite(intervalMs) || intervalMs <= 0) return false;
         const lastBucket = this._istBucketStartMs(lastTimeMs, intervalMs);
         const nowBucket  = this._istBucketStartMs(nowMs, intervalMs);
+        if (!Number.isFinite(lastBucket) || !Number.isFinite(nowBucket)) return false;
+
         return nowBucket > lastBucket;
     }
 
     _coerceEpochMs(value) {
-        if (value === undefined || value === null || value === '') return NaN;
-        if (value instanceof Date) return value.getTime();
-
-        const numeric = Number(value);
-        if (Number.isFinite(numeric)) {
-            // Broker timestamps are normally milliseconds.  If seconds are
-            // supplied, normalize them to milliseconds.
-            return numeric < 1e12 ? numeric * 1000 : numeric;
+        if (value === undefined || value === null || value === '' || value === 0) return NaN;
+        if (value instanceof Date) {
+            const t = value.getTime();
+            return Number.isFinite(t) && t > 0 ? t : NaN;
         }
 
-        const parsed = Date.parse(value);
-        return Number.isFinite(parsed) ? parsed : NaN;
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric) || numeric <= 0) return NaN;
+
+        // Broker timestamps:
+        //   > 1e12  → already milliseconds  (e.g. 1715000000000)
+        //   < 1e12  → seconds               (e.g. 1715000000)
+        // Guard: reject values that look like future centuries (> year 2100)
+        const MS_2100 = 4_102_444_800_000;
+        if (numeric > MS_2100) return NaN;           // garbage / far-future
+        return numeric < 1e12 ? numeric * 1000 : numeric;
     }
 
     updateLivePrice(price, tickTime = null, tickOpen = 0, tickHigh = 0, tickLow = 0) {
-        this.livePrice   = price;
+        this.livePrice     = price;
         this._hasLiveTicks = true;
 
-        if (this.data.length > 0) {
-            const last      = this.data[this.data.length - 1];
-            const intervalMs = this._intervalToMs(this.currentInterval);
-            const key        = String(this.currentInterval || 'day').toLowerCase();
-            const isDailyInterval = key === 'day';
-            const lastTimeMs = Number(last.time);
-            const tickMs     = this._coerceEpochMs(tickTime);
-            const nowMs      = Number.isFinite(tickMs) ? tickMs : Date.now();
+        if (this.data.length === 0) {
+            this.requestDraw();
+            return;
+        }
 
-            if (intervalMs > 0 && Number.isFinite(lastTimeMs)) {
-                if (this._shouldAppendLiveCandle(lastTimeMs, nowMs, intervalMs)) {
-                    const carryClose = Number.isFinite(last.close) ? last.close : price;
+        const last         = this.data[this.data.length - 1];
+        const intervalMs   = this._intervalToMs(this.currentInterval);
+        const key          = String(this.currentInterval || 'day').toLowerCase();
+        const isDailyInterval = key === 'day';
+        const lastTimeMs   = Number(last.time);
+        const tickMs       = this._coerceEpochMs(tickTime);
 
-                    // Compute the correct new candle timestamp in IST:
-                    // - Daily candles: IST midnight of the new trading day
-                    //   (Kite convention: daily candles are stamped at IST midnight = 18:30 UTC prev day)
-                    // - Intraday candles: IST-aligned bucket start
-                    const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
-                    let newCandleTime;
-                    const _key = String(this.currentInterval || 'day').toLowerCase();
-                    if (_key === 'day') {
-                        const istMs = nowMs + IST_OFFSET_MS;
-                        const _d = new Date(istMs);
-                        // IST midnight as UTC epoch (= what Kite uses for daily candles)
-                        newCandleTime = Date.UTC(_d.getUTCFullYear(), _d.getUTCMonth(), _d.getUTCDate()) - IST_OFFSET_MS;
-                    } else {
-                        newCandleTime = this._istBucketStartMs(nowMs, intervalMs);
+        // Use tick timestamp when valid; fall back to current wall time.
+        // IMPORTANT: if tickMs is NaN (bad/missing timestamp), use Date.now()
+        // rather than 0 or lastTimeMs to avoid false "new candle" triggers.
+        const nowMs = Number.isFinite(tickMs) ? tickMs : Date.now();
+
+        if (intervalMs > 0 && Number.isFinite(lastTimeMs) && lastTimeMs > 0) {
+            if (this._shouldAppendLiveCandle(lastTimeMs, nowMs, intervalMs)) {
+                const carryClose = Number.isFinite(last.close) ? last.close : price;
+                const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+
+                let newCandleTime;
+                if (isDailyInterval) {
+                    // IST midnight of the new trading day.
+                    // Kite stamps daily candles at IST midnight = 18:30 UTC prev day.
+                    const istMs = nowMs + IST_OFFSET_MS;
+                    const _d = new Date(istMs);
+                    newCandleTime = Date.UTC(
+                        _d.getUTCFullYear(),
+                        _d.getUTCMonth(),
+                        _d.getUTCDate()
+                    ) - IST_OFFSET_MS;
+                } else {
+                    // Intraday: IST-aligned bucket start, anchored at 09:15 IST.
+                    newCandleTime = this._istBucketStartMs(nowMs, intervalMs);
+                    // Sanity: never create a candle at a negative or zero timestamp.
+                    if (!Number.isFinite(newCandleTime) || newCandleTime <= 0) {
+                        // Fall back — don't append.
+                        newCandleTime = null;
                     }
+                }
 
+                if (newCandleTime !== null) {
                     this.data.push({
                         time:   newCandleTime,
                         open:   carryClose,
@@ -3698,38 +3726,41 @@ class FixedTradingChart {
                     this.calculateBounds();
                 }
             }
+        }
 
-            // ── Update the active candle (last in array) ──────────────────────
-            const active = this.data[this.data.length - 1];
-            active.close = price;
+        // ── Update the active (last) candle ──────────────────────────────────────
+        const active = this.data[this.data.length - 1];
+        active.close = price;
 
-            // Tick OHLC is the broker's session/day range.  Applying it to
-            // intraday candles (3m, 5m, etc.) makes the live candle inherit the
-            // day's low/high and draws a false oversized wick.
-            if (isDailyInterval && tickHigh > 0) active.high = Math.max(active.high, tickHigh, price);
-            else if (price > active.high) active.high = price;
+        if (isDailyInterval) {
+            // For daily interval: honour broker-supplied session OHLC when available.
+            // tickHigh/tickLow are the day's high/low from the broker tick payload.
+            if (tickHigh > 0) active.high = Math.max(active.high, tickHigh, price);
+            else              active.high = Math.max(active.high, price);
 
-            if (isDailyInterval && tickLow > 0) active.low = Math.min(active.low, tickLow, price);
-            else if (price < active.low) active.low = price;
+            if (tickLow > 0 && tickLow < active.high)
+                              active.low  = Math.min(active.low,  tickLow,  price);
+            else              active.low  = Math.min(active.low,  price);
 
-            // For the Day interval: if today's candle was just created from historical
-            // data and the tick carries the real session open, fix the open price.
-            // Only do this if the current candle's open looks like a carry-over
-            // (i.e. equals the previous candle's close) and we have a real tick open.
+            // Fix carry-over open: if the candle's open equals the previous close
+            // (indicating it was synthesised), replace it with the real session open.
             if (
                 tickOpen > 0 &&
-                isDailyInterval &&
-                this.data.length >= 2 &&
-                active === this.data[this.data.length - 1]
+                this.data.length >= 2
             ) {
                 const prev = this.data[this.data.length - 2];
-                // If open was carried from previous close (within 0.01%), replace it.
-                if (Math.abs(active.open - prev.close) / (prev.close || 1) < 0.0001) {
+                if (Math.abs(active.open - prev.close) / (Math.abs(prev.close) || 1) < 0.0001) {
                     active.open = tickOpen;
                     active.high = Math.max(active.open, active.high);
                     active.low  = Math.min(active.open, active.low);
                 }
             }
+        } else {
+            // Intraday: NEVER apply tickHigh/tickLow — those are the day's range,
+            // not the current intraday bar's range. Applying them creates a single
+            // bar spanning the entire day's wick, hiding all other bars visually.
+            active.high = Math.max(active.high, price);
+            active.low  = Math.min(active.low,  price);
         }
 
         this.requestDraw();
