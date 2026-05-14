@@ -18,13 +18,19 @@ Wired in main_window:
 """
 
 import logging
+from datetime import datetime, time
 from typing import Dict, List, Optional
+from zoneinfo import ZoneInfo
 
 from PySide6.QtCore import QObject, Signal, Slot, QMutex, QMutexLocker, QTimer
 
 from kite.core.stop_loss_store import StopLossRecord, StopLossStore
 
 logger = logging.getLogger(__name__)
+
+IST = ZoneInfo("Asia/Kolkata")
+MARKET_OPEN_TIME = time(9, 15)
+MARKET_OPEN_GAP_CHECK_END = time(9, 20)
 
 
 class StopLossManager(QObject):
@@ -59,6 +65,10 @@ class StopLossManager(QObject):
         self._trailing_persist_timer.timeout.connect(self._flush_trailing_updates)
         self._trailing_persist_timer.start(2000)        # write every 2s, not every tick
         self._token_to_positions: Dict[int, set] = {}    # instrument_token -> {position_id}
+        self._open_gap_checked_date = None                # IST date once opening gap scan succeeds
+        self._open_gap_timer = QTimer(self)
+        self._open_gap_timer.timeout.connect(self._check_opening_gap)
+        self._open_gap_timer.start(1000)                  # critical 09:15 gap scan
 
         # Load persisted active SLs on startup
         self._load_active_from_db()
@@ -162,6 +172,7 @@ class StopLossManager(QObject):
 
         self.store.upsert(rec)
         self._rebuild_token_map()
+        self._subscribe_record_token(rec)
         self.sl_set.emit(symbol, sl_price)
         dist_pct = rec.distance_pct
         logger.info(
@@ -238,35 +249,159 @@ class StopLossManager(QObject):
         if not self._active:
             return
 
-        # Build a quick symbol → ltp lookup from the tick batch
-        ltp_map: Dict[str, float] = {}
-        for tick in ticks:
-            sym = tick.get("tradingsymbol")
-            ltp = tick.get("last_price")
-            if sym and ltp is not None:
-                ltp_map[sym] = float(ltp)
-
         with QMutexLocker(self._mutex):
             records = list(self._active.values())
 
+        # Live Kite ticks generally carry only instrument_token + last_price.
+        # Resolve both symbol and token routes so gap-open ticks are not missed.
+        symbol_to_positions: Dict[str, set] = {}
+        with QMutexLocker(self._mutex):
+            token_to_positions = dict(self._token_to_positions)
+        if not token_to_positions:
+            self._rebuild_token_map()
+            with QMutexLocker(self._mutex):
+                token_to_positions = dict(self._token_to_positions)
+
         for rec in records:
-            ltp = ltp_map.get(rec.symbol)
-            if ltp is None or rec.status != "ACTIVE":
+            symbol_to_positions.setdefault(rec.symbol, set()).add(rec.position_id)
+
+        ltp_by_position: Dict[str, float] = {}
+        for tick in ticks:
+            ltp_raw = tick.get("last_price")
+            if ltp_raw is None:
                 continue
-            if rec.position_id in self._execution_inflight:
+            try:
+                ltp = float(ltp_raw)
+            except (TypeError, ValueError):
+                continue
+            if ltp <= 0:
                 continue
 
-            # Update trailing SL high-water mark before checking trigger
-            if rec.trailing_sl and rec.trail_offset_pct:
-                self._update_trailing(rec, ltp)
+            sym = tick.get("tradingsymbol") or tick.get("symbol")
+            if sym:
+                for pid in symbol_to_positions.get(sym, ()):
+                    ltp_by_position[pid] = ltp
 
-            # Check trigger condition
-            triggered = (
-                (rec.is_long  and ltp <= rec.sl_price) or
-                (not rec.is_long and ltp >= rec.sl_price)
+            token = self._normalize_token(tick.get("instrument_token"))
+            if token is not None:
+                for pid in token_to_positions.get(token, ()):
+                    ltp_by_position[pid] = ltp
+
+        for rec in records:
+            ltp = ltp_by_position.get(rec.position_id)
+            if ltp is None:
+                continue
+            self._evaluate_record(rec, ltp)
+
+    def _evaluate_record(self, rec: StopLossRecord, ltp: float) -> None:
+        """Evaluate one active SL using the latest known current price."""
+        if ltp <= 0 or rec.status != "ACTIVE":
+            return
+        if rec.position_id in self._execution_inflight:
+            return
+
+        # Update trailing SL high/low-water mark before checking trigger.
+        if rec.trailing_sl and rec.trail_offset_pct:
+            self._update_trailing(rec, ltp)
+
+        triggered = (
+            (rec.is_long and ltp <= rec.sl_price) or
+            (not rec.is_long and ltp >= rec.sl_price)
+        )
+        if triggered:
+            direction = "below" if rec.is_long else "above"
+            logger.warning(
+                "SL breach detected for %s: current ₹%.2f is %s SL ₹%.2f",
+                rec.symbol, ltp, direction, rec.sl_price,
             )
-            if triggered:
-                self._fire_exit(rec, ltp)
+            self._fire_exit(rec, ltp)
+
+    def _normalize_token(self, token) -> Optional[int]:
+        """Return an int instrument token, or None when unavailable/invalid."""
+        if token is None:
+            return None
+        try:
+            return int(token)
+        except (TypeError, ValueError):
+            return None
+
+    def _subscribe_record_token(self, rec: StopLossRecord) -> None:
+        """Keep SL symbols subscribed so opening-gap ticks reach this manager."""
+        token = self._resolve_token(rec.symbol)
+        if token is None:
+            return
+        main_window = self.parent()
+        subscribe = getattr(main_window, "_subscribe_to_tokens", None)
+        if callable(subscribe):
+            subscribe([token])
+
+    def _check_opening_gap(self) -> None:
+        """Actively verify stops at/after NSE 09:15 to catch gap ups/downs."""
+        if not self._active:
+            return
+
+        now = datetime.now(IST)
+        today = now.date()
+        if self._open_gap_checked_date == today:
+            return
+        if now.weekday() >= 5 or now.time() < MARKET_OPEN_TIME:
+            return
+
+        self._rebuild_token_map()
+        records = self.get_all_active()
+        if not records:
+            self._open_gap_checked_date = today
+            return
+        for rec in records:
+            self._subscribe_record_token(rec)
+
+        evaluated_count = 0
+        ltp_cache: Dict[str, float] = {}
+        for rec in records:
+            if rec.symbol not in ltp_cache:
+                ltp_cache[rec.symbol] = self._get_current_ltp(rec.symbol)
+            ltp = ltp_cache[rec.symbol]
+            if ltp <= 0:
+                continue
+            evaluated_count += 1
+            self._evaluate_record(rec, ltp)
+
+        # During the first five minutes keep retrying until every active SL has
+        # a current price. After 09:20, stop the one-shot opening scan and let
+        # normal ticks continue enforcing the stop.
+        if evaluated_count >= len(records) or now.time() >= MARKET_OPEN_GAP_CHECK_END:
+            self._open_gap_checked_date = today
+
+    def _get_current_ltp(self, symbol: str) -> float:
+        """Get the freshest available LTP for gap checks without requiring a tick."""
+        main_window = self.parent()
+        instrument_map = getattr(main_window, "instrument_map", None)
+        inst = instrument_map.get(symbol) if isinstance(instrument_map, dict) else {}
+
+        # Prefer a live broker quote for the 09:15 gap check. Cached watchlist or
+        # instrument-map prices can still be yesterday's close before first tick.
+        client = getattr(main_window, "real_kite_client", None)
+        if client is not None:
+            exchange = (inst or {}).get("exchange", "NSE")
+            try:
+                quote = client.quote([f"{exchange}:{symbol}"])
+                return float(quote[f"{exchange}:{symbol}"].get("last_price") or 0.0)
+            except Exception as e:
+                logger.warning("Opening-gap quote fetch failed for %s: %s", symbol, e)
+
+        getter = getattr(main_window, "_get_fresh_ltp", None)
+        if callable(getter):
+            try:
+                return float(getter(symbol) or 0.0)
+            except Exception as e:
+                logger.warning("Opening-gap LTP fetch failed for %s: %s", symbol, e)
+
+        if inst:
+            try:
+                return float(inst.get("last_price") or inst.get("ltp") or 0.0)
+            except (TypeError, ValueError):
+                return 0.0
+        return 0.0
 
     def _update_trailing(self, rec: StopLossRecord, ltp: float) -> None:
         """Ratchet the SL up (for longs) as price moves in favour."""
@@ -433,3 +568,6 @@ class StopLossManager(QObject):
                 self._active[rec.position_id] = rec
         if records:
             logger.info("Restored %d active SL record(s) from database", len(records))
+            self._rebuild_token_map()
+            for rec in records:
+                self._subscribe_record_token(rec)
