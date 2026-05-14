@@ -1,6 +1,6 @@
 import logging
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time as dt_time, timedelta, timezone
 from typing import Dict, List, Optional
 
 import pandas as pd
@@ -18,29 +18,45 @@ def _effective_to_date(interval: str):
     """
     Return a stable IST-aware upper bound for historical queries.
 
-    THE KEY FIX:
-    For daily/weekly/monthly intervals, ALWAYS fetch through tomorrow's IST date.
-    This guarantees the most recently completed NSE session candle is never
-    excluded — regardless of what time it is (midnight, pre-market, post-market).
+    Daily/weekly/monthly candles must be requested by exchange session, not by
+    the host calendar day.  The midnight rollover was the bug: at 00:00 IST the
+    old implementation advanced `to_date` into a future calendar day.  Some
+    broker backends do not treat that future date as "latest available" for
+    daily candles, so the just-completed session (for example May 13 when the
+    clock has just become May 14) could disappear.
 
-    Why +1 day?
-      - NSE closes at 15:30 IST. After 15:30 the day's candle is final.
-      - Between 00:00 IST and 09:15 IST the previous day's candle already exists.
-      - The Kite API ignores future dates for `to_date`; it just returns up to
-        the latest available data. So passing tomorrow is always safe.
-      - The old code subtracted 1 day before 09:15 IST, which caused the most
-        recent completed candle to disappear every night until market open.
+    Production charting apps keep the previous completed daily candle visible
+    until the next session produces a real candle.  To match that behaviour:
+      - before NSE close (including midnight and pre-market), query through the
+        previous calendar day's 23:59:59 IST;
+      - after NSE close, query through today's 23:59:59 IST;
+      - weekends/holidays are safe because the API simply returns the latest
+        trading session at or before this end-of-day boundary.
 
-    For intraday intervals, use the current IST datetime (not just date) so
-    the API receives a proper datetime boundary and returns the latest bars.
+    Intraday intervals keep using the current IST datetime so minute candles can
+    load up to the latest available bar.
     """
     now_ist = datetime.now(tz=_IST)
     if interval in {"day", "week", "month"}:
-        # Always include through tomorrow so yesterday's completed candle is
-        # never excluded at any time of day, including midnight and pre-market.
-        return (now_ist + timedelta(days=1)).date()
+        session_date = now_ist.date()
+        if now_ist.time() < dt_time(15, 30):
+            session_date = session_date - timedelta(days=1)
+        return datetime.combine(session_date, dt_time(23, 59, 59), tzinfo=_IST)
+
     # Intraday: use current IST datetime for a precise upper boundary.
     return now_ist
+
+
+def _cache_scope_for_to_date(to_date) -> str:
+    """Return a stable cache scope so daily data cannot survive a session rollover."""
+    if isinstance(to_date, datetime):
+        if to_date.tzinfo is not None:
+            return to_date.astimezone(_IST).strftime("%Y%m%d%H%M%S")
+        return to_date.strftime("%Y%m%d%H%M%S")
+    try:
+        return to_date.strftime("%Y%m%d")
+    except AttributeError:
+        return str(to_date)
 
 
 # ─── Date range config per interval ──────────────────────────────────────────
@@ -191,9 +207,24 @@ class ChartDataLoaderThread(QThread):
         if self._stop_requested:
             return
 
+        # ── Build date range before cache lookup ──────────────────────────
+        # The upper bound is part of the data identity.  Without this, a daily
+        # cache created before/after the midnight or market-close boundary can
+        # be reused for the wrong session and make the latest completed candle
+        # appear/disappear until the TTL expires.
+        to_date   = _effective_to_date(self.interval)
+        days_back = resolve_days_back(self.interval, self.days_back_overrides)
+        to_date_for_from = to_date.astimezone(_IST).date() if isinstance(to_date, datetime) else to_date
+        from_date = to_date_for_from - timedelta(days=days_back)
+        scoped_cache_key = (
+            f"{self.cache_key}_{_cache_scope_for_to_date(to_date)}"
+            if self.interval in {"day", "week", "month"}
+            else self.cache_key
+        )
+
         # ── Cache hit ─────────────────────────────────────────────────────
         if not self.force_refresh:
-            cached = self.cache.get(self.cache_key)
+            cached = self.cache.get(scoped_cache_key)
             if cached is not None and not cached.empty:
                 self._emit_progress(100)
                 if not self._stop_requested:
@@ -202,14 +233,6 @@ class ChartDataLoaderThread(QThread):
 
         if self._stop_requested:
             return
-
-        # ── Build date range ──────────────────────────────────────────────
-        to_date   = _effective_to_date(self.interval)
-        days_back = resolve_days_back(self.interval, self.days_back_overrides)
-
-        # Calculate from_date relative to today's IST date (not the +1 day to_date)
-        today_ist = datetime.now(tz=_IST).date()
-        from_date = today_ist - timedelta(days=days_back)
 
         self._emit_progress(25)
 
@@ -265,7 +288,7 @@ class ChartDataLoaderThread(QThread):
         self._emit_progress(90)
 
         # ── Cache and emit ────────────────────────────────────────────────
-        self.cache.set(self.cache_key, df)
+        self.cache.set(scoped_cache_key, df)
 
         self._emit_progress(100)
 
