@@ -17,8 +17,8 @@
 
 from typing import Dict, List, Optional, Tuple
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QAction, QActionGroup, QColor, QFont
+from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtGui import QAction, QActionGroup, QColor, QFont, QIcon
 from PySide6.QtWidgets import (
     QButtonGroup,
     QComboBox,
@@ -32,6 +32,8 @@ from PySide6.QtWidgets import (
     QWidget,
     QWidgetAction,
 )
+
+from utils.resource_path import resource_path
 
 
 # ─── Metadata ─────────────────────────────────────────────────────────────────
@@ -382,10 +384,11 @@ class ChartToolbar(QFrame):
 
         self.indicator_menu_button = QToolButton()
         self.indicator_menu_button.setObjectName("pillMenuBtn")
-        self.indicator_menu_button.setText("Ind")
+        self.indicator_menu_button.setIcon(QIcon(resource_path("assets/icons/indicator.svg")))
+        self.indicator_menu_button.setIconSize(QSize(16, 16))
         self.indicator_menu_button.setToolTip("Toggle chart indicators")
         self.indicator_menu_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        self.indicator_menu_button.setFixedHeight(22)
+        self.indicator_menu_button.setFixedSize(32, 22)
         self.indicator_menu_button.setMenu(self._indicator_menu)
         lay.addWidget(self.indicator_menu_button)
 
