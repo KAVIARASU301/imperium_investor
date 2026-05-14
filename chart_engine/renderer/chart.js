@@ -3517,14 +3517,15 @@ class FixedTradingChart {
             return epochMs;
         }
 
-        // IMPORTANT: keep daily candles aligned to IST midnight (Kite convention).
-        // A plain UTC floor would roll the day at 00:00 UTC instead of 00:00 IST.
+        // Daily candles are calendar bars, like TradingView/lightweight-charts
+        // BusinessDay data.  Keep them on UTC midnight for the exchange trading
+        // date instead of IST midnight as an instant; otherwise host/browser
+        // timezone conversion can shift the visible day and hide the previous
+        // completed daily candle.
         const key = String(this.currentInterval || "").toLowerCase();
         if (key === "day") {
-            const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
-            const istMs = epochMs + IST_OFFSET_MS;
-            const d = new Date(istMs);
-            return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - IST_OFFSET_MS;
+            const d = new Date(epochMs);
+            return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
         }
 
         return Math.floor(epochMs / intervalMs) * intervalMs;
@@ -3691,15 +3692,16 @@ class FixedTradingChart {
 
                 let newCandleTime;
                 if (isDailyInterval) {
-                    // IST midnight of the new trading day.
-                    // Kite stamps daily candles at IST midnight = 18:30 UTC prev day.
+                    // TradingView-style daily candles are exchange calendar bars.
+                    // Use UTC midnight for the IST trading date as a stable
+                    // date key; do not use IST midnight as an absolute instant.
                     const istMs = nowMs + IST_OFFSET_MS;
                     const _d = new Date(istMs);
                     newCandleTime = Date.UTC(
                         _d.getUTCFullYear(),
                         _d.getUTCMonth(),
                         _d.getUTCDate()
-                    ) - IST_OFFSET_MS;
+                    );
                 } else {
                     // Intraday: IST-aligned bucket start, anchored at 09:15 IST.
                     newCandleTime = this._istBucketStartMs(nowMs, intervalMs);
@@ -4190,7 +4192,7 @@ class FixedTradingChart {
             return includeYear ? this._fmtExchangeDayMonthYear(d) : this._fmtExchangeDayMonth(d);
         }
         return new Date(epochMs).toLocaleDateString('en-GB', {
-            day: '2-digit', month: 'short', year: includeYear ? 'numeric' : undefined
+            day: '2-digit', month: 'short', year: includeYear ? 'numeric' : undefined, timeZone: 'UTC'
         });
     }
 

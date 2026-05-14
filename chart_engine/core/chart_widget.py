@@ -11,6 +11,7 @@
 # It is intentionally thin: all real work lives in the sub-modules.
 
 import base64
+import calendar
 import json
 import logging
 import os
@@ -544,9 +545,21 @@ class CandlestickChart(QWidget):
         metrics = calculate_metrics(df)
 
         # ── Build candle + volume arrays ──────────────────────────────────
+        # Production charting packages (TradingView/lightweight-charts, etc.)
+        # treat day/week/month bars as exchange calendar dates, not as absolute
+        # intraday instants.  Serialize those higher timeframes at UTC midnight
+        # for their trading date so a host/browser timezone can never shift an
+        # NSE daily candle from (for example) May 13 to May 12.  Intraday bars
+        # remain true broker timestamps.
+        calendar_interval = self.current_interval in {"day", "week", "month"}
         candles, volumes = [], []
         for _, row in df.iterrows():
-            ts = int(row["time"].timestamp() * 1000)
+            ts_value = row["time"]
+            if calendar_interval:
+                ts_dt = pd.Timestamp(ts_value).to_pydatetime()
+                ts = calendar.timegm(ts_dt.date().timetuple()) * 1000
+            else:
+                ts = int(pd.Timestamp(ts_value).timestamp() * 1000)
             candles.append({
                 "time": ts, "open": float(row["open"]), "high": float(row["high"]),
                 "low": float(row["low"]), "close": float(row["close"]),

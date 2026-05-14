@@ -291,17 +291,26 @@ class ChartDataLoaderThread(QThread):
 
         df["date"] = pd.to_datetime(df["date"])
 
-        # ── IST NORMALISATION FIX ─────────────────────────────────────────
-        # Kite daily candles are timestamped at IST midnight (00:00 IST) which
-        # in UTC is the *previous* day (18:30 UTC). When pandas parses them
-        # as timezone-naive they appear to be the previous UTC day, causing
-        # the May 13 candle to show up as May 12 in UTC-based comparisons.
+        # ── EXCHANGE CALENDAR NORMALISATION ───────────────────────────────
+        # TradingView-style daily/weekly/monthly bars are calendar bars. They
+        # represent an exchange trading date, not a precise UTC instant. Kite
+        # returns daily candles at NSE/IST midnight; if that timestamp is later
+        # serialized as a normal datetime, host timezone conversion can shift the
+        # visible date and make the most recent completed daily candle appear to
+        # be missing.
         #
-        # Solution: if timestamps are timezone-aware, convert to IST and strip tz.
-        # If naive, assume they are already in IST (Kite convention).
-        if df["date"].dt.tz is not None:
+        # Normalize higher timeframes to timezone-naive exchange dates here, then
+        # chart_widget serializes them as UTC-midnight calendar keys. Intraday
+        # bars intentionally remain true timestamps so minute candles keep their
+        # broker-provided session times.
+        if self.interval in {"day", "week", "month"}:
+            if df["date"].dt.tz is not None:
+                df["date"] = df["date"].dt.tz_convert(_IST).dt.tz_localize(None)
+            df["date"] = df["date"].dt.normalize()
+        elif df["date"].dt.tz is not None:
+            # For intraday data, keep the actual instant but remove timezone info
+            # after conversion to IST to match the renderer's existing convention.
             df["date"] = df["date"].dt.tz_convert(_IST).dt.tz_localize(None)
-        # Else: already naive IST — leave as-is.
 
         for col in ("open", "high", "low", "close", "volume"):
             df[col] = pd.to_numeric(df[col], errors="coerce")
