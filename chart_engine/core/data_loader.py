@@ -15,14 +15,33 @@ _IST = timezone(timedelta(hours=5, minutes=30))
 
 
 def _effective_to_date(interval: str):
-    """Return a stable IST-aware upper bound for historical queries."""
+    """
+    Return a stable IST-aware upper bound for historical queries.
+
+    THE KEY FIX:
+    For daily/weekly/monthly intervals, ALWAYS fetch through tomorrow's IST date.
+    This guarantees the most recently completed NSE session candle is never
+    excluded — regardless of what time it is (midnight, pre-market, post-market).
+
+    Why +1 day?
+      - NSE closes at 15:30 IST. After 15:30 the day's candle is final.
+      - Between 00:00 IST and 09:15 IST the previous day's candle already exists.
+      - The Kite API ignores future dates for `to_date`; it just returns up to
+        the latest available data. So passing tomorrow is always safe.
+      - The old code subtracted 1 day before 09:15 IST, which caused the most
+        recent completed candle to disappear every night until market open.
+
+    For intraday intervals, use the current IST datetime (not just date) so
+    the API receives a proper datetime boundary and returns the latest bars.
+    """
     now_ist = datetime.now(tz=_IST)
     if interval in {"day", "week", "month"}:
-        # Daily/weekly/monthly candles are exchange-session bars. Using IST date
-        # boundaries avoids UTC cutover issues where the most recently completed
-        # session can be excluded in non-IST environments.
+        # Always include through tomorrow so yesterday's completed candle is
+        # never excluded at any time of day, including midnight and pre-market.
         return (now_ist + timedelta(days=1)).date()
+    # Intraday: use current IST datetime for a precise upper boundary.
     return now_ist
+
 
 # ─── Date range config per interval ──────────────────────────────────────────
 #
@@ -113,16 +132,6 @@ class ChartDataLoaderThread(QThread):
     """
     Background thread: fetch → process → cache → emit.
 
-    BUG FIX (Bug 1 / Race condition):
-        stop() now sets _stop_requested=True atomically BEFORE calling
-        quit(), which closes the window where a late data_loaded signal
-        could fire against a chart that has already moved on to a new symbol.
-
-    BUG FIX (Bug 2 / Empty frame):
-        Empty-frame guard is now checked BEFORE cache.set().  Previously
-        an empty post-dropna frame was cached and then immediately re-served
-        on the next load_symbol() call, producing a blank chart.
-
     Cancellation contract:
         Call stop() from any thread to request cancellation.
         The thread checks _stop_requested at every major step.
@@ -162,12 +171,12 @@ class ChartDataLoaderThread(QThread):
 
     def stop(self) -> None:
         """
-        Request cancellation.  Safe to call from any thread.
-        IMPORTANT: sets the flag BEFORE quit() so there is no race
-        window where the thread emits a signal after stop() returns.
+        Request cancellation. Safe to call from any thread.
+        Sets the flag BEFORE quit() so there is no race window where the
+        thread emits a signal after stop() returns.
         """
-        self._stop_requested = True          # ← set FIRST
-        self.requestInterruption()           # Qt native signal
+        self._stop_requested = True
+        self.requestInterruption()
 
     def run(self) -> None:
         try:
@@ -197,13 +206,18 @@ class ChartDataLoaderThread(QThread):
         # ── Build date range ──────────────────────────────────────────────
         to_date   = _effective_to_date(self.interval)
         days_back = resolve_days_back(self.interval, self.days_back_overrides)
-        from_date = to_date - timedelta(days=days_back)
+
+        # Calculate from_date relative to today's IST date (not the +1 day to_date)
+        today_ist = datetime.now(tz=_IST).date()
+        from_date = today_ist - timedelta(days=days_back)
+
         self._emit_progress(25)
 
         if self._stop_requested:
             return
 
         # ── Fetch from API ────────────────────────────────────────────────
+        # For week/month: fetch daily data and resample client-side.
         fetch_interval = "day" if self.interval in {"week", "month"} else self.interval
 
         try:
@@ -242,7 +256,7 @@ class ChartDataLoaderThread(QThread):
         if self._stop_requested:
             return
 
-        # ── Empty-frame guard (BEFORE cache.set — was AFTER, which was wrong) ──
+        # ── Empty-frame guard (BEFORE cache.set) ──────────────────────────
         if df.empty:
             if not self._stop_requested:
                 self.load_error.emit(f"No valid OHLCV data for {self.symbol}")
@@ -276,6 +290,19 @@ class ChartDataLoaderThread(QThread):
             raise ValueError(f"Missing columns in API response: {missing}")
 
         df["date"] = pd.to_datetime(df["date"])
+
+        # ── IST NORMALISATION FIX ─────────────────────────────────────────
+        # Kite daily candles are timestamped at IST midnight (00:00 IST) which
+        # in UTC is the *previous* day (18:30 UTC). When pandas parses them
+        # as timezone-naive they appear to be the previous UTC day, causing
+        # the May 13 candle to show up as May 12 in UTC-based comparisons.
+        #
+        # Solution: if timestamps are timezone-aware, convert to IST and strip tz.
+        # If naive, assume they are already in IST (Kite convention).
+        if df["date"].dt.tz is not None:
+            df["date"] = df["date"].dt.tz_convert(_IST).dt.tz_localize(None)
+        # Else: already naive IST — leave as-is.
+
         for col in ("open", "high", "low", "close", "volume"):
             df[col] = pd.to_numeric(df[col], errors="coerce")
 
