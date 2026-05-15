@@ -151,6 +151,13 @@ class ChartSettingsDialog(QDialog):
             spin.setValue(int(saved_days.get(key, 365)))
             chart_layout.addRow(f"{label} (days):", spin)
             self.history_days_inputs[key] = spin
+        tabs.addTab(chart_tab, "Chart")
+
+        toggles_tab = QWidget()
+        toggles_layout = QFormLayout(toggles_tab)
+        toggles_layout.setContentsMargins(8, 8, 8, 8)
+        toggles_layout.setSpacing(10)
+
         self.chart_info_toggles = {}
         chart_info_fields = [
             ("Show ADR", "show_adr"),
@@ -169,9 +176,9 @@ class ChartSettingsDialog(QDialog):
         for label, key in chart_info_fields:
             cb = QCheckBox(label)
             cb.setChecked(self._s.get(key, True))
-            chart_layout.addRow(label + ":", cb)
+            toggles_layout.addRow(label + ":", cb)
             self.chart_info_toggles[key] = cb
-        tabs.addTab(chart_tab, "Chart")
+        tabs.addTab(toggles_tab, "Info Toggles")
 
         # ── Buttons ──
         btn_row = QHBoxLayout()
