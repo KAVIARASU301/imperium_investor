@@ -662,7 +662,7 @@ class ChartToolbar(QFrame):
         # Order button
         self.order_btn = QPushButton()
         self.order_btn.setObjectName("orderBtn")
-        _apply_icon(self.order_btn, "order", 14)
+        _apply_icon(self.order_btn, "order", 16)
         self.order_btn.setFixedSize(24, 24)
         self.order_btn.setToolTip("Place order  [O]")
         lay.addWidget(self.order_btn)
