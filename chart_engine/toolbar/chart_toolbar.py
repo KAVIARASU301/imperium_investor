@@ -108,6 +108,7 @@ ICON_ASSETS: Dict[str, str] = {
     "connected": "connected.svg",
     "disconnected": "disconnected.svg",
     "portfolio": "portfolio.svg",
+    "order": "order.svg",
 }
 
 
@@ -659,9 +660,10 @@ class ChartToolbar(QFrame):
         lay.addWidget(_gap(6))
 
         # Order button
-        self.order_btn = QPushButton("ORDER")
+        self.order_btn = QPushButton()
         self.order_btn.setObjectName("orderBtn")
-        self.order_btn.setFixedSize(68, 24)
+        _apply_icon(self.order_btn, "order", 14)
+        self.order_btn.setFixedSize(24, 24)
         self.order_btn.setToolTip("Place order  [O]")
         lay.addWidget(self.order_btn)
 
@@ -1116,10 +1118,7 @@ class ChartToolbar(QFrame):
                 color: #5ddeff;
                 border: 1px solid rgba(0,212,255,0.16);
                 border-radius: 1px;
-                font-family: -apple-system, "Segoe UI", sans-serif;
-                font-size: 9px;
-                font-weight: 800;
-                letter-spacing: 1.8px;
+                padding: 0;
             }}
             QPushButton#orderBtn:hover {{
                 background: rgba(0,212,255,0.16);
