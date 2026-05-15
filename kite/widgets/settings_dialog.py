@@ -172,19 +172,19 @@ class ColorSettingsDialog(QDialog):
 
         self.show_scanner_volume_checkbox = _Toggle("SHOW VOLUME COLUMN IN SCANNER TABLE")
         self.show_scanner_volume_checkbox.setChecked(
-            bool(self._theme.get("show_scanner_volume_column", True))
+            bool(self._theme.get("show_scanner_volume_column", False))
         )
         more_layout.addWidget(self.show_scanner_volume_checkbox)
 
         self.show_watchlist_volume_checkbox = _Toggle("SHOW VOLUME COLUMN IN WATCHLIST TABLE")
         self.show_watchlist_volume_checkbox.setChecked(
-            bool(self._theme.get("show_watchlist_volume_column", True))
+            bool(self._theme.get("show_watchlist_volume_column", False))
         )
         more_layout.addWidget(self.show_watchlist_volume_checkbox)
 
         self.scanner_live_ticks_checkbox = _Toggle("PASS LIVE TICK DATA TO SCANNER TABLE")
         self.scanner_live_ticks_checkbox.setChecked(
-            bool(self._theme.get("scanner_live_ticks", True))
+            bool(self._theme.get("scanner_live_ticks", False))
         )
         more_layout.addWidget(self.scanner_live_ticks_checkbox)
 

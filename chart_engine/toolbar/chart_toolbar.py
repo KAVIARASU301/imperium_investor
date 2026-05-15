@@ -566,6 +566,8 @@ class ChartToolbar(QFrame):
 
         # Autoscale
         self.autoscale_btn = self._icon_btn("", "Auto-scale  [Ctrl+A]", 28, "auto_scale")
+        self.autoscale_btn.setCheckable(True)
+        self.autoscale_btn.setChecked(True)
         lay.addWidget(self.autoscale_btn)
         lay.addWidget(_gap(2))
 
@@ -977,6 +979,11 @@ class ChartToolbar(QFrame):
             QPushButton#iconBtn:pressed {{
                 color: {P.CYAN};
                 background: rgba(0,212,255,0.10);
+            }}
+            QPushButton#iconBtn:checked {{
+                color: {P.CYAN};
+                background: rgba(0,212,255,0.14);
+                border: 1px solid rgba(0,212,255,0.40);
             }}
 
             /* ─ ORDER BUTTON ──────────────────────────────────────────── */

@@ -1302,12 +1302,25 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             return
 
         chart_token = getattr(self.candlestick_chart, 'current_instrument_token', None)
+        chart_token_int = None
+        if chart_token not in (None, ""):
+            try:
+                chart_token_int = int(chart_token)
+            except (TypeError, ValueError):
+                chart_token_int = None
 
         for tick in ticks:
             token = tick.get("instrument_token")
 
             # Chart ticks go into a separate deque — never coalesced
-            if chart_token and token == chart_token:
+            token_matches_chart = False
+            if chart_token_int is not None and token not in (None, ""):
+                try:
+                    token_matches_chart = int(token) == chart_token_int
+                except (TypeError, ValueError):
+                    token_matches_chart = False
+
+            if token_matches_chart:
                 self._chart_tick_queue.append(tick)
                 continue  # skip the coalescing buffer for chart ticks
 

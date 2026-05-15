@@ -16,7 +16,7 @@ import json
 import logging
 import os
 import re
-from datetime import datetime, time as dt_time, timedelta
+from datetime import datetime, time as dt_time, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -687,13 +687,20 @@ class CandlestickChart(QWidget):
     @staticmethod
     def _tick_time_ms(tick: Dict[str, Any]) -> Optional[int]:
         """Return a broker tick timestamp as Unix milliseconds, if available."""
+        ist_tz = timezone(timedelta(hours=5, minutes=30))
         for key in ("exchange_timestamp", "last_trade_time", "timestamp"):
             value = tick.get(key)
             if value in (None, ""):
                 continue
 
             if isinstance(value, datetime):
-                return int(value.timestamp() * 1000)
+                dt_value = value
+                # Kite/IBKR can occasionally emit naive datetimes. Treat those as
+                # exchange-local timestamps (IST for NSE feeds) instead of host-local
+                # clock to avoid bucket drift and "missing" intraday candles.
+                if dt_value.tzinfo is None:
+                    dt_value = dt_value.replace(tzinfo=ist_tz)
+                return int(dt_value.timestamp() * 1000)
 
             if isinstance(value, (int, float)):
                 numeric = float(value)
@@ -725,17 +732,25 @@ class CandlestickChart(QWidget):
 
             Guard: only forward ticks when ChartState.LOADED.
         """
-        sym = tick.get("tradingsymbol")
+        sym = str(
+            tick.get("tradingsymbol")
+            or tick.get("symbol")
+            or ""
+        ).strip().upper()
         price = tick.get("last_price")
         token = tick.get("instrument_token")
         if price is None:
             return
 
-        sym_match = sym == self.current_symbol
-        token_match = (
-            token == self.current_instrument_token
-            if token and self.current_instrument_token else False
-        )
+        current_symbol = str(self.current_symbol or "").strip().upper()
+        sym_match = bool(sym and current_symbol and sym == current_symbol)
+
+        token_match = False
+        if token not in (None, "") and self.current_instrument_token:
+            try:
+                token_match = int(token) == int(self.current_instrument_token)
+            except (TypeError, ValueError):
+                token_match = False
         if not (sym_match or token_match):
             return
 
