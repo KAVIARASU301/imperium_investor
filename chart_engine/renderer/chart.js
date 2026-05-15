@@ -78,7 +78,7 @@ class FixedTradingChart {
         this.currentADR = cfg.initialADR || {};
         this.percentageChanges = cfg.percentageChanges || {};
         this.currentInterval = cfg.currentInterval || 'day';
-        this._chartType = cfg.chartType || 'candle';
+        this._chartType = cfg.chartType === 'renko' ? 'candle' : (cfg.chartType || 'candle');
         this.heikinAshiData = [];
         this._renkoBoxPctIntraday = cfg.renkoBoxPctIntraday || 0.5;
         this._renkoBoxPctSwing = cfg.renkoBoxPctSwing || 1.5;
@@ -843,9 +843,7 @@ class FixedTradingChart {
             this._drawBjTrendIndicator();
             // Chart type dispatch
             const chartType = this._chartType || window.__CHART_DATA__?.chartType || 'candle';
-            if (chartType === 'renko') {
-                this._drawRenko();
-            } else if (chartType === 'bar') {
+            if (chartType === 'bar') {
                 this._drawOHLCBars();
             } else if (chartType === 'line') {
                 this._drawLineChart();
@@ -4029,12 +4027,9 @@ class FixedTradingChart {
         if (cfg.crosshairSnapEnabled !== undefined)
             this.crosshairSnapEnabled = cfg.crosshairSnapEnabled === true;
         if (cfg.chartType !== undefined) {
-            this._chartType = cfg.chartType;
+            this._chartType = cfg.chartType === 'renko' ? 'candle' : cfg.chartType;
             if (window.__CHART_DATA__) {
-                window.__CHART_DATA__.chartType = cfg.chartType;
-            }
-            if (cfg.chartType === 'renko') {
-                this._computeRenko();
+                window.__CHART_DATA__.chartType = this._chartType;
             }
         }
         if (cfg.renkoBoxPctIntraday !== undefined) this._renkoBoxPctIntraday = cfg.renkoBoxPctIntraday;

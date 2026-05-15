@@ -15,7 +15,6 @@ from PySide6.QtWidgets import (
     QColorDialog,
     QComboBox,
     QDialog,
-    QDoubleSpinBox,
     QFormLayout,
     QHBoxLayout,
     QPushButton,
@@ -153,24 +152,6 @@ class ChartSettingsDialog(QDialog):
             self.history_days_inputs[key] = spin
         tabs.addTab(chart_tab, "Chart")
 
-        renko_tab = QWidget()
-        renko_layout = QFormLayout(renko_tab)
-        renko_layout.setContentsMargins(8, 8, 8, 8)
-        renko_layout.setSpacing(10)
-        self.renko_intraday_pct = QDoubleSpinBox()
-        self.renko_intraday_pct.setRange(0.01, 25.0)
-        self.renko_intraday_pct.setDecimals(2)
-        self.renko_intraday_pct.setSingleStep(0.05)
-        self.renko_intraday_pct.setValue(float(self._s.get("renko_box_pct_intraday", 0.5)))
-        renko_layout.addRow("Intraday Box Size (%):", self.renko_intraday_pct)
-        self.renko_swing_pct = QDoubleSpinBox()
-        self.renko_swing_pct.setRange(0.01, 25.0)
-        self.renko_swing_pct.setDecimals(2)
-        self.renko_swing_pct.setSingleStep(0.05)
-        self.renko_swing_pct.setValue(float(self._s.get("renko_box_pct_swing", 1.5)))
-        renko_layout.addRow("Longer TF Box Size (%):", self.renko_swing_pct)
-        tabs.addTab(renko_tab, "Renko")
-
         # ── Buttons ──
         btn_row = QHBoxLayout()
         apply_btn = QPushButton("Apply")
@@ -222,8 +203,6 @@ class ChartSettingsDialog(QDialog):
                 interval: spin.value()
                 for interval, spin in self.history_days_inputs.items()
             },
-            "renko_box_pct_intraday": self.renko_intraday_pct.value(),
-            "renko_box_pct_swing": self.renko_swing_pct.value(),
         }
         self.settings_changed.emit(new)
         self.accept()

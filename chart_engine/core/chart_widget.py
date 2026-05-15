@@ -149,8 +149,6 @@ class CandlestickChart(QWidget):
         self.current_visible_candle_count = self.global_chart_settings.get("default_visible_candles", 100)
         self._history_days_by_interval = dict(DEFAULT_DAYS_BACK)
         self._history_days_by_interval.update(self.global_chart_settings.get("history_days_by_interval", {}))
-        self._renko_box_pct_intraday = float(self.global_chart_settings.get("renko_box_pct_intraday", 0.5))
-        self._renko_box_pct_swing = float(self.global_chart_settings.get("renko_box_pct_swing", 1.5))
         self._indicator_visibility = self.drawing_storage.load_global_indicator_visibility()
         self._current_watermark_description = ""
 
@@ -636,8 +634,6 @@ class CandlestickChart(QWidget):
             crosshair_snap_enabled      = self._crosshair_snap_enabled,
             tool_selection_mode         = self._tool_selection_mode,
             chart_type                  = self.toolbar.get_chart_type(),
-            renko_box_pct_intraday      = self._renko_box_pct_intraday,
-            renko_box_pct_swing         = self._renko_box_pct_swing,
             initial_indicator_visibility = initial_indicator_visibility,
         )
 
@@ -1142,8 +1138,6 @@ class CandlestickChart(QWidget):
             "tool_selection_mode": self._tool_selection_mode,
             "toolbar_symbol_display": self._toolbar_symbol_display,
             "history_days_by_interval": dict(self._history_days_by_interval),
-            "renko_box_pct_intraday": self._renko_box_pct_intraday,
-            "renko_box_pct_swing": self._renko_box_pct_swing,
         }
         dlg = ChartSettingsDialog(current, self)
         dlg.settings_changed.connect(self._apply_chart_settings)
@@ -1170,13 +1164,10 @@ class CandlestickChart(QWidget):
         self._toolbar_symbol_display     = s.get("toolbar_symbol_display", self._toolbar_symbol_display)
         self._history_days_by_interval    = dict(DEFAULT_DAYS_BACK)
         self._history_days_by_interval.update(s.get("history_days_by_interval", {}))
-        self._renko_box_pct_intraday      = float(s.get("renko_box_pct_intraday", self._renko_box_pct_intraday))
-        self._renko_box_pct_swing         = float(s.get("renko_box_pct_swing", self._renko_box_pct_swing))
         chart_type = s.get("chart_type", "candle")
         chart_type_js = json.dumps(chart_type)
         self._js(
             "if(window.chart){"
-            f"window.chart.setChartSettings({{chartType:{chart_type_js},renkoBoxPctIntraday:{self._renko_box_pct_intraday},renkoBoxPctSwing:{self._renko_box_pct_swing}}});"
             "window.chart.requestDraw();"
             "}"
         )
@@ -1200,8 +1191,6 @@ class CandlestickChart(QWidget):
                 "indicatorScaleLabelsEnabled": self._indicator_scale_labels_enabled,
                 "crosshairSnapEnabled": self._crosshair_snap_enabled,
                 "toolSelectionMode": self._tool_selection_mode,
-                "renkoBoxPctIntraday": self._renko_box_pct_intraday,
-                "renkoBoxPctSwing": self._renko_box_pct_swing,
             })
             self._js(f"if(window.chart){{ window.chart.setChartSettings({payload});"
                      f"window.chart.setVisibleCandleCount({self.current_visible_candle_count});"
