@@ -13,8 +13,9 @@ from PySide6.QtWidgets import (
     QDialog, QLineEdit, QFormLayout, QGroupBox, QFrame, QTextEdit,
     QStyledItemDelegate, QStyleOptionViewItem, QApplication, QStyle
 )
-from PySide6.QtGui import QColor, QFont, QBrush, QCursor
+from PySide6.QtGui import QColor, QFont, QBrush, QCursor, QIcon
 from PySide6.QtCore import QItemSelectionModel
+from app_paths import get_asset_path
 
 logger = logging.getLogger(__name__)
 SCAN_URL_FILE = os.path.join(os.path.expanduser("~/.qullamaggie"), "chartink_scans.json")
@@ -959,10 +960,13 @@ class ChartinkScannerTable(QWidget):
         header_layout.addWidget(self.scan_dropdown, 1)
 
         # Settings button
-        self.manage_btn = QPushButton("⚙ Manage")
+        self.manage_btn = QPushButton("Manage")
         self.manage_btn.setObjectName("settingsMinimalButton")
         self.manage_btn.setToolTip("Manage Scans")
         self.manage_btn.setFixedSize(70, 28)
+        gear_icon_path = get_asset_path("icons", "gear_setting.svg", required=True)
+        if gear_icon_path is not None:
+            self.manage_btn.setIcon(QIcon(str(gear_icon_path)))
         self.manage_btn.clicked.connect(self._manage_scans)
         header_layout.addWidget(self.manage_btn)
 
@@ -1699,7 +1703,9 @@ class ChartinkScannerTable(QWidget):
 
     def _apply_enhanced_styles(self):
         """FIXED dark theme styling with proper alternate row selection."""
-        self.setStyleSheet("""
+        dropdown_icon_path = get_asset_path("icons", "dropdown-arrow.svg", required=True)
+        dropdown_icon_url = dropdown_icon_path.as_posix() if dropdown_icon_path is not None else ""
+        stylesheet = """
             QWidget {
                 background-color: #050709;
                 color: #e8f0ff;
@@ -1768,13 +1774,12 @@ class ChartinkScannerTable(QWidget):
                 width: 18px;
             }
             QComboBox#minimalDropdown::down-arrow {
-                image: none;
-                border-left: 4px solid transparent;
-                border-right: 4px solid transparent;
-                border-top: 4px solid #808080;
+                image: url("__DROPDOWN_ICON_URL__");
+                width: 12px;
+                height: 12px;
             }
             QComboBox#minimalDropdown::down-arrow:hover {
-                border-top-color: #ffffff;
+                image: url("__DROPDOWN_ICON_URL__");
             }
 
             /* Dropdown List */
@@ -1940,4 +1945,5 @@ class ChartinkScannerTable(QWidget):
                 height: 0px;
                 margin: 0px;
             }
-        """)
+        """
+        self.setStyleSheet(stylesheet.replace("__DROPDOWN_ICON_URL__", dropdown_icon_url))

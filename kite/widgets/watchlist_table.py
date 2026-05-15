@@ -31,7 +31,7 @@ from typing import Dict, List, Optional, Tuple
 
 from PySide6.QtCore import Qt, Signal, Slot, QPoint, QTimer, QSize
 from PySide6.QtGui import (
-    QColor, QFont, QBrush, QCursor, QAction, QFontMetrics, QMouseEvent
+    QColor, QFont, QBrush, QCursor, QAction, QFontMetrics, QMouseEvent, QIcon
 )
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
@@ -39,6 +39,7 @@ from PySide6.QtWidgets import (
     QPushButton, QToolButton, QComboBox, QStackedWidget, QMenu,
     QDialog, QLineEdit, QDialogButtonBox, QMessageBox, QApplication
 )
+from app_paths import get_asset_path
 
 logger = logging.getLogger(__name__)
 
@@ -991,7 +992,12 @@ class TabbedWatchlistWidget(QWidget):
         # Menu (rename / delete)
         self._menu_btn = QToolButton()
         self._menu_btn.setObjectName("wlMenuBtn")
-        self._menu_btn.setText("⋯")
+        menu_icon_path = get_asset_path("icons", "gear_setting.svg", required=True)
+        if menu_icon_path is not None:
+            self._menu_btn.setIcon(QIcon(str(menu_icon_path)))
+            self._menu_btn.setIconSize(QSize(12, 12))
+        else:
+            self._menu_btn.setText("⋯")
         self._menu_btn.setFixedSize(CHART_TOOLBAR_CONTROL_HEIGHT, CHART_TOOLBAR_CONTROL_HEIGHT)
         self._menu_btn.setToolTip("Watchlist options")
         self._menu_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
@@ -1240,7 +1246,9 @@ class TabbedWatchlistWidget(QWidget):
     def _apply_styles(self):
         # NOTE: Removed the 'f' prefix from the string to use standard CSS braces
         # and directly injected the scanner_table hex colors.
-        self.setStyleSheet("""
+        dropdown_icon_path = get_asset_path("icons", "dropdown-arrow.svg", required=True)
+        dropdown_icon_url = dropdown_icon_path.as_posix() if dropdown_icon_path is not None else ""
+        stylesheet = """
             /* ── Widget shell ─────────────────────────────────────── */
             TabbedWatchlistWidget {
                 background-color: #05070b;
@@ -1288,13 +1296,12 @@ class TabbedWatchlistWidget(QWidget):
                 width: 18px;
             }
             QComboBox#wlDropdown::down-arrow {
-                image: none;
-                border-left: 4px solid transparent;
-                border-right: 4px solid transparent;
-                border-top: 4px solid #808080;
+                image: url("__DROPDOWN_ICON_URL__");
+                width: 12px;
+                height: 12px;
             }
             QComboBox#wlDropdown::down-arrow:hover {
-                border-top-color: #ffffff;
+                image: url("__DROPDOWN_ICON_URL__");
             }
 
             QComboBox#wlDropdown QAbstractItemView {
@@ -1483,4 +1490,5 @@ class TabbedWatchlistWidget(QWidget):
                 height: 0px;
                 margin: 0px;
             }
-        """)
+        """
+        self.setStyleSheet(stylesheet.replace("__DROPDOWN_ICON_URL__", dropdown_icon_url))

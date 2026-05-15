@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QColorDialog,
     QComboBox,
     QDialog,
+    QDoubleSpinBox,
     QFormLayout,
     QHBoxLayout,
     QPushButton,
