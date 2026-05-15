@@ -149,6 +149,20 @@ class CandlestickChart(QWidget):
         self.current_visible_candle_count = self.global_chart_settings.get("default_visible_candles", 100)
         self._history_days_by_interval = dict(DEFAULT_DAYS_BACK)
         self._history_days_by_interval.update(self.global_chart_settings.get("history_days_by_interval", {}))
+        self._chart_info_visibility = {
+            "show_adr": self.global_chart_settings.get("show_adr", True),
+            "show_perf_monthly": self.global_chart_settings.get("show_perf_monthly", True),
+            "show_perf_3m": self.global_chart_settings.get("show_perf_3m", True),
+            "show_perf_6m": self.global_chart_settings.get("show_perf_6m", True),
+            "show_perf_1y": self.global_chart_settings.get("show_perf_1y", True),
+            "show_info_date": self.global_chart_settings.get("show_info_date", True),
+            "show_info_open": self.global_chart_settings.get("show_info_open", True),
+            "show_info_high": self.global_chart_settings.get("show_info_high", True),
+            "show_info_low": self.global_chart_settings.get("show_info_low", True),
+            "show_info_close": self.global_chart_settings.get("show_info_close", True),
+            "show_info_volume": self.global_chart_settings.get("show_info_volume", True),
+            "show_info_pct_change": self.global_chart_settings.get("show_info_pct_change", True),
+        }
         self._indicator_visibility = self.drawing_storage.load_global_indicator_visibility()
         self._current_watermark_description = ""
 
@@ -637,6 +651,7 @@ class CandlestickChart(QWidget):
             tool_selection_mode         = self._tool_selection_mode,
             chart_type                  = self.toolbar.get_chart_type(),
             initial_indicator_visibility = initial_indicator_visibility,
+            info_visibility            = dict(self._chart_info_visibility),
         )
 
         self._render_html(cfg)
@@ -1157,6 +1172,7 @@ class CandlestickChart(QWidget):
             "tool_selection_mode": self._tool_selection_mode,
             "toolbar_symbol_display": self._toolbar_symbol_display,
             "history_days_by_interval": dict(self._history_days_by_interval),
+            **dict(self._chart_info_visibility),
         }
         dlg = ChartSettingsDialog(current, self)
         dlg.settings_changed.connect(self._apply_chart_settings)
@@ -1183,6 +1199,8 @@ class CandlestickChart(QWidget):
         self._toolbar_symbol_display     = s.get("toolbar_symbol_display", self._toolbar_symbol_display)
         self._history_days_by_interval    = dict(DEFAULT_DAYS_BACK)
         self._history_days_by_interval.update(s.get("history_days_by_interval", {}))
+        for key in self._chart_info_visibility.keys():
+            self._chart_info_visibility[key] = bool(s.get(key, self._chart_info_visibility[key]))
         chart_type = s.get("chart_type", "candle")
         chart_type_js = json.dumps(chart_type)
         self._js(
@@ -1210,6 +1228,7 @@ class CandlestickChart(QWidget):
                 "indicatorScaleLabelsEnabled": self._indicator_scale_labels_enabled,
                 "crosshairSnapEnabled": self._crosshair_snap_enabled,
                 "toolSelectionMode": self._tool_selection_mode,
+                "infoVisibility": dict(self._chart_info_visibility),
             })
             self._js(f"if(window.chart){{ window.chart.setChartSettings({payload});"
                      f"window.chart.setVisibleCandleCount({self.current_visible_candle_count});"

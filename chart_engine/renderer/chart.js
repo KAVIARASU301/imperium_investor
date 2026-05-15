@@ -175,6 +175,20 @@ class FixedTradingChart {
         this.volumeOutlierCapMultiple = Number.isFinite(cfg.volumeOutlierCapMultiple)
             ? Math.max(1, cfg.volumeOutlierCapMultiple)
             : 5;
+        this.infoVisibility = {
+            show_adr: cfg.infoVisibility?.show_adr !== false,
+            show_perf_monthly: cfg.infoVisibility?.show_perf_monthly !== false,
+            show_perf_3m: cfg.infoVisibility?.show_perf_3m !== false,
+            show_perf_6m: cfg.infoVisibility?.show_perf_6m !== false,
+            show_perf_1y: cfg.infoVisibility?.show_perf_1y !== false,
+            show_info_date: cfg.infoVisibility?.show_info_date !== false,
+            show_info_open: cfg.infoVisibility?.show_info_open !== false,
+            show_info_high: cfg.infoVisibility?.show_info_high !== false,
+            show_info_low: cfg.infoVisibility?.show_info_low !== false,
+            show_info_close: cfg.infoVisibility?.show_info_close !== false,
+            show_info_volume: cfg.infoVisibility?.show_info_volume !== false,
+            show_info_pct_change: cfg.infoVisibility?.show_info_pct_change !== false,
+        };
         if (this.drawingEngine) {
             this.drawingEngine.toolSelectionMode = this.toolSelectionMode;
         }
@@ -3519,27 +3533,30 @@ class FixedTradingChart {
         const adrStr = this.currentADR?.value > 0
             ? `<span style="color:#bfdbfe;">ADR</span><span style="color:#e0ecff;margin-left:2px;">₹${this.currentADR.value.toFixed(2)}</span><span style="color:${adrPctColor};margin-left:3px;font-weight:700;">(${adrPercent.toFixed(2)}%)</span>`
             : '<span style="color:#8da2c3;">ADR N/A</span>';
-        const perf = ['Monthly','3M','6M','1Y'].map(p => {
+        const perfLabels = ['Monthly','3M','6M','1Y'];
+        const perfToggles = ['show_perf_monthly','show_perf_3m','show_perf_6m','show_perf_1y'];
+        const perf = perfLabels.map((p, i) => {
+            if (!this.infoVisibility?.[perfToggles[i]]) return null;
             const v = this.percentageChanges?.[p];
             if (v == null) return `<span style="color:#8ea3c3;">${p} N/A</span>`;
             const valCol = v >= 0 ? '#34d399' : '#fb7185';
             return `<span style="color:#b2c2dc;">${p}</span><span style="color:${valCol};margin-left:3px;font-weight:600;">${v >= 0 ? '+' : ''}${v.toFixed(2)}%</span>`;
-        }).join(dot);
+        }).filter(Boolean).join(dot);
 
-        const metricsRow = [
-            adrStr,
-            perf
-        ].join(sep);
+        const metricsItems = [];
+        if (this.infoVisibility?.show_adr) metricsItems.push(adrStr);
+        if (perf) metricsItems.push(perf);
+        const metricsRow = metricsItems.join(sep);
 
-        const priceRow = [
-            `<span style="color:#9fb2d3;">${dateStr}</span>`,
-            `<span style="color:#b8c7e1;">O</span><span style="color:#e2e8f0;margin-left:3px;">₹${c.open.toFixed(2)}</span>`,
-            `<span style="color:#b8c7e1;">H</span><span style="color:#e2e8f0;margin-left:3px;">₹${c.high.toFixed(2)}</span>`,
-            `<span style="color:#b8c7e1;">L</span><span style="color:#e2e8f0;margin-left:3px;">₹${c.low.toFixed(2)}</span>`,
-            `<span style="color:#b8c7e1;">C</span><span style="color:#e2e8f0;margin-left:3px;">₹${c.close.toFixed(2)}</span>`,
-            `<span style="color:${dayColor};font-weight:700;">Chg ${daySign}₹${dayChange.toFixed(2)} (${daySign}${dayPct.toFixed(2)}%)</span>`,
-            `<span style="color:#b8c7e1;">Vol</span><span style="color:#dbe6fb;margin-left:3px;">${Math.round(volume).toLocaleString('en-IN')}</span>`
-        ].join(sep);
+        const priceItems = [];
+        if (this.infoVisibility?.show_info_date) priceItems.push(`<span style="color:#9fb2d3;">${dateStr}</span>`);
+        if (this.infoVisibility?.show_info_open) priceItems.push(`<span style="color:#b8c7e1;">O</span><span style="color:#e2e8f0;margin-left:3px;">₹${c.open.toFixed(2)}</span>`);
+        if (this.infoVisibility?.show_info_high) priceItems.push(`<span style="color:#b8c7e1;">H</span><span style="color:#e2e8f0;margin-left:3px;">₹${c.high.toFixed(2)}</span>`);
+        if (this.infoVisibility?.show_info_low) priceItems.push(`<span style="color:#b8c7e1;">L</span><span style="color:#e2e8f0;margin-left:3px;">₹${c.low.toFixed(2)}</span>`);
+        if (this.infoVisibility?.show_info_close) priceItems.push(`<span style="color:#b8c7e1;">C</span><span style="color:#e2e8f0;margin-left:3px;">₹${c.close.toFixed(2)}</span>`);
+        if (this.infoVisibility?.show_info_pct_change) priceItems.push(`<span style="color:${dayColor};font-weight:700;">Chg ${daySign}₹${dayChange.toFixed(2)} (${daySign}${dayPct.toFixed(2)}%)</span>`);
+        if (this.infoVisibility?.show_info_volume) priceItems.push(`<span style="color:#b8c7e1;">Vol</span><span style="color:#dbe6fb;margin-left:3px;">${Math.round(volume).toLocaleString('en-IN')}</span>`);
+        const priceRow = priceItems.join(sep);
 
         el.innerHTML = `<div class="info-row metrics-row">${metricsRow}</div><div class="info-row price-row">${priceRow}</div>`;
     }
@@ -4046,6 +4063,9 @@ class FixedTradingChart {
         if (cfg.renkoBoxPctIntraday !== undefined) this._renkoBoxPctIntraday = cfg.renkoBoxPctIntraday;
         if (cfg.renkoBoxPctSwing !== undefined) this._renkoBoxPctSwing = cfg.renkoBoxPctSwing;
         if (cfg.renkoBoxPctIntraday !== undefined || cfg.renkoBoxPctSwing !== undefined) this._computeRenko();
+        if (cfg.infoVisibility && typeof cfg.infoVisibility === 'object') {
+            this.infoVisibility = { ...this.infoVisibility, ...cfg.infoVisibility };
+        }
         if (cfg.toolSelectionMode !== undefined) {
             this.toolSelectionMode = cfg.toolSelectionMode === 'multi_use' ? 'multi_use' : 'single_use';
             if (this.drawingEngine) {

@@ -151,6 +151,26 @@ class ChartSettingsDialog(QDialog):
             spin.setValue(int(saved_days.get(key, 365)))
             chart_layout.addRow(f"{label} (days):", spin)
             self.history_days_inputs[key] = spin
+        self.chart_info_toggles = {}
+        chart_info_fields = [
+            ("Show ADR", "show_adr"),
+            ("Show Monthly %", "show_perf_monthly"),
+            ("Show 3M %", "show_perf_3m"),
+            ("Show 6M %", "show_perf_6m"),
+            ("Show 1Y %", "show_perf_1y"),
+            ("Show Date", "show_info_date"),
+            ("Show Open", "show_info_open"),
+            ("Show High", "show_info_high"),
+            ("Show Low", "show_info_low"),
+            ("Show Close", "show_info_close"),
+            ("Show Volume", "show_info_volume"),
+            ("Show % Change", "show_info_pct_change"),
+        ]
+        for label, key in chart_info_fields:
+            cb = QCheckBox(label)
+            cb.setChecked(self._s.get(key, True))
+            chart_layout.addRow(label + ":", cb)
+            self.chart_info_toggles[key] = cb
         tabs.addTab(chart_tab, "Chart")
 
         # ── Buttons ──
@@ -204,6 +224,7 @@ class ChartSettingsDialog(QDialog):
                 interval: spin.value()
                 for interval, spin in self.history_days_inputs.items()
             },
+            **{key: cb.isChecked() for key, cb in self.chart_info_toggles.items()},
         }
         self.settings_changed.emit(new)
         self.accept()

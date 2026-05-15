@@ -51,6 +51,7 @@ class ChartHtmlConfig:
     tool_selection_mode:     str   = "single_use"
     chart_type:              str   = "candle"
     initial_indicator_visibility:   Dict[str, bool] = field(default_factory=dict)
+    info_visibility:        Dict[str, bool] = field(default_factory=dict)
     qwebchannel_src:         str   = "qrc:///qtwebchannel/qwebchannel.js"
 
 
@@ -115,6 +116,7 @@ def build_chart_html(cfg: ChartHtmlConfig) -> str:
         "toolSelectionMode":         cfg.tool_selection_mode,
         "chartType":                 cfg.chart_type,
         "initialIndicatorVisibility": cfg.initial_indicator_visibility,
+        "infoVisibility":            cfg.info_visibility,
     }
 
     data_json = json.dumps(data_obj)
