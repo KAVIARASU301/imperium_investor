@@ -862,6 +862,8 @@ class FixedTradingChart {
                 this._drawKagi();
             } else if (chartType === 'bar') {
                 this._drawOHLCBars();
+            } else if (chartType === 'line') {
+                this._drawLineChart();
             } else {
                 this._drawCandlesticks();
             }
@@ -1104,6 +1106,56 @@ class FixedTradingChart {
             ctx.moveTo(cx, closeY);
             ctx.lineTo(cx + tickW, closeY);
             ctx.stroke();
+        }
+    }
+
+    _drawLineChart() {
+        const ctx = this.ctx;
+        let first = true;
+
+        ctx.strokeStyle = '#4fc3f7';
+        ctx.lineWidth = Math.max(1.2, Math.min(2.2, this.candleWidth * 0.25));
+        ctx.setLineDash([]);
+        ctx.beginPath();
+
+        for (let i = this.viewPortStart; i <= this.viewPortEnd; i++) {
+            if (i < 0 || i >= this.data.length) continue;
+            const c = this.data[i];
+            if (!c) continue;
+
+            const x = this._candleToX(i) + this.candleWidth / 2;
+            const y = this._priceToY(c.close);
+            if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+
+            if (first) {
+                ctx.moveTo(x, y);
+                first = false;
+            } else {
+                ctx.lineTo(x, y);
+            }
+        }
+
+        if (!first) ctx.stroke();
+
+        // Extend the last visible point to live price when available.
+        if (this.livePrice !== null && this.data.length > 0) {
+            const last = this.data.length - 1;
+            if (last >= this.viewPortStart && last <= this.viewPortEnd) {
+                const x = this._candleToX(last) + this.candleWidth / 2;
+                const closeY = this._priceToY(this.data[last].close);
+                const liveY = this._priceToY(this.livePrice);
+
+                if (Number.isFinite(x) && Number.isFinite(closeY) && Number.isFinite(liveY)) {
+                    ctx.strokeStyle = this.livePrice >= this.data[last].close
+                        ? this.colors.upWick
+                        : this.colors.downWick;
+                    ctx.lineWidth = Math.max(1.2, Math.min(2.2, this.candleWidth * 0.25));
+                    ctx.beginPath();
+                    ctx.moveTo(x, closeY);
+                    ctx.lineTo(x, liveY);
+                    ctx.stroke();
+                }
+            }
         }
     }
 
