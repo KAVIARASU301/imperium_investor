@@ -80,7 +80,8 @@ class FixedTradingChart {
         this.currentInterval = cfg.currentInterval || 'day';
         this._chartType = cfg.chartType || 'candle';
         this.heikinAshiData = [];
-        this._kagiReversalPct = cfg.kagiReversalPct || 1.0;
+        this._renkoBoxPctIntraday = cfg.renkoBoxPctIntraday || 0.5;
+        this._renkoBoxPctSwing = cfg.renkoBoxPctSwing || 1.5;
         this.currentSymbol = cfg.currentSymbol || '';
         this.currentSymbolDescription = cfg.watermarkDescription || '';
         this.showWatermarkDescription = cfg.showWatermarkDescription === true;
@@ -204,7 +205,7 @@ class FixedTradingChart {
             this._computeBjTrendIndicator();
             this._computeCVD();
             this._computeRSI();
-            this._computeKagi(this._kagiReversalPct || 1.0);
+            this._computeRenko();
         }
 
         // ── Bridge ──
@@ -358,7 +359,7 @@ class FixedTradingChart {
     }
 
     _updateChartAreas() {
-        const pad = { top: 32, right: this._computeRightAxisWidth(), bottom: 18, left: 8 };
+        const pad = { top: 32, right: this._computeRightAxisWidth(), bottom: 24, left: 8 };
         const volumeRatio = 0.13;    // volume pane
         const cvdRatio    = 0.14;    // CVD pane
         const rsiRatio    = 0.13;    // RSI pane
@@ -498,81 +499,32 @@ class FixedTradingChart {
     //
     // Each segment: { x1, y1, x2, y2, yang: bool, isReversal: bool }
     // ─────────────────────────────────────────────────────────────────────
-    _computeKagi(reversalPct = 1.0) {
-        if (this.data.length < 2) { this.kagiSegments = []; return; }
-
-        const closes = this.data.map(d => d.close);
-        const reversalAmt = closes[0] * (reversalPct / 100);
-
-        // ── Build kagi turning points ────────────────────────────────────
-        // A turning point is a {price, dataIndex} where direction changes.
-        const turns = [{ price: closes[0], idx: 0 }];
-        let direction = closes[1] >= closes[0] ? 1 : -1;  // 1=up, -1=down
-
-        for (let i = 1; i < closes.length; i++) {
-            const last = turns[turns.length - 1].price;
-            const c = closes[i];
-            const reversal = Math.abs(last) * (reversalPct / 100);
-
-            if (direction === 1) {
-                if (c > last) {
-                    // Extend the current up move
-                    turns[turns.length - 1] = { price: c, idx: i };
-                } else if (last - c >= reversal) {
-                    // Reversal — add new turning point and switch direction
-                    turns.push({ price: c, idx: i });
-                    direction = -1;
-                }
-            } else {
-                if (c < last) {
-                    // Extend the current down move
-                    turns[turns.length - 1] = { price: c, idx: i };
-                } else if (c - last >= reversal) {
-                    // Reversal — add new turning point and switch direction
-                    turns.push({ price: c, idx: i });
-                    direction = 1;
-                }
+    _computeRenko() {
+        if (this.data.length < 2) { this.renkoBricks = []; return; }
+        const intraday = ['minute', '3minute', '5minute', '10minute', '15minute', '30minute', '60minute'].includes(this.currentInterval);
+        const boxPct = Math.max(0.01, intraday ? this._renkoBoxPctIntraday : this._renkoBoxPctSwing);
+        let lastBrickClose = this.data[0].close;
+        const bricks = [];
+        for (let i = 1; i < this.data.length; i++) {
+            const close = this.data[i].close;
+            const brickSize = Math.max(0.0001, Math.abs(lastBrickClose) * (boxPct / 100.0));
+            let delta = close - lastBrickClose;
+            while (Math.abs(delta) >= brickSize) {
+                const dir = delta > 0 ? 1 : -1;
+                const nextClose = lastBrickClose + dir * brickSize;
+                bricks.push({
+                    fromPrice: lastBrickClose,
+                    toPrice: nextClose,
+                    fromIdx: i - 1,
+                    toIdx: i,
+                    yang: dir > 0,
+                    goingUp: dir > 0,
+                });
+                lastBrickClose = nextClose;
+                delta = close - lastBrickClose;
             }
         }
-
-        // ── Determine Yang/Yin for each segment ──────────────────────────
-        // Yang = thick = price exceeded previous peak
-        // Yin  = thin  = price broke previous trough
-        // Initial state: Yang if first move is up, Yin if down
-        let yang = turns.length > 1 ? turns[1].price > turns[0].price : true;
-
-        // Track peaks and troughs for Yang/Yin transitions
-        let peaks   = [turns[0].price];   // prior highs
-        let troughs = [turns[0].price];   // prior lows
-
-        this.kagiSegments = [];
-        this.kagiTurns = turns;
-
-        for (let i = 1; i < turns.length; i++) {
-            const from = turns[i - 1];
-            const to   = turns[i];
-            const goingUp = to.price > from.price;
-
-            // Yang/Yin transition check
-            if (goingUp) {
-                const prevPeak = peaks.length >= 2 ? peaks[peaks.length - 2] : peaks[0];
-                if (to.price > prevPeak) yang = true;
-                peaks.push(to.price);
-            } else {
-                const prevTrough = troughs.length >= 2 ? troughs[troughs.length - 2] : troughs[0];
-                if (to.price < prevTrough) yang = false;
-                troughs.push(to.price);
-            }
-
-            this.kagiSegments.push({
-                fromPrice: from.price,
-                toPrice:   to.price,
-                fromIdx:   from.idx,
-                toIdx:     to.idx,
-                yang,
-                goingUp,
-            });
-        }
+        this.renkoBricks = bricks;
     }
 
     _isHeikinAshiMode() {
@@ -891,8 +843,8 @@ class FixedTradingChart {
             this._drawBjTrendIndicator();
             // Chart type dispatch
             const chartType = this._chartType || window.__CHART_DATA__?.chartType || 'candle';
-            if (chartType === 'kagi') {
-                this._drawKagi();
+            if (chartType === 'renko') {
+                this._drawRenko();
             } else if (chartType === 'bar') {
                 this._drawOHLCBars();
             } else if (chartType === 'line') {
@@ -1194,10 +1146,10 @@ class FixedTradingChart {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // KAGI RENDERER
+    // RENKO RENDERER
     // ═══════════════════════════════════════════════════════════════════════
-    _drawKagi() {
-        if (!this.kagiSegments || this.kagiSegments.length === 0) return;
+    _drawRenko() {
+        if (!this.renkoBricks || this.renkoBricks.length === 0) return;
 
         const ctx = this.ctx;
         const area = this.chartArea;
@@ -1211,14 +1163,14 @@ class FixedTradingChart {
 
         // Map kagi index → canvas X position
         // Kagi segments are spaced evenly regardless of time
-        const totalSegs = this.kagiSegments.length;
+        const totalSegs = this.renkoBricks.length;
         const slotW     = Math.max(8, area.width / Math.max(1, totalSegs + 2));
 
         // Helper: segment index → canvas X center
         const segX = (idx) => area.x + (idx + 1) * slotW;
 
-        for (let i = 0; i < this.kagiSegments.length; i++) {
-            const seg = this.kagiSegments[i];
+        for (let i = 0; i < this.renkoBricks.length; i++) {
+            const seg = this.renkoBricks[i];
             const x   = segX(i);
             const y1  = this._priceToY(seg.fromPrice);
             const y2  = this._priceToY(seg.toPrice);
@@ -1235,7 +1187,7 @@ class FixedTradingChart {
             // At each reversal, a small horizontal line connects to next segment
             if (i > 0) {
                 const prevX = segX(i - 1);
-                const prevSeg = this.kagiSegments[i - 1];
+                const prevSeg = this.renkoBricks[i - 1];
                 ctx.strokeStyle = HORIZ_COLOR;
                 ctx.lineWidth   = 1;
                 ctx.setLineDash([]);
@@ -1256,7 +1208,7 @@ class FixedTradingChart {
 
             // ── Yang/Yin transition marker ────────────────────────────────
             // A small circle at the transition point (where state changed)
-            if (i > 0 && this.kagiSegments[i - 1].yang !== seg.yang) {
+            if (i > 0 && this.renkoBricks[i - 1].yang !== seg.yang) {
                 ctx.fillStyle   = color;
                 ctx.strokeStyle = '#0b0f18';
                 ctx.lineWidth   = 1.2;
@@ -1268,7 +1220,7 @@ class FixedTradingChart {
         }
 
         // ── Last price ray (same as candlestick mode) ─────────────────────
-        const lastSeg = this.kagiSegments[this.kagiSegments.length - 1];
+        const lastSeg = this.renkoBricks[this.renkoBricks.length - 1];
         if (lastSeg) {
             const liveP = this.livePrice || lastSeg.toPrice;
             const ly    = this._priceToY(liveP);
@@ -3976,7 +3928,7 @@ class FixedTradingChart {
             this._computeBjTrendIndicator();
             this._computeCVD();
             this._computeRSI();
-            this._computeKagi(this._kagiReversalPct || 1.0);
+            this._computeRenko();
         }
 
         // Load drawings.
@@ -4035,7 +3987,7 @@ class FixedTradingChart {
         this._computeBjTrendIndicator();
         this._computeCVD();
         this._computeRSI();
-        this._computeKagi(this._kagiReversalPct || 1.0);
+        this._computeRenko();
         this.calculateBounds();
         this.requestDraw();
         this.updateSlider();
@@ -4081,14 +4033,13 @@ class FixedTradingChart {
             if (window.__CHART_DATA__) {
                 window.__CHART_DATA__.chartType = cfg.chartType;
             }
-            if (cfg.chartType === 'kagi') {
-                this._computeKagi(this._kagiReversalPct || 1.0);
+            if (cfg.chartType === 'renko') {
+                this._computeRenko();
             }
         }
-        if (cfg.kagiReversalPct !== undefined) {
-            this._kagiReversalPct = cfg.kagiReversalPct;
-            this._computeKagi(this._kagiReversalPct);
-        }
+        if (cfg.renkoBoxPctIntraday !== undefined) this._renkoBoxPctIntraday = cfg.renkoBoxPctIntraday;
+        if (cfg.renkoBoxPctSwing !== undefined) this._renkoBoxPctSwing = cfg.renkoBoxPctSwing;
+        if (cfg.renkoBoxPctIntraday !== undefined || cfg.renkoBoxPctSwing !== undefined) this._computeRenko();
         if (cfg.toolSelectionMode !== undefined) {
             this.toolSelectionMode = cfg.toolSelectionMode === 'multi_use' ? 'multi_use' : 'single_use';
             if (this.drawingEngine) {
