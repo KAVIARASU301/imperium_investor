@@ -1785,7 +1785,7 @@ class ChartinkScannerTable(QWidget):
 
             /* Subtle scan refresh button */
             QPushButton#scanRefreshButton {
-                color: #8f99a8;
+                color: #6ec8ff;
                 font-size: 11px;
                 font-weight: 500;
                 padding: 0 8px;
@@ -1795,12 +1795,12 @@ class ChartinkScannerTable(QWidget):
                 text-align: left;
             }
             QPushButton#scanRefreshButton:hover {
-                color: #b2bdcd;
+                color: #9ad9ff;
                 background: #111720;
                 border-color: #253049;
             }
             QPushButton#scanRefreshButton:pressed {
-                color: #d5dce7;
+                color: #c5ebff;
                 background: #151d29;
                 border-color: #2f3d5a;
             }
