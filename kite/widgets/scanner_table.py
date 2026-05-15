@@ -50,9 +50,10 @@ class VolumeStrengthDelegate(QStyledItemDelegate):
         empty_color = QColor(70, 82, 98, 120)
         text_color = QColor(fill_color)
         if opt.state & QStyle.StateFlag.State_Selected:
-            text_color = opt.palette.highlightedText().color()
-            empty_color = QColor(220, 235, 255, 70)
-            track_color = QColor(220, 235, 255, 50)
+            # Keep volume text/color stable during selection to avoid sudden text
+            # color shifts while still indicating selected state.
+            empty_color = QColor(220, 235, 255, 60)
+            track_color = QColor(220, 235, 255, 40)
 
         rect = opt.rect.adjusted(5, 0, -5, 0)
         segment_count = 3
@@ -1899,6 +1900,7 @@ class ChartinkScannerTable(QWidget):
                 border: 1px solid #1a2030;
                 gridline-color: #1a2030;
                 selection-background-color: rgba(74, 122, 191, 0.12);
+                selection-color: #d7e2f2;
                 alternate-background-color: #0f1318;
                 outline: none;
                 show-decoration-selected: 0;
@@ -1918,6 +1920,7 @@ class ChartinkScannerTable(QWidget):
                 background-color: rgba(74, 122, 191, 0.12) !important;
                 outline: none;
                 border: none;
+                color: #d7e2f2;
                 font-weight: 400;
             }
 
@@ -1925,6 +1928,7 @@ class ChartinkScannerTable(QWidget):
                 background-color: rgba(74, 122, 191, 0.12) !important;
                 outline: none;
                 border: none;
+                color: #d7e2f2;
             }
 
             QTableWidget::item:hover {
@@ -1937,6 +1941,7 @@ class ChartinkScannerTable(QWidget):
 
             QTableWidget::item:alternate:selected {
                 background-color: rgba(74, 122, 191, 0.12) !important;
+                color: #d7e2f2;
                 font-weight: 400;
             }
 

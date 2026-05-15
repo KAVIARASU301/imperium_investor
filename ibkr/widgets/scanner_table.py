@@ -48,9 +48,10 @@ class VolumeStrengthDelegate(QStyledItemDelegate):
         empty_color = QColor(70, 82, 98, 120)
         text_color = QColor(fill_color)
         if opt.state & QStyle.StateFlag.State_Selected:
-            text_color = opt.palette.highlightedText().color()
-            empty_color = QColor(220, 235, 255, 70)
-            track_color = QColor(220, 235, 255, 50)
+            # Keep volume text/color stable on row selection; only soften the track
+            # so selected rows remain readable without drastic color flips.
+            empty_color = QColor(220, 235, 255, 60)
+            track_color = QColor(220, 235, 255, 40)
 
         rect = opt.rect.adjusted(5, 0, -5, 0)
         segment_count = 3
@@ -1831,7 +1832,8 @@ class ChartinkScannerTable(QWidget):
                 background-color: #0b0f14;
                 border: 1px solid #1a2030;
                 gridline-color: #1d2636;
-                selection-background-color: #223552;
+                selection-background-color: rgba(74, 122, 191, 0.10);
+                selection-color: #d7e2f2;
                 alternate-background-color: #0b0f14;
                 outline: none;
                 show-decoration-selected: 0;
@@ -1847,17 +1849,18 @@ class ChartinkScannerTable(QWidget):
             }
 
             QTableWidget::item:selected {
-                background-color: #1a2840 !important;
+                background-color: rgba(74, 122, 191, 0.10) !important;
                 outline: none;
                 border: none;
-                color: #ffffff;
-                font-weight: 600;
+                color: #d7e2f2;
+                font-weight: 400;
             }
 
             QTableWidget::item:focus {
-                background-color: #1a2840 !important;
+                background-color: rgba(74, 122, 191, 0.10) !important;
                 outline: none;
                 border: none;
+                color: #d7e2f2;
             }
 
             QTableWidget::item:hover {
@@ -1869,9 +1872,9 @@ class ChartinkScannerTable(QWidget):
             }
 
             QTableWidget::item:alternate:selected {
-                background-color: #1a2840 !important;
-                color: #ffffff;
-                font-weight: 600;
+                background-color: rgba(74, 122, 191, 0.10) !important;
+                color: #d7e2f2;
+                font-weight: 400;
             }
 
             /* Header Styling */
