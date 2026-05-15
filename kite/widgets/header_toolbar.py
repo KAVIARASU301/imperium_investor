@@ -5,9 +5,11 @@ from PySide6.QtWidgets import (
     QToolBar, QWidget, QLabel, QSizePolicy, QPushButton,
     QHBoxLayout
 )
-from PySide6.QtCore import Signal, Qt, QThreadPool, QTimer, Slot
+from PySide6.QtCore import Signal, Qt, QThreadPool, QTimer, Slot, QSize
+from PySide6.QtGui import QIcon
 from kiteconnect import KiteConnect
 
+from app_paths import get_asset_path
 from kite.utils.worker import Worker
 from kite.widgets.search_bar import EnhancedSearchInput, SymbolIndex
 logger = logging.getLogger(__name__)
@@ -136,15 +138,23 @@ class HeaderToolbar(QToolBar):
 
         self.addWidget(self.search_input)
 
-        self.buy_button = QPushButton("BUY")
+        self.buy_button = QPushButton()
         self.buy_button.setObjectName("buyButton")
-        self.buy_button.setFixedSize(42, 22)
+        self.buy_button.setFixedSize(24, 22)
+        self.buy_button.setIconSize(QSize(10, 10))
+        buy_icon_path = get_asset_path("icons", "plus.svg", required=True)
+        if buy_icon_path is not None:
+            self.buy_button.setIcon(QIcon(str(buy_icon_path)))
         self.buy_button.clicked.connect(self._on_buy_clicked)
         self.addWidget(self.buy_button)
 
-        self.sell_button = QPushButton("SELL")
+        self.sell_button = QPushButton()
         self.sell_button.setObjectName("sellButton")
-        self.sell_button.setFixedSize(42, 22)
+        self.sell_button.setFixedSize(24, 22)
+        self.sell_button.setIconSize(QSize(10, 10))
+        sell_icon_path = get_asset_path("icons", "minus.svg", required=True)
+        if sell_icon_path is not None:
+            self.sell_button.setIcon(QIcon(str(sell_icon_path)))
         self.sell_button.clicked.connect(self._on_sell_clicked)
         self.addWidget(self.sell_button)
 
