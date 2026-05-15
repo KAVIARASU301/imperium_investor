@@ -860,6 +860,8 @@ class FixedTradingChart {
             const chartType = this._chartType || window.__CHART_DATA__?.chartType || 'candle';
             if (chartType === 'kagi') {
                 this._drawKagi();
+            } else if (chartType === 'bar') {
+                this._drawOHLCBars();
             } else {
                 this._drawCandlesticks();
             }
@@ -1056,6 +1058,52 @@ class FixedTradingChart {
                 ctx.fillStyle = col;
                 ctx.fillRect(bx, topY, bodyW, bodyH);
             }
+        }
+    }
+
+    _drawOHLCBars() {
+        const ctx = this.ctx;
+        const slotW = this._slotW();
+        const stemW = Math.max(1, Math.min(1.5, this.candleWidth * 0.16));
+        const tickW = Math.max(2, Math.min(Math.floor(slotW * 0.32), Math.floor(this.candleWidth * 0.9)));
+
+        for (let i = this.viewPortStart; i <= this.viewPortEnd; i++) {
+            if (i < 0 || i >= this.data.length) continue;
+            const c = this.data[i];
+            if (!c) continue;
+
+            const x = this._candleToX(i);
+            const cx = x + this.candleWidth / 2;
+            const openY = this._priceToY(c.open);
+            const highY = this._priceToY(c.high);
+            const lowY = this._priceToY(c.low);
+            const closeY = this._priceToY(c.close);
+
+            const isDoji = Math.abs(c.close - c.open) < 1e-10;
+            const isUp = c.close > c.open;
+            const col = isDoji ? this.colors.dojiCandle : (isUp ? this.colors.upCandle : this.colors.downCandle);
+
+            ctx.strokeStyle = col;
+            ctx.lineWidth = stemW;
+            ctx.setLineDash([]);
+
+            // High-low stem
+            ctx.beginPath();
+            ctx.moveTo(cx, highY);
+            ctx.lineTo(cx, lowY);
+            ctx.stroke();
+
+            // Open tick (left)
+            ctx.beginPath();
+            ctx.moveTo(cx - tickW, openY);
+            ctx.lineTo(cx, openY);
+            ctx.stroke();
+
+            // Close tick (right)
+            ctx.beginPath();
+            ctx.moveTo(cx, closeY);
+            ctx.lineTo(cx + tickW, closeY);
+            ctx.stroke();
         }
     }
 
