@@ -22,7 +22,7 @@ from typing import Any, Dict, Optional
 
 import pandas as pd
 from kiteconnect import KiteConnect
-from PySide6.QtCore import QTimer, Signal, Slot, Qt
+from PySide6.QtCore import QEvent, QTimer, Signal, Slot, Qt
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
@@ -442,6 +442,8 @@ class CandlestickChart(QWidget):
         QShortcut(QKeySequence("Ctrl+A"), self).activated.connect(self._auto_scale)
         QShortcut(QKeySequence("Ctrl+S"), self).activated.connect(self._save_snapshot)
         QShortcut(QKeySequence("F5"),     self).activated.connect(self._force_refresh)
+        QShortcut(QKeySequence("Shift+Up"), self).activated.connect(lambda: self._step_timeframe(+1))
+        QShortcut(QKeySequence("Shift+Down"), self).activated.connect(lambda: self._step_timeframe(-1))
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -673,6 +675,7 @@ class CandlestickChart(QWidget):
         self.chart_bridge.text_note_requested.connect(self._open_text_note_dialog)
         self.chart_bridge.text_note_edit_requested.connect(self._open_text_note_edit_dialog)
         self.chart_bridge.drawing_tool_cleared.connect(self._clear_active_tool_ui)
+        self.chart_bridge.timeframe_step_requested.connect(self._step_timeframe)
         self.chart_bridge.alert_creation_requested.connect(self.alert_creation_requested)
         self.chart_bridge.alert_price_updated.connect(self._on_alert_price_updated)
         self.chart_bridge.alert_line_deleted.connect(self.alert_line_deleted)
@@ -681,6 +684,22 @@ class CandlestickChart(QWidget):
         self.chart_bridge.order_dialog_requested.connect(self.order_dialog_requested)
 
         self.chart_layout.addWidget(self.chart_view)
+        self.chart_view.installEventFilter(self)
+
+    def eventFilter(self, watched, event):
+        if watched is self.chart_view and event is not None:
+            if event.type() == QEvent.Type.Wheel and bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
+                delta_y = event.angleDelta().y()
+                if delta_y > 0:
+                    self._step_timeframe(+1)
+                    event.accept()
+                    return True
+                if delta_y < 0:
+                    self._step_timeframe(-1)
+                    event.accept()
+                    return True
+
+        return super().eventFilter(watched, event)
 
     # ── Live updates ──────────────────────────────────────────────────────
 
@@ -1212,12 +1231,30 @@ class CandlestickChart(QWidget):
 
     def _change_timeframe(self, interval: str) -> None:
         if interval and interval != self.current_interval:
+            if self.toolbar:
+                self.toolbar.set_timeframe(interval)
             if self.current_symbol:
                 self._save_current_state_sync()
             self.current_interval = interval
             if self.current_symbol:
                 self.drawing_storage.save_last_viewed_symbol(self.current_symbol, self.current_interval)
                 self._load_chart_data()
+
+    def _step_timeframe(self, direction: int) -> None:
+        dropdown = self.toolbar.timeframe_dropdown if self.toolbar else None
+        if not dropdown or dropdown.count() <= 0:
+            return
+
+        current_idx = dropdown.currentIndex()
+        if current_idx < 0:
+            return
+
+        step = 1 if direction > 0 else -1
+        next_idx = max(0, min(dropdown.count() - 1, current_idx + step))
+        if next_idx == current_idx:
+            return
+
+        dropdown.setCurrentIndex(next_idx)
 
     def _auto_scale(self) -> None:
         self._js("if(window.autoScale) window.autoScale();")

@@ -2834,6 +2834,17 @@ class FixedTradingChart {
 
     _onWheel(e) {
         e.preventDefault();
+
+        if (e.shiftKey) {
+            const delta = e.deltaY || e.deltaX;
+            const direction = delta < 0 ? 1 : -1;
+            if (this.chartBridge && (direction === 1 || direction === -1)) {
+                try { this.chartBridge.notify_timeframe_step_requested(direction); }
+                catch (err) { console.error("notify_timeframe_step_requested error:", err); }
+            }
+            return;
+        }
+
         const delta  = e.deltaY || e.deltaX;
         const zoomIn = delta < 0;
         const pos = this._mousePos(e);

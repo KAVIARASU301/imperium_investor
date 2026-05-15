@@ -44,6 +44,7 @@ class ChartBridge(QObject):
     text_note_requested = Signal(str)       # mouse-pos JSON
     text_note_edit_requested = Signal(str)  # note JSON
     drawing_tool_cleared = Signal()
+    timeframe_step_requested = Signal(int)  # +1 for up, -1 for down
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -159,6 +160,11 @@ class ChartBridge(QObject):
     def notify_drawing_tool_cleared(self) -> None:
         if self.webChannelInitialized:
             self.drawing_tool_cleared.emit()
+
+    @Slot(int)
+    def notify_timeframe_step_requested(self, direction: int) -> None:
+        if self.webChannelInitialized and direction in (-1, 1):
+            self.timeframe_step_requested.emit(direction)
 
     # ─── Helpers ─────────────────────────────────────────────────────────────
 
