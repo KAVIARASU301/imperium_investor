@@ -901,7 +901,7 @@ class CandlestickChart(QWidget):
     def _toggle_measure_tool(self, checked: bool) -> None:
         if checked:
             self.current_drawing_tool = "measure"
-            self.toolbar.reset_draw_btn()
+            self.toolbar.reset_draw_btn(clear_measure=False)
             self._js("if(window.chart) window.chart.setDrawingTool('measure', true);")
         else:
             if self.current_drawing_tool == "measure":

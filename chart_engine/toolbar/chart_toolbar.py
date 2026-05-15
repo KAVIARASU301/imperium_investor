@@ -523,7 +523,7 @@ class ChartToolbar(QFrame):
         self.measure_btn = QPushButton()
         self.measure_btn.setObjectName("toolBtn")
         self.measure_btn.setProperty("toolRole", "measure")
-        _apply_icon(self.measure_btn, "measure", 17)
+        _apply_icon(self.measure_btn, "measure", 16)
         self.measure_btn.setFixedSize(28, 22)
         self.measure_btn.setCheckable(True)
         self.measure_btn.setToolTip("Measure  [E]")
@@ -544,8 +544,8 @@ class ChartToolbar(QFrame):
 
         self.clear_drawings_btn = QPushButton()
         self.clear_drawings_btn.setObjectName("clearBtn")
-        _apply_icon(self.clear_drawings_btn, "clear", 14)
-        self.clear_drawings_btn.setFixedSize(24, 22)
+        _apply_icon(self.clear_drawings_btn, "clear", 16)
+        self.clear_drawings_btn.setFixedSize(28, 22)
         self.clear_drawings_btn.setToolTip("Clear all drawings")
         dt_lay.addWidget(self.clear_drawings_btn)
 
@@ -566,7 +566,7 @@ class ChartToolbar(QFrame):
         # Autoscale
         self.autoscale_btn = self._icon_btn("", "Auto-scale  [Ctrl+A]", 28, "auto_scale")
         self.autoscale_btn.setCheckable(True)
-        self.autoscale_btn.setChecked(True)
+        self.autoscale_btn.setChecked(False)
         lay.addWidget(self.autoscale_btn)
         lay.addWidget(_gap(2))
 
@@ -770,10 +770,10 @@ class ChartToolbar(QFrame):
         if action:
             action.setChecked(True)
 
-    def reset_draw_btn(self) -> None:
+    def reset_draw_btn(self, clear_measure: bool = True) -> None:
         for btn in self._tool_buttons.values():
             btn.setChecked(False)
-        if self.measure_btn:
+        if clear_measure and self.measure_btn:
             self.measure_btn.setChecked(False)
         grp = self._drawing_action_group
         if grp:
