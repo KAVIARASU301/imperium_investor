@@ -79,11 +79,13 @@ class FixedTradingChart {
         this.percentageChanges = cfg.percentageChanges || {};
         this.currentInterval = cfg.currentInterval || 'day';
         this._chartType = cfg.chartType || 'candle';
+        this.heikinAshiData = [];
         this._kagiReversalPct = cfg.kagiReversalPct || 1.0;
         this.currentSymbol = cfg.currentSymbol || '';
         this.currentSymbolDescription = cfg.watermarkDescription || '';
         this.showWatermarkDescription = cfg.showWatermarkDescription === true;
         this._intradayTimestampsAlreadyIst = null;
+        this._rebuildHeikinAshiData();
 
         // ── Settings ──
         this.colors = {
@@ -226,6 +228,8 @@ class FixedTradingChart {
         installPublicApiShims(this);
         this._setupEventListeners();
         this._setupWebChannel();
+        this._rebuildHeikinAshiData();
+        this._rebuildHeikinAshiData();
         this.requestDraw();
         this.updateSlider();
         this._displayLatestCandleDetails();
@@ -263,6 +267,7 @@ class FixedTradingChart {
         // Fixed slot width → more/fewer candles fit automatically, no stretching.
         this._updateViewport();
         this.calculateBounds();
+        this._rebuildHeikinAshiData();
         this.requestDraw();
         this.updateSlider();
     }
@@ -568,6 +573,34 @@ class FixedTradingChart {
                 goingUp,
             });
         }
+    }
+
+    _isHeikinAshiMode() {
+        const chartType = this._chartType || window.__CHART_DATA__?.chartType || 'candle';
+        return chartType === 'heikinashi';
+    }
+
+    _rebuildHeikinAshiData() {
+        if (!Array.isArray(this.data) || this.data.length === 0) {
+            this.heikinAshiData = [];
+            return;
+        }
+        const out = [];
+        for (let i = 0; i < this.data.length; i++) {
+            const c = this.data[i];
+            const haClose = (c.open + c.high + c.low + c.close) / 4;
+            const haOpen = (i === 0)
+                ? (c.open + c.close) / 2
+                : (out[i - 1].open + out[i - 1].close) / 2;
+            const haHigh = Math.max(c.high, haOpen, haClose);
+            const haLow = Math.min(c.low, haOpen, haClose);
+            out.push({ ...c, open: haOpen, high: haHigh, low: haLow, close: haClose });
+        }
+        this.heikinAshiData = out;
+    }
+
+    _getPriceSeriesForRendering() {
+        return this._isHeikinAshiMode() ? this.heikinAshiData : this.data;
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -981,6 +1014,7 @@ class FixedTradingChart {
 
     _drawCandlesticks() {
         const ctx      = this.ctx;
+        const series   = this._getPriceSeriesForRendering();
         const visCount = this.viewPortEnd - this.viewPortStart + 1;
         if (visCount <= 0) return;
 
@@ -993,9 +1027,9 @@ class FixedTradingChart {
         ctx.lineJoin = 'miter';
         ctx.lineCap  = 'butt';
 
-        for (let i = Math.max(0, this.viewPortStart - 1); i < this.data.length && i <= this.viewPortEnd + 1; i++) {
+        for (let i = Math.max(0, this.viewPortStart - 1); i < series.length && i <= this.viewPortEnd + 1; i++) {
             if (i < 0) continue;
-            const c = this.data[i];
+            const c = series[i];
             const x = this._candleToX(i);
 
             const openY  = this._priceToY(c.open);
@@ -1034,12 +1068,12 @@ class FixedTradingChart {
         }
 
         // Live price candle — update last bar
-        if (this.livePrice !== null && this.data.length > 0) {
-            const last = this.data.length - 1;
+        if (this.livePrice !== null && series.length > 0 && !this._isHeikinAshiMode()) {
+            const last = series.length - 1;
             if (last >= this.viewPortStart && last <= this.viewPortEnd) {
-                const c  = { ...this.data[last], close: this.livePrice,
-                              high: Math.max(this.data[last].high, this.livePrice),
-                              low:  Math.min(this.data[last].low,  this.livePrice) };
+                const c  = { ...series[last], close: this.livePrice,
+                              high: Math.max(series[last].high, this.livePrice),
+                              low:  Math.min(series[last].low,  this.livePrice) };
                 const x     = this._candleToX(last);
                 const bx    = x + bodyInset;
                 const openY = this._priceToY(c.open);
@@ -3150,17 +3184,18 @@ class FixedTradingChart {
         const lockedMin = this.isUserYRange ? this.minPrice : null;
         const lockedMax = this.isUserYRange ? this.maxPrice : null;
 
+        const series = this._getPriceSeriesForRendering();
         const start = Math.max(0, this.viewPortStart);
-        const end   = Math.min(this.data.length - 1, this.viewPortEnd);
-        const slice = this.data.slice(start, end + 1);
+        const end   = Math.min(series.length - 1, this.viewPortEnd);
+        const slice = series.slice(start, end + 1);
         if (slice.length === 0) return;
 
         this.minPrice = Math.min(...slice.map(d => d.low));
         this.maxPrice = Math.max(...slice.map(d => d.high));
 
         // Include EMA values in price range
-        const firstT = this.data[start]?.time;
-        const lastT  = this.data[end]?.time;
+        const firstT = series[start]?.time;
+        const lastT  = series[end]?.time;
         for (const emaList of Object.values(this.emaData)) {
             for (const item of emaList) {
                 if (item.time >= firstT && item.time <= lastT) {
@@ -3171,7 +3206,7 @@ class FixedTradingChart {
         }
 
         // Include live price
-        if (this.livePrice !== null) {
+        if (this.livePrice !== null && !this._isHeikinAshiMode()) {
             this.minPrice = Math.min(this.minPrice, this.livePrice);
             this.maxPrice = Math.max(this.maxPrice, this.livePrice);
         }
@@ -3879,6 +3914,7 @@ class FixedTradingChart {
         this._hasLiveTicks = false;
 
         this.data = cfg.candlestickData || [];
+        this._rebuildHeikinAshiData();
         this.volumeData = cfg.volumeData || [];
         this.emaData = cfg.emaData || {};
         this.currentADR = cfg.initialADR || {};
