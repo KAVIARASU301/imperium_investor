@@ -358,14 +358,14 @@ class FixedTradingChart {
     }
 
     _updateChartAreas() {
-        const pad = { top: 32, right: this._computeRightAxisWidth(), bottom: 20, left: 8 };
+        const pad = { top: 32, right: this._computeRightAxisWidth(), bottom: 18, left: 8 };
         const volumeRatio = 0.13;    // volume pane
         const cvdRatio    = 0.14;    // CVD pane
         const rsiRatio    = 0.13;    // RSI pane
         const volOn = this.indicatorVisibility && this.indicatorVisibility.volume !== false;
         const cvdOn = this.indicatorVisibility && this.indicatorVisibility.cvd    !== false;
         const rsiOn = this.indicatorVisibility && this.indicatorVisibility.rsi    !== false;
-        const innerH    = this.height - pad.top - pad.bottom - 16;
+        const innerH    = this.height - pad.top - pad.bottom;
         const usedRatio = (volOn ? volumeRatio : 0) + (cvdOn ? cvdRatio : 0) + (rsiOn ? rsiRatio : 0);
         const chartH = Math.floor(innerH * (1 - usedRatio));
         const volH   = volOn ? Math.floor(innerH * volumeRatio) : 0;
