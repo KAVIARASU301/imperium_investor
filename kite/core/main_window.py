@@ -99,7 +99,10 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.api_key = api_key
         self.access_token = access_token
         self.config_manager = ConfigManager()
+        self.app_settings = self.config_manager.load_settings()
         self.color_theme_manager = get_color_theme_manager()
+        theme_dual_mode = bool(self.color_theme_manager.get_theme().get('dual_chart_mode', False))
+        self.dual_chart_mode_enabled = bool(self.app_settings.get('dual_chart_mode', theme_dual_mode))
         paper_trader = self._get_paper_trading_manager()
         self.trading_mode = 'paper' if paper_trader else 'live'
         self.trade_logger = TradeLogger(
@@ -240,6 +243,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         # Create components
         self.chartink_scanner = ChartinkScannerTable()
         self.candlestick_chart = ChartWindow(self.real_kite_client)
+        self.candlestick_chart_secondary = ChartWindow(self.real_kite_client)
         self.candlestick_chart.data_cache = MarketAwareDataCache(parent=self.candlestick_chart)
         # Backward-compat for force-refresh path still using `_cache`.
         if not hasattr(self.candlestick_chart.data_cache, '_cache'):
@@ -257,6 +261,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.positions_table.apply_color_theme(initial_theme)
         self.positions_table.set_footer_metrics_visible(False)
         self.candlestick_chart.apply_color_theme(initial_theme)
+        self.candlestick_chart_secondary.apply_color_theme(initial_theme)
 
         # Create right panel splitter
         right_panel_splitter = QSplitter(Qt.Orientation.Vertical)
@@ -277,22 +282,25 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.chartink_scanner.setMinimumWidth(220)
         right_panel_splitter.setMinimumWidth(220)
         self.candlestick_chart.setMinimumWidth(520)
+        self.candlestick_chart_secondary.setMinimumWidth(520)
 
         # Add to the main splitter
         self.main_splitter.addWidget(self.chartink_scanner)
         self.main_splitter.addWidget(self.candlestick_chart)
+        self.main_splitter.addWidget(self.candlestick_chart_secondary)
         self.main_splitter.addWidget(right_panel_splitter)
 
         self.main_splitter.setChildrenCollapsible(False)
         self.main_splitter.setHandleWidth(1)
         self.main_splitter.setStretchFactor(0, 1)
-        self.main_splitter.setStretchFactor(1, 5)
-        self.main_splitter.setStretchFactor(2, 2)
-        self.main_splitter.setSizes([220, 900, 320])
+        self.main_splitter.setStretchFactor(1, 4)
+        self.main_splitter.setStretchFactor(2, 4)
+        self.main_splitter.setStretchFactor(3, 2)
         self.main_splitter.splitterMoved.connect(self._on_main_splitter_moved)
         self.main_splitter.splitterMoved.connect(self._queue_window_state_save)
 
         self.right_panel_splitter = right_panel_splitter
+        self._apply_chart_mode_layout()
 
         # Bottom status bar (quiet app-level health indicators)
         self.app_status_bar = StatusBar(self)
@@ -347,6 +355,12 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.positions_action.setChecked(True)
         self.positions_action.toggled.connect(self._set_positions_visible)
         view_menu.addAction(self.positions_action)
+
+        self.dual_chart_action = QAction("Dual Chart Mode", self)
+        self.dual_chart_action.setCheckable(True)
+        self.dual_chart_action.setChecked(self.dual_chart_mode_enabled)
+        self.dual_chart_action.toggled.connect(self._set_dual_chart_mode)
+        view_menu.addAction(self.dual_chart_action)
 
         tools_menu = menu_bar.addMenu("Tools")
         open_order_action = tools_menu.addAction("Open Order Dialog", self._show_order_dialog)
@@ -766,6 +780,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.watchlist.apply_color_theme(theme)
         self.positions_table.apply_color_theme(theme)
         self.candlestick_chart.apply_color_theme(theme)
+        self.candlestick_chart_secondary.apply_color_theme(theme)
         self.chartink_scanner.set_live_ticks_enabled(
             bool(theme.get("scanner_live_ticks", True))
         )
@@ -788,7 +803,13 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     def _open_color_settings_dialog(self):
         dialog = ColorSettingsDialog(self.color_theme_manager.get_theme(), self)
         if dialog.exec():
-            self.color_theme_manager.update_theme(dialog.get_theme())
+            updated_theme = dialog.get_theme()
+            self.color_theme_manager.update_theme(updated_theme)
+            self._set_dual_chart_mode(bool(updated_theme.get("dual_chart_mode", False)))
+            if hasattr(self, "dual_chart_action"):
+                self.dual_chart_action.blockSignals(True)
+                self.dual_chart_action.setChecked(self.dual_chart_mode_enabled)
+                self.dual_chart_action.blockSignals(False)
 
     def _show_relay_settings_dialog(self):
         """Open relay settings and hot-reload an active RelayOrderRouter."""
@@ -1164,10 +1185,12 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.positions_table.exit_position_requested.connect(self._handle_exit_position_request)
         self.positions_table.exit_half_position_requested.connect(self._handle_exit_half_position_request)
         self.positions_table.symbol_selected.connect(self.candlestick_chart.on_search)
+        self.positions_table.symbol_selected.connect(self.candlestick_chart_secondary.on_search)
         self.positions_table.subscribe_to_market_data.connect(self._subscribe_to_tokens)
 
         # Chart → Main Window & Header
         self.candlestick_chart.order_button_clicked.connect(self._show_order_dialog)
+        self.candlestick_chart_secondary.order_button_clicked.connect(self._show_order_dialog)
         self.candlestick_chart.symbol_loaded.connect(self.header_toolbar.set_current_symbol)
         if self.alert_system:
             self.candlestick_chart.alert_creation_requested.connect(self.alert_system.create_alert_from_chart)
@@ -1179,6 +1202,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.chartink_scanner.scan_results_changed.connect(self._schedule_subscription_rebuild)
         self.chartink_scanner.visible_rows_changed.connect(self._schedule_subscription_rebuild)
         self.watchlist.symbol_selected.connect(self.candlestick_chart.on_search)
+        self.watchlist.symbol_selected.connect(self.candlestick_chart_secondary.on_search)
         self.watchlist.subscribe_tokens_requested.connect(self._subscribe_to_tokens)
         self.watchlist.place_order_requested.connect(self._show_order_dialog_from_dict)
         self.watchlist.watchlist_changed.connect(self._schedule_subscription_rebuild)
@@ -1188,6 +1212,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         # Header Toolbar → Main Window
         self.header_toolbar.symbol_selected.connect(self.candlestick_chart.on_search)
+        self.header_toolbar.symbol_selected.connect(self.candlestick_chart_secondary.on_search)
         self.header_toolbar.buy_order_requested.connect(self._on_header_buy_order)
         self.header_toolbar.sell_order_requested.connect(self._on_header_sell_order)
         self.header_toolbar.order_history_requested.connect(self._show_order_history_dialog)
@@ -1206,6 +1231,23 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.alert_update_timer = QTimer(self)
         self.alert_update_timer.timeout.connect(self._update_alert_badges)
         self.alert_update_timer.start(30000)
+
+
+    def _set_dual_chart_mode(self, enabled: bool):
+        self.dual_chart_mode_enabled = bool(enabled)
+        self._apply_chart_mode_layout()
+        settings = self.config_manager.load_settings()
+        settings['dual_chart_mode'] = self.dual_chart_mode_enabled
+        self.config_manager.save_settings(settings)
+
+    def _apply_chart_mode_layout(self):
+        if not hasattr(self, 'candlestick_chart_secondary'):
+            return
+        self.candlestick_chart_secondary.setVisible(self.dual_chart_mode_enabled)
+        if self.dual_chart_mode_enabled:
+            self.main_splitter.setSizes([220, 700, 700, 320])
+        else:
+            self.main_splitter.setSizes([220, 1100, 0, 320])
 
     # ==============================================================================
     # WINDOW MANAGEMENT & EVENTS
@@ -1257,6 +1299,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             symbol_index=payload.get("symbol_index"),
         )
         self.candlestick_chart.set_instrument_list(instruments)
+        self.candlestick_chart_secondary.set_instrument_list(instruments)
         self.watchlist.set_instrument_map(self.instrument_map)
         self.chartink_scanner.set_instrument_map(self.instrument_map)
 
@@ -1337,6 +1380,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             self._chart_tick_queue.clear()
             for tick in chart_ticks:
                 self.candlestick_chart.update_live_data(tick)
+                self.candlestick_chart_secondary.update_live_data(tick)
 
         # Flush the coalesced buffer for everything else (watchlist, positions, scanner)
         if not self._tick_buffer_by_token and not self._tick_buffer_without_token:
@@ -1610,11 +1654,10 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             logger.info(f"Added {len(position_tokens)} position tokens")
 
         # Priority 2: Chart token
-        if (hasattr(self, 'candlestick_chart') and
-                hasattr(self.candlestick_chart, 'current_instrument_token') and
-                self.candlestick_chart.current_instrument_token):
-            all_tokens.add(self.candlestick_chart.current_instrument_token)
-            logger.info(f"Added chart token: {self.candlestick_chart.current_instrument_token}")
+        for chart in (getattr(self, 'candlestick_chart', None), getattr(self, 'candlestick_chart_secondary', None)):
+            if chart and getattr(chart, 'current_instrument_token', None):
+                all_tokens.add(chart.current_instrument_token)
+                logger.info(f"Added chart token: {chart.current_instrument_token}")
 
         # Priority 3: Watchlist tokens (only when a watchlist UI is visible)
         watchlist_tokens = []

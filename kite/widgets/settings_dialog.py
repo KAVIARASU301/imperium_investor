@@ -200,6 +200,12 @@ class ColorSettingsDialog(QDialog):
         )
         more_layout.addWidget(self.status_pnl_exposure_right_checkbox)
 
+        self.dual_chart_mode_checkbox = _Toggle("ENABLE DUAL CHART MODE")
+        self.dual_chart_mode_checkbox.setChecked(
+            bool(self._theme.get("dual_chart_mode", False))
+        )
+        more_layout.addWidget(self.dual_chart_mode_checkbox)
+
         account_group = QGroupBox("ACCOUNT HEADER")
         account_layout = QVBoxLayout(account_group)
         account_layout.setContentsMargins(12, 16, 12, 12)
@@ -442,6 +448,7 @@ class ColorSettingsDialog(QDialog):
         self._theme["status_bar_metrics_right"] = self.status_pnl_exposure_right_checkbox.isChecked()
         self._theme["show_account_name"] = self.show_account_name_checkbox.isChecked()
         self._theme["show_account_balance"] = self.show_account_balance_checkbox.isChecked()
+        self._theme["dual_chart_mode"] = self.dual_chart_mode_checkbox.isChecked()
         return self._theme
 
     def _reset_default_candle_colors(self):
