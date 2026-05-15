@@ -253,6 +253,67 @@ class ToolMenuItemWidget(QWidget):
         super().mousePressEvent(ev)
 
 
+class TimeframeMenuItemWidget(QWidget):
+    triggered        = Signal(str)
+    favorite_toggled = Signal(str, bool)
+
+    def __init__(self, label: str, kite_interval: str, tooltip: str, is_fav: bool, parent=None):
+        super().__init__(parent)
+        self.kite_interval = kite_interval
+        self.setObjectName("menuItem")
+        self.setFixedHeight(30)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip(tooltip)
+        self._selected = False
+
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(12, 0, 10, 0)
+        lay.setSpacing(10)
+
+        self.tf_label = QLabel(label)
+        self.full_label = QLabel(tooltip.split("  [")[0])
+        self._refresh_selected_style()
+
+        self.star = QPushButton("★" if is_fav else "☆")
+        self.star.setCheckable(True)
+        self.star.setChecked(is_fav)
+        self.star.setFixedSize(22, 22)
+        self.star.setObjectName("starBtn")
+        self.star.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.star.setStyleSheet(
+            "QPushButton#starBtn{color:#2a3d55;background:transparent;border:none;font-size:14px;}"
+            "QPushButton#starBtn:hover{color:#5a7a99;}"
+            "QPushButton#starBtn:checked{color:#fbbf24;}"
+        )
+        self.star.toggled.connect(
+            lambda c: (self.star.setText("★" if c else "☆"),
+                       self.favorite_toggled.emit(self.kite_interval, c))
+        )
+
+        lay.addWidget(self.tf_label)
+        lay.addWidget(self.full_label)
+        lay.addStretch()
+        lay.addWidget(self.star)
+
+    def set_selected(self, selected: bool) -> None:
+        self._selected = bool(selected)
+        self._refresh_selected_style()
+
+    def _refresh_selected_style(self) -> None:
+        if self._selected:
+            self.tf_label.setStyleSheet("font-size:12px; color:#d6edff; font-weight:800; background:transparent;")
+            self.full_label.setStyleSheet("font-size:11px; color:#8fc8ff; background:transparent;")
+        else:
+            self.tf_label.setStyleSheet("font-size:12px; color:#a8bed4; font-weight:700; background:transparent;")
+            self.full_label.setStyleSheet("font-size:11px; color:#7f9bb8; background:transparent;")
+
+    def mousePressEvent(self, ev):
+        if ev.button() == Qt.MouseButton.LeftButton:
+            if not self.star.geometry().contains(ev.pos()):
+                self.triggered.emit(self.kite_interval)
+        super().mousePressEvent(ev)
+
+
 # ─── ChartToolbar ─────────────────────────────────────────────────────────────
 
 class ChartToolbar(QFrame):
@@ -283,6 +344,8 @@ class ChartToolbar(QFrame):
         self._tool_buttons:     Dict[str, QPushButton] = {}
         self._tool_btn_group:   Optional[QButtonGroup] = None
         self._favorite_tools = ["line", "horizontal_line", "note"]
+        self._favorite_timeframes = ["minute", "5minute", "day"]
+        self._tf_menu_items: Dict[str, TimeframeMenuItemWidget] = {}
 
         # ── Public compat attributes ───────────────────────────────────────
         self.symbol_label:      Optional[QLabel]       = None
@@ -349,13 +412,18 @@ class ChartToolbar(QFrame):
 
         for display, kite_iv, tip in TIMEFRAMES:
             action = QAction(display, self)
-            action.setCheckable(True)
             action.setData(kite_iv)
             action.setToolTip(tip)
             action.triggered.connect(lambda _=False, iv=kite_iv: self._on_tf_clicked(iv))
             tf_group.addAction(action)
-            self._tf_menu.addAction(action)
             self._tf_actions[kite_iv] = action
+            item = TimeframeMenuItemWidget(display, kite_iv, tip, kite_iv in self._favorite_timeframes, self)
+            self._tf_menu_items[kite_iv] = item
+            item.triggered.connect(self._on_tf_clicked)
+            item.favorite_toggled.connect(self._on_tf_fav_toggled)
+            wa = QWidgetAction(self)
+            wa.setDefaultWidget(item)
+            self._tf_menu.addAction(wa)
 
         self._tf_menu_btn = QToolButton()
         self._tf_menu_btn.setObjectName("pillMenuBtn")
@@ -366,6 +434,13 @@ class ChartToolbar(QFrame):
         self._tf_menu_btn.setMenu(self._tf_menu)
         lay.addWidget(self._tf_menu_btn)
         lay.addWidget(_gap(4))
+        self.timeframe_favorites_layout = QHBoxLayout()
+        self.timeframe_favorites_layout.setContentsMargins(0, 0, 0, 0)
+        self.timeframe_favorites_layout.setSpacing(2)
+        lay.addLayout(self.timeframe_favorites_layout)
+        self._tf_fav_buttons: Dict[str, QPushButton] = {}
+        self._rebuild_timeframe_favorites_tray()
+        lay.addWidget(_gap(6))
 
         # ── 3. CHART TYPE DROPDOWN ────────────────────────────────────────
         self._ct_menu = QMenu(self)
@@ -653,7 +728,43 @@ class ChartToolbar(QFrame):
             if self.timeframe_dropdown.itemData(i) == kite_iv:
                 self.timeframe_dropdown.setCurrentIndex(i)
                 break
+        for iv, btn in self._tf_fav_buttons.items():
+            btn.blockSignals(True)
+            btn.setChecked(iv == kite_iv)
+            btn.blockSignals(False)
+        for iv, item in self._tf_menu_items.items():
+            item.set_selected(iv == kite_iv)
         self.timeframe_changed.emit(kite_iv)
+
+    def _on_tf_fav_toggled(self, kite_iv: str, is_fav: bool) -> None:
+        if is_fav and kite_iv not in self._favorite_timeframes:
+            self._favorite_timeframes.append(kite_iv)
+        elif not is_fav and kite_iv in self._favorite_timeframes:
+            self._favorite_timeframes.remove(kite_iv)
+        self._rebuild_timeframe_favorites_tray()
+        if not self._suppress_pref_events:
+            self.toolbar_preferences_changed.emit(self.get_toolbar_preferences())
+
+    def _rebuild_timeframe_favorites_tray(self) -> None:
+        while self.timeframe_favorites_layout.count():
+            item = self.timeframe_favorites_layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+        self._tf_fav_buttons.clear()
+
+        display_map = {kite_iv: display for display, kite_iv, _ in TIMEFRAMES}
+        for kite_iv in self._favorite_timeframes:
+            if kite_iv not in self._tf_actions:
+                continue
+            btn = QPushButton(display_map.get(kite_iv, kite_iv))
+            btn.setObjectName("toolBtn")
+            btn.setCheckable(True)
+            btn.setFixedSize(30, 22)
+            btn.setChecked(kite_iv == self._active_tf)
+            btn.clicked.connect(lambda checked, iv=kite_iv: checked and self._on_tf_clicked(iv))
+            self._tf_fav_buttons[kite_iv] = btn
+            self.timeframe_favorites_layout.addWidget(btn)
 
     def _on_chart_type(self, data: str) -> None:
         self._active_chart_type = data
@@ -731,6 +842,12 @@ class ChartToolbar(QFrame):
                 self.timeframe_dropdown.setCurrentIndex(i)
                 self.timeframe_dropdown.blockSignals(False)
                 break
+        for iv, btn in self._tf_fav_buttons.items():
+            btn.blockSignals(True)
+            btn.setChecked(iv == kite_interval)
+            btn.blockSignals(False)
+        for iv, item in self._tf_menu_items.items():
+            item.set_selected(iv == kite_interval)
 
     def get_timeframe_value(self) -> str:
         return self._active_tf
@@ -795,6 +912,7 @@ class ChartToolbar(QFrame):
     def get_toolbar_preferences(self) -> Dict[str, object]:
         return {
             "favorite_tools": list(self._favorite_tools),
+            "favorite_timeframes": list(self._favorite_timeframes),
             "chart_type": self._active_chart_type,
             "drawing_color": self._drawing_color,
         }
@@ -811,6 +929,13 @@ class ChartToolbar(QFrame):
                 filtered = [str(tid) for tid in favorite_tools if str(tid) in all_tools]
                 self._favorite_tools = filtered
                 self._rebuild_favorites_tray()
+
+            all_tfs = {iv for _, iv, _ in TIMEFRAMES}
+            favorite_tfs = prefs.get("favorite_timeframes")
+            if isinstance(favorite_tfs, list):
+                filtered_tfs = [str(iv) for iv in favorite_tfs if str(iv) in all_tfs]
+                self._favorite_timeframes = filtered_tfs
+                self._rebuild_timeframe_favorites_tray()
 
             chart_type = prefs.get("chart_type")
             if isinstance(chart_type, str) and chart_type in self._ct_actions:
