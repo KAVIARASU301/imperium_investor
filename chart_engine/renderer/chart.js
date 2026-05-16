@@ -1915,6 +1915,17 @@ class FixedTradingChart {
         fresh.addEventListener('mousedown', e => this._onMouseDown(e));
         fresh.addEventListener('mouseup', e => this._onMouseUp(e));
         fresh.addEventListener('mouseleave', () => this._onMouseLeave());
+        // Keep drag interactions continuous even when cursor briefly leaves canvas.
+        if (this._boundWindowMouseMove) {
+            window.removeEventListener('mousemove', this._boundWindowMouseMove);
+        }
+        if (this._boundWindowMouseUp) {
+            window.removeEventListener('mouseup', this._boundWindowMouseUp);
+        }
+        this._boundWindowMouseMove = e => this._onWindowMouseMove(e);
+        this._boundWindowMouseUp = e => this._onWindowMouseUp(e);
+        window.addEventListener('mousemove', this._boundWindowMouseMove);
+        window.addEventListener('mouseup', this._boundWindowMouseUp);
         fresh.addEventListener('wheel', e => this._onWheel(e), { passive: false });
         fresh.addEventListener('contextmenu', e => this._onRightClick(e));
         fresh.addEventListener('dblclick', e => this._onDoubleClick(e));
@@ -2143,9 +2154,20 @@ class FixedTradingChart {
         this.canvas.style.cursor = this.drawingEngine?.activeTool ? 'crosshair' : 'default';
     }
 
+    _onWindowMouseMove(e) {
+        if (!this.isDragging && !this.isYAxisDragging && !this._isMeasuring) return;
+        this._onMouseMove(e);
+    }
+
+    _onWindowMouseUp(e) {
+        if (!this.isDragging && !this.isYAxisDragging && !this._isMeasuring) return;
+        this._onMouseUp(e);
+    }
+
     _onMouseLeave() {
-        this.isDragging = false;
-        this.isYAxisDragging = false;
+        // When actively dragging, preserve state so outside-canvas mouse events
+        // can continue the interaction and avoid stuttery "drop/regrab" behavior.
+        if (this.isDragging || this.isYAxisDragging || this._isMeasuring) return;
         this.crosshairX = null;
         this.crosshairY = null;
         this._displayLatestCandleDetails();
