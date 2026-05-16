@@ -351,7 +351,7 @@ class FixedTradingChart {
     }
 
     _updateChartAreas() {
-        const pad = { top: 32, right: this._computeRightAxisWidth(), bottom: 24, left: 8 };
+        const pad = { top: 32, right: this._computeRightAxisWidth(), bottom: 14, left: 8 };
         const paneW = this.width - pad.left - pad.right;
         const chartH = this.height - pad.top - pad.bottom;
         this.chartArea = { x: pad.left, y: pad.top, width: paneW, height: chartH };
