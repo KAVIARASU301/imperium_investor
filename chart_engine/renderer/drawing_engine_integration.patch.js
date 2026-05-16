@@ -211,6 +211,7 @@ function installPublicApiShims(chart) {
     const eng = chart.drawingEngine;
     const TOOL_ALIASES = {
         arrow_line: 'arrow',
+        text: 'note',
     };
 
     chart.setDrawingTool = (toolId, active, color, lw) => {

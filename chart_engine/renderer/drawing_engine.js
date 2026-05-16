@@ -525,12 +525,13 @@ class DrawingEngine {
     /* ─── Tool activation ───────────────────────────────────────────────────── */
 
     setTool(toolId, color, lineWidth) {
-        this.activeTool = toolId || null;
+        const normalizedToolId = (toolId === 'text') ? 'note' : toolId;
+        this.activeTool = normalizedToolId || null;
         if (color)     this.drawingColor = color;
         if (lineWidth) this.lineWidth = lineWidth;
         this.inProgress = null;
         this.selectedId = null;
-        this.canvas.style.cursor = toolId ? 'crosshair' : 'default';
+        this.canvas.style.cursor = normalizedToolId ? 'crosshair' : 'default';
     }
 
     clearTool() {
