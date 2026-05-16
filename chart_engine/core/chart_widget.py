@@ -98,6 +98,7 @@ class CandlestickChart(QWidget):
     order_dialog_requested     = Signal(str)
     data_request_for_symbol    = Signal(str)
     chart_bridge_ready         = Signal()
+    drawings_updated           = Signal(str, str)  # (symbol, drawings_json)
 
     def __init__(
         self,
@@ -862,6 +863,7 @@ class CandlestickChart(QWidget):
                 return
             state["drawings"] = drawings_data
             self.drawing_storage.save_state(self.current_symbol, self.current_interval, state)
+            self.drawings_updated.emit(self.current_symbol, drawings_json)
         except Exception as exc:
             logger.error("_on_drawings_changed error: %s", exc)
 

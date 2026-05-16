@@ -1206,6 +1206,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.candlestick_chart.order_dialog_requested.connect(self._show_order_dialog_from_chart_context)
         self.candlestick_chart_secondary.order_dialog_requested.connect(self._show_order_dialog_from_chart_context)
         self.candlestick_chart.symbol_loaded.connect(self.header_toolbar.set_current_symbol)
+        self.candlestick_chart.drawings_updated.connect(self._sync_drawings_to_secondary_chart)
+        self.candlestick_chart_secondary.drawings_updated.connect(self._sync_drawings_to_primary_chart)
+
         if self.alert_system:
             self.candlestick_chart.alert_creation_requested.connect(self.alert_system.create_alert_from_chart)
 
@@ -1246,6 +1249,25 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.alert_update_timer = QTimer(self)
         self.alert_update_timer.timeout.connect(self._update_alert_badges)
         self.alert_update_timer.start(30000)
+
+
+    @Slot(str, str)
+    def _sync_drawings_to_secondary_chart(self, symbol: str, drawings_json: str):
+        self._sync_chart_drawings(self.candlestick_chart_secondary, symbol, drawings_json)
+
+    @Slot(str, str)
+    def _sync_drawings_to_primary_chart(self, symbol: str, drawings_json: str):
+        self._sync_chart_drawings(self.candlestick_chart, symbol, drawings_json)
+
+    def _sync_chart_drawings(self, target_chart, symbol: str, drawings_json: str):
+        if not self.dual_chart_mode_enabled or target_chart is None:
+            return
+        if getattr(target_chart, "current_symbol", "") != symbol:
+            return
+        try:
+            target_chart.set_drawings(json.loads(drawings_json))
+        except Exception as exc:
+            logger.error("Failed to sync drawings for %s: %s", symbol, exc)
 
 
     def _set_dual_chart_mode(self, enabled: bool):
