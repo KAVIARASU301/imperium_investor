@@ -541,8 +541,6 @@ class PendingOrdersDialog(QDialog):
         title_layout.setContentsMargins(10, 0, 6, 0)
         title_layout.setSpacing(8)
 
-        badge = QLabel("ORDERS")
-        badge.setObjectName("categoryBadge")
         self.title_label = QLabel("PENDING ORDERS")
         self.title_label.setObjectName("dialogTitle")
 
@@ -558,7 +556,6 @@ class PendingOrdersDialog(QDialog):
         self.close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.close_btn.setFixedSize(24, 22)
 
-        title_layout.addWidget(badge)
         title_layout.addWidget(self.title_label)
         title_layout.addStretch()
         title_layout.addWidget(self.refresh_btn)

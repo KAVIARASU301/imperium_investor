@@ -563,8 +563,6 @@ class OrderHistoryDialog(QDialog):
         header_layout.setContentsMargins(10, 0, 7, 0)
         header_layout.setSpacing(8)
 
-        category_badge = QLabel("ORDER")
-        category_badge.setObjectName("categoryBadge")
         title = QLabel("ORDER HISTORY")
         title.setObjectName("dialogTitle")
 
@@ -577,7 +575,6 @@ class OrderHistoryDialog(QDialog):
         close_btn.setFixedSize(22, 22)
         close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
-        header_layout.addWidget(category_badge)
         header_layout.addWidget(title)
         header_layout.addStretch()
         header_layout.addWidget(self.status_label)

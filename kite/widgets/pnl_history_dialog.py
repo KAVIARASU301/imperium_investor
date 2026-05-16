@@ -91,9 +91,6 @@ class PnlHistoryDialog(QDialog):
         title_layout.setContentsMargins(10, 0, 6, 0)
         title_layout.setSpacing(7)
 
-        self.category_badge = QLabel("PNL")
-        self.category_badge.setObjectName("categoryBadge")
-
         self.title_label = QLabel("P&L HISTORY")
         self.title_label.setObjectName("titleLabel")
 
@@ -114,7 +111,6 @@ class PnlHistoryDialog(QDialog):
         close_btn.setToolTip("Close")
         close_btn.clicked.connect(self.close)
 
-        title_layout.addWidget(self.category_badge)
         title_layout.addWidget(self.title_label)
         title_layout.addWidget(self.title_hint)
         title_layout.addStretch(1)

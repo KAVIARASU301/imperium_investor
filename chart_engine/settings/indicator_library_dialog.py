@@ -626,10 +626,8 @@ class IndicatorLibraryDialog(QDialog):
         layout.setContentsMargins(10, 0, 6, 0)
         layout.setSpacing(6)
 
-        badge = QLabel("INDICATOR LIBRARY")
-        badge.setObjectName("dialogTitle")
-        desc = QLabel("SELECTED / AVAILABLE")
-        desc.setObjectName("dialogSubtitle")
+        title = QLabel("INDICATOR LIBRARY")
+        title.setObjectName("dialogTitle")
 
         close_btn = QPushButton("✕")
         close_btn.setObjectName("closeButton")
@@ -637,8 +635,7 @@ class IndicatorLibraryDialog(QDialog):
         close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         close_btn.clicked.connect(self.reject)
 
-        layout.addWidget(badge)
-        layout.addWidget(desc)
+        layout.addWidget(title)
         layout.addStretch()
         layout.addWidget(close_btn)
 

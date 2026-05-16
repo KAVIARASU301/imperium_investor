@@ -179,14 +179,8 @@ class PerformanceDialog(QDialog):
         layout.setContentsMargins(10, 0, 6, 0)
         layout.setSpacing(8)
 
-        category_badge = QLabel("PERFORMANCE")
-        category_badge.setObjectName("categoryBadge")
-
-        title = QLabel("DASHBOARD")
+        title = QLabel("PERFORMANCE DASHBOARD")
         title.setObjectName("dialogTitle")
-
-        mode_badge = QLabel(f"{self.broker} · {self.mode}")
-        mode_badge.setObjectName("modeBadge")
 
         self.refresh_btn = QPushButton("↺")
         self.refresh_btn.setObjectName("toolBtn")
@@ -200,9 +194,7 @@ class PerformanceDialog(QDialog):
         self.close_btn.setFixedSize(24, 24)
         self.close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
-        layout.addWidget(category_badge)
         layout.addWidget(title)
-        layout.addWidget(mode_badge)
         layout.addStretch()
         layout.addWidget(self.refresh_btn)
         layout.addWidget(self.close_btn)

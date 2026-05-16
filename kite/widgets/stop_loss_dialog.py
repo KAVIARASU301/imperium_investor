@@ -76,8 +76,6 @@ class StopLossDialog(QDialog):
         tb_lay = QHBoxLayout(title_bar)
         tb_lay.setContentsMargins(16, 0, 8, 0)
 
-        badge = QLabel("SL")
-        badge.setObjectName("categoryBadge")
         title_lbl = QLabel(f"STOP-LOSS — {self.symbol}")
         title_lbl.setObjectName("dialogTitle")
         close_btn = QPushButton("✕")
@@ -85,8 +83,6 @@ class StopLossDialog(QDialog):
         close_btn.setFixedSize(26, 26)
         close_btn.clicked.connect(self.reject)
 
-        tb_lay.addWidget(badge)
-        tb_lay.addSpacing(8)
         tb_lay.addWidget(title_lbl)
         tb_lay.addStretch()
         tb_lay.addWidget(close_btn)
