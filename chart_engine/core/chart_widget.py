@@ -1239,6 +1239,12 @@ class CandlestickChart(QWidget):
                 self._show_watermark_description,
             )
 
+            # Rebuild/reload the current chart immediately so settings that are
+            # only consumed during chart initialization are applied without
+            # requiring an app restart.
+            if self.current_symbol:
+                self._load_chart_data()
+
     def _save_global_settings_patch(self, patch: Dict[str, Any]) -> None:
         settings = self.drawing_storage.load_global_settings()
         settings.update(dict(patch or {}))
