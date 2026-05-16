@@ -2975,13 +2975,6 @@ class FixedTradingChart {
             { divider: true },
             { text: '💰 Place Order', sub: 'Quick order entry',
               action: () => this._placeOrderAtPrice(sym, priceLevel) },
-            { divider: true },
-            { text: `➡ H-Line at ₹${priceLevel.toFixed(2)}`,
-              action: () => this._addHLine(priceLevel) },
-            { text: isAbove ? '🟢 Resistance Line' : '🔴 Support Line',
-              action: () => this._addNamedHLine(priceLevel, isAbove ? 'Resistance' : 'Support', isAbove ? '#ef5350' : '#26a69a') },
-            { text: '📐 Fibonacci from here',
-              action: () => { this.setDrawingTool('fibonacci', true); } },
         ];
 
         const menu = document.createElement('div');
