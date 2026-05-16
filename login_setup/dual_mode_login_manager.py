@@ -231,7 +231,7 @@ class DualModeLoginManager(QDialog):
 
     def _setup_window(self):
         self.setWindowTitle("qullamaggie - Login")
-        self.setMinimumSize(520, 560)
+        self.setMinimumSize(560, 620)
         # self.resize(540, 620)
         self.setModal(True)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
@@ -276,10 +276,10 @@ class DualModeLoginManager(QDialog):
     def _create_header(self) -> QWidget:
         header = QFrame()
         header.setObjectName("titleBar")
-        header.setFixedHeight(30)
+        header.setFixedHeight(42)
 
         layout = QHBoxLayout(header)
-        layout.setContentsMargins(10, 0, 6, 0)
+        layout.setContentsMargins(14, 0, 10, 0)
         layout.setSpacing(6)
 
         title = QLabel("Qullamaggie")
@@ -287,7 +287,7 @@ class DualModeLoginManager(QDialog):
 
         close_btn = QPushButton("✕")
         close_btn.setObjectName("closeButton")
-        close_btn.setFixedSize(22, 22)
+        close_btn.setFixedSize(26, 26)
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         close_btn.clicked.connect(self._on_close)
 
@@ -310,13 +310,17 @@ class DualModeLoginManager(QDialog):
         page = QWidget()
         page.setObjectName("loginPage")
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(8)
+        layout.setContentsMargins(30, 28, 30, 28)
+        layout.setSpacing(10)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.auto_login_status = QLabel("Checking for existing session...")
         self.auto_login_status.setObjectName("statusLabel")
         self.auto_login_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        eyebrow = QLabel("WELCOME")
+        eyebrow.setObjectName("eyebrowLabel")
+        eyebrow.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         title = QLabel("Secure Access")
         title.setObjectName("welcomeTitle")
@@ -327,6 +331,8 @@ class DualModeLoginManager(QDialog):
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         layout.addStretch()
+        layout.addWidget(eyebrow)
+        layout.addSpacing(6)
         layout.addWidget(title)
         layout.addWidget(subtitle)
         layout.addSpacing(12)
@@ -922,30 +928,45 @@ class DualModeLoginManager(QDialog):
         return page
 
     def _connect_to_ibkr(self):
-            host = "::1" if self.ibkr_host_combo.currentIndex() == 0 else "127.0.0.1"
-            client_id = self.ibkr_client_id_input.value()
-            self.connect_ibkr_btn.setEnabled(False)
-            self.connect_ibkr_btn.setText("Connecting...")
-            self.ibkr_status_display.clear()
-            self.ibkr_status_display.setPlainText("Initiating connection...")
-            self.ibkr_auth.connect_to_tws(
-                trading_mode=self.selected_trading_mode,
-                host=host,
-                client_id=client_id
-            )
+        if self.selected_trading_mode is None:
+            QMessageBox.warning(self, "Selection Required", "Please choose a trading mode first.")
+            self.stacked_widget.setCurrentIndex(1)
+            return
+
+        host = "::1" if self.ibkr_host_combo.currentIndex() == 0 else "127.0.0.1"
+        client_id = self.ibkr_client_id_input.value()
+        self.connect_ibkr_btn.setEnabled(False)
+        self.connect_ibkr_btn.setText("Connecting...")
+        self.ibkr_status_display.clear()
+        self.ibkr_status_display.setPlainText("Initiating connection...")
+        self.ibkr_auth.connect_to_tws(
+            trading_mode=self.selected_trading_mode,
+            host=host,
+            client_id=client_id
+        )
 
     def _on_ibkr_status_update(self, message: str):
-            # Strip markdown-style bold markers for plain display
-            clean = re.sub(r"\*\*(.+?)\*\*", r"\1", message)
-            self.ibkr_status_display.setPlainText(clean)
+        # Strip markdown-style bold markers for plain display
+        clean = re.sub(r"\*\*(.+?)\*\*", r"\1", message)
+        self.ibkr_status_display.setPlainText(clean)
+        if "✅ Connected" not in clean:
+            self.connect_ibkr_btn.setEnabled(True)
+            self.connect_ibkr_btn.setText("Connect")
 
     def _on_ibkr_connection_success(self, ib_client):
-            self.authentication_data = {
-                "broker_mode": BrokerMode.AMERICA,
-                "trading_mode": self.selected_trading_mode,
-                "ib_client": ib_client,
-            }
-            self.accept()
+        host = "::1" if self.ibkr_host_combo.currentIndex() == 0 else "127.0.0.1"
+        client_id = self.ibkr_client_id_input.value()
+        self.authentication_data = {
+            "broker_mode": BrokerMode.AMERICA,
+            "trading_mode": self.selected_trading_mode,
+            "ib_client": ib_client,
+            "client_id": client_id,
+            "connection_details": {
+                "host": host,
+                "client_id": client_id,
+            },
+        }
+        self.accept()
 
         # --------------------------------------------------------------------------
         # Shared helpers
@@ -977,27 +998,28 @@ class DualModeLoginManager(QDialog):
         return layout
 
     def get_authentication_data(self) -> Dict[str, Any]:
-            return self.authentication_data
+        return self.authentication_data
 
     def closeEvent(self, event):
-            self._stop_request_token_server()
-            self._stop_request_timeout_timer()
-            super().closeEvent(event)
+        self._stop_request_token_server()
+        self._stop_request_timeout_timer()
+        self.ibkr_auth.disconnect()
+        super().closeEvent(event)
 
         # --------------------------------------------------------------------------
         # Window drag support
         # --------------------------------------------------------------------------
 
     def _handle_mouse_press(self, event: QMouseEvent):
-            if event.button() == Qt.LeftButton:
-                self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+        if event.button() == Qt.LeftButton:
+            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
 
     def _handle_mouse_move(self, event: QMouseEvent):
-            if self._drag_pos and event.buttons() & Qt.LeftButton:
-                self.move(event.globalPosition().toPoint() - self._drag_pos)
+        if self._drag_pos and event.buttons() & Qt.LeftButton:
+            self.move(event.globalPosition().toPoint() - self._drag_pos)
 
     def _handle_mouse_release(self, event: QMouseEvent):
-            self._drag_pos = None
+        self._drag_pos = None
 
         # --------------------------------------------------------------------------
         # Styles
@@ -1007,7 +1029,7 @@ class DualModeLoginManager(QDialog):
     def _apply_styles(self):
         stylesheet = f"""
             * {{
-                font-family: {UI.SANS};
+                font-family: "Inter", "Segoe UI", "SF Pro Text", {UI.SANS};
             }}
 
             DualModeLoginManager {{
@@ -1017,34 +1039,35 @@ class DualModeLoginManager(QDialog):
             #mainContainer {{
                 background-color: {UI.BG1};
                 border-radius: 2px;
-                border: 1px solid {UI.BG4};
+                border: 1px solid {UI.BG5};
             }}
 
             #titleBar {{
-                background: {UI.BG0};
-                border-bottom: 1px solid {UI.BG4};
+                background: {UI.BG2};
+                border-bottom: 1px solid rgba(0, 212, 255, 0.20);
             }}
 
             #dialogTitle {{
                 color: {UI.TEXT0};
                 font-family: {UI.SANS};
-                font-size: 11px;
+                font-size: 12px;
                 font-weight: 800;
-                letter-spacing: 0.8px;
+                letter-spacing: 1px;
                 background: transparent;
             }}
 
             #closeButton {{
                 background: transparent;
                 color: {UI.TEXT2};
-                border: none;
+                border: 1px solid transparent;
                 font-size: 12px;
                 border-radius: 2px;
             }}
 
             #closeButton:hover {{
                 color: {UI.RED};
-                background: rgba(255, 77, 106, 0.15);
+                border-color: rgba(255, 77, 106, 0.35);
+                background: rgba(255, 77, 106, 0.12);
             }}
 
             #loginStack,
@@ -1063,6 +1086,17 @@ class DualModeLoginManager(QDialog):
                 background: transparent;
             }}
 
+            #eyebrowLabel {{
+                color: {UI.CYAN};
+                background: rgba(0, 212, 255, 0.14);
+                border: 1px solid rgba(0, 212, 255, 0.42);
+                border-radius: 2px;
+                padding: 3px 10px;
+                font-size: 10px;
+                font-weight: 800;
+                letter-spacing: 1.1px;
+            }}
+
             #subTitle,
             #sectionLabel,
             #fieldLabel,
@@ -1078,11 +1112,11 @@ class DualModeLoginManager(QDialog):
             #statusLabel {{
                 color: {UI.TEXT1};
                 background: rgba(255, 255, 255, 0.02);
-                border: 1px solid {UI.BG4};
+                border: 1px solid rgba(0, 212, 255, 0.24);
                 border-radius: 2px;
                 font-size: 11px;
                 font-weight: 600;
-                padding: 7px 9px;
+                padding: 8px 10px;
             }}
 
             #hintLabel {{
@@ -1096,13 +1130,13 @@ class DualModeLoginManager(QDialog):
             #inputPanel,
             #modeFrame {{
                 background: {UI.BG2};
-                border: 1px solid {UI.BG4};
+                border: 1px solid {UI.BG5};
                 border-radius: 2px;
             }}
 
             #brokerCard {{
                 background: {UI.BG2};
-                border: 1px solid {UI.BG4};
+                border: 1px solid {UI.BG5};
                 border-radius: 2px;
             }}
 
@@ -1113,7 +1147,7 @@ class DualModeLoginManager(QDialog):
 
             #brokerCard[selected="true"] {{
                 background: {UI.BG3};
-                border: 1px solid {UI.AMBER};
+                border: 1px solid rgba(245, 158, 11, 0.9);
             }}
 
             #brokerRegionBadge {{
@@ -1150,21 +1184,21 @@ class DualModeLoginManager(QDialog):
                 background: {UI.BG3};
                 border: 1px solid {UI.BG5};
                 border-radius: 2px;
-                padding: 5px 8px;
+                padding: 7px 9px;
                 color: {UI.TEXT0};
                 selection-background-color: {UI.SELECTION};
                 selection-color: {UI.TEXT0};
                 font-family: {UI.NUM};
                 font-size: 11px;
                 font-weight: 650;
-                min-height: 18px;
+                min-height: 20px;
             }}
 
             QLineEdit:focus,
             QComboBox:focus,
             QSpinBox:focus {{
                 border: 1px solid {UI.CYAN};
-                background: {UI.BG2};
+                background: rgba(0, 212, 255, 0.06);
             }}
 
             QLineEdit::placeholder {{
@@ -1208,7 +1242,7 @@ class DualModeLoginManager(QDialog):
                 color: #03281f;
                 border: 1px solid {UI.GREEN};
                 border-radius: 2px;
-                padding: 5px 14px;
+                padding: 7px 14px;
                 font-family: {UI.SANS};
                 font-size: 10px;
                 font-weight: 800;
@@ -1217,8 +1251,8 @@ class DualModeLoginManager(QDialog):
             }}
 
             #primaryButton:hover {{
-                background: #18e1b8;
-                border-color: #18e1b8;
+                background: #17d8b0;
+                border-color: #17d8b0;
                 color: #03281f;
             }}
 
@@ -1237,7 +1271,7 @@ class DualModeLoginManager(QDialog):
                 color: {UI.TEXT0};
                 border: 1px solid {UI.BG5};
                 border-radius: 2px;
-                padding: 5px 14px;
+                padding: 7px 14px;
                 font-family: {UI.SANS};
                 font-size: 10px;
                 font-weight: 800;
@@ -1300,7 +1334,7 @@ class DualModeLoginManager(QDialog):
             QCheckBox::indicator {{
                 width: 13px;
                 height: 13px;
-                border-radius: 2px;
+                border-radius: 3px;
                 border: 1px solid {UI.BG5};
                 background: {UI.BG1};
             }}
