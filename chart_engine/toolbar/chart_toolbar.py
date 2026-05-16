@@ -478,7 +478,10 @@ class ChartToolbar(QFrame):
         self._indicator_menu = QMenu(self)
         self._indicator_menu.setObjectName("dropdownMenu")
 
-        # Intentionally keep the indicators menu empty.
+        manage_indicators_action = QAction("Manage Indicators…", self)
+        manage_indicators_action.triggered.connect(self.manage_indicators_requested.emit)
+        self._indicator_menu.addAction(manage_indicators_action)
+
         self.vol_btn = QPushButton()
         self.vol_btn.setVisible(False)
         self.vol_btn.setCheckable(True)

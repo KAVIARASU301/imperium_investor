@@ -395,7 +395,8 @@ class CandlestickChart(QWidget):
             if period <= 0:
                 continue
             cleaned.append({
-                "id": str(item.get("id") or f"ema_{period}"),
+                "type": str(item.get("type") or "ema").lower(),
+                "id": str(item.get("id") or f"ind_{period}"),
                 "period": period,
                 "color": str(item.get("color") or "#2962ff"),
                 "thickness": float(item.get("thickness", 1.2) or 1.2),

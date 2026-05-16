@@ -1,22 +1,62 @@
-import logging
-from typing import List, Dict, Any, Union
+"""Production-grade dark trading terminal header toolbar."""
 
-from PySide6.QtWidgets import (
-    QToolBar, QWidget, QLabel, QSizePolicy, QPushButton,
-    QHBoxLayout
-)
-from PySide6.QtCore import Signal, Qt, QThreadPool, QTimer, Slot, QSize
+import logging
+from typing import Any, Dict, List, Union
+
+from PySide6.QtCore import QSize, QThreadPool, QTimer, Qt, Signal, Slot
 from PySide6.QtGui import QIcon
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QSizePolicy,
+    QToolBar,
+    QWidget,
+)
 from kiteconnect import KiteConnect
 
 from app_paths import get_asset_path
 from kite.utils.worker import Worker
 from kite.widgets.search_bar import EnhancedSearchInput, SymbolIndex
+
 logger = logging.getLogger(__name__)
 DEFAULT_PAPER_BALANCE = 1_000_000.0
 
+# ── Institutional Dark Trading Terminal palette ──────────────────────────────
+_BG_APP = "#050709"
+_BG_WINDOW = "#0a0d12"
+_BG_PANEL = "#0f1318"
+_BG_SECTION = "#141920"
+_BG_BORDER = "#1a2030"
+_BG_BORDER_HI = "#26354a"
 
-def _extract_available_balance_from_data(trader: Any, profile: Dict[str, Any], margins: Dict[str, Any]) -> float:
+_BULL = "#00d4a8"
+_BEAR = "#ff4d6a"
+_AMBER = "#f59e0b"
+_CYAN = "#00d4ff"
+_BLUE = "#3b82f6"
+
+_TEXT = "#e8f0ff"
+_TEXT_SOFT = "#a8bcd4"
+_TEXT_MUTED = "#5a7090"
+_TEXT_FAINT = "#2a3a50"
+_SELECTION = "#1a2840"
+
+_MONO = "'Consolas', 'JetBrains Mono', monospace"
+_SANS = "'Inter', 'Segoe UI', sans-serif"
+
+_TOOLBAR_H = 34
+_CONTROL_H = 24
+_ICON_BTN_W = 26
+
+
+# ── Data helpers ─────────────────────────────────────────────────────────────
+
+def _extract_available_balance_from_data(
+    trader: Any,
+    profile: Dict[str, Any],
+    margins: Dict[str, Any],
+) -> float:
     equity = margins.get("equity", {})
     available = equity.get("available", {})
     for val in [
@@ -37,7 +77,7 @@ def _extract_available_balance_from_data(trader: Any, profile: Dict[str, Any], m
 
 
 class NotificationBadge(QLabel):
-    """Sharp, layout-friendly alert count badge."""
+    """Sharp, compact alert count badge."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -57,49 +97,52 @@ class NotificationBadge(QLabel):
             self.hide()
 
     def set_count(self, count: int):
-        """Backward compatible alias."""
+        """Backward-compatible alias."""
         self.update_count(count)
 
 
 class HeaderToolbar(QToolBar):
     """
-    Compact, modern toolbar.
+    Compact institutional-style toolbar for the trading terminal.
 
-    Signals
-    ───────
-    symbol_selected(str)           — a valid symbol was committed by the user
-    buy_order_requested(str)
-    sell_order_requested(str)
-    alert_manager_requested()
-    order_history_requested()
-    pending_orders_requested()
-    performance_dashboard_requested()
-    color_settings_requested()
+    Public API, signals, slots, manager calls, and account polling behavior are
+    intentionally preserved for compatibility with the rest of the app.
     """
 
-    symbol_selected                  = Signal(str)
-    add_alert_requested              = Signal()
-    alert_manager_requested          = Signal()
-    order_history_requested          = Signal()
-    pending_orders_requested         = Signal()
-    performance_dashboard_requested  = Signal()
-    market_depth_requested           = Signal(str)
-    timeframe_changed                = Signal(str)
-    buy_order_requested              = Signal(str)
-    sell_order_requested             = Signal(str)
-    color_settings_requested         = Signal()
-    positions_requested              = Signal()
-    stock_info_requested             = Signal(str)
-    account_refresh_requested        = Signal()
+    symbol_selected = Signal(str)
+    add_alert_requested = Signal()
+    alert_manager_requested = Signal()
+    order_history_requested = Signal()
+    pending_orders_requested = Signal()
+    performance_dashboard_requested = Signal()
+    market_depth_requested = Signal(str)
+    timeframe_changed = Signal(str)
+    buy_order_requested = Signal(str)
+    sell_order_requested = Signal(str)
+    color_settings_requested = Signal()
+    positions_requested = Signal()
+    stock_info_requested = Signal(str)
+    account_refresh_requested = Signal()
 
-    def __init__(self, trader: Union[KiteConnect, Any], parent=None, enable_account_polling: bool = True):
+    def __init__(
+        self,
+        trader: Union[KiteConnect, Any],
+        parent=None,
+        enable_account_polling: bool = True,
+    ):
         super().__init__(parent)
         self.setMovable(False)
+        self.setFloatable(False)
+        self.setIconSize(QSize(14, 14))
         self.setObjectName("enhancedHeaderToolbar")
+
         self.trader = trader
         self._instrument_map: Dict[str, Dict] = {}
         self._recent_symbols: List[str] = []
-        self._account_info = {"available_balance": DEFAULT_PAPER_BALANCE, "user_id": "N/A"}
+        self._account_info = {
+            "available_balance": DEFAULT_PAPER_BALANCE,
+            "user_id": "N/A",
+        }
         self._show_account_name = True
         self._show_account_balance = True
         self._symbol_index = SymbolIndex()
@@ -121,64 +164,64 @@ class HeaderToolbar(QToolBar):
         self._create_account_section()
 
     def _create_symbol_search_section(self):
-        symbol_label = QLabel("SYMBOL:")
+        search_group = QWidget()
+        search_group.setObjectName("symbolSearchGroup")
+        search_layout = QHBoxLayout(search_group)
+        search_layout.setContentsMargins(6, 2, 6, 2)
+        search_layout.setSpacing(5)
+
+        symbol_label = QLabel("SYMBOL")
         symbol_label.setObjectName("symbolLabel")
-        self.addWidget(symbol_label)
+        search_layout.addWidget(symbol_label)
 
         self.search_input = EnhancedSearchInput()
         self.search_input.setPlaceholderText("Symbol / company…")
         self.search_input.setObjectName("enhancedSymbolSearch")
+        self.search_input.setFixedHeight(_CONTROL_H)
+        self.search_input.setMinimumWidth(126)
+        self.search_input.setMaximumWidth(176)
 
-        # ── Wire the NEW fast signals ──────────────────────────────────────
+        # Fast symbol commit path used by the app search/index system.
         self.search_input.symbol_selected.connect(self._on_symbol_committed)
+        search_layout.addWidget(self.search_input)
 
-        # Backward-compat: some callers may still listen to debouncedTextChanged
-        # (e.g. alert dialogs) — keep it connected but don't drive search from it
-        # (the new index handles search internally).
-
-        self.addWidget(self.search_input)
-
-        self.buy_button = QPushButton()
-        self.buy_button.setObjectName("buyButton")
-        self.buy_button.setFixedSize(24, 22)
-        self.buy_button.setIconSize(QSize(10, 10))
-        buy_icon_path = get_asset_path("icons", "plus.svg", required=True)
-        if buy_icon_path is not None:
-            self.buy_button.setIcon(QIcon(str(buy_icon_path)))
+        self.buy_button = self._make_icon_button(
+            object_name="buyButton",
+            icon_name="plus.svg",
+            required=True,
+            tooltip="Buy selected symbol",
+        )
         self.buy_button.clicked.connect(self._on_buy_clicked)
-        self.addWidget(self.buy_button)
+        search_layout.addWidget(self.buy_button)
 
-        self.sell_button = QPushButton()
-        self.sell_button.setObjectName("sellButton")
-        self.sell_button.setFixedSize(24, 22)
-        self.sell_button.setIconSize(QSize(10, 10))
-        sell_icon_path = get_asset_path("icons", "minus.svg", required=True)
-        if sell_icon_path is not None:
-            self.sell_button.setIcon(QIcon(str(sell_icon_path)))
+        self.sell_button = self._make_icon_button(
+            object_name="sellButton",
+            icon_name="minus.svg",
+            required=True,
+            tooltip="Sell selected symbol",
+        )
         self.sell_button.clicked.connect(self._on_sell_clicked)
-        self.addWidget(self.sell_button)
+        search_layout.addWidget(self.sell_button)
 
-        self._add_section_gap(4)
-
-        self.info_button = QPushButton()
-        self.info_button.setObjectName("infoActionButton")
-        self.info_button.setFixedSize(24, 22)
-        self.info_button.setIconSize(QSize(12, 12))
-        info_icon_path = get_asset_path("icons", "info.svg", required=True)
-        if info_icon_path is not None:
-            self.info_button.setIcon(QIcon(str(info_icon_path)))
+        self.info_button = self._make_icon_button(
+            object_name="infoActionButton",
+            icon_name="info.svg",
+            required=True,
+            tooltip="Open stock information",
+        )
         self.info_button.clicked.connect(self._on_info_clicked)
-        self.addWidget(self.info_button)
+        search_layout.addWidget(self.info_button)
 
-        self.positions_button = QPushButton()
-        self.positions_button.setObjectName("positionsActionButton")
-        self.positions_button.setFixedSize(24, 22)
-        self.positions_button.setIconSize(QSize(12, 12))
-        positions_icon_path = get_asset_path("icons", "portfolio.svg", required=True)
-        if positions_icon_path is not None:
-            self.positions_button.setIcon(QIcon(str(positions_icon_path)))
+        self.positions_button = self._make_icon_button(
+            object_name="positionsActionButton",
+            icon_name="portfolio.svg",
+            required=True,
+            tooltip="Open positions",
+        )
         self.positions_button.clicked.connect(self.positions_requested.emit)
-        self.addWidget(self.positions_button)
+        search_layout.addWidget(self.positions_button)
+
+        self.addWidget(search_group)
 
     def _create_center_spacer(self):
         spacer = QWidget()
@@ -187,23 +230,21 @@ class HeaderToolbar(QToolBar):
         self.addWidget(spacer)
 
     def _create_alert_section(self):
-        self._add_section_gap()
+        self._add_section_gap(8)
 
         alert_widget = QWidget()
         alert_widget.setObjectName("alertActionWidget")
         alert_layout = QHBoxLayout(alert_widget)
-        alert_layout.setContentsMargins(0, 0, 0, 0)
-        alert_layout.setSpacing(2)
+        alert_layout.setContentsMargins(4, 2, 4, 2)
+        alert_layout.setSpacing(3)
 
-        self.alerts_button = QPushButton("")
-        self.alerts_button.setObjectName("alertActionButton")
-        self.alerts_button.setIconSize(QSize(14, 14))
-        alert_icon_path = get_asset_path("icons", "alert.svg", required=True)
-        if alert_icon_path is not None:
-            self.alerts_button.setIcon(QIcon(str(alert_icon_path)))
+        self.alerts_button = self._make_icon_button(
+            object_name="alertActionButton",
+            icon_name="alert.svg",
+            required=True,
+            tooltip="Open alert manager",
+        )
         self.alerts_button.clicked.connect(self.alert_manager_requested.emit)
-        self.alerts_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.alerts_button.setFixedSize(24, 22)
         alert_layout.addWidget(self.alerts_button)
 
         self.alerts_badge = NotificationBadge()
@@ -212,47 +253,40 @@ class HeaderToolbar(QToolBar):
         self.addWidget(alert_widget)
 
     def _create_trading_actions_section(self):
-        self._add_section_gap()
+        self._add_section_gap(8)
 
         actions_widget = QWidget()
         actions_widget.setObjectName("tradingActionWidget")
         actions_layout = QHBoxLayout(actions_widget)
-        actions_layout.setContentsMargins(4, 2, 4, 2)
-        actions_layout.setSpacing(2)
+        actions_layout.setContentsMargins(5, 2, 5, 2)
+        actions_layout.setSpacing(3)
 
-        self.order_history_btn = QPushButton("Order History")
-        self.order_history_btn.setObjectName("tradingActionButton")
+        self.order_history_btn = self._make_text_button("Order History")
         self.order_history_btn.clicked.connect(self.order_history_requested.emit)
-        self.order_history_btn.setFixedHeight(22)
         actions_layout.addWidget(self.order_history_btn)
 
-        self.pending_orders_btn = QPushButton("Pending")
-        self.pending_orders_btn.setObjectName("tradingActionButton")
+        self.pending_orders_btn = self._make_text_button("Pending")
         self.pending_orders_btn.clicked.connect(self.pending_orders_requested.emit)
-        self.pending_orders_btn.setFixedHeight(22)
         actions_layout.addWidget(self.pending_orders_btn)
 
-        self.performance_btn = QPushButton("Performance")
-        self.performance_btn.setObjectName("tradingActionButton")
+        self.performance_btn = self._make_text_button("Performance")
+        self.performance_btn.setProperty("pnlState", "flat")
         self.performance_btn.clicked.connect(self.performance_dashboard_requested.emit)
-        self.performance_btn.setFixedHeight(22)
         actions_layout.addWidget(self.performance_btn)
 
-        self.color_settings_btn = QPushButton("Settings")
-        self.color_settings_btn.setObjectName("tradingActionButton")
+        self.color_settings_btn = self._make_text_button("Settings")
         self.color_settings_btn.clicked.connect(self.color_settings_requested.emit)
-        self.color_settings_btn.setFixedHeight(22)
         actions_layout.addWidget(self.color_settings_btn)
 
         self.addWidget(actions_widget)
 
     def _create_account_section(self):
-        self._add_section_gap()
+        self._add_section_gap(8)
 
         self.account_info_widget = QWidget()
         self.account_info_widget.setObjectName("accountInfoWidget")
         account_layout = QHBoxLayout(self.account_info_widget)
-        account_layout.setContentsMargins(6, 1, 6, 1)
+        account_layout.setContentsMargins(6, 2, 6, 2)
         account_layout.setSpacing(6)
 
         self.profile_avatar_label = QLabel()
@@ -266,6 +300,7 @@ class HeaderToolbar(QToolBar):
         self.user_id_label = QLabel("KE6286")
         self.user_id_label.setObjectName("userIdLabel")
         account_layout.addWidget(self.user_id_label)
+
         self.account_separator = self._create_separator_dot()
         account_layout.addWidget(self.account_separator)
 
@@ -274,6 +309,32 @@ class HeaderToolbar(QToolBar):
         account_layout.addWidget(self.balance_label)
 
         self.addWidget(self.account_info_widget)
+
+    def _make_icon_button(
+        self,
+        object_name: str,
+        icon_name: str,
+        required: bool,
+        tooltip: str,
+    ) -> QPushButton:
+        button = QPushButton()
+        button.setObjectName(object_name)
+        button.setFixedSize(_ICON_BTN_W, _CONTROL_H)
+        button.setIconSize(QSize(12, 12))
+        button.setToolTip(tooltip)
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        icon_path = get_asset_path("icons", icon_name, required=required)
+        if icon_path is not None:
+            button.setIcon(QIcon(str(icon_path)))
+        return button
+
+    @staticmethod
+    def _make_text_button(text: str) -> QPushButton:
+        button = QPushButton(text)
+        button.setObjectName("tradingActionButton")
+        button.setFixedHeight(_CONTROL_H)
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        return button
 
     @staticmethod
     def _create_separator_dot() -> QLabel:
@@ -336,7 +397,7 @@ class HeaderToolbar(QToolBar):
         else:
             self._symbol_index.build(instruments)
         self.search_input.set_symbol_index(self._symbol_index)
-        logger.info(f"Search index ready: {len(self._instrument_map)} instruments")
+        logger.info("Search index ready: %s instruments", len(self._instrument_map))
 
     def update_alert_counts(self, active_count: int, triggered_today: int) -> None:
         self.alerts_badge.update_count(triggered_today)
@@ -365,13 +426,15 @@ class HeaderToolbar(QToolBar):
     def update_performance_metrics(self, performance_data: Dict[str, Any]) -> None:
         daily_pnl = performance_data.get("daily_pnl", 0)
         if daily_pnl > 0:
-            self.performance_btn.setStyleSheet(
-                self.performance_btn.styleSheet() + "border-left:3px solid #00b894;"
-            )
+            state = "profit"
         elif daily_pnl < 0:
-            self.performance_btn.setStyleSheet(
-                self.performance_btn.styleSheet() + "border-left:3px solid #d63031;"
-            )
+            state = "loss"
+        else:
+            state = "flat"
+        self.performance_btn.setProperty("pnlState", state)
+        self.performance_btn.style().unpolish(self.performance_btn)
+        self.performance_btn.style().polish(self.performance_btn)
+        self.performance_btn.update()
 
     def set_watchlist_symbols(self, symbols: List[str]) -> None:
         pass  # index handles this now
@@ -399,12 +462,18 @@ class HeaderToolbar(QToolBar):
 
     @Slot(object)
     def _handle_account_info_update(self, account_info: Dict[str, Any]) -> None:
-        self._account_info = account_info or {"user_id": "DEMO", "available_balance": DEFAULT_PAPER_BALANCE}
+        self._account_info = account_info or {
+            "user_id": "DEMO",
+            "available_balance": DEFAULT_PAPER_BALANCE,
+        }
         self._update_account_display()
 
     @Slot(tuple)
     def _handle_account_info_error(self, _error: tuple) -> None:
-        self._account_info = {"user_id": "DEMO", "available_balance": DEFAULT_PAPER_BALANCE}
+        self._account_info = {
+            "user_id": "DEMO",
+            "available_balance": DEFAULT_PAPER_BALANCE,
+        }
         self._update_account_display()
 
     def _get_profile_data(self) -> Dict[str, Any]:
@@ -477,186 +546,227 @@ class HeaderToolbar(QToolBar):
     # ── Styles ────────────────────────────────────────────────────────────────
 
     def _apply_styles(self):
-        self.setStyleSheet("""
-            QToolBar#enhancedHeaderToolbar {
-                background-color: #0a0d12;
-                border-bottom: 1px solid #1a2030;
-                padding: 2px 6px;
-                spacing: 6px;
-                min-height: 32px;
-                max-height: 34px;
-            }
-            #centerSpacer { background-color: transparent; }
-            #symbolLabel {
-                background-color: #0a0d12; color: #e8f0ff;
-                font-size: 11px; font-weight: 900;
-                text-transform: uppercase; letter-spacing: 1px;
-                padding-right: 6px;
-            }
-            #enhancedSymbolSearch {
-                background-color: #0f1318;
-                border: 1px solid #1a2030; color: #e8f0ff;
-                padding: 3px 8px; border-radius: 0px;
-                font-size: 11px; font-weight: 500;
-                min-width: 84px; max-width: 100px; max-height: 22px;
-            }
-            #enhancedSymbolSearch:focus {
-                border: 1px solid #1a2030;
-                color: #e8f0ff;
-            }
-            #buyButton {
-                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 rgba(0, 212, 168, 0.16), stop:1 rgba(26, 243, 194, 0.10));
-                color: #94ffe0;
-                border: 1px solid #1f7e66;
-                border-radius: 3px;
-                padding: 2px;
-            }
-            #buyButton:hover {
-                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 rgba(0, 212, 168, 0.24), stop:1 rgba(26, 243, 194, 0.18));
-                border: 1px solid #27a081;
-                color: #c9ffee;
-            }
-            #buyButton:pressed {
-                background-color: rgba(0, 212, 168, 0.20);
-                border: 1px solid #30b893;
-            }
-            #sellButton {
-                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 rgba(255, 77, 106, 0.16), stop:1 rgba(255, 112, 136, 0.10));
-                color: #ffd1da;
-                border: 1px solid #8d3848;
-                border-radius: 3px;
-                padding: 2px;
-            }
-            #sellButton:hover {
-                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 rgba(255, 77, 106, 0.24), stop:1 rgba(255, 112, 136, 0.18));
-                border: 1px solid #b9475d;
-                color: #ffe6eb;
-            }
-            #sellButton:pressed {
-                background-color: rgba(255, 77, 106, 0.20);
-                border: 1px solid #d3566e;
-            }
-            #sectionGap { background: transparent; }
-            #alertActionWidget {
-                background-color: transparent;
-                border: none;
-            }
-            #alertActionButton {
-                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 rgba(255, 173, 51, 0.14), stop:1 rgba(255, 92, 92, 0.10));
-                color: #ffdca8;
-                border: 1px solid #7a4d1a;
-                border-radius: 3px;
-                padding: 2px;
-                font-size: 10px;
-                font-weight: 700;
-                letter-spacing: 0.6px;
-                text-align: center;
-            }
-            #alertActionButton:hover {
-                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 rgba(255, 189, 89, 0.22), stop:1 rgba(255, 108, 108, 0.18));
-                color: #fff2dd;
-                border: 1px solid #a86923;
-            }
-            #alertActionButton:pressed {
-                background-color: rgba(255, 154, 61, 0.20);
-                border: 1px solid #c67d2b;
-            }
-            #notificationBadge {
-                background-color: #E53935;
-                border: none;
-                color: #FFFFFF;
-                border-radius: 2px;
-                font-size: 10px;
-                font-weight: 700;
-                font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
-            }
-            #tradingActionWidget {
-                background-color: rgba(255, 255, 255, 0.02);
-                border: 1px solid #222630;
-                border-radius: 4px;
-            }
-            #tradingActionButton {
-                background-color: rgba(0, 212, 255, 0.05);
-                color: #7b8496;
-                border: 1px solid transparent;
-                padding: 3px 8px;
-                border-radius: 2px;
-                font-size: 10px;
-                font-weight: 600;
-            }
-            #tradingActionButton:hover {
-                background-color: rgba(0, 212, 255, 0.15);
-                border: 1px solid rgba(0, 212, 255, 0.35);
-                color: #b7f4ff;
-            }
-            #infoActionButton {
-                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 rgba(58, 160, 255, 0.16), stop:1 rgba(0, 212, 255, 0.10));
-                color: #cdeaff;
-                border: 1px solid #2d5c94;
-                border-radius: 3px;
-                padding: 2px;
-            }
-            #infoActionButton:hover {
-                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 rgba(58, 160, 255, 0.24), stop:1 rgba(0, 212, 255, 0.18));
-                border: 1px solid #3f77bb;
-            }
-            #infoActionButton:pressed {
-                background-color: rgba(58, 160, 255, 0.20);
-                border: 1px solid #4a86d2;
-            }
-            #positionsActionButton {
-                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 rgba(156, 120, 255, 0.16), stop:1 rgba(111, 89, 217, 0.10));
-                color: #e7ddff;
-                border: 1px solid #5f4c93;
-                border-radius: 3px;
-                padding: 2px;
-            }
-            #positionsActionButton:hover {
-                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 rgba(156, 120, 255, 0.24), stop:1 rgba(111, 89, 217, 0.18));
-                border: 1px solid #7760bb;
-            }
-            #positionsActionButton:pressed {
-                background-color: rgba(156, 120, 255, 0.20);
-                border: 1px solid #8a70d1;
-            }
-            #accountInfoWidget {
-                background-color: rgba(255, 255, 255, 0.03);
-                border: none;
-                border-radius: 4px;
-                padding: 2px 6px;
-            }
-            #userIdLabel {
-                background-color: rgba(0, 212, 255, 0.10);
-                color: #7ee9ff;
-                border: none;
-                padding: 3px 8px;
-                border-radius: 4px;
-                font-size: 9px;
-                font-weight: 600;
-                letter-spacing: 0.4px;
-            }
-            #balanceLabel {
-                background-color: rgba(0, 255, 170, 0.10);
-                color: #76ffcd;
-                border: none;
-                padding: 3px 9px;
-                border-radius: 4px;
-                font-size: 10px;
-                font-weight: 800;
-                font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
-                letter-spacing: 0.6px;
-            }
-            #separatorDot { background-color:transparent; color:#666666; font-size:8px; }
+        self.setStyleSheet(f"""
+        QToolBar#enhancedHeaderToolbar {{
+            background-color: {_BG_WINDOW};
+            border: none;
+            border-bottom: 1px solid {_BG_BORDER};
+            padding: 2px 6px;
+            spacing: 0px;
+            min-height: {_TOOLBAR_H}px;
+            max-height: {_TOOLBAR_H}px;
+            font-family: {_SANS};
+        }}
+
+        QWidget#centerSpacer,
+        QWidget#sectionGap {{
+            background: transparent;
+        }}
+
+        QWidget#symbolSearchGroup,
+        QWidget#tradingActionWidget,
+        QWidget#accountInfoWidget,
+        QWidget#alertActionWidget {{
+            background-color: {_BG_PANEL};
+            border: 1px solid {_BG_BORDER};
+            border-radius: 2px;
+        }}
+
+        QLabel#symbolLabel {{
+            background: transparent;
+            color: {_TEXT_MUTED};
+            font-family: {_SANS};
+            font-size: 9px;
+            font-weight: 900;
+            letter-spacing: 1.1px;
+            padding: 0 2px 0 0;
+        }}
+
+        #enhancedSymbolSearch {{
+            background-color: {_BG_WINDOW};
+            color: {_TEXT};
+            border: 1px solid {_BG_BORDER_HI};
+            border-radius: 2px;
+            padding: 2px 8px;
+            selection-background-color: {_SELECTION};
+            selection-color: {_TEXT};
+            font-family: {_MONO};
+            font-size: 11px;
+            font-weight: 700;
+        }}
+        #enhancedSymbolSearch:hover {{
+            border-color: {_TEXT_FAINT};
+            background-color: {_BG_SECTION};
+        }}
+        #enhancedSymbolSearch:focus {{
+            border: 1px solid {_CYAN};
+            background-color: {_BG_APP};
+            color: {_TEXT};
+        }}
+
+        QPushButton {{
+            outline: none;
+            border-radius: 2px;
+            font-family: {_SANS};
+        }}
+
+        QPushButton#buyButton,
+        QPushButton#sellButton,
+        QPushButton#infoActionButton,
+        QPushButton#positionsActionButton,
+        QPushButton#alertActionButton {{
+            background-color: rgba(255, 255, 255, 0.035);
+            border: 1px solid {_BG_BORDER_HI};
+            padding: 2px;
+        }}
+
+        QPushButton#buyButton {{
+            color: {_BULL};
+            border-color: rgba(0, 212, 168, 0.38);
+        }}
+        QPushButton#buyButton:hover {{
+            background-color: rgba(0, 212, 168, 0.14);
+            border-color: {_BULL};
+        }}
+        QPushButton#buyButton:pressed {{
+            background-color: rgba(0, 212, 168, 0.22);
+        }}
+
+        QPushButton#sellButton {{
+            color: {_BEAR};
+            border-color: rgba(255, 77, 106, 0.38);
+        }}
+        QPushButton#sellButton:hover {{
+            background-color: rgba(255, 77, 106, 0.14);
+            border-color: {_BEAR};
+        }}
+        QPushButton#sellButton:pressed {{
+            background-color: rgba(255, 77, 106, 0.22);
+        }}
+
+        QPushButton#infoActionButton {{
+            color: {_CYAN};
+            border-color: rgba(0, 212, 255, 0.34);
+        }}
+        QPushButton#infoActionButton:hover {{
+            background-color: rgba(0, 212, 255, 0.12);
+            border-color: {_CYAN};
+        }}
+        QPushButton#infoActionButton:pressed {{
+            background-color: rgba(0, 212, 255, 0.20);
+        }}
+
+        QPushButton#positionsActionButton {{
+            color: {_BLUE};
+            border-color: rgba(59, 130, 246, 0.36);
+        }}
+        QPushButton#positionsActionButton:hover {{
+            background-color: rgba(59, 130, 246, 0.13);
+            border-color: {_BLUE};
+        }}
+        QPushButton#positionsActionButton:pressed {{
+            background-color: rgba(59, 130, 246, 0.20);
+        }}
+
+        QPushButton#alertActionButton {{
+            color: {_AMBER};
+            border-color: rgba(245, 158, 11, 0.40);
+        }}
+        QPushButton#alertActionButton:hover {{
+            background-color: rgba(245, 158, 11, 0.14);
+            border-color: {_AMBER};
+        }}
+        QPushButton#alertActionButton:pressed {{
+            background-color: rgba(245, 158, 11, 0.22);
+        }}
+
+        QLabel#notificationBadge {{
+            background-color: {_BEAR};
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.10);
+            border-radius: 2px;
+            font-family: {_MONO};
+            font-size: 9px;
+            font-weight: 900;
+            padding: 0px;
+        }}
+
+        QPushButton#tradingActionButton {{
+            background-color: transparent;
+            color: {_TEXT_MUTED};
+            border: 1px solid transparent;
+            border-radius: 2px;
+            padding: 2px 8px;
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 0.35px;
+        }}
+        QPushButton#tradingActionButton:hover {{
+            background-color: rgba(0, 212, 255, 0.09);
+            border-color: rgba(0, 212, 255, 0.25);
+            color: {_TEXT_SOFT};
+        }}
+        QPushButton#tradingActionButton:pressed {{
+            background-color: rgba(0, 212, 255, 0.15);
+            color: {_TEXT};
+        }}
+        QPushButton#tradingActionButton[pnlState="profit"] {{
+            color: {_BULL};
+            border-left: 2px solid {_BULL};
+            padding-left: 7px;
+        }}
+        QPushButton#tradingActionButton[pnlState="loss"] {{
+            color: {_BEAR};
+            border-left: 2px solid {_BEAR};
+            padding-left: 7px;
+        }}
+        QPushButton#tradingActionButton[pnlState="flat"] {{
+            color: {_TEXT_MUTED};
+            border-left: 2px solid transparent;
+            padding-left: 7px;
+        }}
+
+        QLabel#profileAvatarLabel {{
+            background: transparent;
+        }}
+        QLabel#userIdLabel {{
+            background-color: rgba(0, 212, 255, 0.075);
+            color: {_CYAN};
+            border: 1px solid rgba(0, 212, 255, 0.16);
+            border-radius: 2px;
+            padding: 2px 7px;
+            font-family: {_MONO};
+            font-size: 9px;
+            font-weight: 800;
+            letter-spacing: 0.6px;
+        }}
+        QLabel#balanceLabel {{
+            background-color: rgba(0, 212, 168, 0.075);
+            color: {_BULL};
+            border: 1px solid rgba(0, 212, 168, 0.16);
+            border-radius: 2px;
+            padding: 2px 8px;
+            font-family: {_MONO};
+            font-size: 10px;
+            font-weight: 900;
+            letter-spacing: 0.45px;
+        }}
+        QLabel#separatorDot {{
+            background: transparent;
+            color: {_TEXT_FAINT};
+            font-size: 8px;
+            font-weight: 900;
+        }}
+
+        QToolTip {{
+            background-color: {_BG_PANEL};
+            color: {_TEXT_SOFT};
+            border: 1px solid {_BG_BORDER_HI};
+            border-radius: 2px;
+            padding: 4px 6px;
+            font-family: {_SANS};
+            font-size: 10px;
+        }}
         """)
 
     def closeEvent(self, event):
