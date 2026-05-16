@@ -238,9 +238,21 @@ class HeaderToolbar(QToolBar):
         account_layout.addWidget(self.user_id_label)
         account_layout.addWidget(self._create_separator_dot())
 
-        self.balance_label = QLabel("₹0")
-        self.balance_label.setObjectName("balanceLabel")
-        account_layout.addWidget(self.balance_label)
+        self.balance_pill = QWidget()
+        self.balance_pill.setObjectName("balancePill")
+        balance_layout = QHBoxLayout(self.balance_pill)
+        balance_layout.setContentsMargins(0, 0, 0, 0)
+        balance_layout.setSpacing(0)
+
+        self.balance_currency_label = QLabel("₹")
+        self.balance_currency_label.setObjectName("balanceCurrencyLabel")
+        balance_layout.addWidget(self.balance_currency_label)
+
+        self.balance_label = QLabel("0")
+        self.balance_label.setObjectName("balanceValueLabel")
+        balance_layout.addWidget(self.balance_label)
+
+        account_layout.addWidget(self.balance_pill)
 
         self.addWidget(self.account_info_widget)
 
@@ -338,7 +350,7 @@ class HeaderToolbar(QToolBar):
     def _format_indian_currency(self, amount: float) -> str:
         """Format currency in Indian numbering system."""
         if amount == 0:
-            return "₹0"
+            return "0"
 
         is_negative = amount < 0
         amount = abs(amount)
@@ -358,7 +370,7 @@ class HeaderToolbar(QToolBar):
 
             formatted = formatted_remaining + "," + last_three
 
-        prefix = "-₹" if is_negative else "₹"
+        prefix = "-" if is_negative else ""
         return prefix + formatted
 
     def set_instrument_data(self, instruments: List[Dict[str, Any]]):
@@ -597,7 +609,7 @@ class HeaderToolbar(QToolBar):
             #accountInfoWidget {
                 background-color: rgba(255, 255, 255, 0.03);
                 border: none;
-                border-radius: 4px;
+                border-radius: 0px;
                 padding: 2px 6px;
             }
             #userIdLabel { 
@@ -610,16 +622,29 @@ class HeaderToolbar(QToolBar):
                 font-weight: 600;
                 letter-spacing: 0.4px;
             }
-            #balanceLabel { 
-                background-color: rgba(0, 255, 170, 0.10);
-                color: #76ffcd;
+            #balancePill {
+                background-color: transparent;
+                border: 1px solid #276a55;
+                border-radius: 0px;
+            }
+            #balanceCurrencyLabel {
+                background-color: #1f9d73;
+                color: #03170f;
                 border: none;
-                padding: 3px 9px;
-                border-radius: 4px;
+                padding: 3px 7px;
+                font-size: 10px;
+                font-weight: 900;
+                font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+            }
+            #balanceValueLabel {
+                background-color: #0f2a21;
+                color: #a6ffd8;
+                border: none;
+                padding: 3px 10px 3px 9px;
                 font-size: 10px;
                 font-weight: 800;
                 font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
-                letter-spacing: 0.6px;
+                letter-spacing: 0.3px;
             }
             #separatorDot { 
                 background-color: transparent;
