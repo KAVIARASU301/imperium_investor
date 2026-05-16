@@ -208,6 +208,7 @@ class DrawingEngine {
         this._bindEvents();
         this._pendingSpatialRebuild = false;
         this._noteEditor = null;
+        this._noteEditorJustCreated = false;
     }
 
     /* ─── Coordinate helpers ────────────────────────────────────────────────── */
@@ -904,7 +905,7 @@ class DrawingEngine {
 
     _onDocClick(e) {
         if (this._menu && !this._menu.contains(e.target)) this._dismissMenu();
-        if (this._noteEditor && !this._noteEditor.wrapper.contains(e.target)) {
+        if (this._noteEditor && !this._noteEditorJustCreated && !this._noteEditor.wrapper.contains(e.target)) {
             this._teardownInlineNoteEditor(true);
         }
     }
@@ -1270,7 +1271,10 @@ class DrawingEngine {
         } else {
             ta.select();
         }
-        ta.addEventListener('blur', () => this._teardownInlineNoteEditor(true));
+        ta.addEventListener('blur', () => {
+            if (this._noteEditorJustCreated) return;
+            this._teardownInlineNoteEditor(true);
+        });
         ta.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
                 e.preventDefault();
@@ -1281,6 +1285,8 @@ class DrawingEngine {
             }
         });
         this._noteEditor = { wrapper: ta, noteId: d.id, isNew };
+        this._noteEditorJustCreated = true;
+        setTimeout(() => { this._noteEditorJustCreated = false; }, 350);
     }
 
     _teardownInlineNoteEditor(commit) {
@@ -1301,6 +1307,7 @@ class DrawingEngine {
         }
         wrapper.remove();
         this._noteEditor = null;
+        this._noteEditorJustCreated = false;
     }
 
     /* ── Measure tool ── */
