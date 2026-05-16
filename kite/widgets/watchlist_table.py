@@ -282,57 +282,184 @@ def _save_symbols(wl_id: str, symbols: List[str]) -> None:
 #  RENAME DIALOG
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class _RenameDialog(QDialog):
+    """Compact terminal-style dialog for renaming a watchlist."""
+
     def __init__(self, current_name: str, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Rename Watchlist")
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
-        self.setMinimumWidth(320)
+        self.setFixedSize(360, 164)
+        self._drag_pos = None
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 16, 20, 16)
-        layout.setSpacing(12)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
-        label = QLabel("Watchlist Name")
-        label.setStyleSheet(
-            f"color:{_C.T1}; font-family:{_SANS}; font-size:11px; font-weight:700; letter-spacing:0.5px;")
+        container = QFrame()
+        container.setObjectName("nameDialogContainer")
+        root.addWidget(container)
 
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        title_bar = QFrame()
+        title_bar.setObjectName("nameDialogTitleBar")
+        title_bar.setFixedHeight(30)
+        title_bar.setCursor(QCursor(Qt.CursorShape.SizeAllCursor))
+        title_row = QHBoxLayout(title_bar)
+        title_row.setContentsMargins(10, 0, 6, 0)
+        title_row.setSpacing(6)
+
+        title = QLabel("RENAME WATCHLIST")
+        title.setObjectName("nameDialogTitle")
+        close_btn = QToolButton()
+        close_btn.setText("✕")
+        close_btn.setObjectName("nameDialogCloseBtn")
+        close_btn.setFixedSize(22, 22)
+        close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        close_btn.clicked.connect(self.reject)
+
+        title_row.addWidget(title)
+        title_row.addStretch()
+        title_row.addWidget(close_btn)
+        layout.addWidget(title_bar)
+
+        body = QFrame()
+        body.setObjectName("nameDialogBody")
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(12, 10, 12, 12)
+        body_layout.setSpacing(8)
+
+        label = QLabel("WATCHLIST NAME")
+        label.setObjectName("fieldLabel")
         self.input = QLineEdit(current_name)
+        self.input.setObjectName("terminalInput")
         self.input.selectAll()
-        self.input.setStyleSheet(f"""
-            QLineEdit {{
-                background:{_C.BG2}; color:{_C.T0};
-                border:1px solid {_C.BG4}; border-radius:1px;
-                font-family:{_SANS}; font-size:13px;
-                padding:6px 8px;
-            }}
-            QLineEdit:focus {{ border:1px solid {_C.CYAN}; }}
-        """)
 
         btns = QHBoxLayout()
-        btns.setSpacing(8)
+        btns.setContentsMargins(0, 2, 0, 0)
+        btns.setSpacing(6)
         cancel = QPushButton("Cancel")
+        cancel.setObjectName("secondaryButton")
         ok = QPushButton("Rename")
-
-        for btn, primary in ((cancel, False), (ok, True)):
-            btn.setFixedHeight(28)
-            if primary:
-                btn.setStyleSheet(
-                    f"background:{_C.BLUE}; color:#fff; border:none; border-radius:1px; font-family:{_SANS}; font-size:11px; font-weight:700; padding:0 16px;")
-            else:
-                btn.setStyleSheet(
-                    f"background:{_C.BG2}; color:{_C.T1}; border:1px solid {_C.BG4}; border-radius:1px; font-family:{_SANS}; font-size:11px; font-weight:700; padding:0 16px;")
-            btns.addWidget(btn)
-
+        ok.setObjectName("infoButton")
+        cancel.setFixedHeight(26)
+        ok.setFixedHeight(26)
         cancel.clicked.connect(self.reject)
         ok.clicked.connect(self._accept)
         self.input.returnPressed.connect(self._accept)
 
-        layout.addWidget(label)
-        layout.addWidget(self.input)
-        layout.addLayout(btns)
+        btns.addStretch()
+        btns.addWidget(cancel)
+        btns.addWidget(ok)
 
-        self.setStyleSheet(f"QDialog {{ background:{_C.BG1}; border:1px solid {_C.BG4}; }}")
+        body_layout.addWidget(label)
+        body_layout.addWidget(self.input)
+        body_layout.addLayout(btns)
+        layout.addWidget(body, 1)
+
+        title_bar.mousePressEvent = self._drag_press
+        title_bar.mouseMoveEvent = self._drag_move
+        title_bar.mouseReleaseEvent = self._drag_release
+
+        self._apply_dialog_style()
+
+    def _drag_press(self, event: QMouseEvent):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            event.accept()
+
+    def _drag_move(self, event: QMouseEvent):
+        if self._drag_pos and event.buttons() & Qt.MouseButton.LeftButton:
+            self.move(event.globalPosition().toPoint() - self._drag_pos)
+            event.accept()
+
+    def _drag_release(self, _event: QMouseEvent):
+        self._drag_pos = None
+
+    def _apply_dialog_style(self):
+        self.setStyleSheet(f"""
+            QFrame#nameDialogContainer {{
+                background: {_C.BG1};
+                border: 1px solid {_C.BG4};
+                border-radius: 2px;
+            }}
+            QFrame#nameDialogTitleBar {{
+                background: {_C.BG0};
+                border-bottom: 1px solid {_C.BG4};
+            }}
+            QLabel#nameDialogTitle {{
+                color: {_C.AMBER};
+                font-family: {_MONO};
+                font-size: 10px;
+                font-weight: 800;
+                letter-spacing: 1.2px;
+                background: transparent;
+            }}
+            QFrame#nameDialogBody {{ background: {_C.BG1}; }}
+            QLabel#fieldLabel {{
+                color: {_C.T2};
+                font-family: {_SANS};
+                font-size: 9px;
+                font-weight: 800;
+                letter-spacing: 1px;
+                background: transparent;
+            }}
+            QLineEdit#terminalInput {{
+                background: {_C.BG2};
+                color: {_C.T0};
+                border: 1px solid {_C.BG4};
+                border-radius: 2px;
+                padding: 5px 8px;
+                font-family: {_SANS};
+                font-size: 12px;
+                selection-background-color: {_C.SEL};
+            }}
+            QLineEdit#terminalInput:focus {{
+                border-color: {_C.CYAN};
+                background: {_C.BG3};
+            }}
+            QToolButton#nameDialogCloseBtn {{
+                background: transparent;
+                color: {_C.T2};
+                border: none;
+                border-radius: 2px;
+                font-size: 11px;
+            }}
+            QToolButton#nameDialogCloseBtn:hover {{
+                background: rgba(255,77,106,0.15);
+                color: {_C.BEAR};
+            }}
+            QPushButton#secondaryButton, QPushButton#infoButton {{
+                border-radius: 2px;
+                font-family: {_SANS};
+                font-size: 10px;
+                font-weight: 800;
+                padding: 0 12px;
+                min-width: 70px;
+            }}
+            QPushButton#secondaryButton {{
+                background: {_C.BG2};
+                color: {_C.T1};
+                border: 1px solid {_C.BG4};
+            }}
+            QPushButton#secondaryButton:hover {{
+                background: {_C.BG3};
+                color: {_C.T0};
+            }}
+            QPushButton#infoButton {{
+                background: rgba(0,212,255,0.08);
+                color: {_C.CYAN};
+                border: 1px solid rgba(0,212,255,0.28);
+            }}
+            QPushButton#infoButton:hover {{
+                background: rgba(0,212,255,0.16);
+                border-color: {_C.CYAN};
+            }}
+        """)
 
     def _accept(self):
         if self.input.text().strip():
@@ -340,64 +467,190 @@ class _RenameDialog(QDialog):
 
     def name(self) -> str:
         return self.input.text().strip()
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  ADD WATCHLIST DIALOG
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class _AddWatchlistDialog(QDialog):
+    """Compact terminal-style dialog for creating a watchlist."""
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("New Watchlist")
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
-        self.setMinimumWidth(320)
+        self.setFixedSize(360, 164)
+        self._drag_pos = None
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 16, 20, 16)
-        layout.setSpacing(12)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
-        label = QLabel("Watchlist Name")
-        label.setStyleSheet(
-            f"color:{_C.T1}; font-family:{_SANS}; font-size:11px; font-weight:700; letter-spacing:0.5px;")
+        container = QFrame()
+        container.setObjectName("nameDialogContainer")
+        root.addWidget(container)
 
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        title_bar = QFrame()
+        title_bar.setObjectName("nameDialogTitleBar")
+        title_bar.setFixedHeight(30)
+        title_bar.setCursor(QCursor(Qt.CursorShape.SizeAllCursor))
+        title_row = QHBoxLayout(title_bar)
+        title_row.setContentsMargins(10, 0, 6, 0)
+        title_row.setSpacing(6)
+
+        title = QLabel("NEW WATCHLIST")
+        title.setObjectName("nameDialogTitle")
+        close_btn = QToolButton()
+        close_btn.setText("✕")
+        close_btn.setObjectName("nameDialogCloseBtn")
+        close_btn.setFixedSize(22, 22)
+        close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        close_btn.clicked.connect(self.reject)
+
+        title_row.addWidget(title)
+        title_row.addStretch()
+        title_row.addWidget(close_btn)
+        layout.addWidget(title_bar)
+
+        body = QFrame()
+        body.setObjectName("nameDialogBody")
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(12, 10, 12, 12)
+        body_layout.setSpacing(8)
+
+        label = QLabel("WATCHLIST NAME")
+        label.setObjectName("fieldLabel")
         self.input = QLineEdit()
-        self.input.setPlaceholderText("e.g. My Watchlist, Momentum, Breakouts…")
-        self.input.setStyleSheet(f"""
-            QLineEdit {{
-                background:{_C.BG2}; color:{_C.T0};
-                border:1px solid {_C.BG4}; border-radius:1px;
-                font-family:{_SANS}; font-size:13px;
-                padding:6px 8px;
-            }}
-            QLineEdit:focus {{ border:1px solid {_C.CYAN}; }}
-            QLineEdit::placeholder {{ color:{_C.T3}; }}
-        """)
+        self.input.setObjectName("terminalInput")
+        self.input.setPlaceholderText("Momentum, Breakouts, Swing Setups…")
 
         btns = QHBoxLayout()
-        btns.setSpacing(8)
+        btns.setContentsMargins(0, 2, 0, 0)
+        btns.setSpacing(6)
         cancel = QPushButton("Cancel")
+        cancel.setObjectName("secondaryButton")
         ok = QPushButton("Create")
-
-        for btn, primary in ((cancel, False), (ok, True)):
-            btn.setFixedHeight(28)
-            if primary:
-                btn.setStyleSheet(
-                    f"background:{_C.BULL}; color:#000; border:none; border-radius:1px; font-family:{_SANS}; font-size:11px; font-weight:800; padding:0 16px;")
-            else:
-                btn.setStyleSheet(
-                    f"background:{_C.BG2}; color:{_C.T1}; border:1px solid {_C.BG4}; border-radius:1px; font-family:{_SANS}; font-size:11px; font-weight:700; padding:0 16px;")
-            btns.addWidget(btn)
-
+        ok.setObjectName("confirmButton")
+        cancel.setFixedHeight(26)
+        ok.setFixedHeight(26)
         cancel.clicked.connect(self.reject)
         ok.clicked.connect(self._accept)
         self.input.returnPressed.connect(self._accept)
 
-        layout.addWidget(label)
-        layout.addWidget(self.input)
-        layout.addLayout(btns)
+        btns.addStretch()
+        btns.addWidget(cancel)
+        btns.addWidget(ok)
 
-        self.setStyleSheet(f"QDialog {{ background:{_C.BG1}; border:1px solid {_C.BG4}; }}")
+        body_layout.addWidget(label)
+        body_layout.addWidget(self.input)
+        body_layout.addLayout(btns)
+        layout.addWidget(body, 1)
+
+        title_bar.mousePressEvent = self._drag_press
+        title_bar.mouseMoveEvent = self._drag_move
+        title_bar.mouseReleaseEvent = self._drag_release
+
+        self._apply_dialog_style()
+
+    def _drag_press(self, event: QMouseEvent):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            event.accept()
+
+    def _drag_move(self, event: QMouseEvent):
+        if self._drag_pos and event.buttons() & Qt.MouseButton.LeftButton:
+            self.move(event.globalPosition().toPoint() - self._drag_pos)
+            event.accept()
+
+    def _drag_release(self, _event: QMouseEvent):
+        self._drag_pos = None
+
+    def _apply_dialog_style(self):
+        self.setStyleSheet(f"""
+            QFrame#nameDialogContainer {{
+                background: {_C.BG1};
+                border: 1px solid {_C.BG4};
+                border-radius: 2px;
+            }}
+            QFrame#nameDialogTitleBar {{
+                background: {_C.BG0};
+                border-bottom: 1px solid {_C.BG4};
+            }}
+            QLabel#nameDialogTitle {{
+                color: {_C.AMBER};
+                font-family: {_MONO};
+                font-size: 10px;
+                font-weight: 800;
+                letter-spacing: 1.2px;
+                background: transparent;
+            }}
+            QFrame#nameDialogBody {{ background: {_C.BG1}; }}
+            QLabel#fieldLabel {{
+                color: {_C.T2};
+                font-family: {_SANS};
+                font-size: 9px;
+                font-weight: 800;
+                letter-spacing: 1px;
+                background: transparent;
+            }}
+            QLineEdit#terminalInput {{
+                background: {_C.BG2};
+                color: {_C.T0};
+                border: 1px solid {_C.BG4};
+                border-radius: 2px;
+                padding: 5px 8px;
+                font-family: {_SANS};
+                font-size: 12px;
+                selection-background-color: {_C.SEL};
+            }}
+            QLineEdit#terminalInput:focus {{
+                border-color: {_C.CYAN};
+                background: {_C.BG3};
+            }}
+            QLineEdit#terminalInput::placeholder {{ color: {_C.T3}; }}
+            QToolButton#nameDialogCloseBtn {{
+                background: transparent;
+                color: {_C.T2};
+                border: none;
+                border-radius: 2px;
+                font-size: 11px;
+            }}
+            QToolButton#nameDialogCloseBtn:hover {{
+                background: rgba(255,77,106,0.15);
+                color: {_C.BEAR};
+            }}
+            QPushButton#secondaryButton, QPushButton#confirmButton {{
+                border-radius: 2px;
+                font-family: {_SANS};
+                font-size: 10px;
+                font-weight: 800;
+                padding: 0 12px;
+                min-width: 70px;
+            }}
+            QPushButton#secondaryButton {{
+                background: {_C.BG2};
+                color: {_C.T1};
+                border: 1px solid {_C.BG4};
+            }}
+            QPushButton#secondaryButton:hover {{
+                background: {_C.BG3};
+                color: {_C.T0};
+            }}
+            QPushButton#confirmButton {{
+                background: rgba(0,212,168,0.10);
+                color: {_C.BULL};
+                border: 1px solid rgba(0,212,168,0.35);
+            }}
+            QPushButton#confirmButton:hover {{
+                background: rgba(0,212,168,0.18);
+                border-color: {_C.BULL};
+            }}
+        """)
 
     def _accept(self):
         if self.input.text().strip():
@@ -405,7 +658,6 @@ class _AddWatchlistDialog(QDialog):
 
     def name(self) -> str:
         return self.input.text().strip()
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  TRADING TABLE  (single watchlist pane)
@@ -478,6 +730,8 @@ class TradingTable(QTableWidget):
         hdr.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
         hdr.setMinimumSectionSize(20)
         hdr.setStretchLastSection(False)
+        hdr.setHighlightSections(False)
+        hdr.setFixedHeight(21)
 
         # Flag col — fixed tight
         hdr.setSectionResizeMode(_COL_FLAG, QHeaderView.ResizeMode.Fixed)
@@ -491,18 +745,20 @@ class TradingTable(QTableWidget):
             hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
 
         self.verticalHeader().setVisible(False)
-        self.verticalHeader().setDefaultSectionSize(22)
+        self.verticalHeader().setDefaultSectionSize(21)
+        self.verticalHeader().setMinimumSectionSize(21)
 
         self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.setShowGrid(True)
+        self.setShowGrid(False)
         self.setAlternatingRowColors(True)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setSortingEnabled(False)
         self.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.setWordWrap(False)
 
         hdr.sectionClicked.connect(self._on_header_click)
         hdr.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
@@ -684,12 +940,21 @@ class TradingTable(QTableWidget):
         # ── Flag ──
         self._paint_flag_cell(row, sym)
 
+        symbol_font = QFont("Segoe UI")
+        symbol_font.setPointSize(9)
+        symbol_font.setBold(True)
+        value_font = self._mono_font(False)
+        value_font.setPointSize(9)
+        strong_value_font = self._mono_font(True)
+        strong_value_font.setPointSize(9)
+
         # ── Symbol ──
         sym_item = self.item(row, _COL_SYMBOL)
         if sym_item:
             sym_item.setText(sym)
             sym_item.setForeground(QColor(_C.T0))
             sym_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            sym_item.setFont(symbol_font)
 
         # ── LTP ──
         ltp_text = f"{ltp:.2f}" if ltp > 0 else "—"
@@ -698,6 +963,7 @@ class TradingTable(QTableWidget):
             ltp_item.setText(ltp_text)
             ltp_item.setForeground(QColor(_C.T0))
             ltp_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            ltp_item.setFont(value_font)
 
         # ── Volume ──
         vol_text = self._fmt_volume(vol)
@@ -706,7 +972,8 @@ class TradingTable(QTableWidget):
             vol_item.setText(vol_text)
             vol_item.setForeground(QColor(_C.T2))
             vol_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            vol_item.setToolTip(f"Volume: {vol}")
+            vol_item.setToolTip(f"Volume: {vol:,}")
+            vol_item.setFont(value_font)
 
         # ── Chg% with heat-map ──
         chg_text = f"{chg:+.2f}" if abs(chg) > 0.005 else "0.00"
@@ -716,6 +983,7 @@ class TradingTable(QTableWidget):
             chg_item.setText(chg_text)
             chg_item.setForeground(QColor(fg))
             chg_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            chg_item.setFont(strong_value_font)
             if bg_rgba:
                 r, g, b, a = self._parse_rgba(bg_rgba)
                 chg_item.setBackground(QBrush(QColor(r, g, b, a)))
@@ -723,9 +991,7 @@ class TradingTable(QTableWidget):
                 chg_item.setBackground(QBrush(QColor(_C.BG2)))
 
         # ── LTP heat-map tint (subtle, for directional context) ──
-        if ltp_item and chg > 0:
-            ltp_item.setForeground(QColor(fg))
-        elif ltp_item and chg < 0:
+        if ltp_item and abs(chg) > 0.005:
             ltp_item.setForeground(QColor(fg))
 
     def _paint_flag_cell(self, row: int, symbol: str):
@@ -853,13 +1119,21 @@ class TradingTable(QTableWidget):
         menu.setObjectName("wlCtxMenu")
 
         flag_state = _flag_store.get(sym)
-        next_states = {None: "🚩 Add Flag", "green": "🚩 Remove Flag"}
-        flag_act = menu.addAction(next_states.get(flag_state, "🚩 Toggle Flag"))
+        next_states = {None: "⚑  Add Flag", "green": "⚑  Remove Flag"}
+        flag_act = menu.addAction(next_states.get(flag_state, "⚑  Toggle Flag"))
         flag_act.triggered.connect(lambda: self._cycle_flag(row, sym))
         menu.addSeparator()
 
-        chart_act = menu.addAction("📈  Open Chart")
+        chart_act = menu.addAction("Open Chart")
         chart_act.triggered.connect(lambda: self.symbol_selected.emit(sym))
+
+        menu.addSeparator()
+        buy_act = menu.addAction("BUY")
+        buy_act.triggered.connect(lambda: self.advanced_buy_order_requested.emit(sym))
+        sell_act = menu.addAction("SELL")
+        sell_act.triggered.connect(lambda: self.advanced_sell_order_requested.emit(sym))
+        bo_act = menu.addAction("Bracket Order")
+        bo_act.triggered.connect(lambda: self.bracket_order_requested.emit(sym))
 
         menu.addSeparator()
         rm_act = menu.addAction("✕  Remove")
@@ -1244,251 +1518,242 @@ class TabbedWatchlistWidget(QWidget):
     # ── Styles ─────────────────────────────────────────────────────────────
 
     def _apply_styles(self):
-        # NOTE: Removed the 'f' prefix from the string to use standard CSS braces
-        # and directly injected the scanner_table hex colors.
-        dropdown_icon_path = get_asset_path("icons", "dropdown-arrow.svg", required=True)
+        dropdown_icon_path = get_asset_path("icons", "dropdown-arrow.svg", required=False)
         dropdown_icon_url = dropdown_icon_path.as_posix() if dropdown_icon_path is not None else ""
         stylesheet = """
             /* ── Widget shell ─────────────────────────────────────── */
             TabbedWatchlistWidget {
-                background-color: #05070b;
-                color: #e0e0e0;
-                font-family: "Segoe UI", Arial, sans-serif;
-                font-size: 13px;
+                background: #050709;
+                color: #e8f0ff;
+                font-family: "Segoe UI", -apple-system, Roboto, Arial, sans-serif;
+                font-size: 11px;
             }
 
             /* ── Header bar ───────────────────────────────────────── */
             QFrame#wlHeader {
-                background-color: #0b1019;
-                border-bottom: 1px solid #1f2c3f;
+                background: #070a0f;
+                border-bottom: 1px solid #1a2030;
                 min-height: 32px;
                 max-height: 32px;
-                padding: 0px;
+                padding: 0;
             }
 
             QLabel#wlLabel {
-                color: #6ec8ff;
-                font-weight: 600;
-                font-size: 11px;
-                background-color: transparent;
+                color: #f59e0b;
+                font-family: "Consolas", "JetBrains Mono", monospace;
+                font-size: 9px;
+                font-weight: 800;
+                letter-spacing: 1.4px;
+                background: transparent;
             }
 
             /* ── Dropdown ─────────────────────────────────────────── */
             QComboBox#wlDropdown {
-                background-color: #0a111b;
-                border: 1px solid #24354d;
-                color: #ffffff;
+                background: #0f1318;
+                color: #e8f0ff;
+                border: 1px solid #1a2030;
+                border-radius: 2px;
                 min-height: 22px;
                 max-height: 22px;
-                padding: 0 6px;
-                border-radius: 3px;
-                font-size: 11px;
+                padding: 0 22px 0 7px;
+                font-family: "Segoe UI", -apple-system, Roboto, Arial, sans-serif;
+                font-size: 10px;
+                font-weight: 700;
             }
             QComboBox#wlDropdown:hover {
-                border-color: #505050;
+                background: #141920;
+                border-color: #243040;
             }
             QComboBox#wlDropdown:focus {
-                border-color: #6a9cff;
+                border-color: #00d4ff;
                 outline: none;
             }
             QComboBox#wlDropdown::drop-down {
                 border: none;
                 width: 18px;
+                background: transparent;
             }
             QComboBox#wlDropdown::down-arrow {
                 image: url("__DROPDOWN_ICON_URL__");
-                width: 12px;
-                height: 12px;
+                width: 10px;
+                height: 10px;
+                margin-right: 4px;
             }
-            QComboBox#wlDropdown::down-arrow:hover {
-                image: url("__DROPDOWN_ICON_URL__");
-            }
-
             QComboBox#wlDropdown QAbstractItemView {
-                background-color: #1a1a1a;
-                border: 1px solid #6a9cff;
+                background: #0a0d12;
+                border: 1px solid #1a2030;
                 border-radius: 2px;
-                color: #ffffff;
-                selection-background-color: rgba(74, 122, 191, 0.2);
-                selection-color: #ffffff;
-                padding: 1px;
+                color: #e8f0ff;
+                selection-background-color: #1a2840;
+                selection-color: #e8f0ff;
+                padding: 2px;
                 outline: none;
+                font-size: 10px;
             }
             QComboBox#wlDropdown QAbstractItemView::item {
-                padding: 5px 8px;
+                padding: 4px 7px;
                 border: none;
-                border-radius: 1px;
-                margin: 0px 1px;
-                font-size: 12px;
+                min-height: 18px;
             }
             QComboBox#wlDropdown QAbstractItemView::item:hover {
-                background-color: #2a2a2a;
-            }
-            QComboBox#wlDropdown QAbstractItemView::item:selected {
-                background-color: rgba(74, 122, 191, 0.2);
-                color: #ffffff;
+                background: #141920;
             }
 
             /* ── Add / Menu buttons ───────────────────────────────── */
             QToolButton#wlAddBtn, QToolButton#wlMenuBtn {
-                background-color: #111b2a;
-                color: #6ec8ff;
+                background: #0f1318;
+                color: #00d4ff;
                 min-height: 22px;
                 max-height: 22px;
-                font-size: 13px;
-                font-weight: 500;
-                border-radius: 3px;
-                border: 1px solid #223651;
+                font-size: 12px;
+                font-weight: 800;
+                border-radius: 2px;
+                border: 1px solid #1a2030;
                 padding: 0;
             }
             QToolButton#wlAddBtn:hover, QToolButton#wlMenuBtn:hover {
-                background-color: #16253a;
-                border-color: #365783;
+                background: rgba(0,212,255,0.10);
+                border-color: rgba(0,212,255,0.35);
+                color: #b7f4ff;
             }
             QToolButton#wlAddBtn:pressed, QToolButton#wlMenuBtn:pressed {
-                background-color: #1a1a1a;
-                border-color: #404040;
+                background: #050709;
+                border-color: #00d4ff;
             }
 
             /* ── Table ────────────────────────────────────────────── */
             TradingTable {
-                background-color: #0f1318;
-                border: 1px solid #1a2030;
-                gridline-color: #1a2030;
-                selection-background-color: rgba(74, 122, 191, 0.12);
+                background: #0a0d12;
                 alternate-background-color: #0f1318;
+                border: none;
+                gridline-color: transparent;
+                selection-background-color: #1a2840;
+                color: #e8f0ff;
                 outline: none;
                 show-decoration-selected: 0;
-                font-size: 12px;
-                border-radius: 0px;
+                font-size: 11px;
+                border-radius: 0;
             }
 
             TradingTable::item {
-                padding: 1px 5px;
-                border-bottom: 1px solid #1a2030;
-                background-color: transparent;
-                font-size: 12px;
-                font-family: "JetBrains Mono", "Consolas", monospace;
+                padding: 0 5px;
+                border-bottom: 1px solid #141920;
+                background: transparent;
+                font-size: 11px;
+                font-family: "Consolas", "JetBrains Mono", monospace;
             }
 
             TradingTable::item:selected {
-                background-color: rgba(74, 122, 191, 0.12) !important;
+                background: #1a2840 !important;
+                color: #e8f0ff;
                 outline: none;
-                border: none;
-                font-weight: 600;
             }
 
             TradingTable::item:focus {
-                background-color: rgba(74, 122, 191, 0.12) !important;
+                background: #1a2840 !important;
                 outline: none;
-                border: none;
             }
 
             TradingTable::item:hover {
-                background-color: #141920;
+                background: #141920;
             }
 
             TradingTable::item:alternate {
-                background-color: #0f1318;
+                background: #0f1318;
             }
 
             TradingTable::item:alternate:selected {
-                background-color: rgba(74, 122, 191, 0.12) !important;
-                font-weight: 600;
+                background: #1a2840 !important;
+                color: #e8f0ff;
             }
 
             /* ── Table header ─────────────────────────────────────── */
             QHeaderView::section {
-                background-color: #0b1019;
-                color: #7fd4ff;
-                padding: 2px 5px;
+                background: #0f1318;
+                color: #5a7090;
+                padding: 0 5px;
                 border: none;
-                border-bottom: 1px solid #24344c;
-                border-right: 1px solid #121c2b;
-                font-weight: 600;
-                font-size: 11px;
+                border-bottom: 1px solid #1a2030;
+                font-family: "Segoe UI", -apple-system, Roboto, Arial, sans-serif;
+                font-weight: 800;
+                font-size: 8px;
+                letter-spacing: 1px;
                 text-transform: uppercase;
             }
-            QHeaderView::section:last {
-                border-right: none;
-            }
             QHeaderView::section:hover {
-                background-color: #2a2a2a;
+                background: #141920;
+                color: #a8bcd4;
             }
             QHeaderView {
-                background-color: #0b1019;
+                background: #0f1318;
                 border: none;
             }
 
             /* ── Context menu ─────────────────────────────────────── */
             QMenu#wlCtxMenu, QMenu#wlOptionsMenu {
-                background-color: #1a1a1a;
-                border: 1px solid #303030;
-                border-radius: 3px;
-                color: #ffffff;
-                font-family: "Segoe UI", Arial, sans-serif;
-                font-size: 12px;
+                background: #0a0d12;
+                border: 1px solid #1a2030;
+                border-radius: 2px;
+                color: #e8f0ff;
+                font-family: "Segoe UI", -apple-system, Roboto, Arial, sans-serif;
+                font-size: 11px;
                 padding: 4px 0;
             }
             QMenu#wlCtxMenu::item, QMenu#wlOptionsMenu::item {
-                padding: 6px 16px;
+                padding: 5px 16px;
             }
             QMenu#wlCtxMenu::item:selected,
             QMenu#wlOptionsMenu::item:selected {
-                background-color: rgba(74, 122, 191, 0.2);
-                color: #ffffff;
+                background: #1a2840;
+                color: #e8f0ff;
             }
             QMenu#wlCtxMenu::separator, QMenu#wlOptionsMenu::separator {
                 height: 1px;
-                background-color: #303030;
+                background: #1a2030;
                 margin: 3px 8px;
             }
 
             /* ── Stack ────────────────────────────────────────────── */
             QStackedWidget#wlStack {
-                background-color: #0f1318;
+                background: #0a0d12;
                 border: none;
             }
 
             /* ── Scrollbars ───────────────────────────────────────── */
             QScrollBar:vertical {
-                background-color: #05070b;
-                width: 8px;
+                background: transparent;
+                width: 4px;
                 border: none;
-                margin: 0px;
+                margin: 0;
             }
             QScrollBar::handle:vertical {
-                background-color: #424242;
-                border-radius: 4px;
+                background: #243040;
+                border-radius: 2px;
                 min-height: 20px;
-                margin: 2px;
             }
             QScrollBar::handle:vertical:hover {
-                background-color: #616161;
+                background: #5a7090;
             }
-
             QScrollBar:horizontal {
-                background-color: #0a0a0a;
-                height: 8px;
+                background: transparent;
+                height: 4px;
                 border: none;
-                margin: 0px;
+                margin: 0;
             }
             QScrollBar::handle:horizontal {
-                background-color: #424242;
-                border-radius: 4px;
+                background: #243040;
+                border-radius: 2px;
                 min-width: 20px;
-                margin: 2px;
             }
             QScrollBar::handle:horizontal:hover {
-                background-color: #616161;
+                background: #5a7090;
             }
-
             QScrollBar::add-line, QScrollBar::sub-line {
                 border: none;
                 background: none;
-                width: 0px;
-                height: 0px;
-                margin: 0px;
+                width: 0;
+                height: 0;
+                margin: 0;
             }
         """
         self.setStyleSheet(stylesheet.replace("__DROPDOWN_ICON_URL__", dropdown_icon_url))

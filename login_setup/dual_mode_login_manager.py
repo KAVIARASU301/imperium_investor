@@ -368,7 +368,7 @@ class DualModeLoginManager(QDialog):
         layout.setContentsMargins(18, 14, 18, 14)
         layout.setSpacing(10)
 
-        title = QLabel("BROKER + MODE")
+        title = QLabel("Broker & Mode")
         title.setObjectName("brokerPageTitle")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
