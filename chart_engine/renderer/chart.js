@@ -565,6 +565,8 @@ class FixedTradingChart {
             this._drawGrid();
             this._drawSessionSeparators();
             this._drawGaps();
+            // Draw indicators first so price bars/candles remain visually on top.
+            this._drawMovingAverages();
             // Chart type dispatch
             const chartType = this._chartType || window.__CHART_DATA__?.chartType || 'candle';
             if (chartType === 'bar') {
@@ -575,7 +577,6 @@ class FixedTradingChart {
                 this._drawCandlesticks();
             }
             this._drawVolumeBars();
-            this._drawMovingAverages();
             this._drawAxes();
             this.drawingEngine.render();
             this._drawMeasureOverlay();
