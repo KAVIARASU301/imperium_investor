@@ -33,6 +33,7 @@ _DEFAULT_GLOBAL_SETTINGS: Dict[str, Any] = {
     "indicator_scale_labels_enabled": False,
     "crosshair_snap_enabled": True,
     "tool_selection_mode": "single_use",
+    "price_scale_currency": "",
     "history_days_by_interval": {
         "minute": 5,
         "3minute": 10,

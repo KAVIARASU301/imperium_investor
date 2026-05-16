@@ -601,8 +601,7 @@ class CandlestickChart(QWidget):
 
         # ── Path A: seamless reload on existing chart ─────────────────────
         if self.chart_view and self.current_state == ChartState.LOADED:
-            sym_upper = (self.current_symbol or "").upper()
-            price_scale_currency = "INR" if sym_upper.endswith((".NS", ".BO")) else "USD"
+            price_scale_currency = self._resolve_price_scale_currency()
             payload_dict = {
                 "candlestickData":          candles,
                 "volumeData":               volumes,
@@ -660,7 +659,7 @@ class CandlestickChart(QWidget):
             chart_type                  = self.toolbar.get_chart_type(),
             initial_indicator_visibility = initial_indicator_visibility,
             info_visibility            = dict(self._chart_info_visibility),
-            price_scale_currency       = "INR" if (self.current_symbol or "").upper().endswith((".NS", ".BO")) else "USD",
+            price_scale_currency       = self._resolve_price_scale_currency(),
         )
 
         self._render_html(cfg)
@@ -669,6 +668,32 @@ class CandlestickChart(QWidget):
         self.symbol_loaded.emit(self.current_symbol)
         self.data_request_for_symbol.emit(self.current_symbol)
         logger.info("Chart HTML loaded: %s (%d candles)", self.current_symbol, len(candles))
+
+
+    def _infer_default_price_scale_currency(self) -> str:
+        """Infer default currency once from mode/symbol when not persisted yet."""
+        storage_hint = (getattr(self.drawing_storage, "storage_dir", "") or "").lower()
+        if "/kite/" in storage_hint or storage_hint.startswith("kite/"):
+            return "INR"
+        if "/ibkr/" in storage_hint or storage_hint.startswith("ibkr/"):
+            return "USD"
+
+        sym = (self.current_symbol or "").strip().upper()
+        if sym.endswith((".NS", ".BO")):
+            return "INR"
+        return "USD"
+
+    def _resolve_price_scale_currency(self) -> str:
+        """Return persisted currency; infer+persist on first run only."""
+        cached = str(self.global_chart_settings.get("price_scale_currency", "")).strip().upper()
+        if cached in {"INR", "USD"}:
+            return cached
+
+        resolved = self._infer_default_price_scale_currency()
+        self.global_chart_settings["price_scale_currency"] = resolved
+        self.drawing_storage.save_global_settings(self.global_chart_settings)
+        logger.info("Pinned price scale currency to %s", resolved)
+        return resolved
 
     def _render_html(self, cfg: ChartHtmlConfig) -> None:
         if not self.chart_view:
