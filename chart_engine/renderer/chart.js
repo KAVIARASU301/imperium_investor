@@ -2879,6 +2879,9 @@ class FixedTradingChart {
         this.currentTool  = toolId;
         this.drawingColor = color || this.drawingColor;
         this.lineWidth    = lw    || this.lineWidth;
+        if (this.drawingEngine) {
+            this.drawingEngine.setTool(toolId, this.drawingColor, this.lineWidth);
+        }
         this.canvas.style.cursor = 'crosshair';
     }
 
@@ -2888,8 +2891,12 @@ class FixedTradingChart {
         this.isDrawing   = false;
         this.startPoint  = null;
         this.endPoint    = null;
+        const clearedViaDrawingEngine = Boolean(this.drawingEngine);
+        if (clearedViaDrawingEngine) {
+            this.drawingEngine.clearTool();
+        }
         this.canvas.style.cursor = 'default';
-        if (hadActiveTool) {
+        if (hadActiveTool && !clearedViaDrawingEngine) {
             this._notifyDrawingToolCleared();
         }
     }
