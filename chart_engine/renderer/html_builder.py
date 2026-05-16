@@ -43,13 +43,13 @@ class ChartHtmlConfig:
     down_volume_color:       str   = "#e84060"
     watermark_enabled:       bool  = True
     watermark_color:         str   = "#ffffff"
-    watermark_opacity:       float = 0.06
-    watermark_position:      str   = "mid_center"
-    watermark_font_size:     int   = 0
-    watermark_description_opacity: float = 0.08
-    watermark_description_font_size: int = 0
+    watermark_opacity:       float = 0.28
+    watermark_position:      str   = "bottom_center"
+    watermark_font_size:     int   = 50
+    watermark_description_opacity: float = 0.13
+    watermark_description_font_size: int = 25
     indicator_scale_labels_enabled: bool = False
-    crosshair_snap_enabled:  bool  = True
+    crosshair_snap_enabled:  bool  = False
     tool_selection_mode:     str   = "single_use"
     chart_type:              str   = "candle"
     initial_indicator_visibility:   Dict[str, bool] = field(default_factory=dict)

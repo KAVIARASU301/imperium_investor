@@ -131,15 +131,15 @@ class CandlestickChart(QWidget):
         self._watermark_enabled         = self.global_chart_settings.get("watermark_enabled",  True)
         self._show_watermark_description = self.global_chart_settings.get("show_watermark_description", True)
         self._watermark_color           = self.global_chart_settings.get("watermark_color",    "#ffffff")
-        self._watermark_opacity         = self.global_chart_settings.get("watermark_opacity",  0.06)
-        self._watermark_position        = self.global_chart_settings.get("watermark_position", "mid_center")
-        self._watermark_font_size       = self.global_chart_settings.get("watermark_font_size", 0)
-        self._watermark_description_opacity = self.global_chart_settings.get("watermark_description_opacity", 0.08)
-        self._watermark_description_font_size = self.global_chart_settings.get("watermark_description_font_size", 0)
+        self._watermark_opacity         = self.global_chart_settings.get("watermark_opacity",  0.28)
+        self._watermark_position        = self.global_chart_settings.get("watermark_position", "bottom_center")
+        self._watermark_font_size       = self.global_chart_settings.get("watermark_font_size", 50)
+        self._watermark_description_opacity = self.global_chart_settings.get("watermark_description_opacity", 0.13)
+        self._watermark_description_font_size = self.global_chart_settings.get("watermark_description_font_size", 25)
         self._indicator_scale_labels_enabled = self.global_chart_settings.get("indicator_scale_labels_enabled", False)
-        self._crosshair_snap_enabled    = self.global_chart_settings.get("crosshair_snap_enabled", True)
+        self._crosshair_snap_enabled    = self.global_chart_settings.get("crosshair_snap_enabled", False)
         self._tool_selection_mode       = self.global_chart_settings.get("tool_selection_mode", "single_use")
-        self._toolbar_symbol_display    = self.global_chart_settings.get("toolbar_symbol_display", "symbol")
+        self._toolbar_symbol_display    = self.global_chart_settings.get("toolbar_symbol_display", "description")
         self.current_visible_candle_count = self.global_chart_settings.get("default_visible_candles", 100)
         self._history_days_by_interval = dict(DEFAULT_DAYS_BACK)
         self._history_days_by_interval.update(self.global_chart_settings.get("history_days_by_interval", {}))
@@ -147,13 +147,13 @@ class CandlestickChart(QWidget):
             "show_adr": self.global_chart_settings.get("show_adr", True),
             "show_perf_monthly": self.global_chart_settings.get("show_perf_monthly", True),
             "show_perf_3m": self.global_chart_settings.get("show_perf_3m", True),
-            "show_perf_6m": self.global_chart_settings.get("show_perf_6m", True),
-            "show_perf_1y": self.global_chart_settings.get("show_perf_1y", True),
+            "show_perf_6m": self.global_chart_settings.get("show_perf_6m", False),
+            "show_perf_1y": self.global_chart_settings.get("show_perf_1y", False),
             "show_info_date": self.global_chart_settings.get("show_info_date", True),
-            "show_info_open": self.global_chart_settings.get("show_info_open", True),
-            "show_info_high": self.global_chart_settings.get("show_info_high", True),
-            "show_info_low": self.global_chart_settings.get("show_info_low", True),
-            "show_info_close": self.global_chart_settings.get("show_info_close", True),
+            "show_info_open": self.global_chart_settings.get("show_info_open", False),
+            "show_info_high": self.global_chart_settings.get("show_info_high", False),
+            "show_info_low": self.global_chart_settings.get("show_info_low", False),
+            "show_info_close": self.global_chart_settings.get("show_info_close", False),
             "show_info_volume": self.global_chart_settings.get("show_info_volume", True),
             "show_info_pct_change": self.global_chart_settings.get("show_info_pct_change", True),
         }

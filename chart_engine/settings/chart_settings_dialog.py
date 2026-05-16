@@ -25,6 +25,19 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+_DEFAULT_HISTORY_DAYS_BY_INTERVAL = {
+    "minute": 5,
+    "3minute": 10,
+    "5minute": 10,
+    "10minute": 10,
+    "15minute": 10,
+    "30minute": 30,
+    "60minute": 50,
+    "day": 100,
+    "week": 1000,
+    "month": 2000,
+}
+
 
 class ChartSettingsDialog(QDialog):
     """Adjust global chart display settings. Emits settings_changed on apply."""
@@ -71,7 +84,7 @@ class ChartSettingsDialog(QDialog):
         self.toolbar_symbol_display = QComboBox()
         self.toolbar_symbol_display.addItem("Symbol Name", "symbol")
         self.toolbar_symbol_display.addItem("Symbol Description", "description")
-        current_toolbar_display = self._s.get("toolbar_symbol_display", "symbol")
+        current_toolbar_display = self._s.get("toolbar_symbol_display", "description")
         for i in range(self.toolbar_symbol_display.count()):
             if self.toolbar_symbol_display.itemData(i) == current_toolbar_display:
                 self.toolbar_symbol_display.setCurrentIndex(i)
@@ -84,7 +97,7 @@ class ChartSettingsDialog(QDialog):
         self.wm_opacity.setRange(0.0, 1.0)
         self.wm_opacity.setSingleStep(0.05)
         self.wm_opacity.setDecimals(2)
-        self.wm_opacity.setValue(self._s.get("watermark_opacity", 0.08))
+        self.wm_opacity.setValue(self._s.get("watermark_opacity", 0.28))
         layout.addRow("Watermark Opacity:", self.wm_opacity)
 
         self.wm_position = QComboBox()
@@ -92,7 +105,7 @@ class ChartSettingsDialog(QDialog):
                              ("Mid Center", "mid_center"),
                              ("Bottom Center", "bottom_center")]:
             self.wm_position.addItem(label, data)
-        current_pos = self._s.get("watermark_position", "mid_center")
+        current_pos = self._s.get("watermark_position", "bottom_center")
         for i in range(self.wm_position.count()):
             if self.wm_position.itemData(i) == current_pos:
                 self.wm_position.setCurrentIndex(i)
@@ -105,7 +118,7 @@ class ChartSettingsDialog(QDialog):
         layout.addRow("Indicator Labels:", self.indicator_scale_labels_enabled)
 
         self.crosshair_snap_enabled = QCheckBox("Snap crosshair to OHLC")
-        self.crosshair_snap_enabled.setChecked(self._s.get("crosshair_snap_enabled", True))
+        self.crosshair_snap_enabled.setChecked(self._s.get("crosshair_snap_enabled", False))
         layout.addRow("Crosshair Snap:", self.crosshair_snap_enabled)
 
         self.tool_selection_mode = QComboBox()
@@ -121,7 +134,7 @@ class ChartSettingsDialog(QDialog):
 
         self.wm_font_size = QSpinBox()
         self.wm_font_size.setRange(0, 300)
-        self.wm_font_size.setValue(self._s.get("watermark_font_size", 0))
+        self.wm_font_size.setValue(self._s.get("watermark_font_size", 50))
         self.wm_font_size.setToolTip("0 = auto size")
         layout.addRow("Watermark Font Size:", self.wm_font_size)
 
@@ -129,12 +142,12 @@ class ChartSettingsDialog(QDialog):
         self.wm_description_opacity.setRange(0.0, 1.0)
         self.wm_description_opacity.setSingleStep(0.05)
         self.wm_description_opacity.setDecimals(2)
-        self.wm_description_opacity.setValue(self._s.get("watermark_description_opacity", 0.08))
+        self.wm_description_opacity.setValue(self._s.get("watermark_description_opacity", 0.13))
         layout.addRow("Description Opacity:", self.wm_description_opacity)
 
         self.wm_description_font_size = QSpinBox()
         self.wm_description_font_size.setRange(0, 150)
-        self.wm_description_font_size.setValue(self._s.get("watermark_description_font_size", 0))
+        self.wm_description_font_size.setValue(self._s.get("watermark_description_font_size", 25))
         self.wm_description_font_size.setToolTip("0 = auto size")
         layout.addRow("Description Font Size:", self.wm_description_font_size)
 
@@ -161,7 +174,7 @@ class ChartSettingsDialog(QDialog):
         for key, label in interval_rows:
             spin = QSpinBox()
             spin.setRange(1, 4000)
-            spin.setValue(int(saved_days.get(key, 365)))
+            spin.setValue(int(saved_days.get(key, _DEFAULT_HISTORY_DAYS_BY_INTERVAL[key])))
             chart_layout.addRow(f"{label} (days):", spin)
             self.history_days_inputs[key] = spin
         tabs.addTab(chart_tab, "Chart")
@@ -188,7 +201,15 @@ class ChartSettingsDialog(QDialog):
         ]
         for label, key in chart_info_fields:
             cb = QCheckBox(label)
-            cb.setChecked(self._s.get(key, True))
+            default_enabled = key in {
+                "show_adr",
+                "show_perf_monthly",
+                "show_perf_3m",
+                "show_info_date",
+                "show_info_volume",
+                "show_info_pct_change",
+            }
+            cb.setChecked(self._s.get(key, default_enabled))
             toggles_layout.addRow(label + ":", cb)
             self.chart_info_toggles[key] = cb
         tabs.addTab(toggles_tab, "Info Toggles")

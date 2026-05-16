@@ -68,12 +68,12 @@ DEFAULT_DAYS_BACK: Dict[str, int] = {
     "minute":     5,
     "3minute":   10,
     "5minute":   10,
-    "10minute": 100,
-    "15minute":  30,
-    "30minute":  50,
-    "60minute": 100,
-    "day":     2000,
-    "week":    2000,
+    "10minute":  10,
+    "15minute":  10,
+    "30minute":  30,
+    "60minute":  50,
+    "day":      100,
+    "week":    1000,
     "month":   2000,
 }
 
