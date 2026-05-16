@@ -62,7 +62,13 @@ _SANS = "Inter, 'Segoe UI', Arial, sans-serif"
 _NUM = "Inter, 'Segoe UI Variable', 'Segoe UI', Arial, sans-serif"
 _APP_FONT = "Segoe UI"
 _NUM_FONT = "Inter"
-_ROW_H = 22
+_ROW_H = 28
+_ACTION_COL_W = 54
+_INDEX_COL_W = 34
+_SELECTED_NAME_COL_W = 126
+_AVAILABLE_NAME_COL_W = 142
+_PERIOD_COL_W = 72
+
 
 
 @dataclass
@@ -138,8 +144,10 @@ class _ActionCell(QWidget):
     def __init__(self, *buttons: QPushButton, parent=None):
         super().__init__(parent)
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(3, 1, 3, 1)
-        layout.setSpacing(4)
+        # The row action buttons are 22px high. Keep the cell padding modest
+        # and let the 28px row height prevent clipping on HiDPI/font-scaled UIs.
+        layout.setContentsMargins(2, 2, 2, 2)
+        layout.setSpacing(0)
         layout.addStretch()
         for button in buttons:
             layout.addWidget(button)
@@ -552,8 +560,8 @@ class IndicatorLibraryDialog(QDialog):
         self.setWindowTitle("Indicator Manager")
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.setModal(True)
-        self.setMinimumSize(620, 460)
-        self.resize(700, 560)
+        self.setMinimumSize(700, 480)
+        self.resize(760, 560)
         self._selected = [self._normalize_instance(item) for item in selected]
         self._drag_active = False
         self._drag_offset = QPoint()
@@ -743,15 +751,47 @@ class IndicatorLibraryDialog(QDialog):
         table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
 
+        self._configure_table_columns(table, headers)
+        return table
+
+    def _configure_table_columns(self, table: QTableWidget, headers: List[str]) -> None:
+        """Keep both tables compact while giving action cells enough room."""
         header = table.horizontalHeader()
         header.setHighlightSections(False)
         header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        header.setMinimumSectionSize(28)
+        header.setStretchLastSection(False)
+
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        table.setColumnWidth(0, 34)
+        table.setColumnWidth(0, _INDEX_COL_W)
+
+        if headers == ["#", "Indicator", "Period", "Style", "Edit", "Remove"]:
+            header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+            table.setColumnWidth(1, _SELECTED_NAME_COL_W)
+
+            header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+            table.setColumnWidth(2, _PERIOD_COL_W)
+
+            header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+
+            for col in (4, 5):
+                header.setSectionResizeMode(col, QHeaderView.ResizeMode.Fixed)
+                table.setColumnWidth(col, _ACTION_COL_W)
+            return
+
+        if headers == ["#", "Indicator", "Default", "Add"]:
+            header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+            table.setColumnWidth(1, _AVAILABLE_NAME_COL_W)
+
+            header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+
+            header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+            table.setColumnWidth(3, _ACTION_COL_W)
+            return
+
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         for i in range(2, len(headers)):
             header.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
-        return table
 
     def _refresh_tables(self) -> None:
         self._refresh_selected_table()
@@ -961,7 +1001,7 @@ class IndicatorLibraryDialog(QDialog):
             font-size: 11px;
         }}
         QTableWidget#indicatorTable::item {{
-            padding: 0 6px;
+            padding: 0 7px;
             border-bottom: 1px solid {_C.BG3};
         }}
         QTableWidget#indicatorTable::item:selected {{
@@ -981,8 +1021,8 @@ class IndicatorLibraryDialog(QDialog):
             text-transform: uppercase;
             border: none;
             border-bottom: 1px solid {_C.BG4};
-            padding: 0 6px;
-            min-height: 21px;
+            padding: 0 7px;
+            min-height: 23px;
         }}
         QPushButton#closeButton {{
             background: transparent;
