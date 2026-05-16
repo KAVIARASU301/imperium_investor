@@ -1203,6 +1203,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         # Chart → Main Window & Header
         self.candlestick_chart.order_button_clicked.connect(self._show_order_dialog)
         self.candlestick_chart_secondary.order_button_clicked.connect(self._show_order_dialog)
+        self.candlestick_chart.order_dialog_requested.connect(self._show_order_dialog_from_chart_context)
+        self.candlestick_chart_secondary.order_dialog_requested.connect(self._show_order_dialog_from_chart_context)
         self.candlestick_chart.symbol_loaded.connect(self.header_toolbar.set_current_symbol)
         if self.alert_system:
             self.candlestick_chart.alert_creation_requested.connect(self.alert_system.create_alert_from_chart)
@@ -1783,6 +1785,61 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             dialog = OrderDialog(self, symbol, ltp, self._build_order_details_with_account(order_data), instrument=instrument, ltp_fetcher=self._get_fresh_ltp)
             dialog.order_placed.connect(self._handle_order_placement)
             dialog.show()
+
+    @Slot(str)
+    def _show_order_dialog_from_chart_context(self, order_json: str):
+        """Open order dialog as LIMIT BUY at the exact chart level user clicked."""
+        try:
+            payload = json.loads(order_json or "{}")
+        except Exception:
+            payload = {}
+
+        symbol = str(payload.get("symbol") or "").strip().upper()
+        level_price = float(payload.get("price") or 0.0)
+        ltp_hint = float(payload.get("ltp") or 0.0)
+
+        if not symbol:
+            symbol = self._get_active_symbol_for_shortcuts()
+        if not symbol:
+            show_info("Select a symbol on chart before placing an order")
+            return
+        if symbol not in self.instrument_map:
+            show_error(f"Symbol {symbol} not found")
+            return
+
+        ltp = ltp_hint if ltp_hint > 0 else self._get_fresh_ltp(symbol)
+        if ltp <= 0:
+            show_error(f"Could not fetch LTP for {symbol}")
+            return
+
+        default_qty = self.config_manager.load_settings().get('default_quantity', 1)
+        order_details = {
+            "tradingsymbol": symbol,
+            "ltp": ltp,
+            "transaction_type": "BUY",
+            "quantity": default_qty,
+            "order_type": "LIMIT",
+            "price": level_price if level_price > 0 else ltp,
+        }
+        order_details = self._build_order_details_with_account(order_details)
+
+        instrument = self.instrument_map.get(symbol, {})
+        dialog = OrderDialog(
+            self,
+            symbol,
+            ltp,
+            order_details,
+            instrument=instrument,
+            ltp_fetcher=self._get_fresh_ltp,
+        )
+        target_price = float(order_details.get("price") or 0.0)
+        if target_price > 0:
+            dialog._otype_seg.set_current("LIMIT")
+            dialog._price_spin.setValue(round(target_price, 2))
+            dialog._refresh_fields_visibility()
+            dialog._update_summary()
+        dialog.order_placed.connect(self._handle_order_placement)
+        dialog.show()
 
     def _on_header_buy_order(self, symbol: str):
         """Handle buy order from header"""

@@ -2973,7 +2973,7 @@ class FixedTradingChart {
               sub: isAbove ? 'Monitor resistance' : 'Monitor support',
               action: () => this._createAlert(sym, priceLevel, isAbove ? 'resistance' : 'support') },
             { divider: true },
-            { text: '💰 Place Order', sub: 'Quick order entry',
+            { text: '💰 Place Limit Order Here', sub: 'Open order ticket at this exact level',
               action: () => this._placeOrderAtPrice(sym, priceLevel) },
         ];
 
@@ -3063,7 +3063,13 @@ class FixedTradingChart {
     }
 
     _placeOrderAtPrice(symbol, price) {
-        const payload = JSON.stringify({ symbol, price, ltp: this.livePrice });
+        const payload = JSON.stringify({
+            symbol,
+            price,
+            ltp: this.livePrice,
+            order_type: 'LIMIT',
+            transaction_type: 'BUY'
+        });
         if (this.chartBridge) this.chartBridge.notify_order_dialog_requested(payload);
     }
 
