@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from typing import Any, Dict, List
 import uuid
 
-from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QBrush, QColor, QCursor, QFont, QMouseEvent
+from PySide6.QtCore import QPoint, QSize, Qt
+from PySide6.QtGui import QBrush, QColor, QCursor, QFont, QIcon, QMouseEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QWidget,
     QHeaderView,
 )
+from utils.resource_path import resource_path
 
 
 # -----------------------------------------------------------------------------
@@ -85,12 +86,25 @@ _INDICATOR_CATALOG: List[IndicatorCatalogItem] = [
 # Small UI helpers
 # -----------------------------------------------------------------------------
 
-def _glyph_button(text: str, role: str = "neutral") -> QPushButton:
-    """Create a compact action button for table rows and title bars."""
-    btn = QPushButton(text)
+_ACTION_ICONS = {
+    "add": "add.svg",
+    "edit": "edit.svg",
+    "danger": "delete.svg",
+}
+
+
+def _icon_only_button(role: str = "neutral", icon_key: str | None = None) -> QPushButton:
+    """Create a compact icon-only action button for table rows."""
+    btn = QPushButton()
     btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-    btn.setFixedHeight(22)
+    btn.setFixedSize(22, 22)
     btn.setObjectName(f"{role}ActionButton")
+    btn.setText("")
+    btn.setToolTipDuration(2000)
+    icon_asset = _ACTION_ICONS.get(icon_key or role)
+    if icon_asset:
+        btn.setIcon(QIcon(resource_path(f"assets/icons/{icon_asset}")))
+        btn.setIconSize(QSize(12, 12))
     return btn
 
 
@@ -790,11 +804,11 @@ class IndicatorLibraryDialog(QDialog):
             style_item.setForeground(QBrush(QColor(color)))
             self.selected_table.setItem(idx, 3, style_item)
 
-            edit_btn = _glyph_button("EDIT", "edit")
+            edit_btn = _icon_only_button("edit")
             edit_btn.setToolTip("Edit indicator settings")
             edit_btn.clicked.connect(lambda _=False, row=idx: self._edit_indicator(row))
 
-            remove_btn = _glyph_button("REMOVE", "danger")
+            remove_btn = _icon_only_button("danger")
             remove_btn.setToolTip("Remove this indicator instance")
             remove_btn.clicked.connect(lambda _=False, row=idx: self._remove_indicator(row))
 
@@ -822,7 +836,7 @@ class IndicatorLibraryDialog(QDialog):
             default_item = _table_item(default_text, item.default_color, Qt.AlignmentFlag.AlignLeft, mono=True)
             self.available_table.setItem(idx, 2, default_item)
 
-            add_btn = _glyph_button("ADD", "add")
+            add_btn = _icon_only_button("add")
             add_btn.setToolTip(f"Add another {item.display_name} instance")
             add_btn.clicked.connect(lambda _=False, t=item.type_id: self._add_indicator(t))
             self.available_table.setCellWidget(idx, 3, _ActionCell(add_btn))
@@ -989,10 +1003,7 @@ class IndicatorLibraryDialog(QDialog):
         QPushButton#dangerActionButton,
         QPushButton#neutralActionButton {{
             border-radius: 2px;
-            font-family: {_SANS};
-            font-size: 10px;
-            font-weight: 800;
-            letter-spacing: 0.6px;
+            padding: 0;
         }}
         QPushButton#primaryButton {{
             background: rgba(0,212,168,0.12);
@@ -1018,7 +1029,6 @@ class IndicatorLibraryDialog(QDialog):
             background: rgba(0,212,168,0.08);
             color: {_C.BULL};
             border: 1px solid rgba(0,212,168,0.28);
-            padding: 0 8px;
         }}
         QPushButton#addActionButton:hover {{
             background: rgba(0,212,168,0.16);
@@ -1028,7 +1038,6 @@ class IndicatorLibraryDialog(QDialog):
             background: rgba(0,212,255,0.07);
             color: {_C.CYAN};
             border: 1px solid rgba(0,212,255,0.24);
-            padding: 0 8px;
         }}
         QPushButton#editActionButton:hover {{
             background: rgba(0,212,255,0.15);
@@ -1038,7 +1047,6 @@ class IndicatorLibraryDialog(QDialog):
             background: rgba(255,77,106,0.06);
             color: {_C.BEAR};
             border: 1px solid rgba(255,77,106,0.24);
-            padding: 0 8px;
         }}
         QPushButton#dangerActionButton:hover {{
             background: rgba(255,77,106,0.14);
