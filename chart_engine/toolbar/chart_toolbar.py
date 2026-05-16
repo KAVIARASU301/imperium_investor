@@ -324,7 +324,7 @@ class ChartToolbar(QFrame):
         self.setFixedHeight(32)
 
         # ── State ─────────────────────────────────────────────────────────
-        self._drawing_color = "#FFD700"
+        self._drawing_color = "#A51D2D"
         self._active_tf     = "day"
         self._live_price    = 0.0
         self._suppress_pref_events = False
@@ -336,8 +336,8 @@ class ChartToolbar(QFrame):
         self._drawing_action_group: Optional[QActionGroup] = None
         self._tool_buttons:     Dict[str, QPushButton] = {}
         self._tool_btn_group:   Optional[QButtonGroup] = None
-        self._favorite_tools = ["line", "horizontal_line", "note"]
-        self._favorite_timeframes = ["minute", "5minute", "day"]
+        self._favorite_tools = ["line"]
+        self._favorite_timeframes = []
         self._tf_menu_items: Dict[str, TimeframeMenuItemWidget] = {}
         self._drawing_menu_items: Dict[str, ToolMenuItemWidget] = {}
 
@@ -571,6 +571,7 @@ class ChartToolbar(QFrame):
         _apply_icon(self.measure_btn, "measure", 16)
         self.measure_btn.setFixedSize(28, 22)
         self.measure_btn.setCheckable(True)
+        self.measure_btn.setChecked(True)
         self.measure_btn.setToolTip("Measure  [E]")
         dt_lay.addWidget(self.measure_btn)
 

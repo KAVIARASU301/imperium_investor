@@ -83,8 +83,8 @@ class ColorSettingsDialog(QDialog):
     Strict TC2000 dark mode aesthetic, frameless drag, sharp borders.
     """
 
-    DEFAULT_BULL_CANDLE_COLOR = "#00c896"
-    DEFAULT_BEAR_CANDLE_COLOR = "#e84060"
+    DEFAULT_BULL_CANDLE_COLOR = "#00C896"
+    DEFAULT_BEAR_CANDLE_COLOR = "#E84060"
 
     def __init__(self, current_theme: Dict[str, Any], parent=None):
         super().__init__(parent)

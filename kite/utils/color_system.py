@@ -8,23 +8,23 @@ from PySide6.QtCore import QObject, Signal
 
 DEFAULT_COLOR_THEME: Dict[str, Any] = {
     "link_all_sections": True,
-    "enable_table_directional_colors": False,
+    "enable_table_directional_colors": True,
     "enable_volume_strength_indicator": False,
     "show_scanner_volume_column": False,
     "show_watchlist_volume_column": False,
     "scanner_live_ticks": False,
     "status_bar_alignment": "left",
     "status_bar_metrics_right": True,
-    "show_account_name": True,
+    "show_account_name": False,
     "show_account_balance": True,
-    "dual_chart_mode": False,
+    "dual_chart_mode": True,
     "candles": {
-        "up": "#00c896",
-        "down": "#e84060",
+        "up": "#00C896",
+        "down": "#E84060",
     },
     "volume": {
-        "up": "#00c896",
-        "down": "#e84060",
+        "up": "#00C896",
+        "down": "#E84060",
     },
     "tables": {
         "positive": "#00d4a8",
