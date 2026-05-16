@@ -262,6 +262,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         if not hasattr(self.candlestick_chart.data_cache, '_cache'):
             self.candlestick_chart.data_cache._cache = self.candlestick_chart.data_cache._store
         self.watchlist = TabbedWatchlistWidget()
+        self.watchlist.set_quote_client(self.real_kite_client)
         self.positions_table = PositionsTable(parent=self)
 
         initial_theme = self.color_theme_manager.get_theme()

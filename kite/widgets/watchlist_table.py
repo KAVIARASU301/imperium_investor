@@ -802,6 +802,46 @@ class TradingTable(QTableWidget):
         self.watchlist_symbols_changed.emit()
         return True
 
+    def apply_symbol_snapshot(
+        self,
+        symbol: str,
+        *,
+        ltp: Optional[float] = None,
+        prev_close: Optional[float] = None,
+        volume: Optional[int] = None,
+    ) -> None:
+        """Apply a one-time quote snapshot for a symbol (useful when market is closed)."""
+        data = self._watchlist_data.get(symbol)
+        if not data:
+            return
+
+        if ltp is not None:
+            try:
+                data["ltp"] = float(ltp)
+            except (TypeError, ValueError):
+                pass
+
+        if prev_close is not None:
+            try:
+                data["prev_close"] = float(prev_close)
+            except (TypeError, ValueError):
+                pass
+
+        if volume is not None:
+            try:
+                parsed_volume = int(volume)
+                if parsed_volume > 0:
+                    data["volume"] = parsed_volume
+            except (TypeError, ValueError):
+                pass
+
+        prev = float(data.get("prev_close", 0.0) or 0.0)
+        cur = float(data.get("ltp", 0.0) or 0.0)
+        data["change_pct"] = (cur - prev) / prev * 100 if prev > 0 and cur > 0 else 0.0
+
+        if symbol in self._symbol_to_row:
+            self._dirty.add(symbol)
+
     def remove_symbol(self, symbol: str) -> bool:
         if symbol not in self._symbols:
             return False
@@ -1271,6 +1311,7 @@ class TabbedWatchlistWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._instrument_map: Dict[str, Dict] = {}
+        self._quote_client = None
         self._tables: Dict[str, TradingTable] = {}  # id → table
         self._config = _WatchlistConfig()
 
@@ -1403,11 +1444,18 @@ class TabbedWatchlistWidget(QWidget):
             table.set_instrument_map(instrument_map)
         self._subscribe_all_tokens()
 
+    def set_quote_client(self, quote_client) -> None:
+        """Set broker client used for one-shot quote snapshots on newly added symbols."""
+        self._quote_client = quote_client
+
     def add_symbol(self, symbol: str, category: str = None) -> bool:
         table = self._current_table()
         if not table:
             return False
-        return table.add_symbol(symbol)
+        added = table.add_symbol(symbol)
+        if added:
+            self._refresh_symbol_snapshot(table, symbol)
+        return added
 
     def add_symbol_to_watchlist_index(self, symbol: str, index: int) -> bool:
         """Add symbol to watchlist at zero-based index."""
@@ -1423,7 +1471,10 @@ class TabbedWatchlistWidget(QWidget):
         if not table:
             return False
 
-        return table.add_symbol(symbol)
+        added = table.add_symbol(symbol)
+        if added:
+            self._refresh_symbol_snapshot(table, symbol)
+        return added
 
     def get_watchlist_name_by_index(self, index: int) -> Optional[str]:
         """Return watchlist name at zero-based index."""
@@ -1439,6 +1490,31 @@ class TabbedWatchlistWidget(QWidget):
     def add_symbol_to_active_watchlist(self, symbol: str) -> bool:
         """Add symbol to currently active watchlist."""
         return self.add_symbol(symbol)
+
+    def _refresh_symbol_snapshot(self, table: TradingTable, symbol: str) -> None:
+        """
+        Refresh newly added symbol with a quote snapshot so LTP/%Chg are available
+        immediately even when no live ticks are flowing (e.g., market closed).
+        """
+        client = self._quote_client
+        if not client:
+            return
+
+        inst = self._instrument_map.get(symbol, {}) or {}
+        exchange = str(inst.get("exchange") or "NSE")
+        instrument = f"{exchange}:{symbol}"
+        try:
+            quote = client.quote([instrument]).get(instrument, {}) or {}
+            ohlc = quote.get("ohlc") or {}
+            table.apply_symbol_snapshot(
+                symbol,
+                ltp=quote.get("last_price"),
+                prev_close=ohlc.get("close"),
+                volume=quote.get("volume"),
+            )
+        except Exception:
+            # Non-blocking best-effort update; live ticks / startup refresh will still populate.
+            return
 
     def get_all_tokens(self) -> List[int]:
         """Return tokens from the currently selected watchlist only."""

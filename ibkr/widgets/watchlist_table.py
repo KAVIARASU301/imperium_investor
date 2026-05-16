@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QHeaderView, QAbstractItemView, QMenu, QTabWidget
 )
 from PySide6.QtCore import Qt, Signal, Slot, QPoint, QTimer
-from PySide6.QtGui import QColor, QCursor, QAction, QResizeEvent, QFontMetrics
+from PySide6.QtGui import QColor, QCursor, QAction, QResizeEvent
 
 logger = logging.getLogger(__name__)
 
@@ -74,14 +74,13 @@ class TradingTable(QTableWidget):
         header.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
         # FIXED: Column sizing EXACTLY matching scanner table - Symbol stretches, others fixed
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)  # Symbol
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)  # Symbol flexes with panel width
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)  # LTP - fixed width
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)  # Volume - fixed width
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)  # Chg % - fixed width
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)  # Remove button - fixed width
 
         # FIXED: Set compact fixed widths for right-side columns
-        self._adjust_symbol_column_width()
         self.setColumnWidth(1, 70)  # LTP - enough for "0000.00"
         self.setColumnWidth(2, 70)  # Volume - enough for "999 K" or "9.9 L"
         self.setColumnWidth(3, 60)  # Change % - enough for "+00.00%"
@@ -96,24 +95,6 @@ class TradingTable(QTableWidget):
         self._chg_sort_state = None  # None -> asc -> desc -> None
 
 
-    def _adjust_symbol_column_width(self):
-        """Keep symbol column compact using ~70% of the longest visible symbol length."""
-        metrics = QFontMetrics(self.font())
-        longest_symbol_len = 0
-
-        for row in range(self.rowCount()):
-            symbol_item = self.item(row, 0)
-            if not symbol_item:
-                continue
-            longest_symbol_len = max(longest_symbol_len, len(symbol_item.text().strip()))
-
-        target_chars = max(4, int(round(longest_symbol_len * 0.7))) if longest_symbol_len > 0 else 6
-        compact_width = metrics.horizontalAdvance("W" * target_chars) + 18
-        header_width = metrics.horizontalAdvance("Symbol") + 20
-        max_compact_width = metrics.horizontalAdvance("W" * 10) + 22
-        symbol_width = min(max(compact_width, header_width), max_compact_width)
-
-        self.setColumnWidth(0, symbol_width)
 
     def _connect_signals(self):
         """Connect table signals."""
@@ -244,8 +225,7 @@ class TradingTable(QTableWidget):
         # Re-enable sorting
         self.setSortingEnabled(True)
 
-        self._adjust_symbol_column_width()
-
+        
         logger.debug(f"Sorted {self.category} watchlist by column {column} ({'DESC' if reverse else 'ASC'})")
 
     def _update_header_sort_indicator(self):
@@ -542,8 +522,7 @@ class TradingTable(QTableWidget):
             self._symbol_to_row[symbol] = row
             self._populate_row(row, symbol)
 
-        self._adjust_symbol_column_width()
-
+        
     def _populate_row(self, row: int, symbol: str):
         """Enhanced row population with proper data"""
         # Create items for all columns
@@ -873,7 +852,7 @@ class TabbedWatchlistWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self.setMinimumWidth(350)
+        self.setMinimumWidth(220)
 
         self.tab_widget = QTabWidget()
         self.tab_widget.setObjectName("tradingTabs")
