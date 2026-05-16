@@ -511,11 +511,12 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             return
 
         sizes = preferred_sizes or self.main_splitter.sizes()
-        if len(sizes) != 3:
+        if len(sizes) != 4:
             return
 
-        left, center, right = sizes
-        total = max(1, left + center + right)
+        left, primary, secondary, right = sizes
+        chart_total = primary + (secondary if self.dual_chart_mode_enabled else 0)
+        total = max(1, left + chart_total + right)
 
         left_visible = self.chartink_scanner.isVisible()
         right_visible = self.right_panel_splitter.isVisible()
@@ -537,16 +538,16 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         right = max(right_min, min(right, right_max))
 
         if left + right >= total:
-            center = center_min
-            remainder = max(0, total - center)
+            chart_total = center_min
+            remainder = max(0, total - chart_total)
             left = max(left_min, int(remainder * 0.42))
             right = max(right_min, remainder - left)
         else:
-            center = total - left - right
+            chart_total = total - left - right
 
         # Guarantee minimum chart width by borrowing proportionally from side panels.
-        if center < center_min:
-            deficit = center_min - center
+        if chart_total < center_min:
+            deficit = center_min - chart_total
             left_spare = max(0, left - left_min)
             right_spare = max(0, right - right_min)
             spare = left_spare + right_spare
@@ -564,19 +565,31 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
                 left -= take_left
                 right -= take_right
-                center = total - left - right
+                chart_total = total - left - right
 
         # Final sanity pass.
         left = max(left_min, left)
         right = max(right_min, right)
-        center = max(center_min, total - left - right)
+        chart_total = max(center_min, total - left - right)
 
-        if left + center + right != total:
-            center = max(center_min, total - left - right)
+        if left + chart_total + right != total:
+            chart_total = max(center_min, total - left - right)
+
+        if self.dual_chart_mode_enabled:
+            primary_ratio = primary / max(1, primary + secondary)
+            primary = max(520, int(round(chart_total * primary_ratio)))
+            secondary = max(520, chart_total - primary)
+            # Ensure exact sum after min-width adjustments.
+            if primary + secondary != chart_total:
+                secondary = max(520, chart_total - primary)
+                primary = max(520, chart_total - secondary)
+        else:
+            primary = chart_total
+            secondary = 0
 
         self._is_adjusting_splitter = True
         try:
-            self.main_splitter.setSizes([left, center, right])
+            self.main_splitter.setSizes([left, primary, secondary, right])
         finally:
             self._is_adjusting_splitter = False
 
@@ -584,13 +597,15 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.chartink_scanner.setVisible(visible)
         if visible and self._saved_scanner_panel_width:
             sizes = self.main_splitter.sizes()
-            if len(sizes) == 3:
+            if len(sizes) == 4:
                 total = max(1, sum(sizes))
                 left = max(200, int(self._saved_scanner_panel_width))
-                right = sizes[2]
-                center = max(520, total - left - right)
-                left = max(200, total - center - right)
-                self.main_splitter.setSizes([left, center, right])
+                right = sizes[3]
+                chart_total = max(520, total - left - right)
+                left = max(200, total - chart_total - right)
+                primary = chart_total if not self.dual_chart_mode_enabled else max(520, chart_total // 2)
+                secondary = 0 if not self.dual_chart_mode_enabled else max(520, chart_total - primary)
+                self.main_splitter.setSizes([left, primary, secondary, right])
         self._apply_intelligent_main_splitter_layout()
         # Rebuild immediately so scanner tokens subscribe/unsubscribe exactly
         # when the user toggles visibility from View → Scanner.
@@ -622,13 +637,15 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         if right_visible:
             if self._saved_watchlist_panel_width and self.watchlist_action.isChecked():
                 sizes = self.main_splitter.sizes()
-                if len(sizes) == 3:
+                if len(sizes) == 4:
                     total = max(1, sum(sizes))
                     left = sizes[0]
                     right = max(220, int(self._saved_watchlist_panel_width))
-                    center = max(520, total - left - right)
-                    right = max(220, total - left - center)
-                    self.main_splitter.setSizes([left, center, right])
+                    chart_total = max(520, total - left - right)
+                    right = max(220, total - left - chart_total)
+                    primary = chart_total if not self.dual_chart_mode_enabled else max(520, chart_total // 2)
+                    secondary = 0 if not self.dual_chart_mode_enabled else max(520, chart_total - primary)
+                    self.main_splitter.setSizes([left, primary, secondary, right])
             # Recover splitter sizes after both right-side panes were hidden.
             pane_sizes = self.right_panel_splitter.sizes()
             if len(pane_sizes) == 2:
@@ -645,11 +662,11 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     def _on_main_splitter_moved(self, _pos: int, _index: int):
         """Prevent one pane from taking all width when dragging splitter handles."""
         sizes = self.main_splitter.sizes()
-        if len(sizes) == 3:
+        if len(sizes) == 4:
             if self.chartink_scanner.isVisible():
                 self._saved_scanner_panel_width = int(sizes[0])
             if self.right_panel_splitter.isVisible():
-                self._saved_watchlist_panel_width = int(sizes[2])
+                self._saved_watchlist_panel_width = int(sizes[3])
         self._apply_intelligent_main_splitter_layout()
 
     def _queue_window_state_save(self, *_args):
@@ -2987,7 +3004,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 'watchlist_visible': self.watchlist_action.isChecked(),
                 'positions_visible': self.positions_action.isChecked(),
                 'scanner_panel_width': int(self.main_splitter.sizes()[0]) if self.chartink_scanner.isVisible() else self._saved_scanner_panel_width,
-                'watchlist_panel_width': int(self.main_splitter.sizes()[2]) if self.right_panel_splitter.isVisible() else self._saved_watchlist_panel_width
+                'watchlist_panel_width': int(self.main_splitter.sizes()[3]) if self.right_panel_splitter.isVisible() else self._saved_watchlist_panel_width
             }
 
             if hasattr(self, 'right_panel_splitter'):
@@ -3012,9 +3029,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                         self.main_splitter.restoreState(QByteArray.fromBase64(state['main_splitter'].encode('utf-8')))
                     except Exception as e:
                         logger.warning(f"Failed to restore main splitter state: {e}")
-                        self.main_splitter.setSizes([220, 900, 320])
+                        self.main_splitter.setSizes([220, 900, 0, 320])
                 else:
-                    self.main_splitter.setSizes([220, 900, 320])
+                    self.main_splitter.setSizes([220, 900, 0, 320])
                 if state.get('main_splitter_sizes'):
                     self._pending_main_splitter_sizes = state['main_splitter_sizes']
 
@@ -3051,7 +3068,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 # Default state
                 self.showMaximized()
                 self.max_btn.setText("❐")
-                self.main_splitter.setSizes([220, 900, 320])
+                self.main_splitter.setSizes([220, 900, 0, 320])
                 if hasattr(self, 'right_panel_splitter'):
                     self.right_panel_splitter.setSizes([320, 220])
                 self._apply_intelligent_main_splitter_layout()
@@ -3060,7 +3077,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             logger.error(f"Failed to restore window state: {e}")
             # Safe fallback
             self.showMaximized()
-            self.main_splitter.setSizes([220, 900, 320])
+            self.main_splitter.setSizes([220, 900, 0, 320])
             if hasattr(self, 'right_panel_splitter'):
                 self.right_panel_splitter.setSizes([320, 220])
             self._apply_intelligent_main_splitter_layout()
