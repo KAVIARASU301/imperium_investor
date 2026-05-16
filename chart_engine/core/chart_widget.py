@@ -399,7 +399,7 @@ class CandlestickChart(QWidget):
                 "type": str(item.get("type") or "ema").lower(),
                 "id": str(item.get("id") or f"ind_{period}"),
                 "period": period,
-                "color": str(item.get("color") or "#2962ff"),
+                "color": str(item.get("color") or "#00d4ff"),
                 "thickness": float(item.get("thickness", 1.2) or 1.2),
                 "line_style": str(item.get("line_style") or "solid"),
             })

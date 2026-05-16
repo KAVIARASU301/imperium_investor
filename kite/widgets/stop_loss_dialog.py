@@ -405,7 +405,7 @@ class StopLossDialog(QDialog):
                 padding: 6px 8px; min-height: 28px;
             }
             QDoubleSpinBox#numericInput:focus, QSpinBox#numericInput:focus {
-                border-color: #3b82f6;
+                border-color: #00d4ff;
             }
             QComboBox#fieldInput {
                 background: #0f1318; color: #e8f0ff;
@@ -413,7 +413,7 @@ class StopLossDialog(QDialog):
                 font-size: 11px; font-weight: 600;
                 padding: 5px 8px; min-height: 28px;
             }
-            QComboBox#fieldInput:focus { border-color: #3b82f6; }
+            QComboBox#fieldInput:focus { border-color: #00d4ff; }
             QComboBox#fieldInput QAbstractItemView {
                 background: #0f1318; color: #e8f0ff;
                 border: 1px solid #1a2030;
@@ -427,7 +427,7 @@ class StopLossDialog(QDialog):
                 background: #0f1318; border: 1px solid #1a2030;
             }
             QCheckBox#fieldCheckbox::indicator:checked {
-                background: #3b82f6; border-color: #3b82f6;
+                background: #00d4ff; border-color: #00d4ff;
             }
 
             QFrame#dialogFooter {
@@ -435,7 +435,7 @@ class StopLossDialog(QDialog):
             }
 
             QPushButton#primaryBtn {
-                background: #3b82f6; color: #ffffff; border: none;
+                background: #00d4ff; color: #ffffff; border: none;
                 border-radius: 1px; font-size: 11px; font-weight: 800;
                 letter-spacing: 0.5px; padding: 0 20px; min-height: 28px;
             }

@@ -98,7 +98,7 @@ class _C:
     # Accents
     CYAN  = "#00d4ff"
     AMBER = "#f59e0b"
-    BLUE  = "#3b82f6"
+    BLUE  = "#00d4ff"
     SEL   = "#1a2840"
 
     # Flag palette (4-state cycle)

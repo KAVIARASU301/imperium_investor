@@ -25,7 +25,7 @@ Persist selected indicators in global chart settings:
 ```json
 {
   "moving_average_configs": [
-    {"id":"ema_1","period":20,"color":"#2962ff","thickness":1.2,"line_style":"solid"}
+    {"id":"ema_1","period":20,"color":"#00d4ff","thickness":1.2,"line_style":"solid"}
   ]
 }
 ```

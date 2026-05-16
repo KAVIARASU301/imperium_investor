@@ -69,7 +69,7 @@ class P:
     SELL     = "#ff4d6a"
     AMBER    = "#f59e0b"
     CYAN     = "#00d4ff"
-    BLUE     = "#3b82f6"
+    BLUE     = "#00d4ff"
     FLASH_UP = "#00d4a8"
     FLASH_DN = "#ff4d6a"
     SYMBOL   = "#b6c4d6"   # softened symbol text — less distracting than pure white

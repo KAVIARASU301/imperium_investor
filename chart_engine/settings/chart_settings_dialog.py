@@ -268,13 +268,13 @@ class ChartSettingsDialog(QDialog):
             QSpinBox::up-button:hover, QSpinBox::down-button:hover { background-color: #333; }
             QComboBox QAbstractItemView { background-color: #1e1e1e; color: #d8d8d8; }
             QPushButton {
-                background-color: #0d5a99; color: #e8e8e8;
-                border: 1px solid #1070bb; border-radius: 3px;
+                background-color: #2f3b52; color: #e8e8e8;
+                border: 1px solid #4a5d80; border-radius: 3px;
                 padding: 5px 12px; font-weight: 600;
             }
-            QPushButton:hover { background-color: #1070cc; }
-            QPushButton:pressed { background-color: #0a4a80; }
+            QPushButton:hover { background-color: #4a5d80; }
+            QPushButton:pressed { background-color: #243146; }
             QCheckBox { color: #d0d0d0; }
             QCheckBox::indicator { width: 14px; height: 14px; border: 1px solid #444; border-radius: 2px; }
-            QCheckBox::indicator:checked { background-color: #1070cc; }
+            QCheckBox::indicator:checked { background-color: #4a5d80; }
         """)

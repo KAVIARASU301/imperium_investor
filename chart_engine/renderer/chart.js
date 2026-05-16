@@ -882,7 +882,7 @@ class FixedTradingChart {
             const dash = style === 'dashed' ? [8, 4] : (style === 'dotted' ? [2, 4] : []);
 
             ctx.save();
-            ctx.strokeStyle = cfg?.color || '#2962ff';
+            ctx.strokeStyle = cfg?.color || '#00d4ff';
             ctx.lineWidth = thickness;
             ctx.setLineDash(dash);
             ctx.beginPath();

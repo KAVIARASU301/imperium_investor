@@ -45,7 +45,7 @@ class _C:
     BEAR = "#ff4d6a"
     AMBER = "#f59e0b"
     CYAN = "#00d4ff"
-    BLUE = "#3b82f6"
+    BLUE = "#00d4ff"
 
     T0 = "#e8f0ff"
     T1 = "#a8bcd4"
@@ -82,7 +82,7 @@ class IndicatorCatalogItem:
 
 
 _INDICATOR_CATALOG: List[IndicatorCatalogItem] = [
-    IndicatorCatalogItem(type_id="ema", display_name="EMA", default_period=20, default_color="#2962ff"),
+    IndicatorCatalogItem(type_id="ema", display_name="EMA", default_period=20, default_color="#00d4ff"),
     IndicatorCatalogItem(type_id="sma", display_name="SMA", default_period=20, default_color="#ff9800"),
     IndicatorCatalogItem(type_id="volume", display_name="Volume Bars", default_period=1, default_color="#00c896"),
 ]
@@ -241,7 +241,7 @@ class IndicatorSettingsDialog(QDialog):
         self.color_btn = QPushButton("PICK COLOR")
         self.color_btn.setObjectName("colorButton")
         self.color_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self._color = str(self._current.get("color", "#2962ff") or "#2962ff")
+        self._color = str(self._current.get("color", "#00d4ff") or "#00d4ff")
         self._apply_color_style()
         self.color_btn.clicked.connect(self._pick_color)
         form.addRow(self._field_label("COLOR"), self.color_btn)
@@ -723,7 +723,7 @@ class IndicatorLibraryDialog(QDialog):
             "id": str(item.get("id") or f"{type_id}_{uuid.uuid4().hex[:8]}"),
             "type": type_id,
             "period": max(1, period),
-            "color": str(item.get("color") or "#2962ff"),
+            "color": str(item.get("color") or "#00d4ff"),
             "thickness": float(item.get("thickness", 1.2) or 1.2),
             "line_style": str(item.get("line_style") or "solid"),
             "volume_opacity": max(0.0, min(1.0, volume_opacity)),
@@ -815,7 +815,7 @@ class IndicatorLibraryDialog(QDialog):
             return f"BAR OPACITY · {opacity_pct}%"
         thickness = float(item.get("thickness", 1.2) or 1.2)
         line_style = str(item.get("line_style") or "solid").upper()
-        color = str(item.get("color") or "#2962ff").upper()
+        color = str(item.get("color") or "#00d4ff").upper()
         return f"{line_style} · {thickness:.1f}px · {color}"
 
     def _refresh_selected_table(self) -> None:

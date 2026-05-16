@@ -72,7 +72,7 @@ COLORS = {
     "accent_cyan": "#00d4ff",
     "accent_amber": "#f59e0b",
     "accent_purple": "#a78bfa",
-    "accent_blue": "#3b82f6",
+    "accent_blue": "#00d4ff",
 }
 
 

@@ -38,7 +38,7 @@ _BULL = "#00d4a8"
 _BEAR = "#ff4d6a"
 _AMBER = "#f59e0b"
 _CYAN = "#00d4ff"
-_BLUE = "#3b82f6"
+_BLUE = "#00d4ff"
 
 _TEXT = "#e8f0ff"
 _TEXT_SYMBOL = "#b6c4d6"      # softer active symbol/account text

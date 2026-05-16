@@ -88,7 +88,7 @@ class _C:
     # Accents
     CYAN     = "#00d4ff"
     AMBER    = "#f59e0b"
-    BLUE     = "#3b82f6"
+    BLUE     = "#00d4ff"
 
     # Flash fills
     FLASH_UP = "#103d32"
