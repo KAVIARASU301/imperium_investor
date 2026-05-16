@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any, Callable, Dict, List, Optional, Tuple
+from decimal import Decimal, ROUND_HALF_UP
 
 from PySide6.QtCore import (
     Qt, Signal, Slot, QPoint, QPropertyAnimation, QEasingCurve,
@@ -1130,6 +1131,10 @@ class OrderDialog(QDialog):
         self._qty_spin.valueChanged.connect(self._update_summary)
         self._price_spin.valueChanged.connect(self._update_summary)
         self._product_seg.currentChanged.connect(self._update_summary)
+        self._price_spin.editingFinished.connect(lambda: self._snap_price_field(self._price_spin))
+        self._trig_spin.editingFinished.connect(lambda: self._snap_price_field(self._trig_spin))
+        self._target_spin.editingFinished.connect(lambda: self._snap_price_field(self._target_spin))
+        self._sl_spin.editingFinished.connect(lambda: self._snap_price_field(self._sl_spin))
 
         # Step buttons
         self._qty_minus.clicked.connect(lambda: self._qty_spin.setValue(
@@ -1165,9 +1170,20 @@ class OrderDialog(QDialog):
 
         if latest_ltp > 0:
             self.ltp = latest_ltp
-            self._price_spin.setValue(round(latest_ltp, 2))
+            self._price_spin.setValue(self._round_to_tick(latest_ltp))
             self._update_circuit()
             self._update_summary()
+
+    def _round_to_tick(self, value: float) -> float:
+        tick = Decimal(str(self._tick_size if self._tick_size > 0 else 0.05))
+        price = Decimal(str(max(0.0, float(value))))
+        rounded = (price / tick).quantize(Decimal("1"), rounding=ROUND_HALF_UP) * tick
+        return float(rounded.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+    def _snap_price_field(self, field: _NumInput):
+        snapped = max(0.05, self._round_to_tick(field.value()))
+        if abs(field.value() - snapped) > 1e-9:
+            field.setValue(snapped)
 
     def _on_side_changed(self, side: str):
         for k, btn in self._side_group._btns.items():
@@ -1384,6 +1400,13 @@ class OrderDialog(QDialog):
                 show_error("Target price required for BO"); return False
             if self._sl_spin.value() <= 0:
                 show_error("Stoploss required for BO"); return False
+        if ot in ("LIMIT", "SL"):
+            self._snap_price_field(self._price_spin)
+        if ot in ("SL", "SL-M"):
+            self._snap_price_field(self._trig_spin)
+        if self._bo_chk.isChecked():
+            self._snap_price_field(self._target_spin)
+            self._snap_price_field(self._sl_spin)
         return True
 
     def _build_order_data(self) -> Dict[str, Any]:
