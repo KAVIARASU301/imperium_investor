@@ -21,12 +21,36 @@ logger = logging.getLogger(__name__)
 SCAN_URL_FILE = os.path.join(os.path.expanduser("~/.qullamaggie"), "chartink_scans.json")
 SETTINGS_FILE = os.path.join(os.path.expanduser("~/.qullamaggie"), "scanner_settings.json")
 SCAN_GROUP_ORDER = ["Momentum Breakouts", "Episodic Pivot", "Parabolic", "Intraday", "Others"]
-CHART_TOOLBAR_HEIGHT = 32
+CHART_TOOLBAR_HEIGHT = 28
 CHART_TOOLBAR_CONTROL_HEIGHT = 22
 
 VOLUME_STRENGTH_ENABLED_ROLE = Qt.ItemDataRole.UserRole + 101
 VOLUME_STRENGTH_LEVEL_ROLE = Qt.ItemDataRole.UserRole + 102
 VOLUME_STRENGTH_COLOR_ROLE = Qt.ItemDataRole.UserRole + 103
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  INSTITUTIONAL DARK TRADING TERMINAL UI TOKENS
+# ─────────────────────────────────────────────────────────────────────────────
+_BG0 = "#050709"
+_BG1 = "#0a0d12"
+_BG2 = "#0f1318"
+_BG3 = "#141920"
+_BG4 = "#1a2030"
+_BGTB = "#070a0f"
+_BULL = "#00d4a8"
+_BEAR = "#ff4d6a"
+_AMBER = "#f59e0b"
+_CYAN = "#00d4ff"
+_BLUE = "#3b82f6"
+_T0 = "#e8f0ff"
+_T1 = "#a8bcd4"
+_T2 = "#5a7090"
+_T3 = "#2a3a50"
+_SEL = "#1a2840"
+_MONO = "'Consolas', 'JetBrains Mono', monospace"
+_SANS = "'Inter', 'Segoe UI', sans-serif"
+_ROW_H = 21
+_DIALOG_ROW_H = 25
 
 
 class VolumeStrengthDelegate(QStyledItemDelegate):
@@ -62,18 +86,18 @@ class VolumeStrengthDelegate(QStyledItemDelegate):
         bar_width = min(34, max(24, rect.width() // 2))
         segment_width = max(6, (bar_width - gap * (segment_count - 1)) // segment_count)
         used_bar_width = segment_width * segment_count + gap * (segment_count - 1)
-        bar_height = 7
+        bar_height = 6
         bar_x = rect.left()
         bar_y = rect.center().y() - bar_height // 2
 
         painter.save()
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(track_color)
-        painter.drawRoundedRect(bar_x, bar_y, used_bar_width, bar_height, 3, 3)
+        painter.drawRect(bar_x, bar_y, used_bar_width, bar_height)
         for i in range(segment_count):
             segment_x = bar_x + i * (segment_width + gap)
             painter.setBrush(fill_color if i < level else empty_color)
-            painter.drawRoundedRect(segment_x, bar_y, segment_width, bar_height, 3, 3)
+            painter.drawRect(segment_x, bar_y, segment_width, bar_height)
 
         painter.setPen(text_color)
         text_rect = rect.adjusted(used_bar_width + 7, 0, 0, 0)
@@ -107,7 +131,7 @@ class ModernAddScanDialog(QDialog):
 
         self.setWindowTitle("Edit Chartink Scan" if self.is_edit else "Add New Chartink Scan")
         self.setModal(True)
-        self.setFixedSize(600, 410)
+        self.setFixedSize(560, 350)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self._drag_pos = None
@@ -128,18 +152,18 @@ class ModernAddScanDialog(QDialog):
         main_layout.addWidget(main_container)
 
         container_layout = QVBoxLayout(main_container)
-        container_layout.setContentsMargins(20, 16, 20, 20)
-        container_layout.setSpacing(14)
+        container_layout.setContentsMargins(12, 10, 12, 12)
+        container_layout.setSpacing(8)
 
         # Header with title and close button
         header_layout = QHBoxLayout()
 
-        title_label = QLabel("Edit Scan" if self.is_edit else "Add New Scan")
+        title_label = QLabel("EDIT SCAN" if self.is_edit else "ADD SCAN")
         title_label.setObjectName("dialogTitle")
 
         close_btn = QPushButton("✕")
         close_btn.setObjectName("closeButton")
-        close_btn.setFixedSize(24, 24)
+        close_btn.setFixedSize(22, 22)
         close_btn.clicked.connect(self.reject)
 
         header_layout.addWidget(title_label)
@@ -149,13 +173,13 @@ class ModernAddScanDialog(QDialog):
         container_layout.addLayout(header_layout)
 
         # Form section
-        form_group = QGroupBox("Scan Configuration")
+        form_group = QGroupBox("SCAN CONFIGURATION")
         form_group.setObjectName("formGroup")
         form_layout = QVBoxLayout(form_group)
-        form_layout.setSpacing(12)
+        form_layout.setSpacing(6)
 
         # Scan name
-        name_label = QLabel("Scan Name")
+        name_label = QLabel("SCAN NAME")
         name_label.setObjectName("fieldLabel")
         self.name_input = QLineEdit()
         self.name_input.setObjectName("minimalInput")
@@ -165,18 +189,18 @@ class ModernAddScanDialog(QDialog):
         form_layout.addWidget(self.name_input)
 
         # Scan clause
-        clause_label = QLabel("Scan Clause")
+        clause_label = QLabel("SCAN CLAUSE")
         clause_label.setObjectName("fieldLabel")
         self.url_input = QTextEdit()
         self.url_input.setObjectName("minimalTextArea")
         self.url_input.setPlaceholderText("Paste your Chartink scan clause here...")
-        self.url_input.setMaximumHeight(70)
+        self.url_input.setMaximumHeight(64)
 
         form_layout.addWidget(clause_label)
         form_layout.addWidget(self.url_input)
 
         # Scan tag/group
-        tag_label = QLabel("Tag / Group")
+        tag_label = QLabel("TAG / GROUP")
         tag_label.setObjectName("fieldLabel")
         self.tag_input = QComboBox()
         self.tag_input.setObjectName("minimalInput")
@@ -190,13 +214,13 @@ class ModernAddScanDialog(QDialog):
 
         # Button section
         button_layout = QHBoxLayout()
-        button_layout.setSpacing(10)
+        button_layout.setSpacing(6)
 
-        cancel_btn = QPushButton("Cancel")
+        cancel_btn = QPushButton("CANCEL")
         cancel_btn.setObjectName("secondaryMinimalButton")
         cancel_btn.clicked.connect(self.reject)
 
-        self.save_btn = QPushButton("Save Changes" if self.is_edit else "Add Scan")
+        self.save_btn = QPushButton("SAVE" if self.is_edit else "ADD")
         self.save_btn.setObjectName("primaryMinimalButton")
         self.save_btn.clicked.connect(self.accept)
         self.save_btn.setEnabled(False)
@@ -274,102 +298,170 @@ class ModernAddScanDialog(QDialog):
         self.name_input.selectAll()
 
     def _apply_styles(self):
-        self.setStyleSheet("""
-            QWidget#dialogContainer {
-                background-color: #0a0d12;
-                border: 1px solid #1a2030;
-                border-radius: 0px;
-            }
+        self.setStyleSheet(f"""
+            QWidget#dialogContainer {{
+                background-color: {_BG1};
+                border: 1px solid {_BG4};
+                border-radius: 2px;
+            }}
 
-            QLabel#dialogTitle {
-                color: #e8f0ff;
-                font-size: 16px;
-                font-weight: 600;
-            }
+            QLabel#dialogTitle {{
+                color: {_T0};
+                font-family: {_MONO};
+                font-size: 11px;
+                font-weight: 800;
+                letter-spacing: 1.4px;
+                background: transparent;
+            }}
 
-            QPushButton#closeButton {
-                background-color: #0a0d12;
-                color: #5a7090;
-                border: 1px solid #1a2030;
-                border-radius: 0px;
-                font-size: 14px;
-            }
-            QPushButton#closeButton:hover {
-                background-color: #141920;
-                color: #e8f0ff;
-            }
-
-            QGroupBox#formGroup {
-                background-color: #0f1318;
-                border: 1px solid #1a2030;
-                border-radius: 0px;
-                font-weight: 500;
+            QPushButton#closeButton {{
+                background: transparent;
+                color: {_T2};
+                border: none;
+                border-radius: 2px;
                 font-size: 12px;
-                color: #a8bcd4;
-                padding-top: 10px;
-            }
-            QGroupBox#formGroup::title {
+                font-weight: 700;
+            }}
+            QPushButton#closeButton:hover {{
+                background-color: rgba(255,77,106,0.15);
+                color: {_BEAR};
+            }}
+
+            QGroupBox#formGroup {{
+                background-color: {_BG2};
+                border: 1px solid {_BG4};
+                border-radius: 2px;
+                color: {_T2};
+                font-family: {_SANS};
+                font-size: 9px;
+                font-weight: 800;
+                letter-spacing: 1.1px;
+                margin-top: 8px;
+                padding-top: 8px;
+            }}
+            QGroupBox#formGroup::title {{
                 subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px;
-                color: #a8bcd4;
-            }
+                left: 8px;
+                padding: 0 4px;
+                color: {_AMBER};
+                background: transparent;
+            }}
 
-            QLabel#fieldLabel {
-                color: #a8bcd4;
-                font-size: 12px;
-                font-weight: 500;
-                margin-bottom: 2px;
-            }
+            QLabel#fieldLabel {{
+                color: {_T2};
+                font-family: {_SANS};
+                font-size: 9px;
+                font-weight: 800;
+                letter-spacing: 1px;
+                background: transparent;
+                text-transform: uppercase;
+            }}
 
-            QLineEdit#minimalInput, QTextEdit#minimalTextArea, QComboBox#minimalInput {
-                background-color: #0f1318;
-                border: 1px solid #1a2030;
-                border-radius: 0px;
-                color: #e8f0ff;
-                padding: 6px 8px;
-                font-size: 13px;
-                selection-background-color: rgba(74, 122, 191, 0.12);
-                font-family: "Segoe UI", sans-serif;
-            }
-            QTextEdit#minimalTextArea {
-                font-family: "Consolas", "JetBrains Mono", monospace;
-            }
-            QLineEdit#minimalInput:focus, QTextEdit#minimalTextArea:focus, QComboBox#minimalInput:focus {
-                border: 1px solid #00d4ff;
-                background-color: #141920;
-            }
-            QLineEdit#minimalInput::placeholder, QTextEdit#minimalTextArea::placeholder {
-                color: #5a7090;
-            }
+            QLineEdit#minimalInput,
+            QTextEdit#minimalTextArea,
+            QComboBox#minimalInput {{
+                background-color: {_BG1};
+                border: 1px solid {_BG4};
+                border-radius: 2px;
+                color: {_T0};
+                padding: 5px 8px;
+                font-size: 11px;
+                font-family: {_SANS};
+                selection-background-color: {_SEL};
+                selection-color: {_T0};
+            }}
+            QTextEdit#minimalTextArea {{
+                font-family: {_MONO};
+                font-size: 10px;
+            }}
+            QLineEdit#minimalInput:focus,
+            QTextEdit#minimalTextArea:focus,
+            QComboBox#minimalInput:focus {{
+                border: 1px solid {_CYAN};
+                background-color: {_BG3};
+            }}
+            QLineEdit#minimalInput::placeholder,
+            QTextEdit#minimalTextArea::placeholder {{
+                color: {_T3};
+            }}
+            QComboBox#minimalInput::drop-down {{
+                border: none;
+                width: 18px;
+            }}
+            QComboBox#minimalInput::down-arrow {{
+                image: none;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 5px solid {_T2};
+                margin-right: 5px;
+            }}
+            QComboBox#minimalInput QAbstractItemView {{
+                background: {_BG1};
+                color: {_T0};
+                border: 1px solid {_BG4};
+                selection-background-color: {_SEL};
+                outline: none;
+            }}
 
-            QPushButton#primaryMinimalButton, QPushButton#secondaryMinimalButton {
-                border: 1px solid #1a2030;
-                border-radius: 0px;
-                font-size: 12px;
+            QCheckBox {{
+                color: {_T1};
+                font-family: {_SANS};
+                font-size: 10px;
                 font-weight: 600;
-                padding: 8px 15px;
-                min-width: 70px;
-            }
-            QPushButton#primaryMinimalButton {
-                background-color: #00d4a8;
-                color: #050709;
-            }
-            QPushButton#primaryMinimalButton:hover {
-                background-color: #22c4a0;
-            }
-            QPushButton#primaryMinimalButton:disabled {
-                background-color: #0f1318;
-                color: #2a3a50;
-            }
-            QPushButton#secondaryMinimalButton {
-                background-color: #0f1318;
-                color: #a8bcd4;
-            }
-            QPushButton#secondaryMinimalButton:hover {
-                background-color: #141920;
-                color: #e8f0ff;
-            }
+                background: transparent;
+            }}
+
+            QPushButton#primaryMinimalButton,
+            QPushButton#secondaryMinimalButton {{
+                border-radius: 2px;
+                font-family: {_SANS};
+                font-size: 10px;
+                font-weight: 800;
+                letter-spacing: 0.7px;
+                padding: 5px 12px;
+                min-width: 72px;
+                min-height: 22px;
+            }}
+            QPushButton#primaryMinimalButton {{
+                background-color: rgba(0,212,168,0.12);
+                color: {_BULL};
+                border: 1px solid rgba(0,212,168,0.35);
+            }}
+            QPushButton#primaryMinimalButton:hover {{
+                background-color: rgba(0,212,168,0.18);
+                border-color: {_BULL};
+            }}
+            QPushButton#primaryMinimalButton:disabled {{
+                background-color: {_BG2};
+                color: {_T3};
+                border: 1px solid {_BG4};
+            }}
+            QPushButton#secondaryMinimalButton {{
+                background-color: {_BG2};
+                color: {_T1};
+                border: 1px solid {_BG4};
+            }}
+            QPushButton#secondaryMinimalButton:hover {{
+                background-color: {_BG3};
+                color: {_T0};
+                border-color: {_T2};
+            }}
+
+            QScrollBar:vertical {{
+                background: transparent;
+                width: 4px;
+                border: none;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {_BG4};
+                border-radius: 2px;
+                min-height: 18px;
+            }}
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {{
+                height: 0;
+                border: none;
+            }}
         """)
 
 
@@ -381,7 +473,7 @@ class ModernManageScansDialog(QDialog):
         self.scans = scans.copy()
         self.setWindowTitle("Manage Chartink Scans")
         self.setModal(True)
-        self.setFixedSize(760, 540)
+        self.setFixedSize(760, 500)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self._drag_pos = None
@@ -399,8 +491,8 @@ class ModernManageScansDialog(QDialog):
         main_layout.addWidget(main_container)
 
         container_layout = QVBoxLayout(main_container)
-        container_layout.setContentsMargins(20, 16, 20, 20)
-        container_layout.setSpacing(14)
+        container_layout.setContentsMargins(12, 10, 12, 12)
+        container_layout.setSpacing(8)
 
         # Header
         header_layout = QHBoxLayout()
@@ -409,22 +501,23 @@ class ModernManageScansDialog(QDialog):
         title_stack = QVBoxLayout()
         title_stack.setSpacing(2)
 
-        title_label = QLabel("Manage Scans")
+        title_label = QLabel("MANAGE SCANS")
         title_label.setObjectName("dialogTitle")
 
-        subtitle_label = QLabel("Edit saved scans, organize tags, and remove stale clauses.")
+        subtitle_label = QLabel("Saved Chartink scan clauses and groups")
         subtitle_label.setObjectName("dialogSubtitle")
 
         title_stack.addWidget(title_label)
         title_stack.addWidget(subtitle_label)
 
-        self.add_btn = QPushButton("+ Add Scan")
+        self.add_btn = QPushButton("+ ADD")
         self.add_btn.setObjectName("addMinimalButton")
+        self.add_btn.setFixedHeight(24)
         self.add_btn.clicked.connect(self._add_scan)
 
         close_btn = QPushButton("✕")
         close_btn.setObjectName("closeButton")
-        close_btn.setFixedSize(24, 24)
+        close_btn.setFixedSize(22, 22)
         close_btn.clicked.connect(self.reject)
 
         header_layout.addLayout(title_stack)
@@ -438,7 +531,7 @@ class ModernManageScansDialog(QDialog):
         self.scans_table = QTableWidget()
         self.scans_table.setObjectName("minimalTable")
         self.scans_table.setColumnCount(4)
-        self.scans_table.setHorizontalHeaderLabels(["Scan Name", "Tag", "Clause Preview", "Actions"])
+        self.scans_table.setHorizontalHeaderLabels(["SCAN", "TAG", "CLAUSE", ""])
 
         # Configure table
         header = self.scans_table.horizontalHeader()
@@ -452,21 +545,26 @@ class ModernManageScansDialog(QDialog):
         self.scans_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.scans_table.setAlternatingRowColors(True)
         self.scans_table.setShowGrid(False)
+        self.scans_table.verticalHeader().setDefaultSectionSize(_DIALOG_ROW_H)
+        self.scans_table.verticalHeader().setMinimumSectionSize(_DIALOG_ROW_H)
+        self.scans_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.scans_table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.scans_table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
 
         container_layout.addWidget(self.scans_table)
 
         # Bottom buttons
         button_layout = QHBoxLayout()
-        button_layout.setSpacing(10)
+        button_layout.setSpacing(6)
 
-        info_label = QLabel(f"📊 {len(self.scans)} scans configured")
+        info_label = QLabel(f"SCANS: {len(self.scans)}")
         info_label.setObjectName("infoLabel")
 
-        cancel_btn = QPushButton("Cancel")
+        cancel_btn = QPushButton("CANCEL")
         cancel_btn.setObjectName("secondaryMinimalButton")
         cancel_btn.clicked.connect(self.reject)
 
-        self.save_btn = QPushButton("Save Changes")
+        self.save_btn = QPushButton("SAVE")
         self.save_btn.setObjectName("primaryMinimalButton")
         self.save_btn.clicked.connect(self.accept)
 
@@ -519,14 +617,14 @@ class ModernManageScansDialog(QDialog):
 
             edit_btn = QPushButton("✎")
             edit_btn.setObjectName("editMinimalButton")
-            edit_btn.setFixedSize(24, 24)
+            edit_btn.setFixedSize(22, 22)
             edit_btn.setToolTip("Edit this scan")
             edit_btn.clicked.connect(lambda checked, r=row: self._edit_scan(r))
             actions_layout.addWidget(edit_btn)
 
-            delete_btn = QPushButton("🗑")  # Just the delete icon, no text
+            delete_btn = QPushButton("✕")  # Just the delete icon, no text
             delete_btn.setObjectName("deleteMinimalButton")
-            delete_btn.setFixedSize(24, 24)  # Small square button
+            delete_btn.setFixedSize(22, 22)  # Small square button
             delete_btn.setToolTip("Delete this scan")  # Helpful tooltip
             delete_btn.clicked.connect(lambda checked, r=row: self._delete_scan(r))
             actions_layout.addWidget(delete_btn)
@@ -535,7 +633,7 @@ class ModernManageScansDialog(QDialog):
 
         # Adjust row heights
         for row in range(len(self.scans)):
-            self.scans_table.setRowHeight(row, 36)
+            self.scans_table.setRowHeight(row, _DIALOG_ROW_H)
 
     def _add_scan(self):
         """Add a new scan."""
@@ -547,7 +645,7 @@ class ModernManageScansDialog(QDialog):
             # Update info label
             info_label = self.findChild(QLabel, "infoLabel")
             if info_label:
-                info_label.setText(f"📊 {len(self.scans)} scans configured")
+                info_label.setText(f"SCANS: {len(self.scans)}")
 
     def _edit_scan(self, row: int):
         """Edit an existing scan at the given row."""
@@ -577,7 +675,7 @@ class ModernManageScansDialog(QDialog):
                 # Update info label
                 info_label = self.findChild(QLabel, "infoLabel")
                 if info_label:
-                    info_label.setText(f"📊 {len(self.scans)} scans configured")
+                    info_label.setText(f"SCANS: {len(self.scans)}")
 
     def get_scans(self) -> List[Dict[str, str]]:
         """Return the modified scans list."""
@@ -598,154 +696,207 @@ class ModernManageScansDialog(QDialog):
         event.accept()
 
     def _apply_styles(self):
-        self.setStyleSheet("""
-            QWidget#dialogContainer {
-                background-color: #0a0d12;
-                border: 1px solid #1a2030;
-                border-radius: 0px;
-            }
+        self.setStyleSheet(f"""
+            QWidget#dialogContainer {{
+                background-color: {_BG1};
+                border: 1px solid {_BG4};
+                border-radius: 2px;
+            }}
 
-            QLabel#dialogTitle {
-                color: #e8f0ff;
-                font-size: 16px;
-                font-weight: 600;
-            }
-            QLabel#dialogSubtitle {
-                color: #5a7090;
+            QLabel#dialogTitle {{
+                color: {_T0};
+                font-family: {_MONO};
                 font-size: 11px;
-                font-weight: 500;
-            }
+                font-weight: 800;
+                letter-spacing: 1.4px;
+                background: transparent;
+            }}
+            QLabel#dialogSubtitle {{
+                color: {_T2};
+                font-family: {_SANS};
+                font-size: 10px;
+                font-weight: 600;
+                background: transparent;
+            }}
 
-            QPushButton#addMinimalButton {
-                background-color: #00d4a8;
-                color: #050709;
-                border: 1px solid #1a2030;
-                border-radius: 0px;
+            QPushButton#addMinimalButton {{
+                background-color: rgba(0,212,168,0.12);
+                color: {_BULL};
+                border: 1px solid rgba(0,212,168,0.35);
+                border-radius: 2px;
+                font-family: {_SANS};
+                font-size: 10px;
+                font-weight: 800;
+                letter-spacing: 0.7px;
+                padding: 2px 10px;
+            }}
+            QPushButton#addMinimalButton:hover {{
+                background-color: rgba(0,212,168,0.18);
+                border-color: {_BULL};
+            }}
+
+            QPushButton#editMinimalButton {{
+                background-color: {_BG2};
+                color: {_CYAN};
+                border: 1px solid rgba(0,212,255,0.22);
+                border-radius: 2px;
+                font-size: 10px;
+                font-weight: 800;
+            }}
+            QPushButton#editMinimalButton:hover {{
+                background-color: rgba(0,212,255,0.10);
+                border-color: {_CYAN};
+                color: {_T0};
+            }}
+
+            QPushButton#closeButton {{
+                background: transparent;
+                color: {_T2};
+                border: none;
+                border-radius: 2px;
                 font-size: 12px;
                 font-weight: 700;
-                padding: 6px 12px;
-            }
-            QPushButton#addMinimalButton:hover {
-                background-color: #22c4a0;
-            }
+            }}
+            QPushButton#closeButton:hover {{
+                background-color: rgba(255,77,106,0.15);
+                color: {_BEAR};
+            }}
 
-            QPushButton#editMinimalButton {
-                background-color: #0f1318;
-                color: #a8bcd4;
-                border: 1px solid #1a2030;
-                border-radius: 0px;
-                font-size: 11px;
-            }
-            QPushButton#editMinimalButton:hover {
-                background-color: #141920;
-                color: #e8f0ff;
-            }
-
-            QPushButton#closeButton {
-                background-color: #0a0d12;
-                color: #5a7090;
-                border: 1px solid #1a2030;
-                border-radius: 0px;
-                font-size: 14px;
-            }
-            QPushButton#closeButton:hover {
-                background-color: #141920;
-                color: #e8f0ff;
-            }
-
-            QTableWidget#minimalTable {
-                background-color: #0f1318;
-                alternate-background-color: #0f1318;
-                border: 1px solid #1a2030;
-                border-radius: 0px;
-                gridline-color: #1a2030;
-                selection-background-color: rgba(74, 122, 191, 0.12);
-                color: #a8bcd4;
-                font-size: 13px;
-            }
-            QTableWidget#minimalTable::item {
-                padding: 1px 6px;
-                border-bottom: 1px solid #1a2030;
+            QTableWidget#minimalTable {{
+                background-color: {_BG1};
+                alternate-background-color: {_BG2};
+                border: 1px solid {_BG4};
+                gridline-color: transparent;
+                selection-background-color: {_SEL};
+                selection-color: {_T0};
+                color: {_T1};
+                outline: none;
+                font-family: {_SANS};
+                font-size: 10px;
+                border-radius: 2px;
+            }}
+            QTableWidget#minimalTable::item {{
+                padding: 0 6px;
+                border-bottom: 1px solid {_BG3};
                 background-color: transparent;
-            }
-            QTableWidget#minimalTable::item:hover {
-                background-color: #141920;
-            }
-            QTableWidget#minimalTable::item:selected {
-                background-color: rgba(74, 122, 191, 0.12);
-                font-weight: 600;
-            }
-            QTableWidget#minimalTable::item:alternate {
-                background-color: #0f1318;
-            }
+            }}
+            QTableWidget#minimalTable::item:hover {{
+                background-color: {_BG3};
+            }}
+            QTableWidget#minimalTable::item:selected {{
+                background-color: {_SEL};
+                color: {_T0};
+            }}
 
-            QHeaderView::section {
-                background-color: #0a0d12;
-                color: #a8bcd4;
-                padding: 5px 8px;
+            QHeaderView::section {{
+                background-color: {_BG2};
+                color: {_T2};
+                padding: 0 6px;
                 border: none;
-                border-bottom: 1px solid #1a2030;
-                border-right: 1px solid #1a2030;
-                font-weight: 600;
-                font-size: 11px;
-            }
-            QHeaderView::section:last {
-                border-right: none;
-            }
-            QHeaderView::section:hover {
-                background-color: #141920;
-            }
+                border-bottom: 1px solid {_BG4};
+                font-family: {_SANS};
+                font-weight: 800;
+                font-size: 9px;
+                letter-spacing: 1px;
+                text-transform: uppercase;
+                min-height: 20px;
+            }}
+            QHeaderView::section:hover {{
+                color: {_T1};
+                background-color: {_BG3};
+            }}
 
-            QPushButton#deleteMinimalButton {
-                background-color: #0f1318;
-                color: #ff4d6a;
-                border: 1px solid #1a2030;
-                border-radius: 0px;
-                font-size: 13px;
-                font-weight: normal;
+            QPushButton#deleteMinimalButton {{
+                background-color: {_BG2};
+                color: {_BEAR};
+                border: 1px solid rgba(255,77,106,0.22);
+                border-radius: 2px;
+                font-size: 11px;
+                font-weight: 800;
                 padding: 0px;
                 margin: 0px;
-            }
-            QPushButton#deleteMinimalButton:hover {
-                background-color: #141920;
-                color: #ff4d6a;
-                border: 1px solid #ff4d6a;
-            }
-            QPushButton#deleteMinimalButton:pressed {
+            }}
+            QPushButton#deleteMinimalButton:hover {{
+                background-color: rgba(255,77,106,0.12);
+                border-color: {_BEAR};
+            }}
+            QPushButton#deleteMinimalButton:pressed {{
                 background-color: #200a10;
-                color: #ff4d6a;
-                border: 1px solid #7a2030;
-            }
+                border-color: {_BEAR};
+            }}
 
-            QLabel#infoLabel {
-                color: #7a94b0;
-                font-size: 12px;
-                font-weight: 500;
-            }
+            QLabel#infoLabel {{
+                color: {_T2};
+                font-family: {_SANS};
+                font-size: 10px;
+                font-weight: 700;
+                background: transparent;
+            }}
 
-            QPushButton#primaryMinimalButton, QPushButton#secondaryMinimalButton {
-                border: 1px solid #1a2030;
-                border-radius: 0px;
-                font-size: 12px;
-                font-weight: 600;
-                padding: 8px 15px;
-                min-width: 70px;
-            }
-            QPushButton#primaryMinimalButton {
-                background-color: #00d4a8;
-                color: #050709;
-            }
-            QPushButton#primaryMinimalButton:hover {
-                background-color: #22c4a0;
-            }
-            QPushButton#secondaryMinimalButton {
-                background-color: #0f1318;
-                color: #a8bcd4;
-            }
-            QPushButton#secondaryMinimalButton:hover {
-                background-color: #141920;
-                color: #e8f0ff;
-            }
+            QPushButton#primaryMinimalButton,
+            QPushButton#secondaryMinimalButton {{
+                border-radius: 2px;
+                font-family: {_SANS};
+                font-size: 10px;
+                font-weight: 800;
+                letter-spacing: 0.7px;
+                padding: 5px 12px;
+                min-width: 72px;
+                min-height: 22px;
+            }}
+            QPushButton#primaryMinimalButton {{
+                background-color: rgba(0,212,168,0.12);
+                color: {_BULL};
+                border: 1px solid rgba(0,212,168,0.35);
+            }}
+            QPushButton#primaryMinimalButton:hover {{
+                background-color: rgba(0,212,168,0.18);
+                border-color: {_BULL};
+            }}
+            QPushButton#secondaryMinimalButton {{
+                background-color: {_BG2};
+                color: {_T1};
+                border: 1px solid {_BG4};
+            }}
+            QPushButton#secondaryMinimalButton:hover {{
+                background-color: {_BG3};
+                color: {_T0};
+                border-color: {_T2};
+            }}
+
+            QScrollBar:vertical {{
+                background: transparent;
+                width: 4px;
+                border: none;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {_BG4};
+                border-radius: 2px;
+                min-height: 18px;
+            }}
+            QScrollBar::handle:vertical:hover {{
+                background: {_T2};
+            }}
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {{
+                height: 0;
+                border: none;
+            }}
+            QScrollBar:horizontal {{
+                background: transparent;
+                height: 4px;
+                border: none;
+            }}
+            QScrollBar::handle:horizontal {{
+                background: {_BG4};
+                border-radius: 2px;
+                min-width: 18px;
+            }}
+            QScrollBar::add-line:horizontal,
+            QScrollBar::sub-line:horizontal {{
+                width: 0;
+                border: none;
+            }}
         """)
 
 
@@ -986,7 +1137,7 @@ class ChartinkScannerTable(QWidget):
         header_layout.setSpacing(6)
 
         # Subtle refresh button replacing static scan label
-        self.scan_refresh_btn = QPushButton("Scan")
+        self.scan_refresh_btn = QPushButton("RUN")
         self.scan_refresh_btn.setObjectName("scanRefreshButton")
         self.scan_refresh_btn.setToolTip("Refresh current scan")
         self.scan_refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1087,7 +1238,7 @@ class ChartinkScannerTable(QWidget):
     def _configure_table(self):
         """TC2000 style compact table configuration."""
         self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["Symbol", "Price", "Vol", "%CHG"])
+        self.table.setHorizontalHeaderLabels(["SYMBOL", "PRICE", "VOL", "CHG%"] )
 
         self.table.horizontalHeader().setVisible(True)
         header = self.table.horizontalHeader()
@@ -1108,16 +1259,17 @@ class ChartinkScannerTable(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setShowGrid(True)
+        self.table.setShowGrid(False)
         self.table.setAlternatingRowColors(True)
         self.table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
 
         # Ultra-compact row heights (TC2000 style)
-        self.table.verticalHeader().setDefaultSectionSize(22)
+        self.table.verticalHeader().setDefaultSectionSize(_ROW_H)
+        self.table.verticalHeader().setMinimumSectionSize(_ROW_H)
 
-        header_font = QFont("Segoe UI", 9)
-        header_font.setBold(False)
+        header_font = QFont("Segoe UI", 8)
+        header_font.setBold(True)
         self.table.horizontalHeader().setFont(header_font)
         self.table.horizontalHeader().setSortIndicatorShown(False)
         self.table.horizontalHeader().setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
@@ -1247,11 +1399,27 @@ class ChartinkScannerTable(QWidget):
         change_pct_item.setForeground(chg_fg)
         change_pct_item.setBackground(chg_bg)
 
-        # Set text alignments
+        # Set text alignments and compact terminal fonts
         symbol_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         price_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        volume_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        volume_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         change_pct_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        symbol_font = QFont("Segoe UI", 8)
+        symbol_font.setBold(True)
+        value_font = QFont("Consolas", 8)
+        value_font.setBold(False)
+        change_font = QFont("Consolas", 8)
+        change_font.setBold(True)
+        symbol_item.setFont(symbol_font)
+        price_item.setFont(value_font)
+        volume_item.setFont(value_font)
+        change_pct_item.setFont(change_font)
+
+        base_bg = QBrush(QColor(_BG1 if row % 2 == 0 else _BG2))
+        symbol_item.setBackground(base_bg)
+        price_item.setBackground(base_bg)
+        volume_item.setBackground(base_bg)
 
     @Slot(list)
     def _on_scan_complete(self, scan_results: List[Dict]):
@@ -1409,7 +1577,7 @@ class ChartinkScannerTable(QWidget):
             if not self.scans:
                 self.table.setRowCount(0)
                 self.table.insertRow(0)
-                item = QTableWidgetItem("No scans configured. Click the ⚙ button to add a scan.")
+                item = QTableWidgetItem("No scans configured. Open settings to add a scan.")
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
                 self.table.setItem(0, 0, item)
                 for col in range(1, 4):
@@ -1419,7 +1587,7 @@ class ChartinkScannerTable(QWidget):
                 # Just clear the table and show a message to manually select/run
                 self.table.setRowCount(0)
                 self.table.insertRow(0)
-                item = QTableWidgetItem("✅ Scans saved. Select a scan from dropdown to run.")
+                item = QTableWidgetItem("Scans saved. Select a scan from dropdown to run.")
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
                 self.table.setItem(0, 0, item)
                 for col in range(1, 4):
@@ -1461,7 +1629,7 @@ class ChartinkScannerTable(QWidget):
         # Show loading state
         self.table.setRowCount(0)
         self.table.insertRow(0)
-        item = QTableWidgetItem("🔄 Loading scan results...")
+        item = QTableWidgetItem("Loading scan results...")
         item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
         self.table.setItem(0, 0, item)
         for col in range(1, 4):
@@ -1484,7 +1652,7 @@ class ChartinkScannerTable(QWidget):
             symbol_item = self.table.item(row, 0)
             if symbol_item and symbol_item.flags() & Qt.ItemFlag.ItemIsSelectable:
                 symbol_text = symbol_item.text()
-                if symbol_text and not symbol_text.startswith(("Error:", "🔄", "No symbols", "No scans")):
+                if symbol_text and not symbol_text.startswith(("Error:", "Loading", "No symbols", "No scans")):
                     # Update current index when manually clicking
                     self._current_symbol_index = row
                     self.symbol_selected.emit(symbol_text)
@@ -1763,255 +1931,217 @@ class ChartinkScannerTable(QWidget):
             QMessageBox.critical(self, "Save Error", f"Failed to save scans: {e}")
 
     def _apply_enhanced_styles(self):
-        """FIXED dark theme styling with proper alternate row selection."""
-        dropdown_icon_path = get_asset_path("icons", "dropdown-arrow.svg", required=True)
-        dropdown_icon_url = dropdown_icon_path.as_posix() if dropdown_icon_path is not None else ""
-        stylesheet = """
-            QWidget {
-                background-color: #050709;
-                color: #e8f0ff;
-                font-family: "'Segoe UI', -apple-system, Roboto, Arial, sans-serif";
-                font-size: 13px;
-            }
+        """Institutional Dark Trading Terminal UI styling."""
+        self.setStyleSheet(f"""
+            QWidget {{
+                background-color: {_BG0};
+                color: {_T0};
+                font-family: {_SANS};
+                font-size: 11px;
+            }}
 
-            /* Header Container */
-            QWidget#headerContainer {
-                background-color: #0a0d12;
-                border-bottom: 1px solid #1a2030;
-                min-height: 32px;
-                max-height: 32px;
+            QWidget#headerContainer {{
+                background-color: {_BGTB};
+                border-bottom: 1px solid {_BG4};
+                min-height: {CHART_TOOLBAR_HEIGHT}px;
+                max-height: {CHART_TOOLBAR_HEIGHT}px;
                 padding: 0px;
-            }
+            }}
 
-            /* Subtle scan refresh button */
-            QPushButton#scanRefreshButton {
-                color: #6ec8ff;
-                font-size: 11px;
-                font-weight: 500;
-                padding: 0 8px;
-                border: 1px solid #1a2030;
-                background: #0f1318;
-                border-radius: 0px;
-                text-align: left;
-            }
-            QPushButton#scanRefreshButton:hover {
-                color: #9ad9ff;
-                background: #111720;
-                border-color: #253049;
-            }
-            QPushButton#scanRefreshButton:pressed {
-                color: #c5ebff;
-                background: #151d29;
-                border-color: #2f3d5a;
-            }
-            QPushButton#scanRefreshButton:disabled {
-                color: #6c7481;
-                background: #0d1015;
-                border-color: #161c29;
-            }
+            QPushButton#scanRefreshButton {{
+                background-color: rgba(0,212,255,0.08);
+                color: {_CYAN};
+                border: 1px solid rgba(0,212,255,0.22);
+                border-radius: 2px;
+                font-family: {_SANS};
+                font-size: 9px;
+                font-weight: 800;
+                letter-spacing: 0.8px;
+                padding: 0 9px;
+                text-align: center;
+                min-height: {CHART_TOOLBAR_CONTROL_HEIGHT}px;
+                max-height: {CHART_TOOLBAR_CONTROL_HEIGHT}px;
+            }}
+            QPushButton#scanRefreshButton:hover {{
+                background-color: rgba(0,212,255,0.14);
+                border-color: {_CYAN};
+                color: {_T0};
+            }}
+            QPushButton#scanRefreshButton:pressed {{
+                background-color: rgba(0,212,255,0.20);
+            }}
+            QPushButton#scanRefreshButton:disabled {{
+                background-color: {_BG2};
+                color: {_T3};
+                border-color: {_BG4};
+            }}
 
-            /* Dropdown */
-            QComboBox#minimalDropdown {
-                background-color: #0f1318;
-                border: 1px solid #1a2030;
-                color: #e8f0ff;
-                min-height: 22px;
-                max-height: 22px;
-                padding: 0 6px;
-                border-radius: 3px;
-                font-size: 11px;
-            }
-            QComboBox#minimalDropdown:hover {
-                border-color: #505050;
-            }
-            QComboBox#minimalDropdown:focus {
-                border-color: #00d4ff;
+            QComboBox#minimalDropdown {{
+                background-color: {_BG1};
+                color: {_T0};
+                border: 1px solid {_BG4};
+                border-radius: 2px;
+                font-family: {_SANS};
+                font-size: 10px;
+                font-weight: 700;
+                min-height: {CHART_TOOLBAR_CONTROL_HEIGHT}px;
+                max-height: {CHART_TOOLBAR_CONTROL_HEIGHT}px;
+                padding: 0 22px 0 7px;
+                selection-background-color: {_SEL};
+            }}
+            QComboBox#minimalDropdown:hover {{
+                border-color: {_T2};
+                background-color: {_BG2};
+            }}
+            QComboBox#minimalDropdown:focus {{
+                border-color: {_CYAN};
+                background-color: {_BG2};
                 outline: none;
-            }
-            QComboBox#minimalDropdown:disabled {
-                background-color: #050505;
-                color: #606060;
-                border-color: #202020;
-            }
-
-            QComboBox#minimalDropdown::drop-down {
+            }}
+            QComboBox#minimalDropdown:disabled {{
+                background-color: {_BG2};
+                color: {_T3};
+                border-color: {_BG4};
+            }}
+            QComboBox#minimalDropdown::drop-down {{
                 border: none;
                 width: 18px;
-            }
-            QComboBox#minimalDropdown::down-arrow {
-                image: url("__DROPDOWN_ICON_URL__");
-                width: 12px;
-                height: 12px;
-            }
-            QComboBox#minimalDropdown::down-arrow:hover {
-                image: url("__DROPDOWN_ICON_URL__");
-            }
-
-            /* Dropdown List */
-            QComboBox#minimalDropdown QAbstractItemView {
-                background-color: #1a1a1a;
-                border: 1px solid #6a9cff;
-                border-radius: 2px;
-                color: #ffffff;
-                selection-background-color: rgba(74, 122, 191, 0.2);
-                selection-color: #ffffff;
-                padding: 1px;
+                background: transparent;
+            }}
+            QComboBox#minimalDropdown::down-arrow {{
+                image: none;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 5px solid {_T2};
+                margin-right: 5px;
+            }}
+            QComboBox#minimalDropdown QAbstractItemView {{
+                background-color: {_BG1};
+                color: {_T0};
+                border: 1px solid {_BG4};
+                selection-background-color: {_SEL};
+                selection-color: {_T0};
                 outline: none;
-            }
-            QComboBox#minimalDropdown QAbstractItemView::item {
-                padding: 5px 8px;
+                padding: 2px;
+                font-family: {_SANS};
+                font-size: 10px;
+            }}
+            QComboBox#minimalDropdown QAbstractItemView::item {{
+                min-height: 20px;
+                padding: 2px 7px;
                 border: none;
-                border-radius: 1px;
-                margin: 0px 1px;
-                font-size: 12px;
-            }
-            QComboBox#minimalDropdown QAbstractItemView::item:hover {
-                background-color: #2a2a2a;
-            }
-            QComboBox#minimalDropdown QAbstractItemView::item:selected {
-                background-color: rgba(74, 122, 191, 0.2);
-                color: #ffffff;
-            }
+            }}
 
-            /* Settings Button */
-            QPushButton#settingsMinimalButton {
-                background-color: #111b2a;
-                color: #a8bcd4;
-                min-height: 22px;
-                max-height: 22px;
-                font-size: 11px;
-                font-weight: 500;
-                border-radius: 3px;
-                border: 1px solid #1a2030;
-                padding: 0 7px;
-            }
-            QPushButton#settingsMinimalButton:hover {
-                background-color: #141920;
-                border-color: #00d4ff;
-            }
-            QPushButton#settingsMinimalButton:pressed {
-                background-color: #1a1a1a;
-                border-color: #404040;
-            }
-            QPushButton#settingsMinimalButton:disabled {
-                background-color: #050505;
-                color: #606060;
-                border-color: #202020;
-            }
+            QPushButton#settingsMinimalButton {{
+                background-color: {_BG1};
+                color: {_T2};
+                border: 1px solid {_BG4};
+                border-radius: 2px;
+                min-height: {CHART_TOOLBAR_CONTROL_HEIGHT}px;
+                max-height: {CHART_TOOLBAR_CONTROL_HEIGHT}px;
+                padding: 0 6px;
+            }}
+            QPushButton#settingsMinimalButton:hover {{
+                background-color: rgba(0,212,255,0.09);
+                color: {_CYAN};
+                border-color: rgba(0,212,255,0.35);
+            }}
+            QPushButton#settingsMinimalButton:pressed {{
+                background-color: {_BG3};
+            }}
+            QPushButton#settingsMinimalButton:disabled {{
+                background-color: {_BG2};
+                color: {_T3};
+                border-color: {_BG4};
+            }}
 
-            /* FIXED Table Styling with Proper Alternate Row Selection */
-            QTableWidget {
-                background-color: #0f1318;
-                border: 1px solid #1a2030;
-                gridline-color: #1a2030;
-                selection-background-color: rgba(74, 122, 191, 0.12);
-                selection-color: #d7e2f2;
-                alternate-background-color: #0f1318;
+            QTableWidget {{
+                background-color: {_BG1};
+                alternate-background-color: {_BG2};
+                border: none;
+                gridline-color: transparent;
+                selection-background-color: {_SEL};
+                selection-color: {_T0};
+                color: {_T0};
                 outline: none;
                 show-decoration-selected: 0;
-                font-size: 12px;
+                font-family: {_MONO};
+                font-size: 10px;
                 border-radius: 0px;
-            }
-
-            QTableWidget::item {
-                padding: 1px 5px; /* Tighter vertical/horizontal margins */
-                border-bottom: 1px solid #1a2030;
+            }}
+            QTableWidget::item {{
+                padding: 0 5px;
+                border-bottom: 1px solid {_BG3};
                 background-color: transparent;
-                font-size: 12px;
-                font-family: "JetBrains Mono", "Consolas", monospace;
-            }
-
-            QTableWidget::item:selected {
-                background-color: rgba(74, 122, 191, 0.12) !important;
+                font-family: {_MONO};
+                font-size: 10px;
+            }}
+            QTableWidget::item:selected {{
+                background-color: {_SEL};
+                color: {_T0};
+                font-weight: 600;
+            }}
+            QTableWidget::item:focus {{
+                background-color: {_SEL};
+                color: {_T0};
                 outline: none;
+            }}
+            QTableWidget::item:hover {{
+                background-color: {_BG3};
+            }}
+
+            QHeaderView::section {{
+                background-color: {_BG2};
+                color: {_T2};
+                padding: 0 5px;
                 border: none;
-                color: #d7e2f2;
-                font-weight: 400;
-            }
-
-            QTableWidget::item:focus {
-                background-color: rgba(74, 122, 191, 0.12) !important;
-                outline: none;
-                border: none;
-                color: #d7e2f2;
-            }
-
-            QTableWidget::item:hover {
-                background-color: #141920;
-            }
-
-            QTableWidget::item:alternate {
-                background-color: #0f1318;
-            }
-
-            QTableWidget::item:alternate:selected {
-                background-color: rgba(74, 122, 191, 0.12) !important;
-                color: #d7e2f2;
-                font-weight: 400;
-            }
-
-            /* Header Styling */
-            QHeaderView::section {
-                background-color: #0b1019;
-                color: #7fd4ff;
-                padding: 2px 5px;
-                border: none;
-                border-bottom: 1px solid #24344c;
-                border-right: 1px solid #121c2b;
-                font-weight: 400;
-                font-size: 11px;
+                border-bottom: 1px solid {_BG4};
+                font-family: {_SANS};
+                font-weight: 800;
+                font-size: 8px;
+                letter-spacing: 1px;
                 text-transform: uppercase;
-            }
-            QHeaderView::section:last {
-                border-right: none;
-            }
-            QHeaderView::section:hover {
-                background-color: #2a2a2a;
-            }
-
-            /* Enhanced Scrollbars */
-            QScrollBar:vertical {
-                background-color: #05070b;
-                width: 8px;
-                border: none;
-                margin: 0px;
-            }
-
-            QScrollBar::handle:vertical {
-                background-color: #424242;
-                border-radius: 4px;
                 min-height: 20px;
-                margin: 2px;
-            }
+            }}
+            QHeaderView::section:hover {{
+                background-color: {_BG3};
+                color: {_T1};
+            }}
 
-            QScrollBar::handle:vertical:hover {
-                background-color: #616161;
-            }
-
-            QScrollBar:horizontal {
-                background-color: #0a0a0a;
-                height: 8px;
+            QScrollBar:vertical {{
+                background: transparent;
+                width: 4px;
                 border: none;
                 margin: 0px;
-            }
-
-            QScrollBar::handle:horizontal {
-                background-color: #424242;
-                border-radius: 4px;
-                min-width: 20px;
-                margin: 2px;
-            }
-
-            QScrollBar::handle:horizontal:hover {
-                background-color: #616161;
-            }
-
-            QScrollBar::add-line, QScrollBar::sub-line {
+            }}
+            QScrollBar::handle:vertical {{
+                background-color: {_BG4};
+                border-radius: 2px;
+                min-height: 18px;
+            }}
+            QScrollBar::handle:vertical:hover {{
+                background-color: {_T2};
+            }}
+            QScrollBar:horizontal {{
+                background: transparent;
+                height: 4px;
+                border: none;
+                margin: 0px;
+            }}
+            QScrollBar::handle:horizontal {{
+                background-color: {_BG4};
+                border-radius: 2px;
+                min-width: 18px;
+            }}
+            QScrollBar::handle:horizontal:hover {{
+                background-color: {_T2};
+            }}
+            QScrollBar::add-line,
+            QScrollBar::sub-line {{
                 border: none;
                 background: none;
                 width: 0px;
                 height: 0px;
                 margin: 0px;
-            }
-        """
-        self.setStyleSheet(stylesheet.replace("__DROPDOWN_ICON_URL__", dropdown_icon_url))
+            }}
+        """)

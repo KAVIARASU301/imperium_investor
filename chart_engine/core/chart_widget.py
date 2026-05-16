@@ -477,7 +477,13 @@ class CandlestickChart(QWidget):
         self.global_chart_settings["moving_average_configs"] = self._moving_average_configs
         self.drawing_storage.save_global_settings(self.global_chart_settings)
         if reload_current_symbol and self.current_symbol:
-            self.load_chart(self.current_symbol, self.current_interval)
+            self.load_symbol(
+                self.current_symbol,
+                exchange=None,
+                instrument_token=self.current_instrument_token,
+                interval=self.current_interval,
+                force_refresh=False,
+            )
 
     def _on_timeframe_selected(self, index: int) -> None:
         if not self.toolbar.timeframe_dropdown:
