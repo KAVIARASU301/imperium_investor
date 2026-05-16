@@ -698,7 +698,7 @@ class AlertManagementDialog(QDialog):
             "Delete",
             _RED,
             f"Delete alert for {self._symbol(alert)}",
-            lambda aid=str(getattr(alert, "id", "")): self._delete_alert(aid),
+            lambda _checked=False, aid=str(getattr(alert, "id", "")): self._delete_alert(aid),
             icon_key="delete",
         )
         table.setCellWidget(row, 5, _ActionCell(delete_button))
@@ -716,13 +716,13 @@ class AlertManagementDialog(QDialog):
             "ACK",
             _GREEN,
             "Acknowledge and move to history",
-            lambda aid=str(getattr(alert, "id", "")): self._ack_alert(aid),
+            lambda _checked=False, aid=str(getattr(alert, "id", "")): self._ack_alert(aid),
         )
         delete_button = _action_button(
             "Delete",
             _RED,
             f"Delete alert for {self._symbol(alert)}",
-            lambda aid=str(getattr(alert, "id", "")): self._delete_alert(aid),
+            lambda _checked=False, aid=str(getattr(alert, "id", "")): self._delete_alert(aid),
             icon_key="delete",
         )
         table.setCellWidget(row, 5, _ActionCell(ack_button, delete_button))
