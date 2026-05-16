@@ -642,13 +642,19 @@ class DrawingEngine {
         /* --- Start drawing --- */
         if (this.activeTool) {
             if (this.activeTool === 'note') {
-                if (this.onRequestTextNote) {
-                    this.onRequestTextNote({
-                        x, y,
-                        price: this.cs.yToPrice(y),
-                        time:  this.cs.xToTime(x),
-                    });
-                }
+                const createdId = this.addDrawing({
+                    type: 'note',
+                    startPrice: this.cs.yToPrice(snapY),
+                    startTime: this.cs.xToTime(snapX),
+                    text: '',
+                    color: this.drawingColor || '#FFD700',
+                    fontSize: 12,
+                    fontFamily: 'sans',
+                    fontWeight: 500,
+                });
+                this.selectedId = createdId;
+                const created = this.drawings.get(createdId);
+                if (created) this._startInlineNoteEdit(created, true);
                 this.clearTool();
                 return;
             }
@@ -1225,47 +1231,71 @@ class DrawingEngine {
         if (sel || hov) this._renderHandle(ctx, x, y, sel, d.color);
     }
 
-    _startInlineNoteEdit(d) {
+    _normalizeNoteText(raw) {
+        return String(raw || '')
+            .replace(/\r\n?/g, '\n')
+            .replace(/[^\S\n]+/g, ' ')
+            .trim();
+    }
+
+    _startInlineNoteEdit(d, isNew = false) {
         this._teardownInlineNoteEditor(false);
         const x = this.cs.timeToX(d.startTime);
         const y = this.cs.priceToY(d.startPrice);
         const ta = document.createElement('textarea');
         ta.value = d.text || '';
+        ta.placeholder = 'Type note…';
+        ta.maxLength = 500;
         ta.style.position = 'absolute';
-        ta.style.left = `${x}px`;
-        ta.style.top = `${y - 48}px`;
-        ta.style.minWidth = '120px';
-        ta.style.minHeight = '48px';
+        ta.style.left = `${x - 90}px`;
+        ta.style.top = `${y - 38}px`;
+        ta.style.width = '180px';
+        ta.style.minHeight = '36px';
         ta.style.zIndex = '9999';
-        ta.style.background = '#0d1117';
+        ta.style.background = '#0f172a';
         ta.style.color = d.color || '#FFD700';
-        ta.style.border = '1px solid #4b5563';
-        ta.style.padding = '6px';
-        ta.style.font = `${Math.max(9, d.fontSize || 12)}px "Segoe UI", sans-serif`;
+        ta.style.border = '1px solid #334155';
+        ta.style.borderRadius = '8px';
+        ta.style.padding = '8px 10px';
+        ta.style.boxShadow = '0 8px 28px rgba(2, 6, 23, 0.55)';
+        ta.style.outline = 'none';
+        ta.style.resize = 'none';
+        ta.style.font = `${Math.max(10, d.fontSize || 12)}px "Segoe UI", sans-serif`;
+        ta.style.lineHeight = '1.35';
         this.canvas.parentElement.appendChild(ta);
         ta.focus();
-        ta.select();
+        if (isNew) {
+            ta.setSelectionRange(0, 0);
+        } else {
+            ta.select();
+        }
+        ta.addEventListener('blur', () => this._teardownInlineNoteEditor(true));
         ta.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
                 e.preventDefault();
                 this._teardownInlineNoteEditor(false);
-            } else if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            } else if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 this._teardownInlineNoteEditor(true);
             }
         });
-        this._noteEditor = { wrapper: ta, noteId: d.id };
+        this._noteEditor = { wrapper: ta, noteId: d.id, isNew };
     }
 
     _teardownInlineNoteEditor(commit) {
         if (!this._noteEditor) return;
-        const { wrapper, noteId } = this._noteEditor;
+        const { wrapper, noteId, isNew } = this._noteEditor;
         if (commit) {
             const d = this.drawings.get(noteId);
             if (d) {
-                this._undoSnapshot();
-                d.text = wrapper.value || '';
-                this._notify();
+                const normalized = this._normalizeNoteText(wrapper.value);
+                if (normalized) {
+                    this._undoSnapshot();
+                    d.text = normalized;
+                    this._notify();
+                } else if (isNew) {
+                    this.deleteDrawing(noteId);
+                }
             }
         }
         wrapper.remove();
