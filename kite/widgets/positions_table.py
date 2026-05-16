@@ -29,41 +29,53 @@ from PySide6.QtGui import QColor, QFont, QBrush, QCursor
 logger = logging.getLogger(__name__)
 
 # ─── Institutional Dark Trading Terminal UI Tokens ─────────────────────────────
-_BG_APP = "#050709"
-_BG_BASE = "#0a0d12"
-_BG_ALT = "#0f1318"
-_BG_HEADER = "#0f1318"
-_BG_FOOTER = "#070a0f"
-_BG_SEL = "#1a2840"
-_BG_HOVER = "#141920"
-_BORDER = "#1a2030"
+# Softer terminal palette: still dark/compact, but less neon and easier to read.
+_BG_APP = "#05070a"
+_BG_BASE = "#0a0d11"
+_BG_ALT = "#0e1217"
+_BG_HEADER = "#0c1015"
+_BG_FOOTER = "#070a0e"
+_BG_SEL = "#182436"
+_BG_HOVER = "#121821"
+_BORDER = "#202838"
 
-_T0 = "#e8f0ff"   # primary text
-_SYMBOL_TEXT = "#b6c4d6"  # softened symbol text; less distracting than pure primary
-_T1 = "#a8bcd4"   # secondary text
-_T2 = "#5a7090"   # muted labels / metadata
-_T3 = "#2a3a50"   # disabled
+_T0 = "#d9e2ee"   # primary text — readable, not pure white
+_SYMBOL_TEXT = "#afbdcc"  # calm symbol text
+_T1 = "#9eb0c2"   # secondary text
+_T2 = "#6f8194"   # muted labels / metadata
+_T3 = "#3b4758"   # disabled
 
-_GREEN = "#00d4a8"   # success / profit / buy-side
-_RED = "#ff4d6a"     # danger / loss / sell-side
-_AMBER = "#f59e0b"   # warning / active
-_CYAN = "#00d4ff"    # info / utility
+_GREEN = "#6fcfb8"   # success / profit / buy-side — softened
+_RED = "#ee7580"     # danger / loss / sell-side — softened
+_AMBER = "#d6a34d"   # warning / active — softened
+_CYAN = "#67c7d8"    # info / utility — softened
 
-_SANS = "'Inter', 'Segoe UI', -apple-system, Roboto, Arial, sans-serif"
-_NUM = "'Inter', 'Segoe UI Variable', 'Segoe UI', -apple-system, Roboto, Arial, sans-serif"
+_SANS = "'Inter', 'Segoe UI Variable', 'Segoe UI', 'Noto Sans', -apple-system, BlinkMacSystemFont, Arial, sans-serif"
+_NUM = "'Inter', 'Segoe UI Variable', 'Segoe UI', 'Noto Sans', -apple-system, BlinkMacSystemFont, Arial, sans-serif"
 _MONO = "'Consolas', 'JetBrains Mono', monospace"
-_APP_FONT_FAMILY = "Segoe UI"
+_APP_FONT_FAMILY = "Inter"
 _NUM_FONT = "Inter"
 
 _OPEN_PROFIT = _GREEN
-_OPEN_PROFIT_TINT = "#0a2520"
+_OPEN_PROFIT_TINT = "#102720"
 _OPEN_LOSS = _RED
-_OPEN_LOSS_TINT = "#200a10"
-_OPEN_FLAT = "#7a94b0"
+_OPEN_LOSS_TINT = "#291217"
+_OPEN_FLAT = "#7f90a3"
 
-_ROW_H = 21
+_ROW_H = 22
 _HEADER_H = 21
 _FOOTER_H = 24
+
+
+def _ui_font(point_size: int = 9, weight: QFont.Weight = QFont.Weight.Normal) -> QFont:
+    """Quiet modern UI font. Monospace stays reserved for raw logs/code only."""
+    f = QFont(_APP_FONT_FAMILY)
+    f.setStyleHint(QFont.StyleHint.SansSerif)
+    f.setPointSize(point_size)
+    f.setWeight(weight)
+    f.setKerning(True)
+    return f
+
 
 # Column indices
 COL_FLAG = 0
@@ -264,6 +276,7 @@ class PositionsTable(QWidget):
 
         hdr.setMinimumSectionSize(20)
         hdr.setHighlightSections(False)
+        hdr.setFont(_ui_font(8, QFont.Weight.Medium))
         hdr.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
     def _build_footer(self) -> QFrame:
@@ -332,8 +345,7 @@ class PositionsTable(QWidget):
 
         change_color = self._open_pnl_text_color(entry_change_pct)
 
-        symbol_font = QFont(_APP_FONT_FAMILY, 9)
-        symbol_font.setWeight(QFont.Weight.DemiBold)
+        symbol_font = _ui_font(9, QFont.Weight.Normal)
         number_font = self._number_font(False, 9)
         strong_number_font = self._number_font(True, 9)
         base_bg = QBrush(QColor(_BG_BASE if row % 2 == 0 else _BG_ALT))
@@ -403,10 +415,10 @@ class PositionsTable(QWidget):
     def _apply_open_pnl_row_style(self, row: int, pnl: float) -> None:
         if pnl > 0:
             fg = QColor(_OPEN_PROFIT)
-            bg = QBrush(QColor(0, 212, 168, 31))
+            bg = QBrush(QColor(111, 207, 184, 18))
         elif pnl < 0:
             fg = QColor(_OPEN_LOSS)
-            bg = QBrush(QColor(255, 77, 106, 31))
+            bg = QBrush(QColor(238, 117, 128, 18))
         else:
             fg = QColor(_OPEN_FLAT)
             bg = QBrush(QColor(_BG_BASE if row % 2 == 0 else _BG_ALT))
@@ -478,13 +490,13 @@ class PositionsTable(QWidget):
                 ratio = max(0.0, flash.remaining_ms / _FLASH_DURATION_MS)
                 if ratio > 0:
                     if flash.direction > 0:
-                        r = int(18 + (0 - 18) * (1 - ratio))
-                        g = int(80 + (55 - 80) * (1 - ratio))
-                        b = int(40 + (34 - 40) * (1 - ratio))
+                        r = int(24 + (16 - 24) * (1 - ratio))
+                        g = int(74 + (44 - 74) * (1 - ratio))
+                        b = int(55 + (42 - 55) * (1 - ratio))
                     else:
-                        r = int(120 + (70 - 120) * (1 - ratio))
-                        g = int(20 + (20 - 20) * (1 - ratio))
-                        b = int(20 + (20 - 20) * (1 - ratio))
+                        r = int(92 + (52 - 92) * (1 - ratio))
+                        g = int(38 + (30 - 38) * (1 - ratio))
+                        b = int(44 + (35 - 44) * (1 - ratio))
                     item.setBackground(QBrush(QColor(r, g, b)))
                     surviving.append(flash)
                 else:
@@ -535,11 +547,11 @@ class PositionsTable(QWidget):
         pnl_color = _GREEN if total_pnl >= 0 else _RED
         self._footer_open_pnl.setText(f"{'+' if total_pnl >= 0 else ''}{total_pnl:,.0f}")
         self._footer_open_pnl.setStyleSheet(
-            f"color:{pnl_color}; font-family:{_NUM}; font-size:11px; font-weight:800; background:transparent;"
+            f"color:{pnl_color}; font-family:{_NUM}; font-size:11px; font-weight:500; background:transparent;"
         )
         self._footer_exposure.setText(f"{exposure:,.0f}")
         self._footer_exposure.setStyleSheet(
-            f"color:{_T1}; font-family:{_NUM}; font-size:11px; font-weight:700; background:transparent;"
+            f"color:{_T1}; font-family:{_NUM}; font-size:11px; font-weight:500; background:transparent;"
         )
         self.footer_metrics_changed.emit(
             {"has_data": True, "open_pnl": total_pnl, "exposure": exposure}
@@ -599,6 +611,7 @@ class PositionsTable(QWidget):
         item.setText(glyph)
         item.setForeground(QColor(color))
         item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        item.setFont(_ui_font(9, QFont.Weight.Normal))
         item.setToolTip(_FLAG_TOOLTIP[state])
 
     def _cycle_flag(self, row: int, symbol: str):
@@ -609,8 +622,10 @@ class PositionsTable(QWidget):
     def _number_font(bold: bool = False, point_size: int = 9) -> QFont:
         """Modern UI number font for market values; monospace is reserved for raw logs/code."""
         f = QFont(_NUM_FONT)
+        f.setStyleHint(QFont.StyleHint.SansSerif)
         f.setPointSize(point_size)
-        f.setBold(bold)
+        f.setWeight(QFont.Weight.Medium if bold else QFont.Weight.Normal)
+        f.setKerning(True)
         return f
 
     def _symbol_at_row(self, row: int) -> Optional[str]:
@@ -650,7 +665,8 @@ class PositionsTable(QWidget):
                 background-color: {_BG_APP};
                 color: {_T0};
                 font-family: {_SANS};
-                font-size: 11px;
+                font-size: 10px;
+                font-weight: 400;
             }}
 
             QTableWidget {{
@@ -664,7 +680,8 @@ class PositionsTable(QWidget):
                 outline: none;
                 show-decoration-selected: 0;
                 font-family: {_SANS};
-                font-size: 11px;
+                font-size: 10px;
+                font-weight: 400;
                 border-radius: 0px;
             }}
 
@@ -672,8 +689,9 @@ class PositionsTable(QWidget):
                 padding: 0 5px;
                 border-bottom: 1px solid {_BG_HOVER};
                 background-color: transparent;
-                font-family: {_NUM};
-                font-size: 11px;
+                font-family: {_SANS};
+                font-size: 10px;
+                font-weight: 400;
             }}
 
             QTableWidget::item:selected {{
@@ -707,7 +725,7 @@ class PositionsTable(QWidget):
                 border: none;
                 border-bottom: 1px solid {_BORDER};
                 font-family: {_SANS};
-                font-weight: 800;
+                font-weight: 500;
                 font-size: 8px;
                 letter-spacing: 1px;
                 text-transform: uppercase;
@@ -740,8 +758,8 @@ class PositionsTable(QWidget):
                 color: {_T2};
                 font-family: {_SANS};
                 font-size: 9px;
-                font-weight: 800;
-                letter-spacing: 0.8px;
+                font-weight: 600;
+                letter-spacing: 0.6px;
                 background-color: transparent;
             }}
 
@@ -749,7 +767,7 @@ class PositionsTable(QWidget):
                 color: {_T1};
                 font-family: {_NUM};
                 font-size: 11px;
-                font-weight: 700;
+                font-weight: 500;
                 background-color: transparent;
             }}
 
@@ -759,7 +777,7 @@ class PositionsTable(QWidget):
                 border-radius: 2px;
                 color: {_T0};
                 font-family: {_SANS};
-                font-size: 11px;
+                font-size: 10px;
                 padding: 4px 0;
             }}
 

@@ -31,29 +31,59 @@ VOLUME_STRENGTH_COLOR_ROLE = Qt.ItemDataRole.UserRole + 103
 # ─────────────────────────────────────────────────────────────────────────────
 #  INSTITUTIONAL DARK TRADING TERMINAL UI TOKENS
 # ─────────────────────────────────────────────────────────────────────────────
-_BG0 = "#050709"
-_BG1 = "#0a0d12"
-_BG2 = "#0f1318"
-_BG3 = "#141920"
-_BG4 = "#1a2030"
-_BGTB = "#070a0f"
-_BULL = "#00d4a8"
-_BEAR = "#ff4d6a"
-_AMBER = "#f59e0b"
-_CYAN = "#00d4ff"
-_BLUE = "#3b82f6"
-_T0 = "#e8f0ff"
-_T1 = "#a8bcd4"
-_T2 = "#5a7090"
-_T3 = "#2a3a50"
-_SYMBOL_TEXT = "#b6c4d6"  # softened symbol text; less distracting than primary white
-_SEL = "#1a2840"
+_BG0 = "#06080c"
+_BG1 = "#0a0e13"
+_BG2 = "#10151c"
+_BG3 = "#151b24"
+_BG4 = "#222b38"
+_BGTB = "#080b10"
+_BULL = "#72cdb6"
+_BEAR = "#e07a84"
+_AMBER = "#d7a45d"
+_CYAN = "#78cfe1"
+_BLUE = "#7fa6d8"
+_T0 = "#d8e2ef"
+_T1 = "#9eacbc"
+_T2 = "#748396"
+_T3 = "#475466"
+_SYMBOL_TEXT = "#c2ccd9"  # clear symbol text without glowing white
+_SEL = "#18283a"
 _MONO = "'Consolas', 'JetBrains Mono', monospace"  # code, raw scan clauses, debug text only
-_SANS = "'Inter', 'Segoe UI', sans-serif"
-_NUM = "'Inter', 'Segoe UI Variable', 'Segoe UI', sans-serif"
-_NUM_FONT = "Inter"
+_SANS = "'Inter', 'Segoe UI Variable', 'Segoe UI', 'Noto Sans', Roboto, Arial, sans-serif"
+_NUM = "'Segoe UI Variable', 'Inter', 'Segoe UI', 'Noto Sans', sans-serif"
+_UI_FONT = "Segoe UI Variable"
+_NUM_FONT = "Segoe UI Variable"
 _ROW_H = 21
 _DIALOG_ROW_H = 25
+
+
+def _ui_font(point_size: int = 9, weight: QFont.Weight = QFont.Weight.Normal) -> QFont:
+    """Modern readable UI font; intentionally not heavy or distracting."""
+    font = QFont(_UI_FONT)
+    font.setStyleHint(QFont.StyleHint.SansSerif)
+    font.setPointSize(point_size)
+    font.setWeight(weight)
+    font.setKerning(True)
+    return font
+
+
+def _number_font(point_size: int = 9, weight: QFont.Weight = QFont.Weight.Normal) -> QFont:
+    """Calm tabular-looking UI number font for prices, volume and percentages."""
+    font = QFont(_NUM_FONT)
+    font.setStyleHint(QFont.StyleHint.SansSerif)
+    font.setPointSize(point_size)
+    font.setWeight(weight)
+    font.setKerning(True)
+    return font
+
+
+def _mono_font(point_size: int = 9, weight: QFont.Weight = QFont.Weight.Normal) -> QFont:
+    """Monospace reserved for raw scan clauses/debug-style text."""
+    font = QFont("Consolas")
+    font.setStyleHint(QFont.StyleHint.Monospace)
+    font.setPointSize(point_size)
+    font.setWeight(weight)
+    return font
 
 
 class VolumeStrengthDelegate(QStyledItemDelegate):
@@ -72,7 +102,7 @@ class VolumeStrengthDelegate(QStyledItemDelegate):
         QApplication.style().drawControl(QStyle.ControlElement.CE_ItemViewItem, opt, painter, opt.widget)
 
         level = max(0, min(3, int(index.data(VOLUME_STRENGTH_LEVEL_ROLE) or 0)))
-        fill_color = QColor(index.data(VOLUME_STRENGTH_COLOR_ROLE) or "#45d4ff")
+        fill_color = QColor(index.data(VOLUME_STRENGTH_COLOR_ROLE) or "#78cfe1")
         track_color = QColor(fill_color)
         track_color.setAlpha(45)
         empty_color = QColor(70, 82, 98, 120)
@@ -310,10 +340,10 @@ class ModernAddScanDialog(QDialog):
 
             QLabel#dialogTitle {{
                 color: {_T0};
-                font-family: {_MONO};
+                font-family: {_SANS};
                 font-size: 11px;
-                font-weight: 800;
-                letter-spacing: 1.4px;
+                font-weight: 600;
+                letter-spacing: 0.9px;
                 background: transparent;
             }}
 
@@ -323,10 +353,10 @@ class ModernAddScanDialog(QDialog):
                 border: none;
                 border-radius: 2px;
                 font-size: 12px;
-                font-weight: 700;
+                font-weight: 500;
             }}
             QPushButton#closeButton:hover {{
-                background-color: rgba(255,77,106,0.15);
+                background-color: rgba(224,122,132,0.10);
                 color: {_BEAR};
             }}
 
@@ -337,8 +367,8 @@ class ModernAddScanDialog(QDialog):
                 color: {_T2};
                 font-family: {_SANS};
                 font-size: 9px;
-                font-weight: 800;
-                letter-spacing: 1.1px;
+                font-weight: 600;
+                letter-spacing: 0.5px;
                 margin-top: 8px;
                 padding-top: 8px;
             }}
@@ -354,8 +384,8 @@ class ModernAddScanDialog(QDialog):
                 color: {_T2};
                 font-family: {_SANS};
                 font-size: 9px;
-                font-weight: 800;
-                letter-spacing: 1px;
+                font-weight: 600;
+                letter-spacing: 0.6px;
                 background: transparent;
                 text-transform: uppercase;
             }}
@@ -410,7 +440,7 @@ class ModernAddScanDialog(QDialog):
                 color: {_T1};
                 font-family: {_SANS};
                 font-size: 10px;
-                font-weight: 600;
+                font-weight: 400;
                 background: transparent;
             }}
 
@@ -419,19 +449,19 @@ class ModernAddScanDialog(QDialog):
                 border-radius: 2px;
                 font-family: {_SANS};
                 font-size: 10px;
-                font-weight: 800;
-                letter-spacing: 0.7px;
+                font-weight: 600;
+                letter-spacing: 0.5px;
                 padding: 5px 12px;
                 min-width: 72px;
                 min-height: 22px;
             }}
             QPushButton#primaryMinimalButton {{
-                background-color: rgba(0,212,168,0.12);
+                background-color: rgba(114,205,182,0.08);
                 color: {_BULL};
-                border: 1px solid rgba(0,212,168,0.35);
+                border: 1px solid rgba(114,205,182,0.22);
             }}
             QPushButton#primaryMinimalButton:hover {{
-                background-color: rgba(0,212,168,0.18);
+                background-color: rgba(114,205,182,0.12);
                 border-color: {_BULL};
             }}
             QPushButton#primaryMinimalButton:disabled {{
@@ -595,21 +625,21 @@ class ModernManageScansDialog(QDialog):
         for row, scan in enumerate(self.scans):
             # Name
             name_item = QTableWidgetItem(scan.get("name", "Unnamed"))
-            name_item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-            name_item.setForeground(QBrush(QColor("#e8f0ff")))
+            name_item.setFont(_ui_font(9, QFont.Weight.Medium))
+            name_item.setForeground(QBrush(QColor("#d8e2ef")))
             self.scans_table.setItem(row, 0, name_item)
 
             # Tag
             tag_item = QTableWidgetItem(scan.get("tag", "Others"))
-            tag_item.setForeground(QBrush(QColor("#a8bcd4")))
+            tag_item.setForeground(QBrush(QColor("#9eacbc")))
             self.scans_table.setItem(row, 1, tag_item)
 
             # Clause preview (truncated)
             clause = scan.get("url", "")
             preview = clause[:72] + "..." if len(clause) > 72 else clause
             preview_item = QTableWidgetItem(preview)
-            preview_item.setFont(QFont("Consolas", 8))
-            preview_item.setForeground(QBrush(QColor("#7a94b0")))
+            preview_item.setFont(_mono_font(8))
+            preview_item.setForeground(QBrush(QColor("#7f90a3")))
             self.scans_table.setItem(row, 2, preview_item)
 
             # Actions buttons
@@ -708,46 +738,46 @@ class ModernManageScansDialog(QDialog):
 
             QLabel#dialogTitle {{
                 color: {_T0};
-                font-family: {_MONO};
+                font-family: {_SANS};
                 font-size: 11px;
-                font-weight: 800;
-                letter-spacing: 1.4px;
+                font-weight: 600;
+                letter-spacing: 0.9px;
                 background: transparent;
             }}
             QLabel#dialogSubtitle {{
                 color: {_T2};
                 font-family: {_SANS};
                 font-size: 10px;
-                font-weight: 600;
+                font-weight: 400;
                 background: transparent;
             }}
 
             QPushButton#addMinimalButton {{
-                background-color: rgba(0,212,168,0.12);
+                background-color: rgba(114,205,182,0.08);
                 color: {_BULL};
-                border: 1px solid rgba(0,212,168,0.35);
+                border: 1px solid rgba(114,205,182,0.22);
                 border-radius: 2px;
                 font-family: {_SANS};
                 font-size: 10px;
-                font-weight: 800;
-                letter-spacing: 0.7px;
+                font-weight: 600;
+                letter-spacing: 0.5px;
                 padding: 2px 10px;
             }}
             QPushButton#addMinimalButton:hover {{
-                background-color: rgba(0,212,168,0.18);
+                background-color: rgba(114,205,182,0.12);
                 border-color: {_BULL};
             }}
 
             QPushButton#editMinimalButton {{
                 background-color: {_BG2};
                 color: {_CYAN};
-                border: 1px solid rgba(0,212,255,0.22);
+                border: 1px solid rgba(120,207,225,0.20);
                 border-radius: 2px;
                 font-size: 10px;
-                font-weight: 800;
+                font-weight: 600;
             }}
             QPushButton#editMinimalButton:hover {{
-                background-color: rgba(0,212,255,0.10);
+                background-color: rgba(120,207,225,0.08);
                 border-color: {_CYAN};
                 color: {_T0};
             }}
@@ -758,10 +788,10 @@ class ModernManageScansDialog(QDialog):
                 border: none;
                 border-radius: 2px;
                 font-size: 12px;
-                font-weight: 700;
+                font-weight: 500;
             }}
             QPushButton#closeButton:hover {{
-                background-color: rgba(255,77,106,0.15);
+                background-color: rgba(224,122,132,0.10);
                 color: {_BEAR};
             }}
 
@@ -798,9 +828,9 @@ class ModernManageScansDialog(QDialog):
                 border: none;
                 border-bottom: 1px solid {_BG4};
                 font-family: {_SANS};
-                font-weight: 800;
+                font-weight: 600;
                 font-size: 9px;
-                letter-spacing: 1px;
+                letter-spacing: 0.6px;
                 text-transform: uppercase;
                 min-height: 20px;
             }}
@@ -812,19 +842,19 @@ class ModernManageScansDialog(QDialog):
             QPushButton#deleteMinimalButton {{
                 background-color: {_BG2};
                 color: {_BEAR};
-                border: 1px solid rgba(255,77,106,0.22);
+                border: 1px solid rgba(224,122,132,0.20);
                 border-radius: 2px;
                 font-size: 11px;
-                font-weight: 800;
+                font-weight: 600;
                 padding: 0px;
                 margin: 0px;
             }}
             QPushButton#deleteMinimalButton:hover {{
-                background-color: rgba(255,77,106,0.12);
+                background-color: rgba(224,122,132,0.08);
                 border-color: {_BEAR};
             }}
             QPushButton#deleteMinimalButton:pressed {{
-                background-color: #200a10;
+                background-color: #2a1519;
                 border-color: {_BEAR};
             }}
 
@@ -832,7 +862,7 @@ class ModernManageScansDialog(QDialog):
                 color: {_T2};
                 font-family: {_SANS};
                 font-size: 10px;
-                font-weight: 700;
+                font-weight: 500;
                 background: transparent;
             }}
 
@@ -841,19 +871,19 @@ class ModernManageScansDialog(QDialog):
                 border-radius: 2px;
                 font-family: {_SANS};
                 font-size: 10px;
-                font-weight: 800;
-                letter-spacing: 0.7px;
+                font-weight: 600;
+                letter-spacing: 0.5px;
                 padding: 5px 12px;
                 min-width: 72px;
                 min-height: 22px;
             }}
             QPushButton#primaryMinimalButton {{
-                background-color: rgba(0,212,168,0.12);
+                background-color: rgba(114,205,182,0.08);
                 color: {_BULL};
-                border: 1px solid rgba(0,212,168,0.35);
+                border: 1px solid rgba(114,205,182,0.22);
             }}
             QPushButton#primaryMinimalButton:hover {{
-                background-color: rgba(0,212,168,0.18);
+                background-color: rgba(114,205,182,0.12);
                 border-color: {_BULL};
             }}
             QPushButton#secondaryMinimalButton {{
@@ -1021,7 +1051,7 @@ class ChartinkScannerTable(QWidget):
         self._change_sort_state: Optional[str] = None  # None -> asc -> desc -> None
         self._color_theme = {
             "enable_volume_strength_indicator": False,
-            "tables": {"positive": "#26a69a", "negative": "#ef5350", "neutral": "#a9a9a9", "volume": "#45d4ff"}
+            "tables": {"positive": "#72cdb6", "negative": "#e07a84", "neutral": "#7f90a3", "volume": "#78cfe1"}
         }
 
         self._setup_ui()
@@ -1271,8 +1301,7 @@ class ChartinkScannerTable(QWidget):
         self.table.verticalHeader().setDefaultSectionSize(_ROW_H)
         self.table.verticalHeader().setMinimumSectionSize(_ROW_H)
 
-        header_font = QFont("Segoe UI", 8)
-        header_font.setBold(True)
+        header_font = _ui_font(8, QFont.Weight.Medium)
         self.table.horizontalHeader().setFont(header_font)
         self.table.horizontalHeader().setSortIndicatorShown(False)
         self.table.horizontalHeader().setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
@@ -1365,7 +1394,7 @@ class ChartinkScannerTable(QWidget):
         volume_item.setData(VOLUME_STRENGTH_LEVEL_ROLE, volume_strength_level)
         volume_item.setData(
             VOLUME_STRENGTH_COLOR_ROLE,
-            self._color_theme.get("tables", {}).get("volume", "#45d4ff")
+            self._color_theme.get("tables", {}).get("volume", "#78cfe1")
         )
         strength_label = f" | Strength: {volume_strength_level}/3" if show_volume_strength else ""
         volume_item.setToolTip(f"Reported volume: {volume:,.0f}{strength_label}")
@@ -1380,25 +1409,25 @@ class ChartinkScannerTable(QWidget):
 
         # Watchlist-matched color coding
         if change_pct >= 3.0:
-            chg_fg = QColor("#00d4a8")
-            chg_bg = QBrush(QColor(0, 212, 168, 31))
+            chg_fg = QColor("#7bd8c3")
+            chg_bg = QBrush(QColor(123, 216, 195, 24))
         elif change_pct >= 1.0:
-            chg_fg = QColor("#22c4a0")
-            chg_bg = QBrush(QColor(34, 196, 160, 18))
+            chg_fg = QColor("#68c9b2")
+            chg_bg = QBrush(QColor(104, 201, 178, 15))
         elif change_pct >= -0.5:
-            chg_fg = QColor("#7a94b0")
-            chg_bg = QBrush(QColor("#0f1318"))
+            chg_fg = QColor("#7f90a3")
+            chg_bg = QBrush(QColor(_BG2))
         elif change_pct >= -1.0:
-            chg_fg = QColor("#e87060")
-            chg_bg = QBrush(QColor(232, 112, 96, 18))
+            chg_fg = QColor("#d78b7f")
+            chg_bg = QBrush(QColor(215, 139, 127, 15))
         else:
-            chg_fg = QColor("#ff4d6a")
-            chg_bg = QBrush(QColor(255, 77, 106, 31))
+            chg_fg = QColor("#e07a84")
+            chg_bg = QBrush(QColor(224, 122, 132, 24))
 
         # Match embedded watchlist column palette
         symbol_item.setForeground(QColor(_SYMBOL_TEXT))
-        price_item.setForeground(chg_fg if abs(change_pct) > 0.005 else QColor("#e8f0ff"))
-        volume_item.setForeground(QColor("#5a7090"))
+        price_item.setForeground(chg_fg if abs(change_pct) > 0.005 else QColor("#d8e2ef"))
+        volume_item.setForeground(QColor("#748396"))
         change_pct_item.setForeground(chg_fg)
         change_pct_item.setBackground(chg_bg)
 
@@ -1409,12 +1438,9 @@ class ChartinkScannerTable(QWidget):
         change_pct_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 
         # Keep symbols in the UI font; use modern UI numbers for price/volume/change.
-        symbol_font = QFont("Roboto", 9)
-        symbol_font.setWeight(QFont.Weight.Normal)
-        value_font = QFont(_NUM_FONT, 9)
-        value_font.setBold(False)
-        change_font = QFont(_NUM_FONT, 9)
-        change_font.setBold(True)
+        symbol_font = _ui_font(9, QFont.Weight.Normal)
+        value_font = _number_font(9, QFont.Weight.Normal)
+        change_font = _number_font(9, QFont.Weight.Medium)
         symbol_item.setFont(symbol_font)
         price_item.setFont(value_font)
         volume_item.setFont(value_font)
@@ -1953,26 +1979,26 @@ class ChartinkScannerTable(QWidget):
             }}
 
             QPushButton#scanRefreshButton {{
-                background-color: rgba(0,212,255,0.08);
+                background-color: rgba(120,207,225,0.07);
                 color: {_CYAN};
-                border: 1px solid rgba(0,212,255,0.22);
+                border: 1px solid rgba(120,207,225,0.20);
                 border-radius: 2px;
                 font-family: {_SANS};
                 font-size: 9px;
-                font-weight: 800;
-                letter-spacing: 0.8px;
+                font-weight: 600;
+                letter-spacing: 0.5px;
                 padding: 0 9px;
                 text-align: center;
                 min-height: {CHART_TOOLBAR_CONTROL_HEIGHT}px;
                 max-height: {CHART_TOOLBAR_CONTROL_HEIGHT}px;
             }}
             QPushButton#scanRefreshButton:hover {{
-                background-color: rgba(0,212,255,0.14);
+                background-color: rgba(120,207,225,0.10);
                 border-color: {_CYAN};
-                color: {_T0};
+                color: {_CYAN};
             }}
             QPushButton#scanRefreshButton:pressed {{
-                background-color: rgba(0,212,255,0.20);
+                background-color: rgba(120,207,225,0.14);
             }}
             QPushButton#scanRefreshButton:disabled {{
                 background-color: {_BG2};
@@ -1987,7 +2013,7 @@ class ChartinkScannerTable(QWidget):
                 border-radius: 2px;
                 font-family: {_SANS};
                 font-size: 10px;
-                font-weight: 700;
+                font-weight: 500;
                 min-height: {CHART_TOOLBAR_CONTROL_HEIGHT}px;
                 max-height: {CHART_TOOLBAR_CONTROL_HEIGHT}px;
                 padding: 0 22px 0 7px;
@@ -2046,9 +2072,9 @@ class ChartinkScannerTable(QWidget):
                 padding: 0 6px;
             }}
             QPushButton#settingsMinimalButton:hover {{
-                background-color: rgba(0,212,255,0.09);
+                background-color: rgba(120,207,225,0.07);
                 color: {_CYAN};
-                border-color: rgba(0,212,255,0.35);
+                border-color: rgba(120,207,225,0.24);
             }}
             QPushButton#settingsMinimalButton:pressed {{
                 background-color: {_BG3};
@@ -2103,7 +2129,7 @@ class ChartinkScannerTable(QWidget):
                 font-family: {_SANS};
                 font-weight: 500;
                 font-size: 9px;
-                letter-spacing: 1px;
+                letter-spacing: 0.6px;
                 text-transform: uppercase;
                 min-height: 20px;
             }}

@@ -8,7 +8,7 @@ Features
   • ⚑ Flag column (20 px) — 2 states: none ↔ green
     Flags are per-symbol and persist globally across all watchlists.
   • Heat-map % change coloring (gradient magnitude, not binary red/green)
-  • Full TC2000 color system (consistency_rules palette, zero deviation)
+  • Calm institutional dark color system with subdued accents
   • Modern UI number typography — clean, sharp values during live updates
   • Throttled UI redraws (~4.4 fps) via dirty-symbol batching
   • WS-powered live ticks with token→symbol O(1) resolution
@@ -43,65 +43,67 @@ from app_paths import get_asset_path
 
 logger = logging.getLogger(__name__)
 
-CHART_TOOLBAR_HEIGHT = 28
-CHART_TOOLBAR_CONTROL_HEIGHT = 22
+CHART_TOOLBAR_HEIGHT = 30
+CHART_TOOLBAR_CONTROL_HEIGHT = 24
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  DESIGN TOKENS  (strict consistency_rules palette — zero deviation)
+#  DESIGN TOKENS  (calm institutional dark palette)
 # ─────────────────────────────────────────────────────────────────────────────
 
 class _C:
-    BG0 = "#050709"  # app shell
-    BG1 = "#0a0d12"  # primary panels
-    BG2 = "#0f1318"  # table rows / input bg
-    BG3 = "#141920"  # hover / selected elevated
-    BG4 = "#1a2030"  # borders / subtle dividers
+    # Calm institutional dark palette — readable, modern, not neon.
+    BG0 = "#06080c"  # app shell
+    BG1 = "#0a0e13"  # primary panels
+    BG2 = "#10151c"  # table rows / input bg
+    BG3 = "#151b24"  # hover / selected elevated
+    BG4 = "#222b38"  # borders / subtle dividers
 
-    BULL = "#00d4a8"  # teal-green — TC2000 signature
-    BULL_DIM = "#1a7a62"
-    BULL_BG = "rgba(0,212,168,0.07)"
+    BULL = "#72cdb6"      # muted buy/success green
+    BULL_DIM = "#3f917f"
+    BULL_BG = "rgba(114,205,182,0.06)"
 
-    BEAR = "#ff4d6a"  # warm crimson
-    BEAR_DIM = "#7a2030"
-    BEAR_BG = "rgba(255,77,106,0.07)"
+    BEAR = "#e07a84"      # muted sell/loss red
+    BEAR_DIM = "#94424b"
+    BEAR_BG = "rgba(224,122,132,0.06)"
 
-    NEUTRAL = "#7a94b0"
-    NEU_DIM = "#3a4d60"
+    NEUTRAL = "#7f90a3"
+    NEU_DIM = "#4d5e72"
 
-    T0 = "#e8f0ff"  # primary — prices / selected emphasis
-    T_SYMBOL = "#b6c4d6"  # softened symbol text — readable, less distracting than white
-    T1 = "#a8bcd4"  # secondary — headers, labels
-    T2 = "#5a7090"  # tertiary — muted metadata
-    T3 = "#2a3a50"  # disabled / placeholder
+    T0 = "#d8e2ef"        # primary — prices / selected emphasis
+    T_SYMBOL = "#c2ccd9"  # symbol text — clear without glowing white
+    T1 = "#9eacbc"        # secondary — headers, labels
+    T2 = "#748396"        # tertiary — muted metadata
+    T3 = "#475466"        # disabled / placeholder
 
-    CYAN = "#00d4ff"  # selected / focus rings
-    AMBER = "#f59e0b"  # alerts / warnings
-    BLUE = "#3b82f6"  # informational
-    SEL = "#1a2840"  # selected row
+    CYAN = "#78cfe1"      # utility/focus, intentionally soft
+    AMBER = "#d7a45d"     # alerts/warnings, muted amber
+    BLUE = "#7fa6d8"      # informational
+    SEL = "#18283a"       # selected row
 
     # Flag color (single-state)
-    FLAG_GREEN = "#00d4a8"
+    FLAG_GREEN = "#72cdb6"
 
-    # Heat-map change % bands
+    # Heat-map change % bands — reduced saturation to avoid distraction.
     @staticmethod
     def change_color(pct: float) -> Tuple[str, str]:
         """Return (fg_color, bg_rgba) for a % change value."""
         if pct >= 3.0:
-            return "#00d4a8", "rgba(0,212,168,0.12)"
+            return "#7bd8c3", "rgba(123,216,195,0.10)"
         if pct >= 1.0:
-            return "#22c4a0", "rgba(34,196,160,0.07)"
+            return "#68c9b2", "rgba(104,201,178,0.06)"
         if pct >= -0.5:
-            return "#7a94b0", ""
+            return "#7f90a3", ""
         if pct >= -1.0:
-            return "#e87060", "rgba(232,112,96,0.07)"
-        return "#ff4d6a", "rgba(255,77,106,0.12)"
+            return "#d78b7f", "rgba(215,139,127,0.06)"
+        return "#e07a84", "rgba(224,122,132,0.10)"
 
 
 _MONO = "Consolas, 'JetBrains Mono', 'Courier New', monospace"  # raw logs / IDs / code only
-_SANS = "'Inter', 'Segoe UI', -apple-system, Roboto, Arial, sans-serif"
-_NUM = "'Inter', 'Segoe UI Variable', 'Segoe UI', sans-serif"
-_NUM_FONT = "Inter"
+_SANS = "'Inter', 'Segoe UI Variable', 'Segoe UI', 'Noto Sans', Roboto, Arial, sans-serif"
+_NUM = "'Segoe UI Variable', 'Inter', 'Segoe UI', 'Noto Sans', sans-serif"
+_UI_FONT = "Segoe UI Variable"
+_NUM_FONT = "Segoe UI Variable"
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  FLAG STATES
@@ -398,17 +400,17 @@ class _RenameDialog(QDialog):
                 color: {_C.AMBER};
                 font-family: {_SANS};
                 font-size: 10px;
-                font-weight: 900;
-                letter-spacing: 1.1px;
+                font-weight: 600;
+                letter-spacing: 0.8px;
                 background: transparent;
             }}
             QFrame#nameDialogBody {{ background: {_C.BG1}; }}
             QLabel#fieldLabel {{
                 color: {_C.T2};
                 font-family: {_SANS};
-                font-size: 9px;
-                font-weight: 800;
-                letter-spacing: 1px;
+                font-size: 10px;
+                font-weight: 500;
+                letter-spacing: 0.6px;
                 background: transparent;
             }}
             QLineEdit#terminalInput {{
@@ -433,14 +435,14 @@ class _RenameDialog(QDialog):
                 font-size: 11px;
             }}
             QToolButton#nameDialogCloseBtn:hover {{
-                background: rgba(255,77,106,0.15);
+                background: rgba(224,122,132,0.12);
                 color: {_C.BEAR};
             }}
             QPushButton#secondaryButton, QPushButton#infoButton {{
                 border-radius: 2px;
                 font-family: {_SANS};
-                font-size: 10px;
-                font-weight: 800;
+                font-size: 11px;
+                font-weight: 500;
                 padding: 0 12px;
                 min-width: 70px;
             }}
@@ -454,12 +456,12 @@ class _RenameDialog(QDialog):
                 color: {_C.T0};
             }}
             QPushButton#infoButton {{
-                background: rgba(0,212,255,0.08);
+                background: rgba(120,207,225,0.07);
                 color: {_C.CYAN};
-                border: 1px solid rgba(0,212,255,0.28);
+                border: 1px solid rgba(120,207,225,0.22);
             }}
             QPushButton#infoButton:hover {{
-                background: rgba(0,212,255,0.16);
+                background: rgba(120,207,225,0.12);
                 border-color: {_C.CYAN};
             }}
         """)
@@ -588,17 +590,17 @@ class _AddWatchlistDialog(QDialog):
                 color: {_C.AMBER};
                 font-family: {_SANS};
                 font-size: 10px;
-                font-weight: 900;
-                letter-spacing: 1.1px;
+                font-weight: 600;
+                letter-spacing: 0.8px;
                 background: transparent;
             }}
             QFrame#nameDialogBody {{ background: {_C.BG1}; }}
             QLabel#fieldLabel {{
                 color: {_C.T2};
                 font-family: {_SANS};
-                font-size: 9px;
-                font-weight: 800;
-                letter-spacing: 1px;
+                font-size: 10px;
+                font-weight: 500;
+                letter-spacing: 0.6px;
                 background: transparent;
             }}
             QLineEdit#terminalInput {{
@@ -624,14 +626,14 @@ class _AddWatchlistDialog(QDialog):
                 font-size: 11px;
             }}
             QToolButton#nameDialogCloseBtn:hover {{
-                background: rgba(255,77,106,0.15);
+                background: rgba(224,122,132,0.12);
                 color: {_C.BEAR};
             }}
             QPushButton#secondaryButton, QPushButton#confirmButton {{
                 border-radius: 2px;
                 font-family: {_SANS};
-                font-size: 10px;
-                font-weight: 800;
+                font-size: 11px;
+                font-weight: 500;
                 padding: 0 12px;
                 min-width: 70px;
             }}
@@ -645,12 +647,12 @@ class _AddWatchlistDialog(QDialog):
                 color: {_C.T0};
             }}
             QPushButton#confirmButton {{
-                background: rgba(0,212,168,0.10);
+                background: rgba(114,205,182,0.08);
                 color: {_C.BULL};
-                border: 1px solid rgba(0,212,168,0.35);
+                border: 1px solid rgba(114,205,182,0.24);
             }}
             QPushButton#confirmButton:hover {{
-                background: rgba(0,212,168,0.18);
+                background: rgba(114,205,182,0.12);
                 border-color: {_C.BULL};
             }}
         """)
@@ -734,7 +736,7 @@ class TradingTable(QTableWidget):
         hdr.setMinimumSectionSize(20)
         hdr.setStretchLastSection(False)
         hdr.setHighlightSections(False)
-        hdr.setFixedHeight(21)
+        hdr.setFixedHeight(22)
 
         # Flag col — fixed tight
         hdr.setSectionResizeMode(_COL_FLAG, QHeaderView.ResizeMode.Fixed)
@@ -748,8 +750,8 @@ class TradingTable(QTableWidget):
             hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
 
         self.verticalHeader().setVisible(False)
-        self.verticalHeader().setDefaultSectionSize(21)
-        self.verticalHeader().setMinimumSectionSize(21)
+        self.verticalHeader().setDefaultSectionSize(23)
+        self.verticalHeader().setMinimumSectionSize(23)
 
         self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -934,8 +936,8 @@ class TradingTable(QTableWidget):
                     sym_item.setText(sym)
                     sym_item.setForeground(QColor(_C.T_SYMBOL))
                     sym_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-                    symbol_font = QFont("Roboto")
-                    symbol_font.setPointSize(9)
+                    symbol_font = self._ui_font()
+                    symbol_font.setPointSize(10)
                     symbol_font.setWeight(QFont.Weight.Normal)
                     sym_item.setFont(symbol_font)
 
@@ -951,13 +953,13 @@ class TradingTable(QTableWidget):
         # ── Flag ──
         self._paint_flag_cell(row, sym)
 
-        symbol_font = QFont("Roboto")
-        symbol_font.setPointSize(9)
+        symbol_font = self._ui_font()
+        symbol_font.setPointSize(10)
         symbol_font.setWeight(QFont.Weight.Normal)
         value_font = self._number_font(False)
-        value_font.setPointSize(9)
+        value_font.setPointSize(10)
         strong_value_font = self._number_font(True)
-        strong_value_font.setPointSize(9)
+        strong_value_font.setPointSize(10)
 
         # ── Symbol ──
         sym_item = self.item(row, _COL_SYMBOL)
@@ -1017,7 +1019,7 @@ class TradingTable(QTableWidget):
         item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
         item.setToolTip(_FLAG_TOOLTIP[state])
         f = QFont()
-        f.setPointSize(9)
+        f.setPointSize(10)
         item.setFont(f)
 
     def _flush_dirty(self):
@@ -1165,12 +1167,22 @@ class TradingTable(QTableWidget):
         return None
 
     @staticmethod
+    def _ui_font() -> QFont:
+        """Calm modern UI font for labels and symbols."""
+        f = QFont(_UI_FONT)
+        f.setStyleHint(QFont.StyleHint.SansSerif)
+        f.setPointSize(10)
+        f.setWeight(QFont.Weight.Normal)
+        f.setKerning(True)
+        return f
+
+    @staticmethod
     def _number_font(bold: bool = False) -> QFont:
-        """Modern UI number font for prices, volume and percentage values."""
+        """Readable modern UI number font for prices, volume and percentage values."""
         f = QFont(_NUM_FONT)
         f.setStyleHint(QFont.StyleHint.SansSerif)
         f.setPointSize(10)
-        f.setWeight(QFont.Weight.Normal if not bold else QFont.Weight.Medium)
+        f.setWeight(QFont.Weight.Medium if bold else QFont.Weight.Normal)
         f.setKerning(True)
         return f
 
@@ -1545,49 +1557,49 @@ class TabbedWatchlistWidget(QWidget):
         stylesheet = """
             /* ── Widget shell ─────────────────────────────────────── */
             TabbedWatchlistWidget {
-                background: #050709;
-                color: #e8f0ff;
-                font-family: "Inter", "Segoe UI", -apple-system, Roboto, Arial, sans-serif;
+                background: #06080c;
+                color: #d8e2ef;
+                font-family: "Inter", "Segoe UI Variable", "Segoe UI", "Noto Sans", Roboto, Arial, sans-serif;
                 font-size: 11px;
             }
 
             /* ── Header bar ───────────────────────────────────────── */
             QFrame#wlHeader {
-                background: #070a0f;
-                border-bottom: 1px solid #1a2030;
-                min-height: 28px;
-                max-height: 28px;
+                background: #080b10;
+                border-bottom: 1px solid #222b38;
+                min-height: 30px;
+                max-height: 30px;
                 padding: 0;
             }
 
             QLabel#wlLabel {
-                color: #f59e0b;
-                font-family: "Inter", "Segoe UI", -apple-system, Roboto, Arial, sans-serif;
-                font-size: 9px;
-                font-weight: 900;
-                letter-spacing: 1.2px;
+                color: #c79b61;
+                font-family: "Inter", "Segoe UI Variable", "Segoe UI", "Noto Sans", Roboto, Arial, sans-serif;
+                font-size: 10px;
+                font-weight: 500;
+                letter-spacing: 0.8px;
                 background: transparent;
             }
 
             /* ── Dropdown ─────────────────────────────────────────── */
             QComboBox#wlDropdown {
-                background: #0f1318;
-                color: #e8f0ff;
-                border: 1px solid #1a2030;
+                background: #10151c;
+                color: #d8e2ef;
+                border: 1px solid #222b38;
                 border-radius: 2px;
-                min-height: 22px;
-                max-height: 22px;
+                min-height: 24px;
+                max-height: 24px;
                 padding: 0 22px 0 7px;
-                font-family: "Inter", "Segoe UI", -apple-system, Roboto, Arial, sans-serif;
-                font-size: 10px;
-                font-weight: 700;
+                font-family: "Inter", "Segoe UI Variable", "Segoe UI", "Noto Sans", Roboto, Arial, sans-serif;
+                font-size: 11px;
+                font-weight: 400;
             }
             QComboBox#wlDropdown:hover {
-                background: #141920;
-                border-color: #243040;
+                background: #151b24;
+                border-color: #2b3645;
             }
             QComboBox#wlDropdown:focus {
-                border-color: #00d4ff;
+                border-color: #78cfe1;
                 outline: none;
             }
             QComboBox#wlDropdown::drop-down {
@@ -1602,15 +1614,15 @@ class TabbedWatchlistWidget(QWidget):
                 margin-right: 4px;
             }
             QComboBox#wlDropdown QAbstractItemView {
-                background: #0a0d12;
-                border: 1px solid #1a2030;
+                background: #0a0e13;
+                border: 1px solid #222b38;
                 border-radius: 2px;
-                color: #e8f0ff;
-                selection-background-color: #1a2840;
-                selection-color: #e8f0ff;
+                color: #d8e2ef;
+                selection-background-color: #18283a;
+                selection-color: #d8e2ef;
                 padding: 2px;
                 outline: none;
-                font-size: 10px;
+                font-size: 11px;
             }
             QComboBox#wlDropdown QAbstractItemView::item {
                 padding: 4px 7px;
@@ -1618,108 +1630,108 @@ class TabbedWatchlistWidget(QWidget):
                 min-height: 18px;
             }
             QComboBox#wlDropdown QAbstractItemView::item:hover {
-                background: #141920;
+                background: #151b24;
             }
 
             /* ── Add / Menu buttons ───────────────────────────────── */
             QToolButton#wlAddBtn, QToolButton#wlMenuBtn {
-                background: #0f1318;
-                color: #00d4ff;
-                min-height: 22px;
-                max-height: 22px;
+                background: #10151c;
+                color: #78cfe1;
+                min-height: 24px;
+                max-height: 24px;
                 font-size: 12px;
-                font-weight: 800;
+                font-weight: 600;
                 border-radius: 2px;
-                border: 1px solid #1a2030;
+                border: 1px solid #222b38;
                 padding: 0;
             }
             QToolButton#wlAddBtn:hover, QToolButton#wlMenuBtn:hover {
-                background: rgba(0,212,255,0.10);
-                border-color: rgba(0,212,255,0.35);
-                color: #b7f4ff;
+                background: rgba(120,207,225,0.08);
+                border-color: rgba(120,207,225,0.26);
+                color: #c6edf4;
             }
             QToolButton#wlAddBtn:pressed, QToolButton#wlMenuBtn:pressed {
-                background: #050709;
-                border-color: #00d4ff;
+                background: #06080c;
+                border-color: #78cfe1;
             }
 
             /* ── Table ────────────────────────────────────────────── */
             TradingTable {
-                background: #0a0d12;
-                alternate-background-color: #0f1318;
+                background: #0a0e13;
+                alternate-background-color: #10151c;
                 border: none;
                 gridline-color: transparent;
-                selection-background-color: #1a2840;
-                color: #e8f0ff;
+                selection-background-color: #18283a;
+                color: #d8e2ef;
                 outline: none;
                 show-decoration-selected: 0;
-                font-size: 10px;
-                font-family: "Inter", "Segoe UI", sans-serif;
+                font-size: 11px;
+                font-family: "Inter", "Segoe UI Variable", "Segoe UI", "Noto Sans", sans-serif;
                 border-radius: 0;
             }
 
             TradingTable::item {
                 padding: 0 5px;
-                border-bottom: 1px solid #141920;
+                border-bottom: 1px solid #151b24;
                 background: transparent;
-                font-size: 10px;
-                font-family: "Inter", "Segoe UI", "Segoe UI Variable", sans-serif;
+                font-size: 11px;
+                font-family: "Segoe UI Variable", "Inter", "Segoe UI", "Noto Sans", sans-serif;
                 font-weight: 400;
             }
 
             TradingTable::item:selected {
-                background: #1a2840 !important;
-                color: #e8f0ff;
+                background: #18283a !important;
+                color: #d8e2ef;
                 outline: none;
             }
 
             TradingTable::item:focus {
-                background: #1a2840 !important;
+                background: #18283a !important;
                 outline: none;
             }
 
             TradingTable::item:hover {
-                background: #141920;
+                background: #151b24;
             }
 
             TradingTable::item:alternate {
-                background: #0f1318;
+                background: #10151c;
             }
 
             TradingTable::item:alternate:selected {
-                background: #1a2840 !important;
-                color: #e8f0ff;
+                background: #18283a !important;
+                color: #d8e2ef;
             }
 
             /* ── Table header ─────────────────────────────────────── */
             QHeaderView::section {
-                background: #0f1318;
-                color: #5a7090;
+                background: #10151c;
+                color: #748396;
                 padding: 0 5px;
                 border: none;
-                border-bottom: 1px solid #1a2030;
-                font-family: "Inter", "Segoe UI", -apple-system, Roboto, Arial, sans-serif;
+                border-bottom: 1px solid #222b38;
+                font-family: "Inter", "Segoe UI Variable", "Segoe UI", "Noto Sans", Roboto, Arial, sans-serif;
                 font-weight: 500;
-                font-size: 9px;
-                letter-spacing: 1px;
+                font-size: 10px;
+                letter-spacing: 0.6px;
                 text-transform: uppercase;
             }
             QHeaderView::section:hover {
-                background: #141920;
-                color: #a8bcd4;
+                background: #151b24;
+                color: #9eacbc;
             }
             QHeaderView {
-                background: #0f1318;
+                background: #10151c;
                 border: none;
             }
 
             /* ── Context menu ─────────────────────────────────────── */
             QMenu#wlCtxMenu, QMenu#wlOptionsMenu {
-                background: #0a0d12;
-                border: 1px solid #1a2030;
+                background: #0a0e13;
+                border: 1px solid #222b38;
                 border-radius: 2px;
-                color: #e8f0ff;
-                font-family: "Inter", "Segoe UI", -apple-system, Roboto, Arial, sans-serif;
+                color: #d8e2ef;
+                font-family: "Inter", "Segoe UI Variable", "Segoe UI", "Noto Sans", Roboto, Arial, sans-serif;
                 font-size: 11px;
                 padding: 4px 0;
             }
@@ -1728,18 +1740,18 @@ class TabbedWatchlistWidget(QWidget):
             }
             QMenu#wlCtxMenu::item:selected,
             QMenu#wlOptionsMenu::item:selected {
-                background: #1a2840;
-                color: #e8f0ff;
+                background: #18283a;
+                color: #d8e2ef;
             }
             QMenu#wlCtxMenu::separator, QMenu#wlOptionsMenu::separator {
                 height: 1px;
-                background: #1a2030;
+                background: #222b38;
                 margin: 3px 8px;
             }
 
             /* ── Stack ────────────────────────────────────────────── */
             QStackedWidget#wlStack {
-                background: #0a0d12;
+                background: #0a0e13;
                 border: none;
             }
 
@@ -1751,12 +1763,12 @@ class TabbedWatchlistWidget(QWidget):
                 margin: 0;
             }
             QScrollBar::handle:vertical {
-                background: #243040;
+                background: #2b3645;
                 border-radius: 2px;
                 min-height: 20px;
             }
             QScrollBar::handle:vertical:hover {
-                background: #5a7090;
+                background: #748396;
             }
             QScrollBar:horizontal {
                 background: transparent;
@@ -1765,12 +1777,12 @@ class TabbedWatchlistWidget(QWidget):
                 margin: 0;
             }
             QScrollBar::handle:horizontal {
-                background: #243040;
+                background: #2b3645;
                 border-radius: 2px;
                 min-width: 20px;
             }
             QScrollBar::handle:horizontal:hover {
-                background: #5a7090;
+                background: #748396;
             }
             QScrollBar::add-line, QScrollBar::sub-line {
                 border: none;
