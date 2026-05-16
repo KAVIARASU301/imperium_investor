@@ -2532,9 +2532,19 @@ class FixedTradingChart {
             this.maxPrice = Math.max(this.maxPrice, this.livePrice);
         }
 
+        // Keep auto-scaled price action in the middle 60% of the pane so the
+        // top/bottom 20% stays visually clear (helps avoid overlap with volume bars).
         const range = this.maxPrice - this.minPrice;
-        if (range === 0) { this.minPrice -= 1; this.maxPrice += 1; }
-        else { this.minPrice -= range * 0.04; this.maxPrice += range * 0.06; }
+        if (range === 0) {
+            this.minPrice -= 1;
+            this.maxPrice += 1;
+        } else {
+            const usableBand = 0.60;
+            const edgePad = 0.20;
+            const expandedRange = range / usableBand;
+            this.minPrice -= expandedRange * edgePad;
+            this.maxPrice += expandedRange * edgePad;
+        }
 
         if (this.isUserYRange && Number.isFinite(lockedMin) && Number.isFinite(lockedMax) && lockedMax > lockedMin) {
             this.minPrice = lockedMin;

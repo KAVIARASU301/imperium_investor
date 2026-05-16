@@ -9,15 +9,17 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import datetime
 from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
-from PySide6.QtCore import QPoint, QRect, Qt, QTimer
+from PySide6.QtCore import QPoint, QRect, QSize, Qt, QTimer
 from PySide6.QtGui import (
     QBrush,
     QColor,
     QCursor,
     QFont,
+    QIcon,
     QKeyEvent,
     QMouseEvent,
     QPainter,
@@ -40,6 +42,7 @@ from PySide6.QtWidgets import (
 )
 
 from kite.core.alert_management_system import AlertStatus
+from utils.resource_path import resource_path
 
 
 logger = logging.getLogger(__name__)
@@ -77,7 +80,7 @@ _NUM = "'Inter', 'Segoe UI Variable', 'Segoe UI', 'Noto Sans', sans-serif"
 _NUM_FONT = "Inter"
 _UI_FONT = "Inter"
 
-_ROW_H = 25
+_ROW_H = 28
 _DEFAULT_W = 860
 _DEFAULT_H = 520
 _MIN_W = 620
@@ -172,9 +175,9 @@ class _ActionCell(QWidget):
         super().__init__(parent)
         self.setFixedHeight(_ROW_H)
         layout = QHBoxLayout(self)
-        # Keep this below the table row height; the old 3px top/bottom margin clipped DEL.
-        layout.setContentsMargins(2, 1, 2, 1)
-        layout.setSpacing(4)
+        # Keep total button + margin height below the table row height.
+        layout.setContentsMargins(2, 2, 2, 2)
+        layout.setSpacing(5)
         layout.addStretch(1)
         for button in buttons:
             layout.addWidget(button)
@@ -182,30 +185,60 @@ class _ActionCell(QWidget):
         self.setStyleSheet("background: transparent;")
 
 
-def _action_button(text: str, color: str, tooltip: str, callback: Callable[[], None]) -> QToolButton:
-    """Create a crisp row action button."""
+_ICON_CANDIDATES = {
+    "ack": ("tick.svg", "check.svg", "done.svg"),
+    "delete": ("delete.svg", "trash.svg", "remove.svg"),
+}
+
+
+def _icon_for_action(icon_key: str) -> QIcon:
+    """Load row action icons from assets/icons with small filename fallbacks."""
+
+    for filename in _ICON_CANDIDATES.get(icon_key, (f"{icon_key}.svg",)):
+        path = resource_path(f"assets/icons/{filename}")
+        if os.path.exists(path):
+            return QIcon(path)
+    # Fall back to the first expected path so packaged apps with virtual paths still work.
+    filename = _ICON_CANDIDATES.get(icon_key, (f"{icon_key}.svg",))[0]
+    return QIcon(resource_path(f"assets/icons/{filename}"))
+
+
+def _action_button(
+    text: str,
+    color: str,
+    tooltip: str,
+    callback: Callable[[], None],
+    icon_key: Optional[str] = None,
+) -> QToolButton:
+    """Create a crisp icon-first row action button."""
 
     button = QToolButton()
-    button.setText(text)
     button.setToolTip(tooltip)
     button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-    # Fixed size + zero padding prevents short labels like DEL from being clipped.
-    button.setFixedSize(32, 19)
+    button.setFixedSize(24, 22)
+    button.setIconSize(QSize(12, 12))
+    button.setText("")
+    button.setAutoRaise(False)
+    if icon_key:
+        button.setIcon(_icon_for_action(icon_key))
+        button.setAccessibleName(text)
+    else:
+        button.setText(text)
+
     button.setStyleSheet(f"""
         QToolButton {{
-            background: {color}12;
+            background: {color}10;
             color: {color};
-            border: 1px solid {color}44;
+            border: 1px solid {color}3d;
             border-radius: 2px;
             padding: 0px;
             margin: 0px;
             font-family: {_SANS};
             font-size: 8px;
             font-weight: 600;
-            letter-spacing: 0.15px;
         }}
         QToolButton:hover {{
-            background: {color}20;
+            background: {color}1e;
             border-color: {color}aa;
             color: {_TEXT_STRONG};
         }}
@@ -439,7 +472,7 @@ class AlertManagementDialog(QDialog):
         for index, name in enumerate(headers):
             if name == "":
                 header.setSectionResizeMode(index, QHeaderView.ResizeMode.Fixed)
-                table.setColumnWidth(index, 76 if "Triggered" in headers else 44)
+                table.setColumnWidth(index, 82 if "Triggered" in headers else 50)
             elif name == "Symbol":
                 header.setSectionResizeMode(index, QHeaderView.ResizeMode.Fixed)
                 table.setColumnWidth(index, 118)
@@ -662,10 +695,11 @@ class AlertManagementDialog(QDialog):
         table.setItem(row, 4, self._cell(self._note(alert), color=_TEXT_MUTED))
 
         delete_button = _action_button(
-            "DEL",
+            "Delete",
             _RED,
             f"Delete alert for {self._symbol(alert)}",
             lambda aid=str(getattr(alert, "id", "")): self._delete_alert(aid),
+            icon_key="delete",
         )
         table.setCellWidget(row, 5, _ActionCell(delete_button))
 
@@ -685,10 +719,11 @@ class AlertManagementDialog(QDialog):
             lambda aid=str(getattr(alert, "id", "")): self._ack_alert(aid),
         )
         delete_button = _action_button(
-            "DEL",
+            "Delete",
             _RED,
             f"Delete alert for {self._symbol(alert)}",
             lambda aid=str(getattr(alert, "id", "")): self._delete_alert(aid),
+            icon_key="delete",
         )
         table.setCellWidget(row, 5, _ActionCell(ack_button, delete_button))
 
