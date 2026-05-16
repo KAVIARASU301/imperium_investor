@@ -571,7 +571,7 @@ class ChartToolbar(QFrame):
         _apply_icon(self.measure_btn, "measure", 16)
         self.measure_btn.setFixedSize(28, 22)
         self.measure_btn.setCheckable(True)
-        self.measure_btn.setChecked(True)
+        self.measure_btn.setChecked(False)
         self.measure_btn.setToolTip("Measure  [E]")
         dt_lay.addWidget(self.measure_btn)
 
