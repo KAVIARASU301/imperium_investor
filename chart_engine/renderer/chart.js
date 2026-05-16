@@ -1047,15 +1047,15 @@ class FixedTradingChart {
         if (visibleVolumes.length === 0) return;
 
         // Creative visibility tuning:
-        // 1) Winsorize extreme spikes using the 95th percentile so one anomaly
-        //    doesn't flatten the rest of the window.
-        // 2) Use sqrt transform so low/medium bars remain readable while still
-        //    preserving relative differences.
-        // 3) Keep a dynamic minimum pixel height to avoid "flat-line" look.
+        // 1) Winsorize only very extreme spikes (98th percentile) so regular
+        //    high-volume bars still keep meaningful separation.
+        // 2) Use a gentle power curve (not full sqrt) to avoid both flattened
+        //    and overly exaggerated bars.
+        // 3) Keep a very small minimum pixel height so quiet bars remain visible.
         const sortedVolumes = visibleVolumes.slice().sort((a, b) => a - b);
-        const p95Index = Math.max(0, Math.min(sortedVolumes.length - 1, Math.floor((sortedVolumes.length - 1) * 0.95)));
-        const p95Vol = sortedVolumes[p95Index] || maxVol;
-        const scaleCap = Math.max(1, Math.min(maxVol, p95Vol));
+        const p98Index = Math.max(0, Math.min(sortedVolumes.length - 1, Math.floor((sortedVolumes.length - 1) * 0.98)));
+        const p98Vol = sortedVolumes[p98Index] || maxVol;
+        const scaleCap = Math.max(1, Math.min(maxVol, p98Vol));
 
         const ctx = this.ctx;
         const area = this.chartArea;
@@ -1063,8 +1063,8 @@ class FixedTradingChart {
         // Keep a small buffer above the time axis so labels stay visually below volume.
         const timeAxisGap = 4;
         const baseY = area.y + area.height - timeAxisGap;
-        const volHeight = Math.max(28, Math.min(72, Math.floor(area.height * 0.12)));
-        const minReadableHeight = Math.max(2, Math.floor(volHeight * 0.08));
+        const volHeight = Math.max(24, Math.min(64, Math.floor(area.height * 0.10)));
+        const minReadableHeight = Math.max(1, Math.floor(volHeight * 0.05));
 
         ctx.save();
         for (let i = start; i <= end; i++) {
@@ -1075,7 +1075,7 @@ class FixedTradingChart {
 
             const x = Math.round(this._candleToX(i));
             const normalized = Math.min(1, vol / scaleCap);
-            const eased = Math.sqrt(normalized);
+            const eased = Math.pow(normalized, 0.70);
             const h = Math.max(minReadableHeight, Math.round(eased * volHeight));
             const y = baseY - h;
             const isUp = (Number(c.close) || 0) >= (Number(c.open) || 0);
