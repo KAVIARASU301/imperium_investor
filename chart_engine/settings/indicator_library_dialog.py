@@ -224,6 +224,16 @@ class IndicatorSettingsDialog(QDialog):
         self.color_btn.clicked.connect(self._pick_color)
         form.addRow(self._field_label("COLOR"), self.color_btn)
 
+        self.volume_opacity_spin = QDoubleSpinBox()
+        self.volume_opacity_spin.setObjectName("terminalSpin")
+        self.volume_opacity_spin.setRange(0.0, 1.0)
+        self.volume_opacity_spin.setDecimals(2)
+        self.volume_opacity_spin.setSingleStep(0.05)
+        self.volume_opacity_spin.setValue(float(self._current.get("volume_opacity", 0.75) or 0.75))
+        form.addRow(self._field_label("VOLUME OPACITY"), self.volume_opacity_spin)
+        self.type_combo.currentIndexChanged.connect(self._sync_volume_fields)
+        self._sync_volume_fields()
+
         body_layout.addWidget(panel)
         body_layout.addStretch()
         root.addWidget(body, 1)
@@ -350,7 +360,15 @@ class IndicatorSettingsDialog(QDialog):
             "thickness": float(self.thickness_spin.value()),
             "line_style": str(self.line_style_combo.currentData() or "solid"),
             "color": self._color,
+            "volume_opacity": float(self.volume_opacity_spin.value()),
         }
+
+    def _sync_volume_fields(self) -> None:
+        is_volume = str(self.type_combo.currentData() or "").lower() == "volume"
+        self.volume_opacity_spin.setVisible(is_volume)
+        lbl = self.volume_opacity_spin.parentWidget().layout().labelForField(self.volume_opacity_spin)
+        if lbl is not None:
+            lbl.setVisible(is_volume)
 
     def _apply_styles(self) -> None:
         self.setStyleSheet(f"""
@@ -678,6 +696,7 @@ class IndicatorLibraryDialog(QDialog):
     def _normalize_instance(self, item: Dict[str, Any]) -> Dict[str, Any]:
         type_id = str(item.get("type") or "ema").lower()
         period = int(item.get("period", 20) or 20)
+        volume_opacity = float(item.get("volume_opacity", 0.75) or 0.75)
         return {
             "id": str(item.get("id") or f"{type_id}_{uuid.uuid4().hex[:8]}"),
             "type": type_id,
@@ -685,6 +704,7 @@ class IndicatorLibraryDialog(QDialog):
             "color": str(item.get("color") or "#2962ff"),
             "thickness": float(item.get("thickness", 1.2) or 1.2),
             "line_style": str(item.get("line_style") or "solid"),
+            "volume_opacity": max(0.0, min(1.0, volume_opacity)),
         }
 
     def _build_section_label(self, text: str) -> QLabel:
@@ -736,6 +756,9 @@ class IndicatorLibraryDialog(QDialog):
         return f"{disp} ({int(item.get('period', 20))})"
 
     def _style_summary(self, item: Dict[str, Any]) -> str:
+        if str(item.get("type", "")).lower() == "volume":
+            opacity_pct = int(round(float(item.get("volume_opacity", 0.75) or 0.75) * 100))
+            return f"BAR OPACITY · {opacity_pct}%"
         thickness = float(item.get("thickness", 1.2) or 1.2)
         line_style = str(item.get("line_style") or "solid").upper()
         color = str(item.get("color") or "#2962ff").upper()
@@ -814,6 +837,7 @@ class IndicatorLibraryDialog(QDialog):
             "color": catalog.default_color,
             "thickness": catalog.default_thickness,
             "line_style": catalog.default_line_style,
+            "volume_opacity": 0.75,
         })
         self._refresh_tables()
 

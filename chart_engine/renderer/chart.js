@@ -1015,6 +1015,18 @@ class FixedTradingChart {
         return false;
     }
 
+    _getVolumeOpacity() {
+        if (!Array.isArray(this.movingAverageConfigs) || this.movingAverageConfigs.length === 0) return 0.75;
+        for (const cfg of this.movingAverageConfigs) {
+            if (!cfg || String(cfg.type || '').toLowerCase() !== 'volume') continue;
+            const key = String(cfg.id || '').trim();
+            if (key && this.indicatorVisibility?.[key] !== true) continue;
+            const raw = Number(cfg.volume_opacity);
+            if (Number.isFinite(raw)) return Math.max(0, Math.min(1, raw));
+        }
+        return 0.75;
+    }
+
     _drawVolumeBars() {
         if (!this._isVolumeIndicatorVisible()) return;
         if (!Array.isArray(this.data) || this.data.length === 0) return;
@@ -1032,6 +1044,7 @@ class FixedTradingChart {
 
         const ctx = this.ctx;
         const area = this.chartArea;
+        const barOpacity = this._getVolumeOpacity();
         // Keep a small buffer above the time axis so labels stay visually below volume.
         const timeAxisGap = 4;
         const baseY = area.y + area.height - timeAxisGap;
@@ -1048,7 +1061,9 @@ class FixedTradingChart {
             const h = Math.max(1, Math.round((vol / maxVol) * volHeight));
             const y = baseY - h;
             const isUp = (Number(c.close) || 0) >= (Number(c.open) || 0);
-            ctx.fillStyle = isUp ? 'rgba(0,200,150,0.38)' : 'rgba(232,64,96,0.38)';
+            ctx.fillStyle = isUp
+                ? `rgba(0,200,150,${barOpacity})`
+                : `rgba(232,64,96,${barOpacity})`;
             ctx.fillRect(x, y, Math.max(1, this.candleWidth), h);
         }
         ctx.restore();
