@@ -574,6 +574,7 @@ class FixedTradingChart {
             } else {
                 this._drawCandlesticks();
             }
+            this._drawVolumeBars();
             this._drawMovingAverages();
             this._drawAxes();
             this.drawingEngine.render();
@@ -1003,6 +1004,53 @@ class FixedTradingChart {
     // ═══════════════════════════════════════════════════════════════════════
     // VOLUME
     // ═══════════════════════════════════════════════════════════════════════
+
+    _isVolumeIndicatorVisible() {
+        if (!Array.isArray(this.movingAverageConfigs) || this.movingAverageConfigs.length === 0) return false;
+        for (const cfg of this.movingAverageConfigs) {
+            if (!cfg || String(cfg.type || '').toLowerCase() !== 'volume') continue;
+            const key = String(cfg.id || '').trim();
+            if (key && this.indicatorVisibility?.[key] === true) return true;
+        }
+        return false;
+    }
+
+    _drawVolumeBars() {
+        if (!this._isVolumeIndicatorVisible()) return;
+        if (!Array.isArray(this.data) || this.data.length === 0) return;
+
+        const start = Math.max(0, this.viewPortStart);
+        const end = Math.min(this.data.length - 1, this.viewPortEnd);
+        if (end < start) return;
+
+        let maxVol = 0;
+        for (let i = start; i <= end; i++) {
+            const v = Number(this.data[i]?.volume) || 0;
+            if (v > maxVol) maxVol = v;
+        }
+        if (maxVol <= 0) return;
+
+        const ctx = this.ctx;
+        const area = this.chartArea;
+        const baseY = area.y + area.height;
+        const volHeight = Math.max(48, Math.floor(area.height * 0.18));
+
+        ctx.save();
+        for (let i = start; i <= end; i++) {
+            const c = this.data[i];
+            if (!c) continue;
+            const vol = Number(c.volume) || 0;
+            if (vol <= 0) continue;
+
+            const x = Math.round(this._candleToX(i));
+            const h = Math.max(1, Math.round((vol / maxVol) * volHeight));
+            const y = baseY - h;
+            const isUp = (Number(c.close) || 0) >= (Number(c.open) || 0);
+            ctx.fillStyle = isUp ? 'rgba(0,200,150,0.38)' : 'rgba(232,64,96,0.38)';
+            ctx.fillRect(x, y, Math.max(1, this.candleWidth), h);
+        }
+        ctx.restore();
+    }
 
 
 
