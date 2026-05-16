@@ -286,7 +286,7 @@ class _FetchThread(QThread):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# HTML RENDERER  (Institutional Dark Trading Terminal UI)
+# HTML RENDERER  (Institutional Dark Trading Terminal UI + modern UI number typography)
 # ─────────────────────────────────────────────────────────────────────────────
 
 _BG0 = "#050709"
@@ -305,6 +305,9 @@ _T1 = "#a8bcd4"
 _T2 = "#5a7090"
 _T3 = "#2a3a50"
 _SEL = "#1a2840"
+_SANS = "'Inter', 'Segoe UI Variable', 'Segoe UI', Arial, sans-serif"
+_NUM = "'Inter', 'Segoe UI Variable', 'Segoe UI', Arial, sans-serif"
+_MONO = "'Consolas', 'JetBrains Mono', monospace"  # only for code/raw technical text
 
 
 def _esc(value: Any) -> str:
@@ -322,7 +325,7 @@ _LOADING_HTML = f"""<!DOCTYPE html>
   body {{
     background: {_BG1};
     color: {_T2};
-    font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+    font-family: {_SANS};
     display: flex;
     align-items: center;
     justify-content: center;
@@ -341,7 +344,7 @@ _LOADING_HTML = f"""<!DOCTYPE html>
     background: {_BGTB};
     border-bottom: 1px solid {_BG4};
     color: {_AMBER};
-    font: 800 10px 'JetBrains Mono', 'Consolas', monospace;
+    font: 800 10px {_SANS};
     letter-spacing: 1.4px;
   }}
   .loader-body {{ padding: 14px 12px 12px; }}
@@ -392,7 +395,7 @@ _ERROR_HTML_TPL = f"""<!DOCTYPE html>
   body {{
     background: {_BG1};
     color: {_BEAR};
-    font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+    font-family: {_SANS};
     display: flex;
     align-items: center;
     justify-content: center;
@@ -412,7 +415,7 @@ _ERROR_HTML_TPL = f"""<!DOCTYPE html>
     background: {_BGTB};
     border-bottom: 1px solid rgba(255,77,106,.26);
     color: {_BEAR};
-    font: 800 10px 'JetBrains Mono', 'Consolas', monospace;
+    font: 800 10px {_SANS};
     letter-spacing: 1.2px;
   }}
   .error-body {{ padding: 14px 12px; }}
@@ -559,12 +562,13 @@ def _build_info_html(data: dict) -> str:
   --bg0:{_BG0}; --bg1:{_BG1}; --bg2:{_BG2}; --bg3:{_BG3}; --bg4:{_BG4};
   --title:{_BGTB}; --bull:{_BULL}; --bear:{_BEAR}; --amber:{_AMBER}; --cyan:{_CYAN};
   --blue:{_BLUE}; --t0:{_T0}; --t1:{_T1}; --t2:{_T2}; --t3:{_T3}; --sel:{_SEL};
+  --font-ui:{_SANS}; --font-num:{_NUM}; --font-mono:{_MONO};
 }}
 html, body {{ height: 100%; }}
 body {{
   background: var(--bg1);
   color: var(--t0);
-  font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+  font-family: var(--font-ui);
   font-size: 11px;
   line-height: 1.35;
   overflow-y: auto;
@@ -588,8 +592,8 @@ body {{
   border-radius: 2px;
   background: rgba(0,212,255,.07);
   color: var(--cyan);
-  font: 800 13px 'JetBrains Mono', 'Consolas', monospace;
-  letter-spacing: 1.1px;
+  font: 800 13px var(--font-ui);
+  letter-spacing: .6px;
   text-align: center;
 }}
 .company-block {{ flex: 1; min-width: 0; }}
@@ -664,7 +668,9 @@ body {{
   display: block;
   margin-top: 3px;
   color: var(--t0);
-  font: 800 12px 'JetBrains Mono', 'Consolas', monospace;
+  font: 800 12px var(--font-num);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -684,7 +690,7 @@ body {{
 }}
 .section-kicker {{
   color: var(--amber);
-  font: 800 9px 'JetBrains Mono', 'Consolas', monospace;
+  font: 800 9px var(--font-ui);
   letter-spacing: 1.2px;
   margin-bottom: 4px;
 }}
@@ -738,7 +744,9 @@ body {{
   width: 47%;
   padding: 0 7px;
   color: var(--t0);
-  font: 800 10.5px 'JetBrains Mono', 'Consolas', monospace;
+  font: 800 10.5px var(--font-num);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
   text-align: right;
   white-space: nowrap;
   overflow: hidden;
@@ -967,7 +975,7 @@ class StockInfoDialog(QDialog):
             }
             QLabel#siTitle {
                 color: #f59e0b;
-                font-family: 'JetBrains Mono', 'Consolas', monospace;
+                font-family: 'Inter', 'Segoe UI Variable', 'Segoe UI', Arial, sans-serif;
                 font-size: 10px;
                 font-weight: 800;
                 letter-spacing: 1.2px;
@@ -1007,7 +1015,7 @@ class StockInfoDialog(QDialog):
             }
             QLabel#siStatus {
                 color: #5a7090;
-                font-family: 'Inter', 'Segoe UI', sans-serif;
+                font-family: 'Inter', 'Segoe UI Variable', 'Segoe UI', sans-serif;
                 font-size: 9px;
                 font-weight: 700;
                 letter-spacing: 0.4px;

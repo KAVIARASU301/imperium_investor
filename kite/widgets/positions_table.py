@@ -4,8 +4,8 @@ Institutional-grade Positions Table — Ultra-Compact Mode.
 
 Upgrades:
   • Strictly 3 columns: Symbol, Qty, PnL
-  • Stripped heavy monospace fonts; matches native app UI (Sans-serif)
-  • Compact headers and cell paddings to minimize horizontal space
+  • Modern UI number typography for Qty, %Chg, footer P&L and Exposure
+  • Compact gridless headers and cell paddings to minimize horizontal space
   • Zero visual noise (no currency symbols inline)
   • Flash animations and quick sorting retained
 """
@@ -28,25 +28,42 @@ from PySide6.QtGui import QColor, QFont, QBrush, QCursor
 
 logger = logging.getLogger(__name__)
 
-# ─── Palette ──────────────────────────────────────────────────────────────────
-_BG_BASE = "#0f1318"
+# ─── Institutional Dark Trading Terminal UI Tokens ─────────────────────────────
+_BG_APP = "#050709"
+_BG_BASE = "#0a0d12"
 _BG_ALT = "#0f1318"
-_BG_HEADER = "#0b1019"
-_BG_FOOTER = "#080d15"
+_BG_HEADER = "#0f1318"
+_BG_FOOTER = "#070a0f"
 _BG_SEL = "#1a2840"
 _BG_HOVER = "#141920"
 _BORDER = "#1a2030"
-_T0 = "#d8e4f0"  # primary text
-_T1 = "#8ea3bc"  # secondary text
-_T2 = "#506070"  # muted
-_GREEN = "#00d4a8"  # institutional bull signal
-_RED = "#ff4d6a"  # institutional bear signal
+
+_T0 = "#e8f0ff"   # primary text
+_SYMBOL_TEXT = "#b6c4d6"  # softened symbol text; less distracting than pure primary
+_T1 = "#a8bcd4"   # secondary text
+_T2 = "#5a7090"   # muted labels / metadata
+_T3 = "#2a3a50"   # disabled
+
+_GREEN = "#00d4a8"   # success / profit / buy-side
+_RED = "#ff4d6a"     # danger / loss / sell-side
+_AMBER = "#f59e0b"   # warning / active
+_CYAN = "#00d4ff"    # info / utility
+
+_SANS = "'Inter', 'Segoe UI', -apple-system, Roboto, Arial, sans-serif"
+_NUM = "'Inter', 'Segoe UI Variable', 'Segoe UI', -apple-system, Roboto, Arial, sans-serif"
+_MONO = "'Consolas', 'JetBrains Mono', monospace"
 _APP_FONT_FAMILY = "Segoe UI"
-_OPEN_PROFIT = "#00d4a8"
+_NUM_FONT = "Inter"
+
+_OPEN_PROFIT = _GREEN
 _OPEN_PROFIT_TINT = "#0a2520"
-_OPEN_LOSS = "#ff4d6a"
+_OPEN_LOSS = _RED
 _OPEN_LOSS_TINT = "#200a10"
 _OPEN_FLAT = "#7a94b0"
+
+_ROW_H = 21
+_HEADER_H = 21
+_FOOTER_H = 24
 
 # Column indices
 COL_FLAG = 0
@@ -224,7 +241,7 @@ class PositionsTable(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setShowGrid(True)
+        self.table.setShowGrid(False)
         self.table.setAlternatingRowColors(True)
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -232,10 +249,13 @@ class PositionsTable(QWidget):
         self.table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.table.setSortingEnabled(False)
 
-        self.table.verticalHeader().setDefaultSectionSize(22)
+        self.table.verticalHeader().setDefaultSectionSize(_ROW_H)
+        self.table.verticalHeader().setMinimumSectionSize(_ROW_H)
+        self.table.setWordWrap(False)
 
         hdr = self.table.horizontalHeader()
         hdr.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
+        hdr.setFixedHeight(_HEADER_H)
         hdr.setSectionResizeMode(COL_FLAG, QHeaderView.ResizeMode.Fixed)
         self.table.setColumnWidth(COL_FLAG, 20)
         hdr.setSectionResizeMode(COL_SYMBOL, QHeaderView.ResizeMode.Stretch)
@@ -249,7 +269,7 @@ class PositionsTable(QWidget):
     def _build_footer(self) -> QFrame:
         frame = QFrame()
         frame.setObjectName("positionsFooter")
-        frame.setFixedHeight(24)
+        frame.setFixedHeight(_FOOTER_H)
 
         lay = QHBoxLayout(frame)
         lay.setContentsMargins(8, 0, 8, 0)
@@ -264,8 +284,8 @@ class PositionsTable(QWidget):
             lay.addWidget(val)
             return val
 
-        self._footer_open_pnl = _metric("Open P&L:")
-        self._footer_exposure = _metric("Exposure:")
+        self._footer_open_pnl = _metric("OPEN P&L")
+        self._footer_exposure = _metric("EXPOSURE")
         lay.addStretch()
         return frame
 
@@ -306,30 +326,38 @@ class PositionsTable(QWidget):
         is_long = pos.quantity > 0
         qty_sign = "+" if is_long else "−"
 
-        tick_dir = self._tick_dirs.get(pos.symbol, 0)
         table_colors = self._color_theme.get("tables", {})
-        directional_colors_enabled = bool(self._color_theme.get("enable_table_directional_colors", False))
         profit_color = table_colors.get("positive", _GREEN)
         loss_color = table_colors.get("negative", _RED)
-        neutral_color = table_colors.get("neutral", _T2)
 
         change_color = self._open_pnl_text_color(entry_change_pct)
+
+        symbol_font = QFont(_APP_FONT_FAMILY, 9)
+        symbol_font.setWeight(QFont.Weight.DemiBold)
+        number_font = self._number_font(False, 9)
+        strong_number_font = self._number_font(True, 9)
+        base_bg = QBrush(QColor(_BG_BASE if row % 2 == 0 else _BG_ALT))
 
         # Notice: No ₹ symbols to save horizontal space
         symbol_text = f"⚡ {pos.symbol}" if pos.symbol in self._partial_fill_symbols else pos.symbol
         cells = [
-            (COL_SYMBOL, symbol_text, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, _T0),
-            (COL_FLAG, "", Qt.AlignmentFlag.AlignCenter, _T2),
-            (COL_QTY, f"{qty_sign}{abs(pos.quantity)}", Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, profit_color if is_long else loss_color),
-            (COL_OPEN_PNL, f"{entry_change_pct:+.2f}%", Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, change_color),
+            (COL_SYMBOL, symbol_text, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, _SYMBOL_TEXT, symbol_font),
+            (COL_FLAG, "", Qt.AlignmentFlag.AlignCenter, _T2, symbol_font),
+            (COL_QTY, f"{qty_sign}{abs(pos.quantity)}", Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, profit_color if is_long else loss_color, number_font),
+            (COL_OPEN_PNL, f"{entry_change_pct:+.2f}%", Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, change_color, strong_number_font),
         ]
 
-        for col, text, align, color in cells:
+        for col, text, align, color, font in cells:
             item = self.table.item(row, col)
-            if not item: continue
+            if not item:
+                continue
             item.setText(text)
             item.setTextAlignment(align)
             item.setForeground(QColor(color))
+            item.setFont(font)
+
+            if col != COL_OPEN_PNL:
+                item.setBackground(base_bg)
 
             item.setData(Qt.ItemDataRole.UserRole, self._sort_key(col, pos))
             if col == COL_SYMBOL:
@@ -381,7 +409,7 @@ class PositionsTable(QWidget):
             bg = QBrush(QColor(255, 77, 106, 31))
         else:
             fg = QColor(_OPEN_FLAT)
-            bg = QBrush(QColor(_BG_BASE))
+            bg = QBrush(QColor(_BG_BASE if row % 2 == 0 else _BG_ALT))
 
         pnl_item = self.table.item(row, COL_OPEN_PNL)
         if pnl_item:
@@ -506,8 +534,13 @@ class PositionsTable(QWidget):
 
         pnl_color = _GREEN if total_pnl >= 0 else _RED
         self._footer_open_pnl.setText(f"{'+' if total_pnl >= 0 else ''}{total_pnl:,.0f}")
-        self._footer_open_pnl.setStyleSheet(f"color:{pnl_color}; font-weight:bold;")
+        self._footer_open_pnl.setStyleSheet(
+            f"color:{pnl_color}; font-family:{_NUM}; font-size:11px; font-weight:800; background:transparent;"
+        )
         self._footer_exposure.setText(f"{exposure:,.0f}")
+        self._footer_exposure.setStyleSheet(
+            f"color:{_T1}; font-family:{_NUM}; font-size:11px; font-weight:700; background:transparent;"
+        )
         self.footer_metrics_changed.emit(
             {"has_data": True, "open_pnl": total_pnl, "exposure": exposure}
         )
@@ -538,19 +571,19 @@ class PositionsTable(QWidget):
         menu.setObjectName("posContextMenu")
 
         flag_state = _flag_store.get(symbol)
-        next_states = {None: "🚩 Add Flag", "green": "🚩 Remove Flag"}
-        flag_act = menu.addAction(next_states.get(flag_state, "🚩 Toggle Flag"))
+        next_states = {None: "⚑  Add Flag", "green": "⚑  Remove Flag"}
+        flag_act = menu.addAction(next_states.get(flag_state, "⚑  Toggle Flag"))
         flag_act.triggered.connect(lambda: self._cycle_flag(row, symbol))
         menu.addSeparator()
 
-        chart_act = menu.addAction("📈  Open Chart")
+        chart_act = menu.addAction("Open Chart")
         chart_act.triggered.connect(lambda: self.symbol_selected.emit(symbol))
         menu.addSeparator()
 
-        close_act = menu.addAction("✕  Close Position")
+        close_act = menu.addAction("Close Position")
         close_act.triggered.connect(lambda: self.exit_position_requested.emit(symbol))
 
-        half_act = menu.addAction("½  Exit Half")
+        half_act = menu.addAction("Exit Half")
         half_act.triggered.connect(lambda: self.exit_half_position_requested.emit(symbol))
 
         menu.exec(self.table.viewport().mapToGlobal(pos))
@@ -571,6 +604,14 @@ class PositionsTable(QWidget):
     def _cycle_flag(self, row: int, symbol: str):
         _flag_store.cycle(symbol)
         self._paint_flag_cell(row, symbol)
+
+    @staticmethod
+    def _number_font(bold: bool = False, point_size: int = 9) -> QFont:
+        """Modern UI number font for market values; monospace is reserved for raw logs/code."""
+        f = QFont(_NUM_FONT)
+        f.setPointSize(point_size)
+        f.setBold(bold)
+        return f
 
     def _symbol_at_row(self, row: int) -> Optional[str]:
         return next((s for s, r in self.symbol_to_row.items() if r == row), None)
@@ -606,102 +647,180 @@ class PositionsTable(QWidget):
     def _apply_styles(self):
         self.setStyleSheet(f"""
             QWidget {{
-                background-color: #050709;
-                color: #e8f0ff;
-                font-family: "'Segoe UI', -apple-system, Roboto, Arial, sans-serif";
-                font-size: 13px;
+                background-color: {_BG_APP};
+                color: {_T0};
+                font-family: {_SANS};
+                font-size: 11px;
             }}
+
             QTableWidget {{
-                background-color: #0f1318;
-                border: 1px solid #1a2030;
-                gridline-color: #1a2030;
-                selection-background-color: #1a2840;
-                alternate-background-color: #0f1318;
+                background-color: {_BG_BASE};
+                alternate-background-color: {_BG_ALT};
+                border: none;
+                gridline-color: transparent;
+                selection-background-color: {_BG_SEL};
+                selection-color: {_T0};
+                color: {_T0};
                 outline: none;
                 show-decoration-selected: 0;
-                font-size: 12px;
+                font-family: {_SANS};
+                font-size: 11px;
                 border-radius: 0px;
             }}
-            QTableWidget::item {{
-                padding: 2px 6px;
-                border-bottom: 1px solid #1a2030;
-                background-color: transparent;
-                font-size: 12px;
-                font-family: "Consolas", "JetBrains Mono", "Courier New", monospace;
-            }}
-            QTableWidget::item:selected {{
-                background-color: #1a2840 !important;
-                outline: none;
-                border: none;
-                color: #ffffff;
-                font-weight: 600;
-            }}
-            QTableWidget::item:focus {{
-                background-color: #1a2840 !important;
-                outline: none;
-                border: none;
-            }}
-            QTableWidget::item:hover {{
-                background-color: #141920;
-            }}
-            QTableWidget::item:alternate {{
-                background-color: #0f1318;
-            }}
-            QTableWidget::item:alternate:selected {{
-                background-color: #1a2840 !important;
-                color: #ffffff;
-                font-weight: 600;
-            }}
-            QHeaderView::section {{
-                background-color: #0b1019;
-                color: #7fd4ff;
-                padding: 3px 6px;
-                border: none;
-                border-bottom: 1px solid #24344c;
-                border-right: 1px solid #121c2b;
-                font-weight: 600;
-                font-size: 11px;
-                text-transform: uppercase;
-            }}
-            QHeaderView::section:last {{ border-right: none; }}
-            QHeaderView::section:hover {{ background-color: #2a2a2a; }}
-            QHeaderView::down-arrow, QHeaderView::up-arrow {{ width:0px; height:0px; }}
-            #positionsFooter {{
-                background-color: transparent;
-                border-top: 1px solid #1a2030;
-            }}
-            #footerLabel {{
-                color: #506070;
-                font-family: "'Segoe UI', -apple-system, Roboto, Arial, sans-serif";
-                font-size: 12px;
-                font-weight: 500;
-                background-color: transparent;
-            }}
-            #footerValue {{
-                color: #8ea3bc;
-                font-family: "JetBrains Mono", "Consolas", monospace;
-                font-size: 12px;
-                background-color: transparent;
-            }}
-            QMenu#posContextMenu {{
-                background: #0c121e;
-                border: 1px solid #1a2030;
-                border-radius: 4px;
-            }}
-            QMenu#posContextMenu::item {{
-                padding: 6px 16px;
-                color: #d8e4f0;
-            }}
-            QMenu#posContextMenu::item:selected {{ background: #1a2840; }}
 
-            /* Enhanced Scrollbars from Scanner */
-            QScrollBar:vertical {{ background-color: #05070b; width: 8px; border: none; margin: 0px; }}
-            QScrollBar::handle:vertical {{ background-color: #424242; border-radius: 4px; min-height: 20px; margin: 2px; }}
-            QScrollBar::handle:vertical:hover {{ background-color: #616161; }}
-            QScrollBar:horizontal {{ background-color: #0a0a0a; height: 8px; border: none; margin: 0px; }}
-            QScrollBar::handle:horizontal {{ background-color: #424242; border-radius: 4px; min-width: 20px; margin: 2px; }}
-            QScrollBar::handle:horizontal:hover {{ background-color: #616161; }}
-            QScrollBar::add-line, QScrollBar::sub-line {{ border: none; background: none; width: 0px; height: 0px; margin: 0px; }}
+            QTableWidget::item {{
+                padding: 0 5px;
+                border-bottom: 1px solid {_BG_HOVER};
+                background-color: transparent;
+                font-family: {_NUM};
+                font-size: 11px;
+            }}
+
+            QTableWidget::item:selected {{
+                background-color: {_BG_SEL} !important;
+                color: {_T0};
+                outline: none;
+            }}
+
+            QTableWidget::item:focus {{
+                background-color: {_BG_SEL} !important;
+                outline: none;
+            }}
+
+            QTableWidget::item:hover {{
+                background-color: {_BG_HOVER};
+            }}
+
+            QTableWidget::item:alternate {{
+                background-color: {_BG_ALT};
+            }}
+
+            QTableWidget::item:alternate:selected {{
+                background-color: {_BG_SEL} !important;
+                color: {_T0};
+            }}
+
+            QHeaderView::section {{
+                background-color: {_BG_HEADER};
+                color: {_T2};
+                padding: 0 5px;
+                border: none;
+                border-bottom: 1px solid {_BORDER};
+                font-family: {_SANS};
+                font-weight: 800;
+                font-size: 8px;
+                letter-spacing: 1px;
+                text-transform: uppercase;
+                min-height: {_HEADER_H}px;
+                max-height: {_HEADER_H}px;
+            }}
+
+            QHeaderView::section:hover {{
+                background-color: {_BG_HOVER};
+                color: {_T1};
+            }}
+
+            QHeaderView {{
+                background-color: {_BG_HEADER};
+                border: none;
+            }}
+
+            QHeaderView::down-arrow,
+            QHeaderView::up-arrow {{
+                width: 0px;
+                height: 0px;
+            }}
+
+            #positionsFooter {{
+                background-color: {_BG_FOOTER};
+                border-top: 1px solid {_BORDER};
+            }}
+
+            #footerLabel {{
+                color: {_T2};
+                font-family: {_SANS};
+                font-size: 9px;
+                font-weight: 800;
+                letter-spacing: 0.8px;
+                background-color: transparent;
+            }}
+
+            #footerValue {{
+                color: {_T1};
+                font-family: {_NUM};
+                font-size: 11px;
+                font-weight: 700;
+                background-color: transparent;
+            }}
+
+            QMenu#posContextMenu {{
+                background: {_BG_BASE};
+                border: 1px solid {_BORDER};
+                border-radius: 2px;
+                color: {_T0};
+                font-family: {_SANS};
+                font-size: 11px;
+                padding: 4px 0;
+            }}
+
+            QMenu#posContextMenu::item {{
+                padding: 5px 14px;
+                color: {_T0};
+            }}
+
+            QMenu#posContextMenu::item:selected {{
+                background: {_BG_SEL};
+                color: {_T0};
+            }}
+
+            QMenu#posContextMenu::separator {{
+                height: 1px;
+                background: {_BORDER};
+                margin: 3px 8px;
+            }}
+
+            QScrollBar:vertical {{
+                background: transparent;
+                width: 4px;
+                border: none;
+                margin: 0;
+            }}
+
+            QScrollBar::handle:vertical {{
+                background: {_BORDER};
+                border-radius: 2px;
+                min-height: 18px;
+            }}
+
+            QScrollBar::handle:vertical:hover {{
+                background: {_T2};
+            }}
+
+            QScrollBar:horizontal {{
+                background: transparent;
+                height: 4px;
+                border: none;
+                margin: 0;
+            }}
+
+            QScrollBar::handle:horizontal {{
+                background: {_BORDER};
+                border-radius: 2px;
+                min-width: 18px;
+            }}
+
+            QScrollBar::handle:horizontal:hover {{
+                background: {_T2};
+            }}
+
+            QScrollBar::add-line,
+            QScrollBar::sub-line {{
+                border: none;
+                background: none;
+                width: 0px;
+                height: 0px;
+                margin: 0px;
+            }}
         """)
 
     # ══════════════════════════════════════════════════════════════════════════

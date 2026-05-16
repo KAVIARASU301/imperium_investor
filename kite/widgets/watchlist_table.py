@@ -9,7 +9,7 @@ Features
     Flags are per-symbol and persist globally across all watchlists.
   • Heat-map % change coloring (gradient magnitude, not binary red/green)
   • Full TC2000 color system (consistency_rules palette, zero deviation)
-  • Monospace numerics — columns never shift during live updates
+  • Modern UI number typography — clean, sharp values during live updates
   • Throttled UI redraws (~4.4 fps) via dirty-symbol batching
   • WS-powered live ticks with token→symbol O(1) resolution
   • Context menu: chart, advanced buy/sell, bracket, remove
@@ -43,7 +43,7 @@ from app_paths import get_asset_path
 
 logger = logging.getLogger(__name__)
 
-CHART_TOOLBAR_HEIGHT = 32
+CHART_TOOLBAR_HEIGHT = 28
 CHART_TOOLBAR_CONTROL_HEIGHT = 22
 
 
@@ -69,7 +69,8 @@ class _C:
     NEUTRAL = "#7a94b0"
     NEU_DIM = "#3a4d60"
 
-    T0 = "#e8f0ff"  # primary — prices, symbols
+    T0 = "#e8f0ff"  # primary — prices / selected emphasis
+    T_SYMBOL = "#b6c4d6"  # softened symbol text — readable, less distracting than white
     T1 = "#a8bcd4"  # secondary — headers, labels
     T2 = "#5a7090"  # tertiary — muted metadata
     T3 = "#2a3a50"  # disabled / placeholder
@@ -97,8 +98,10 @@ class _C:
         return "#ff4d6a", "rgba(255,77,106,0.12)"
 
 
-_MONO = "Consolas, 'JetBrains Mono', 'Courier New', monospace"
-_SANS = "'Segoe UI', -apple-system, Roboto, Arial, sans-serif"
+_MONO = "Consolas, 'JetBrains Mono', 'Courier New', monospace"  # raw logs / IDs / code only
+_SANS = "'Inter', 'Segoe UI', -apple-system, Roboto, Arial, sans-serif"
+_NUM = "'Inter', 'Segoe UI Variable', 'Segoe UI', sans-serif"
+_NUM_FONT = "Inter"
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  FLAG STATES
@@ -393,10 +396,10 @@ class _RenameDialog(QDialog):
             }}
             QLabel#nameDialogTitle {{
                 color: {_C.AMBER};
-                font-family: {_MONO};
+                font-family: {_SANS};
                 font-size: 10px;
-                font-weight: 800;
-                letter-spacing: 1.2px;
+                font-weight: 900;
+                letter-spacing: 1.1px;
                 background: transparent;
             }}
             QFrame#nameDialogBody {{ background: {_C.BG1}; }}
@@ -583,10 +586,10 @@ class _AddWatchlistDialog(QDialog):
             }}
             QLabel#nameDialogTitle {{
                 color: {_C.AMBER};
-                font-family: {_MONO};
+                font-family: {_SANS};
                 font-size: 10px;
-                font-weight: 800;
-                letter-spacing: 1.2px;
+                font-weight: 900;
+                letter-spacing: 1.1px;
                 background: transparent;
             }}
             QFrame#nameDialogBody {{ background: {_C.BG1}; }}
@@ -680,7 +683,7 @@ class TradingTable(QTableWidget):
     Columns: ⚑ | Symbol | LTP | Vol | %Chg
 
     Flag column (20 px): click to cycle flag state.
-    All numerics in monospace. Heat-map on %Chg.
+    Numeric values use modern UI number typography. Heat-map on %Chg.
     """
 
     symbol_selected = Signal(str)
@@ -926,7 +929,15 @@ class TradingTable(QTableWidget):
             if data:
                 self._update_row(row, data)
             else:
-                self.item(row, _COL_SYMBOL).setText(sym)
+                sym_item = self.item(row, _COL_SYMBOL)
+                if sym_item:
+                    sym_item.setText(sym)
+                    sym_item.setForeground(QColor(_C.T_SYMBOL))
+                    sym_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+                    symbol_font = QFont("Inter")
+                    symbol_font.setPointSize(9)
+                    symbol_font.setWeight(QFont.Weight.DemiBold)
+                    sym_item.setFont(symbol_font)
 
     def _update_row(self, row: int, data: Dict):
         if row >= self.rowCount():
@@ -940,19 +951,19 @@ class TradingTable(QTableWidget):
         # ── Flag ──
         self._paint_flag_cell(row, sym)
 
-        symbol_font = QFont("Segoe UI")
+        symbol_font = QFont("Inter")
         symbol_font.setPointSize(9)
-        symbol_font.setBold(True)
-        value_font = self._mono_font(False)
+        symbol_font.setWeight(QFont.Weight.DemiBold)
+        value_font = self._number_font(False)
         value_font.setPointSize(9)
-        strong_value_font = self._mono_font(True)
+        strong_value_font = self._number_font(True)
         strong_value_font.setPointSize(9)
 
         # ── Symbol ──
         sym_item = self.item(row, _COL_SYMBOL)
         if sym_item:
             sym_item.setText(sym)
-            sym_item.setForeground(QColor(_C.T0))
+            sym_item.setForeground(QColor(_C.T_SYMBOL))
             sym_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
             sym_item.setFont(symbol_font)
 
@@ -1154,7 +1165,18 @@ class TradingTable(QTableWidget):
         return None
 
     @staticmethod
+    def _number_font(bold: bool = False) -> QFont:
+        """Modern UI number font for prices, volume and percentage values."""
+        f = QFont(_NUM_FONT)
+        f.setStyleHint(QFont.StyleHint.SansSerif)
+        f.setPointSize(10)
+        f.setWeight(QFont.Weight.DemiBold if not bold else QFont.Weight.Bold)
+        f.setKerning(True)
+        return f
+
+    @staticmethod
     def _mono_font(bold: bool = False) -> QFont:
+        """Monospace reserved for raw logs, IDs, code and technical debug text."""
         f = QFont("Consolas")
         f.setStyleHint(QFont.StyleHint.Monospace)
         f.setPointSize(10)
@@ -1525,7 +1547,7 @@ class TabbedWatchlistWidget(QWidget):
             TabbedWatchlistWidget {
                 background: #050709;
                 color: #e8f0ff;
-                font-family: "Segoe UI", -apple-system, Roboto, Arial, sans-serif;
+                font-family: "Inter", "Segoe UI", -apple-system, Roboto, Arial, sans-serif;
                 font-size: 11px;
             }
 
@@ -1533,17 +1555,17 @@ class TabbedWatchlistWidget(QWidget):
             QFrame#wlHeader {
                 background: #070a0f;
                 border-bottom: 1px solid #1a2030;
-                min-height: 32px;
-                max-height: 32px;
+                min-height: 28px;
+                max-height: 28px;
                 padding: 0;
             }
 
             QLabel#wlLabel {
                 color: #f59e0b;
-                font-family: "Consolas", "JetBrains Mono", monospace;
+                font-family: "Inter", "Segoe UI", -apple-system, Roboto, Arial, sans-serif;
                 font-size: 9px;
-                font-weight: 800;
-                letter-spacing: 1.4px;
+                font-weight: 900;
+                letter-spacing: 1.2px;
                 background: transparent;
             }
 
@@ -1556,7 +1578,7 @@ class TabbedWatchlistWidget(QWidget):
                 min-height: 22px;
                 max-height: 22px;
                 padding: 0 22px 0 7px;
-                font-family: "Segoe UI", -apple-system, Roboto, Arial, sans-serif;
+                font-family: "Inter", "Segoe UI", -apple-system, Roboto, Arial, sans-serif;
                 font-size: 10px;
                 font-weight: 700;
             }
@@ -1640,7 +1662,8 @@ class TabbedWatchlistWidget(QWidget):
                 border-bottom: 1px solid #141920;
                 background: transparent;
                 font-size: 11px;
-                font-family: "Consolas", "JetBrains Mono", monospace;
+                font-family: "Inter", "Segoe UI Variable", "Segoe UI", sans-serif;
+                font-weight: 600;
             }
 
             TradingTable::item:selected {
@@ -1674,7 +1697,7 @@ class TabbedWatchlistWidget(QWidget):
                 padding: 0 5px;
                 border: none;
                 border-bottom: 1px solid #1a2030;
-                font-family: "Segoe UI", -apple-system, Roboto, Arial, sans-serif;
+                font-family: "Inter", "Segoe UI", -apple-system, Roboto, Arial, sans-serif;
                 font-weight: 800;
                 font-size: 8px;
                 letter-spacing: 1px;
@@ -1695,7 +1718,7 @@ class TabbedWatchlistWidget(QWidget):
                 border: 1px solid #1a2030;
                 border-radius: 2px;
                 color: #e8f0ff;
-                font-family: "Segoe UI", -apple-system, Roboto, Arial, sans-serif;
+                font-family: "Inter", "Segoe UI", -apple-system, Roboto, Arial, sans-serif;
                 font-size: 11px;
                 padding: 4px 0;
             }

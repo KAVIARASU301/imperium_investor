@@ -46,9 +46,12 @@ _T0 = "#e8f0ff"
 _T1 = "#a8bcd4"
 _T2 = "#5a7090"
 _T3 = "#2a3a50"
+_SYMBOL_TEXT = "#b6c4d6"  # softened symbol text; less distracting than primary white
 _SEL = "#1a2840"
-_MONO = "'Consolas', 'JetBrains Mono', monospace"
+_MONO = "'Consolas', 'JetBrains Mono', monospace"  # code, raw scan clauses, debug text only
 _SANS = "'Inter', 'Segoe UI', sans-serif"
+_NUM = "'Inter', 'Segoe UI Variable', 'Segoe UI', sans-serif"
+_NUM_FONT = "Inter"
 _ROW_H = 21
 _DIALOG_ROW_H = 25
 
@@ -1393,24 +1396,24 @@ class ChartinkScannerTable(QWidget):
             chg_bg = QBrush(QColor(255, 77, 106, 31))
 
         # Match embedded watchlist column palette
-        symbol_item.setForeground(QColor("#e8f0ff"))
+        symbol_item.setForeground(QColor(_SYMBOL_TEXT))
         price_item.setForeground(chg_fg if abs(change_pct) > 0.005 else QColor("#e8f0ff"))
         volume_item.setForeground(QColor("#5a7090"))
         change_pct_item.setForeground(chg_fg)
         change_pct_item.setBackground(chg_bg)
 
-        # Set text alignments and compact terminal fonts
+        # Set text alignments and modern UI number typography.
         symbol_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         price_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         volume_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         change_pct_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # Match watchlist typography so scanner and watchlist rows feel identical.
+        # Keep symbols in the UI font; use modern UI numbers for price/volume/change.
         symbol_font = QFont("Segoe UI", 9)
-        symbol_font.setBold(True)
-        value_font = QFont("Consolas", 9)
+        symbol_font.setWeight(QFont.Weight.DemiBold)
+        value_font = QFont(_NUM_FONT, 9)
         value_font.setBold(False)
-        change_font = QFont("Consolas", 9)
+        change_font = QFont(_NUM_FONT, 9)
         change_font.setBold(True)
         symbol_item.setFont(symbol_font)
         price_item.setFont(value_font)
@@ -2066,7 +2069,7 @@ class ChartinkScannerTable(QWidget):
                 color: {_T0};
                 outline: none;
                 show-decoration-selected: 0;
-                font-family: {_MONO};
+                font-family: {_NUM};
                 font-size: 10px;
                 border-radius: 0px;
             }}
@@ -2074,7 +2077,7 @@ class ChartinkScannerTable(QWidget):
                 padding: 0 5px;
                 border-bottom: 1px solid {_BG3};
                 background-color: transparent;
-                font-family: {_MONO};
+                font-family: {_NUM};
                 font-size: 10px;
             }}
             QTableWidget::item:selected {{

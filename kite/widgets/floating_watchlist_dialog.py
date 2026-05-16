@@ -11,8 +11,9 @@ Architecture
     is purely a view — it never owns the data.
   • Per-watchlist tab switching: the floating dialog mirrors whatever watchlist
     list the user selects inside it (independent selection from embedded widget).
-  • Flag column (20 px) — 4-state cycle using the shared _flag_store singleton.
+  • Flag column (18 px) — shared _flag_store singleton.
   • Heat-map Chg% coloring (same bands as TradingTable).
+  • Modern UI typography for symbols, LTP, volume, change %, counts and dropdowns.
   • Throttled redraws at ~4 fps (225 ms timer) to keep UI readable.
   • Frameless, draggable, always-on-top with pin toggle.
   • Resize grip (bottom-right corner).
@@ -92,6 +93,7 @@ class _C:
     T1 = "#a8bcd4"
     T2 = "#5a7090"
     T3 = "#2a3a50"
+    TSYM = "#b6c4d6"   # softened symbol text; avoids distracting bright white
 
     # Accents
     CYAN  = "#00d4ff"
@@ -118,8 +120,11 @@ class _C:
         return "#ff4d6a", _C.BEAR_BG
 
 
-_MONO = "Consolas, 'JetBrains Mono', 'Courier New', monospace"
+_MONO = "Consolas, 'JetBrains Mono', 'Courier New', monospace"  # reserved for raw logs / IDs / debug text
 _SANS = "'Inter', 'Segoe UI', -apple-system, Roboto, Arial, sans-serif"
+_NUM = "'Inter', 'Segoe UI Variable', 'Segoe UI', -apple-system, Roboto, Arial, sans-serif"
+_UI_FONT = "Segoe UI"
+_NUM_FONT = "Inter"
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  FLAG STORE — reuse the module-level singleton from watchlist_table
@@ -324,9 +329,9 @@ class FloatingWatchlistDialog(QDialog):
         # Pin toggle
         self._pin_btn = QToolButton()
         self._pin_btn.setObjectName("floatWlBarBtn")
-        self._pin_btn.setText("📌")
+        self._pin_btn.setText("PIN")
         self._pin_btn.setToolTip("Toggle always-on-top")
-        self._pin_btn.setFixedSize(20, 20)
+        self._pin_btn.setFixedSize(30, 20)
         self._pin_btn.setProperty("active", True)
         self._pin_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._pin_btn.clicked.connect(self._toggle_pin)
@@ -683,6 +688,26 @@ class FloatingWatchlistDialog(QDialog):
             f"color: {'#00d4a8' if sorted_syms else '#2a3a50'}; background: transparent;"
         )
 
+    @staticmethod
+    def _ui_font(point_size: int = 9, weight: QFont.Weight = QFont.Weight.Normal) -> QFont:
+        """Modern UI font for labels and readable symbol text."""
+        f = QFont(_UI_FONT)
+        f.setStyleHint(QFont.StyleHint.SansSerif)
+        f.setPointSize(point_size)
+        f.setWeight(weight)
+        f.setKerning(True)
+        return f
+
+    @staticmethod
+    def _number_font(point_size: int = 9, weight: QFont.Weight = QFont.Weight.Normal) -> QFont:
+        """Modern UI number font for LTP, volume and percentage values."""
+        f = QFont(_NUM_FONT)
+        f.setStyleHint(QFont.StyleHint.SansSerif)
+        f.setPointSize(point_size)
+        f.setWeight(weight)
+        f.setKerning(True)
+        return f
+
     def _write_row(self, row: int, sym: str, rec: Dict):
         if row >= self.table.rowCount():
             return
@@ -707,14 +732,11 @@ class FloatingWatchlistDialog(QDialog):
         sym_item = self.table.item(row, _COL_SYMBOL)
         if sym_item:
             sym_item.setText(sym)
-            sym_item.setForeground(QColor(_C.T0))
+            sym_item.setForeground(QColor(_C.TSYM))
             sym_item.setTextAlignment(
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
             )
-            f = QFont("Consolas, JetBrains Mono, Courier New")
-            f.setPointSize(9)
-            f.setBold(True)
-            sym_item.setFont(f)
+            sym_item.setFont(self._ui_font(9, QFont.Weight.DemiBold))
 
         # ── LTP ──
         ltp_item = self.table.item(row, _COL_LTP)
@@ -724,9 +746,7 @@ class FloatingWatchlistDialog(QDialog):
             ltp_item.setTextAlignment(
                 Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
             )
-            f = QFont("Consolas, JetBrains Mono, Courier New")
-            f.setPointSize(9)
-            ltp_item.setFont(f)
+            ltp_item.setFont(self._number_font(9, QFont.Weight.Medium))
 
         # ── Volume ──
         vol_item = self.table.item(row, _COL_VOL)
@@ -737,9 +757,7 @@ class FloatingWatchlistDialog(QDialog):
                 Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
             )
             vol_item.setToolTip(f"Volume: {volume:,}")
-            f = QFont("Consolas, JetBrains Mono, Courier New")
-            f.setPointSize(9)
-            vol_item.setFont(f)
+            vol_item.setFont(self._number_font(9, QFont.Weight.Medium))
 
         # ── Chg% ──
         chg_item = self.table.item(row, _COL_CHG)
@@ -749,10 +767,8 @@ class FloatingWatchlistDialog(QDialog):
             )
             chg_item.setForeground(QColor(fg_chg))
             chg_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            f = QFont("Consolas, JetBrains Mono, Courier New")
-            f.setPointSize(9)
-            f.setBold(abs(chg_pct) >= 1.0)
-            chg_item.setFont(f)
+            chg_weight = QFont.Weight.DemiBold if abs(chg_pct) >= 1.0 else QFont.Weight.Medium
+            chg_item.setFont(self._number_font(9, chg_weight))
             if bg_chg:
                 chg_item.setBackground(QBrush(QColor(bg_chg)))
             else:
@@ -770,9 +786,7 @@ class FloatingWatchlistDialog(QDialog):
         item.setForeground(QColor(color))
         item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
         item.setToolTip(_FLAG_TOOLTIP[state])
-        f = QFont("Consolas, JetBrains Mono, Courier New")
-        f.setPointSize(8)
-        item.setFont(f)
+        item.setFont(self._ui_font(8, QFont.Weight.DemiBold))
 
     def _flush_pending_ticks(self):
         if not self._dirty_symbols:
@@ -977,7 +991,7 @@ class FloatingWatchlistDialog(QDialog):
                 background: rgba(0,212,255,0.08);
                 border: 1px solid rgba(0,212,255,0.24);
                 border-radius: 2px;
-                font-family: {_MONO};
+                font-family: {_NUM};
                 font-size: 8px;
                 font-weight: 800;
                 padding: 0 5px;
@@ -1074,7 +1088,7 @@ class FloatingWatchlistDialog(QDialog):
                 outline: none;
                 selection-background-color: {_C.SEL};
                 selection-color: {_C.T0};
-                font-family: {_MONO};
+                font-family: {_NUM};
                 font-size: 11px;
             }}
             QTableWidget#floatWlTable::item {{

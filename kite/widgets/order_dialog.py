@@ -72,9 +72,15 @@ class P:
     BLUE     = "#3b82f6"
     FLASH_UP = "#00d4a8"
     FLASH_DN = "#ff4d6a"
+    SYMBOL   = "#b6c4d6"   # softened symbol text — less distracting than pure white
 
-FONT_MONO = "JetBrains Mono"
-FONT_FALL = "'Segoe UI', Arial, sans-serif"
+# Typography rule:
+# - Use modern UI fonts for interface text and market numbers.
+# - Keep monospace reserved only for raw logs, code, IDs, and technical debug text.
+FONT_UI   = "Inter"
+FONT_NUM  = "Inter"
+FONT_MONO = "Consolas"
+FONT_FALL = "'Segoe UI Variable', 'Segoe UI', Arial, sans-serif"
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  CONSTANTS
@@ -102,7 +108,7 @@ class _Label(QLabel):
         super().__init__(text, parent)
         w = "700" if bold else "500"
         self.setStyleSheet(
-            f"color:{color};font-family:'{FONT_MONO}',{FONT_FALL};"
+            f"color:{color};font-family:'{FONT_UI}',{FONT_FALL};"
             f"font-size:{size}px;font-weight:{w};background:transparent;"
         )
 
@@ -118,16 +124,15 @@ class _SegButton(QPushButton):
 
     def _refresh(self):
         active = self.isChecked()
-        border_c = P.BLUE if active else P.BORDER
+        border_c = P.CYAN if active else P.BORDER
         bg      = P.BG2  if active else P.BG3
         color   = P.T0   if active else P.T2
-        shadow  = f"0 0 6px rgba(76,110,245,0.25);" if active else ""
         self.setStyleSheet(f"""
             QPushButton {{
                 background:{bg}; color:{color};
                 border:1px solid {border_c}; border-radius:2px;
-                font-family:'{FONT_MONO}',{FONT_FALL}; font-size:9px;
-                font-weight:700; letter-spacing:0.5px;
+                font-family:'{FONT_UI}',{FONT_FALL}; font-size:9px;
+                font-weight:800; letter-spacing:0.5px;
                 padding:4px 3px;
             }}
             QPushButton:hover {{ background:{P.BG2}; color:{P.T0}; }}
@@ -192,7 +197,7 @@ class _DropdownField(QWidget):
             QComboBox {{
                 background:{P.BG3}; color:{P.T0};
                 border:1px solid {P.BORDER2}; border-radius:2px;
-                font-family:'{FONT_MONO}',{FONT_FALL};
+                font-family:'{FONT_UI}',{FONT_FALL};
                 font-size:11px; font-weight:700;
                 letter-spacing:0.4px;
                 padding:5px 28px 5px 8px;
@@ -200,10 +205,10 @@ class _DropdownField(QWidget):
             }}
             QComboBox:hover {{
                 background:{P.BG2};
-                border:1px solid {P.BLUE};
+                border:1px solid {P.CYAN};
             }}
             QComboBox:focus {{
-                border:1px solid {P.BLUE};
+                border:1px solid {P.CYAN};
                 background:{P.BG2};
             }}
             QComboBox::drop-down {{
@@ -259,12 +264,12 @@ class _NumInput(QDoubleSpinBox):
             QDoubleSpinBox {{
                 background:{P.BG3}; color:{P.T0};
                 border:1px solid {P.BORDER2}; border-radius:2px;
-                font-family:'{FONT_MONO}',{FONT_FALL};
-                font-size:13px; font-weight:600;
+                font-family:'{FONT_NUM}',{FONT_FALL};
+                font-size:13px; font-weight:650;
                 padding:4px 7px;
             }}
             QDoubleSpinBox:focus {{
-                border:1px solid {P.BLUE};
+                border:1px solid {P.CYAN};
                 background:{P.BG2};
             }}
         """)
@@ -282,12 +287,12 @@ class _IntInput(QSpinBox):
             QSpinBox {{
                 background:{P.BG3}; color:{P.T0};
                 border:1px solid {P.BORDER2}; border-radius:2px;
-                font-family:'{FONT_MONO}',{FONT_FALL};
-                font-size:13px; font-weight:600;
+                font-family:'{FONT_NUM}',{FONT_FALL};
+                font-size:13px; font-weight:650;
                 padding:4px 7px;
             }}
             QSpinBox:focus {{
-                border:1px solid {P.BLUE};
+                border:1px solid {P.CYAN};
                 background:{P.BG2};
             }}
         """)
@@ -310,19 +315,19 @@ class _StepButton(QPushButton):
 
 
 class _SmallBtn(QPushButton):
-    def __init__(self, text, color=P.BLUE, parent=None):
+    def __init__(self, text, color=P.CYAN, parent=None):
         super().__init__(text, parent)
         self.setCursor(QCursor(Qt.PointingHandCursor))
         self.setFixedHeight(28)
         self.setStyleSheet(f"""
             QPushButton {{
-                background:rgba(76,110,245,0.10); color:{color};
+                background:rgba(0,212,255,0.08); color:{color};
                 border:1px solid {color}; border-radius:2px;
-                font-family:'{FONT_MONO}',{FONT_FALL};
-                font-size:9px; font-weight:700; letter-spacing:1px;
+                font-family:'{FONT_UI}',{FONT_FALL};
+                font-size:9px; font-weight:700; letter-spacing:0.8px;
                 padding:0 8px;
             }}
-            QPushButton:hover {{ background:rgba(76,110,245,0.22); }}
+            QPushButton:hover {{ background:rgba(0,212,255,0.16); }}
         """)
 
 
@@ -334,8 +339,8 @@ class _Toggle(QCheckBox):
         self.setStyleSheet(f"""
             QCheckBox {{
                 color:{P.T1}; spacing:6px;
-                font-family:'{FONT_MONO}',{FONT_FALL};
-                font-size:10px; font-weight:800; letter-spacing:1px;
+                font-family:'{FONT_UI}',{FONT_FALL};
+                font-size:10px; font-weight:800; letter-spacing:0.8px;
                 background:transparent;
             }}
             QCheckBox:hover {{ color:{P.T0}; }}
@@ -366,8 +371,8 @@ class _LTPLabel(QLabel):
         self._anim.setDuration(500)
         self._anim.setEasingCurve(QEasingCurve.OutQuad)
         self._base_style = (
-            f"font-family:'{FONT_MONO}',{FONT_FALL};"
-            f"font-size:21px;font-weight:700;background:transparent;"
+            f"font-family:'{FONT_NUM}',{FONT_FALL};"
+            f"font-size:21px;font-weight:750;background:transparent;"
         )
         self._apply_color()
 
@@ -629,7 +634,7 @@ class OrderDialog(QDialog):
         ticket.setObjectName("ticketBadge")
         h.addWidget(ticket)
 
-        self._sym_label = _Label(self.symbol or "—", P.T0, 15, bold=True)
+        self._sym_label = _Label(self.symbol or "—", P.SYMBOL, 15, bold=True)
         self._sym_label.setObjectName("symbolTitle")
         self._sym_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         h.addWidget(self._sym_label)
@@ -709,7 +714,7 @@ class OrderDialog(QDialog):
         qh.setContentsMargins(0, 0, 0, 0)
         qh.addWidget(self._section_label("QUANTITY"))
         qh.addStretch()
-        qh.addWidget(_Label(f"LOT: {self._lot_size}", P.BLUE, 9))
+        qh.addWidget(_Label(f"LOT: {self._lot_size}", P.CYAN, 9))
         qty_block_lay.addWidget(qty_hdr)
 
         qty_row = QHBoxLayout()
@@ -769,8 +774,8 @@ class OrderDialog(QDialog):
         # TRIGGER PRICE
         self._trig_hdr = _Label("TRIGGER PRICE", P.T2, 9, bold=True)
         self._trig_hdr.setStyleSheet(
-            f"color:{P.T2};font-family:'{FONT_MONO}',{FONT_FALL};"
-            f"font-size:9px;font-weight:700;letter-spacing:1.5px;background:transparent;margin-top:2px;"
+            f"color:{P.T2};font-family:'{FONT_UI}',{FONT_FALL};"
+            f"font-size:9px;font-weight:700;letter-spacing:0.8px;background:transparent;margin-top:2px;"
         )
         lay.addWidget(self._trig_hdr)
 
@@ -839,7 +844,7 @@ class OrderDialog(QDialog):
         g.setStyleSheet(
             f"QGroupBox{{color:{P.AMBER};border:1px solid {P.BORDER};"
             f"border-radius:2px;margin-top:6px;padding-top:4px;"
-            f"font-family:'{FONT_MONO}',{FONT_FALL};font-size:9px;font-weight:700;letter-spacing:1px;}}"
+            f"font-family:'{FONT_UI}',{FONT_FALL};font-size:9px;font-weight:800;letter-spacing:0.8px;}}"
             f"QGroupBox::title{{subcontrol-origin:margin;left:8px;padding:0 4px;}}"
         )
         form = QFormLayout(g)
@@ -853,13 +858,13 @@ class OrderDialog(QDialog):
         self._trailing_chk = QCheckBox("Trailing SL")
         self._trailing_chk.setStyleSheet(
             f"QCheckBox{{"
-            f"color:{P.T1};font-family:'{FONT_MONO}',{FONT_FALL};font-size:10px;"
+            f"color:{P.T1};font-family:'{FONT_UI}',{FONT_FALL};font-size:10px;"
             f"spacing:6px;background:transparent;}}"
             f"QCheckBox::indicator{{"
             f"width:14px;height:14px;border-radius:2px;border:1px solid {P.BORDER2};"
             f"background:{P.BG3};}}"
             f"QCheckBox::indicator:checked{{"
-            f"background:{P.BLUE};border:1px solid {P.BLUE};}}"
+            f"background:{P.CYAN};border:1px solid {P.CYAN};}}"
         )
 
         form.addRow(_Label("Target:", P.T1, 10), self._target_spin)
@@ -894,7 +899,7 @@ class OrderDialog(QDialog):
         self._margin_warn.setStyleSheet(
             f"color:{P.SELL};background:rgba(255,77,109,0.07);"
             f"border:1px solid rgba(255,77,109,0.2);border-radius:2px;"
-            f"padding:3px 7px;font-family:'{FONT_MONO}',{FONT_FALL};font-size:10px;"
+            f"padding:3px 7px;font-family:'{FONT_UI}',{FONT_FALL};font-size:10px;"
         )
         self._margin_warn.setVisible(False)
         lay.addWidget(self._margin_warn)
@@ -1056,15 +1061,15 @@ class OrderDialog(QDialog):
             }}
             QLabel#ticketBadge {{
                 color:{P.AMBER};
-                font-family:'{FONT_MONO}',{FONT_FALL};
+                font-family:'{FONT_UI}',{FONT_FALL};
                 font-size:9px;
                 font-weight:800;
-                letter-spacing:1.2px;
+                letter-spacing:0.9px;
                 background:transparent;
             }}
             QLabel#symbolTitle {{
-                color:{P.T0};
-                font-family:'{FONT_MONO}',{FONT_FALL};
+                color:{P.SYMBOL};
+                font-family:'{FONT_UI}',{FONT_FALL};
                 font-size:15px;
                 font-weight:800;
                 letter-spacing:0.4px;
@@ -1076,7 +1081,7 @@ class OrderDialog(QDialog):
                 border:1px solid rgba(0,212,255,0.20);
                 border-radius:2px;
                 padding:2px 6px;
-                font-family:'{FONT_MONO}',{FONT_FALL};
+                font-family:'{FONT_UI}',{FONT_FALL};
                 font-size:9px;
                 font-weight:800;
                 letter-spacing:0.8px;
@@ -1086,7 +1091,7 @@ class OrderDialog(QDialog):
                 color:{P.T2};
                 border:1px solid transparent;
                 border-radius:2px;
-                font-family:'{FONT_MONO}',{FONT_FALL};
+                font-family:'{FONT_UI}',{FONT_FALL};
                 font-size:12px;
                 font-weight:800;
             }}
@@ -1108,8 +1113,8 @@ class OrderDialog(QDialog):
             }}
             QGroupBox {{
                 color:{P.AMBER};
-                font-family:'{FONT_MONO}',{FONT_FALL};
-                font-size:9px; font-weight:800; letter-spacing:1px;
+                font-family:'{FONT_UI}',{FONT_FALL};
+                font-size:9px; font-weight:800; letter-spacing:0.8px;
                 border:1px solid {P.BORDER}; border-radius:2px;
                 margin-top:6px; padding-top:6px;
                 background:{P.BG1};
@@ -1136,7 +1141,7 @@ class OrderDialog(QDialog):
     def _section_label(self, text: str) -> QLabel:
         lbl = _Label(text, P.T2, 9, bold=True)
         lbl.setStyleSheet(
-            f"color:{P.T2};font-family:'{FONT_MONO}',{FONT_FALL};"
+            f"color:{P.T2};font-family:'{FONT_UI}',{FONT_FALL};"
             f"font-size:9px;font-weight:700;letter-spacing:0.5px;background:transparent;margin-top:2px;"
         )
         return lbl
@@ -1146,14 +1151,14 @@ class OrderDialog(QDialog):
         if not active:
             return (
                 f"QPushButton{{background:{P.BG3};color:{P.T1};"
-                f"border:1px solid {P.BORDER2};border-radius:2px;font-family:'{FONT_MONO}',{FONT_FALL};"
+                f"border:1px solid {P.BORDER2};border-radius:2px;font-family:'{FONT_UI}',{FONT_FALL};"
                 f"font-size:12px;font-weight:800;letter-spacing:0.6px;padding:0 8px;}}"
                 f"QPushButton:hover{{background:{P.BG4};color:{P.T0};border-color:{color};}}"
             )
         text_color = "#04110d" if side == "BUY" else "#ffffff"
         return (
             f"QPushButton{{background:{color};color:{text_color};"
-            f"border:1px solid {color};border-radius:2px;font-family:'{FONT_MONO}',{FONT_FALL};"
+            f"border:1px solid {color};border-radius:2px;font-family:'{FONT_UI}',{FONT_FALL};"
             f"font-size:12px;font-weight:900;letter-spacing:0.8px;padding:0 8px;}}"
             f"QPushButton:hover{{border:1px solid {P.T0};}}"
         )
@@ -1170,7 +1175,7 @@ class OrderDialog(QDialog):
                 color:{text_color};
                 border:1px solid {border_color};
                 border-radius:2px;
-                font-family:'{FONT_MONO}',{FONT_FALL};
+                font-family:'{FONT_UI}',{FONT_FALL};
                 font-size:12px;
                 font-weight:{label_weight};
                 letter-spacing:0.7px;
@@ -1330,15 +1335,18 @@ class OrderDialog(QDialog):
 
         self._ov_val.setText(f"₹{order_val:,.2f}")
         self._mreq_val.setText(f"₹{margin_req:,.2f}")
+        self._ov_val.setStyleSheet(
+            f"color:{P.T0};font-family:'{FONT_NUM}',{FONT_FALL};font-size:12px;font-weight:750;background:transparent;"
+        )
         self._mreq_val.setStyleSheet(
-            f"color:{P.T0 if margin_ok else P.SELL};font-family:'{FONT_MONO}',{FONT_FALL};font-size:12px;font-weight:700;background:transparent;"
+            f"color:{P.T0 if margin_ok else P.SELL};font-family:'{FONT_NUM}',{FONT_FALL};font-size:12px;font-weight:750;background:transparent;"
         )
 
         if self._avail_margin > 0:
             avail_c = P.BUY if margin_ok else P.SELL
             self._mavail_val.setText(f"₹{self._avail_margin:,.2f}")
             self._mavail_val.setStyleSheet(
-                f"color:{avail_c};font-family:'{FONT_MONO}',{FONT_FALL};font-size:12px;font-weight:700;background:transparent;"
+                f"color:{avail_c};font-family:'{FONT_NUM}',{FONT_FALL};font-size:12px;font-weight:750;background:transparent;"
             )
             if not margin_ok:
                 shortfall = margin_req - self._avail_margin
@@ -1453,14 +1461,14 @@ class OrderDialog(QDialog):
             self._ofi_val.setText(f"{'+' if ofi_pos else ''}{ofi:.1f}%")
             self._ofi_val.setStyleSheet(
                 f"color:{P.BUY if ofi_pos else P.SELL};"
-                f"font-family:'{FONT_MONO}',{FONT_FALL};"
-                f"font-size:15px;font-weight:700;background:transparent;"
+                f"font-family:'{FONT_NUM}',{FONT_FALL};"
+                f"font-size:15px;font-weight:750;background:transparent;"
             )
             strength = "STRONG" if abs(ofi) > 15 else "MODERATE" if abs(ofi) > 5 else "NEUTRAL"
             flow_col = P.BUY if ofi_pos else P.SELL
             self._ofi_desc.setText(f"{strength} {'BUY' if ofi_pos else 'SELL'} FLOW")
             self._ofi_desc.setStyleSheet(
-                f"color:{flow_col};font-family:'{FONT_MONO}',{FONT_FALL};"
+                f"color:{flow_col};font-family:'{FONT_UI}',{FONT_FALL};"
                 f"font-size:10px;background:transparent;"
             )
             self._ofi_ratio.setText(f"{bid_pct*100:.1f}% bid · {(1-bid_pct)*100:.1f}% ask")

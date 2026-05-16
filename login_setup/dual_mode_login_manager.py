@@ -73,8 +73,9 @@ class UI:
     BLUE = "#3b82f6"     # neutral accent
 
     SELECTION = "#1a2840"
-    MONO = "'Consolas', 'JetBrains Mono', monospace"
-    SANS = "'Inter', 'Segoe UI', sans-serif"
+    SANS = "'Inter', 'Segoe UI Variable', 'Segoe UI', sans-serif"
+    NUM = "'Inter', 'Segoe UI Variable', 'Segoe UI', sans-serif"
+    MONO = "'Consolas', 'JetBrains Mono', monospace"  # only for raw logs, IDs, technical debug text
 
 
 def _resolve_callback_ports() -> List[int]:
@@ -1022,10 +1023,10 @@ class DualModeLoginManager(QDialog):
 
             #dialogTitle {{
                 color: {UI.TEXT0};
-                font-family: {UI.MONO};
+                font-family: {UI.SANS};
                 font-size: 10px;
                 font-weight: 800;
-                letter-spacing: 1.4px;
+                letter-spacing: 1.0px;
                 background: transparent;
             }}
 
@@ -1035,7 +1036,7 @@ class DualModeLoginManager(QDialog):
                 border: 1px solid rgba(0, 212, 255, 0.20);
                 border-radius: 2px;
                 padding: 2px 6px;
-                font-family: {UI.MONO};
+                font-family: {UI.SANS};
                 font-size: 8px;
                 font-weight: 800;
                 letter-spacing: 1px;
@@ -1063,10 +1064,10 @@ class DualModeLoginManager(QDialog):
             #pageTitle,
             #brokerPageTitle {{
                 color: {UI.TEXT0};
-                font-family: {UI.MONO};
-                font-size: 13px;
+                font-family: {UI.SANS};
+                font-size: 14px;
                 font-weight: 800;
-                letter-spacing: 1.6px;
+                letter-spacing: 0.8px;
                 background: transparent;
             }}
 
@@ -1075,10 +1076,10 @@ class DualModeLoginManager(QDialog):
             #fieldLabel,
             #separatorLabel {{
                 color: {UI.TEXT2};
-                font-family: {UI.MONO};
+                font-family: {UI.SANS};
                 font-size: 9px;
                 font-weight: 800;
-                letter-spacing: 1.2px;
+                letter-spacing: 0.9px;
                 background: transparent;
             }}
 
@@ -1129,10 +1130,10 @@ class DualModeLoginManager(QDialog):
                 border: 1px solid rgba(245, 158, 11, 0.22);
                 border-radius: 2px;
                 padding: 3px 8px;
-                font-family: {UI.MONO};
+                font-family: {UI.SANS};
                 font-size: 9px;
                 font-weight: 800;
-                letter-spacing: 1.2px;
+                letter-spacing: 0.9px;
                 min-width: 70px;
             }}
 
@@ -1161,7 +1162,7 @@ class DualModeLoginManager(QDialog):
                 color: {UI.TEXT0};
                 selection-background-color: {UI.SELECTION};
                 selection-color: {UI.TEXT0};
-                font-family: {UI.MONO};
+                font-family: {UI.NUM};
                 font-size: 11px;
                 font-weight: 650;
                 min-height: 18px;
@@ -1216,7 +1217,7 @@ class DualModeLoginManager(QDialog):
                 border: 1px solid rgba(0, 212, 168, 0.36);
                 border-radius: 2px;
                 padding: 5px 14px;
-                font-family: {UI.MONO};
+                font-family: {UI.SANS};
                 font-size: 10px;
                 font-weight: 800;
                 letter-spacing: 0.7px;
@@ -1245,7 +1246,7 @@ class DualModeLoginManager(QDialog):
                 border: 1px solid {UI.BG5};
                 border-radius: 2px;
                 padding: 5px 14px;
-                font-family: {UI.MONO};
+                font-family: {UI.SANS};
                 font-size: 10px;
                 font-weight: 800;
                 letter-spacing: 0.7px;
@@ -1324,7 +1325,7 @@ class DualModeLoginManager(QDialog):
                 color: {UI.TEXT1};
                 selection-background-color: {UI.SELECTION};
                 font-family: {UI.MONO};
-                font-size: 11px;
+                font-size: 10px;
                 font-weight: 600;
                 padding: 7px;
             }}

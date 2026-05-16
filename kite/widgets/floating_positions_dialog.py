@@ -4,8 +4,9 @@ FloatingPositionsDialog — compact institutional dark positions monitor.
 
 Design language:
   • Matte dark trading-terminal shell with layered panels and 1 px separators
-  • Compact table-first layout with 22 px rows and muted uppercase headers
-  • Monospace numerics for stable price / quantity / P&L columns
+  • Compact table-first layout with 21 px rows and muted uppercase headers
+  • Modern UI number typography for price / quantity / P&L columns
+  • Monospace reserved only for raw logs, IDs, code, and debug text
   • Purposeful color semantics: green profit/buy, red loss/sell, amber warning/SL,
     cyan utility/pinned/live state, muted blue-gray labels
   • Frameless, draggable, always-on-top with pin toggle and minimal controls
@@ -79,6 +80,7 @@ class _C:
 
     # Text
     T0       = "#e8f0ff"
+    SYMBOL   = "#b6c4d6"   # softened symbol column text
     T1       = "#a8bcd4"
     T2       = "#5a7090"
     T3       = "#2a3a50"
@@ -92,8 +94,10 @@ class _C:
     FLASH_UP = "#103d32"
     FLASH_DN = "#42111c"
 
-_MONO = "\"Consolas\", \"JetBrains Mono\", \"Courier New\", monospace"
-_SANS = "\"-apple-system\", \"Segoe UI\", Roboto, sans-serif"
+_MONO = "\"Consolas\", \"JetBrains Mono\", \"Courier New\", monospace"  # technical/debug only
+_SANS = "\"Inter\", \"Segoe UI\", -apple-system, Roboto, sans-serif"
+_NUM = "\"Inter\", \"Segoe UI Variable\", \"Segoe UI\", -apple-system, Roboto, sans-serif"
+_NUM_FONT = "Inter"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -113,7 +117,7 @@ _COL_IDX = {name: i for i, (name, *_) in enumerate(_COLS)}
 
 _FLASH_DURATION = 400   # ms
 _REDRAW_INTERVAL = 200  # ms  (~5 fps — human-readable)
-_ROW_HEIGHT = 22
+_ROW_HEIGHT = 21
 
 
 _FLOATING_POS_STATE_KEY = "floating_positions_dialog"
@@ -688,7 +692,7 @@ class FloatingPositionsDialog(QDialog):
 
         sl_text, sl_color = self._get_sl_display(pos)
         values = [
-            (pos.symbol,                                       _C.T0,   True),
+            (pos.symbol,                                       _C.SYMBOL, True),
             (f"{qty_sign}{abs(pos.quantity)}",                 qty_col, False),
             (f"{pos.avg_price:,.2f}",                          _C.T1,   False),
             (f"{pos.ltp:,.2f}" if pos.ltp > 0 else "—",       _C.T0,   False),
@@ -709,9 +713,18 @@ class FloatingPositionsDialog(QDialog):
             item.setBackground(QBrush(row_bg))
             item.setTextAlignment(align_map[col])
 
-            font = QFont("Consolas, JetBrains Mono, Courier New")
-            font.setPointSize(8)
-            font.setBold(bold)
+            # Modern UI typography for all visible text/numbers; monospace is
+            # reserved for raw logs, IDs, code, and debug text only.
+            font = QFont(_NUM_FONT)
+            font.setStyleHint(QFont.StyleHint.SansSerif)
+            font.setPointSize(8 if col == _COL_IDX["Symbol"] else 9)
+            if col == _COL_IDX["Symbol"]:
+                font.setWeight(QFont.Weight.DemiBold)
+            elif bold:
+                font.setWeight(QFont.Weight.DemiBold)
+            else:
+                font.setWeight(QFont.Weight.Medium)
+            font.setKerning(True)
             item.setFont(font)
 
     # ═══════════════════════════════════════════════════════════════════════
@@ -764,7 +777,7 @@ class FloatingPositionsDialog(QDialog):
 
         self._total_pnl_lbl.setText(f"{sign}{total_pnl:,.0f}")
         self._total_pnl_lbl.setStyleSheet(
-            f"color: {pnl_col}; font-family: {_MONO}; font-size: 12px;"
+            f"color: {pnl_col}; font-family: {_NUM}; font-size: 12px;"
             f" font-weight: 700; background: transparent;"
         )
         self._exposure_lbl.setText(f"₹{exposure:,.0f}")
@@ -962,7 +975,7 @@ class FloatingPositionsDialog(QDialog):
             QLabel#dotIndicator {{
                 color: {_C.BULL};
                 background: transparent;
-                font-family: {_MONO};
+                font-family: {_SANS};
                 font-size: 8px;
                 font-weight: 900;
             }}
@@ -979,7 +992,7 @@ class FloatingPositionsDialog(QDialog):
                 background: rgba(255,255,255,0.03);
                 border: 1px solid {_C.BORDER};
                 border-radius: 2px;
-                font-family: {_MONO};
+                font-family: {_NUM};
                 font-size: 9px;
                 font-weight: 800;
                 padding: 0 5px;
@@ -1033,7 +1046,7 @@ class FloatingPositionsDialog(QDialog):
                 outline: none;
                 selection-background-color: {_C.SELECT};
                 selection-color: {_C.T0};
-                font-family: {_MONO};
+                font-family: {_NUM};
                 font-size: 11px;
                 color: {_C.T0};
             }}
@@ -1077,7 +1090,7 @@ class FloatingPositionsDialog(QDialog):
             }}
             QLabel[objectName^="footerVal"] {{
                 color: {_C.T1};
-                font-family: {_MONO};
+                font-family: {_NUM};
                 font-size: 10px;
                 font-weight: 800;
                 background: transparent;

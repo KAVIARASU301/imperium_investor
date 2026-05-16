@@ -48,32 +48,36 @@ logger = logging.getLogger(__name__)
 # Visual system: dark, sharp, solid, trading-desk style.
 # -----------------------------------------------------------------------------
 
-_BG_APP = "#07090d"
-_BG_PANEL = "#0b0f14"
-_BG_PANEL_ALT = "#10151d"
-_BG_HEADER = "#0a0d12"
-_BG_ROW = "#0e131a"
-_BG_ROW_ALT = "#111822"
-_BG_HOVER = "#17202b"
-_BG_SELECTED = "#192638"
-_BORDER_DARK = "#1b2430"
-_BORDER_LIGHT = "#263242"
+_BG_APP = "#050709"
+_BG_PANEL = "#0a0d12"
+_BG_PANEL_ALT = "#0f1318"
+_BG_HEADER = "#070a0f"
+_BG_ROW = "#0a0d12"
+_BG_ROW_ALT = "#0f1318"
+_BG_HOVER = "#141920"
+_BG_SELECTED = "#1a2840"
+_BORDER_DARK = "#1a2030"
+_BORDER_LIGHT = "#243040"
 
-_TEXT_STRONG = "#edf4ff"
-_TEXT = "#b7c4d4"
-_TEXT_MUTED = "#75869b"
-_TEXT_FAINT = "#46576d"
+_TEXT_STRONG = "#d8e4f0"
+_SYMBOL_TEXT = "#b6c4d6"
+_TEXT = "#a8bcd4"
+_TEXT_MUTED = "#5a7090"
+_TEXT_FAINT = "#2a3a50"
 
-_ACCENT = "#f4b740"
-_GREEN = "#18d6a3"
-_RED = "#ff5c7a"
-_BLUE = "#6aa8ff"
-_CYAN = "#40d9ff"
+_ACCENT = "#f59e0b"
+_GREEN = "#00d4a8"
+_RED = "#ff4d6a"
+_BLUE = "#3b82f6"
+_CYAN = "#00d4ff"
 
-_MONO_FAMILY = "Consolas"
+_MONO_FAMILY = "Consolas"  # reserved for raw logs, IDs, code/debug text only
 _SANS = "'Inter', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif"
+_NUM = "'Inter', 'Segoe UI Variable', 'Segoe UI', sans-serif"
+_NUM_FONT = "Inter"
+_UI_FONT = "Segoe UI"
 
-_ROW_H = 30
+_ROW_H = 24
 _DEFAULT_W = 860
 _DEFAULT_H = 520
 _MIN_W = 620
@@ -190,7 +194,7 @@ def _action_button(text: str, color: str, tooltip: str, callback: Callable[[], N
             background: {color}14;
             color: {color};
             border: 1px solid {color}55;
-            border-radius: 0px;
+            border-radius: 2px;
             padding: 1px 8px;
             font-family: {_SANS};
             font-size: 9px;
@@ -200,7 +204,7 @@ def _action_button(text: str, color: str, tooltip: str, callback: Callable[[], N
         QToolButton:hover {{
             background: {color}26;
             border-color: {color};
-            color: #ffffff;
+            color: {_TEXT_STRONG};
         }}
         QToolButton:pressed {{
             background: {color}40;
@@ -318,7 +322,7 @@ class AlertManagementDialog(QDialog):
     def _build_title_bar(self) -> QFrame:
         bar = QFrame()
         bar.setObjectName("alertTitleBar")
-        bar.setFixedHeight(42)
+        bar.setFixedHeight(34)
         bar.setCursor(QCursor(Qt.CursorShape.SizeAllCursor))
 
         layout = QHBoxLayout(bar)
@@ -363,7 +367,7 @@ class AlertManagementDialog(QDialog):
     def _build_summary_bar(self) -> QFrame:
         strip = QFrame()
         strip.setObjectName("summaryStrip")
-        strip.setFixedHeight(44)
+        strip.setFixedHeight(34)
 
         layout = QHBoxLayout(strip)
         layout.setContentsMargins(10, 6, 10, 6)
@@ -386,7 +390,7 @@ class AlertManagementDialog(QDialog):
     def _build_footer(self) -> QFrame:
         footer = QFrame()
         footer.setObjectName("alertFooter")
-        footer.setFixedHeight(32)
+        footer.setFixedHeight(26)
 
         layout = QHBoxLayout(footer)
         layout.setContentsMargins(10, 0, 18, 0)
@@ -410,7 +414,7 @@ class AlertManagementDialog(QDialog):
         button.setToolTip(tooltip)
         button.setObjectName("alertCloseBtn" if close else "alertTitleBtn")
         button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        button.setFixedSize(34 if text == "PIN" else 28, 26)
+        button.setFixedSize(32 if text == "PIN" else 26, 22)
         return button
 
     def _make_table(self, headers: List[str]) -> QTableWidget:
@@ -435,7 +439,7 @@ class AlertManagementDialog(QDialog):
         header = table.horizontalHeader()
         header.setHighlightSections(False)
         header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        header.setMinimumHeight(28)
+        header.setMinimumHeight(23)
         header.setStretchLastSection(False)
 
         for index, name in enumerate(headers):
@@ -655,7 +659,7 @@ class AlertManagementDialog(QDialog):
             table.setUpdatesEnabled(True)
 
     def _apply_active_row(self, table: QTableWidget, row: int, alert: object) -> None:
-        symbol_item = self._cell(self._symbol(alert), color=_TEXT_STRONG, bold=True)
+        symbol_item = self._cell(self._symbol(alert), color=_SYMBOL_TEXT, bold=True)
         symbol_item.setData(Qt.ItemDataRole.UserRole, str(getattr(alert, "id", "")))
         table.setItem(row, 0, symbol_item)
         table.setItem(row, 1, self._cell(self._condition(alert), color=_TEXT))
@@ -672,7 +676,7 @@ class AlertManagementDialog(QDialog):
         table.setCellWidget(row, 5, _ActionCell(delete_button))
 
     def _apply_triggered_row(self, table: QTableWidget, row: int, alert: object) -> None:
-        symbol_item = self._cell(self._symbol(alert), color=_ACCENT, bold=True)
+        symbol_item = self._cell(self._symbol(alert), color=_SYMBOL_TEXT, bold=True)
         symbol_item.setData(Qt.ItemDataRole.UserRole, str(getattr(alert, "id", "")))
         table.setItem(row, 0, symbol_item)
         table.setItem(row, 1, self._cell(self._condition(alert), color=_TEXT))
@@ -698,7 +702,7 @@ class AlertManagementDialog(QDialog):
         status = self._alert_status(alert)
         status_color = _GREEN if status == AlertStatus.TRIGGERED.value else _TEXT_FAINT
 
-        symbol_item = self._cell(self._symbol(alert), color=_TEXT)
+        symbol_item = self._cell(self._symbol(alert), color=_SYMBOL_TEXT)
         symbol_item.setData(Qt.ItemDataRole.UserRole, str(getattr(alert, "id", "")))
         table.setItem(row, 0, symbol_item)
         table.setItem(row, 1, self._cell(self._condition(alert), color=_TEXT_MUTED))
@@ -743,8 +747,13 @@ class AlertManagementDialog(QDialog):
         item = QTableWidgetItem(str(text))
         item.setForeground(QBrush(QColor(color)))
         item.setTextAlignment(align | Qt.AlignmentFlag.AlignVCenter)
-        font = QFont(_MONO_FAMILY if mono else "Segoe UI", 9)
-        font.setBold(bold)
+
+        # Latest consistency rule: market numbers, timestamps, prices and UI text
+        # use modern UI typography. Monospace is reserved only for raw logs/code/IDs.
+        font = QFont(_NUM_FONT if mono else _UI_FONT, 9)
+        font.setStyleHint(QFont.StyleHint.SansSerif)
+        font.setWeight(QFont.Weight.DemiBold if bold else QFont.Weight.Medium)
+        font.setKerning(True)
         item.setFont(font)
         return item
 
@@ -941,8 +950,8 @@ class AlertManagementDialog(QDialog):
 
         QFrame#alertShell {{
             background: {_BG_PANEL};
-            border: 1px solid {_BORDER_LIGHT};
-            border-radius: 0px;
+            border: 1px solid {_BORDER_DARK};
+            border-radius: 2px;
         }}
 
         QFrame#alertTitleBar {{
@@ -951,20 +960,20 @@ class AlertManagementDialog(QDialog):
         }}
 
         QLabel#dialogTitle {{
-            color: {_TEXT_STRONG};
+            color: {_ACCENT};
             font-family: {_SANS};
-            font-size: 13px;
+            font-size: 11px;
             font-weight: 900;
-            letter-spacing: 1.4px;
+            letter-spacing: 1.2px;
             background: transparent;
         }}
 
         QLabel#dialogSubtitle {{
-            color: {_TEXT_FAINT};
+            color: {_TEXT_MUTED};
             font-family: {_SANS};
             font-size: 9px;
             font-weight: 700;
-            letter-spacing: 0.4px;
+            letter-spacing: 0.3px;
             background: transparent;
         }}
 
@@ -972,9 +981,9 @@ class AlertManagementDialog(QDialog):
             background: {_BG_PANEL_ALT};
             color: {_TEXT_MUTED};
             border: 1px solid {_BORDER_DARK};
-            border-radius: 0px;
+            border-radius: 2px;
             font-family: {_SANS};
-            font-size: 10px;
+            font-size: 9px;
             font-weight: 900;
         }}
 
@@ -985,25 +994,25 @@ class AlertManagementDialog(QDialog):
         }}
 
         QToolButton#alertTitleBtn:checked {{
-            color: {_ACCENT};
-            border-color: {_ACCENT};
-            background: {_ACCENT}14;
+            color: {_CYAN};
+            border-color: rgba(0,212,255,0.35);
+            background: rgba(0,212,255,0.08);
         }}
 
         QToolButton#alertCloseBtn {{
             background: transparent;
             color: {_TEXT_MUTED};
             border: 1px solid transparent;
-            border-radius: 0px;
+            border-radius: 2px;
             font-family: {_SANS};
-            font-size: 12px;
+            font-size: 11px;
             font-weight: 900;
         }}
 
         QToolButton#alertCloseBtn:hover {{
-            background: {_RED}20;
+            background: rgba(255,77,106,0.15);
             color: {_RED};
-            border-color: {_RED}66;
+            border-color: rgba(255,77,106,0.35);
         }}
 
         QFrame#summaryStrip {{
@@ -1014,21 +1023,21 @@ class AlertManagementDialog(QDialog):
         QFrame#metricChip {{
             background: {_BG_PANEL_ALT};
             border: 1px solid {_BORDER_DARK};
-            border-radius: 0px;
+            border-radius: 2px;
         }}
 
         QLabel#metricLabel {{
-            color: {_TEXT_FAINT};
+            color: {_TEXT_MUTED};
             font-family: {_SANS};
-            font-size: 9px;
+            font-size: 8px;
             font-weight: 900;
             letter-spacing: 0.9px;
             background: transparent;
         }}
 
         QLabel#metricValue {{
-            font-family: {_MONO_FAMILY};
-            font-size: 13px;
+            font-family: {_NUM};
+            font-size: 12px;
             font-weight: 900;
             background: transparent;
         }}
@@ -1036,7 +1045,7 @@ class AlertManagementDialog(QDialog):
         QLabel#marketHint {{
             color: {_TEXT_FAINT};
             font-family: {_SANS};
-            font-size: 10px;
+            font-size: 9px;
             font-weight: 700;
             background: transparent;
         }}
@@ -1061,13 +1070,13 @@ class AlertManagementDialog(QDialog):
             color: {_TEXT_MUTED};
             border: 1px solid {_BORDER_DARK};
             border-bottom: none;
-            min-height: 25px;
-            padding: 0px 16px;
+            min-height: 23px;
+            padding: 0px 14px;
             margin-right: 2px;
             font-family: {_SANS};
-            font-size: 10px;
+            font-size: 9px;
             font-weight: 900;
-            letter-spacing: 0.9px;
+            letter-spacing: 0.8px;
         }}
 
         QTabBar::tab:selected {{
@@ -1093,12 +1102,14 @@ class AlertManagementDialog(QDialog):
             selection-color: {_TEXT_STRONG};
             font-family: {_SANS};
             font-size: 11px;
+            show-decoration-selected: 0;
         }}
 
         QTableWidget#alertTable::item {{
-            padding-left: 8px;
-            padding-right: 8px;
-            border-bottom: 1px solid {_BORDER_DARK};
+            padding-left: 6px;
+            padding-right: 6px;
+            border-bottom: 1px solid {_BG_HOVER};
+            background: transparent;
         }}
 
         QTableWidget#alertTable::item:selected {{
@@ -1111,17 +1122,28 @@ class AlertManagementDialog(QDialog):
         }}
 
         QHeaderView::section {{
-            background: {_BG_HEADER};
-            color: {_TEXT_FAINT};
+            background: {_BG_PANEL_ALT};
+            color: {_TEXT_MUTED};
             border: none;
-            border-bottom: 1px solid {_BORDER_LIGHT};
-            padding-left: 8px;
-            padding-right: 8px;
-            min-height: 28px;
+            border-bottom: 1px solid {_BORDER_DARK};
+            padding-left: 6px;
+            padding-right: 6px;
+            min-height: 23px;
+            max-height: 23px;
             font-family: {_SANS};
-            font-size: 9px;
+            font-size: 8px;
             font-weight: 900;
-            letter-spacing: 1.2px;
+            letter-spacing: 1px;
+        }}
+
+        QHeaderView::section:hover {{
+            background: {_BG_HOVER};
+            color: {_TEXT};
+        }}
+
+        QHeaderView {{
+            background: {_BG_PANEL_ALT};
+            border: none;
         }}
 
         QFrame#alertFooter {{
@@ -1132,7 +1154,7 @@ class AlertManagementDialog(QDialog):
         QLabel#alertStatusLbl {{
             color: {_TEXT_MUTED};
             font-family: {_SANS};
-            font-size: 10px;
+            font-size: 9px;
             font-weight: 800;
             background: transparent;
         }}
@@ -1146,50 +1168,45 @@ class AlertManagementDialog(QDialog):
         }}
 
         QScrollBar:vertical {{
-            background: {_BG_PANEL};
-            width: 8px;
+            background: transparent;
+            width: 4px;
             border: none;
+            margin: 0;
         }}
 
         QScrollBar::handle:vertical {{
             background: {_BORDER_LIGHT};
-            min-height: 24px;
-            border: 2px solid {_BG_PANEL};
-            border-radius: 0px;
+            min-height: 18px;
+            border-radius: 2px;
         }}
 
         QScrollBar::handle:vertical:hover {{
-            background: {_TEXT_FAINT};
-        }}
-
-        QScrollBar::add-line:vertical,
-        QScrollBar::sub-line:vertical {{
-            height: 0px;
-            border: none;
-            background: transparent;
+            background: {_TEXT_MUTED};
         }}
 
         QScrollBar:horizontal {{
-            background: {_BG_PANEL};
-            height: 8px;
+            background: transparent;
+            height: 4px;
             border: none;
+            margin: 0;
         }}
 
         QScrollBar::handle:horizontal {{
             background: {_BORDER_LIGHT};
-            min-width: 24px;
-            border: 2px solid {_BG_PANEL};
-            border-radius: 0px;
+            min-width: 18px;
+            border-radius: 2px;
         }}
 
         QScrollBar::handle:horizontal:hover {{
-            background: {_TEXT_FAINT};
+            background: {_TEXT_MUTED};
         }}
 
-        QScrollBar::add-line:horizontal,
-        QScrollBar::sub-line:horizontal {{
-            width: 0px;
+        QScrollBar::add-line,
+        QScrollBar::sub-line {{
             border: none;
-            background: transparent;
+            background: none;
+            width: 0;
+            height: 0;
+            margin: 0;
         }}
         """)
