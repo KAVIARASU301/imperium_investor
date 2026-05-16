@@ -573,6 +573,7 @@ class FixedTradingChart {
             } else {
                 this._drawCandlesticks();
             }
+            this._drawMovingAverages();
             this._drawAxes();
             this.drawingEngine.render();
             this._drawMeasureOverlay();
@@ -852,6 +853,59 @@ class FixedTradingChart {
                     ctx.stroke();
                 }
             }
+        }
+    }
+
+    _drawMovingAverages() {
+        if (!Array.isArray(this.movingAverageConfigs) || this.movingAverageConfigs.length === 0) return;
+        if (!this.emaData || Object.keys(this.emaData).length === 0) return;
+        if (!Array.isArray(this.data) || this.data.length === 0) return;
+
+        const start = Math.max(0, this.viewPortStart);
+        const end = Math.min(this.data.length - 1, this.viewPortEnd);
+        const firstTime = this.data[start]?.time;
+        const lastTime = this.data[end]?.time;
+        if (!Number.isFinite(firstTime) || !Number.isFinite(lastTime)) return;
+
+        const ctx = this.ctx;
+        for (const cfg of this.movingAverageConfigs) {
+            const key = String(cfg?.id || '');
+            if (!key || this.indicatorVisibility?.[key] !== true) continue;
+
+            const points = this.emaData[key];
+            if (!Array.isArray(points) || points.length === 0) continue;
+
+            const thickness = Math.max(0.5, Number(cfg?.thickness) || 1.2);
+            const style = String(cfg?.line_style || 'solid');
+            const dash = style === 'dashed' ? [8, 4] : (style === 'dotted' ? [2, 4] : []);
+
+            ctx.save();
+            ctx.strokeStyle = cfg?.color || '#2962ff';
+            ctx.lineWidth = thickness;
+            ctx.setLineDash(dash);
+            ctx.beginPath();
+
+            let started = false;
+            for (const p of points) {
+                const t = Number(p?.time);
+                const v = Number(p?.value);
+                if (!Number.isFinite(t) || !Number.isFinite(v)) continue;
+                if (t < firstTime || t > lastTime) continue;
+
+                const x = this._timeToX(t);
+                const y = this._priceToY(v);
+                if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+
+                if (!started) {
+                    ctx.moveTo(x, y);
+                    started = true;
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+
+            if (started) ctx.stroke();
+            ctx.restore();
         }
     }
 
