@@ -177,9 +177,14 @@ class HeaderToolbar(QToolBar):
         alert_layout.setContentsMargins(0, 0, 0, 0)
         alert_layout.setSpacing(4)
 
-        self.alerts_button = QPushButton("ALERTS")
+        self.alerts_button = QPushButton(" ALERTS")
         self.alerts_button.setObjectName("alertActionButton")
+        self.alerts_button.setIconSize(QSize(14, 14))
+        alert_icon_path = get_asset_path("icons", "alert.svg", required=True)
+        if alert_icon_path is not None:
+            self.alerts_button.setIcon(QIcon(str(alert_icon_path)))
         self.alerts_button.clicked.connect(self.alert_manager_requested.emit)
+        self.alerts_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.alerts_button.setFixedSize(64, 20)
         alert_layout.addWidget(self.alerts_button)
 
@@ -601,10 +606,27 @@ class HeaderToolbar(QToolBar):
                 font-size: 9px;
                 font-weight: 500;
             }
+            #alertActionButton {
+                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 rgba(255, 173, 51, 0.18), stop:1 rgba(255, 92, 92, 0.12));
+                color: #ffe0b5;
+                border: 1px solid #85541f;
+                padding: 3px 8px;
+                font-weight: 700;
+            }
             #alertActionButton:hover, #tradingActionButton:hover {
                 background-color: #232323;
                 border: 1px solid #575757;
                 color: #ffffff;
+            }
+            #alertActionButton:hover {
+                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 rgba(255, 189, 89, 0.26), stop:1 rgba(255, 108, 108, 0.20));
+                border: 1px solid #aa6b25;
+            }
+            #alertActionButton:pressed {
+                background-color: rgba(255, 154, 61, 0.20);
+                border: 1px solid #c67d2b;
             }
             #accountInfoWidget {
                 background-color: rgba(255, 255, 255, 0.03);

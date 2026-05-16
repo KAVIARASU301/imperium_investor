@@ -195,9 +195,14 @@ class HeaderToolbar(QToolBar):
         alert_layout.setContentsMargins(0, 0, 0, 0)
         alert_layout.setSpacing(2)
 
-        self.alerts_button = QPushButton("ALERTS")
+        self.alerts_button = QPushButton(" ALERTS")
         self.alerts_button.setObjectName("alertActionButton")
+        self.alerts_button.setIconSize(QSize(14, 14))
+        alert_icon_path = get_asset_path("icons", "alert.svg", required=True)
+        if alert_icon_path is not None:
+            self.alerts_button.setIcon(QIcon(str(alert_icon_path)))
         self.alerts_button.clicked.connect(self.alert_manager_requested.emit)
+        self.alerts_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.alerts_button.setFixedSize(54, 22)
         alert_layout.addWidget(self.alerts_button)
 
@@ -533,18 +538,26 @@ class HeaderToolbar(QToolBar):
                 border: none;
             }
             #alertActionButton {
-                background-color: transparent;
-                color: #7b8496;
-                border: 1px solid #222630;
-                border-radius: 2px;
+                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 rgba(255, 173, 51, 0.14), stop:1 rgba(255, 92, 92, 0.10));
+                color: #ffdca8;
+                border: 1px solid #7a4d1a;
+                border-radius: 3px;
+                padding: 2px 8px;
                 font-size: 10px;
-                font-weight: 600;
-                letter-spacing: 0.5px;
+                font-weight: 700;
+                letter-spacing: 0.6px;
+                text-align: left;
             }
             #alertActionButton:hover {
-                background-color: #1F232D;
-                color: #ffffff;
-                border: 1px solid #404040;
+                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 rgba(255, 189, 89, 0.22), stop:1 rgba(255, 108, 108, 0.18));
+                color: #fff2dd;
+                border: 1px solid #a86923;
+            }
+            #alertActionButton:pressed {
+                background-color: rgba(255, 154, 61, 0.20);
+                border: 1px solid #c67d2b;
             }
             #notificationBadge {
                 background-color: #E53935;

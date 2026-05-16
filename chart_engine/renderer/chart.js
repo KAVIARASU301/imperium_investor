@@ -1604,49 +1604,68 @@ class FixedTradingChart {
     _drawCurrentVolLabel() {
         if (!this.volumeArea) return;
         if (this.data.length === 0) return;
-        const lastI = this.data.length - 1;
-        if (lastI < this.viewPortStart || lastI > this.viewPortEnd) return;
 
-        const vol = this._resolveVolumeForCandle(this.data[lastI], lastI);
+        // Prefer the most recent *visible* candle so the label always matches
+        // the candle a trader currently sees as "today/current" on screen.
+        const end = Math.min(this.viewPortEnd, this.data.length - 1);
+        const start = Math.max(0, this.viewPortStart);
+        let labelI = -1;
+        for (let i = end; i >= start; i--) {
+            const v = this._resolveVolumeForCandle(this.data[i], i);
+            if (Number.isFinite(v) && v > 0) {
+                labelI = i;
+                break;
+            }
+        }
+        if (labelI < 0) return;
+
+        const vol = this._resolveVolumeForCandle(this.data[labelI], labelI);
         if (!this.maxVolume || vol <= 0) return;
 
         const ctx = this.ctx;
-        // ← FIX: use chartArea-relative position, not hardcoded width
         const axisX = this.chartArea.x + this.chartArea.width;
         const axisW = this.rightAxisWidth;
-        const y     = this._volumeToY(vol);
-        const area  = this.volumeArea;
+        const y = this._volumeToY(vol);
+        const area = this.volumeArea;
 
-        const lh       = 14;
-        const clampedY = Math.max(area.y + lh/2 + 1, Math.min(area.y + area.height - lh/2 - 1, y));
-        const label    = this._fmtVol(vol);
-        const lw       = axisW;
+        const label = this._fmtVol(vol);
+        const barIsUp = this.data[labelI].close >= this.data[labelI].open;
 
+        ctx.font = 'bold 10px "Segoe UI", sans-serif';
+        const textW = Math.ceil(ctx.measureText(label).width);
+
+        const padX = 6;
+        const lh = 16;
+        const lw = Math.max(36, Math.min(axisW - 2, textW + padX * 2));
+        const lx = axisX + Math.max(1, Math.floor((axisW - lw) / 2));
+
+        const clampedY = Math.max(area.y + lh / 2 + 1, Math.min(area.y + area.height - lh / 2 - 1, y));
         const ly = Math.round(clampedY - lh / 2);
 
-        // Rectangular volume label to match price-scale styling
-        ctx.fillStyle = '#1e2d45';
-        ctx.fillRect(axisX, ly, lw, lh);
+        const bg = barIsUp ? 'rgba(25, 120, 82, 0.92)' : 'rgba(148, 40, 56, 0.92)';
+        const border = barIsUp ? 'rgba(114, 235, 180, 0.90)' : 'rgba(255, 152, 170, 0.90)';
 
-        ctx.strokeStyle = 'rgba(120,165,230,0.55)';
-        ctx.lineWidth   = 0.8;
-        ctx.strokeRect(axisX + 0.5, ly + 0.5, lw - 1, lh - 1);
+        ctx.fillStyle = bg;
+        ctx.fillRect(lx, ly, lw, lh);
 
-        // Dashed ray from bar top to axis
-        ctx.strokeStyle = 'rgba(122,168,216,0.28)';
-        ctx.lineWidth   = 0.6;
-        ctx.setLineDash([2,3]);
+        ctx.strokeStyle = border;
+        ctx.lineWidth = 0.9;
+        ctx.strokeRect(lx + 0.5, ly + 0.5, lw - 1, lh - 1);
+
+        // Subtle dashed connector from volume level to label box.
+        ctx.strokeStyle = 'rgba(122,168,216,0.32)';
+        ctx.lineWidth = 0.6;
+        ctx.setLineDash([2, 3]);
         ctx.beginPath();
         ctx.moveTo(axisX - 10, y);
-        ctx.lineTo(axisX, y);
+        ctx.lineTo(lx, clampedY);
         ctx.stroke();
         ctx.setLineDash([]);
 
-        ctx.font         = 'bold 9px "Segoe UI Mono", monospace';
-        ctx.textAlign    = 'center';
+        ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillStyle    = '#7ed957';
-        ctx.fillText(label, axisX + lw / 2, clampedY);
+        ctx.fillStyle = '#eef6ff';
+        ctx.fillText(label, lx + lw / 2, clampedY);
     }
 
     _niceVolStep(rough) {
