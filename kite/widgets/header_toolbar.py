@@ -250,6 +250,14 @@ class HeaderToolbar(QToolBar):
         account_layout.setContentsMargins(6, 1, 6, 1)
         account_layout.setSpacing(6)
 
+        self.profile_avatar_label = QLabel()
+        self.profile_avatar_label.setObjectName("profileAvatarLabel")
+        self.profile_avatar_label.setFixedSize(14, 14)
+        avatar_icon_path = get_asset_path("icons", "profile_avatar.svg", required=False)
+        if avatar_icon_path is not None:
+            self.profile_avatar_label.setPixmap(QIcon(str(avatar_icon_path)).pixmap(14, 14))
+        account_layout.addWidget(self.profile_avatar_label)
+
         self.user_id_label = QLabel("KE6286")
         self.user_id_label.setObjectName("userIdLabel")
         account_layout.addWidget(self.user_id_label)
@@ -430,6 +438,7 @@ class HeaderToolbar(QToolBar):
     def _update_account_display_visibility(self) -> None:
         show_name = bool(self._show_account_name)
         show_balance = bool(self._show_account_balance)
+        self.profile_avatar_label.setVisible(show_name)
         self.user_id_label.setVisible(show_name)
         self.balance_label.setVisible(show_balance)
         self.account_separator.setVisible(show_name and show_balance)
@@ -438,7 +447,7 @@ class HeaderToolbar(QToolBar):
     @staticmethod
     def _format_account_balance(amount: float) -> str:
         if amount == 0:
-            return "0"
+            return "₹0"
         neg = amount < 0
         amount = abs(amount)
         s = f"{amount:.0f}"
@@ -453,7 +462,7 @@ class HeaderToolbar(QToolBar):
                     chunks = "," + chunks
                 chunks = d + chunks
             fmt = chunks + "," + last3
-        return ("-" if neg else "") + fmt
+        return ("-₹" if neg else "₹") + fmt
 
     def _remember_recent_symbol(self, symbol: str):
         normalized = symbol.upper().strip()

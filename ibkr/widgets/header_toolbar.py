@@ -225,6 +225,14 @@ class HeaderToolbar(QToolBar):
         account_layout.setContentsMargins(6, 1, 6, 1)
         account_layout.setSpacing(6)
 
+        self.profile_avatar_label = QLabel()
+        self.profile_avatar_label.setObjectName("profileAvatarLabel")
+        self.profile_avatar_label.setFixedSize(14, 14)
+        avatar_icon_path = get_asset_path("icons", "portfolio.svg", required=False)
+        if avatar_icon_path is not None:
+            self.profile_avatar_label.setPixmap(QIcon(str(avatar_icon_path)).pixmap(14, 14))
+        account_layout.addWidget(self.profile_avatar_label)
+
         self.user_id_label = QLabel("KE6286")
         self.user_id_label.setObjectName("userIdLabel")
         account_layout.addWidget(self.user_id_label)
