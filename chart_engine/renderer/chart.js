@@ -75,6 +75,8 @@ class FixedTradingChart {
         this.data = cfg.candlestickData || [];
         this.volumeData = cfg.volumeData || [];
         this.emaData = cfg.emaData || {};
+        this.movingAverageConfigs = cfg.movingAverageConfigs || this.movingAverageConfigs || [];
+        this.movingAverageConfigs = cfg.movingAverageConfigs || [];
         this.currentADR = cfg.initialADR || {};
         this.percentageChanges = cfg.percentageChanges || {};
         this.currentInterval = cfg.currentInterval || 'day';
@@ -1695,10 +1697,15 @@ class FixedTradingChart {
         for (const [key, emaList] of Object.entries(this.emaData)) {
             if (!emaList || emaList.length === 0) continue;
             if (this.indicatorVisibility[key] === false) continue;
-            const color = this.colors.ema[key] || '#aaa';
+            const maCfg = (this.movingAverageConfigs || []).find(c => c.id === key) || {};
+            const color = maCfg.color || this.colors.ema[key] || '#aaa';
 
             ctx.strokeStyle = color;
-            ctx.lineWidth   = key === 'ema200' ? 1.2 : 1.0;
+            ctx.lineWidth   = Number.isFinite(maCfg.thickness) ? maCfg.thickness : (key === 'ema200' ? 1.2 : 1.0);
+            const ls = (maCfg.line_style || 'solid');
+            if (ls === 'dashed') ctx.setLineDash([6,4]);
+            else if (ls === 'dotted') ctx.setLineDash([2,4]);
+            else ctx.setLineDash([]);
             ctx.beginPath();
             let first = true;
             let lastVis = null;
@@ -3944,6 +3951,7 @@ class FixedTradingChart {
         this._rebuildHeikinAshiData();
         this.volumeData = cfg.volumeData || [];
         this.emaData = cfg.emaData || {};
+        this.movingAverageConfigs = cfg.movingAverageConfigs || [];
         this.currentADR = cfg.initialADR || {};
         this.percentageChanges = cfg.percentageChanges || {};
         this.currentInterval = cfg.interval || 'day';

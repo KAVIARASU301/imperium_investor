@@ -55,6 +55,7 @@ class ChartHtmlConfig:
     initial_indicator_visibility:   Dict[str, bool] = field(default_factory=dict)
     info_visibility:        Dict[str, bool] = field(default_factory=dict)
     price_scale_currency:   str   = ""
+    moving_average_configs:  List[Dict] = field(default_factory=list)
     qwebchannel_src:         str   = "qrc:///qtwebchannel/qwebchannel.js"
 
 
@@ -123,6 +124,7 @@ def build_chart_html(cfg: ChartHtmlConfig) -> str:
         "initialIndicatorVisibility": cfg.initial_indicator_visibility,
         "infoVisibility":            cfg.info_visibility,
         "priceScaleCurrency":        (cfg.price_scale_currency or "").upper(),
+        "movingAverageConfigs":       cfg.moving_average_configs,
     }
 
     data_json = json.dumps(data_obj)

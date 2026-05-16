@@ -9,7 +9,7 @@
 
 import logging
 from dataclasses import dataclass, field
-from typing import Dict, List
+from typing import Dict, List, Any
 
 import pandas as pd
 
@@ -22,9 +22,7 @@ class MetricsResult:
     """All computed overlay metrics for a single symbol / timeframe."""
 
     # EMA lines — each is a list of {"time": ms_epoch, "value": float}
-    ema_data: Dict[str, List[Dict]] = field(default_factory=lambda: {
-        "ema10": [], "ema20": [], "ema50": [], "ema200": []
-    })
+    ema_data: Dict[str, List[Dict]] = field(default_factory=dict)
 
     # Average Daily Range over last 14 bars
     adr: Dict[str, float] = field(default_factory=lambda: {"value": 0.0, "percent": 0.0})
@@ -37,7 +35,7 @@ class MetricsResult:
 
 # ─── Main entry point ─────────────────────────────────────────────────────────
 
-def calculate_metrics(df: pd.DataFrame) -> MetricsResult:
+def calculate_metrics(df: pd.DataFrame, moving_average_configs: List[Dict[str, Any]] | None = None) -> MetricsResult:
     """
     Compute all overlay metrics from a processed OHLCV DataFrame.
 
@@ -54,8 +52,17 @@ def calculate_metrics(df: pd.DataFrame) -> MetricsResult:
         df = df.copy()
         df["time_ms"] = df["time"].apply(lambda x: int(x.timestamp() * 1000))
 
-        # ── EMAs ──────────────────────────────────────────────────────────
-        for span, key in [(10, "ema10"), (20, "ema20"), (50, "ema50"), (200, "ema200")]:
+        # ── Moving averages (config-driven, default fallback) ────────────
+        default_ma_configs = [
+            {"id": "ema10", "period": 10},
+            {"id": "ema20", "period": 20},
+            {"id": "ema50", "period": 50},
+            {"id": "ema200", "period": 200},
+        ]
+        ma_configs = moving_average_configs or default_ma_configs
+        for item in ma_configs:
+            span = int(item.get("period", 10))
+            key = str(item.get("id") or f"ema{span}")
             df[key] = df["close"].ewm(span=span, adjust=False).mean()
             result.ema_data[key] = (
                 df[["time_ms", key]]

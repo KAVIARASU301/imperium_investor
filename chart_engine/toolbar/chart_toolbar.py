@@ -51,11 +51,7 @@ TIMEFRAMES: List[Tuple[str, str, str]] = [
 ]
 
 INDICATORS: List[Tuple[str, str, str, str]] = [
-    ("ema10",            "EMA10",  "#2979ff", "EMA 10"),
-    ("ema20",            "EMA20",  "#aa00ff", "EMA 20"),
-    ("ema50",            "EMA50",  "#ff6d00", "EMA 50"),
-    ("ema200",           "EMA200", "#f50057", "EMA 200"),
-    ("bjTrend",          "BJ·T3",  "#64b5f6", "Bjorgum T3 Trend (5/8, α=0.7)"),
+        ("bjTrend",          "BJ·T3",  "#64b5f6", "Bjorgum T3 Trend (5/8, α=0.7)"),
     ("vwap",             "VWAP",   "#ff9100", "VWAP — Volume Weighted Avg Price"),
     ("atrTrendReversal", "ATR·TR", "#ff1744", "ATR Trend Reversal"),
     ("cvd",              "CVD",    "#00b0ff", "Cumulative Volume Delta"),
@@ -102,6 +98,7 @@ ICON_ASSETS: Dict[str, str] = {
     "measure": "measuring_scale.svg",
     "clear": "clear.svg",
     "delete": "delete.svg",
+    "plus": "plus.svg",
 
     # Shared application/status icons kept available for toolbar extensions.
     "alert": "alert.svg",
@@ -325,6 +322,7 @@ class ChartToolbar(QFrame):
 
     timeframe_changed = Signal(str)
     toolbar_preferences_changed = Signal(dict)
+    manage_indicators_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -496,6 +494,10 @@ class ChartToolbar(QFrame):
             self._ind_actions[key] = action
             self.indicator_actions[key] = action
 
+        self._indicator_menu.addSeparator()
+        manage_action = QAction("Manage Indicators…", self)
+        manage_action.triggered.connect(self.manage_indicators_requested.emit)
+        self._indicator_menu.addAction(manage_action)
         self._indicator_menu.addSeparator()
         vol_action = QAction("Volume Bars", self)
         vol_action.setCheckable(True)

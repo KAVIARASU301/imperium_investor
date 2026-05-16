@@ -43,6 +43,7 @@ from chart_engine.drawings import DrawingStorage
 from chart_engine.renderer.html_builder import ChartHtmlConfig, build_chart_html
 from chart_engine.settings.chart_settings_dialog import ChartSettingsDialog
 from chart_engine.settings.text_note_dialog import TextNoteDialog
+from chart_engine.settings.indicator_library_dialog import IndicatorLibraryDialog
 from chart_engine.toolbar.chart_toolbar import ChartToolbar
 
 logger = logging.getLogger(__name__)
@@ -51,10 +52,6 @@ SNAPSHOT_READY_RETRY_DELAY_MS = 150
 SNAPSHOT_READY_MAX_ATTEMPTS = 20
 
 DEFAULT_INDICATOR_VISIBILITY = {
-    "ema10": False,
-    "ema20": False,
-    "ema50": False,
-    "ema200": False,
     "bjTrend": False,
     "atrTrendReversal": False,
     "vwap": False,
@@ -408,6 +405,7 @@ class CandlestickChart(QWidget):
         # Indicator multi-select dropdown actions
         for key, action in tb.indicator_actions.items():
             action.toggled.connect(lambda checked, k=key: self._toggle_indicator(k, checked))
+        tb.manage_indicators_requested.connect(self._open_indicator_library)
 
         # Action buttons
         tb.color_btn.clicked.connect(self._choose_drawing_color)
@@ -448,6 +446,16 @@ class CandlestickChart(QWidget):
         return w
 
     @Slot(int)
+
+    def _open_indicator_library(self) -> None:
+        dlg = IndicatorLibraryDialog(self._moving_average_configs, self)
+        if dlg.exec():
+            self._moving_average_configs = dlg.selected_payload()
+            self.global_chart_settings["moving_average_configs"] = self._moving_average_configs
+            self.drawing_storage.save_global_settings(self.global_chart_settings)
+            if self.current_symbol:
+                self.load_chart(self.current_symbol, self.current_interval)
+
     def _on_timeframe_selected(self, index: int) -> None:
         if not self.toolbar.timeframe_dropdown:
             return
@@ -561,7 +569,7 @@ class CandlestickChart(QWidget):
             return
 
         self.last_df = df
-        metrics = calculate_metrics(df)
+        metrics = calculate_metrics(df, self._moving_average_configs)
 
         # ── Build candle + volume arrays ──────────────────────────────────
         # Production charting packages (TradingView/lightweight-charts, etc.)
@@ -619,6 +627,7 @@ class CandlestickChart(QWidget):
                 "visibleCandleCount":       initial_zoom,
                 "chartType":                self.toolbar.get_chart_type(),
                 "priceScaleCurrency":       price_scale_currency,
+                "movingAverageConfigs":      self._moving_average_configs,
             }
             self._js(f"if(window.chart) window.chart.loadNewData({json.dumps(payload_dict)});")
             self._update_symbol_info(df)
@@ -660,6 +669,7 @@ class CandlestickChart(QWidget):
             initial_indicator_visibility = initial_indicator_visibility,
             info_visibility            = dict(self._chart_info_visibility),
             price_scale_currency       = self._resolve_price_scale_currency(),
+            moving_average_configs     = self._moving_average_configs,
         )
 
         self._render_html(cfg)
