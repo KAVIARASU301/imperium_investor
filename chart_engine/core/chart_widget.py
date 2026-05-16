@@ -252,26 +252,53 @@ class CandlestickChart(QWidget):
                  f"downVolumeColor:'{self._current_volume_down_color}'"
                  "});")
 
-    def set_instrument_list(self, instruments: Any) -> None:
+    def set_instrument_list(
+        self,
+        instruments: Any,
+        instrument_map: Optional[Dict[str, Dict[str, Any]]] = None,
+    ) -> None:
         """Compatibility API used by `kite.core.main_window`.
 
         Stores a tradingsymbol → instrument payload map that is later used by
         `on_search` to resolve symbols emitted by watchlist/scanner widgets.
+
+        If a pre-processed `instrument_map` is supplied (for example one built
+        by InstrumentLoader with NSE preference), reuse it as-is. Otherwise,
+        construct a local map while still preferring NSE over BSE for duplicate
+        tradingsymbols.
         """
-        if not instruments:
-            self.instrument_map = {}
-            return
+        if instrument_map:
+            self.instrument_map = {
+                str(k).strip().upper(): v
+                for k, v in instrument_map.items()
+                if isinstance(v, dict)
+            }
+        else:
+            if not instruments:
+                self.instrument_map = {}
+                return
 
-        instrument_map: Dict[str, Dict[str, Any]] = {}
-        for instrument in instruments:
-            if not isinstance(instrument, dict):
-                continue
-            symbol = str(instrument.get("tradingsymbol", "")).strip().upper()
-            token = instrument.get("instrument_token")
-            if symbol and token:
-                instrument_map[symbol] = instrument
+            local_map: Dict[str, Dict[str, Any]] = {}
 
-        self.instrument_map = instrument_map
+            def exchange_priority(inst: Dict[str, Any]) -> int:
+                exchange = str(inst.get("exchange") or "")
+                if exchange == "NSE":
+                    return 0
+                if exchange == "BSE":
+                    return 1
+                return 2
+
+            sorted_instruments = sorted(
+                (inst for inst in instruments if isinstance(inst, dict)),
+                key=exchange_priority,
+            )
+            for instrument in sorted_instruments:
+                symbol = str(instrument.get("tradingsymbol", "")).strip().upper()
+                token = instrument.get("instrument_token")
+                if symbol and token and symbol not in local_map:
+                    local_map[symbol] = instrument
+
+            self.instrument_map = local_map
 
         # If startup attempted to restore a symbol before instruments were ready,
         # retry once we can resolve a valid token.

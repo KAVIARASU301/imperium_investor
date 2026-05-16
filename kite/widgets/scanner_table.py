@@ -51,15 +51,30 @@ _SEL = "#1f1f1f"
 _MONO = "'Consolas', 'JetBrains Mono', monospace"  # code, raw scan clauses, debug text only
 _SANS = "'Inter', 'Segoe UI Variable', 'Segoe UI', 'Noto Sans', Roboto, Arial, sans-serif"
 _NUM = "'Segoe UI Variable', 'Inter', 'Segoe UI', 'Noto Sans', sans-serif"
-_UI_FONT = "Segoe UI Variable"
+_SYMBOL_FONT = "Inter"
+_UI_FONT = "Inter"
 _NUM_FONT = "Segoe UI Variable"
+_SYMBOL_FONT_FAMILIES = ["Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", "Noto Sans"]
+_UI_FONT_FAMILIES = ["Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", "Noto Sans"]
+_NUM_FONT_FAMILIES = ["Segoe UI Variable", "Inter", "Aptos", "Segoe UI", "Roboto", "Noto Sans"]
 _ROW_H = 21
 _DIALOG_ROW_H = 25
+
+
+def _set_font_families(font: QFont, families: List[str]) -> QFont:
+    """Apply Qt font fallbacks without relying on CSS-only font stacks."""
+    try:
+        font.setFamilies(families)
+    except AttributeError:
+        # Older Qt builds only support a single family in the constructor.
+        pass
+    return font
 
 
 def _ui_font(point_size: int = 9, weight: QFont.Weight = QFont.Weight.Normal) -> QFont:
     """Modern readable UI font; intentionally not heavy or distracting."""
     font = QFont(_UI_FONT)
+    _set_font_families(font, _UI_FONT_FAMILIES)
     font.setStyleHint(QFont.StyleHint.SansSerif)
     font.setPointSize(point_size)
     font.setWeight(weight)
@@ -67,9 +82,22 @@ def _ui_font(point_size: int = 9, weight: QFont.Weight = QFont.Weight.Normal) ->
     return font
 
 
+def _symbol_font(pixel_size: int = 10, weight: QFont.Weight = QFont.Weight.Normal) -> QFont:
+    """Compact symbol font. Uses pixels so ticker text does not grow larger than QSS table text."""
+    font = QFont(_SYMBOL_FONT)
+    _set_font_families(font, _SYMBOL_FONT_FAMILIES)
+    font.setStyleHint(QFont.StyleHint.SansSerif)
+    font.setPixelSize(pixel_size)
+    font.setWeight(weight)
+    font.setKerning(True)
+    font.setLetterSpacing(QFont.SpacingType.PercentageSpacing, 103)
+    return font
+
+
 def _number_font(point_size: int = 9, weight: QFont.Weight = QFont.Weight.Normal) -> QFont:
     """Calm tabular-looking UI number font for prices, volume and percentages."""
     font = QFont(_NUM_FONT)
+    _set_font_families(font, _NUM_FONT_FAMILIES)
     font.setStyleHint(QFont.StyleHint.SansSerif)
     font.setPointSize(point_size)
     font.setWeight(weight)
@@ -80,6 +108,7 @@ def _number_font(point_size: int = 9, weight: QFont.Weight = QFont.Weight.Normal
 def _mono_font(point_size: int = 9, weight: QFont.Weight = QFont.Weight.Normal) -> QFont:
     """Monospace reserved for raw scan clauses/debug-style text."""
     font = QFont("Consolas")
+    _set_font_families(font, ["Consolas", "JetBrains Mono", "Courier New"])
     font.setStyleHint(QFont.StyleHint.Monospace)
     font.setPointSize(point_size)
     font.setWeight(weight)
@@ -1437,8 +1466,8 @@ class ChartinkScannerTable(QWidget):
         volume_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         change_pct_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # Keep symbols in the UI font; use modern UI numbers for price/volume/change.
-        symbol_font = _ui_font(9, QFont.Weight.Normal)
+        # Keep symbols on a dedicated compact font path; use modern UI numbers for price/volume/change.
+        symbol_font = _symbol_font(10, QFont.Weight.Normal)
         value_font = _number_font(9, QFont.Weight.Normal)
         change_font = _number_font(9, QFont.Weight.Medium)
         symbol_item.setFont(symbol_font)

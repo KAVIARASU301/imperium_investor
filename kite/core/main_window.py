@@ -1373,8 +1373,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             instrument_map=self.instrument_map,
             symbol_index=payload.get("symbol_index"),
         )
-        self.candlestick_chart.set_instrument_list(instruments)
-        self.candlestick_chart_secondary.set_instrument_list(instruments)
+        self.candlestick_chart.set_instrument_list(instruments, instrument_map=self.instrument_map)
+        self.candlestick_chart_secondary.set_instrument_list(instruments, instrument_map=self.instrument_map)
         self.watchlist.set_instrument_map(self.instrument_map)
         self.chartink_scanner.set_instrument_map(self.instrument_map)
 

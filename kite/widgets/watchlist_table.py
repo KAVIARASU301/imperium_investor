@@ -100,10 +100,14 @@ class _C:
 
 
 _MONO = "Consolas, 'JetBrains Mono', 'Courier New', monospace"  # raw logs / IDs / code only
-_SANS = "'Inter', 'Segoe UI Variable', 'Segoe UI', 'Noto Sans', Roboto, Arial, sans-serif"
-_NUM = "'Segoe UI Variable', 'Inter', 'Segoe UI', 'Noto Sans', sans-serif"
-_UI_FONT = "Segoe UI Variable"
-_NUM_FONT = "Segoe UI Variable"
+_SANS = "'Aptos', 'Inter', 'Segoe UI Variable', 'Segoe UI', 'Noto Sans', Roboto, Arial, sans-serif"
+_SYMBOL = "'Aptos', 'Inter', 'Segoe UI Variable', 'Segoe UI', 'Noto Sans', Roboto, Arial, sans-serif"
+_NUM = "'Inter', 'Segoe UI Variable', 'Segoe UI', 'Noto Sans', sans-serif"
+_UI_FONT_FAMILIES = ["Aptos", "Inter", "Segoe UI Variable", "Segoe UI", "Noto Sans", "Arial"]
+_SYMBOL_FONT_FAMILIES = ["Aptos", "Inter", "Segoe UI Variable", "Segoe UI", "Noto Sans", "Arial"]
+_NUM_FONT_FAMILIES = ["Inter", "Segoe UI Variable", "Segoe UI", "Noto Sans", "Arial"]
+_UI_FONT = _UI_FONT_FAMILIES[0]
+_NUM_FONT = _NUM_FONT_FAMILIES[0]
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  FLAG STATES
@@ -936,10 +940,7 @@ class TradingTable(QTableWidget):
                     sym_item.setText(sym)
                     sym_item.setForeground(QColor(_C.T_SYMBOL))
                     sym_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-                    symbol_font = self._ui_font()
-                    symbol_font.setPointSize(10)
-                    symbol_font.setWeight(QFont.Weight.Normal)
-                    sym_item.setFont(symbol_font)
+                    sym_item.setFont(self._symbol_font())
 
     def _update_row(self, row: int, data: Dict):
         if row >= self.rowCount():
@@ -953,9 +954,7 @@ class TradingTable(QTableWidget):
         # ── Flag ──
         self._paint_flag_cell(row, sym)
 
-        symbol_font = self._ui_font()
-        symbol_font.setPointSize(10)
-        symbol_font.setWeight(QFont.Weight.Normal)
+        symbol_font = self._symbol_font()
         value_font = self._number_font(False)
         value_font.setPointSize(10)
         strong_value_font = self._number_font(True)
@@ -1167,24 +1166,52 @@ class TradingTable(QTableWidget):
         return None
 
     @staticmethod
-    def _ui_font() -> QFont:
-        """Calm modern UI font for labels and symbols."""
-        f = QFont(_UI_FONT)
+    def _font_from_families(
+        families: List[str],
+        point_size: int = 10,
+        weight: QFont.Weight = QFont.Weight.Normal,
+        letter_spacing: float = 100.0,
+    ) -> QFont:
+        """Build a Qt font with a real fallback chain, not a CSS-style family string."""
+        f = QFont()
+        if hasattr(f, "setFamilies"):
+            f.setFamilies(families)
+        elif families:
+            f.setFamily(families[0])
         f.setStyleHint(QFont.StyleHint.SansSerif)
-        f.setPointSize(10)
-        f.setWeight(QFont.Weight.Normal)
+        f.setPointSize(point_size)
+        f.setWeight(weight)
         f.setKerning(True)
+        f.setLetterSpacing(QFont.SpacingType.PercentageSpacing, letter_spacing)
         return f
+
+    @staticmethod
+    def _ui_font() -> QFont:
+        """Calm modern UI font for labels."""
+        return TradingTable._font_from_families(
+            _UI_FONT_FAMILIES,
+            point_size=10,
+            weight=QFont.Weight.Normal,
+        )
+
+    @staticmethod
+    def _symbol_font() -> QFont:
+        """Slightly smaller, airier font for ticker symbols only."""
+        return TradingTable._font_from_families(
+            _SYMBOL_FONT_FAMILIES,
+            point_size=9,
+            weight=QFont.Weight.Normal,
+            letter_spacing=103.0,
+        )
 
     @staticmethod
     def _number_font(bold: bool = False) -> QFont:
         """Readable modern UI number font for prices, volume and percentage values."""
-        f = QFont(_NUM_FONT)
-        f.setStyleHint(QFont.StyleHint.SansSerif)
-        f.setPointSize(10)
-        f.setWeight(QFont.Weight.Medium if bold else QFont.Weight.Normal)
-        f.setKerning(True)
-        return f
+        return TradingTable._font_from_families(
+            _NUM_FONT_FAMILIES,
+            point_size=10,
+            weight=QFont.Weight.Medium if bold else QFont.Weight.Normal,
+        )
 
     @staticmethod
     def _mono_font(bold: bool = False) -> QFont:
@@ -1666,7 +1693,7 @@ class TabbedWatchlistWidget(QWidget):
                 outline: none;
                 show-decoration-selected: 0;
                 font-size: 11px;
-                font-family: "Inter", "Segoe UI Variable", "Segoe UI", "Noto Sans", sans-serif;
+                font-family: "Aptos", "Inter", "Segoe UI Variable", "Segoe UI", "Noto Sans", sans-serif;
                 border-radius: 0;
             }
 
@@ -1674,8 +1701,8 @@ class TabbedWatchlistWidget(QWidget):
                 padding: 0 5px;
                 border-bottom: 1px solid #151b24;
                 background: transparent;
-                font-size: 11px;
-                font-family: "Segoe UI Variable", "Inter", "Segoe UI", "Noto Sans", sans-serif;
+                font-size: 10px;
+                font-family: "Aptos", "Inter", "Segoe UI Variable", "Segoe UI", "Noto Sans", sans-serif;
                 font-weight: 400;
             }
 

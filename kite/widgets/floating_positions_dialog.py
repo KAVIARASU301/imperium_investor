@@ -60,44 +60,74 @@ logger = logging.getLogger(__name__)
 
 class _C:
     # Matte terminal layers
-    BG0      = "#050709"   # outer app/window shell
-    BG1      = "#0a0d12"   # dialog body
-    BG2      = "#0f1318"   # table base rows
-    BG3      = "#141920"   # row hover / footer surface
-    BG4      = "#070a0f"   # title bar / hard chrome
-    BORDER   = "#1a2030"   # primary separator
-    BORDER2  = "#243040"   # active separator / grip / scrollbar
+    BG0      = "#06080c"   # outer app/window shell
+    BG1      = "#0a0e13"   # dialog body
+    BG2      = "#10151c"   # table base rows
+    BG3      = "#151b24"   # row hover / footer surface
+    BG4      = "#080b10"   # title bar / hard chrome
+    BORDER   = "#222b38"   # primary separator
+    BORDER2  = "#2b3645"   # active separator / grip / scrollbar
     SELECT   = "#1a2840"   # selected row
 
     # Market semantics
-    BULL     = "#00d4a8"
-    BULL_DIM = "#14745f"
-    BULL_BG  = "#08231d"
-    BEAR     = "#ff4d6a"
-    BEAR_DIM = "#7a2030"
-    BEAR_BG  = "#230a12"
-    FLAT     = "#7a94b0"
+    BULL     = "#72cdb6"
+    BULL_DIM = "#3f917f"
+    BULL_BG  = "#102720"
+    BEAR     = "#e07a84"
+    BEAR_DIM = "#94424b"
+    BEAR_BG  = "#291217"
+    FLAT     = "#7f90a3"
 
     # Text
-    T0       = "#e8f0ff"
-    SYMBOL   = "#b6c4d6"   # softened symbol column text
-    T1       = "#a8bcd4"
-    T2       = "#5a7090"
-    T3       = "#2a3a50"
+    T0       = "#d8e2ef"
+    SYMBOL   = "#c2ccd9"   # softened symbol column text
+    T1       = "#9eacbc"
+    T2       = "#748396"
+    T3       = "#475466"
 
     # Accents
-    CYAN     = "#00d4ff"
-    AMBER    = "#f59e0b"
-    BLUE     = "#00d4ff"
+    CYAN     = "#78cfe1"
+    AMBER    = "#d7a45d"
+    BLUE     = "#7fa6d8"
 
     # Flash fills
-    FLASH_UP = "#103d32"
-    FLASH_DN = "#42111c"
+    FLASH_UP = "#183f34"
+    FLASH_DN = "#3a151a"
 
+_FONT_FAMILIES = ["Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", "Noto Sans"]
 _MONO = "\"Consolas\", \"JetBrains Mono\", \"Courier New\", monospace"  # technical/debug only
-_SANS = "\"Inter\", \"Segoe UI\", -apple-system, Roboto, sans-serif"
-_NUM = "\"Inter\", \"Segoe UI Variable\", \"Segoe UI\", -apple-system, Roboto, sans-serif"
+_SANS = "\"Inter\", \"Aptos\", \"Segoe UI Variable\", \"Segoe UI\", \"Roboto\", \"Noto Sans\", sans-serif"
+_NUM = "\"Inter\", \"Aptos\", \"Segoe UI Variable\", \"Segoe UI\", \"Roboto\", \"Noto Sans\", sans-serif"
+_UI_FONT = "Inter"
 _NUM_FONT = "Inter"
+
+
+def _apply_font_families(font: QFont) -> QFont:
+    """Use the same real Qt font fallback order as the embedded tables."""
+    if hasattr(font, "setFamilies"):
+        font.setFamilies(_FONT_FAMILIES)
+    return font
+
+
+def _symbol_font(pixel_size: int = 10, weight: QFont.Weight = QFont.Weight.Normal) -> QFont:
+    """Compact ticker font: smaller, calmer, and slightly opened up."""
+    font = _apply_font_families(QFont(_UI_FONT))
+    font.setStyleHint(QFont.StyleHint.SansSerif)
+    font.setPixelSize(pixel_size)
+    font.setWeight(weight)
+    font.setKerning(True)
+    font.setLetterSpacing(QFont.SpacingType.PercentageSpacing, 103)
+    return font
+
+
+def _number_font(pixel_size: int = 10, weight: QFont.Weight = QFont.Weight.Normal) -> QFont:
+    """Modern UI number font for price, quantity, P&L, exposure and SL values."""
+    font = _apply_font_families(QFont(_NUM_FONT))
+    font.setStyleHint(QFont.StyleHint.SansSerif)
+    font.setPixelSize(pixel_size)
+    font.setWeight(weight)
+    font.setKerning(True)
+    return font
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -669,7 +699,7 @@ class FloatingPositionsDialog(QDialog):
             color = "#5a7090"
 
         trail_mark = "⟳ " if rec.trailing_sl else ""
-        return f"{trail_mark}₹{rec.sl_price:.2f}", color
+        return f"{trail_mark}{rec.sl_price:.2f}", color
 
     def _write_row(self, row: int, pos: _PosRow):
         if row >= self.table.rowCount():
@@ -713,19 +743,14 @@ class FloatingPositionsDialog(QDialog):
             item.setBackground(QBrush(row_bg))
             item.setTextAlignment(align_map[col])
 
-            # Modern UI typography for all visible text/numbers; monospace is
-            # reserved for raw logs, IDs, code, and debug text only.
-            font = QFont(_NUM_FONT)
-            font.setStyleHint(QFont.StyleHint.SansSerif)
-            font.setPointSize(8 if col == _COL_IDX["Symbol"] else 9)
+            # Match embedded watchlist/scanner/positions typography:
+            # symbols get their own compact UI font, numbers use the number font.
             if col == _COL_IDX["Symbol"]:
-                font.setWeight(QFont.Weight.DemiBold)
+                item.setFont(_symbol_font(10, QFont.Weight.Normal))
             elif bold:
-                font.setWeight(QFont.Weight.DemiBold)
+                item.setFont(_number_font(10, QFont.Weight.Medium))
             else:
-                font.setWeight(QFont.Weight.Medium)
-            font.setKerning(True)
-            item.setFont(font)
+                item.setFont(_number_font(10, QFont.Weight.Normal))
 
     # ═══════════════════════════════════════════════════════════════════════
     # INTERNAL: FLASH DECAY
@@ -777,10 +802,10 @@ class FloatingPositionsDialog(QDialog):
 
         self._total_pnl_lbl.setText(f"{sign}{total_pnl:,.0f}")
         self._total_pnl_lbl.setStyleSheet(
-            f"color: {pnl_col}; font-family: {_NUM}; font-size: 12px;"
-            f" font-weight: 700; background: transparent;"
+            f"color: {pnl_col}; font-family: {_NUM}; font-size: 11px;"
+            f" font-weight: 500; background: transparent;"
         )
-        self._exposure_lbl.setText(f"₹{exposure:,.0f}")
+        self._exposure_lbl.setText(f"{exposure:,.0f}")
         self._pos_count_lbl.setText(str(count))
 
         # Exposure bar: position of pnl between worst and best possible
@@ -1046,13 +1071,18 @@ class FloatingPositionsDialog(QDialog):
                 outline: none;
                 selection-background-color: {_C.SELECT};
                 selection-color: {_C.T0};
-                font-family: {_NUM};
-                font-size: 11px;
+                font-family: {_SANS};
+                font-size: 10px;
+                font-weight: 400;
                 color: {_C.T0};
             }}
             QTableWidget#posTable::item {{
                 padding: 0 5px;
                 border-bottom: 1px solid {_C.BG3};
+                background: transparent;
+                font-family: {_NUM};
+                font-size: 10px;
+                font-weight: 400;
             }}
             QTableWidget#posTable::item:selected {{
                 background: {_C.SELECT};
@@ -1065,9 +1095,9 @@ class FloatingPositionsDialog(QDialog):
                 background: {_C.BG2};
                 color: {_C.T2};
                 font-family: {_SANS};
-                font-size: 9px;
-                font-weight: 800;
-                letter-spacing: 1.1px;
+                font-size: 8px;
+                font-weight: 500;
+                letter-spacing: 0.6px;
                 text-transform: uppercase;
                 border: none;
                 border-bottom: 1px solid {_C.BORDER};
@@ -1091,8 +1121,8 @@ class FloatingPositionsDialog(QDialog):
             QLabel[objectName^="footerVal"] {{
                 color: {_C.T1};
                 font-family: {_NUM};
-                font-size: 10px;
-                font-weight: 800;
+                font-size: 11px;
+                font-weight: 500;
                 background: transparent;
             }}
 
@@ -1103,7 +1133,7 @@ class FloatingPositionsDialog(QDialog):
                 border-radius: 2px;
                 padding: 3px 0;
                 font-family: {_SANS};
-                font-size: 11px;
+                font-size: 10px;
                 color: {_C.T0};
             }}
             QMenu#posCtxMenu::item {{

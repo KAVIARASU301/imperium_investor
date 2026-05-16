@@ -5,6 +5,7 @@ Institutional-grade Positions Table — Ultra-Compact Mode.
 Upgrades:
   • Strictly 3 columns: Symbol, Qty, PnL
   • Modern UI number typography for Qty, %Chg, footer P&L and Exposure
+  • Compact symbol typography matched with watchlist/scanner tables
   • Compact gridless headers and cell paddings to minimize horizontal space
   • Zero visual noise (no currency symbols inline)
   • Flash animations and quick sorting retained
@@ -50,11 +51,16 @@ _RED = "#ee7580"     # danger / loss / sell-side — softened
 _AMBER = "#d6a34d"   # warning / active — softened
 _CYAN = "#67c7d8"    # info / utility — softened
 
-_SANS = "'Inter', 'Segoe UI Variable', 'Segoe UI', 'Noto Sans', -apple-system, BlinkMacSystemFont, Arial, sans-serif"
-_NUM = "'Inter', 'Segoe UI Variable', 'Segoe UI', 'Noto Sans', -apple-system, BlinkMacSystemFont, Arial, sans-serif"
+_SANS = "'Inter', 'Aptos', 'Segoe UI Variable', 'Segoe UI', 'Roboto', 'Noto Sans', -apple-system, BlinkMacSystemFont, Arial, sans-serif"
+_NUM = "'Inter', 'Aptos', 'Segoe UI Variable', 'Segoe UI', 'Roboto', 'Noto Sans', -apple-system, BlinkMacSystemFont, Arial, sans-serif"
 _MONO = "'Consolas', 'JetBrains Mono', monospace"
-_APP_FONT_FAMILY = "Inter"
-_NUM_FONT = "Inter"
+
+_SYMBOL_FONT_FAMILIES = ["Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", "Noto Sans", "Arial"]
+_UI_FONT_FAMILIES = ["Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", "Noto Sans", "Arial"]
+_NUM_FONT_FAMILIES = ["Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", "Noto Sans", "Arial"]
+
+_APP_FONT_FAMILY = _UI_FONT_FAMILIES[0]
+_NUM_FONT = _NUM_FONT_FAMILIES[0]
 
 _OPEN_PROFIT = _GREEN
 _OPEN_PROFIT_TINT = "#102720"
@@ -67,13 +73,36 @@ _HEADER_H = 21
 _FOOTER_H = 24
 
 
+def _apply_font_fallbacks(font: QFont, families: List[str]) -> QFont:
+    """Apply real Qt font fallbacks; QFont('Inter, Segoe UI') is not a fallback stack."""
+    if hasattr(font, "setFamilies"):
+        font.setFamilies(families)
+    return font
+
+
 def _ui_font(point_size: int = 9, weight: QFont.Weight = QFont.Weight.Normal) -> QFont:
     """Quiet modern UI font. Monospace stays reserved for raw logs/code only."""
     f = QFont(_APP_FONT_FAMILY)
+    _apply_font_fallbacks(f, _UI_FONT_FAMILIES)
     f.setStyleHint(QFont.StyleHint.SansSerif)
     f.setPointSize(point_size)
     f.setWeight(weight)
     f.setKerning(True)
+    return f
+
+
+def _symbol_font(pixel_size: int = 10, weight: QFont.Weight = QFont.Weight.Normal) -> QFont:
+    """Compact symbol/ticker font matching watchlist and scanner tables."""
+    f = QFont(_SYMBOL_FONT_FAMILIES[0])
+    _apply_font_fallbacks(f, _SYMBOL_FONT_FAMILIES)
+    f.setStyleHint(QFont.StyleHint.SansSerif)
+    f.setPixelSize(pixel_size)  # Match QSS px sizing; avoids oversized 9pt rendering.
+    f.setWeight(weight)
+    f.setKerning(True)
+    try:
+        f.setLetterSpacing(QFont.SpacingType.PercentageSpacing, 103.0)
+    except Exception:
+        pass
     return f
 
 
@@ -345,7 +374,7 @@ class PositionsTable(QWidget):
 
         change_color = self._open_pnl_text_color(entry_change_pct)
 
-        symbol_font = _ui_font(9, QFont.Weight.Normal)
+        symbol_font = _symbol_font(10, QFont.Weight.Normal)
         number_font = self._number_font(False, 9)
         strong_number_font = self._number_font(True, 9)
         base_bg = QBrush(QColor(_BG_BASE if row % 2 == 0 else _BG_ALT))
@@ -622,6 +651,7 @@ class PositionsTable(QWidget):
     def _number_font(bold: bool = False, point_size: int = 9) -> QFont:
         """Modern UI number font for market values; monospace is reserved for raw logs/code."""
         f = QFont(_NUM_FONT)
+        _apply_font_fallbacks(f, _NUM_FONT_FAMILIES)
         f.setStyleHint(QFont.StyleHint.SansSerif)
         f.setPointSize(point_size)
         f.setWeight(QFont.Weight.Medium if bold else QFont.Weight.Normal)

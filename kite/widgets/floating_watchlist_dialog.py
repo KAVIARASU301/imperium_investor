@@ -70,61 +70,69 @@ logger = logging.getLogger(__name__)
 
 class _C:
     # Matte dark terminal layers
-    BG0    = "#050709"    # deepest app shell
-    BG1    = "#0a0d12"    # dialog/window body
-    BG2    = "#0f1318"    # table alternate rows / panels
-    BG3    = "#141920"    # hover / inner section
-    BGTB   = "#070a0f"    # title bar / footer
+    BG0    = "#06080c"    # deepest app shell
+    BG1    = "#0a0e13"    # dialog/window body
+    BG2    = "#10151c"    # table alternate rows / panels
+    BG3    = "#151b24"    # hover / inner section
+    BGTB   = "#080b10"    # title bar / footer
 
-    BORDER  = "#1a2030"
-    BORDER2 = "#243040"
+    BORDER  = "#222b38"
+    BORDER2 = "#2b3645"
 
     # Market semantics
-    BULL     = "#00d4a8"
-    BULL_DIM = "#1a7a62"
-    BULL_BG  = "#0a201a"
-    BEAR     = "#ff4d6a"
-    BEAR_DIM = "#7a2030"
-    BEAR_BG  = "#200a10"
-    FLAT     = "#7a94b0"
+    BULL     = "#72cdb6"
+    BULL_DIM = "#3f917f"
+    BULL_BG  = "#102720"
+    BEAR     = "#e07a84"
+    BEAR_DIM = "#94424b"
+    BEAR_BG  = "#291217"
+    FLAT     = "#7f90a3"
 
     # Text hierarchy
-    T0 = "#e8f0ff"
-    T1 = "#a8bcd4"
-    T2 = "#5a7090"
-    T3 = "#2a3a50"
-    TSYM = "#b6c4d6"   # softened symbol text; avoids distracting bright white
+    T0 = "#d8e2ef"
+    T1 = "#9eacbc"
+    T2 = "#748396"
+    T3 = "#475466"
+    TSYM = "#c2ccd9"   # softened symbol text; avoids distracting bright white
 
     # Accents
-    CYAN  = "#00d4ff"
-    AMBER = "#f59e0b"
-    BLUE  = "#00d4ff"
-    SEL   = "#1a2840"
+    CYAN  = "#78cfe1"
+    AMBER = "#d7a45d"
+    BLUE  = "#7fa6d8"
+    SEL   = "#1f1f1f"
 
     # Flag palette (4-state cycle)
-    FLAG_GREEN = "#00d4a8"
-    FLAG_AMBER = "#f59e0b"
-    FLAG_RED   = "#ff4d6a"
+    FLAG_GREEN = "#72cdb6"
+    FLAG_AMBER = "#d7a45d"
+    FLAG_RED   = "#e07a84"
 
     @staticmethod
     def change_color(pct: float) -> Tuple[str, str]:
         """Return (fg_color, bg_hex_or_empty) for a % change value."""
         if pct >= 3.0:
-            return "#00d4a8", _C.BULL_BG
+            return "#7bd8c3", "#102720"
         if pct >= 1.0:
-            return "#22c4a0", "#0a201a"
+            return "#68c9b2", "#0f211c"
         if pct >= -0.5:
-            return "#7a94b0", ""
+            return "#7f90a3", ""
         if pct >= -1.0:
-            return "#e87060", "#1a100a"
-        return "#ff4d6a", _C.BEAR_BG
+            return "#d78b7f", "#211512"
+        return "#e07a84", _C.BEAR_BG
 
 
+_FONT_FAMILIES = ["Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", "Noto Sans"]
 _MONO = "Consolas, 'JetBrains Mono', 'Courier New', monospace"  # reserved for raw logs / IDs / debug text
-_SANS = "'Inter', 'Segoe UI', -apple-system, Roboto, Arial, sans-serif"
-_NUM = "'Inter', 'Segoe UI Variable', 'Segoe UI', -apple-system, Roboto, Arial, sans-serif"
-_UI_FONT = "Segoe UI"
+_SANS = "'Inter', 'Aptos', 'Segoe UI Variable', 'Segoe UI', 'Roboto', 'Noto Sans', sans-serif"
+_NUM = "'Inter', 'Aptos', 'Segoe UI Variable', 'Segoe UI', 'Roboto', 'Noto Sans', sans-serif"
+_UI_FONT = "Inter"
 _NUM_FONT = "Inter"
+
+
+def _apply_font_families(font: QFont) -> QFont:
+    """Use the same real Qt font fallback order as the embedded tables."""
+    if hasattr(font, "setFamilies"):
+        font.setFamilies(_FONT_FAMILIES)
+    return font
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  FLAG STORE — reuse the module-level singleton from watchlist_table
@@ -685,25 +693,36 @@ class FloatingWatchlistDialog(QDialog):
         self._sym_count_lbl.setText(f"{count} symbols")
         self._count_badge.setText(str(count) if count < 1000 else "999+")
         self._dot.setStyleSheet(
-            f"color: {'#00d4a8' if sorted_syms else '#2a3a50'}; background: transparent;"
+            f"color: {_C.BULL if sorted_syms else _C.T3}; background: transparent;"
         )
 
     @staticmethod
-    def _ui_font(point_size: int = 9, weight: QFont.Weight = QFont.Weight.Normal) -> QFont:
-        """Modern UI font for labels and readable symbol text."""
-        f = QFont(_UI_FONT)
+    def _ui_font(pixel_size: int = 10, weight: QFont.Weight = QFont.Weight.Normal) -> QFont:
+        """Modern UI font for labels and compact utility glyphs."""
+        f = _apply_font_families(QFont(_UI_FONT))
         f.setStyleHint(QFont.StyleHint.SansSerif)
-        f.setPointSize(point_size)
+        f.setPixelSize(pixel_size)
         f.setWeight(weight)
         f.setKerning(True)
         return f
 
     @staticmethod
-    def _number_font(point_size: int = 9, weight: QFont.Weight = QFont.Weight.Normal) -> QFont:
-        """Modern UI number font for LTP, volume and percentage values."""
-        f = QFont(_NUM_FONT)
+    def _symbol_font(pixel_size: int = 10, weight: QFont.Weight = QFont.Weight.Normal) -> QFont:
+        """Compact ticker font matching the embedded watchlist/scanner tables."""
+        f = _apply_font_families(QFont(_UI_FONT))
         f.setStyleHint(QFont.StyleHint.SansSerif)
-        f.setPointSize(point_size)
+        f.setPixelSize(pixel_size)
+        f.setWeight(weight)
+        f.setKerning(True)
+        f.setLetterSpacing(QFont.SpacingType.PercentageSpacing, 103)
+        return f
+
+    @staticmethod
+    def _number_font(pixel_size: int = 10, weight: QFont.Weight = QFont.Weight.Normal) -> QFont:
+        """Modern UI number font for LTP, volume and percentage values."""
+        f = _apply_font_families(QFont(_NUM_FONT))
+        f.setStyleHint(QFont.StyleHint.SansSerif)
+        f.setPixelSize(pixel_size)
         f.setWeight(weight)
         f.setKerning(True)
         return f
@@ -736,7 +755,7 @@ class FloatingWatchlistDialog(QDialog):
             sym_item.setTextAlignment(
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
             )
-            sym_item.setFont(self._ui_font(9, QFont.Weight.DemiBold))
+            sym_item.setFont(self._symbol_font(10, QFont.Weight.Normal))
 
         # ── LTP ──
         ltp_item = self.table.item(row, _COL_LTP)
@@ -746,7 +765,7 @@ class FloatingWatchlistDialog(QDialog):
             ltp_item.setTextAlignment(
                 Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
             )
-            ltp_item.setFont(self._number_font(9, QFont.Weight.Medium))
+            ltp_item.setFont(self._number_font(10, QFont.Weight.Normal))
 
         # ── Volume ──
         vol_item = self.table.item(row, _COL_VOL)
@@ -757,7 +776,7 @@ class FloatingWatchlistDialog(QDialog):
                 Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
             )
             vol_item.setToolTip(f"Volume: {volume:,}")
-            vol_item.setFont(self._number_font(9, QFont.Weight.Medium))
+            vol_item.setFont(self._number_font(10, QFont.Weight.Normal))
 
         # ── Chg% ──
         chg_item = self.table.item(row, _COL_CHG)
@@ -768,7 +787,7 @@ class FloatingWatchlistDialog(QDialog):
             chg_item.setForeground(QColor(fg_chg))
             chg_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             chg_weight = QFont.Weight.DemiBold if abs(chg_pct) >= 1.0 else QFont.Weight.Medium
-            chg_item.setFont(self._number_font(9, chg_weight))
+            chg_item.setFont(self._number_font(10, chg_weight))
             if bg_chg:
                 chg_item.setBackground(QBrush(QColor(bg_chg)))
             else:
@@ -786,7 +805,7 @@ class FloatingWatchlistDialog(QDialog):
         item.setForeground(QColor(color))
         item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
         item.setToolTip(_FLAG_TOOLTIP[state])
-        item.setFont(self._ui_font(8, QFont.Weight.DemiBold))
+        item.setFont(self._ui_font(10, QFont.Weight.Normal))
 
     def _flush_pending_ticks(self):
         if not self._dirty_symbols:
@@ -1034,8 +1053,8 @@ class FloatingWatchlistDialog(QDialog):
                 color: {_C.T2};
                 font-family: {_SANS};
                 font-size: 8px;
-                font-weight: 800;
-                letter-spacing: 1px;
+                font-weight: 500;
+                letter-spacing: 0.6px;
                 background: transparent;
             }}
             QComboBox#floatWlDropdown {{
@@ -1088,12 +1107,17 @@ class FloatingWatchlistDialog(QDialog):
                 outline: none;
                 selection-background-color: {_C.SEL};
                 selection-color: {_C.T0};
-                font-family: {_NUM};
-                font-size: 11px;
+                font-family: {_SANS};
+                font-size: 10px;
+                font-weight: 400;
             }}
             QTableWidget#floatWlTable::item {{
                 padding: 0 5px;
                 border-bottom: 1px solid {_C.BG3};
+                background: transparent;
+                font-family: {_NUM};
+                font-size: 10px;
+                font-weight: 400;
             }}
             QTableWidget#floatWlTable::item:selected {{
                 background: {_C.SEL};
@@ -1107,8 +1131,8 @@ class FloatingWatchlistDialog(QDialog):
                 color: {_C.T2};
                 font-family: {_SANS};
                 font-size: 8px;
-                font-weight: 800;
-                letter-spacing: 1px;
+                font-weight: 500;
+                letter-spacing: 0.6px;
                 text-transform: uppercase;
                 border: none;
                 border-bottom: 1px solid {_C.BORDER};
@@ -1143,7 +1167,7 @@ class FloatingWatchlistDialog(QDialog):
                 border-radius: 2px;
                 padding: 3px 0;
                 font-family: {_SANS};
-                font-size: 11px;
+                font-size: 10px;
                 color: {_C.T0};
             }}
             QMenu#floatWlCtxMenu::item {{
