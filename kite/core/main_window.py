@@ -189,15 +189,16 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         QTimer.singleShot(2000, self._initialize_position_system)
 
     def _apply_startup_dual_chart_timeframes(self):
-        """On startup, set dual charts to default swing/intraday split."""
-        if not self.dual_chart_mode_enabled:
-            return
+        """On startup, apply default timeframe(s) based on current chart mode."""
         try:
             self.candlestick_chart._change_timeframe("day")
-            self.candlestick_chart_secondary._change_timeframe("60minute")
-            logger.info("Applied startup dual-chart timeframes: left=day, right=60minute")
+            if self.dual_chart_mode_enabled:
+                self.candlestick_chart_secondary._change_timeframe("60minute")
+                logger.info("Applied startup dual-chart timeframes: left=day, right=60minute")
+            else:
+                logger.info("Applied startup single-chart timeframe: primary=day")
         except Exception as e:
-            logger.warning(f"Failed to apply startup dual-chart timeframes: {e}")
+            logger.warning(f"Failed to apply startup chart timeframes: {e}")
 
 
     def _initialize_position_system(self):
