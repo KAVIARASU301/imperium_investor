@@ -3056,8 +3056,16 @@ class FixedTradingChart {
     }
 
     _createAlert(symbol, price, alertType = 'price') {
-        const payload = JSON.stringify({ symbol, price, type: alertType,
-                                         condition: price > (this.livePrice || 0) ? 'above' : 'below' });
+        const hasLtp = Number.isFinite(this.livePrice) && this.livePrice > 0;
+        const inferredCondition = hasLtp
+            ? (price >= this.livePrice ? 'crosses_above' : 'crosses_below')
+            : 'price_above';
+        const payload = JSON.stringify({
+            symbol,
+            price,
+            type: alertType,
+            condition: inferredCondition
+        });
         if (this.chartBridge) this.chartBridge.notify_alert_creation_requested(payload);
     }
 

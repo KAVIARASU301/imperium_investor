@@ -713,6 +713,40 @@ class AlertSystemManager(QObject):
     def show_alert_manager(self, parent=None) -> None:
         self.show_dialog(parent=parent)
 
+    def _resolve_chart_price_condition(self, symbol: str, target_value: float, requested: str = "") -> str:
+        """
+        Resolve chart-created price alert direction using live LTP.
+
+        Behavior:
+        - Explicit crossing aliases are honored directly.
+        - For generic / missing condition values, infer crossing direction from
+          alert line position relative to current LTP:
+            * target above LTP -> Price Crossed Up
+            * target below LTP -> Price Crossed Down
+        - If LTP is unavailable, fallback to non-crossing level conditions to
+          avoid choosing an incorrect crossing direction.
+        """
+        requested_key = str(requested or "").strip().lower()
+        explicit_map = {
+            "crosses_above": AlertCondition.PRICE_CROSSED_UP.value,
+            "crosses_below": AlertCondition.PRICE_CROSSED_DOWN.value,
+            "price_above": AlertCondition.PRICE_IS_ABOVE.value,
+            "price_below": AlertCondition.PRICE_IS_BELOW.value,
+            "above": AlertCondition.PRICE_IS_ABOVE.value,
+            "below": AlertCondition.PRICE_IS_BELOW.value,
+        }
+
+        if requested_key in ("crosses_above", "crosses_below"):
+            return explicit_map[requested_key]
+
+        ltp = self._get_current_ltp(symbol)
+        if ltp > 0:
+            if target_value >= ltp:
+                return AlertCondition.PRICE_CROSSED_UP.value
+            return AlertCondition.PRICE_CROSSED_DOWN.value
+
+        return explicit_map.get(requested_key, AlertCondition.PRICE_IS_ABOVE.value)
+
     # ──────────────────────────────────────────────────────────────
     # CHART → ALERT  (called from chart bridge signal)
     # ──────────────────────────────────────────────────────────────
@@ -740,14 +774,6 @@ class AlertSystemManager(QObject):
             logger.warning(f"Chart alert ignored for {symbol}: invalid target price {target_value}")
             return
 
-        condition_map = {
-            "above": AlertCondition.PRICE_IS_ABOVE.value,
-            "below": AlertCondition.PRICE_IS_BELOW.value,
-            "price_above": AlertCondition.PRICE_IS_ABOVE.value,
-            "price_below": AlertCondition.PRICE_IS_BELOW.value,
-            "crosses_above": AlertCondition.PRICE_CROSSED_UP.value,
-            "crosses_below": AlertCondition.PRICE_CROSSED_DOWN.value,
-        }
         intent_map = {
             "buy_entry":     AlertIntent.BUY_ENTRY.value,
             "sell_entry":    AlertIntent.SELL_ENTRY.value,
@@ -758,9 +784,10 @@ class AlertSystemManager(QObject):
             "info":          AlertIntent.INFO.value,
         }
 
-        condition = condition_map.get(
-            str(data.get("condition", "")).lower(),
-            AlertCondition.PRICE_IS_ABOVE.value
+        condition = self._resolve_chart_price_condition(
+            symbol=symbol,
+            target_value=target_value,
+            requested=str(data.get("condition", "")),
         )
         intent = intent_map.get(
             str(data.get("intent", "")).lower(),
