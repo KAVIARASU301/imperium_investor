@@ -177,7 +177,7 @@ class HeaderToolbar(QToolBar):
         alert_layout.setContentsMargins(0, 0, 0, 0)
         alert_layout.setSpacing(4)
 
-        self.alerts_button = QPushButton(" ALERTS")
+        self.alerts_button = QPushButton("")
         self.alerts_button.setObjectName("alertActionButton")
         self.alerts_button.setIconSize(QSize(14, 14))
         alert_icon_path = get_asset_path("icons", "alert.svg", required=True)
@@ -185,7 +185,7 @@ class HeaderToolbar(QToolBar):
             self.alerts_button.setIcon(QIcon(str(alert_icon_path)))
         self.alerts_button.clicked.connect(self.alert_manager_requested.emit)
         self.alerts_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.alerts_button.setFixedSize(64, 20)
+        self.alerts_button.setFixedSize(24, 20)
         alert_layout.addWidget(self.alerts_button)
 
         self.alerts_badge = NotificationBadge()
