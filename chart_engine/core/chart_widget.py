@@ -55,7 +55,7 @@ DEFAULT_INDICATOR_VISIBILITY = {
     "bjTrend": False,
     "atrTrendReversal": False,
     "vwap": False,
-    "volume": True,   # volume bars on by default
+    "volume": False,
     "cvd": False,
     "rsi": False,
 }

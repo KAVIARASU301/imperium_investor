@@ -50,13 +50,7 @@ TIMEFRAMES: List[Tuple[str, str, str]] = [
     ("M",   "month",    "Monthly  [M]"),
 ]
 
-INDICATORS: List[Tuple[str, str, str, str]] = [
-        ("bjTrend",          "BJ·T3",  "#64b5f6", "Bjorgum T3 Trend (5/8, α=0.7)"),
-    ("vwap",             "VWAP",   "#ff9100", "VWAP — Volume Weighted Avg Price"),
-    ("atrTrendReversal", "ATR·TR", "#ff1744", "ATR Trend Reversal"),
-    ("cvd",              "CVD",    "#00b0ff", "Cumulative Volume Delta"),
-    ("rsi",              "RSI",    "#76ff03", "Relative Strength Index (14)"),
-]
+INDICATORS: List[Tuple[str, str, str, str]] = []
 
 CHART_TYPES: List[Tuple[str, str, str]] = [
     ("candle",     "🕯",  "Candlestick"),

@@ -204,7 +204,7 @@ class FixedTradingChart {
         // localStorage is global (not per-symbol) so user's choices stick forever.
         const _pythonDefaults = {
             ema10: false, ema20: false, ema50: false, ema200: false,
-            atrTrendReversal: false, bjTrend: false, vwap: false, cvd: false, volume: true, rsi: false,
+            atrTrendReversal: false, bjTrend: false, vwap: false, cvd: false, volume: false, rsi: false,
             ...(cfg.initialIndicatorVisibility || {}),
         };
         this.indicatorVisibility = _loadIndicatorState(_pythonDefaults);
@@ -219,11 +219,6 @@ class FixedTradingChart {
         this.rsiData = [];
         this._hasLiveTicks = false;
         if (this.data.length > 0) {
-            this._computeVWAP();
-            this._computeATRTrendReversal();
-            this._computeBjTrendIndicator();
-            this._computeCVD();
-            this._computeRSI();
             this._computeRenko();
         }
 
@@ -854,12 +849,6 @@ class FixedTradingChart {
             this._drawGrid();
             this._drawSessionSeparators();
             this._drawGaps();
-            this._drawVolume();
-            this._drawCVD();
-            this._drawRSI();
-            this._drawVWAP();
-            this._drawEMAs();
-            this._drawBjTrendIndicator();
             // Chart type dispatch
             const chartType = this._chartType || window.__CHART_DATA__?.chartType || 'candle';
             if (chartType === 'bar') {
@@ -869,7 +858,6 @@ class FixedTradingChart {
             } else {
                 this._drawCandlesticks();
             }
-            this._drawATRTrendReversal();
             this._drawAxes();
             this.drawingEngine.render();
             this._drawMeasureOverlay();
@@ -4007,11 +3995,6 @@ class FixedTradingChart {
         this.cvdData = [];
         this.rsiData = [];
         if (this.data.length > 0) {
-            this._computeVWAP();
-            this._computeATRTrendReversal();
-            this._computeBjTrendIndicator();
-            this._computeCVD();
-            this._computeRSI();
             this._computeRenko();
         }
 
@@ -4066,11 +4049,6 @@ class FixedTradingChart {
             this.viewPortEnd = this.data.length - 1 + this.rightBufferCandles;
             this._updateViewport();
         }
-        this._computeVWAP();
-        this._computeATRTrendReversal();
-        this._computeBjTrendIndicator();
-        this._computeCVD();
-        this._computeRSI();
         this._computeRenko();
         this.calculateBounds();
         this.requestDraw();
@@ -4233,7 +4211,7 @@ class FixedTradingChart {
         try { localStorage.removeItem(_IND_STORE_KEY); } catch (e) {}
         this.indicatorVisibility = {
             ema10: false, ema20: false, ema50: false, ema200: false,
-            atrTrendReversal: false, bjTrend: false, vwap: false, cvd: false, volume: true, rsi: false,
+            atrTrendReversal: false, bjTrend: false, vwap: false, cvd: false, volume: false, rsi: false,
         };
         _saveIndicatorState(this.indicatorVisibility);
         this.requestDraw();
