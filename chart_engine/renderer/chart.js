@@ -1033,7 +1033,7 @@ class FixedTradingChart {
         const ctx = this.ctx;
         const area = this.chartArea;
         // Keep a small buffer above the time axis so labels stay visually below volume.
-        const timeAxisGap = 5;
+        const timeAxisGap = 4;
         const baseY = area.y + area.height - timeAxisGap;
         const volHeight = Math.max(28, Math.min(72, Math.floor(area.height * 0.12)));
 
