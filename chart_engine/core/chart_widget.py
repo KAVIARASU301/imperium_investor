@@ -281,6 +281,16 @@ class CandlestickChart(QWidget):
             if token:
                 logger.info("Resolved token for restored symbol %s after instrument load", self.current_symbol)
                 self.current_instrument_token = token
+                # Startup restore can happen before instruments are loaded,
+                # which leaves the watermark description empty on first render.
+                # Refresh it now that we can resolve instrument metadata.
+                self._current_watermark_description = self._resolve_symbol_description(self.current_symbol)
+                self._refresh_toolbar_symbol_text()
+                self.set_watermark(
+                    self.current_symbol,
+                    self._current_watermark_description,
+                    self._show_watermark_description,
+                )
                 self._load_chart_data()
 
     @Slot(str)
