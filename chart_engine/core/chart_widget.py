@@ -51,14 +51,7 @@ logger = logging.getLogger(__name__)
 SNAPSHOT_READY_RETRY_DELAY_MS = 150
 SNAPSHOT_READY_MAX_ATTEMPTS = 20
 
-DEFAULT_INDICATOR_VISIBILITY = {
-    "bjTrend": False,
-    "atrTrendReversal": False,
-    "vwap": False,
-    "volume": False,
-    "cvd": False,
-    "rsi": False,
-}
+DEFAULT_INDICATOR_VISIBILITY = {}
 
 # ChartState is used internally to manage the stacked-widget visibility.
 from enum import Enum

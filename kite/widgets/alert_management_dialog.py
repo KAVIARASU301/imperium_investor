@@ -1,13 +1,18 @@
-# kite/widgets/alert_management_dialog.py
-"""Alert management dialogs for Kite alerts."""
+"""Production-grade alert management dialog for Kite alerts.
+
+This module intentionally contains only alert-management UI.  Alert creation UI
+and the old "+ New Alert" footer action were removed so the panel stays focused
+on monitoring, acknowledging, deleting, and navigating existing alerts.
+"""
+
+from __future__ import annotations
 
 import json
 import logging
-
 from datetime import datetime
-from typing import List, Optional
+from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
-from PySide6.QtCore import QPoint, QRect, Qt, Signal, QTimer
+from PySide6.QtCore import QPoint, QRect, Qt, QTimer
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -20,409 +25,220 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication,
-    QAbstractButton,
     QAbstractItemView,
-    QAbstractSpinBox,
-    QCheckBox,
-    QComboBox,
     QDialog,
-    QDoubleSpinBox,
-    QFormLayout,
     QFrame,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
-    QLineEdit,
-    QPushButton,
-    QTabWidget,
-    QToolButton,
     QTableWidget,
     QTableWidgetItem,
-    QHeaderView,
+    QTabWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
-from kite.core.alert_management_system import (
-    Alert,
-    AlertCondition,
-    AlertIntent,
-    AlertStatus,
-)
+from kite.core.alert_management_system import AlertStatus
 
 
 logger = logging.getLogger(__name__)
 
-_BG0 = "#050709"
-_BG1 = "#0a0d12"
-_BG2 = "#0f1318"
-_BG3 = "#141920"
-_BG4 = "#1a2030"
-_BGTB = "#070a0f"
-_BULL = "#00d4a8"
-_BEAR = "#ff4d6a"
-_AMBER = "#f59e0b"
-_CYAN = "#00d4ff"
-_BLUE = "#3b82f6"
-_T0 = "#e8f0ff"
-_T1 = "#a8bcd4"
-_T2 = "#5a7090"
-_T3 = "#2a3a50"
-_SEL = "#1a2840"
+# -----------------------------------------------------------------------------
+# Visual system: dark, sharp, solid, trading-desk style.
+# -----------------------------------------------------------------------------
 
-_MONO = "'Consolas', 'JetBrains Mono', monospace"
-_SANS = "'Inter', 'Segoe UI', sans-serif"
+_BG_APP = "#07090d"
+_BG_PANEL = "#0b0f14"
+_BG_PANEL_ALT = "#10151d"
+_BG_HEADER = "#0a0d12"
+_BG_ROW = "#0e131a"
+_BG_ROW_ALT = "#111822"
+_BG_HOVER = "#17202b"
+_BG_SELECTED = "#192638"
+_BORDER_DARK = "#1b2430"
+_BORDER_LIGHT = "#263242"
 
-_ROW_H = 24
-_DEFAULT_W = 620
-_DEFAULT_H = 380
+_TEXT_STRONG = "#edf4ff"
+_TEXT = "#b7c4d4"
+_TEXT_MUTED = "#75869b"
+_TEXT_FAINT = "#46576d"
 
+_ACCENT = "#f4b740"
+_GREEN = "#18d6a3"
+_RED = "#ff5c7a"
+_BLUE = "#6aa8ff"
+_CYAN = "#40d9ff"
 
-class AlertCreationDialog(QDialog):
-    """Compact dialog to create a new alert."""
+_MONO_FAMILY = "Consolas"
+_SANS = "'Inter', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif"
 
-    alert_created = Signal(object)  # Alert instance
-
-    def __init__(self, symbol: str = "", ltp: float = 0.0, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Create Alert")
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
-        self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self._symbol = symbol.upper()
-        self._ltp    = ltp
-        self._build_ui()
-        self._apply_styles()
-
-    def _build_ui(self):
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        container = QFrame()
-        container.setObjectName("alertContainer")
-        outer.addWidget(container)
-
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(12, 10, 12, 12)
-        layout.setSpacing(8)
-
-        # Header
-        header = QHBoxLayout()
-        title  = QLabel(f"New Alert — {self._symbol}")
-        title.setObjectName("alertTitle")
-        close_btn = QPushButton("✕")
-        close_btn.setObjectName("closeButton")
-        close_btn.setFixedSize(24, 24)
-        close_btn.clicked.connect(self.reject)
-        header.addWidget(title)
-        header.addStretch()
-        header.addWidget(close_btn)
-        layout.addLayout(header)
-
-        form = QFormLayout()
-        form.setHorizontalSpacing(8)
-        form.setVerticalSpacing(6)
-
-        # Symbol
-        self.symbol_input = QLineEdit(self._symbol)
-        self.symbol_input.setFixedWidth(140)
-        form.addRow("Symbol:", self.symbol_input)
-
-        # Condition
-        self.condition_combo = QComboBox()
-        self.condition_combo.addItems([c.value for c in AlertCondition])
-        self.condition_combo.setFixedWidth(190)
-        self.condition_combo.currentTextChanged.connect(self._update_target_label)
-        form.addRow("Condition:", self.condition_combo)
-
-        # Target value
-        self.target_label = QLabel("Target Price:")
-        self.target_spin  = QDoubleSpinBox()
-        self.target_spin.setRange(0, 999_999)
-        self.target_spin.setDecimals(2)
-        self.target_spin.setValue(self._ltp)
-        self.target_spin.setFixedWidth(140)
-        form.addRow(self.target_label, self.target_spin)
-
-        # Intent
-        self.intent_combo = QComboBox()
-        self.intent_combo.addItems([i.value for i in AlertIntent])
-        self.intent_combo.setFixedWidth(190)
-        form.addRow("Intent:", self.intent_combo)
-
-        # Note
-        self.note_input = QLineEdit()
-        self.note_input.setPlaceholderText("Optional note…")
-        form.addRow("Note:", self.note_input)
-
-        # Repeat
-        self.repeat_check = QCheckBox("Re-arm after trigger")
-        form.addRow("", self.repeat_check)
-
-        layout.addLayout(form)
-
-        layout.addSpacing(2)
-
-        # Buttons
-        btns = QHBoxLayout()
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.setObjectName("cancelButton")
-        cancel_btn.clicked.connect(self.reject)
-        create_btn = QPushButton("Create Alert")
-        create_btn.setObjectName("confirmButton")
-        create_btn.clicked.connect(self._create)
-        btns.addWidget(cancel_btn, 1)
-        btns.addWidget(create_btn, 2)
-        layout.addLayout(btns)
-
-    def _update_target_label(self, condition_text: str):
-        labels = {
-            AlertCondition.PERCENT_CHANGE_UP.value:   "% Move Up:",
-            AlertCondition.PERCENT_CHANGE_DOWN.value:  "% Move Down:",
-            AlertCondition.VOLUME_SPIKE.value:         "Volume Multiplier (N×):",
-            AlertCondition.RSI_ABOVE.value:            "RSI Level (>):",
-            AlertCondition.RSI_BELOW.value:            "RSI Level (<):",
-            AlertCondition.TIME_BASED.value:           "Time (HHMM, e.g. 915):",
-        }
-        self.target_label.setText(labels.get(condition_text, "Target Price:"))
-
-    def _create(self):
-        import uuid
-        symbol = self.symbol_input.text().strip().upper()
-        if not symbol:
-            return
-        alert = Alert(
-            id=f"alert_{uuid.uuid4().hex[:8]}",
-            symbol=symbol,
-            condition=self.condition_combo.currentText(),
-            intent=self.intent_combo.currentText(),
-            target_value=self.target_spin.value(),
-            note=self.note_input.text().strip(),
-            repeat=self.repeat_check.isChecked(),
-        )
-        self.alert_created.emit(alert)
-        self.accept()
-
-    def _apply_styles(self):
-        self.setStyleSheet("""
-            * {
-                font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-            }
-            QFrame#alertContainer {
-                background-color: #12141A;
-                border: 1px solid #222630;
-                border-radius: 2px;
-            }
-            QLabel {
-                color: #A0A6B5;
-                font-size: 12px;
-                font-weight: 500;
-            }
-            QLabel#alertTitle {
-                color: #FFFFFF;
-                font-size: 14px;
-                font-weight: 600;
-                letter-spacing: 0.5px;
-            }
-            /* Flat Inputs & Dropdowns */
-            QLineEdit, QComboBox, QDoubleSpinBox, QSpinBox {
-                background-color: #1B1E26;
-                color: #FFFFFF;
-                border: 1px solid #2A2F3A;
-                border-radius: 2px;
-                padding: 5px 8px;
-                font-size: 12px;
-            }
-            QLineEdit:focus, QComboBox:focus, QDoubleSpinBox:focus {
-                border: 1px solid #00E676;
-                background-color: #12141A;
-            }
-            QComboBox QAbstractItemView {
-                background-color: #1B1E26;
-                color: #FFFFFF;
-                selection-background-color: #2A2F3A;
-                selection-color: #FFFFFF;
-                border: 1px solid #2A2F3A;
-                outline: 0;
-            }
-            QDoubleSpinBox QLineEdit {
-                background-color: #1B1E26;
-                color: #FFFFFF;
-                selection-background-color: #2A2F3A;
-                selection-color: #FFFFFF;
-                border: none;
-            }
-            QComboBox::drop-down {
-                border: none;
-                width: 20px;
-            }
-            QComboBox::down-arrow {
-                image: none;
-                border-left: 4px solid transparent;
-                border-right: 4px solid transparent;
-                border-top: 5px solid #7B8496;
-                margin-right: 4px;
-            }
-            /* Action Buttons */
-            QPushButton {
-                font-weight: 600;
-                font-size: 12px;
-                border-radius: 2px;
-            }
-            QPushButton#confirmButton {
-                background-color: rgba(0, 230, 118, 0.1);
-                color: #00E676;
-                border: 1px solid transparent;
-                padding: 6px 12px;
-            }
-            QPushButton#confirmButton:hover {
-                background-color: rgba(0, 230, 118, 0.15);
-                border: 1px solid rgba(0, 230, 118, 0.3);
-            }
-            QPushButton#cancelButton {
-                background-color: transparent;
-                color: #7B8496;
-                border: 1px solid #2A2F3A;
-                padding: 6px 12px;
-            }
-            QPushButton#cancelButton:hover {
-                background-color: #1B1E26;
-                color: #FFFFFF;
-            }
-            QPushButton#closeButton {
-                background: transparent;
-                color: #7B8496;
-                border: none;
-                font-size: 16px;
-            }
-            QPushButton#closeButton:hover {
-                color: #FF4444;
-            }
-            QCheckBox {
-                color: #A0A6B5;
-                font-size: 12px;
-            }
-            QCheckBox::indicator {
-                width: 14px;
-                height: 14px;
-                border: 1px solid #2A2F3A;
-                border-radius: 2px;
-                background: #1B1E26;
-            }
-            QCheckBox::indicator:checked {
-                background: #00E676;
-                border: 1px solid #00E676;
-            }
-        """)
+_ROW_H = 30
+_DEFAULT_W = 860
+_DEFAULT_H = 520
+_MIN_W = 620
+_MIN_H = 360
+_REFRESH_MS = 3_000
 
 
+# -----------------------------------------------------------------------------
+# Small UI helpers
+# -----------------------------------------------------------------------------
 
 class _ResizeGrip(QWidget):
-    """Small bottom-right resize handle for the compact alert manager."""
+    """Small bottom-right resize handle for the frameless dialog."""
 
-    SIZE = 10
+    SIZE = 14
 
-    def __init__(self, parent=None):
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setFixedSize(self.SIZE, self.SIZE)
         self.setCursor(QCursor(Qt.CursorShape.SizeFDiagCursor))
         self._dragging = False
-        self._p0 = QPoint()
-        self._g0 = QRect()
+        self._origin = QPoint()
+        self._geometry = QRect()
 
-    def paintEvent(self, _event):
+    def paintEvent(self, _event) -> None:  # noqa: N802 - Qt override
         painter = QPainter(self)
-        pen = QPen(QColor(_BG4))
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        pen = QPen(QColor(_TEXT_FAINT))
         pen.setWidth(1)
         painter.setPen(pen)
         n = self.SIZE
-        for i in range(2, n, 3):
-            painter.drawLine(i, n - 1, n - 1, i)
+        for offset in (4, 8, 12):
+            painter.drawLine(n - offset, n - 1, n - 1, n - offset)
         painter.end()
 
-    def mousePressEvent(self, event):
+    def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802 - Qt override
         if event.button() == Qt.MouseButton.LeftButton:
             self._dragging = True
-            self._p0 = event.globalPosition().toPoint()
-            self._g0 = self.window().geometry()
+            self._origin = event.globalPosition().toPoint()
+            self._geometry = self.window().geometry()
             event.accept()
             return
         super().mousePressEvent(event)
 
-    def mouseMoveEvent(self, event):
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:  # noqa: N802 - Qt override
         if self._dragging:
-            delta = event.globalPosition().toPoint() - self._p0
+            delta = event.globalPosition().toPoint() - self._origin
             self.window().setGeometry(
-                self._g0.x(),
-                self._g0.y(),
-                max(480, self._g0.width() + delta.x()),
-                max(280, self._g0.height() + delta.y()),
+                self._geometry.x(),
+                self._geometry.y(),
+                max(_MIN_W, self._geometry.width() + delta.x()),
+                max(_MIN_H, self._geometry.height() + delta.y()),
             )
             event.accept()
             return
         super().mouseMoveEvent(event)
 
-    def mouseReleaseEvent(self, event):
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802 - Qt override
         self._dragging = False
         super().mouseReleaseEvent(event)
 
 
-def _action_btn(glyph: str, color: str, tooltip: str, callback) -> QToolButton:
-    """Create a tiny square glyph button for use inside table action cells."""
-    btn = QToolButton()
-    btn.setText(glyph)
-    btn.setToolTip(tooltip)
-    btn.setFixedSize(22, 20)
-    btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-    btn.setStyleSheet(f"""
-        QToolButton {{
-            background: rgba(255,255,255,0.04);
-            color: {color};
-            border: 1px solid {color}44;
-            border-radius: 2px;
-            font-size: 11px;
-            font-weight: 700;
-        }}
-        QToolButton:hover {{
-            background: {color}22;
-            border-color: {color};
-        }}
-    """)
-    btn.clicked.connect(callback)
-    return btn
+class _MetricChip(QFrame):
+    """Compact count chip used in the header summary strip."""
+
+    def __init__(self, label: str, accent: str, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("metricChip")
+        self._accent = accent
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(10, 4, 10, 4)
+        layout.setSpacing(8)
+
+        self._label = QLabel(label.upper())
+        self._label.setObjectName("metricLabel")
+        self._value = QLabel("0")
+        self._value.setObjectName("metricValue")
+        self._value.setStyleSheet(f"color: {accent};")
+
+        layout.addWidget(self._label)
+        layout.addWidget(self._value)
+
+    def set_value(self, value: int) -> None:
+        self._value.setText(str(value))
 
 
 class _ActionCell(QWidget):
-    """Transparent container widget that holds one or more action buttons."""
+    """Transparent container for row action buttons."""
 
-    def __init__(self, *btns, parent=None):
+    def __init__(self, *buttons: QToolButton, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(3, 2, 3, 2)
-        layout.setSpacing(4)
-        for btn in btns:
-            layout.addWidget(btn)
+        layout.setContentsMargins(4, 3, 4, 3)
+        layout.setSpacing(6)
+        layout.addStretch()
+        for button in buttons:
+            layout.addWidget(button)
         layout.addStretch()
         self.setStyleSheet("background: transparent;")
 
 
+def _action_button(text: str, color: str, tooltip: str, callback: Callable[[], None]) -> QToolButton:
+    """Create a crisp row action button."""
+
+    button = QToolButton()
+    button.setText(text)
+    button.setToolTip(tooltip)
+    button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+    button.setFixedHeight(22)
+    button.setMinimumWidth(34)
+    button.setStyleSheet(f"""
+        QToolButton {{
+            background: {color}14;
+            color: {color};
+            border: 1px solid {color}55;
+            border-radius: 0px;
+            padding: 1px 8px;
+            font-family: {_SANS};
+            font-size: 9px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+        }}
+        QToolButton:hover {{
+            background: {color}26;
+            border-color: {color};
+            color: #ffffff;
+        }}
+        QToolButton:pressed {{
+            background: {color}40;
+        }}
+    """)
+    button.clicked.connect(callback)
+    return button
+
+
+# -----------------------------------------------------------------------------
+# Dialog
+# -----------------------------------------------------------------------------
+
 class AlertManagementDialog(QDialog):
     """
-    Compact floating alert panel.
+    Floating alert management panel.
 
-    Public API remains compatible with the original AlertManagementDialog:
-        AlertManagementDialog(manager, parent).show()
-        dialog.refresh_tables()
+    Kept backend-compatible with the existing manager contract:
+        - manager.store.all()
+        - manager.remove_alert(alert_id)
+        - manager.acknowledge_triggered_alert(alert_id)
+        - parent.candlestick_chart.on_search(symbol)
+        - parent.config_manager load/save dialog state
     """
 
     _STATE_KEY = "compact_alert_mgmt_dialog"
 
-    def __init__(self, manager: "AlertSystemManager", parent=None):
+    def __init__(self, manager: "AlertSystemManager", parent: Optional[QWidget] = None) -> None:
         flags = (
             Qt.WindowType.Tool
             | Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
         )
         super().__init__(parent, flags)
+        self.setObjectName("alertManagementDialog")
+        self.setWindowTitle("Alert Manager")
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
-        self.setMinimumSize(480, 260)
+        self.setMinimumSize(_MIN_W, _MIN_H)
         self.resize(_DEFAULT_W, _DEFAULT_H)
 
         self.manager = manager
@@ -431,11 +247,16 @@ class AlertManagementDialog(QDialog):
         self._pinned = True
         self._drag_active = False
         self._drag_offset = QPoint()
-        self._prev_spacebar_enabled = None
-        self._prev_shift_spacebar_enabled = None
         self._geometry_restored = False
-        self._last_snapshot = None
-        self._table_snapshots = {"active": {}, "triggered": {}, "history": {}}
+        self._prev_spacebar_enabled: Optional[bool] = None
+        self._prev_shift_spacebar_enabled: Optional[bool] = None
+
+        self._last_snapshot: Optional[Tuple[Tuple, Tuple, Tuple]] = None
+        self._table_snapshots: Dict[str, Dict[str, Tuple]] = {
+            "active": {},
+            "triggered": {},
+            "history": {},
+        }
 
         self._build_ui()
         self._apply_styles()
@@ -443,87 +264,94 @@ class AlertManagementDialog(QDialog):
 
         self._refresh_timer = QTimer(self)
         self._refresh_timer.timeout.connect(self.refresh_tables)
-        self._refresh_timer.start(3_000)
+        self._refresh_timer.start(_REFRESH_MS)
 
-        self.refresh_tables()
+        self.refresh_tables(force=True)
         self._wire_symbol_navigation()
 
-    def _build_ui(self):
+    # ------------------------------------------------------------------
+    # UI construction
+    # ------------------------------------------------------------------
+
+    def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(1, 1, 1, 1)
+        root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        root.addWidget(self._build_title_bar())
+        self._shell = QFrame()
+        self._shell.setObjectName("alertShell")
+        root.addWidget(self._shell)
+
+        shell = QVBoxLayout(self._shell)
+        shell.setContentsMargins(0, 0, 0, 0)
+        shell.setSpacing(0)
+
+        shell.addWidget(self._build_title_bar())
+        shell.addWidget(self._build_summary_bar())
 
         body = QWidget()
+        body.setObjectName("alertBody")
         body_layout = QVBoxLayout(body)
-        body_layout.setContentsMargins(8, 6, 8, 6)
-        body_layout.setSpacing(4)
+        body_layout.setContentsMargins(10, 8, 10, 8)
+        body_layout.setSpacing(8)
 
         self.tabs = QTabWidget()
         self.tabs.setObjectName("alertTabs")
         self.tabs.setDocumentMode(True)
+        self.tabs.setMovable(False)
+        self.tabs.setUsesScrollButtons(False)
 
-        self.active_table = self._make_table(["Symbol", "Condition", "Target", ""])
-        self.triggered_table = self._make_table(["Symbol", "Condition", "Target", "Triggered", ""])
-        self.history_table = self._make_table(["Symbol", "Condition", "Target", "Triggered"])
+        self.active_table = self._make_table(["Symbol", "Condition", "Target", "Intent", "Note", ""])
+        self.triggered_table = self._make_table(["Symbol", "Condition", "Target", "Triggered", "Intent", ""])
+        self.history_table = self._make_table(["Symbol", "Condition", "Target", "Triggered", "Status"])
 
-        self.tabs.addTab(self.active_table, "Active")
-        self.tabs.addTab(self.triggered_table, "Triggered")
-        self.tabs.addTab(self.history_table, "History")
+        self.tabs.addTab(self.active_table, "ACTIVE")
+        self.tabs.addTab(self.triggered_table, "TRIGGERED")
+        self.tabs.addTab(self.history_table, "HISTORY")
 
         body_layout.addWidget(self.tabs)
-        root.addWidget(body, 1)
-        root.addWidget(self._build_footer())
+        shell.addWidget(body, 1)
+        shell.addWidget(self._build_footer())
 
         self._grip = _ResizeGrip(self)
 
     def _build_title_bar(self) -> QFrame:
         bar = QFrame()
         bar.setObjectName("alertTitleBar")
-        bar.setFixedHeight(28)
+        bar.setFixedHeight(42)
         bar.setCursor(QCursor(Qt.CursorShape.SizeAllCursor))
 
         layout = QHBoxLayout(bar)
-        layout.setContentsMargins(8, 0, 4, 0)
-        layout.setSpacing(6)
+        layout.setContentsMargins(12, 0, 8, 0)
+        layout.setSpacing(10)
 
-        badge = QLabel("⚑ ALERTS")
-        badge.setObjectName("alertBadge")
-        self._count_lbl = QLabel("0 active")
-        self._count_lbl.setObjectName("alertCountLbl")
+        title_block = QWidget()
+        title_layout = QVBoxLayout(title_block)
+        title_layout.setContentsMargins(0, 0, 0, 0)
+        title_layout.setSpacing(0)
 
-        layout.addWidget(badge)
-        layout.addWidget(self._count_lbl)
+        title = QLabel("ALERT MANAGER")
+        title.setObjectName("dialogTitle")
+        subtitle = QLabel("monitor · acknowledge · remove · open symbol")
+        subtitle.setObjectName("dialogSubtitle")
+        title_layout.addWidget(title)
+        title_layout.addWidget(subtitle)
+
+        layout.addWidget(title_block)
         layout.addStretch()
 
-        refresh_btn = QToolButton()
-        refresh_btn.setText("↺")
-        refresh_btn.setObjectName("alertBarBtn")
-        refresh_btn.setFixedSize(22, 22)
-        refresh_btn.setToolTip("Refresh")
-        refresh_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        refresh_btn.clicked.connect(self.refresh_tables)
+        self._refresh_btn = self._title_button("↻", "Refresh")
+        self._refresh_btn.clicked.connect(lambda: self.refresh_tables(force=True))
 
-        self._pin_btn = QToolButton()
-        self._pin_btn.setText("📌")
-        self._pin_btn.setObjectName("alertBarBtn")
-        self._pin_btn.setFixedSize(22, 22)
-        self._pin_btn.setToolTip("Toggle always-on-top")
+        self._pin_btn = self._title_button("PIN", "Toggle always-on-top")
         self._pin_btn.setCheckable(True)
         self._pin_btn.setChecked(True)
-        self._pin_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._pin_btn.toggled.connect(self._toggle_pin)
 
-        close_btn = QToolButton()
-        close_btn.setText("✕")
-        close_btn.setObjectName("alertCloseBtn")
-        close_btn.setFixedSize(22, 22)
-        close_btn.setToolTip("Close")
-        close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        close_btn = self._title_button("✕", "Close", close=True)
         close_btn.clicked.connect(self.close)
 
-        layout.addWidget(refresh_btn)
+        layout.addWidget(self._refresh_btn)
         layout.addWidget(self._pin_btn)
         layout.addWidget(close_btn)
 
@@ -532,83 +360,133 @@ class AlertManagementDialog(QDialog):
         bar.mouseReleaseEvent = self._tb_release
         return bar
 
+    def _build_summary_bar(self) -> QFrame:
+        strip = QFrame()
+        strip.setObjectName("summaryStrip")
+        strip.setFixedHeight(44)
+
+        layout = QHBoxLayout(strip)
+        layout.setContentsMargins(10, 6, 10, 6)
+        layout.setSpacing(8)
+
+        self._active_chip = _MetricChip("Active", _GREEN)
+        self._triggered_chip = _MetricChip("Triggered", _ACCENT)
+        self._history_chip = _MetricChip("History", _BLUE)
+
+        layout.addWidget(self._active_chip)
+        layout.addWidget(self._triggered_chip)
+        layout.addWidget(self._history_chip)
+        layout.addStretch()
+
+        self._market_hint = QLabel("auto refresh 3s")
+        self._market_hint.setObjectName("marketHint")
+        layout.addWidget(self._market_hint)
+        return strip
+
     def _build_footer(self) -> QFrame:
         footer = QFrame()
         footer.setObjectName("alertFooter")
-        footer.setFixedHeight(26)
+        footer.setFixedHeight(32)
 
         layout = QHBoxLayout(footer)
-        layout.setContentsMargins(8, 0, 8, 0)
+        layout.setContentsMargins(10, 0, 18, 0)
         layout.setSpacing(10)
 
-        self._status_lbl = QLabel("Auto-refresh: 3s")
+        self._status_lbl = QLabel("Ready")
         self._status_lbl.setObjectName("alertStatusLbl")
-        self.status_label = self._status_lbl
+        self.status_label = self._status_lbl  # backwards-compatible external access
+
+        hint = QLabel("Space/↓ next · ↑ previous · click row to open chart")
+        hint.setObjectName("alertHintLbl")
+
         layout.addWidget(self._status_lbl)
         layout.addStretch()
-
-        add_btn = QPushButton("+ New Alert")
-        add_btn.setObjectName("alertAddBtn")
-        add_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        add_btn.clicked.connect(self._add_new)
-        layout.addWidget(add_btn)
+        layout.addWidget(hint)
         return footer
+
+    def _title_button(self, text: str, tooltip: str, close: bool = False) -> QToolButton:
+        button = QToolButton()
+        button.setText(text)
+        button.setToolTip(tooltip)
+        button.setObjectName("alertCloseBtn" if close else "alertTitleBtn")
+        button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        button.setFixedSize(34 if text == "PIN" else 28, 26)
+        return button
 
     def _make_table(self, headers: List[str]) -> QTableWidget:
         table = QTableWidget(0, len(headers))
         table.setHorizontalHeaderLabels(headers)
+        table.setObjectName("alertTable")
+        table.setMouseTracking(True)
+        table.setAlternatingRowColors(True)
+        table.setShowGrid(False)
+        table.setWordWrap(False)
+        table.setSortingEnabled(False)
+        table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+
+        vertical = table.verticalHeader()
+        vertical.setVisible(False)
+        vertical.setDefaultSectionSize(_ROW_H)
+        vertical.setMinimumSectionSize(_ROW_H)
 
         header = table.horizontalHeader()
         header.setHighlightSections(False)
         header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        header.setMinimumHeight(28)
+        header.setStretchLastSection(False)
 
         for index, name in enumerate(headers):
             if name == "":
                 header.setSectionResizeMode(index, QHeaderView.ResizeMode.Fixed)
-                table.setColumnWidth(index, 56)
+                table.setColumnWidth(index, 92 if "Triggered" in headers else 58)
             elif name == "Symbol":
-                header.setSectionResizeMode(index, QHeaderView.ResizeMode.ResizeToContents)
+                header.setSectionResizeMode(index, QHeaderView.ResizeMode.Fixed)
+                table.setColumnWidth(index, 118)
             elif name == "Condition":
                 header.setSectionResizeMode(index, QHeaderView.ResizeMode.Stretch)
-            elif name in ("Target", "Triggered"):
+                table.setColumnWidth(index, 230)
+            elif name == "Note":
+                header.setSectionResizeMode(index, QHeaderView.ResizeMode.Stretch)
+                table.setColumnWidth(index, 210)
+            elif name in ("Target", "Triggered", "Intent", "Status"):
                 header.setSectionResizeMode(index, QHeaderView.ResizeMode.ResizeToContents)
 
-        table.verticalHeader().setVisible(False)
-        table.verticalHeader().setDefaultSectionSize(_ROW_H)
-        table.verticalHeader().setMinimumSectionSize(_ROW_H)
-        table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        table.setShowGrid(False)
-        table.setAlternatingRowColors(True)
-        table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         return table
 
-    def _tb_press(self, event: QMouseEvent):
+    # ------------------------------------------------------------------
+    # Window behaviour
+    # ------------------------------------------------------------------
+
+    def _tb_press(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
             self._drag_active = True
             self._drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             event.accept()
 
-    def _tb_move(self, event: QMouseEvent):
+    def _tb_move(self, event: QMouseEvent) -> None:
         if self._drag_active and event.buttons() & Qt.MouseButton.LeftButton:
             self.move(event.globalPosition().toPoint() - self._drag_offset)
             event.accept()
 
-    def _tb_release(self, _event):
+    def _tb_release(self, _event: QMouseEvent) -> None:
         self._drag_active = False
 
-    def _toggle_pin(self, pinned: bool):
+    def _toggle_pin(self, pinned: bool) -> None:
         self._pinned = pinned
         flags = self.windowFlags()
         if pinned:
             flags |= Qt.WindowType.WindowStaysOnTopHint
+            self._pin_btn.setText("PIN")
         else:
             flags &= ~Qt.WindowType.WindowStaysOnTopHint
+            self._pin_btn.setText("TOP")
         self.setWindowFlags(flags)
         self.show()
 
-    def _restore_geometry(self):
+    def _restore_geometry(self) -> None:
         cfg = getattr(self.parent(), "config_manager", None)
         if not cfg:
             return
@@ -616,33 +494,45 @@ class AlertManagementDialog(QDialog):
             raw = cfg.load_dialog_state(self._STATE_KEY)
             if raw:
                 data = json.loads(raw)
-                self.resize(data.get("w", _DEFAULT_W), data.get("h", _DEFAULT_H))
+                self.resize(int(data.get("w", _DEFAULT_W)), int(data.get("h", _DEFAULT_H)))
                 if "x" in data and "y" in data:
-                    self.move(data["x"], data["y"])
+                    self.move(int(data["x"]), int(data["y"]))
                     self._geometry_restored = True
-        except Exception as exc:
+        except Exception as exc:  # pragma: no cover - defensive UI persistence
             logger.debug("Alert dialog geometry restore failed: %s", exc)
 
-    def _save_geometry(self):
+    def _save_geometry(self) -> None:
         cfg = getattr(self.parent(), "config_manager", None)
         if not cfg:
             return
         try:
-            data = json.dumps({
-                "x": self.x(),
-                "y": self.y(),
-                "w": self.width(),
-                "h": self.height(),
-            })
-            cfg.save_dialog_state(self._STATE_KEY, data)
-        except Exception as exc:
+            cfg.save_dialog_state(
+                self._STATE_KEY,
+                json.dumps({"x": self.x(), "y": self.y(), "w": self.width(), "h": self.height()}),
+            )
+        except Exception as exc:  # pragma: no cover - defensive UI persistence
             logger.debug("Alert dialog geometry save failed: %s", exc)
 
+    def _center_on_parent(self) -> None:
+        screen_obj = QApplication.primaryScreen()
+        screen = screen_obj.availableGeometry() if screen_obj else QRect(0, 0, 1280, 720)
+        parent = self.parent()
+        if parent:
+            pg = parent.frameGeometry()
+            x = pg.right() - self.width() - 18
+            y = pg.top() + 64
+        else:
+            x = screen.right() - self.width() - 24
+            y = screen.top() + 64
+        x = max(screen.left(), min(x, screen.right() - self.width()))
+        y = max(screen.top(), min(y, screen.bottom() - self.height()))
+        self.move(x, y)
+
     def _set_parent_spacebar_shortcuts_enabled(self, enabled: bool) -> None:
-        """Backward-compatible alias for the original shortcut guard helper."""
+        """Backward-compatible alias used by the older dialog implementation."""
         self._set_parent_shortcuts_enabled(enabled)
 
-    def _set_parent_shortcuts_enabled(self, enabled: bool):
+    def _set_parent_shortcuts_enabled(self, enabled: bool) -> None:
         parent = self.parent()
         if not parent:
             return
@@ -654,26 +544,36 @@ class AlertManagementDialog(QDialog):
             if shortcut is None:
                 continue
             if enabled:
-                previous_state = getattr(self, state_attr)
-                if previous_state is not None:
-                    shortcut.setEnabled(previous_state)
+                previous = getattr(self, state_attr)
+                if previous is not None:
+                    shortcut.setEnabled(previous)
                     setattr(self, state_attr, None)
             else:
                 if getattr(self, state_attr) is None:
                     setattr(self, state_attr, shortcut.isEnabled())
                 shortcut.setEnabled(False)
 
-    def refresh_tables(self, force: bool = False):
+    # ------------------------------------------------------------------
+    # Data refresh and row rendering
+    # ------------------------------------------------------------------
+
+    def refresh_tables(self, force: bool = False) -> None:
         if force:
             self._last_snapshot = None
             self._table_snapshots = {"active": {}, "triggered": {}, "history": {}}
 
-        all_alerts = self.store.all()
-        active = [alert for alert in all_alerts if alert.status == AlertStatus.ACTIVE.value]
-        triggered = [alert for alert in all_alerts if alert.status == AlertStatus.TRIGGERED.value]
+        try:
+            all_alerts = list(self.store.all())
+        except Exception as exc:
+            logger.exception("Failed to load alerts")
+            self._status_lbl.setText(f"Alert store error: {exc}")
+            return
+
+        active = [a for a in all_alerts if self._alert_status(a) == AlertStatus.ACTIVE.value]
+        triggered = [a for a in all_alerts if self._alert_status(a) == AlertStatus.TRIGGERED.value]
         history = [
-            alert for alert in all_alerts
-            if alert.status in (AlertStatus.TRIGGERED.value, AlertStatus.EXPIRED.value)
+            a for a in all_alerts
+            if self._alert_status(a) in (AlertStatus.TRIGGERED.value, AlertStatus.EXPIRED.value)
         ]
 
         snapshot = (
@@ -688,188 +588,308 @@ class AlertManagementDialog(QDialog):
         self._update_table_incremental("triggered", self.triggered_table, triggered, self._apply_triggered_row)
         self._update_table_incremental("history", self.history_table, history, self._apply_history_row)
 
-        self.tabs.setTabText(0, f"Active ({len(active)})")
-        self.tabs.setTabText(1, f"Triggered ({len(triggered)})")
-        self.tabs.setTabText(2, f"History ({len(history)})")
-        self._count_lbl.setText(f"{len(active)} active")
-        self._status_lbl.setText(f"Active: {len(active)}  ·  Triggered: {len(triggered)}")
+        self.tabs.setTabText(0, f"ACTIVE  {len(active)}")
+        self.tabs.setTabText(1, f"TRIGGERED  {len(triggered)}")
+        self.tabs.setTabText(2, f"HISTORY  {len(history)}")
+
+        self._active_chip.set_value(len(active))
+        self._triggered_chip.set_value(len(triggered))
+        self._history_chip.set_value(len(history))
+
+        if active or triggered or history:
+            self._status_lbl.setText(
+                f"Active {len(active)}  ·  Triggered {len(triggered)}  ·  Total {len(all_alerts)}"
+            )
+        else:
+            self._status_lbl.setText("No alerts available")
+
         self._last_snapshot = snapshot
 
-    @staticmethod
-    def _fmt_indian_datetime(dt_text: Optional[str]) -> str:
-        """Backward-compatible datetime formatter alias used by the previous dialog."""
-        return AlertManagementDialog._fmt_dt(dt_text)
+    def _clear_cell_widgets(self, table: QTableWidget) -> None:
+        for row in range(table.rowCount()):
+            for column in range(table.columnCount()):
+                widget = table.cellWidget(row, column)
+                if widget is not None:
+                    table.removeCellWidget(row, column)
+                    widget.deleteLater()
 
-    @staticmethod
-    def _fmt_dt(iso: Optional[str]) -> str:
-        if not iso:
-            return "—"
-        try:
-            dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
-            return dt.strftime("%d-%b %H:%M")
-        except Exception:
-            return str(iso)[:16]
-
-    def _cell(
+    def _update_table_incremental(
         self,
-        text: str,
-        align=Qt.AlignmentFlag.AlignLeft,
-        color: str = _T0,
-        mono: bool = False,
-    ) -> QTableWidgetItem:
-        item = QTableWidgetItem(text)
-        item.setForeground(QBrush(QColor(color)))
-        item.setTextAlignment(align | Qt.AlignmentFlag.AlignVCenter)
-        if mono:
-            item.setFont(QFont("Consolas, JetBrains Mono", 9))
-        return item
+        table_key: str,
+        table: QTableWidget,
+        alerts: List[object],
+        row_updater: Callable[[QTableWidget, int, object], None],
+    ) -> None:
+        selected_id = self._selected_alert_id(table)
+        current_scroll = table.verticalScrollBar().value()
 
-    @staticmethod
-    def _snapshot_alert(alert):
-        return (
-            alert.id,
-            alert.status,
-            alert.symbol,
-            alert.condition,
-            float(alert.target_value),
-            alert.triggered_at,
-        )
-
-    def _update_table_incremental(self, table_key, table, alerts, row_updater):
-        new_ids = [alert.id for alert in alerts]
+        new_ids = [str(getattr(alert, "id", "")) for alert in alerts]
         old_ids = [
             table.item(row, 0).data(Qt.ItemDataRole.UserRole)
             for row in range(table.rowCount())
             if table.item(row, 0) is not None
         ]
-        if old_ids != new_ids:
-            table.setRowCount(len(alerts))
-            for row, alert in enumerate(alerts):
-                row_updater(table, row, alert)
-            self._table_snapshots[table_key] = {a.id: self._snapshot_alert(a) for a in alerts}
-            return
 
-        cached = self._table_snapshots.get(table_key, {})
-        for row, alert in enumerate(alerts):
-            fresh = self._snapshot_alert(alert)
-            if cached.get(alert.id) != fresh:
-                row_updater(table, row, alert)
-                cached[alert.id] = fresh
-        self._table_snapshots[table_key] = cached
+        table.setUpdatesEnabled(False)
+        try:
+            if old_ids != new_ids:
+                self._clear_cell_widgets(table)
+                table.clearContents()
+                table.setRowCount(len(alerts))
+                for row, alert in enumerate(alerts):
+                    row_updater(table, row, alert)
+            else:
+                cached = self._table_snapshots.get(table_key, {})
+                for row, alert in enumerate(alerts):
+                    fresh = self._snapshot_alert(alert)
+                    alert_id = str(getattr(alert, "id", ""))
+                    if cached.get(alert_id) != fresh:
+                        row_updater(table, row, alert)
 
-    def _apply_active_row(self, table, row, alert):
-        symbol_item = self._cell(alert.symbol, color=_T0)
-        symbol_item.setData(Qt.ItemDataRole.UserRole, alert.id)
+            self._table_snapshots[table_key] = {
+                str(getattr(a, "id", "")): self._snapshot_alert(a) for a in alerts
+            }
+            self._restore_selection(table, selected_id)
+            table.verticalScrollBar().setValue(current_scroll)
+        finally:
+            table.setUpdatesEnabled(True)
+
+    def _apply_active_row(self, table: QTableWidget, row: int, alert: object) -> None:
+        symbol_item = self._cell(self._symbol(alert), color=_TEXT_STRONG, bold=True)
+        symbol_item.setData(Qt.ItemDataRole.UserRole, str(getattr(alert, "id", "")))
         table.setItem(row, 0, symbol_item)
-        table.setItem(row, 1, self._cell(alert.condition, color=_T2))
-        table.setItem(
-            row,
-            2,
-            self._cell(
-                f"₹{alert.target_value:.2f}",
-                Qt.AlignmentFlag.AlignRight,
-                _AMBER,
-                mono=True,
-            ),
-        )
-        del_btn = _action_btn(
-            "✕",
-            _BEAR,
-            f"Delete alert for {alert.symbol}",
-            lambda _checked=False, aid=alert.id: self._delete_alert(aid),
-        )
-        table.setCellWidget(row, 3, _ActionCell(del_btn))
+        table.setItem(row, 1, self._cell(self._condition(alert), color=_TEXT))
+        table.setItem(row, 2, self._cell(self._fmt_target(alert), Qt.AlignmentFlag.AlignRight, _ACCENT, mono=True))
+        table.setItem(row, 3, self._cell(self._intent(alert), color=_BLUE))
+        table.setItem(row, 4, self._cell(self._note(alert), color=_TEXT_MUTED))
 
-    def _apply_triggered_row(self, table, row, alert):
-        symbol_item = self._cell(alert.symbol, color=_AMBER)
-        symbol_item.setData(Qt.ItemDataRole.UserRole, alert.id)
+        delete_button = _action_button(
+            "DEL",
+            _RED,
+            f"Delete alert for {self._symbol(alert)}",
+            lambda aid=str(getattr(alert, "id", "")): self._delete_alert(aid),
+        )
+        table.setCellWidget(row, 5, _ActionCell(delete_button))
+
+    def _apply_triggered_row(self, table: QTableWidget, row: int, alert: object) -> None:
+        symbol_item = self._cell(self._symbol(alert), color=_ACCENT, bold=True)
+        symbol_item.setData(Qt.ItemDataRole.UserRole, str(getattr(alert, "id", "")))
         table.setItem(row, 0, symbol_item)
-        table.setItem(row, 1, self._cell(alert.condition, color=_T2))
-        table.setItem(
-            row,
-            2,
-            self._cell(
-                f"₹{alert.target_value:.2f}",
-                Qt.AlignmentFlag.AlignRight,
-                _AMBER,
-                mono=True,
-            ),
-        )
-        table.setItem(row, 3, self._cell(self._fmt_dt(alert.triggered_at), color=_T2, mono=True))
-        ack_btn = _action_btn(
-            "✓",
-            _BULL,
-            "Acknowledge & move to history",
-            lambda _checked=False, aid=alert.id: self._ack_alert(aid),
-        )
-        del_btn = _action_btn(
-            "✕",
-            _BEAR,
-            "Delete",
-            lambda _checked=False, aid=alert.id: self._delete_alert(aid),
-        )
-        table.setCellWidget(row, 4, _ActionCell(ack_btn, del_btn))
+        table.setItem(row, 1, self._cell(self._condition(alert), color=_TEXT))
+        table.setItem(row, 2, self._cell(self._fmt_target(alert), Qt.AlignmentFlag.AlignRight, _ACCENT, mono=True))
+        table.setItem(row, 3, self._cell(self._fmt_dt(getattr(alert, "triggered_at", None)), color=_TEXT_MUTED, mono=True))
+        table.setItem(row, 4, self._cell(self._intent(alert), color=_BLUE))
 
-    def _apply_history_row(self, table, row, alert):
-        symbol_item = self._cell(alert.symbol, color=_T1)
-        symbol_item.setData(Qt.ItemDataRole.UserRole, alert.id)
+        ack_button = _action_button(
+            "ACK",
+            _GREEN,
+            "Acknowledge and move to history",
+            lambda aid=str(getattr(alert, "id", "")): self._ack_alert(aid),
+        )
+        delete_button = _action_button(
+            "DEL",
+            _RED,
+            f"Delete alert for {self._symbol(alert)}",
+            lambda aid=str(getattr(alert, "id", "")): self._delete_alert(aid),
+        )
+        table.setCellWidget(row, 5, _ActionCell(ack_button, delete_button))
+
+    def _apply_history_row(self, table: QTableWidget, row: int, alert: object) -> None:
+        status = self._alert_status(alert)
+        status_color = _GREEN if status == AlertStatus.TRIGGERED.value else _TEXT_FAINT
+
+        symbol_item = self._cell(self._symbol(alert), color=_TEXT)
+        symbol_item.setData(Qt.ItemDataRole.UserRole, str(getattr(alert, "id", "")))
         table.setItem(row, 0, symbol_item)
-        table.setItem(row, 1, self._cell(alert.condition, color=_T2))
-        table.setItem(
-            row,
-            2,
-            self._cell(
-                f"₹{alert.target_value:.2f}",
-                Qt.AlignmentFlag.AlignRight,
-                _T2,
-                mono=True,
-            ),
+        table.setItem(row, 1, self._cell(self._condition(alert), color=_TEXT_MUTED))
+        table.setItem(row, 2, self._cell(self._fmt_target(alert), Qt.AlignmentFlag.AlignRight, _TEXT_MUTED, mono=True))
+        table.setItem(row, 3, self._cell(self._fmt_dt(getattr(alert, "triggered_at", None)), color=_TEXT_FAINT, mono=True))
+        table.setItem(row, 4, self._cell(status.upper() if status else "—", color=status_color, bold=True))
+
+    # Backward-compatible population helpers kept for external callers/tests.
+    def _populate_active(self, alerts: Iterable[object]) -> None:
+        alerts = list(alerts)
+        self.active_table.clearContents()
+        self.active_table.setRowCount(len(alerts))
+        for row, alert in enumerate(alerts):
+            self._apply_active_row(self.active_table, row, alert)
+
+    def _populate_triggered(self, alerts: Iterable[object]) -> None:
+        alerts = list(alerts)
+        self.triggered_table.clearContents()
+        self.triggered_table.setRowCount(len(alerts))
+        for row, alert in enumerate(alerts):
+            self._apply_triggered_row(self.triggered_table, row, alert)
+
+    def _populate_history(self, alerts: Iterable[object]) -> None:
+        alerts = list(alerts)
+        self.history_table.clearContents()
+        self.history_table.setRowCount(len(alerts))
+        for row, alert in enumerate(alerts):
+            self._apply_history_row(self.history_table, row, alert)
+
+    # ------------------------------------------------------------------
+    # Row and value formatting
+    # ------------------------------------------------------------------
+
+    def _cell(
+        self,
+        text: str,
+        align: Qt.AlignmentFlag = Qt.AlignmentFlag.AlignLeft,
+        color: str = _TEXT_STRONG,
+        mono: bool = False,
+        bold: bool = False,
+    ) -> QTableWidgetItem:
+        item = QTableWidgetItem(str(text))
+        item.setForeground(QBrush(QColor(color)))
+        item.setTextAlignment(align | Qt.AlignmentFlag.AlignVCenter)
+        font = QFont(_MONO_FAMILY if mono else "Segoe UI", 9)
+        font.setBold(bold)
+        item.setFont(font)
+        return item
+
+    @staticmethod
+    def _fmt_indian_datetime(dt_text: Optional[str]) -> str:
+        """Backward-compatible datetime formatter alias used by previous code."""
+        return AlertManagementDialog._fmt_dt(dt_text)
+
+    @staticmethod
+    def _fmt_dt(dt_text: Optional[str]) -> str:
+        if not dt_text:
+            return "—"
+        try:
+            dt = datetime.fromisoformat(str(dt_text).replace("Z", "+00:00"))
+            return dt.strftime("%d-%b %H:%M")
+        except Exception:
+            return str(dt_text)[:16]
+
+    @staticmethod
+    def _snapshot_alert(alert: object) -> Tuple:
+        return (
+            str(getattr(alert, "id", "")),
+            AlertManagementDialog._alert_status(alert),
+            AlertManagementDialog._symbol(alert),
+            AlertManagementDialog._condition(alert),
+            AlertManagementDialog._target_value(alert),
+            AlertManagementDialog._intent(alert),
+            AlertManagementDialog._note(alert),
+            str(getattr(alert, "triggered_at", "") or ""),
         )
-        table.setItem(row, 3, self._cell(self._fmt_dt(alert.triggered_at), color=_T3, mono=True))
 
-    def _populate_active(self, alerts):
-        table = self.active_table
-        table.setRowCount(len(alerts))
-        for row, alert in enumerate(alerts):
-            self._apply_active_row(table, row, alert)
+    @staticmethod
+    def _alert_status(alert: object) -> str:
+        status = getattr(alert, "status", "")
+        return getattr(status, "value", status) or ""
 
-    def _populate_triggered(self, alerts):
-        table = self.triggered_table
-        table.setRowCount(len(alerts))
-        for row, alert in enumerate(alerts):
-            self._apply_triggered_row(table, row, alert)
+    @staticmethod
+    def _symbol(alert: object) -> str:
+        return str(getattr(alert, "symbol", "") or "—").upper()
 
-    def _populate_history(self, alerts):
-        table = self.history_table
-        table.setRowCount(len(alerts))
-        for row, alert in enumerate(alerts):
-            self._apply_history_row(table, row, alert)
+    @staticmethod
+    def _condition(alert: object) -> str:
+        condition = getattr(alert, "condition", "")
+        condition = getattr(condition, "value", condition)
+        return str(condition or "—")
 
-    def _wire_symbol_navigation(self):
+    @staticmethod
+    def _target_value(alert: object) -> float:
+        try:
+            return float(getattr(alert, "target_value", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    @staticmethod
+    def _intent(alert: object) -> str:
+        intent = getattr(alert, "intent", "")
+        intent = getattr(intent, "value", intent)
+        return str(intent or "—")
+
+    @staticmethod
+    def _note(alert: object) -> str:
+        note = str(getattr(alert, "note", "") or "")
+        return note if len(note) <= 70 else f"{note[:67]}…"
+
+    def _fmt_target(self, alert: object) -> str:
+        value = self._target_value(alert)
+        condition = self._condition(alert).lower()
+        if "percent" in condition or "%" in condition:
+            return f"{value:.2f}%"
+        if "volume" in condition or "multiplier" in condition:
+            return f"{value:.2f}×"
+        if "rsi" in condition:
+            return f"{value:.2f}"
+        if "time" in condition:
+            raw = int(value) if value else 0
+            return f"{raw:04d}" if raw else "—"
+        return f"₹{value:,.2f}"
+
+    # ------------------------------------------------------------------
+    # Navigation and actions
+    # ------------------------------------------------------------------
+
+    def _wire_symbol_navigation(self) -> None:
         for table in (self.active_table, self.triggered_table, self.history_table):
-            table.cellClicked.connect(
-                lambda row, _col, tbl=table: self._open_symbol_from_row(tbl, row)
-            )
+            table.cellClicked.connect(lambda row, _col, tbl=table: self._open_symbol_from_row(tbl, row))
+
+    def _selected_alert_id(self, table: QTableWidget) -> Optional[str]:
+        row = table.currentRow()
+        if row < 0:
+            return None
+        item = table.item(row, 0)
+        if item is None:
+            return None
+        alert_id = item.data(Qt.ItemDataRole.UserRole)
+        return str(alert_id) if alert_id else None
+
+    def _restore_selection(self, table: QTableWidget, alert_id: Optional[str]) -> None:
+        if not alert_id:
+            return
+        for row in range(table.rowCount()):
+            item = table.item(row, 0)
+            if item and item.data(Qt.ItemDataRole.UserRole) == alert_id:
+                table.selectRow(row)
+                table.setCurrentCell(row, 0)
+                return
 
     def _open_selected_symbol_in_chart(self, table: QTableWidget) -> None:
         row = table.currentRow()
         if row >= 0:
             self._open_symbol_from_row(table, row)
 
-    def _open_symbol_from_row(self, table: QTableWidget, row: int):
+    def _open_symbol_from_row(self, table: QTableWidget, row: int) -> None:
         if row < 0:
             return
         item = table.item(row, 0)
-        if not item:
+        if item is None:
             return
         symbol = (item.text() or "").strip().upper()
-        if not symbol:
+        if not symbol or symbol == "—":
             return
         chart = getattr(self.parent(), "candlestick_chart", None)
         if chart and hasattr(chart, "on_search"):
             chart.on_search(symbol)
 
-    def keyPressEvent(self, event: QKeyEvent):
+    def _delete_alert(self, alert_id: str) -> None:
+        if not alert_id:
+            return
+        try:
+            self.manager.remove_alert(alert_id)
+            self.refresh_tables(force=True)
+        except Exception as exc:
+            logger.exception("Failed to delete alert %s", alert_id)
+            self._status_lbl.setText(f"Delete failed: {exc}")
+
+    def _ack_alert(self, alert_id: str) -> None:
+        if not alert_id:
+            return
+        try:
+            self.manager.acknowledge_triggered_alert(alert_id)
+            self.refresh_tables(force=True)
+        except Exception as exc:
+            logger.exception("Failed to acknowledge alert %s", alert_id)
+            self._status_lbl.setText(f"Acknowledge failed: {exc}")
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802 - Qt override
         key = event.key()
         if key in (Qt.Key.Key_Space, Qt.Key.Key_Down, Qt.Key.Key_Up):
             table = self.tabs.currentWidget()
@@ -886,207 +906,290 @@ class AlertManagementDialog(QDialog):
                 return
         super().keyPressEvent(event)
 
-    def _add_new(self):
-        dialog = AlertCreationDialog(parent=self)
-        dialog.alert_created.connect(self.manager.add_alert)
-        dialog.alert_created.connect(lambda _alert: self.refresh_tables())
-        dialog.exec()
+    # ------------------------------------------------------------------
+    # Qt events
+    # ------------------------------------------------------------------
 
-    def _delete_alert(self, alert_id: str):
-        self.manager.remove_alert(alert_id)
-        self.refresh_tables()
-
-    def _ack_alert(self, alert_id: str):
-        self.manager.acknowledge_triggered_alert(alert_id)
-        self.refresh_tables()
-
-    def showEvent(self, event):
+    def showEvent(self, event) -> None:  # noqa: N802 - Qt override
         self._set_parent_shortcuts_enabled(False)
         super().showEvent(event)
         if not self._geometry_restored:
             self._center_on_parent()
             self._geometry_restored = True
 
-    def closeEvent(self, event):
+    def closeEvent(self, event) -> None:  # noqa: N802 - Qt override
         self._save_geometry()
         self._set_parent_shortcuts_enabled(True)
         super().closeEvent(event)
 
-    def resizeEvent(self, event):
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt override
         super().resizeEvent(event)
         if hasattr(self, "_grip"):
-            self._grip.move(
-                self.width() - _ResizeGrip.SIZE,
-                self.height() - _ResizeGrip.SIZE,
-            )
+            self._grip.move(self.width() - _ResizeGrip.SIZE, self.height() - _ResizeGrip.SIZE)
 
-    def _center_on_parent(self):
-        screen = QApplication.primaryScreen().availableGeometry()
-        parent = self.parent()
-        if parent:
-            parent_geometry = parent.frameGeometry()
-            x = parent_geometry.right() - self.width() - 16
-            y = parent_geometry.top() + 60
-        else:
-            x = screen.right() - self.width() - 20
-            y = screen.top() + 60
-        x = max(screen.left(), min(x, screen.right() - self.width()))
-        y = max(screen.top(), min(y, screen.bottom() - self.height()))
-        self.move(x, y)
+    # ------------------------------------------------------------------
+    # Stylesheet
+    # ------------------------------------------------------------------
 
-    def _apply_styles(self):
+    def _apply_styles(self) -> None:
         self.setStyleSheet(f"""
-        AlertManagementDialog {{
-            background: {_BG1};
-            border: 1px solid {_BG4};
+        QDialog#alertManagementDialog {{
+            background: {_BG_APP};
+            color: {_TEXT};
+            font-family: {_SANS};
         }}
+
+        QFrame#alertShell {{
+            background: {_BG_PANEL};
+            border: 1px solid {_BORDER_LIGHT};
+            border-radius: 0px;
+        }}
+
         QFrame#alertTitleBar {{
-            background: {_BGTB};
-            border-bottom: 1px solid {_BG4};
+            background: {_BG_HEADER};
+            border-bottom: 1px solid {_BORDER_DARK};
         }}
-        QLabel#alertBadge {{
-            color: {_AMBER};
-            font-family: {_MONO};
-            font-size: 10px;
-            font-weight: 700;
-            letter-spacing: 1px;
+
+        QLabel#dialogTitle {{
+            color: {_TEXT_STRONG};
+            font-family: {_SANS};
+            font-size: 13px;
+            font-weight: 900;
+            letter-spacing: 1.4px;
             background: transparent;
         }}
-        QLabel#alertCountLbl {{
-            color: {_T2};
+
+        QLabel#dialogSubtitle {{
+            color: {_TEXT_FAINT};
+            font-family: {_SANS};
+            font-size: 9px;
+            font-weight: 700;
+            letter-spacing: 0.4px;
+            background: transparent;
+        }}
+
+        QToolButton#alertTitleBtn {{
+            background: {_BG_PANEL_ALT};
+            color: {_TEXT_MUTED};
+            border: 1px solid {_BORDER_DARK};
+            border-radius: 0px;
             font-family: {_SANS};
             font-size: 10px;
-            font-weight: 600;
-            background: transparent;
+            font-weight: 900;
         }}
-        QToolButton#alertBarBtn {{
-            background: transparent;
-            color: {_T2};
-            border: none;
-            font-size: 12px;
-            border-radius: 2px;
+
+        QToolButton#alertTitleBtn:hover {{
+            background: {_BG_HOVER};
+            color: {_TEXT_STRONG};
+            border-color: {_BORDER_LIGHT};
         }}
-        QToolButton#alertBarBtn:hover {{
-            background: rgba(255,255,255,0.07);
-            color: {_T0};
+
+        QToolButton#alertTitleBtn:checked {{
+            color: {_ACCENT};
+            border-color: {_ACCENT};
+            background: {_ACCENT}14;
         }}
-        QToolButton#alertBarBtn:checked {{
-            color: {_CYAN};
-        }}
+
         QToolButton#alertCloseBtn {{
             background: transparent;
-            color: {_T2};
-            border: none;
+            color: {_TEXT_MUTED};
+            border: 1px solid transparent;
+            border-radius: 0px;
+            font-family: {_SANS};
             font-size: 12px;
-            border-radius: 2px;
+            font-weight: 900;
         }}
+
         QToolButton#alertCloseBtn:hover {{
-            background: rgba(255,77,106,0.15);
-            color: {_BEAR};
+            background: {_RED}20;
+            color: {_RED};
+            border-color: {_RED}66;
         }}
-        QTabWidget#alertTabs {{
-            border: none;
+
+        QFrame#summaryStrip {{
+            background: {_BG_PANEL};
+            border-bottom: 1px solid {_BORDER_DARK};
         }}
-        QTabWidget#alertTabs::pane {{
-            border: none;
-            border-top: 1px solid {_BG4};
+
+        QFrame#metricChip {{
+            background: {_BG_PANEL_ALT};
+            border: 1px solid {_BORDER_DARK};
+            border-radius: 0px;
         }}
-        QTabBar::tab {{
+
+        QLabel#metricLabel {{
+            color: {_TEXT_FAINT};
+            font-family: {_SANS};
+            font-size: 9px;
+            font-weight: 900;
+            letter-spacing: 0.9px;
             background: transparent;
-            color: {_T2};
-            padding: 4px 12px;
-            border: none;
-            border-bottom: 2px solid transparent;
+        }}
+
+        QLabel#metricValue {{
+            font-family: {_MONO_FAMILY};
+            font-size: 13px;
+            font-weight: 900;
+            background: transparent;
+        }}
+
+        QLabel#marketHint {{
+            color: {_TEXT_FAINT};
             font-family: {_SANS};
             font-size: 10px;
             font-weight: 700;
-            letter-spacing: 0.5px;
+            background: transparent;
         }}
-        QTabBar::tab:selected {{
-            color: {_T0};
-            border-bottom: 2px solid {_AMBER};
+
+        QWidget#alertBody {{
+            background: {_BG_PANEL};
         }}
-        QTabBar::tab:hover:!selected {{
-            color: {_T1};
-        }}
-        QTableWidget {{
-            background: {_BG1};
-            alternate-background-color: {_BG2};
-            gridline-color: transparent;
+
+        QTabWidget#alertTabs {{
+            background: {_BG_PANEL};
             border: none;
+        }}
+
+        QTabWidget#alertTabs::pane {{
+            background: {_BG_PANEL};
+            border: 1px solid {_BORDER_DARK};
+            top: -1px;
+        }}
+
+        QTabBar::tab {{
+            background: {_BG_HEADER};
+            color: {_TEXT_MUTED};
+            border: 1px solid {_BORDER_DARK};
+            border-bottom: none;
+            min-height: 25px;
+            padding: 0px 16px;
+            margin-right: 2px;
+            font-family: {_SANS};
+            font-size: 10px;
+            font-weight: 900;
+            letter-spacing: 0.9px;
+        }}
+
+        QTabBar::tab:selected {{
+            background: {_BG_PANEL_ALT};
+            color: {_TEXT_STRONG};
+            border-top: 2px solid {_ACCENT};
+            padding-top: -1px;
+        }}
+
+        QTabBar::tab:hover:!selected {{
+            color: {_TEXT};
+            background: {_BG_HOVER};
+        }}
+
+        QTableWidget#alertTable {{
+            background: {_BG_ROW};
+            alternate-background-color: {_BG_ROW_ALT};
+            color: {_TEXT};
+            border: none;
+            gridline-color: transparent;
             outline: none;
-            selection-background-color: {_SEL};
+            selection-background-color: {_BG_SELECTED};
+            selection-color: {_TEXT_STRONG};
             font-family: {_SANS};
             font-size: 11px;
-            color: {_T0};
         }}
-        QTableWidget::item {{
-            padding: 0 6px;
-            border-bottom: 1px solid {_BG3};
+
+        QTableWidget#alertTable::item {{
+            padding-left: 8px;
+            padding-right: 8px;
+            border-bottom: 1px solid {_BORDER_DARK};
         }}
-        QTableWidget::item:selected {{
-            background: {_SEL};
-            color: {_T0};
+
+        QTableWidget#alertTable::item:selected {{
+            background: {_BG_SELECTED};
+            color: {_TEXT_STRONG};
         }}
-        QTableWidget::item:hover {{
-            background: {_BG3};
+
+        QTableWidget#alertTable::item:hover {{
+            background: {_BG_HOVER};
         }}
+
         QHeaderView::section {{
-            background: {_BG2};
-            color: {_T2};
-            font-family: {_SANS};
-            font-size: 9px;
-            font-weight: 800;
-            letter-spacing: 1.2px;
-            text-transform: uppercase;
+            background: {_BG_HEADER};
+            color: {_TEXT_FAINT};
             border: none;
-            border-bottom: 1px solid {_BG4};
-            border-right: none;
-            padding: 0 6px;
-            min-height: 20px;
-        }}
-        QFrame#alertFooter {{
-            background: {_BGTB};
-            border-top: 1px solid {_BG4};
-        }}
-        QLabel#alertStatusLbl {{
-            color: {_T2};
+            border-bottom: 1px solid {_BORDER_LIGHT};
+            padding-left: 8px;
+            padding-right: 8px;
+            min-height: 28px;
             font-family: {_SANS};
             font-size: 9px;
-            font-weight: 600;
-            background: transparent;
+            font-weight: 900;
+            letter-spacing: 1.2px;
         }}
-        QPushButton#alertAddBtn {{
-            background: rgba(0,212,255,0.07);
-            color: {_CYAN};
-            border: 1px solid rgba(0,212,255,0.20);
-            border-radius: 2px;
+
+        QFrame#alertFooter {{
+            background: {_BG_HEADER};
+            border-top: 1px solid {_BORDER_DARK};
+        }}
+
+        QLabel#alertStatusLbl {{
+            color: {_TEXT_MUTED};
             font-family: {_SANS};
             font-size: 10px;
+            font-weight: 800;
+            background: transparent;
+        }}
+
+        QLabel#alertHintLbl {{
+            color: {_TEXT_FAINT};
+            font-family: {_SANS};
+            font-size: 9px;
             font-weight: 700;
-            padding: 2px 10px;
+            background: transparent;
         }}
-        QPushButton#alertAddBtn:hover {{
-            background: rgba(0,212,255,0.14);
-            border-color: {_CYAN};
-        }}
+
         QScrollBar:vertical {{
-            background: transparent; width: 4px; border: none;
+            background: {_BG_PANEL};
+            width: 8px;
+            border: none;
         }}
+
         QScrollBar::handle:vertical {{
-            background: {_BG4}; border-radius: 2px; min-height: 16px;
+            background: {_BORDER_LIGHT};
+            min-height: 24px;
+            border: 2px solid {_BG_PANEL};
+            border-radius: 0px;
         }}
-        QScrollBar::handle:vertical:hover {{ background: {_T2}; }}
-        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
-            height: 0; border: none;
+
+        QScrollBar::handle:vertical:hover {{
+            background: {_TEXT_FAINT};
         }}
+
+        QScrollBar::add-line:vertical,
+        QScrollBar::sub-line:vertical {{
+            height: 0px;
+            border: none;
+            background: transparent;
+        }}
+
         QScrollBar:horizontal {{
-            background: transparent; height: 4px; border: none;
+            background: {_BG_PANEL};
+            height: 8px;
+            border: none;
         }}
+
         QScrollBar::handle:horizontal {{
-            background: {_BG4}; border-radius: 2px; min-width: 16px;
+            background: {_BORDER_LIGHT};
+            min-width: 24px;
+            border: 2px solid {_BG_PANEL};
+            border-radius: 0px;
         }}
-        QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
-            width: 0; border: none;
+
+        QScrollBar::handle:horizontal:hover {{
+            background: {_TEXT_FAINT};
+        }}
+
+        QScrollBar::add-line:horizontal,
+        QScrollBar::sub-line:horizontal {{
+            width: 0px;
+            border: none;
+            background: transparent;
         }}
         """)

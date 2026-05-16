@@ -104,15 +104,9 @@ class FixedTradingChart {
             livePrice:   '#00bfff',
             upCandle:    cfg.upCandleColor   || '#00c896',
             downCandle:  cfg.downCandleColor || '#e84060',
-            volumeUp:    cfg.upVolumeColor   || '#00c896',
-            volumeDown:  cfg.downVolumeColor || '#e84060',
             dojiCandle:  '#5a7090',
             upWick:      '#009e78',
             downWick:    '#b83050',
-            vwap:        '#ff9e42',
-            ema: { ema10: '#2962ff', ema20: '#9c27b0', ema50: '#f06204', ema200: '#e91e63' },
-            atrReversalAbove: '#ff4d4f',
-            atrReversalBelow: '#52c41a',
         };
 
         // ── Viewport ──
@@ -128,9 +122,6 @@ class FixedTradingChart {
 
         // ── Bounds ──
         this.minPrice = 0; this.maxPrice = 0;
-        this.maxVolume = 1;
-        this._volVpKey = null;
-        this._cachedMaxVolume = 1;
 
         // ── State ──
         this.livePrice   = null;
@@ -175,11 +166,6 @@ class FixedTradingChart {
         this.indicatorScaleLabelsEnabled = cfg.indicatorScaleLabelsEnabled === true;
         this.crosshairSnapEnabled = cfg.crosshairSnapEnabled !== false;
         this.toolSelectionMode = cfg.toolSelectionMode === 'multi_use' ? 'multi_use' : 'single_use';
-        this.volumeScaleMode = cfg.volumeScaleMode === 'sqrt' ? 'sqrt' : 'linear';
-        this.volumeSmaPeriod = Number.isFinite(cfg.volumeSmaPeriod) ? Math.max(1, Math.floor(cfg.volumeSmaPeriod)) : 20;
-        this.volumeOutlierCapMultiple = Number.isFinite(cfg.volumeOutlierCapMultiple)
-            ? Math.max(1, cfg.volumeOutlierCapMultiple)
-            : 5;
         this.infoVisibility = {
             show_adr: cfg.infoVisibility?.show_adr !== false,
             show_perf_monthly: cfg.infoVisibility?.show_perf_monthly !== false,
@@ -202,21 +188,12 @@ class FixedTradingChart {
         // Priority chain: localStorage (user prefs) → pythonDefaults → false
         // No indicators are on by default; only what the user explicitly enables.
         // localStorage is global (not per-symbol) so user's choices stick forever.
-        const _pythonDefaults = {
-            ema10: false, ema20: false, ema50: false, ema200: false,
-            atrTrendReversal: false, bjTrend: false, vwap: false, cvd: false, volume: false, rsi: false,
-            ...(cfg.initialIndicatorVisibility || {}),
-        };
+        const _pythonDefaults = { ...(cfg.initialIndicatorVisibility || {}) };
         this.indicatorVisibility = _loadIndicatorState(_pythonDefaults);
         // indicator panel removed — toggles live in the Python toolbar (IND ▾)
 
         // ── Computed indicators — only if real historical data is present ──
         // CVD/VWAP/RSI must never run on empty or placeholder data.
-        this.vwapData = [];
-        this.atrTrendReversal = [];
-        this.bjTrendData = { fast: [], slow: [], trendUp: [] };
-        this.cvdData = [];
-        this.rsiData = [];
         this._hasLiveTicks = false;
         if (this.data.length > 0) {
             this._computeRenko();
@@ -374,33 +351,12 @@ class FixedTradingChart {
 
     _updateChartAreas() {
         const pad = { top: 32, right: this._computeRightAxisWidth(), bottom: 24, left: 8 };
-        const volumeRatio = 0.13;    // volume pane
-        const cvdRatio    = 0.14;    // CVD pane
-        const rsiRatio    = 0.13;    // RSI pane
-        const volOn = this.indicatorVisibility && this.indicatorVisibility.volume !== false;
-        const cvdOn = this.indicatorVisibility && this.indicatorVisibility.cvd    !== false;
-        const rsiOn = this.indicatorVisibility && this.indicatorVisibility.rsi    !== false;
-        const innerH    = this.height - pad.top - pad.bottom;
-        const usedRatio = (volOn ? volumeRatio : 0) + (cvdOn ? cvdRatio : 0) + (rsiOn ? rsiRatio : 0);
-        const chartH = Math.floor(innerH * (1 - usedRatio));
-        const volH   = volOn ? Math.floor(innerH * volumeRatio) : 0;
-        const cvdH   = cvdOn ? Math.floor(innerH * cvdRatio)    : 0;
-        const rsiH   = rsiOn ? Math.floor(innerH * rsiRatio)    : 0;
-        const paneW  = this.width - pad.left - pad.right;
-        const GAP    = 4;
-
+        const paneW = this.width - pad.left - pad.right;
+        const chartH = this.height - pad.top - pad.bottom;
         this.chartArea = { x: pad.left, y: pad.top, width: paneW, height: chartH };
-
-        this.volumeArea = volOn ? {
-            x: pad.left, y: pad.top + chartH + GAP, width: paneW, height: volH,
-        } : null;
-
-        const cvdTopY = pad.top + chartH + GAP + (volOn ? volH + GAP : 0);
-        this.cvdArea  = cvdOn ? { x: pad.left, y: cvdTopY,  width: paneW, height: cvdH } : null;
-
-        const rsiTopY = cvdTopY + (cvdOn ? cvdH + GAP : 0);
-        this.rsiArea  = rsiOn ? { x: pad.left, y: rsiTopY,  width: paneW, height: rsiH } : null;
-
+        this.volumeArea = null;
+        this.cvdArea = null;
+        this.rsiArea = null;
         this.rightAxisWidth = pad.right;
     }
 
@@ -473,30 +429,6 @@ class FixedTradingChart {
         } catch { return def; }
     }
 
-    _computeVWAP() {
-        if (this.data.length === 0) return;
-        let cumTPV = 0, cumVol = 0;
-        this.vwapData = this.data.map((c, i) => {
-            if (i > 0) {
-                const IST_OFFSET_MS_VWAP = 5.5 * 60 * 60 * 1000;
-                const prevIst = new Date(this.data[i - 1].time + IST_OFFSET_MS_VWAP);
-                const currIst = new Date(c.time + IST_OFFSET_MS_VWAP);
-                const isNewSession =
-                    prevIst.getUTCFullYear() !== currIst.getUTCFullYear() ||
-                    prevIst.getUTCMonth()    !== currIst.getUTCMonth()    ||
-                    prevIst.getUTCDate()     !== currIst.getUTCDate();
-                if (isNewSession) {
-                    cumTPV = 0;
-                    cumVol = 0;
-                }
-            }
-            const tp  = (c.high + c.low + c.close) / 3;
-            const vol = this._resolveVolumeForCandle(c, i);
-            cumTPV += tp * vol;
-            cumVol += vol;
-            return { time: c.time, value: cumVol > 0 ? cumTPV / cumVol : tp };
-        });
-    }
 
     // ═══════════════════════════════════════════════════════════════════════
     // KAGI COMPUTATION
@@ -581,33 +513,6 @@ class FixedTradingChart {
     // Doji/inside bars (high == low): delta = 0 (conservative — no guess).
     // On intraday charts CVD resets at every session open (as per reference).
     // ────────────────────────────────────────────────────────────────────────
-    _computeCVD() {
-        if (this.data.length === 0) { this.cvdData = []; return; }
-        let cumDelta = 0;
-        this.cvdData = this.data.map((c, i) => {
-            // Intraday session reset
-            if (i > 0 && this.currentInterval && this.currentInterval.includes('minute')) {
-                const IST_OFF = 5.5 * 60 * 60 * 1000;
-                const prevIstDate = new Date(this.data[i - 1].time + IST_OFF);
-                const currIstDate = new Date(c.time + IST_OFF);
-                if (prevIstDate.getUTCDate()  !== currIstDate.getUTCDate()  ||
-                    prevIstDate.getUTCMonth() !== currIstDate.getUTCMonth() ||
-                    prevIstDate.getUTCFullYear() !== currIstDate.getUTCFullYear()) {
-                    cumDelta = 0;
-                }
-            }
-            const vol   = this._resolveVolumeForCandle(c, i);
-            const range = c.high - c.low;
-            let delta   = 0;
-            if (range > 1e-9) {
-                const buyFrac  = (c.close - c.low)  / range;
-                const sellFrac = (c.high  - c.close) / range;
-                delta = vol * (buyFrac - sellFrac);
-            }
-            cumDelta += delta;
-            return { time: c.time, delta, cumulative: cumDelta };
-        });
-    }
 
     // ═══════════════════════════════════════════════════════════════════════
     // RSI  (Relative Strength Index — Wilder 14-period smoothed)
@@ -622,197 +527,7 @@ class FixedTradingChart {
     //
     // First (period-1) bars yield null — not enough data.
     // ────────────────────────────────────────────────────────────────────────
-    _computeRSI(period = 14) {
-        this.rsiPeriod = period;
-        if (this.data.length < period + 1) { this.rsiData = []; return; }
 
-        const rsi = new Array(this.data.length).fill(null);
-        let avgGain = 0, avgLoss = 0;
-
-        // Seed: first period changes
-        for (let i = 1; i <= period; i++) {
-            const chg = this.data[i].close - this.data[i - 1].close;
-            if (chg > 0) avgGain += chg; else avgLoss -= chg;
-        }
-        avgGain /= period;
-        avgLoss /= period;
-        rsi[period] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
-
-        // Wilder smoothing (RMA) for the rest
-        for (let i = period + 1; i < this.data.length; i++) {
-            const chg  = this.data[i].close - this.data[i - 1].close;
-            const gain = chg > 0 ? chg : 0;
-            const loss = chg < 0 ? -chg : 0;
-            avgGain = (avgGain * (period - 1) + gain) / period;
-            avgLoss = (avgLoss * (period - 1) + loss) / period;
-            rsi[i]  = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
-        }
-
-        this.rsiData = rsi;
-    }
-
-    _drawRSI() {
-        if (!this.rsiArea) return;
-        if (this.indicatorVisibility.rsi === false) return;
-        if (!this.rsiData || this.rsiData.length === 0 || this.data.length === 0) {
-            this._drawPaneWaiting(this.rsiArea, `RSI (${this.rsiPeriod || 14})`, '179,136,255');
-            return;
-        }
-
-        const ctx  = this.ctx;
-        const area = this.rsiArea;
-        const OB   = 70, OS = 30, MID = 50;   // overbought / oversold / midline
-
-        // ── RSI value → Y pixel (fixed 0–100 scale) ───────────────────────
-        const _toY = v => area.y + area.height - (v / 100) * area.height;
-
-        // ── Panel background ──────────────────────────────────────────────
-        ctx.fillStyle = 'rgba(8,10,20,0.93)';
-        ctx.fillRect(area.x, area.y, area.width, area.height);
-
-        // ── Top separator ─────────────────────────────────────────────────
-        ctx.strokeStyle = 'rgba(38,52,85,0.8)';
-        ctx.lineWidth   = 0.8;
-        ctx.setLineDash([]);
-        ctx.beginPath();
-        ctx.moveTo(area.x,              area.y - 2);
-        ctx.lineTo(area.x + area.width, area.y - 2);
-        ctx.stroke();
-
-        // ── Overbought zone fill (70–100) ─────────────────────────────────
-        const obY  = _toY(OB);
-        const topY = _toY(100);
-        ctx.fillStyle = 'rgba(239,83,80,0.06)';
-        ctx.fillRect(area.x, topY, area.width, obY - topY);
-
-        // ── Oversold zone fill (0–30) ─────────────────────────────────────
-        const osY  = _toY(OS);
-        const botY = _toY(0);
-        ctx.fillStyle = 'rgba(38,166,154,0.06)';
-        ctx.fillRect(area.x, osY, area.width, botY - osY);
-
-        // ── Horizontal reference lines ────────────────────────────────────
-        const _hline = (level, color, dash) => {
-            const y = _toY(level);
-            ctx.strokeStyle = color;
-            ctx.lineWidth   = 0.7;
-            ctx.setLineDash(dash);
-            ctx.beginPath();
-            ctx.moveTo(area.x,              y);
-            ctx.lineTo(area.x + area.width, y);
-            ctx.stroke();
-        };
-        _hline(OB,  'rgba(239,83,80,0.45)',   []);          // OB solid
-        _hline(OS,  'rgba(38,166,154,0.45)',   []);          // OS solid
-        _hline(MID, 'rgba(180,180,180,0.12)',  [3, 4]);      // midline dashed
-        ctx.setLineDash([]);
-
-        // ── Right-axis level labels (70 / 50 / 30) ───────────────────────
-        const axX = area.x + area.width;
-        const axW = this.rightAxisWidth;
-        ctx.font         = '9px "Segoe UI", sans-serif';
-        ctx.textAlign    = 'right';
-        ctx.textBaseline = 'middle';
-        [
-            { level: OB,  color: 'rgba(239,83,80,0.6)'  },
-            { level: MID, color: 'rgba(150,150,150,0.4)' },
-            { level: OS,  color: 'rgba(38,166,154,0.6)'  },
-        ].forEach(({ level, color }) => {
-            ctx.fillStyle = color;
-            ctx.fillText(String(level), axX + axW - 4, _toY(level));
-        });
-
-        // ── Pane label ────────────────────────────────────────────────────
-        ctx.font         = '700 9px "Segoe UI", sans-serif';
-        ctx.textAlign    = 'left';
-        ctx.textBaseline = 'top';
-        ctx.fillStyle    = 'rgba(179,136,255,0.45)';
-        ctx.fillText(`RSI (${this.rsiPeriod})`, area.x + 4, area.y + 3);
-
-        // ── RSI line ──────────────────────────────────────────────────────
-        // Collect visible non-null points
-        const start = Math.max(0, this.viewPortStart - 1);
-        const end   = Math.min(this.data.length - 1, this.viewPortEnd + 1);
-
-        // Glow pass
-        ctx.lineWidth   = 3;
-        ctx.strokeStyle = 'rgba(179,136,255,0.10)';
-        ctx.beginPath();
-        let first = true;
-        for (let i = start; i <= end; i++) {
-            if (this.rsiData[i] === null) { first = true; continue; }
-            const x = this._candleToX(i) + this.candleWidth / 2;
-            const y = _toY(this.rsiData[i]);
-            if (first) { ctx.moveTo(x, y); first = false; } else ctx.lineTo(x, y);
-        }
-        ctx.stroke();
-
-        // Sharp line — color shifts: red above 70, green below 30, purple otherwise
-        ctx.lineWidth = 1.5;
-        first = true;
-        let prevX = 0, prevY = 0, prevVal = null;
-        for (let i = start; i <= end; i++) {
-            const val = this.rsiData[i];
-            if (val === null) { first = true; prevVal = null; continue; }
-            const x = this._candleToX(i) + this.candleWidth / 2;
-            const y = _toY(val);
-            if (!first && prevVal !== null) {
-                ctx.strokeStyle = val >= OB ? '#ef5350'
-                                : val <= OS ? '#26a69a'
-                                :             '#b388ff';
-                ctx.beginPath();
-                ctx.moveTo(prevX, prevY);
-                ctx.lineTo(x, y);
-                ctx.stroke();
-            }
-            prevX = x; prevY = y; prevVal = val;
-            first = false;
-        }
-
-        // ── Right-axis live RSI pill ──────────────────────────────────────
-        const lastIdx = Math.min(end, this.rsiData.length - 1);
-        let lastRsi = null;
-        for (let i = lastIdx; i >= start; i--) {
-            if (this.rsiData[i] !== null) { lastRsi = this.rsiData[i]; break; }
-        }
-        if (lastRsi !== null) {
-            const ly   = _toY(lastRsi);
-            if (ly >= area.y && ly <= area.y + area.height) {
-                // Dashed ray
-                ctx.strokeStyle = 'rgba(179,136,255,0.30)';
-                ctx.lineWidth   = 0.6;
-                ctx.setLineDash([2, 3]);
-                ctx.beginPath();
-                ctx.moveTo(axX - 10, ly);
-                ctx.lineTo(axX, ly);
-                ctx.stroke();
-                ctx.setLineDash([]);
-
-                const pillColor = lastRsi >= OB ? '#ef5350'
-                                : lastRsi <= OS ? '#26a69a'
-                                :                 '#b388ff';
-                const lbl  = lastRsi.toFixed(1);
-                const lh   = 14, lw = axW;
-                const lTop = Math.round(ly - lh / 2);
-
-                ctx.fillStyle = pillColor;
-                ctx.beginPath();
-                ctx.moveTo(axX,      ly);
-                ctx.lineTo(axX + 4,  lTop);
-                ctx.lineTo(axX + lw, lTop);
-                ctx.lineTo(axX + lw, lTop + lh);
-                ctx.lineTo(axX + 4,  lTop + lh);
-                ctx.closePath();
-                ctx.fill();
-
-                ctx.font         = 'bold 9px "Segoe UI Mono", monospace';
-                ctx.textAlign    = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillStyle    = '#000';
-                ctx.fillText(lbl, axX + 4 + (lw - 4) / 2, ly);
-            }
-        }
-    }
 
     // ═══════════════════════════════════════════════════════════════════════
     // RENDER LOOP  (dirty-flag + rAF)
@@ -894,16 +609,6 @@ class FixedTradingChart {
             ctx.beginPath();
             ctx.moveTo(this.chartArea.x, y);
             ctx.lineTo(this.chartArea.x + this.chartArea.width, y);
-            ctx.stroke();
-        }
-
-        // Volume divider — only draw when volume pane is visible
-        if (this.volumeArea) {
-            ctx.strokeStyle = this.colors.grid;
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.moveTo(this.chartArea.x, this.volumeArea.y);
-            ctx.lineTo(this.chartArea.x + this.chartArea.width, this.volumeArea.y);
             ctx.stroke();
         }
 
@@ -1239,427 +944,16 @@ class FixedTradingChart {
     // CVD PANE
     // ═══════════════════════════════════════════════════════════════════════
 
-    _drawCVD() {
-        if (!this.cvdArea) return;
-        if (this.indicatorVisibility.cvd === false) return;
-        if (!this.cvdData || this.cvdData.length === 0 || this.data.length === 0) {
-            this._drawPaneWaiting(this.cvdArea, 'CVD', '0,191,255');
-            return;
-        }
-
-        const ctx  = this.ctx;
-        const area = this.cvdArea;
-
-        const start = Math.max(0, this.viewPortStart - 1);
-        const end   = Math.min(this.data.length - 1, this.viewPortEnd + 1);
-        if (start > end) return;
-
-        // ── Collect visible CVD slice ─────────────────────────────────────
-        const visSlice = this.cvdData.slice(start, end + 1);
-        const visCum   = visSlice.map(d => d.cumulative);
-        const visDelta = visSlice.map(d => d.delta);
-
-        const cumMin  = Math.min(...visCum);
-        const cumMax  = Math.max(...visCum);
-        const cumSpan = cumMax - cumMin || 1;
-
-        // ── Panel background ──────────────────────────────────────────────
-        ctx.fillStyle = 'rgba(8,12,22,0.92)';
-        ctx.fillRect(area.x, area.y, area.width, area.height);
-
-        // ── Top separator rule ────────────────────────────────────────────
-        ctx.strokeStyle = 'rgba(38,58,95,0.8)';
-        ctx.lineWidth   = 0.8;
-        ctx.setLineDash([]);
-        ctx.beginPath();
-        ctx.moveTo(area.x,              area.y - 2);
-        ctx.lineTo(area.x + area.width, area.y - 2);
-        ctx.stroke();
-
-        // ── Pane label ────────────────────────────────────────────────────
-        ctx.font         = '700 9px "Segoe UI", sans-serif';
-        ctx.textAlign    = 'left';
-        ctx.textBaseline = 'top';
-        ctx.fillStyle    = 'rgba(0,191,255,0.45)';
-        ctx.fillText('CVD', area.x + 4, area.y + 3);
-
-        // ── Y helpers ─────────────────────────────────────────────────────
-        const cvdPad = 0.06;
-        const yMin   = cumMin - cumSpan * cvdPad;
-        const yMax   = cumMax + cumSpan * cvdPad;
-        const _toY   = v => area.y + area.height - ((v - yMin) / (yMax - yMin)) * area.height;
-
-        // ── Zero line ─────────────────────────────────────────────────────
-        const zeroY = _toY(0);
-        if (zeroY >= area.y && zeroY <= area.y + area.height) {
-            ctx.strokeStyle = 'rgba(255,255,255,0.10)';
-            ctx.lineWidth   = 0.7;
-            ctx.setLineDash([3, 4]);
-            ctx.beginPath();
-            ctx.moveTo(area.x,              zeroY);
-            ctx.lineTo(area.x + area.width, zeroY);
-            ctx.stroke();
-            ctx.setLineDash([]);
-        }
-
-        // ── Delta histogram — per-bar buy/sell imbalance ──────────────────
-        const maxAbsDelta = Math.max(...visDelta.map(d => Math.abs(d)), 1);
-        for (let i = start; i <= end; i++) {
-            const d = this.cvdData[i];
-            if (!d) continue;
-            const x      = this._candleToX(i);
-            const ratio  = Math.abs(d.delta) / maxAbsDelta;
-            const barH   = ratio * (area.height * 0.38);
-            const isBull = d.delta >= 0;
-            const alpha  = 0.22 + ratio * 0.48;
-            ctx.fillStyle = isBull
-                ? `rgba(38,198,218,${alpha})`
-                : `rgba(239,83,80,${alpha})`;
-            ctx.fillRect(x, area.y + area.height - barH, this.candleWidth, barH);
-            // bright top edge
-            ctx.fillStyle = isBull ? `rgba(38,198,218,${alpha + 0.2})` : `rgba(239,83,80,${alpha + 0.2})`;
-            ctx.fillRect(x, area.y + area.height - barH, this.candleWidth, 1);
-        }
-
-        // ── CVD cumulative line (glow + sharp pass) ───────────────────────
-        ctx.setLineDash([]);
-        const _stroke = (lw, color) => {
-            ctx.lineWidth   = lw;
-            ctx.strokeStyle = color;
-            ctx.beginPath();
-            let first = true;
-            for (let i = start; i <= end; i++) {
-                const d = this.cvdData[i];
-                if (!d) continue;
-                const x = this._candleToX(i) + this.candleWidth / 2;
-                const y = _toY(d.cumulative);
-                if (y < area.y - 2 || y > area.y + area.height + 2) { first = true; continue; }
-                if (first) { ctx.moveTo(x, y); first = false; } else ctx.lineTo(x, y);
-            }
-            ctx.stroke();
-        };
-        _stroke(3.5, 'rgba(0,191,255,0.10)');  // soft glow halo
-        _stroke(1.4, '#00bfff');               // sharp line
-
-        // ── Right-axis: live CVD label ────────────────────────────────────
-        const lastD = this.cvdData[Math.min(end, this.cvdData.length - 1)];
-        if (lastD) {
-            const cv  = lastD.cumulative;
-            const axX = area.x + area.width;
-            const axW = this.rightAxisWidth;
-            const ly  = _toY(cv);
-
-            if (ly >= area.y && ly <= area.y + area.height) {
-                // Dashed ray to axis
-                ctx.strokeStyle = 'rgba(0,191,255,0.30)';
-                ctx.lineWidth   = 0.6;
-                ctx.setLineDash([2, 3]);
-                ctx.beginPath();
-                ctx.moveTo(axX - 10, ly);
-                ctx.lineTo(axX, ly);
-                ctx.stroke();
-                ctx.setLineDash([]);
-
-                // Pill label
-                const raw  = Math.abs(cv);
-                const sign = cv >= 0 ? '+' : '-';
-                const lbl  = raw >= 1e6 ? `${sign}${(raw/1e6).toFixed(2)}M`
-                           : raw >= 1e3 ? `${sign}${(raw/1e3).toFixed(1)}K`
-                           :              `${sign}${raw.toFixed(0)}`;
-                const lh   = 14, lw = axW;
-                const lTop = Math.round(ly - lh / 2);
-
-                ctx.fillStyle = cv >= 0 ? 'rgba(0,191,255,0.85)' : 'rgba(239,83,80,0.85)';
-                ctx.beginPath();
-                ctx.moveTo(axX,      ly);
-                ctx.lineTo(axX + 4,  lTop);
-                ctx.lineTo(axX + lw, lTop);
-                ctx.lineTo(axX + lw, lTop + lh);
-                ctx.lineTo(axX + 4,  lTop + lh);
-                ctx.closePath();
-                ctx.fill();
-
-                ctx.font         = 'bold 9px "Segoe UI Mono", monospace';
-                ctx.textAlign    = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillStyle    = '#000';
-                ctx.fillText(lbl, axX + 4 + (lw - 4) / 2, ly);
-            }
-
-            // Axis tick labels (3 levels)
-            ctx.font         = '9px "Segoe UI", sans-serif';
-            ctx.textAlign    = 'right';
-            ctx.textBaseline = 'middle';
-            const ticks = [yMin + (yMax - yMin) * 0.1, 0, yMin + (yMax - yMin) * 0.9];
-            for (const tv of ticks) {
-                const ty = _toY(tv);
-                if (ty < area.y + 6 || ty > area.y + area.height - 6) continue;
-                const raw2 = Math.abs(tv), s2 = tv >= 0 ? '' : '-';
-                const tlbl = raw2 >= 1e6 ? `${s2}${(raw2/1e6).toFixed(1)}M`
-                           : raw2 >= 1e3 ? `${s2}${(raw2/1e3).toFixed(0)}K`
-                           :               `${s2}${raw2.toFixed(0)}`;
-                ctx.fillStyle = 'rgba(100,130,170,0.65)';
-                ctx.fillText(tlbl, axX + axW - 4, ty);
-            }
-        }
-    }
 
     // ═══════════════════════════════════════════════════════════════════════
     // VOLUME
     // ═══════════════════════════════════════════════════════════════════════
 
-    _drawVolume() {
-        if (this.indicatorVisibility.volume === false) return;
-        if (!this.volumeArea) return;
 
-        const ctx  = this.ctx;
-        const area = this.volumeArea;
-        const start = Math.max(0, this.viewPortStart - 1);
-        const end   = Math.min(this.data.length - 1, this.viewPortEnd + 1);
 
-        // Collect visible volumes (viewport-only scaling baseline)
-        const visVols = [];
-        const visSmaVols = [];
-        for (let i = start; i <= end; i++) {
-            const candle = this.data[i];
-            if (!candle) continue;
-            const rawVol = this._resolveVolumeForCandle(candle, i);
-            visVols.push(rawVol);
-            visSmaVols.push(this._volumeSMA(i, this.volumeSmaPeriod));
-        }
-        if (visVols.length === 0) return;
 
-        // Stable viewport max with outlier cap (squish method)
-        const vpKey = `${this.viewPortStart}_${this.viewPortEnd}`;
-        if (this._volVpKey !== vpKey) {
-            const maxVisible = Math.max(1, ...visVols);
-            const maxVisibleSma = Math.max(1, ...visSmaVols);
-            const outlierCap = maxVisibleSma * this.volumeOutlierCapMultiple;
-            this._cachedMaxVolume = Math.max(1, Math.min(maxVisible, outlierCap));
-            this._volVpKey = vpKey;
-        }
-        this.maxVolume = this._cachedMaxVolume;
 
-        // Panel background (subtle, like TradingView)
-        ctx.fillStyle = 'rgba(10,14,26,0.4)';
-        ctx.fillRect(area.x, area.y, area.width, area.height);
 
-        // Draw bars
-        for (let i = start; i <= end; i++) {
-            const candle = this.data[i];
-            if (!candle) continue;
-            const rawVol = this._resolveVolumeForCandle(candle, i);
-            const vol    = this._scaleVolume(rawVol);
-            const maxVol = this._scaleVolume(this.maxVolume);
-
-            const ratio  = Math.min(1.0, vol / Math.max(1, maxVol));
-            const h      = Math.max(1, ratio * area.height);
-            const x      = this._candleToX(i);
-            const barTop = area.y + area.height - h;
-            const isUp   = candle.close >= candle.open;
-
-            // TradingView-style: solid fill, slightly transparent
-            ctx.fillStyle = isUp
-                ? this._hexToRgba(this.colors.volumeUp,   0.55)
-                : this._hexToRgba(this.colors.volumeDown, 0.55);
-            ctx.fillRect(x, barTop, this.candleWidth, h);
-
-            // Bright cap line (1px top edge for crisp definition)
-            ctx.fillStyle = isUp
-                ? this._hexToRgba(this.colors.volumeUp,   0.90)
-                : this._hexToRgba(this.colors.volumeDown, 0.90);
-            ctx.fillRect(x, barTop, this.candleWidth, 1);
-        }
-
-        this._drawVolumeScale();
-        this._drawCurrentVolLabel();
-    }
-
-    _volumeToY(vol) {
-        if (!this.volumeArea) return 0;
-        const max = Math.max(1, this._scaleVolume(this.maxVolume || 1));
-        const clamped = Math.max(0, Math.min(this._scaleVolume(vol), max));
-        const ratio = clamped / max;
-        return this.volumeArea.y + this.volumeArea.height - (ratio * this.volumeArea.height);
-    }
-
-    _scaleVolume(vol) {
-        const v = Math.max(0, Number(vol) || 0);
-        if (this.volumeScaleMode === 'sqrt') return Math.sqrt(v);
-        return v;
-    }
-
-    _volumeSMA(index, period = 20) {
-        const p = Math.max(1, period | 0);
-        const start = Math.max(0, index - p + 1);
-        let sum = 0;
-        let n = 0;
-        for (let i = start; i <= index; i++) {
-            const candle = this.data[i];
-            if (!candle) continue;
-            sum += this._resolveVolumeForCandle(candle, i);
-            n++;
-        }
-        return n > 0 ? (sum / n) : 0;
-    }
-
-    _drawVolumeScale() {
-        // ── TradingView-style volume axis ──────────────────────────────────
-        // All labels and ticks live INSIDE the right axis panel, never over
-        // the chart or volume bars.  Matches the visual language of _drawPriceAxis.
-        if (!this.volumeArea) return;
-        const ctx   = this.ctx;
-        const axisX = this.chartArea.x + this.chartArea.width;   // left edge of axis panel
-        const axisW = this.rightAxisWidth;
-        const area  = this.volumeArea;
-
-        // ── 1. Axis panel background (same dark fill as price axis) ─────────
-        ctx.fillStyle = '#0f1420';
-        ctx.fillRect(axisX, area.y, axisW, area.height);
-
-        // ── 2. Top separator rule (volume pane top) ─────────────────────────
-        ctx.strokeStyle = 'rgba(40,60,100,0.7)';
-        ctx.lineWidth   = 1;
-        ctx.setLineDash([]);
-        ctx.beginPath();
-        ctx.moveTo(axisX, area.y);
-        ctx.lineTo(axisX + axisW, area.y);
-        ctx.stroke();
-
-        // ── 3. Left border of the axis panel ────────────────────────────────
-        ctx.strokeStyle = 'rgba(40,60,100,0.7)';
-        ctx.lineWidth   = 1;
-        ctx.beginPath();
-        ctx.moveTo(axisX, area.y);
-        ctx.lineTo(axisX, area.y + area.height);
-        ctx.stroke();
-
-        // ── 4. Compute a nice set of tick values ─────────────────────────────
-        // Pick 2-3 human-friendly volume levels using a "nice step" approach,
-        // similar to how the price axis works.  Skip the 0 tick — it sits at
-        // the bottom border and is self-evident.
-        const maxV   = this.maxVolume || 1;
-        const rough  = maxV / 2;                    // aim for ~2-3 ticks
-        const nice   = this._niceVolStep(rough);
-        const ticks  = [];
-        for (let v = nice; v < maxV * 0.98; v += nice) ticks.push(v);
-        // Always add the top tick (≈ max visible volume)
-        if (ticks.length === 0 || ticks[ticks.length - 1] < maxV * 0.85) {
-            // snap top tick to a round number just below maxV
-            const topTick = Math.floor(maxV / nice) * nice;
-            if (topTick > 0 && (ticks.length === 0 || topTick !== ticks[ticks.length - 1])) {
-                ticks.push(topTick);
-            }
-        }
-
-        const minGapPx = 18;
-        let lastTickY  = Infinity;
-
-        // Keep tick labels optically aligned and away from the hard right edge.
-        const tickLabelPadLeft  = 10;
-        const tickLabelPadRight = 8;
-        const tickLabelX        = axisX + tickLabelPadLeft;
-        const tickLabelMaxW     = Math.max(0, axisW - tickLabelPadLeft - tickLabelPadRight);
-
-        ctx.font         = this._axisFont(10, 600);
-        ctx.textAlign    = 'left';
-        ctx.textBaseline = 'middle';
-
-        for (const v of ticks) {
-            const y = this._volumeToY(v);
-            if (y < area.y + 6 || y > area.y + area.height - 4) continue;
-            if (Math.abs(y - lastTickY) < minGapPx) continue;
-
-            // Faint horizontal grid echo inside axis panel
-            ctx.strokeStyle = 'rgba(40,60,100,0.25)';
-            ctx.lineWidth   = 0.5;
-            ctx.beginPath();
-            ctx.moveTo(axisX, y);
-            ctx.lineTo(axisX + axisW, y);
-            ctx.stroke();
-
-            // 5-px tick mark at the panel left edge (same as price axis)
-            ctx.strokeStyle = 'rgba(80,110,160,0.8)';
-            ctx.lineWidth   = 1;
-            ctx.beginPath();
-            ctx.moveTo(axisX,     y);
-            ctx.lineTo(axisX + 5, y);
-            ctx.stroke();
-
-            // Label — left-aligned inside the axis gutter for cleaner visual rhythm
-            ctx.fillStyle = 'rgba(122,168,216,0.80)';
-            ctx.fillText(this._fmtVol(v), tickLabelX, y, tickLabelMaxW);
-
-            lastTickY = y;
-        }
-    }
-
-    _drawCurrentVolLabel() {
-        if (!this.volumeArea) return;
-        if (this.data.length === 0) return;
-
-        // Prefer the most recent *visible* candle so the label always matches
-        // the candle a trader currently sees as "today/current" on screen.
-        const end = Math.min(this.viewPortEnd, this.data.length - 1);
-        const start = Math.max(0, this.viewPortStart);
-        let labelI = -1;
-        for (let i = end; i >= start; i--) {
-            const v = this._resolveVolumeForCandle(this.data[i], i);
-            if (Number.isFinite(v) && v > 0) {
-                labelI = i;
-                break;
-            }
-        }
-        if (labelI < 0) return;
-
-        const vol = this._resolveVolumeForCandle(this.data[labelI], labelI);
-        if (!this.maxVolume || vol <= 0) return;
-
-        const ctx = this.ctx;
-        const axisX = this.chartArea.x + this.chartArea.width;
-        const axisW = this.rightAxisWidth;
-        const y = this._volumeToY(vol);
-        const area = this.volumeArea;
-
-        const label = this._fmtVol(vol);
-        const barIsUp = this.data[labelI].close >= this.data[labelI].open;
-
-        ctx.font = 'bold 10px "Segoe UI", sans-serif';
-        const textW = Math.ceil(ctx.measureText(label).width);
-
-        const padX = 6;
-        const lh = 16;
-        const lw = Math.max(36, Math.min(axisW - 2, textW + padX * 2));
-        const lx = axisX + Math.max(1, Math.floor((axisW - lw) / 2));
-
-        const clampedY = Math.max(area.y + lh / 2 + 1, Math.min(area.y + area.height - lh / 2 - 1, y));
-        const ly = Math.round(clampedY - lh / 2);
-
-        const bg = barIsUp ? 'rgba(25, 120, 82, 0.92)' : 'rgba(148, 40, 56, 0.92)';
-        const border = barIsUp ? 'rgba(114, 235, 180, 0.90)' : 'rgba(255, 152, 170, 0.90)';
-
-        ctx.fillStyle = bg;
-        ctx.fillRect(lx, ly, lw, lh);
-
-        ctx.strokeStyle = border;
-        ctx.lineWidth = 0.9;
-        ctx.strokeRect(lx + 0.5, ly + 0.5, lw - 1, lh - 1);
-
-        // Subtle dashed connector from volume level to label box.
-        ctx.strokeStyle = 'rgba(122,168,216,0.32)';
-        ctx.lineWidth = 0.6;
-        ctx.setLineDash([2, 3]);
-        ctx.beginPath();
-        ctx.moveTo(axisX - 10, y);
-        ctx.lineTo(lx, clampedY);
-        ctx.stroke();
-        ctx.setLineDash([]);
-
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#eef6ff';
-        ctx.fillText(label, lx + lw / 2, clampedY);
-    }
 
     _niceVolStep(rough) {
         // Like _niceStep but tuned for volume (integer magnitudes, no sub-1 values)
@@ -1678,51 +972,6 @@ class FixedTradingChart {
     // INDICATORS
     // ═══════════════════════════════════════════════════════════════════════
 
-    _drawEMAs() {
-        const ctx = this.ctx;
-        ctx.setLineDash([]);
-
-        for (const [key, emaList] of Object.entries(this.emaData)) {
-            if (!emaList || emaList.length === 0) continue;
-            if (this.indicatorVisibility[key] === false) continue;
-            const maCfg = (this.movingAverageConfigs || []).find(c => c.id === key) || {};
-            const color = maCfg.color || this.colors.ema[key] || '#aaa';
-
-            ctx.strokeStyle = color;
-            ctx.lineWidth   = Number.isFinite(maCfg.thickness) ? maCfg.thickness : (key === 'ema200' ? 1.2 : 1.0);
-            const ls = (maCfg.line_style || 'solid');
-            if (ls === 'dashed') ctx.setLineDash([6,4]);
-            else if (ls === 'dotted') ctx.setLineDash([2,4]);
-            else ctx.setLineDash([]);
-            ctx.beginPath();
-            let first = true;
-            let lastVis = null;
-
-            for (const item of emaList) {
-                const x = this._timeToX(item.time);
-                const y = this._priceToY(item.value);
-                if (x < this.chartArea.x - 2 || x > this.chartArea.x + this.chartArea.width + 2) continue;
-                if (y < this.chartArea.y     || y > this.chartArea.y + this.chartArea.height) { first = true; continue; }
-                if (first) { ctx.moveTo(x, y); first = false; }
-                else       { ctx.lineTo(x, y); }
-                lastVis = { x, y, value: item.value };
-            }
-            ctx.stroke();
-
-            // Right-edge EMA label
-            if (this.indicatorScaleLabelsEnabled && lastVis) {
-                const label = `${key.toUpperCase()} ${lastVis.value.toFixed(1)}`;
-                ctx.font      = '9px "Segoe UI", sans-serif';
-                ctx.textAlign = 'left';
-                ctx.textBaseline = 'middle';
-                ctx.fillStyle = color;
-                const lx = this.chartArea.x + this.chartArea.width + 5;
-                // Tiny colored dot
-                ctx.fillRect(lx, lastVis.y - 2, 4, 4);
-                ctx.fillText(label, lx + 7, lastVis.y);
-            }
-        }
-    }
 
     // ═══════════════════════════════════════════════════════════════════════
     // PANE WAITING STATE  (clean label when indicator data unavailable)
@@ -1751,108 +1000,8 @@ class FixedTradingChart {
         ctx.fillText('No data', area.x + area.width / 2, area.y + area.height / 2);
     }
 
-    _drawVWAP() {
-        if (this.vwapData.length === 0 || this.data.length === 0) return;
-        if (!this.currentInterval.includes('minute')) return;
-        if (this.indicatorVisibility.vwap === false) return;
-        const ctx = this.ctx;
-        ctx.strokeStyle = this.colors.vwap;
-        ctx.lineWidth   = 1.5;
-        ctx.setLineDash([4, 3]);
-        ctx.beginPath();
-        let first = true;
 
-        for (const item of this.vwapData) {
-            const x = this._timeToX(item.time);
-            const y = this._priceToY(item.value);
-            if (x < this.chartArea.x || x > this.chartArea.x + this.chartArea.width) continue;
-            if (y < this.chartArea.y || y > this.chartArea.y + this.chartArea.height) { first = true; continue; }
-            if (first) { ctx.moveTo(x, y); first = false; } else ctx.lineTo(x, y);
-        }
-        ctx.stroke();
-        ctx.setLineDash([]);
 
-        // Right-edge VWAP label
-        const last = this.vwapData[this.vwapData.length - 1];
-        if (this.indicatorScaleLabelsEnabled && last) {
-            const y = this._priceToY(last.value);
-            const lx = this.chartArea.x + this.chartArea.width + 5;
-            ctx.font = '9px "Segoe UI", sans-serif';
-            ctx.textAlign = 'left';
-            ctx.textBaseline = 'middle';
-            ctx.fillStyle = this.colors.vwap;
-            ctx.fillText(`VWAP ${last.value.toFixed(1)}`, lx, y);
-        }
-    }
-
-    _drawATRTrendReversal() {
-        if (this.indicatorVisibility.atrTrendReversal === false) return;
-        if (!this.atrTrendReversal || this.atrTrendReversal.length === 0) return;
-
-        const ctx = this.ctx;
-        const triHalf = 4;
-        const triHeight = 6;
-        const yPad = 5;
-        const start = Math.max(0, this.viewPortStart - 1);
-        const end = Math.min(this.data.length - 1, this.viewPortEnd + 1);
-
-        for (let i = start; i <= end; i++) {
-            const signal = this.atrTrendReversal[i];
-            if (!signal) continue;
-            const candle = this.data[i];
-            const x = this._candleToX(i) + this.candleWidth / 2;
-
-            if (signal.above) {
-                const y = this._priceToY(candle.high) - yPad;
-                ctx.fillStyle = this.colors.atrReversalAbove;
-                ctx.beginPath();
-                ctx.moveTo(x - triHalf, y - triHeight);
-                ctx.lineTo(x + triHalf, y - triHeight);
-                ctx.lineTo(x, y);
-                ctx.closePath();
-                ctx.fill();
-            }
-
-            if (signal.below) {
-                const y = this._priceToY(candle.low) + yPad;
-                ctx.fillStyle = this.colors.atrReversalBelow;
-                ctx.beginPath();
-                ctx.moveTo(x - triHalf, y + triHeight);
-                ctx.lineTo(x + triHalf, y + triHeight);
-                ctx.lineTo(x, y);
-                ctx.closePath();
-                ctx.fill();
-            }
-        }
-    }
-
-    _drawBjTrendIndicator() {
-        if (this.indicatorVisibility.bjTrend === false) return;
-        if (!this.bjTrendData || this.bjTrendData.fast.length === 0 || this.bjTrendData.slow.length === 0) return;
-        const ctx = this.ctx;
-        const start = Math.max(0, this.viewPortStart - 1);
-        const end = Math.min(this.data.length - 1, this.viewPortEnd + 1);
-
-        const drawLine = (values, color, width) => {
-            ctx.strokeStyle = color;
-            ctx.lineWidth = width;
-            ctx.setLineDash([]);
-            ctx.beginPath();
-            let first = true;
-            for (let i = start; i <= end; i++) {
-                const value = values[i];
-                if (!Number.isFinite(value)) { first = true; continue; }
-                const x = this._candleToX(i) + this.candleWidth / 2;
-                const y = this._priceToY(value);
-                if (y < this.chartArea.y || y > this.chartArea.y + this.chartArea.height) { first = true; continue; }
-                if (first) { ctx.moveTo(x, y); first = false; } else { ctx.lineTo(x, y); }
-            }
-            ctx.stroke();
-        };
-
-        drawLine(this.bjTrendData.fast, '#64b5f6', 1.4);
-        drawLine(this.bjTrendData.slow, '#ef5350', 1.1);
-    }
 
     // ═══════════════════════════════════════════════════════════════════════
     // AXES
@@ -3287,79 +2436,7 @@ class FixedTradingChart {
         this.requestDraw();
     }
 
-    _computeATRTrendReversal() {
-        const atrPeriod = 14;
-        const emaPeriod = 21;
-        const threshold = 3.01;
-        const k = 2 / (emaPeriod + 1);
 
-        this.atrTrendReversal = this.data.map(() => ({ above: false, below: false }));
-        if (this.data.length === 0) return;
-
-        let ema21 = this.data[0].close;
-        let atr = null;
-        let trSum = 0;
-
-        for (let i = 0; i < this.data.length; i++) {
-            const candle = this.data[i];
-            const prevClose = i > 0 ? this.data[i - 1].close : candle.close;
-            const tr = Math.max(
-                candle.high - candle.low,
-                Math.abs(candle.high - prevClose),
-                Math.abs(candle.low - prevClose),
-            );
-
-            if (i === 0) {
-                ema21 = candle.close;
-            } else {
-                ema21 = (candle.close - ema21) * k + ema21;
-            }
-
-            if (i < atrPeriod) {
-                trSum += tr;
-                if (i === atrPeriod - 1) atr = trSum / atrPeriod;
-            } else if (atr !== null) {
-                atr = ((atr * (atrPeriod - 1)) + tr) / atrPeriod;
-            }
-
-            if (atr && atr > 0) {
-                const distance = Math.abs(candle.close - ema21) / atr;
-                this.atrTrendReversal[i] = {
-                    above: distance >= threshold && candle.close > ema21,
-                    below: distance >= threshold && candle.close < ema21,
-                };
-            }
-        }
-    }
-
-    _computeBjTrendIndicator() {
-        const alpha = 0.7;
-        const fastLength = 5;
-        const slowLength = 8;
-        const n = this.data.length;
-        this.bjTrendData = { fast: new Array(n).fill(NaN), slow: new Array(n).fill(NaN), trendUp: new Array(n).fill(false) };
-        if (n === 0) return;
-
-        const closes = this.data.map(d => Number(d.close) || 0);
-        const emaSeries = (src, length) => {
-            const out = new Array(src.length).fill(NaN);
-            const k = 2 / (length + 1);
-            out[0] = src[0];
-            for (let i = 1; i < src.length; i++) out[i] = (src[i] - out[i - 1]) * k + out[i - 1];
-            return out;
-        };
-        const gdSeries = (src, length, a) => {
-            const e1 = emaSeries(src, length);
-            const e2 = emaSeries(e1, length);
-            return src.map((_, i) => e1[i] * (1 + a) - e2[i] * a);
-        };
-        const t3Series = (src, length, a) => gdSeries(gdSeries(gdSeries(src, length, a), length, a), length, a);
-
-        this.bjTrendData.fast = t3Series(closes, fastLength, alpha);
-        this.bjTrendData.slow = t3Series(closes, slowLength, alpha);
-        this.bjTrendData.trendUp = this.bjTrendData.fast.map((v, i) =>
-            Number.isFinite(v) && Number.isFinite(this.bjTrendData.slow[i]) && v >= this.bjTrendData.slow[i]);
-    }
 
     // ═══════════════════════════════════════════════════════════════════════
     // COORDINATE TRANSFORMS
@@ -3368,9 +2445,6 @@ class FixedTradingChart {
     // Returns the bottom pixel of the lowest visible pane.
     // Priority: CVD → Volume → Price (chart area itself as fallback).
     _paneBottom() {
-        if (this.rsiArea)    return this.rsiArea.y    + this.rsiArea.height;
-        if (this.cvdArea)    return this.cvdArea.y    + this.cvdArea.height;
-        if (this.volumeArea) return this.volumeArea.y + this.volumeArea.height;
         return this.chartArea.y + this.chartArea.height;
     }
 
@@ -3544,20 +2618,6 @@ class FixedTradingChart {
     // DISPLAY HELPERS
     // ═══════════════════════════════════════════════════════════════════════
 
-    _resolveVolumeForCandle(candle, candleIndex = -1) {
-        const fromCandle = Number(candle?.volume);
-        if (Number.isFinite(fromCandle) && fromCandle >= 0) return fromCandle;
-
-        const atIdx = (typeof candleIndex === 'number' && candleIndex >= 0 && candleIndex < this.volumeData.length)
-            ? Number(this.volumeData[candleIndex]?.value)
-            : NaN;
-        if (Number.isFinite(atIdx) && atIdx >= 0) return atIdx;
-
-        const byTime = Number(this.volumeData?.find(v => v.time === candle?.time)?.value);
-        if (Number.isFinite(byTime) && byTime >= 0) return byTime;
-
-        return 0;
-    }
 
     _renderPriceInfo(c, dateStr, candleIndex = -1) {
         const el = document.getElementById('metricsInfo');
@@ -3568,7 +2628,7 @@ class FixedTradingChart {
         const dayPct = prevClose !== 0 ? ((dayChange / prevClose) * 100) : 0;
         const dayColor = dayChange >= 0 ? '#2dd4a7' : '#ff6b7f';
         const daySign = dayChange >= 0 ? '+' : '';
-        const volume = this._resolveVolumeForCandle(c, candleIndex);
+        const volume = Number(c?.volume) || 0;
 
         const sep = '<span style="color:#6f86ab;margin:0 5px;">•</span>';
         const dot = '<span style="color:#60779d;margin:0 5px;">•</span>';
@@ -3960,7 +3020,6 @@ class FixedTradingChart {
         this.isUserYRange = false;          // always reset auto-scale on symbol switch
         this._volVpKey = null;
         this._cachedMaxVolume = 1;
-        this.maxVolume = 1;
 
         // ── FIX (Bug 3): reset rightBufferCandles and viewPortEnd FIRST ──
         // Then call _updateChartAreas() → _updateViewport() in order so
@@ -3988,12 +3047,6 @@ class FixedTradingChart {
             }
         }
 
-        // Recompute indicators with clean data.
-        this.vwapData = [];
-        this.atrTrendReversal = [];
-        this.bjTrendData = { fast: [], slow: [], trendUp: [] };
-        this.cvdData = [];
-        this.rsiData = [];
         if (this.data.length > 0) {
             this._computeRenko();
         }
@@ -4041,8 +3094,6 @@ class FixedTradingChart {
 
     addNewCandle(candle) {
         this.data.push(candle);
-        this.volumeData.push({ time: candle.time, value: candle.volume || 0 });
-        this._volVpKey = null;
         // Keep viewport anchored to latest candle if user hasn't panned away.
         const wasAtEnd = this.viewPortEnd >= this.data.length - 2 + this.rightBufferCandles;
         if (wasAtEnd) {
@@ -4072,8 +3123,6 @@ class FixedTradingChart {
     setChartSettings(cfg) {
         if (cfg.upCandleColor)   this.colors.upCandle   = cfg.upCandleColor;
         if (cfg.downCandleColor) this.colors.downCandle = cfg.downCandleColor;
-        if (cfg.upVolumeColor)   this.colors.volumeUp   = cfg.upVolumeColor;
-        if (cfg.downVolumeColor) this.colors.volumeDown = cfg.downVolumeColor;
         const slotChanged = (cfg.candleWidth && cfg.candleWidth !== this.candleWidth) ||
                             (cfg.candleSpacing !== undefined && cfg.candleSpacing !== this.candleSpacing);
         if (cfg.candleWidth)                    this.candleWidth   = cfg.candleWidth;
@@ -4191,12 +3240,6 @@ class FixedTradingChart {
         this.indicatorVisibility[key] = visible === true;
         // Persist immediately — survives any symbol/timeframe reload
         _saveIndicatorState(this.indicatorVisibility);
-        // Volume, CVD, and RSI toggles change pane layout — recalculate geometry
-        if (key === 'cvd' || key === 'volume' || key === 'rsi') {
-            this._updateChartAreas();
-            this._updateViewport();
-            this.calculateBounds();
-        }
         // Notify Python bridge so its own state stays in sync
         this._notifyIndicatorVisibilityChanged();
         this.requestDraw();
@@ -4209,10 +3252,7 @@ class FixedTradingChart {
     // ─── Python-callable: hard-reset all visibility to defaults (all off) ────
     resetIndicatorVisibility() {
         try { localStorage.removeItem(_IND_STORE_KEY); } catch (e) {}
-        this.indicatorVisibility = {
-            ema10: false, ema20: false, ema50: false, ema200: false,
-            atrTrendReversal: false, bjTrend: false, vwap: false, cvd: false, volume: false, rsi: false,
-        };
+        this.indicatorVisibility = {};
         _saveIndicatorState(this.indicatorVisibility);
         this.requestDraw();
     }
