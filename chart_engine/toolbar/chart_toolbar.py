@@ -711,8 +711,20 @@ class ChartToolbar(QFrame):
         elif not is_fav and kite_iv in self._favorite_timeframes:
             self._favorite_timeframes.remove(kite_iv)
         self._rebuild_timeframe_favorites_tray()
+        self._sync_timeframe_menu_favorites_state()
         if not self._suppress_pref_events:
             self.toolbar_preferences_changed.emit(self.get_toolbar_preferences())
+
+    def _sync_timeframe_menu_favorites_state(self) -> None:
+        favorite_set = set(self._favorite_timeframes)
+        for iv, item in self._tf_menu_items.items():
+            should_be_checked = iv in favorite_set
+            if item.star.isChecked() == should_be_checked:
+                continue
+            item.star.blockSignals(True)
+            item.star.setChecked(should_be_checked)
+            item.star.setText("★" if should_be_checked else "☆")
+            item.star.blockSignals(False)
 
     def _rebuild_timeframe_favorites_tray(self) -> None:
         while self.timeframe_favorites_layout.count():
@@ -905,6 +917,7 @@ class ChartToolbar(QFrame):
                 filtered_tfs = [str(iv) for iv in favorite_tfs if str(iv) in all_tfs]
                 self._favorite_timeframes = filtered_tfs
                 self._rebuild_timeframe_favorites_tray()
+                self._sync_timeframe_menu_favorites_state()
 
             chart_type = prefs.get("chart_type")
             if isinstance(chart_type, str) and chart_type in self._ct_actions:

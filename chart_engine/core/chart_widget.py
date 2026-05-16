@@ -432,6 +432,7 @@ class CandlestickChart(QWidget):
             period = int(item.get("period", 0) or 0)
             if period <= 0:
                 continue
+            volume_opacity = float(item.get("volume_opacity", 0.75) or 0.75)
             cleaned.append({
                 "type": str(item.get("type") or "ema").lower(),
                 "id": str(item.get("id") or f"ind_{period}"),
@@ -439,6 +440,7 @@ class CandlestickChart(QWidget):
                 "color": str(item.get("color") or "#00d4ff"),
                 "thickness": float(item.get("thickness", 1.2) or 1.2),
                 "line_style": str(item.get("line_style") or "solid"),
+                "volume_opacity": max(0.0, min(1.0, volume_opacity)),
             })
         return cleaned
 
