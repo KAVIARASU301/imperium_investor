@@ -474,13 +474,7 @@ class ChartToolbar(QFrame):
         lay.addWidget(_vsep())
         lay.addWidget(_gap(6))
 
-        # ── 4. INDICATOR DROPDOWN ─────────────────────────────────────────
-        self._indicator_menu = QMenu(self)
-        self._indicator_menu.setObjectName("dropdownMenu")
-
-        manage_indicators_action = QAction("Manage Indicators…", self)
-        manage_indicators_action.triggered.connect(self.manage_indicators_requested.emit)
-        self._indicator_menu.addAction(manage_indicators_action)
+        # ── 4. INDICATOR BUTTON ───────────────────────────────────────────
 
         self.vol_btn = QPushButton()
         self.vol_btn.setVisible(False)
@@ -490,10 +484,9 @@ class ChartToolbar(QFrame):
         self.indicator_menu_button = QToolButton()
         self.indicator_menu_button.setObjectName("pillMenuBtn")
         _apply_icon(self.indicator_menu_button, "indicator")
-        self.indicator_menu_button.setToolTip("Toggle chart indicators")
-        self.indicator_menu_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.indicator_menu_button.setToolTip("Manage indicators")
         self.indicator_menu_button.setFixedSize(32, 22)
-        self.indicator_menu_button.setMenu(self._indicator_menu)
+        self.indicator_menu_button.clicked.connect(self.manage_indicators_requested.emit)
         lay.addWidget(self.indicator_menu_button)
 
         lay.addWidget(_gap(6))
