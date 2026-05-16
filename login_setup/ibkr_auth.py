@@ -37,12 +37,12 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class IBKRConnectionParams:
-    host: str = "::1"
+    host: str = "127.0.0.1"
     port: int = 7497
     client_id: int = 1
     timeout: float = 30.0
     trading_mode: TradingMode = TradingMode.PAPER
-    fallback_hosts: List[str] = field(default_factory=lambda: ["::1", "127.0.0.1"])
+    fallback_hosts: List[str] = field(default_factory=lambda: ["127.0.0.1", "::1"])
 
 
 # ------------------------------------------------------------------------------
@@ -176,9 +176,9 @@ class IBKRConnectionWorker(QThread):
         if not reachable:
             return None, None, None
 
-        # Prefer IPv6
+        # Prefer IPv4 for max compatibility with typical TWS/Gateway local configs.
         for host, port, family in reachable:
-            if family == socket.AF_INET6:
+            if family == socket.AF_INET:
                 return host, port, family
         return reachable[0]
 
@@ -261,7 +261,7 @@ class IBKRAuth(QObject):
 
     def _on_success(self, ib_client):
         self.ib_client = ib_client
-        self.status_updated.emit("✅ Connected to IB Gateway successfully.")
+        self.status_updated.emit("✅ Connected to IBKR TWS / Gateway successfully.")
         self.connection_established.emit(ib_client)
 
     def _on_failed(self, error_message: str):
