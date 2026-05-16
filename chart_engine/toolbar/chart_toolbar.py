@@ -484,36 +484,11 @@ class ChartToolbar(QFrame):
         self._indicator_menu = QMenu(self)
         self._indicator_menu.setObjectName("dropdownMenu")
 
-        for key, label, color, tip in INDICATORS:
-            action = QAction(label, self)
-            action.setCheckable(True)
-            action.setChecked(False)
-            action.setData(key)
-            action.setToolTip(tip)
-            self._indicator_menu.addAction(action)
-            self._ind_actions[key] = action
-            self.indicator_actions[key] = action
-
-        self._indicator_menu.addSeparator()
-        manage_action = QAction("Indicator Menu…", self)
-        manage_action.triggered.connect(self.manage_indicators_requested.emit)
-        self._indicator_menu.addAction(manage_action)
-        self._indicator_menu.addSeparator()
-        vol_action = QAction("Volume Bars", self)
-        vol_action.setCheckable(True)
-        vol_action.setChecked(True)
-        vol_action.setData("volume")
-        vol_action.setToolTip("Volume histogram")
-        self._indicator_menu.addAction(vol_action)
-        self.indicator_actions["volume"] = vol_action
-        self._ind_actions["volume"] = vol_action
-
-        # CVD / RSI in indicator menu too
+        # Intentionally keep the indicators menu empty.
         self.vol_btn = QPushButton()
         self.vol_btn.setVisible(False)
         self.vol_btn.setCheckable(True)
         self.vol_btn.setChecked(True)
-        vol_action.toggled.connect(self.vol_btn.setChecked)
 
         self.indicator_menu_button = QToolButton()
         self.indicator_menu_button.setObjectName("pillMenuBtn")
