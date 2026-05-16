@@ -170,9 +170,13 @@ class HeaderToolbar(QToolBar):
         self.info_button.clicked.connect(self._on_info_clicked)
         self.addWidget(self.info_button)
 
-        self.positions_button = QPushButton("POSITIONS")
-        self.positions_button.setObjectName("tradingActionButton")
-        self.positions_button.setFixedHeight(22)
+        self.positions_button = QPushButton()
+        self.positions_button.setObjectName("positionsActionButton")
+        self.positions_button.setFixedSize(24, 22)
+        self.positions_button.setIconSize(QSize(12, 12))
+        positions_icon_path = get_asset_path("icons", "portfolio.svg", required=True)
+        if positions_icon_path is not None:
+            self.positions_button.setIcon(QIcon(str(positions_icon_path)))
         self.positions_button.clicked.connect(self.positions_requested.emit)
         self.addWidget(self.positions_button)
 
@@ -497,7 +501,7 @@ class HeaderToolbar(QToolBar):
             }
             #buyButton:hover {
                 background-color: #141920;
-                border: 1px solid #1a7a62;
+                border: 1px solid #22c4a0;
                 color: #22c4a0;
             }
             #sellButton {
@@ -511,7 +515,7 @@ class HeaderToolbar(QToolBar):
             }
             #sellButton:hover {
                 background-color: #141920;
-                border: 1px solid #7a2030;
+                border: 1px solid #ff4d6a;
                 color: #ff6b82;
             }
             #sectionGap { background: transparent; }
@@ -563,13 +567,24 @@ class HeaderToolbar(QToolBar):
             }
             #infoActionButton {
                 background-color: rgba(0, 212, 255, 0.05);
-                border: 1px solid #2a3342;
+                border: 1px solid transparent;
                 border-radius: 0px;
                 padding: 0px;
             }
             #infoActionButton:hover {
-                background-color: rgba(0, 212, 255, 0.18);
-                border: 1px solid #ffaa00;
+                background-color: rgba(255, 215, 0, 0.16);
+                border: 1px solid #f1c40f;
+                border-radius: 0px;
+            }
+            #positionsActionButton {
+                background-color: rgba(0, 212, 255, 0.05);
+                border: 1px solid transparent;
+                border-radius: 0px;
+                padding: 0px;
+            }
+            #positionsActionButton:hover {
+                background-color: rgba(139, 94, 60, 0.18);
+                border: 1px solid #8b5e3c;
                 border-radius: 0px;
             }
             #accountInfoWidget {
