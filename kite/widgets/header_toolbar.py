@@ -1,4 +1,8 @@
-"""Production-grade dark trading terminal header toolbar."""
+"""Production-grade dark trading terminal header toolbar.
+
+Institutional Dark Trading Terminal UI with modern UI typography for all visible
+text and numbers. Monospace is reserved only for raw logs / debug text.
+"""
 
 import logging
 from typing import Any, Dict, List, Union
@@ -37,13 +41,16 @@ _CYAN = "#00d4ff"
 _BLUE = "#3b82f6"
 
 _TEXT = "#e8f0ff"
+_TEXT_SYMBOL = "#b6c4d6"      # softer active symbol/account text
 _TEXT_SOFT = "#a8bcd4"
 _TEXT_MUTED = "#5a7090"
 _TEXT_FAINT = "#2a3a50"
 _SELECTION = "#1a2840"
 
-_MONO = "'Consolas', 'JetBrains Mono', monospace"
+_MONO = "'Consolas', 'JetBrains Mono', monospace"  # raw logs/debug only
 _SANS = "'Inter', 'Segoe UI', sans-serif"
+_NUM = "'Inter', 'Segoe UI Variable', 'Segoe UI', sans-serif"
+_NUM_FONT = "Inter"
 
 _TOOLBAR_H = 34
 _CONTROL_H = 24
@@ -584,15 +591,15 @@ class HeaderToolbar(QToolBar):
 
         #enhancedSymbolSearch {{
             background-color: {_BG_WINDOW};
-            color: {_TEXT};
+            color: {_TEXT_SYMBOL};
             border: 1px solid {_BG_BORDER_HI};
             border-radius: 2px;
             padding: 2px 8px;
             selection-background-color: {_SELECTION};
             selection-color: {_TEXT};
-            font-family: {_MONO};
+            font-family: {_SANS};
             font-size: 11px;
-            font-weight: 700;
+            font-weight: 650;
         }}
         #enhancedSymbolSearch:hover {{
             border-color: {_TEXT_FAINT};
@@ -601,7 +608,7 @@ class HeaderToolbar(QToolBar):
         #enhancedSymbolSearch:focus {{
             border: 1px solid {_CYAN};
             background-color: {_BG_APP};
-            color: {_TEXT};
+            color: {_TEXT_SYMBOL};
         }}
 
         QPushButton {{
@@ -685,7 +692,7 @@ class HeaderToolbar(QToolBar):
             color: white;
             border: 1px solid rgba(255, 255, 255, 0.10);
             border-radius: 2px;
-            font-family: {_MONO};
+            font-family: {_NUM};
             font-size: 9px;
             font-weight: 900;
             padding: 0px;
@@ -697,9 +704,10 @@ class HeaderToolbar(QToolBar):
             border: 1px solid transparent;
             border-radius: 2px;
             padding: 2px 8px;
+            font-family: {_SANS};
             font-size: 10px;
             font-weight: 800;
-            letter-spacing: 0.35px;
+            letter-spacing: 0.25px;
         }}
         QPushButton#tradingActionButton:hover {{
             background-color: rgba(0, 212, 255, 0.09);
@@ -735,10 +743,10 @@ class HeaderToolbar(QToolBar):
             border: 1px solid rgba(0, 212, 255, 0.16);
             border-radius: 2px;
             padding: 2px 7px;
-            font-family: {_MONO};
+            font-family: {_SANS};
             font-size: 9px;
             font-weight: 800;
-            letter-spacing: 0.6px;
+            letter-spacing: 0.45px;
         }}
         QLabel#balanceLabel {{
             background-color: rgba(0, 212, 168, 0.075);
@@ -746,10 +754,10 @@ class HeaderToolbar(QToolBar):
             border: 1px solid rgba(0, 212, 168, 0.16);
             border-radius: 2px;
             padding: 2px 8px;
-            font-family: {_MONO};
+            font-family: {_NUM};
             font-size: 10px;
-            font-weight: 900;
-            letter-spacing: 0.45px;
+            font-weight: 800;
+            letter-spacing: 0.15px;
         }}
         QLabel#separatorDot {{
             background: transparent;

@@ -50,12 +50,18 @@ class _C:
     T1 = "#a8bcd4"
     T2 = "#5a7090"
     T3 = "#2a3a50"
+    T_SYMBOL = "#b6c4d6"
     SEL = "#1a2840"
 
 
+# Visible UI uses modern sans / number typography. Monospace is reserved for
+# raw logs, code, IDs, scan clauses, and technical debug text only.
 _MONO = "Consolas, 'JetBrains Mono', 'Courier New', monospace"
 _SANS = "Inter, 'Segoe UI', Arial, sans-serif"
-_ROW_H = 24
+_NUM = "Inter, 'Segoe UI Variable', 'Segoe UI', Arial, sans-serif"
+_APP_FONT = "Segoe UI"
+_NUM_FONT = "Inter"
+_ROW_H = 22
 
 
 @dataclass
@@ -97,7 +103,11 @@ def _table_item(
     item = QTableWidgetItem(text)
     item.setForeground(QBrush(QColor(color)))
     item.setTextAlignment(align | Qt.AlignmentFlag.AlignVCenter)
-    font = QFont("Consolas" if mono else "Segoe UI", 9)
+    # `mono` is retained for API/backward compatibility, but visible table
+    # values now use modern UI number typography. Reserve monospace for raw
+    # debug/code text only.
+    font = QFont(_NUM_FONT if mono else _APP_FONT, 9)
+    font.setStyleHint(QFont.StyleHint.SansSerif)
     font.setBold(bold)
     item.setFont(font)
     return item
@@ -314,11 +324,11 @@ class IndicatorSettingsDialog(QDialog):
         self.color_btn.setStyleSheet(f"""
             QPushButton#colorButton {{
                 background: {_C.BG2};
-                color: {_C.T0};
+                color: {_C.T1};
                 border: 1px solid {self._color};
                 border-left: 5px solid {self._color};
                 border-radius: 2px;
-                font-family: {_MONO};
+                font-family: {_NUM};
                 font-size: 10px;
                 font-weight: 800;
                 letter-spacing: 0.6px;
@@ -371,7 +381,7 @@ class IndicatorSettingsDialog(QDialog):
         }}
         QLabel#dialogTitle {{
             color: {_C.AMBER};
-            font-family: {_MONO};
+            font-family: {_SANS};
             font-size: 10px;
             font-weight: 800;
             letter-spacing: 1.2px;
@@ -394,14 +404,24 @@ class IndicatorSettingsDialog(QDialog):
             letter-spacing: 1px;
             background: transparent;
         }}
-        QComboBox#terminalCombo,
+        QComboBox#terminalCombo {{
+            background: {_C.BG1};
+            color: {_C.T1};
+            border: 1px solid {_C.BG4};
+            border-radius: 2px;
+            font-family: {_SANS};
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 8px;
+            min-height: 20px;
+        }}
         QSpinBox#terminalSpin,
         QDoubleSpinBox#terminalSpin {{
             background: {_C.BG1};
-            color: {_C.T0};
+            color: {_C.T1};
             border: 1px solid {_C.BG4};
             border-radius: 2px;
-            font-family: {_MONO};
+            font-family: {_NUM};
             font-size: 11px;
             font-weight: 700;
             padding: 4px 8px;
@@ -731,7 +751,7 @@ class IndicatorLibraryDialog(QDialog):
                 0,
                 _table_item(str(idx + 1), _C.T2, Qt.AlignmentFlag.AlignCenter, mono=True),
             )
-            indicator_item = _table_item(disp, _C.T0, Qt.AlignmentFlag.AlignLeft, bold=True)
+            indicator_item = _table_item(disp, _C.T_SYMBOL, Qt.AlignmentFlag.AlignLeft, bold=True)
             indicator_item.setToolTip(str(item.get("id", "")))
             self.selected_table.setItem(idx, 1, indicator_item)
             self.selected_table.setItem(
@@ -767,7 +787,7 @@ class IndicatorLibraryDialog(QDialog):
             self.available_table.setItem(
                 idx,
                 1,
-                _table_item(item.display_name, _C.T0, Qt.AlignmentFlag.AlignLeft, bold=True),
+                _table_item(item.display_name, _C.T_SYMBOL, Qt.AlignmentFlag.AlignLeft, bold=True),
             )
             default_text = f"PERIOD {item.default_period} · {item.default_line_style.upper()} · {item.default_thickness:.1f}px"
             default_item = _table_item(default_text, item.default_color, Qt.AlignmentFlag.AlignLeft, mono=True)
@@ -839,7 +859,7 @@ class IndicatorLibraryDialog(QDialog):
         }}
         QLabel#dialogTitle {{
             color: {_C.AMBER};
-            font-family: {_MONO};
+            font-family: {_SANS};
             font-size: 10px;
             font-weight: 800;
             letter-spacing: 1.2px;
@@ -878,7 +898,7 @@ class IndicatorLibraryDialog(QDialog):
             background: rgba(0,212,255,0.08);
             border: 1px solid rgba(0,212,255,0.22);
             border-radius: 2px;
-            font-family: {_MONO};
+            font-family: {_NUM};
             font-size: 9px;
             font-weight: 800;
             letter-spacing: 0.8px;
@@ -891,7 +911,7 @@ class IndicatorLibraryDialog(QDialog):
             border: 1px solid {_C.BG4};
             border-radius: 2px;
             outline: none;
-            color: {_C.T0};
+            color: {_C.T1};
             selection-background-color: {_C.SEL};
             font-family: {_SANS};
             font-size: 11px;
