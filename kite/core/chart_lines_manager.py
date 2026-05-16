@@ -391,7 +391,7 @@ class ChartLinesManager(QObject):
             logger.error(f"Error removing position line: {e}")
             return False
 
-    def add_stop_loss_line(self, symbol: str, sl_price: float) -> bool:
+    def add_stop_loss_line(self, symbol: str, sl_price: float, position_id: str = "") -> bool:
         """Add or update a stop-loss line across all interval files for a symbol."""
         try:
             mode = self._get_trading_mode()
@@ -403,19 +403,26 @@ class ChartLinesManager(QObject):
                 metadata={
                     "lineCategory": "stop_loss",
                     "slPrice": float(sl_price),
+                    "positionId": str(position_id or ""),
                     "tradingMode": mode,
                 },
             )
 
             def _apply(d):
-                d["horizontal_rays"] = [
-                    ray for ray in d.get("horizontal_rays", [])
-                    if not (
+                rays = []
+                for ray in d.get("horizontal_rays", []):
+                    is_stop_loss = (
                         ray.get("type") == "horizontal_ray" and
                         (ray.get("lineCategory") == "stop_loss" or ray.get("color") == "#FF4D4F") and
                         str(ray.get("tradingMode", "live")).lower() == mode
                     )
-                ]
+                    if not is_stop_loss:
+                        rays.append(ray)
+                        continue
+                    # If caller provided position_id, only replace that SL line.
+                    if position_id and str(ray.get("positionId", "")) != str(position_id):
+                        rays.append(ray)
+                d["horizontal_rays"] = rays
                 d["horizontal_rays"].append(new_line)
 
             success = self._save_to_all_intervals(symbol, _apply)
@@ -427,20 +434,25 @@ class ChartLinesManager(QObject):
             logger.error(f"Error adding stop-loss line: {e}")
             return False
 
-    def remove_stop_loss_line(self, symbol: str) -> bool:
+    def remove_stop_loss_line(self, symbol: str, position_id: str = "") -> bool:
         """Remove stop-loss line(s) across all interval files for a symbol."""
         try:
             mode = self._get_trading_mode()
 
             def _apply(d):
-                d["horizontal_rays"] = [
-                    ray for ray in d.get("horizontal_rays", [])
-                    if not (
+                rays = []
+                for ray in d.get("horizontal_rays", []):
+                    is_stop_loss = (
                         ray.get("type") == "horizontal_ray" and
                         (ray.get("lineCategory") == "stop_loss" or ray.get("color") == "#FF4D4F") and
                         str(ray.get("tradingMode", "live")).lower() == mode
                     )
-                ]
+                    if not is_stop_loss:
+                        rays.append(ray)
+                        continue
+                    if position_id and str(ray.get("positionId", "")) != str(position_id):
+                        rays.append(ray)
+                d["horizontal_rays"] = rays
 
             success = self._save_to_all_intervals(symbol, _apply)
             if success:
