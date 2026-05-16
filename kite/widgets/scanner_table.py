@@ -1409,8 +1409,8 @@ class ChartinkScannerTable(QWidget):
         change_pct_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 
         # Keep symbols in the UI font; use modern UI numbers for price/volume/change.
-        symbol_font = QFont("Segoe UI", 9)
-        symbol_font.setWeight(QFont.Weight.DemiBold)
+        symbol_font = QFont("Roboto", 9)
+        symbol_font.setWeight(QFont.Weight.Normal)
         value_font = QFont(_NUM_FONT, 9)
         value_font.setBold(False)
         change_font = QFont(_NUM_FONT, 9)
@@ -2083,7 +2083,7 @@ class ChartinkScannerTable(QWidget):
             QTableWidget::item:selected {{
                 background-color: {_SEL};
                 color: {_T0};
-                font-weight: 600;
+                font-weight: 400;
             }}
             QTableWidget::item:focus {{
                 background-color: {_SEL};
@@ -2101,8 +2101,8 @@ class ChartinkScannerTable(QWidget):
                 border: none;
                 border-bottom: 1px solid {_BG4};
                 font-family: {_SANS};
-                font-weight: 800;
-                font-size: 8px;
+                font-weight: 500;
+                font-size: 9px;
                 letter-spacing: 1px;
                 text-transform: uppercase;
                 min-height: 20px;

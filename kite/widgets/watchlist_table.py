@@ -934,9 +934,9 @@ class TradingTable(QTableWidget):
                     sym_item.setText(sym)
                     sym_item.setForeground(QColor(_C.T_SYMBOL))
                     sym_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-                    symbol_font = QFont("Inter")
+                    symbol_font = QFont("Roboto")
                     symbol_font.setPointSize(9)
-                    symbol_font.setWeight(QFont.Weight.DemiBold)
+                    symbol_font.setWeight(QFont.Weight.Normal)
                     sym_item.setFont(symbol_font)
 
     def _update_row(self, row: int, data: Dict):
@@ -951,9 +951,9 @@ class TradingTable(QTableWidget):
         # ── Flag ──
         self._paint_flag_cell(row, sym)
 
-        symbol_font = QFont("Inter")
+        symbol_font = QFont("Roboto")
         symbol_font.setPointSize(9)
-        symbol_font.setWeight(QFont.Weight.DemiBold)
+        symbol_font.setWeight(QFont.Weight.Normal)
         value_font = self._number_font(False)
         value_font.setPointSize(9)
         strong_value_font = self._number_font(True)
@@ -1170,7 +1170,7 @@ class TradingTable(QTableWidget):
         f = QFont(_NUM_FONT)
         f.setStyleHint(QFont.StyleHint.SansSerif)
         f.setPointSize(10)
-        f.setWeight(QFont.Weight.DemiBold if not bold else QFont.Weight.Bold)
+        f.setWeight(QFont.Weight.Normal if not bold else QFont.Weight.Medium)
         f.setKerning(True)
         return f
 
@@ -1653,7 +1653,8 @@ class TabbedWatchlistWidget(QWidget):
                 color: #e8f0ff;
                 outline: none;
                 show-decoration-selected: 0;
-                font-size: 11px;
+                font-size: 10px;
+                font-family: "Inter", "Segoe UI", sans-serif;
                 border-radius: 0;
             }
 
@@ -1661,9 +1662,9 @@ class TabbedWatchlistWidget(QWidget):
                 padding: 0 5px;
                 border-bottom: 1px solid #141920;
                 background: transparent;
-                font-size: 11px;
-                font-family: "Inter", "Segoe UI Variable", "Segoe UI", sans-serif;
-                font-weight: 600;
+                font-size: 10px;
+                font-family: "Inter", "Segoe UI", "Segoe UI Variable", sans-serif;
+                font-weight: 400;
             }
 
             TradingTable::item:selected {
@@ -1698,8 +1699,8 @@ class TabbedWatchlistWidget(QWidget):
                 border: none;
                 border-bottom: 1px solid #1a2030;
                 font-family: "Inter", "Segoe UI", -apple-system, Roboto, Arial, sans-serif;
-                font-weight: 800;
-                font-size: 8px;
+                font-weight: 500;
+                font-size: 9px;
                 letter-spacing: 1px;
                 text-transform: uppercase;
             }
