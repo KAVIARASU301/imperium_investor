@@ -104,7 +104,10 @@ class Application:
 
                 # 2. --- Main Window Creation ---
                 self.window = self._create_main_window(broker_mode, trader, data_client, auth_data)
-                self.window.show()
+                if hasattr(self.window, "show_initial_window_state"):
+                    self.window.show_initial_window_state()
+                else:
+                    self.window.show()
 
                 # 3. --- Event Loop ---
                 logger.info("Starting application event loop.")

@@ -156,6 +156,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.floating_positions_dialog = None
         self.floating_watchlist_dialog = None
         self._last_spacebar_context = None
+        self._start_maximized = True
         self._tick_buffer_by_token: Dict[Any, Dict] = {}
         self._tick_buffer_without_token = deque()
         self._chart_tick_queue = deque()
@@ -187,6 +188,17 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         # Start position manager after a delay
         QTimer.singleShot(2000, self._initialize_position_system)
+
+    def show_initial_window_state(self):
+        """Show window once using restored/default startup mode to reduce startup flicker."""
+        if self._start_maximized:
+            self.showMaximized()
+            self.max_btn.setText("❐")
+            self._is_maximized = True
+        else:
+            self.show()
+            self.max_btn.setText("□")
+            self._is_maximized = False
 
     def _apply_startup_dual_chart_timeframes(self):
         """On startup, apply default timeframe(s) based on current chart mode."""
@@ -3095,16 +3107,13 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 self.watchlist_action.setChecked(watchlist_visible)
                 self.positions_action.setChecked(positions_visible)
 
-                if state.get('is_maximized', False):
-                    self.showMaximized()
-                    self.max_btn.setText("❐")
+                self._start_maximized = bool(state.get('is_maximized', False))
 
                 QTimer.singleShot(0, self._apply_pending_splitter_sizes)
                 logger.info("Window state restored")
             else:
                 # Default state
-                self.showMaximized()
-                self.max_btn.setText("❐")
+                self._start_maximized = True
                 self.main_splitter.setSizes([220, 900, 0, 320])
                 if hasattr(self, 'right_panel_splitter'):
                     self.right_panel_splitter.setSizes([320, 220])
@@ -3113,7 +3122,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         except Exception as e:
             logger.error(f"Failed to restore window state: {e}")
             # Safe fallback
-            self.showMaximized()
+            self._start_maximized = True
             self.main_splitter.setSizes([220, 900, 0, 320])
             if hasattr(self, 'right_panel_splitter'):
                 self.right_panel_splitter.setSizes([320, 220])
