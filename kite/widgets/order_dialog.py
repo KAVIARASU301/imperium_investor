@@ -89,7 +89,7 @@ VALID_ORDER_TYPES = ["MARKET", "LIMIT", "SL", "SL-M"]
 VALID_PRODUCTS    = ["CNC", "MIS"]
 VALID_VARIETIES   = ["regular", "bo", "co"]
 VALID_EXCHANGES   = ["NSE", "BSE", "NFO", "MCX", "BFO", "CDS"]
-VALID_VALIDITY    = ["DAY", "IOC", "GTD"]
+VALID_VALIDITY    = ["DAY", "IOC"]
 
 BROKERAGE_INTRADAY = 0.0003
 STT_EQUITY_INTRADAY_SELL = 0.00025
@@ -564,6 +564,10 @@ class OrderDialog(QDialog):
         self._lot_size     = int(self.instrument.get("lot_size") or 1)
         self._tick_size    = float(self.instrument.get("tick_size") or 0.05)
         self._default_qty  = int(od.get("quantity") or self._lot_size)
+        if self._default_qty <= 0:
+            self._default_qty = self._lot_size
+        if self._default_qty % self._lot_size != 0:
+            self._default_qty = max(self._lot_size, (self._default_qty // self._lot_size) * self._lot_size)
         self._circuit_low  = float(self.instrument.get("lower_circuit_limit") or ltp * 0.90)
         self._circuit_high = float(self.instrument.get("upper_circuit_limit") or ltp * 1.10)
         self._avail_margin = float(od.get("available_margin") or 0.0)
@@ -1481,13 +1485,25 @@ class OrderDialog(QDialog):
         from kite.widgets.status_bar import show_error  # your existing utility
         if not self.symbol:
             show_error("Symbol is required"); return False
+        if self._exchange not in VALID_EXCHANGES:
+            show_error(f"Unsupported exchange: {self._exchange}"); return False
         if self._qty_spin.value() <= 0:
             show_error("Quantity must be positive"); return False
+        if self._qty_spin.value() % max(1, self._lot_size) != 0:
+            show_error(f"Quantity must be a multiple of lot size ({self._lot_size})"); return False
         ot = self._otype_seg.current()
+        side = self._side_group.current()
         if ot in ("LIMIT", "SL") and self._price_spin.value() <= 0:
             show_error("Price must be > 0 for LIMIT/SL"); return False
         if ot in ("SL", "SL-M") and self._trig_spin.value() <= 0:
             show_error("Trigger price required for SL orders"); return False
+        if ot == "SL":
+            p = self._price_spin.value()
+            t = self._trig_spin.value()
+            if side == "BUY" and p < t:
+                show_error("For BUY SL, limit price must be >= trigger price"); return False
+            if side == "SELL" and p > t:
+                show_error("For SELL SL, limit price must be <= trigger price"); return False
         if self._bo_chk.isChecked():
             if self._target_spin.value() <= 0:
                 show_error("Target price required for BO"); return False
