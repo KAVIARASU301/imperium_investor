@@ -495,7 +495,7 @@ class ChartToolbar(QFrame):
             self.indicator_actions[key] = action
 
         self._indicator_menu.addSeparator()
-        manage_action = QAction("Manage Indicators…", self)
+        manage_action = QAction("Indicator Menu…", self)
         manage_action.triggered.connect(self.manage_indicators_requested.emit)
         self._indicator_menu.addAction(manage_action)
         self._indicator_menu.addSeparator()
