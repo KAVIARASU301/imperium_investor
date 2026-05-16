@@ -36,6 +36,7 @@ from PySide6.QtCore import (
     Qt, Signal, QThread, QObject, QTimer, QMutex, QMutexLocker, Slot
 )
 from kite.utils.sounds import play_alert
+from kite.widgets.notifications import ToastNotification
 from kite.core import chart_lines_manager as clm_module
 
 logger = logging.getLogger(__name__)
