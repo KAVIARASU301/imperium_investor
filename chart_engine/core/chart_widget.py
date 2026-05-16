@@ -164,6 +164,7 @@ class CandlestickChart(QWidget):
             "show_info_pct_change": self.global_chart_settings.get("show_info_pct_change", True),
         }
         self._indicator_visibility = self.drawing_storage.load_global_indicator_visibility()
+        self._moving_average_configs = self._load_moving_average_configs()
         self._current_watermark_description = ""
 
         self.data_fetcher = DataFetcher(kite_client)
@@ -386,6 +387,28 @@ class CandlestickChart(QWidget):
         self.stack.addWidget(self.chart_container)
 
         self._set_state(ChartState.IDLE)
+
+
+    def _load_moving_average_configs(self) -> list[dict[str, Any]]:
+        """Load persisted moving-average configs; default to empty (no MAs)."""
+        raw = self.global_chart_settings.get("moving_average_configs", [])
+        if not isinstance(raw, list):
+            return []
+        cleaned = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            period = int(item.get("period", 0) or 0)
+            if period <= 0:
+                continue
+            cleaned.append({
+                "id": str(item.get("id") or f"ema_{period}"),
+                "period": period,
+                "color": str(item.get("color") or "#2962ff"),
+                "thickness": float(item.get("thickness", 1.2) or 1.2),
+                "line_style": str(item.get("line_style") or "solid"),
+            })
+        return cleaned
 
     def _wire_toolbar(self) -> None:
         tb = self.toolbar

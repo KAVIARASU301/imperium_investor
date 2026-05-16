@@ -52,14 +52,8 @@ def calculate_metrics(df: pd.DataFrame, moving_average_configs: List[Dict[str, A
         df = df.copy()
         df["time_ms"] = df["time"].apply(lambda x: int(x.timestamp() * 1000))
 
-        # ── Moving averages (config-driven, default fallback) ────────────
-        default_ma_configs = [
-            {"id": "ema10", "period": 10},
-            {"id": "ema20", "period": 20},
-            {"id": "ema50", "period": 50},
-            {"id": "ema200", "period": 200},
-        ]
-        ma_configs = moving_average_configs or default_ma_configs
+        # ── Moving averages (config-driven) ───────────────────────────────
+        ma_configs = moving_average_configs or []
         for item in ma_configs:
             span = int(item.get("period", 10))
             key = str(item.get("id") or f"ema{span}")
@@ -89,8 +83,8 @@ def calculate_metrics(df: pd.DataFrame, moving_average_configs: List[Dict[str, A
                 result.pct_changes[label] = ((last_close - past) / past * 100) if past != 0 else 0.0
 
         logger.debug(
-            "Metrics: ADR=%.2f (%.2f%%) | EMA10 pts=%d",
-            result.adr["value"], result.adr["percent"], len(result.ema_data["ema10"])
+            "Metrics: ADR=%.2f (%.2f%%) | MA lines=%d",
+            result.adr["value"], result.adr["percent"], len(result.ema_data)
         )
 
     except Exception as exc:
