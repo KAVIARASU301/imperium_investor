@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from PySide6.QtCore import Qt, QTimer, Signal, QThreadPool, QPoint
-from PySide6.QtGui import QColor, QCursor
+from PySide6.QtGui import QColor, QCursor, QFont, QBrush
 from PySide6.QtWidgets import (
     QDialog,
     QVBoxLayout,
@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QWidget,
+    QFrame,
     QTableWidget,
     QTableWidgetItem,
     QHeaderView,
@@ -22,6 +23,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QApplication,
     QMenu,
+    QAbstractItemView,
 )
 
 from kite.widgets.status_bar import show_error, show_info, show_order_cancelled
@@ -42,6 +44,61 @@ PENDING_STATUSES = {
 }
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Institutional Dark Trading Terminal UI tokens
+# ─────────────────────────────────────────────────────────────────────────────
+_BG0 = "#050709"
+_BG1 = "#0a0d12"
+_BG2 = "#0f1318"
+_BG3 = "#141920"
+_BG4 = "#1a2030"
+_BGTB = "#070a0f"
+
+_BULL = "#00d4a8"
+_BEAR = "#ff4d6a"
+_AMBER = "#f59e0b"
+_CYAN = "#00d4ff"
+_BLUE = "#3b82f6"
+
+_T0 = "#e8f0ff"
+_T1 = "#a8bcd4"
+_T2 = "#5a7090"
+_T3 = "#2a3a50"
+_T_SYMBOL = "#b6c4d6"
+_SEL = "#1a2840"
+
+_SANS = "'Inter', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif"
+_MONO = "'Consolas', 'JetBrains Mono', 'Courier New', monospace"
+_ROW_H = 24
+_HEADER_H = 23
+
+
+def _font(mono: bool = False, size: int = 9, bold: bool = False) -> QFont:
+    """Create a compact UI/number font without leaking styling into backend logic."""
+    f = QFont("Consolas" if mono else "Segoe UI")
+    f.setPointSize(size)
+    f.setBold(bold)
+    return f
+
+
+def _table_item(
+    text: str,
+    *,
+    color: str = _T1,
+    align: Qt.AlignmentFlag = Qt.AlignmentFlag.AlignLeft,
+    mono: bool = False,
+    bold: bool = False,
+    tooltip: str = "",
+) -> QTableWidgetItem:
+    item = QTableWidgetItem(text)
+    item.setForeground(QBrush(QColor(color)))
+    item.setTextAlignment(align | Qt.AlignmentFlag.AlignVCenter)
+    item.setFont(_font(mono=mono, size=9, bold=bold))
+    if tooltip:
+        item.setToolTip(tooltip)
+    return item
+
+
 class EditPendingOrderDialog(QDialog):
     """Small editor for pending order modifications with strict validation."""
 
@@ -50,62 +107,349 @@ class EditPendingOrderDialog(QDialog):
         self.order = order
         self.setWindowTitle(f"Edit Pending Order • {order.get('tradingsymbol', '')}")
         self.setModal(True)
-        self.setMinimumWidth(380)
+        self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+        self.setMinimumSize(430, 338)
+        self.resize(460, 360)
 
-        root = QVBoxLayout(self)
+        self._drag_active = False
+        self._drag_offset = QPoint()
 
-        form = QFormLayout()
-
-        self.quantity_input = QSpinBox()
-        self.quantity_input.setRange(1, 10_000_000)
-        self.quantity_input.setValue(int(order.get("quantity") or 1))
-        form.addRow("Quantity", self.quantity_input)
-
-        self.order_type_input = QComboBox()
-        self.order_type_input.addItems(["MARKET", "LIMIT", "SL", "SL-M"])
-        current_type = (order.get("order_type") or "MARKET").upper()
-        idx = self.order_type_input.findText(current_type)
-        if idx >= 0:
-            self.order_type_input.setCurrentIndex(idx)
-        form.addRow("Order Type", self.order_type_input)
-
-        self.price_input = QDoubleSpinBox()
-        self.price_input.setDecimals(2)
-        self.price_input.setRange(0.0, 10_000_000.0)
-        self.price_input.setSingleStep(0.05)
-        self.price_input.setValue(float(order.get("price") or 0.0))
-        form.addRow("Limit Price", self.price_input)
-
-        self.trigger_input = QDoubleSpinBox()
-        self.trigger_input.setDecimals(2)
-        self.trigger_input.setRange(0.0, 10_000_000.0)
-        self.trigger_input.setSingleStep(0.05)
-        self.trigger_input.setValue(float(order.get("trigger_price") or 0.0))
-        form.addRow("Trigger Price", self.trigger_input)
-
-        self.validity_input = QComboBox()
-        self.validity_input.addItems(["DAY", "IOC"])
-        current_validity = (order.get("validity") or "DAY").upper()
-        idx = self.validity_input.findText(current_validity)
-        if idx >= 0:
-            self.validity_input.setCurrentIndex(idx)
-        form.addRow("Validity", self.validity_input)
-
-        root.addLayout(form)
-
-        controls = QHBoxLayout()
-        controls.addStretch()
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.clicked.connect(self.reject)
-        controls.addWidget(cancel_btn)
-
-        save_btn = QPushButton("Save Changes")
-        save_btn.clicked.connect(self._on_save)
-        controls.addWidget(save_btn)
-        root.addLayout(controls)
+        self._setup_ui()
+        self._apply_styles()
 
         self.order_type_input.currentTextChanged.connect(self._sync_field_states)
         self._sync_field_states()
+
+    def _setup_ui(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(1, 1, 1, 1)
+        root.setSpacing(0)
+
+        self._shell = QFrame()
+        self._shell.setObjectName("editShell")
+        root.addWidget(self._shell)
+
+        shell_layout = QVBoxLayout(self._shell)
+        shell_layout.setContentsMargins(0, 0, 0, 0)
+        shell_layout.setSpacing(0)
+
+        shell_layout.addWidget(self._build_title_bar())
+
+        body = QFrame()
+        body.setObjectName("editBody")
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(10, 10, 10, 8)
+        body_layout.setSpacing(8)
+
+        meta = QLabel("MODIFY PENDING ORDER")
+        meta.setObjectName("sectionLabel")
+        body_layout.addWidget(meta)
+
+        form_panel = QFrame()
+        form_panel.setObjectName("formPanel")
+        form = QFormLayout(form_panel)
+        form.setContentsMargins(10, 8, 10, 10)
+        form.setHorizontalSpacing(12)
+        form.setVerticalSpacing(8)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+
+        self.quantity_input = QSpinBox()
+        self.quantity_input.setObjectName("terminalSpin")
+        self.quantity_input.setRange(1, 10_000_000)
+        self.quantity_input.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
+        self.quantity_input.setValue(int(self.order.get("quantity") or 1))
+        form.addRow(self._field_label("QUANTITY"), self.quantity_input)
+
+        self.order_type_input = QComboBox()
+        self.order_type_input.setObjectName("terminalCombo")
+        self.order_type_input.addItems(["MARKET", "LIMIT", "SL", "SL-M"])
+        current_type = (self.order.get("order_type") or "MARKET").upper()
+        idx = self.order_type_input.findText(current_type)
+        if idx >= 0:
+            self.order_type_input.setCurrentIndex(idx)
+        form.addRow(self._field_label("ORDER TYPE"), self.order_type_input)
+
+        self.price_input = QDoubleSpinBox()
+        self.price_input.setObjectName("terminalSpin")
+        self.price_input.setDecimals(2)
+        self.price_input.setRange(0.0, 10_000_000.0)
+        self.price_input.setSingleStep(0.05)
+        self.price_input.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
+        self.price_input.setValue(float(self.order.get("price") or 0.0))
+        form.addRow(self._field_label("LIMIT PRICE"), self.price_input)
+
+        self.trigger_input = QDoubleSpinBox()
+        self.trigger_input.setObjectName("terminalSpin")
+        self.trigger_input.setDecimals(2)
+        self.trigger_input.setRange(0.0, 10_000_000.0)
+        self.trigger_input.setSingleStep(0.05)
+        self.trigger_input.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
+        self.trigger_input.setValue(float(self.order.get("trigger_price") or 0.0))
+        form.addRow(self._field_label("TRIGGER PRICE"), self.trigger_input)
+
+        self.validity_input = QComboBox()
+        self.validity_input.setObjectName("terminalCombo")
+        self.validity_input.addItems(["DAY", "IOC"])
+        current_validity = (self.order.get("validity") or "DAY").upper()
+        idx = self.validity_input.findText(current_validity)
+        if idx >= 0:
+            self.validity_input.setCurrentIndex(idx)
+        form.addRow(self._field_label("VALIDITY"), self.validity_input)
+
+        body_layout.addWidget(form_panel)
+        body_layout.addStretch()
+        shell_layout.addWidget(body, 1)
+        shell_layout.addWidget(self._build_footer())
+
+    def _build_title_bar(self) -> QFrame:
+        bar = QFrame()
+        bar.setObjectName("editTitleBar")
+        bar.setFixedHeight(30)
+        bar.setCursor(QCursor(Qt.CursorShape.SizeAllCursor))
+
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(10, 0, 6, 0)
+        layout.setSpacing(8)
+
+        badge = QLabel("EDIT ORDER")
+        badge.setObjectName("dialogBadge")
+
+        symbol = QLabel(str(self.order.get("tradingsymbol", "") or "—").upper())
+        symbol.setObjectName("symbolTitle")
+
+        order_id = QLabel(str(self.order.get("order_id", "") or ""))
+        order_id.setObjectName("orderIdTitle")
+
+        close_btn = QPushButton("✕")
+        close_btn.setObjectName("closeBtn")
+        close_btn.setFixedSize(22, 22)
+        close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        close_btn.clicked.connect(self.reject)
+
+        layout.addWidget(badge)
+        layout.addWidget(symbol)
+        layout.addWidget(order_id)
+        layout.addStretch()
+        layout.addWidget(close_btn)
+
+        bar.mousePressEvent = self._tb_press
+        bar.mouseMoveEvent = self._tb_move
+        bar.mouseReleaseEvent = self._tb_release
+        return bar
+
+    def _build_footer(self) -> QFrame:
+        footer = QFrame()
+        footer.setObjectName("editFooter")
+        footer.setFixedHeight(42)
+
+        controls = QHBoxLayout(footer)
+        controls.setContentsMargins(10, 6, 10, 6)
+        controls.setSpacing(8)
+
+        hint = QLabel("Modify only editable Kite pending-order fields")
+        hint.setObjectName("footerHint")
+
+        cancel_btn = QPushButton("CANCEL")
+        cancel_btn.setObjectName("secondaryBtn")
+        cancel_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        cancel_btn.setFixedHeight(26)
+        cancel_btn.clicked.connect(self.reject)
+
+        save_btn = QPushButton("SAVE CHANGES")
+        save_btn.setObjectName("primaryBtn")
+        save_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        save_btn.setFixedHeight(26)
+        save_btn.clicked.connect(self._on_save)
+
+        controls.addWidget(hint)
+        controls.addStretch()
+        controls.addWidget(cancel_btn)
+        controls.addWidget(save_btn)
+        return footer
+
+    @staticmethod
+    def _field_label(text: str) -> QLabel:
+        label = QLabel(text)
+        label.setObjectName("fieldLabel")
+        return label
+
+    def _tb_press(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_active = True
+            self._drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            event.accept()
+
+    def _tb_move(self, event):
+        if self._drag_active and event.buttons() & Qt.MouseButton.LeftButton:
+            self.move(event.globalPosition().toPoint() - self._drag_offset)
+            event.accept()
+
+    def _tb_release(self, _event):
+        self._drag_active = False
+
+    def _apply_styles(self):
+        self.setStyleSheet(f"""
+        QDialog {{
+            background: {_BG0};
+            color: {_T1};
+            font-family: {_SANS};
+        }}
+        QFrame#editShell {{
+            background: {_BG1};
+            border: 1px solid {_BG4};
+            border-radius: 2px;
+        }}
+        QFrame#editTitleBar,
+        QFrame#editFooter {{
+            background: {_BGTB};
+        }}
+        QFrame#editTitleBar {{
+            border-bottom: 1px solid {_BG4};
+        }}
+        QFrame#editFooter {{
+            border-top: 1px solid {_BG4};
+        }}
+        QFrame#editBody {{
+            background: {_BG1};
+        }}
+        QFrame#formPanel {{
+            background: {_BG2};
+            border: 1px solid {_BG4};
+            border-radius: 2px;
+        }}
+        QLabel#dialogBadge {{
+            color: {_AMBER};
+            font-family: {_SANS};
+            font-size: 10px;
+            font-weight: 900;
+            letter-spacing: 1.2px;
+            background: transparent;
+        }}
+        QLabel#symbolTitle {{
+            color: {_T_SYMBOL};
+            font-family: {_SANS};
+            font-size: 12px;
+            font-weight: 800;
+            letter-spacing: 0.4px;
+            background: transparent;
+        }}
+        QLabel#orderIdTitle {{
+            color: {_T2};
+            font-family: {_MONO};
+            font-size: 9px;
+            font-weight: 700;
+            background: transparent;
+        }}
+        QLabel#sectionLabel,
+        QLabel#fieldLabel {{
+            color: {_T2};
+            font-family: {_SANS};
+            font-size: 9px;
+            font-weight: 900;
+            letter-spacing: 1px;
+            background: transparent;
+        }}
+        QLabel#footerHint {{
+            color: {_T2};
+            font-family: {_SANS};
+            font-size: 10px;
+            font-weight: 600;
+            background: transparent;
+        }}
+        QComboBox#terminalCombo,
+        QSpinBox#terminalSpin,
+        QDoubleSpinBox#terminalSpin {{
+            background: {_BG1};
+            color: {_T0};
+            border: 1px solid {_BG4};
+            border-radius: 2px;
+            font-family: {_MONO};
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 8px;
+            min-height: 20px;
+            selection-background-color: {_SEL};
+        }}
+        QComboBox#terminalCombo:hover,
+        QSpinBox#terminalSpin:hover,
+        QDoubleSpinBox#terminalSpin:hover {{
+            background: {_BG3};
+            border-color: {_T2};
+        }}
+        QComboBox#terminalCombo:focus,
+        QSpinBox#terminalSpin:focus,
+        QDoubleSpinBox#terminalSpin:focus {{
+            border: 1px solid {_CYAN};
+            background: {_BG3};
+        }}
+        QComboBox#terminalCombo:disabled,
+        QSpinBox#terminalSpin:disabled,
+        QDoubleSpinBox#terminalSpin:disabled {{
+            color: {_T3};
+            background: {_BG2};
+            border-color: {_BG4};
+        }}
+        QComboBox#terminalCombo::drop-down {{
+            border: none;
+            width: 18px;
+        }}
+        QComboBox#terminalCombo::down-arrow {{
+            image: none;
+            border-left: 4px solid transparent;
+            border-right: 4px solid transparent;
+            border-top: 5px solid {_T2};
+            margin-right: 5px;
+        }}
+        QComboBox#terminalCombo QAbstractItemView {{
+            background: {_BG1};
+            color: {_T0};
+            border: 1px solid {_BG4};
+            selection-background-color: {_SEL};
+            selection-color: {_T0};
+            outline: none;
+        }}
+        QPushButton#closeBtn {{
+            background: transparent;
+            color: {_T2};
+            border: none;
+            border-radius: 2px;
+            font-size: 12px;
+            font-weight: 800;
+        }}
+        QPushButton#closeBtn:hover {{
+            background: rgba(255,77,106,0.15);
+            color: {_BEAR};
+        }}
+        QPushButton#primaryBtn,
+        QPushButton#secondaryBtn {{
+            border-radius: 2px;
+            font-family: {_SANS};
+            font-size: 10px;
+            font-weight: 900;
+            letter-spacing: 0.7px;
+            padding: 0 14px;
+            min-width: 84px;
+        }}
+        QPushButton#primaryBtn {{
+            background: rgba(0,212,168,0.12);
+            color: {_BULL};
+            border: 1px solid rgba(0,212,168,0.35);
+        }}
+        QPushButton#primaryBtn:hover {{
+            background: rgba(0,212,168,0.18);
+            border-color: {_BULL};
+        }}
+        QPushButton#secondaryBtn {{
+            background: {_BG2};
+            color: {_T1};
+            border: 1px solid {_BG4};
+        }}
+        QPushButton#secondaryBtn:hover {{
+            background: {_BG3};
+            color: {_T0};
+        }}
+        """)
 
     def _sync_field_states(self):
         order_type = self.order_type_input.currentText().upper()
@@ -177,49 +521,80 @@ class PendingOrdersDialog(QDialog):
 
     def _setup_ui(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
+        root.setContentsMargins(1, 1, 1, 1)
         root.setSpacing(0)
 
-        title_bar = QWidget()
-        title_bar.setFixedHeight(36)
+        self._shell = QFrame()
+        self._shell.setObjectName("pendingShell")
+        root.addWidget(self._shell)
+
+        shell_layout = QVBoxLayout(self._shell)
+        shell_layout.setContentsMargins(0, 0, 0, 0)
+        shell_layout.setSpacing(0)
+
+        title_bar = QFrame()
+        title_bar.setObjectName("titleBar")
+        title_bar.setFixedHeight(34)
+        title_bar.setCursor(QCursor(Qt.CursorShape.SizeAllCursor))
+
         title_layout = QHBoxLayout(title_bar)
-        title_layout.setContentsMargins(12, 0, 8, 0)
+        title_layout.setContentsMargins(10, 0, 6, 0)
         title_layout.setSpacing(8)
+
         badge = QLabel("ORDERS")
         badge.setObjectName("categoryBadge")
         self.title_label = QLabel("PENDING ORDERS")
-        self.refresh_btn = QPushButton("↺")
+        self.title_label.setObjectName("dialogTitle")
+
+        self.refresh_btn = QPushButton("↻")
         self.refresh_btn.setObjectName("toolBtn")
         self.refresh_btn.setToolTip("Refresh pending orders")
         self.refresh_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.refresh_btn.setFixedSize(24, 22)
+
         self.close_btn = QPushButton("✕")
         self.close_btn.setObjectName("closeBtn")
         self.close_btn.setToolTip("Close")
         self.close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.close_btn.setFixedSize(24, 22)
+
         title_layout.addWidget(badge)
         title_layout.addWidget(self.title_label)
         title_layout.addStretch()
         title_layout.addWidget(self.refresh_btn)
         title_layout.addWidget(self.close_btn)
-        root.addWidget(title_bar)
 
-        body = QWidget()
+        title_bar.mousePressEvent = self._tb_press
+        title_bar.mouseMoveEvent = self._tb_move
+        title_bar.mouseReleaseEvent = self._tb_release
+
+        shell_layout.addWidget(title_bar)
+
+        body = QFrame()
+        body.setObjectName("body")
         body_layout = QVBoxLayout(body)
-        body_layout.setContentsMargins(16, 16, 16, 16)
-        body_layout.setSpacing(12)
+        body_layout.setContentsMargins(10, 8, 10, 8)
+        body_layout.setSpacing(8)
 
-        header = QHBoxLayout()
+        header = QFrame()
+        header.setObjectName("summaryStrip")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(8, 4, 8, 4)
+        header_layout.setSpacing(8)
+
         self.status_label = QLabel("Loading pending orders…")
         self.status_label.setObjectName("statusNeutral")
-        header.addWidget(self.status_label)
-        header.addStretch()
+        header_layout.addWidget(self.status_label)
+        header_layout.addStretch()
 
         self.count_label = QLabel("0 pending")
         self.count_label.setObjectName("countLabel")
-        header.addWidget(self.count_label)
-        body_layout.addLayout(header)
+        header_layout.addWidget(self.count_label)
+
+        body_layout.addWidget(header)
 
         self.table = QTableWidget()
+        self.table.setObjectName("pendingTable")
         self.table.setColumnCount(10)
         self.table.setHorizontalHeaderLabels([
             "Time",
@@ -233,60 +608,279 @@ class PendingOrdersDialog(QDialog):
             "Trigger",
             "Status",
         ])
-        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
-        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(_ROW_H)
+        self.table.verticalHeader().setMinimumSectionSize(_ROW_H)
+        self.table.setWordWrap(False)
+        self.table.setShowGrid(False)
+        self.table.setAlternatingRowColors(True)
         self.table.setSortingEnabled(True)
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.table.setCornerButtonEnabled(False)
 
         header_view = self.table.horizontalHeader()
+        header_view.setFixedHeight(_HEADER_H)
+        header_view.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        header_view.setHighlightSections(False)
         header_view.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         header_view.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         header_view.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header_view.setMinimumSectionSize(36)
 
-        body_layout.addWidget(self.table)
-        root.addWidget(body)
+        body_layout.addWidget(self.table, 1)
+        shell_layout.addWidget(body, 1)
 
-        footer = QWidget()
-        footer.setFixedHeight(40)
+        footer = QFrame()
+        footer.setObjectName("footer")
+        footer.setFixedHeight(38)
         footer_layout = QHBoxLayout(footer)
-        footer_layout.setContentsMargins(16, 0, 16, 0)
+        footer_layout.setContentsMargins(10, 0, 10, 0)
         footer_layout.setSpacing(8)
+
         self.footer_status_label = QLabel("⚠ PENDING")
         self.footer_status_label.setObjectName("statusWarning")
+
         self.cancel_btn = QPushButton("CANCEL SELECTED")
         self.cancel_btn.setObjectName("destructiveBtn")
+        self.cancel_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.cancel_btn.setFixedHeight(26)
+
         self.edit_btn = QPushButton("EDIT SELECTED")
         self.edit_btn.setObjectName("secondaryBtn")
+        self.edit_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.edit_btn.setFixedHeight(26)
+
         footer_layout.addWidget(self.footer_status_label)
         footer_layout.addStretch()
         footer_layout.addWidget(self.edit_btn)
         footer_layout.addWidget(self.cancel_btn)
-        root.addWidget(footer)
+
+        shell_layout.addWidget(footer)
 
         self._apply_styles()
         self._set_action_state(False)
 
-
     def _apply_styles(self):
-        self.setStyleSheet("""
-            QDialog { background: #0a0d12; border: 1px solid #1a2030; border-radius: 1px; }
-            QWidget { color: #a8bcd4; font-family: 'Inter', 'Segoe UI', sans-serif; }
-            QLabel#categoryBadge { color: #00d4ff; font-size: 9px; font-weight: 700; letter-spacing: 1px; }
-            QLabel { color: #a8bcd4; }
-            QLabel#countLabel { color: #e8f0ff; font-family: 'Consolas', 'JetBrains Mono', monospace; font-weight: 700; }
-            QPushButton#toolBtn, QPushButton#closeBtn { min-width: 26px; max-width: 26px; min-height: 26px; max-height: 26px; border: none; border-radius: 2px; background: transparent; color: #5a7090; font-size: 14px; font-weight: 700; }
-            QPushButton#toolBtn:hover { background: #141920; color: #e8f0ff; }
-            QPushButton#closeBtn:hover { background: rgba(255, 77, 106, 0.15); color: #ff4d6a; }
-            QPushButton#secondaryBtn { background: #0f1318; color: #a8bcd4; border: 1px solid #1a2030; border-radius: 1px; font-size: 11px; font-weight: 700; padding: 0 16px; min-height: 28px; }
-            QPushButton#secondaryBtn:hover { background: #141920; color: #e8f0ff; }
-            QPushButton#destructiveBtn { background: rgba(255, 77, 106, 0.08); color: #ff4d6a; border: 1px solid rgba(255, 77, 106, 0.25); border-radius: 1px; font-size: 11px; font-weight: 800; padding: 0 16px; min-height: 28px; }
-            QPushButton#destructiveBtn:hover { background: rgba(255, 77, 106, 0.15); border-color: #ff4d6a; }
-            QTableWidget { background: #0f1318; gridline-color: #1a2030; border: 1px solid #1a2030; color: #e8f0ff; font-family: 'Consolas', 'JetBrains Mono', monospace; font-size: 12px; selection-background-color: #1a2840; }
-            QHeaderView::section { background: #070a0f; color: #5a7090; font-size: 9px; font-weight: 800; letter-spacing: 1px; border: none; border-right: 1px solid #1a2030; border-bottom: 1px solid #1a2030; min-height: 26px; }
-            QLabel#statusNeutral { color: #5a7090; font-size: 10px; font-weight: 600; }
-            QLabel#statusWarning { color: #f59e0b; font-size: 10px; font-weight: 700; }
+        self.setStyleSheet(f"""
+        QDialog {{
+            background: {_BG0};
+            color: {_T1};
+            font-family: {_SANS};
+        }}
+        QFrame#pendingShell {{
+            background: {_BG1};
+            border: 1px solid {_BG4};
+            border-radius: 2px;
+        }}
+        QFrame#titleBar,
+        QFrame#footer {{
+            background: {_BGTB};
+        }}
+        QFrame#titleBar {{
+            border-bottom: 1px solid {_BG4};
+        }}
+        QFrame#footer {{
+            border-top: 1px solid {_BG4};
+        }}
+        QFrame#body {{
+            background: {_BG1};
+        }}
+        QFrame#summaryStrip {{
+            background: {_BG2};
+            border: 1px solid {_BG4};
+            border-radius: 2px;
+        }}
+        QLabel {{
+            color: {_T1};
+            background: transparent;
+            font-family: {_SANS};
+        }}
+        QLabel#categoryBadge {{
+            color: {_AMBER};
+            font-size: 9px;
+            font-weight: 900;
+            letter-spacing: 1.1px;
+        }}
+        QLabel#dialogTitle {{
+            color: {_T_SYMBOL};
+            font-size: 12px;
+            font-weight: 800;
+            letter-spacing: 0.8px;
+        }}
+        QLabel#countLabel {{
+            color: {_CYAN};
+            background: rgba(0,212,255,0.08);
+            border: 1px solid rgba(0,212,255,0.24);
+            border-radius: 2px;
+            padding: 2px 7px;
+            font-family: {_MONO};
+            font-size: 10px;
+            font-weight: 800;
+        }}
+        QLabel#statusNeutral {{
+            color: {_T2};
+            font-size: 10px;
+            font-weight: 700;
+        }}
+        QLabel#statusWarning {{
+            color: {_AMBER};
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 0.8px;
+        }}
+        QPushButton#toolBtn,
+        QPushButton#closeBtn {{
+            border: 1px solid transparent;
+            border-radius: 2px;
+            background: transparent;
+            color: {_T2};
+            font-family: {_SANS};
+            font-size: 12px;
+            font-weight: 900;
+        }}
+        QPushButton#toolBtn:hover {{
+            background: rgba(0,212,255,0.09);
+            color: {_CYAN};
+            border-color: rgba(0,212,255,0.25);
+        }}
+        QPushButton#closeBtn:hover {{
+            background: rgba(255,77,106,0.15);
+            color: {_BEAR};
+            border-color: rgba(255,77,106,0.30);
+        }}
+        QPushButton#secondaryBtn,
+        QPushButton#destructiveBtn {{
+            border-radius: 2px;
+            font-family: {_SANS};
+            font-size: 10px;
+            font-weight: 900;
+            letter-spacing: 0.7px;
+            padding: 0 14px;
+            min-width: 104px;
+        }}
+        QPushButton#secondaryBtn {{
+            background: {_BG2};
+            color: {_T1};
+            border: 1px solid {_BG4};
+        }}
+        QPushButton#secondaryBtn:hover {{
+            background: {_BG3};
+            color: {_CYAN};
+            border-color: rgba(0,212,255,0.26);
+        }}
+        QPushButton#destructiveBtn {{
+            background: rgba(255,77,106,0.08);
+            color: {_BEAR};
+            border: 1px solid rgba(255,77,106,0.25);
+        }}
+        QPushButton#destructiveBtn:hover {{
+            background: rgba(255,77,106,0.15);
+            border-color: {_BEAR};
+        }}
+        QPushButton#secondaryBtn:disabled,
+        QPushButton#destructiveBtn:disabled {{
+            background: {_BG2};
+            color: {_T3};
+            border-color: {_BG4};
+        }}
+        QTableWidget#pendingTable {{
+            background: {_BG1};
+            alternate-background-color: {_BG2};
+            gridline-color: transparent;
+            border: 1px solid {_BG4};
+            border-radius: 2px;
+            outline: none;
+            color: {_T1};
+            selection-background-color: {_SEL};
+            selection-color: {_T0};
+            font-family: {_MONO};
+            font-size: 11px;
+        }}
+        QTableWidget#pendingTable::item {{
+            padding: 0 6px;
+            border-bottom: 1px solid {_BG3};
+            background: transparent;
+        }}
+        QTableWidget#pendingTable::item:selected {{
+            background: {_SEL};
+            color: {_T0};
+        }}
+        QTableWidget#pendingTable::item:hover {{
+            background: {_BG3};
+        }}
+        QHeaderView::section {{
+            background: {_BG2};
+            color: {_T2};
+            font-family: {_SANS};
+            font-size: 9px;
+            font-weight: 900;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            border: none;
+            border-bottom: 1px solid {_BG4};
+            padding: 0 6px;
+            min-height: {_HEADER_H}px;
+            max-height: {_HEADER_H}px;
+        }}
+        QHeaderView::section:hover {{
+            color: {_T1};
+            background: {_BG3};
+        }}
+        QMenu {{
+            background: {_BG1};
+            color: {_T1};
+            border: 1px solid {_BG4};
+            border-radius: 2px;
+            font-family: {_SANS};
+            font-size: 11px;
+            padding: 3px 0;
+        }}
+        QMenu::item {{
+            padding: 5px 14px;
+            background: transparent;
+        }}
+        QMenu::item:selected {{
+            background: {_SEL};
+            color: {_T0};
+        }}
+        QScrollBar:vertical {{
+            background: transparent;
+            width: 4px;
+            border: none;
+        }}
+        QScrollBar::handle:vertical {{
+            background: {_BG4};
+            border-radius: 2px;
+            min-height: 18px;
+        }}
+        QScrollBar::handle:vertical:hover {{
+            background: {_T2};
+        }}
+        QScrollBar::add-line:vertical,
+        QScrollBar::sub-line:vertical {{
+            height: 0;
+            border: none;
+        }}
+        QScrollBar:horizontal {{
+            background: transparent;
+            height: 4px;
+            border: none;
+        }}
+        QScrollBar::handle:horizontal {{
+            background: {_BG4};
+            border-radius: 2px;
+            min-width: 18px;
+        }}
+        QScrollBar::add-line:horizontal,
+        QScrollBar::sub-line:horizontal {{
+            width: 0;
+            border: none;
+        }}
         """)
 
     def _connect_signals(self):
@@ -375,13 +969,33 @@ class PendingOrdersDialog(QDialog):
         self._set_action_state(self.selected_order() is not None)
 
     def _populate_row(self, row: int, order: Dict[str, Any]):
-        ts = order.get("order_timestamp") or order.get("exchange_timestamp") or "-"
-        self.table.setItem(row, 0, QTableWidgetItem(str(ts)))
-        order_id_item = QTableWidgetItem(str(order.get("order_id", "")))
+        ts = str(order.get("order_timestamp") or order.get("exchange_timestamp") or "-")
+        ts_display = ts
+        if ts and ts != "-":
+            try:
+                ts_display = datetime.strptime(ts[:19], "%Y-%m-%d %H:%M:%S").strftime("%H:%M:%S")
+            except Exception:
+                ts_display = ts[:19]
+
+        time_item = _table_item(ts_display, color=_T2, mono=True, tooltip=ts)
+        self.table.setItem(row, 0, time_item)
+
+        order_id = str(order.get("order_id", ""))
+        order_id_item = _table_item(order_id, color=_T2, mono=True, tooltip=f"Order ID: {order_id}")
         order_id_item.setData(Qt.ItemDataRole.UserRole, order)
         self.table.setItem(row, 1, order_id_item)
-        self.table.setItem(row, 2, QTableWidgetItem(str(order.get("tradingsymbol", ""))))
-        self.table.setItem(row, 3, QTableWidgetItem(str(order.get("transaction_type", ""))))
+
+        symbol_item = _table_item(
+            str(order.get("tradingsymbol", "")).upper(),
+            color=_T_SYMBOL,
+            bold=True,
+        )
+        self.table.setItem(row, 2, symbol_item)
+
+        side = str(order.get("transaction_type", "")).upper()
+        side_color = _BULL if side == "BUY" else _BEAR if side == "SELL" else _T1
+        side_item = _table_item(side, color=side_color, align=Qt.AlignmentFlag.AlignCenter, bold=True)
+        self.table.setItem(row, 3, side_item)
 
         filled = int(order.get("filled_quantity") or 0)
         pending = int(order.get("pending_quantity") or 0)
@@ -389,27 +1003,69 @@ class PendingOrdersDialog(QDialog):
         is_partial = filled > 0 and pending > 0
 
         if is_partial:
-            qty_item = QTableWidgetItem(f"{filled}/{total}")
-            qty_item.setForeground(QColor("#f59e0b"))
-            qty_item.setToolTip(f"Partial fill: {filled} of {total} shares filled")
+            qty_item = _table_item(
+                f"{filled}/{total}",
+                color=_AMBER,
+                align=Qt.AlignmentFlag.AlignRight,
+                mono=True,
+                bold=True,
+                tooltip=f"Partial fill: {filled} of {total} shares filled",
+            )
         else:
-            qty_item = QTableWidgetItem(str(total))
+            qty_item = _table_item(
+                str(total),
+                color=_T1,
+                align=Qt.AlignmentFlag.AlignRight,
+                mono=True,
+            )
 
         self.table.setItem(row, 4, qty_item)
-        self.table.setItem(row, 5, QTableWidgetItem(str(filled)))
-        self.table.setItem(row, 6, QTableWidgetItem(str(pending)))
+        self.table.setItem(row, 5, _table_item(str(filled), color=_T2, align=Qt.AlignmentFlag.AlignRight, mono=True))
+        self.table.setItem(row, 6, _table_item(str(pending), color=_AMBER, align=Qt.AlignmentFlag.AlignRight, mono=True))
 
         price = float(order.get("price") or 0.0)
         trigger = float(order.get("trigger_price") or 0.0)
-        self.table.setItem(row, 7, QTableWidgetItem("Market" if price <= 0 else f"₹{price:.2f}"))
-        self.table.setItem(row, 8, QTableWidgetItem("-" if trigger <= 0 else f"₹{trigger:.2f}"))
+        self.table.setItem(
+            row,
+            7,
+            _table_item(
+                "MKT" if price <= 0 else f"₹{price:.2f}",
+                color=_T1 if price > 0 else _CYAN,
+                align=Qt.AlignmentFlag.AlignRight,
+                mono=True,
+            ),
+        )
+        self.table.setItem(
+            row,
+            8,
+            _table_item(
+                "—" if trigger <= 0 else f"₹{trigger:.2f}",
+                color=_T3 if trigger <= 0 else _AMBER,
+                align=Qt.AlignmentFlag.AlignRight,
+                mono=True,
+            ),
+        )
 
         if is_partial:
-            status_item = QTableWidgetItem("PARTIAL")
-            status_item.setForeground(QColor("#f59e0b"))
+            status_text = "PARTIAL"
+            status_color = _AMBER
         else:
-            status_item = QTableWidgetItem(str(order.get("status", "")))
+            status_text = str(order.get("status", "")).upper()
+            status_color = _AMBER if status_text in PENDING_STATUSES else _T2
+
+        status_item = _table_item(
+            status_text,
+            color=status_color,
+            align=Qt.AlignmentFlag.AlignCenter,
+            bold=True,
+        )
         self.table.setItem(row, 9, status_item)
+
+        for col in range(self.table.columnCount()):
+            item = self.table.item(row, col)
+            if item:
+                item.setBackground(QBrush(QColor(_BG1 if row % 2 == 0 else _BG2)))
+                self.table.setRowHeight(row, _ROW_H)
 
     def _show_context_menu(self, pos):
         row = self.table.indexAt(pos).row()
@@ -424,15 +1080,17 @@ class PendingOrdersDialog(QDialog):
         pending = int(order.get("pending_quantity") or 0)
 
         menu = QMenu(self)
+        menu.setObjectName("pendingOrdersMenu")
         if filled > 0 and pending > 0:
             cancel_rest = menu.addAction(
-                f"✕ Cancel remaining {pending} shares"
+                f"✕  CANCEL REMAINING {pending} SHARES"
             )
             cancel_rest.triggered.connect(
                 lambda: self._cancel_remaining(order)
             )
+            menu.addSeparator()
 
-        modify_act = menu.addAction("✎ Modify Order")
+        modify_act = menu.addAction("✎  MODIFY ORDER")
         modify_act.triggered.connect(self.edit_selected_order)
         menu.exec(self.table.viewport().mapToGlobal(pos))
 
@@ -461,7 +1119,6 @@ class PendingOrdersDialog(QDialog):
         order_id = order.get("order_id")
         symbol = order.get("tradingsymbol", "")
         variety = order.get("variety") or "regular"
-
 
         try:
             self.trader.cancel_order(variety=variety, order_id=order_id)
@@ -523,6 +1180,20 @@ class PendingOrdersDialog(QDialog):
             parent_geo = self.parent().frameGeometry()
             center = parent_geo.center()
             self.move(center - self.rect().center())
+
+    def _tb_press(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_active = True
+            self._drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            event.accept()
+
+    def _tb_move(self, event):
+        if self._drag_active and event.buttons() & Qt.MouseButton.LeftButton:
+            self.move(event.globalPosition().toPoint() - self._drag_offset)
+            event.accept()
+
+    def _tb_release(self, _event):
+        self._drag_active = False
 
     def mousePressEvent(self, event):
         w = self.childAt(event.position().toPoint())

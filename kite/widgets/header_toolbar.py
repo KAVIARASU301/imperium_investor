@@ -8,7 +8,7 @@ import logging
 from typing import Any, Dict, List, Union
 
 from PySide6.QtCore import QSize, QThreadPool, QTimer, Qt, Signal, Slot
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QFont, QIcon
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -48,9 +48,17 @@ _TEXT_FAINT = "#2a3a50"
 _SELECTION = "#1a2840"
 
 _MONO = "'Consolas', 'JetBrains Mono', monospace"  # raw logs/debug only
-_SANS = "'Inter', 'Segoe UI', sans-serif"
-_NUM = "'Inter', 'Segoe UI Variable', 'Segoe UI', sans-serif"
-_NUM_FONT = "Inter"
+_SANS = "'Inter', 'Segoe UI Variable', 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Arial, sans-serif"
+_NUM = _SANS
+_UI_FONT_FAMILY = "Inter"
+
+
+def _modern_font(point_size: int = 9, weight: QFont.Weight = QFont.Weight.Medium) -> QFont:
+    """Return the preferred modern UI font with safe Qt fallback."""
+    font = QFont(_UI_FONT_FAMILY)
+    font.setPointSize(point_size)
+    font.setWeight(weight)
+    return font
 
 _TOOLBAR_H = 34
 _CONTROL_H = 24
@@ -158,6 +166,7 @@ class HeaderToolbar(QToolBar):
 
         self._init_ui()
         self._apply_styles()
+        self._apply_explicit_fonts()
         if self._enable_account_polling:
             self._setup_timers()
 
@@ -179,12 +188,14 @@ class HeaderToolbar(QToolBar):
 
         symbol_label = QLabel("SYMBOL")
         symbol_label.setObjectName("symbolLabel")
+        symbol_label.setFont(_modern_font(9, QFont.Weight.ExtraBold))
         search_layout.addWidget(symbol_label)
 
         self.search_input = EnhancedSearchInput()
         self.search_input.setPlaceholderText("Symbol / company…")
         self.search_input.setObjectName("enhancedSymbolSearch")
         self.search_input.setFixedHeight(_CONTROL_H)
+        self.search_input.setFont(_modern_font(10, QFont.Weight.DemiBold))
         self.search_input.setMinimumWidth(126)
         self.search_input.setMaximumWidth(176)
 
@@ -306,6 +317,7 @@ class HeaderToolbar(QToolBar):
 
         self.user_id_label = QLabel("KE6286")
         self.user_id_label.setObjectName("userIdLabel")
+        self.user_id_label.setFont(_modern_font(9, QFont.Weight.Bold))
         account_layout.addWidget(self.user_id_label)
 
         self.account_separator = self._create_separator_dot()
@@ -313,6 +325,7 @@ class HeaderToolbar(QToolBar):
 
         self.balance_label = QLabel("₹0")
         self.balance_label.setObjectName("balanceLabel")
+        self.balance_label.setFont(_modern_font(10, QFont.Weight.Bold))
         account_layout.addWidget(self.balance_label)
 
         self.addWidget(self.account_info_widget)
@@ -330,6 +343,7 @@ class HeaderToolbar(QToolBar):
         button.setIconSize(QSize(12, 12))
         button.setToolTip(tooltip)
         button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.setFont(_modern_font(9, QFont.Weight.Bold))
         icon_path = get_asset_path("icons", icon_name, required=required)
         if icon_path is not None:
             button.setIcon(QIcon(str(icon_path)))
@@ -341,12 +355,14 @@ class HeaderToolbar(QToolBar):
         button.setObjectName("tradingActionButton")
         button.setFixedHeight(_CONTROL_H)
         button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.setFont(_modern_font(9, QFont.Weight.Bold))
         return button
 
     @staticmethod
     def _create_separator_dot() -> QLabel:
         dot = QLabel("•")
         dot.setObjectName("separatorDot")
+        dot.setFont(_modern_font(8, QFont.Weight.Black))
         return dot
 
     def _add_section_gap(self, width: int = 10) -> None:
@@ -550,6 +566,36 @@ class HeaderToolbar(QToolBar):
         updated = [normalized] + [s for s in self._recent_symbols if s != normalized]
         self._recent_symbols = updated[:10]
 
+    def _apply_explicit_fonts(self) -> None:
+        """Force modern UI typography on visible toolbar widgets.
+
+        Stylesheets cover most cases, but explicit QFont assignment keeps the
+        toolbar visually consistent even when child widgets or platform themes
+        try to fall back to default/monospace fonts.
+        """
+        modern_small = _modern_font(9, QFont.Weight.Bold)
+        modern_text = _modern_font(10, QFont.Weight.Bold)
+        modern_number = _modern_font(10, QFont.Weight.DemiBold)
+
+        for widget in (
+            self.buy_button,
+            self.sell_button,
+            self.info_button,
+            self.positions_button,
+            self.alerts_button,
+            self.order_history_btn,
+            self.pending_orders_btn,
+            self.performance_btn,
+            self.color_settings_btn,
+        ):
+            widget.setFont(modern_small)
+
+        self.search_input.setFont(_modern_font(10, QFont.Weight.DemiBold))
+        self.alerts_badge.setFont(_modern_font(9, QFont.Weight.Black))
+        self.user_id_label.setFont(modern_small)
+        self.balance_label.setFont(modern_number)
+        self.account_separator.setFont(_modern_font(8, QFont.Weight.Black))
+
     # ── Styles ────────────────────────────────────────────────────────────────
 
     def _apply_styles(self):
@@ -584,7 +630,7 @@ class HeaderToolbar(QToolBar):
             color: {_TEXT_MUTED};
             font-family: {_SANS};
             font-size: 9px;
-            font-weight: 900;
+            font-weight: 800;
             letter-spacing: 1.1px;
             padding: 0 2px 0 0;
         }}
@@ -599,7 +645,7 @@ class HeaderToolbar(QToolBar):
             selection-color: {_TEXT};
             font-family: {_SANS};
             font-size: 11px;
-            font-weight: 650;
+            font-weight: 600;
         }}
         #enhancedSymbolSearch:hover {{
             border-color: {_TEXT_FAINT};
@@ -665,14 +711,14 @@ class HeaderToolbar(QToolBar):
 
         QPushButton#positionsActionButton {{
             color: {_BLUE};
-            border-color: rgba(59, 130, 246, 0.36);
+            border-color: rgba(0, 212, 255, 0.34);
         }}
         QPushButton#positionsActionButton:hover {{
-            background-color: rgba(59, 130, 246, 0.13);
+            background-color: rgba(0, 212, 255, 0.12);
             border-color: {_BLUE};
         }}
         QPushButton#positionsActionButton:pressed {{
-            background-color: rgba(59, 130, 246, 0.20);
+            background-color: rgba(0, 212, 255, 0.20);
         }}
 
         QPushButton#alertActionButton {{
@@ -694,7 +740,7 @@ class HeaderToolbar(QToolBar):
             border-radius: 2px;
             font-family: {_NUM};
             font-size: 9px;
-            font-weight: 900;
+            font-weight: 800;
             padding: 0px;
         }}
 
@@ -763,7 +809,7 @@ class HeaderToolbar(QToolBar):
             background: transparent;
             color: {_TEXT_FAINT};
             font-size: 8px;
-            font-weight: 900;
+            font-weight: 800;
         }}
 
         QToolTip {{

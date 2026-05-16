@@ -1,3 +1,5 @@
+"""Production-grade dark trading terminal performance dashboard."""
+
 import logging
 from datetime import datetime
 
@@ -22,6 +24,45 @@ from PySide6.QtWidgets import (
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
 logger = logging.getLogger(__name__)
+
+# ── Institutional Dark Trading Terminal UI tokens ────────────────────────────
+_BG0 = "#050709"
+_BG1 = "#0a0d12"
+_BG2 = "#0f1318"
+_BG3 = "#141920"
+_BG4 = "#1a2030"
+_BGTB = "#070a0f"
+
+_BULL = "#00d4a8"
+_BEAR = "#ff4d6a"
+_AMBER = "#f59e0b"
+_CYAN = "#00d4ff"
+_BLUE = "#3b82f6"
+
+_T0 = "#e8f0ff"
+_T1 = "#a8bcd4"
+_T2 = "#5a7090"
+_T3 = "#2a3a50"
+_SEL = "#1a2840"
+
+_SANS = "'Inter', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif"
+_MONO = "'Consolas', 'JetBrains Mono', monospace"
+_METRIC_FONT = "Consolas"
+
+_TITLE_H = 34
+_FOOTER_H = 34
+_CARD_MIN_H = 70
+
+
+def _metric_value_style(color: str = _T0) -> str:
+    return (
+        f"color: {color}; "
+        f"font-family: {_MONO}; "
+        "font-size: 15px; "
+        "font-weight: 800; "
+        "letter-spacing: 0.2px; "
+        "background: transparent;"
+    )
 
 
 class PerformanceDialog(QDialog):
@@ -58,8 +99,8 @@ class PerformanceDialog(QDialog):
         self.broker = str(getattr(self.trade_logger, "broker", "kite")).upper()
 
         self.setWindowTitle(f"PERFORMANCE DASHBOARD - {self.broker} {self.mode}")
-        self.setMinimumSize(1000, 680)
-        self.resize(1100, 720)
+        self.setMinimumSize(980, 620)
+        self.resize(1080, 690)
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground, False)
 
@@ -90,9 +131,10 @@ class PerformanceDialog(QDialog):
         main_layout.addWidget(self._create_title_bar())
 
         body = QWidget()
+        body.setObjectName("bodyPanel")
         body_layout = QVBoxLayout(body)
-        body_layout.setContentsMargins(16, 16, 16, 16)
-        body_layout.setSpacing(12)
+        body_layout.setContentsMargins(10, 10, 10, 10)
+        body_layout.setSpacing(8)
         body_layout.addLayout(self._create_metrics_grid())
 
         self.empty_state_label = QLabel("")
@@ -100,7 +142,30 @@ class PerformanceDialog(QDialog):
         self.empty_state_label.setAlignment(Qt.AlignCenter)
         self.empty_state_label.setVisible(False)
         body_layout.addWidget(self.empty_state_label)
-        body_layout.addWidget(self._create_chart(), 1)
+
+        chart_section = QWidget()
+        chart_section.setObjectName("chartSection")
+        chart_layout = QVBoxLayout(chart_section)
+        chart_layout.setContentsMargins(0, 0, 0, 0)
+        chart_layout.setSpacing(4)
+
+        chart_header = QWidget()
+        chart_header.setObjectName("chartHeader")
+        chart_header_layout = QHBoxLayout(chart_header)
+        chart_header_layout.setContentsMargins(8, 0, 8, 0)
+        chart_header_layout.setSpacing(8)
+
+        chart_title = QLabel("EQUITY CURVE")
+        chart_title.setObjectName("chartTitle")
+        chart_hint = QLabel("cumulative closed-trade P&L")
+        chart_hint.setObjectName("chartHint")
+        chart_header_layout.addWidget(chart_title)
+        chart_header_layout.addWidget(chart_hint)
+        chart_header_layout.addStretch()
+
+        chart_layout.addWidget(chart_header)
+        chart_layout.addWidget(self._create_chart(), 1)
+        body_layout.addWidget(chart_section, 1)
         main_layout.addWidget(body, 1)
 
         main_layout.addWidget(self._create_footer())
@@ -108,27 +173,34 @@ class PerformanceDialog(QDialog):
     def _create_title_bar(self):
         bar = QWidget()
         bar.setObjectName("titleBar")
-        bar.setFixedHeight(36)
+        bar.setFixedHeight(_TITLE_H)
+        bar.setCursor(QCursor(Qt.CursorShape.SizeAllCursor))
         layout = QHBoxLayout(bar)
-        layout.setContentsMargins(12, 0, 8, 0)
+        layout.setContentsMargins(10, 0, 6, 0)
         layout.setSpacing(8)
 
-        title = QLabel("PERFORMANCE DASHBOARD")
+        category_badge = QLabel("PERFORMANCE")
+        category_badge.setObjectName("categoryBadge")
+
+        title = QLabel("DASHBOARD")
         title.setObjectName("dialogTitle")
 
-        mode_badge = QLabel(f"{self.broker} • {self.mode}")
+        mode_badge = QLabel(f"{self.broker} · {self.mode}")
         mode_badge.setObjectName("modeBadge")
 
         self.refresh_btn = QPushButton("↺")
         self.refresh_btn.setObjectName("toolBtn")
-        self.refresh_btn.setFixedSize(26, 26)
+        self.refresh_btn.setToolTip("Refresh performance metrics")
+        self.refresh_btn.setFixedSize(24, 24)
         self.refresh_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
         self.close_btn = QPushButton("✕")
         self.close_btn.setObjectName("closeBtn")
-        self.close_btn.setFixedSize(26, 26)
+        self.close_btn.setToolTip("Close")
+        self.close_btn.setFixedSize(24, 24)
         self.close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
+        layout.addWidget(category_badge)
         layout.addWidget(title)
         layout.addWidget(mode_badge)
         layout.addStretch()
@@ -139,9 +211,10 @@ class PerformanceDialog(QDialog):
     def _create_footer(self):
         footer = QWidget()
         footer.setObjectName("footerBar")
-        footer.setFixedHeight(40)
+        footer.setFixedHeight(_FOOTER_H)
         layout = QHBoxLayout(footer)
-        layout.setContentsMargins(12, 0, 12, 0)
+        layout.setContentsMargins(10, 0, 10, 0)
+        layout.setSpacing(8)
 
         self.status_label = QLabel("Auto-refresh every 30s")
         self.status_label.setObjectName("statusLabel")
@@ -151,7 +224,9 @@ class PerformanceDialog(QDialog):
 
     def _create_metrics_grid(self):
         grid = QGridLayout()
-        grid.setSpacing(12)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(8)
+        grid.setVerticalSpacing(8)
 
         metrics = [
             ("TOTAL P&L", "total_pnl"), ("EXPECTANCY", "expectancy"), ("WIN RATE", "win_rate"), ("PROFIT FACTOR", "profit_factor"),
@@ -161,29 +236,33 @@ class PerformanceDialog(QDialog):
         for i, (title, key) in enumerate(metrics):
             row, col = divmod(i, 4)
             self.labels[key] = self._metric_card(grid, title, key, row, col)
+            grid.setColumnStretch(col, 1)
 
         return grid
 
     def _metric_card(self, layout, title, metric_key, row, col):
         card = QWidget()
         card.setObjectName("metricCard")
+        card.setMinimumHeight(_CARD_MIN_H)
         tooltip = self.METRIC_TOOLTIPS.get(metric_key)
         if tooltip:
             card.setToolTip(tooltip)
 
         v = QVBoxLayout(card)
-        v.setContentsMargins(14, 10, 14, 10)
-        v.setSpacing(8)
+        v.setContentsMargins(10, 7, 10, 7)
+        v.setSpacing(4)
 
         title_lbl = QLabel(title)
         title_lbl.setObjectName("metricTitle")
 
         value_lbl = QLabel("—")
         value_lbl.setObjectName("metricValue")
-        value_lbl.setAlignment(Qt.AlignCenter)
-        value_lbl.setFont(QFont("Consolas", 14, QFont.Weight.Bold))
+        value_lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        value_lbl.setFont(QFont(_METRIC_FONT, 13, QFont.Weight.Bold))
+        value_lbl.setStyleSheet(_metric_value_style())
 
         v.addWidget(title_lbl)
+        v.addStretch()
         v.addWidget(value_lbl)
 
         layout.addWidget(card, row, col)
@@ -191,8 +270,11 @@ class PerformanceDialog(QDialog):
 
     def _create_chart(self):
         self.chart = QWebEngineView()
+        self.chart.setObjectName("equityChart")
         self.chart.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
-        self.chart.setStyleSheet("QWebEngineView { background: #0f1318; border: 1px solid #1a2030; }")
+        self.chart.setStyleSheet(
+            f"QWebEngineView#equityChart {{ background: {_BG2}; border: 1px solid {_BG4}; }}"
+        )
         self.chart.page().setBackgroundColor(Qt.GlobalColor.transparent)
         return self.chart
 
@@ -242,7 +324,9 @@ class PerformanceDialog(QDialog):
     def _clear_metrics(self):
         for lbl in self.labels.values():
             lbl.setText("—")
-            lbl.setStyleSheet("color: #e8f0ff;")
+            lbl.setStyleSheet(_metric_value_style(_T0))
+        if hasattr(self, "status_label"):
+            self.status_label.setText("No performance data available")
 
     def _set_empty_state_message(self):
         trades = self._get_all_trades()
@@ -294,20 +378,23 @@ class PerformanceDialog(QDialog):
 
         def setv(key, text, color):
             self.labels[key].setText(text)
-            self.labels[key].setStyleSheet(f"color: {color};")
+            self.labels[key].setStyleSheet(_metric_value_style(color))
 
-        setv("total_pnl", f"₹{total_pnl:,.0f}", "#00d4a8" if total_pnl >= 0 else "#ff4d6a")
-        setv("expectancy", f"₹{expectancy:,.0f}", "#00d4a8" if expectancy >= 0 else "#ff4d6a")
-        setv("win_rate", f"{win_rate:.1f}%", "#00d4a8" if win_rate >= 50 else "#f59e0b")
-        setv("profit_factor", f"{profit_factor:.2f}", "#00d4a8" if profit_factor >= 1.5 else "#f59e0b")
-        setv("avg_win", f"₹{avg_win:,.0f}", "#00d4a8")
-        setv("avg_loss", f"₹{avg_loss:,.0f}", "#ff4d6a")
-        setv("rr_ratio", f"{rr_ratio:.2f}", "#00d4ff")
-        setv("rr_quality", rr_quality, "#00d4a8" if rr_ratio >= 2 else "#00d4ff" if rr_ratio >= 1.5 else "#f59e0b")
-        setv("total_trades", str(total_trades), "#e8f0ff")
-        setv("consistency", f"{consistency:.1f}%", "#00d4a8" if consistency >= 50 else "#f59e0b")
-        setv("best_day", f"₹{best_day:,.0f}", "#00d4a8")
-        setv("worst_day", f"₹{worst_day:,.0f}", "#ff4d6a")
+        setv("total_pnl", f"₹{total_pnl:,.0f}", _BULL if total_pnl >= 0 else _BEAR)
+        setv("expectancy", f"₹{expectancy:,.0f}", _BULL if expectancy >= 0 else _BEAR)
+        setv("win_rate", f"{win_rate:.1f}%", _BULL if win_rate >= 50 else _AMBER)
+        setv("profit_factor", f"{profit_factor:.2f}", _BULL if profit_factor >= 1.5 else _AMBER)
+        setv("avg_win", f"₹{avg_win:,.0f}", _BULL)
+        setv("avg_loss", f"₹{avg_loss:,.0f}", _BEAR)
+        setv("rr_ratio", f"{rr_ratio:.2f}", _CYAN)
+        setv("rr_quality", rr_quality, _BULL if rr_ratio >= 2 else _CYAN if rr_ratio >= 1.5 else _AMBER)
+        setv("total_trades", str(total_trades), _T1)
+        setv("consistency", f"{consistency:.1f}%", _BULL if consistency >= 50 else _AMBER)
+        setv("best_day", f"₹{best_day:,.0f}", _BULL)
+        setv("worst_day", f"₹{worst_day:,.0f}", _BEAR)
+
+        if hasattr(self, "status_label"):
+            self.status_label.setText(f"Updated {datetime.now().strftime('%H:%M:%S')}  ·  {total_trades} trades")
 
     def _plot_equity(self, pnl_by_day: dict):
         dates = sorted(pnl_by_day.keys())
@@ -326,17 +413,47 @@ class PerformanceDialog(QDialog):
     def _render_chart(self, x_vals, y_vals):
         fig = go.Figure()
         if x_vals:
-            fig.add_trace(go.Scatter(x=x_vals, y=y_vals, mode="lines+markers", line=dict(color="#00d4ff", width=2), marker=dict(size=5)))
+            fig.add_trace(
+                go.Scatter(
+                    x=x_vals,
+                    y=y_vals,
+                    mode="lines+markers",
+                    line=dict(color=_CYAN, width=2),
+                    marker=dict(size=5, color=_CYAN, line=dict(width=1, color=_BG1)),
+                    hovertemplate="%{x|%d-%b-%Y}<br>P&L: ₹%{y:,.0f}<extra></extra>",
+                )
+            )
         fig.update_layout(
             template="plotly_dark",
-            paper_bgcolor="#0f1318",
-            plot_bgcolor="#0f1318",
-            margin=dict(l=40, r=20, t=20, b=40),
+            paper_bgcolor=_BG2,
+            plot_bgcolor=_BG2,
+            margin=dict(l=46, r=20, t=18, b=38),
             xaxis_title="Date",
             yaxis_title="Cumulative P&L",
-            font=dict(color="#a8bcd4"),
+            font=dict(color=_T1, family="Inter, Segoe UI, sans-serif", size=11),
+            hoverlabel=dict(bgcolor=_BG1, bordercolor=_BG4, font=dict(color=_T0, size=11)),
+            showlegend=False,
         )
-        self.chart.setHtml(fig.to_html(include_plotlyjs="cdn", config={"displayModeBar": False}))
+        fig.update_xaxes(
+            showgrid=True,
+            gridcolor=_BG4,
+            zeroline=False,
+            color=_T2,
+            title_font=dict(color=_T2),
+        )
+        fig.update_yaxes(
+            showgrid=True,
+            gridcolor=_BG4,
+            zeroline=True,
+            zerolinecolor=_T3,
+            color=_T2,
+            title_font=dict(color=_T2),
+        )
+        html = fig.to_html(include_plotlyjs="cdn", config={"displayModeBar": False, "responsive": True})
+        self.chart.setHtml(
+            "<html><head><style>html,body{margin:0;background:" + _BG2 + ";}</style></head>"
+            "<body>" + html + "</body></html>"
+        )
 
     def mousePressEvent(self, event):
         w = self.childAt(event.pos())
@@ -365,20 +482,166 @@ class PerformanceDialog(QDialog):
         self.close_btn.clicked.connect(self.close)
 
     def _apply_styles(self):
-        self.setStyleSheet("""
-            QLabel { background-color: transparent; }
-            #mainContainer { background-color: #0a0d12; border: 1px solid #1a2030; }
-            #titleBar { background-color: #070a0f; border-bottom: 1px solid #1a2030; }
-            #dialogTitle { color: #e8f0ff; font-size: 11px; font-weight: 800; letter-spacing: 0.5px; }
-            #modeBadge { background-color: #0f1318; border: 1px solid #1a2030; border-radius: 2px; padding: 3px 8px; color: #00d4ff; font-size: 10px; }
-            #toolBtn { background: transparent; border: 1px solid #1a2030; color: #a8bcd4; font-size: 14px; border-radius: 2px; }
-            #toolBtn:hover { background-color: #141920; color: #00d4ff; }
-            QPushButton#closeBtn { background: transparent; color: #5a7090; border: none; font-size: 14px; font-weight: bold; border-radius: 2px; }
-            QPushButton#closeBtn:hover { background: rgba(255, 77, 106, 0.15); color: #ff4d6a; }
-            #metricCard { background-color: #0f1318; border: 1px solid #1a2030; }
-            #metricTitle { color: #a8bcd4; font-size: 9px; font-weight: 800; }
-            #metricValue { color: #e8f0ff; }
-            #footerBar { background-color: #070a0f; border-top: 1px solid #1a2030; }
-            #statusLabel, #emptyStateLabel { color: #5a7090; font-size: 11px; }
-            QToolTip { background-color: #0f1318; color: #a8bcd4; border: 1px solid #1a2030; padding: 6px 8px; font-size: 10px; }
+        self.setStyleSheet(f"""
+            QLabel {{
+                background-color: transparent;
+                font-family: {_SANS};
+            }}
+
+            PerformanceDialog {{
+                background: {_BG0};
+            }}
+
+            QWidget#mainContainer {{
+                background-color: {_BG1};
+                border: 1px solid {_BG4};
+                border-radius: 2px;
+            }}
+
+            QWidget#titleBar {{
+                background-color: {_BGTB};
+                border-bottom: 1px solid {_BG4};
+            }}
+
+            QLabel#categoryBadge {{
+                color: {_AMBER};
+                font-size: 9px;
+                font-weight: 900;
+                letter-spacing: 1.2px;
+            }}
+
+            QLabel#dialogTitle {{
+                color: {_T1};
+                font-size: 11px;
+                font-weight: 900;
+                letter-spacing: 1.0px;
+            }}
+
+            QLabel#modeBadge {{
+                background-color: rgba(0,212,255,0.07);
+                border: 1px solid rgba(0,212,255,0.20);
+                border-radius: 2px;
+                padding: 2px 8px;
+                color: {_CYAN};
+                font-size: 9px;
+                font-weight: 800;
+                letter-spacing: 0.7px;
+            }}
+
+            QPushButton#toolBtn,
+            QPushButton#closeBtn {{
+                background: transparent;
+                border: 1px solid transparent;
+                color: {_T2};
+                font-size: 13px;
+                font-weight: 800;
+                border-radius: 2px;
+                padding: 0;
+            }}
+
+            QPushButton#toolBtn:hover {{
+                background-color: rgba(0,212,255,0.08);
+                border-color: rgba(0,212,255,0.24);
+                color: {_CYAN};
+            }}
+
+            QPushButton#closeBtn:hover {{
+                background: rgba(255,77,106,0.15);
+                border-color: rgba(255,77,106,0.28);
+                color: {_BEAR};
+            }}
+
+            QWidget#bodyPanel {{
+                background-color: {_BG1};
+            }}
+
+            QWidget#metricCard {{
+                background-color: {_BG2};
+                border: 1px solid {_BG4};
+                border-radius: 2px;
+            }}
+
+            QWidget#metricCard:hover {{
+                background-color: {_BG3};
+                border-color: {_T3};
+            }}
+
+            QLabel#metricTitle {{
+                color: {_T2};
+                font-size: 9px;
+                font-weight: 900;
+                letter-spacing: 1.0px;
+            }}
+
+            QLabel#metricValue {{
+                font-family: {_MONO};
+                color: {_T0};
+                font-size: 15px;
+                font-weight: 800;
+                background: transparent;
+            }}
+
+            QWidget#chartSection {{
+                background-color: {_BG2};
+                border: 1px solid {_BG4};
+                border-radius: 2px;
+            }}
+
+            QWidget#chartHeader {{
+                background-color: {_BGTB};
+                border-bottom: 1px solid {_BG4};
+                min-height: 24px;
+                max-height: 24px;
+            }}
+
+            QLabel#chartTitle {{
+                color: {_T1};
+                font-size: 9px;
+                font-weight: 900;
+                letter-spacing: 1.1px;
+            }}
+
+            QLabel#chartHint {{
+                color: {_T3};
+                font-size: 9px;
+                font-weight: 700;
+            }}
+
+            QWebEngineView#equityChart {{
+                background: {_BG2};
+                border: none;
+            }}
+
+            QWidget#footerBar {{
+                background-color: {_BGTB};
+                border-top: 1px solid {_BG4};
+            }}
+
+            QLabel#statusLabel {{
+                color: {_T2};
+                font-size: 10px;
+                font-weight: 800;
+                letter-spacing: 0.3px;
+            }}
+
+            QLabel#emptyStateLabel {{
+                color: {_T2};
+                background-color: {_BG2};
+                border: 1px solid {_BG4};
+                border-radius: 2px;
+                font-size: 11px;
+                font-weight: 700;
+                line-height: 1.4;
+                padding: 10px;
+            }}
+
+            QToolTip {{
+                background-color: {_BG2};
+                color: {_T1};
+                border: 1px solid {_BG4};
+                border-radius: 2px;
+                padding: 5px 8px;
+                font-family: {_SANS};
+                font-size: 10px;
+            }}
         """)
