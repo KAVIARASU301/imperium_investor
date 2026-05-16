@@ -1036,11 +1036,25 @@ class FixedTradingChart {
         if (end < start) return;
 
         let maxVol = 0;
+        const visibleVolumes = [];
         for (let i = start; i <= end; i++) {
             const v = Number(this.data[i]?.volume) || 0;
             if (v > maxVol) maxVol = v;
+            if (v > 0) visibleVolumes.push(v);
         }
         if (maxVol <= 0) return;
+        if (visibleVolumes.length === 0) return;
+
+        // Creative visibility tuning:
+        // 1) Winsorize extreme spikes using the 95th percentile so one anomaly
+        //    doesn't flatten the rest of the window.
+        // 2) Use sqrt transform so low/medium bars remain readable while still
+        //    preserving relative differences.
+        // 3) Keep a dynamic minimum pixel height to avoid "flat-line" look.
+        const sortedVolumes = visibleVolumes.slice().sort((a, b) => a - b);
+        const p95Index = Math.max(0, Math.min(sortedVolumes.length - 1, Math.floor((sortedVolumes.length - 1) * 0.95)));
+        const p95Vol = sortedVolumes[p95Index] || maxVol;
+        const scaleCap = Math.max(1, Math.min(maxVol, p95Vol));
 
         const ctx = this.ctx;
         const area = this.chartArea;
@@ -1049,6 +1063,7 @@ class FixedTradingChart {
         const timeAxisGap = 4;
         const baseY = area.y + area.height - timeAxisGap;
         const volHeight = Math.max(28, Math.min(72, Math.floor(area.height * 0.12)));
+        const minReadableHeight = Math.max(2, Math.floor(volHeight * 0.08));
 
         ctx.save();
         for (let i = start; i <= end; i++) {
@@ -1058,7 +1073,9 @@ class FixedTradingChart {
             if (vol <= 0) continue;
 
             const x = Math.round(this._candleToX(i));
-            const h = Math.max(1, Math.round((vol / maxVol) * volHeight));
+            const normalized = Math.min(1, vol / scaleCap);
+            const eased = Math.sqrt(normalized);
+            const h = Math.max(minReadableHeight, Math.round(eased * volHeight));
             const y = baseY - h;
             const isUp = (Number(c.close) || 0) >= (Number(c.open) || 0);
             ctx.fillStyle = isUp
