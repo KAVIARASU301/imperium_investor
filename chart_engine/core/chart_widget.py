@@ -620,7 +620,12 @@ class CandlestickChart(QWidget):
         initial_zoom = int(self.current_visible_candle_count or self.global_chart_settings.get("default_visible_candles", 100))
 
         initial_indicator_visibility = self.drawing_storage.load_global_indicator_visibility()
+        for cfg in self._moving_average_configs:
+            key = str(cfg.get("id") or "").strip()
+            if key and key not in initial_indicator_visibility:
+                initial_indicator_visibility[key] = True
         self._indicator_visibility = initial_indicator_visibility
+        self.drawing_storage.save_global_indicator_visibility(self._indicator_visibility)
         self._apply_indicator_toolbar_state(initial_indicator_visibility)
         drawings_json = json.dumps(saved_state.get("drawings", {}))
 
@@ -645,6 +650,7 @@ class CandlestickChart(QWidget):
                 "chartType":                self.toolbar.get_chart_type(),
                 "priceScaleCurrency":       price_scale_currency,
                 "movingAverageConfigs":      self._moving_average_configs,
+                "initialIndicatorVisibility": self._indicator_visibility,
             }
             self._js(f"if(window.chart) window.chart.loadNewData({json.dumps(payload_dict)});")
             self._update_symbol_info(df)

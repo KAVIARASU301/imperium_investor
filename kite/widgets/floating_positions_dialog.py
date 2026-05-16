@@ -1,18 +1,17 @@
 # kite/widgets/floating_positions_dialog.py
 """
-FloatingPositionsDialog — TC2000-style floating positions monitor.
+FloatingPositionsDialog — compact institutional dark positions monitor.
 
 Design language:
-  • OLED-black foundation (#000000) with deep charcoal panels
-  • Monospace numerics only (Consolas / JetBrains Mono) — columns never shift
-  • Teal-green (#00d4a8) / crimson (#ff4d6a) for P&L — never raw green/red
-  • Heat-map row tinting: profit rows get a subtle teal glow; loss rows get crimson
-  • Flash animation on LTP change (50 ms decay)
-  • Compact 24 px row height — maximum data density
-  • Frameless, draggable, always-on-top with optional pin toggle
-  • Live P&L footer ribbon with total exposure bar
-  • Right-click context menu: chart, exit full, exit half
-  • Keyboard: Space = next position symbol in chart; Del = exit dialog focus
+  • Matte dark trading-terminal shell with layered panels and 1 px separators
+  • Compact table-first layout with 22 px rows and muted uppercase headers
+  • Monospace numerics for stable price / quantity / P&L columns
+  • Purposeful color semantics: green profit/buy, red loss/sell, amber warning/SL,
+    cyan utility/pinned/live state, muted blue-gray labels
+  • Frameless, draggable, always-on-top with pin toggle and minimal controls
+  • Live P&L footer with a centered exposure pressure bar
+  • Right-click context menu: chart, stop-loss, exit full, exit half
+  • Keyboard: Space / Up / Down cycles symbols into chart
 
 Public API:
     dialog = FloatingPositionsDialog(parent=main_window)
@@ -59,37 +58,39 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 
 class _C:
-    # Backgrounds
-    BG0     = "#000000"   # OLED black — outermost shell
-    BG1     = "#080c12"   # dialog body
-    BG2     = "#0d1219"   # table rows
-    BG3     = "#111926"   # header / footer
-    BORDER  = "#1a2535"
-    BORDER2 = "#243040"
+    # Matte terminal layers
+    BG0      = "#050709"   # outer app/window shell
+    BG1      = "#0a0d12"   # dialog body
+    BG2      = "#0f1318"   # table base rows
+    BG3      = "#141920"   # row hover / footer surface
+    BG4      = "#070a0f"   # title bar / hard chrome
+    BORDER   = "#1a2030"   # primary separator
+    BORDER2  = "#243040"   # active separator / grip / scrollbar
+    SELECT   = "#1a2840"   # selected row
 
-    # Signals
-    BULL    = "#00d4a8"   # teal-green (TC2000 signature)
-    BULL_DIM= "#1a7a62"
-    BULL_BG = "#0a2520"
-    BEAR    = "#ff4d6a"   # warm crimson — NOT pure red
-    BEAR_DIM= "#7a2030"
-    BEAR_BG = "#200a10"
-    FLAT    = "#7a94b0"
+    # Market semantics
+    BULL     = "#00d4a8"
+    BULL_DIM = "#14745f"
+    BULL_BG  = "#08231d"
+    BEAR     = "#ff4d6a"
+    BEAR_DIM = "#7a2030"
+    BEAR_BG  = "#230a12"
+    FLAT     = "#7a94b0"
 
     # Text
-    T0      = "#e8f0ff"   # primary values
-    T1      = "#a8bcd4"   # secondary labels
-    T2      = "#5a7090"   # muted / axes
-    T3      = "#2a3a50"   # disabled
+    T0       = "#e8f0ff"
+    T1       = "#a8bcd4"
+    T2       = "#5a7090"
+    T3       = "#2a3a50"
 
-    # Accent
-    CYAN    = "#00d4ff"
-    AMBER   = "#f59e0b"
-    BLUE    = "#3b82f6"
+    # Accents
+    CYAN     = "#00d4ff"
+    AMBER    = "#f59e0b"
+    BLUE     = "#3b82f6"
 
-    # Flash
-    FLASH_UP = "#1f6a42"
-    FLASH_DN = "#6a1f2a"
+    # Flash fills
+    FLASH_UP = "#103d32"
+    FLASH_DN = "#42111c"
 
 _MONO = "\"Consolas\", \"JetBrains Mono\", \"Courier New\", monospace"
 _SANS = "\"-apple-system\", \"Segoe UI\", Roboto, sans-serif"
@@ -100,22 +101,23 @@ _SANS = "\"-apple-system\", \"Segoe UI\", Roboto, sans-serif"
 # ─────────────────────────────────────────────────────────────────────────────
 
 _COLS = [
-    ("Symbol",  "symbol",   110, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
-    ("Qty",     "quantity",  48, Qt.AlignmentFlag.AlignCenter),
-    ("Avg",     "avg_price", 72, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
-    ("LTP",     "ltp",       72, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
-    ("P&L",     "pnl",       80, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
-    ("SL",      "sl",        80, Qt.AlignmentFlag.AlignCenter),
+    ("Symbol",  "symbol",   116, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
+    ("Qty",     "quantity",  52, Qt.AlignmentFlag.AlignCenter),
+    ("Avg",     "avg_price", 74, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
+    ("LTP",     "ltp",       74, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
+    ("P&L",     "pnl",       88, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
+    ("SL",      "sl",        78, Qt.AlignmentFlag.AlignCenter),
 ]
 
 _COL_IDX = {name: i for i, (name, *_) in enumerate(_COLS)}
 
 _FLASH_DURATION = 400   # ms
 _REDRAW_INTERVAL = 200  # ms  (~5 fps — human-readable)
+_ROW_HEIGHT = 22
 
 
 _FLOATING_POS_STATE_KEY = "floating_positions_dialog"
-_DEFAULT_DIALOG_SIZE = QSize(560, 360)
+_DEFAULT_DIALOG_SIZE = QSize(600, 326)
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  POSITION DATA CLASS  (same shape as positions_table.py)
@@ -146,11 +148,12 @@ class _PosRow:
 # ─────────────────────────────────────────────────────────────────────────────
 
 class _ExposureBar(QWidget):
-    """Full-width gradient bar: red left → amber mid → teal right."""
+    """Centered exposure pressure bar: red left, green right, neutral midpoint."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedHeight(3)
+        self.setFixedHeight(4)
+        self.setMinimumWidth(120)
         self._pct = 0.5
 
     def set_pct(self, v: float):
@@ -161,15 +164,15 @@ class _ExposureBar(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
         w, h = self.width(), self.height()
-        # track
+        mid = w // 2
         p.fillRect(0, 0, w, h, QColor(_C.BG2))
-        # gradient fill
-        g = QLinearGradient(0, 0, w, 0)
-        g.setColorAt(0.0, QColor(_C.BEAR))
-        g.setColorAt(0.5, QColor(_C.AMBER))
-        g.setColorAt(1.0, QColor(_C.BULL))
-        fill_w = int(w * self._pct)
-        p.fillRect(0, 0, fill_w, h, QBrush(g))
+        p.fillRect(mid, 0, 1, h, QColor(_C.BORDER2))
+
+        end = int(w * self._pct)
+        if end > mid:
+            p.fillRect(mid, 0, end - mid, h, QColor(_C.BULL))
+        elif end < mid:
+            p.fillRect(end, 0, mid - end, h, QColor(_C.BEAR))
         p.end()
 
 
@@ -252,7 +255,7 @@ class FloatingPositionsDialog(QDialog):
         )
         super().__init__(parent, flags)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
-        self.setMinimumSize(400, 180)
+        self.setMinimumSize(420, 190)
         self.resize(_DEFAULT_DIALOG_SIZE)
 
         # ── State ────────────────────────────────────────────────────────────
@@ -310,11 +313,11 @@ class FloatingPositionsDialog(QDialog):
     def _build_title_bar(self) -> QFrame:
         bar = QFrame()
         bar.setObjectName("titleBar")
-        bar.setFixedHeight(30)
+        bar.setFixedHeight(28)
         bar.setCursor(QCursor(Qt.CursorShape.SizeAllCursor))
 
         h = QHBoxLayout(bar)
-        h.setContentsMargins(10, 0, 6, 0)
+        h.setContentsMargins(8, 0, 5, 0)
         h.setSpacing(6)
 
         # Dot indicator + title
@@ -325,30 +328,37 @@ class FloatingPositionsDialog(QDialog):
         title = QLabel("POSITIONS")
         title.setObjectName("barTitle")
 
+        self._count_badge = QLabel("0")
+        self._count_badge.setObjectName("countBadge")
+        self._count_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._count_badge.setFixedHeight(16)
+
         h.addWidget(self._dot)
         h.addWidget(title)
+        h.addWidget(self._count_badge)
         h.addStretch()
 
         # Right controls
         self._pin_btn = QToolButton()
         self._pin_btn.setObjectName("barBtn")
-        self._pin_btn.setText("📌")
+        self._pin_btn.setText("PIN")
         self._pin_btn.setToolTip("Toggle always-on-top")
-        self._pin_btn.setFixedSize(22, 22)
+        self._pin_btn.setFixedSize(30, 20)
         self._pin_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._pin_btn.clicked.connect(self._toggle_pin)
+        self._pin_btn.setProperty("active", True)
 
         min_btn = QToolButton()
         min_btn.setObjectName("barBtn")
         min_btn.setText("—")
-        min_btn.setFixedSize(22, 22)
+        min_btn.setFixedSize(22, 20)
         min_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         min_btn.clicked.connect(self.showMinimized)
 
         close_btn = QToolButton()
         close_btn.setObjectName("closeBtn")
         close_btn.setText("✕")
-        close_btn.setFixedSize(22, 22)
+        close_btn.setFixedSize(22, 20)
         close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         close_btn.clicked.connect(self.hide)
 
@@ -380,12 +390,14 @@ class FloatingPositionsDialog(QDialog):
             _COL_IDX["Symbol"], QHeaderView.ResizeMode.Stretch)
 
         t.verticalHeader().setVisible(False)
-        t.verticalHeader().setDefaultSectionSize(24)
+        t.verticalHeader().setDefaultSectionSize(_ROW_HEIGHT)
+        t.verticalHeader().setMinimumSectionSize(_ROW_HEIGHT)
+        t.setWordWrap(False)
         t.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         t.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         t.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         t.setShowGrid(False)
-        t.setAlternatingRowColors(False)
+        t.setAlternatingRowColors(True)
         t.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         t.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         t.setSortingEnabled(False)
@@ -405,11 +417,11 @@ class FloatingPositionsDialog(QDialog):
     def _build_footer(self) -> QFrame:
         f = QFrame()
         f.setObjectName("footer")
-        f.setFixedHeight(36)
+        f.setFixedHeight(28)
 
         h = QHBoxLayout(f)
-        h.setContentsMargins(10, 0, 10, 0)
-        h.setSpacing(16)
+        h.setContentsMargins(8, 0, 8, 0)
+        h.setSpacing(8)
 
         def _metric(label: str, key: str) -> QLabel:
             lbl = QLabel(label)
@@ -430,7 +442,7 @@ class FloatingPositionsDialog(QDialog):
         # Exposure bar sits inside footer; we embed it in a small wrapper
         bar_wrap = QWidget()
         bw_lay = QVBoxLayout(bar_wrap)
-        bw_lay.setContentsMargins(0, 16, 0, 16)
+        bw_lay.setContentsMargins(0, 12, 0, 12)
         bw_lay.addWidget(self._exposure_bar)
         h.addWidget(bar_wrap)
 
@@ -567,8 +579,13 @@ class FloatingPositionsDialog(QDialog):
 
         self._subscribe_new_tokens()
         self._update_footer()
+        if hasattr(self, "_count_badge"):
+            self._count_badge.setText(str(len(new_data)))
+            self._count_badge.setProperty("active", bool(new_data))
+            self._count_badge.style().unpolish(self._count_badge)
+            self._count_badge.style().polish(self._count_badge)
         self._dot.setStyleSheet(
-            f"color: {'#00d4a8' if new_data else '#2a3a50'}; background: transparent;"
+            f"color: {_C.BULL if new_data else _C.T3}; background: transparent;"
         )
 
     @Slot(str)
@@ -631,10 +648,6 @@ class FloatingPositionsDialog(QDialog):
     # INTERNAL: ROW RENDERING
     # ═══════════════════════════════════════════════════════════════════════
 
-    def _get_sl_manager(self):
-        parent = self.parent()
-        return getattr(parent, "stop_loss_manager", None)
-
     def _get_sl_display(self, pos: _PosRow) -> tuple[str, str]:
         """Returns (text, color) for the SL column."""
         sl_mgr = self._get_sl_manager()
@@ -663,10 +676,14 @@ class FloatingPositionsDialog(QDialog):
         pnl_neg  = pos.pnl < 0
         pnl_col  = _C.BULL if pnl_pos else (_C.BEAR if pnl_neg else _C.FLAT)
         qty_col  = _C.BULL if is_long else _C.BEAR
-        row_bg   = QColor(_C.BULL_BG) if pnl_pos else (QColor(_C.BEAR_BG) if pnl_neg else QColor(_C.BG2))
+        if pnl_pos:
+            row_bg = QColor(_C.BULL_BG)
+        elif pnl_neg:
+            row_bg = QColor(_C.BEAR_BG)
+        else:
+            row_bg = QColor(_C.BG2 if row % 2 == 0 else _C.BG1)
 
         qty_sign = "+" if is_long else "−"
-        chg_sign = "+" if pos.chg_pct >= 0 else ""
         pnl_sign = "+" if pos.pnl >= 0 else ""
 
         sl_text, sl_color = self._get_sl_display(pos)
@@ -693,7 +710,7 @@ class FloatingPositionsDialog(QDialog):
             item.setTextAlignment(align_map[col])
 
             font = QFont("Consolas, JetBrains Mono, Courier New")
-            font.setPointSize(9)
+            font.setPointSize(8)
             font.setBold(bold)
             item.setFont(font)
 
@@ -711,15 +728,9 @@ class FloatingPositionsDialog(QDialog):
             if item:
                 ratio = max(0.0, flash.remaining / _FLASH_DURATION)
                 if ratio > 0:
-                    if flash.direction > 0:
-                        r = int(10 + (30 - 10) * (1 - ratio))
-                        g = int(80 * ratio)
-                        b = int(60 * ratio)
-                    else:
-                        r = int(100 * ratio)
-                        g = 10
-                        b = int(10 + (40 - 10) * (1 - ratio))
-                    item.setBackground(QBrush(QColor(r, g, b, 220)))
+                    base = QColor(_C.FLASH_UP if flash.direction > 0 else _C.FLASH_DN)
+                    base.setAlpha(int(90 + 120 * ratio))
+                    item.setBackground(QBrush(base))
                     surviving.append(flash)
                 else:
                     # Restore row background
@@ -895,7 +906,9 @@ class FloatingPositionsDialog(QDialog):
     def _get_sl_manager(self):
         """Return the StopLossManager from the main window, if available."""
         parent = self.parent()
-        return getattr(parent, "sl_manager", None)
+        if not parent:
+            return None
+        return getattr(parent, "sl_manager", None) or getattr(parent, "stop_loss_manager", None)
 
     # ═══════════════════════════════════════════════════════════════════════
     # KEYBOARD NAV
@@ -940,146 +953,161 @@ class FloatingPositionsDialog(QDialog):
                 border-radius: 2px;
             }}
 
-            /* ── Title bar ─────────────────────────────────────── */
+            /* Title bar */
             QFrame#titleBar {{
-                background: {_C.BG3};
+                background: {_C.BG4};
                 border-bottom: 1px solid {_C.BORDER};
                 border-radius: 0px;
             }}
             QLabel#dotIndicator {{
-                font-size: 8px;
                 color: {_C.BULL};
                 background: transparent;
-                letter-spacing: 0px;
+                font-family: {_MONO};
+                font-size: 8px;
+                font-weight: 900;
             }}
             QLabel#barTitle {{
                 color: {_C.T1};
                 font-family: {_SANS};
                 font-size: 10px;
                 font-weight: 800;
-                letter-spacing: 2px;
+                letter-spacing: 1.6px;
                 background: transparent;
             }}
             QLabel#countBadge {{
-                color: {_C.CYAN};
-                background: rgba(0,212,255,0.10);
-                border: 1px solid rgba(0,212,255,0.20);
+                color: {_C.T2};
+                background: rgba(255,255,255,0.03);
+                border: 1px solid {_C.BORDER};
                 border-radius: 2px;
                 font-family: {_MONO};
                 font-size: 9px;
-                font-weight: 700;
+                font-weight: 800;
                 padding: 0 5px;
                 min-width: 18px;
+            }}
+            QLabel#countBadge[active="true"] {{
+                color: {_C.CYAN};
+                border-color: rgba(0,212,255,0.35);
+                background: rgba(0,212,255,0.08);
             }}
             QToolButton#barBtn {{
                 background: transparent;
                 color: {_C.T2};
-                border: none;
-                font-size: 11px;
+                border: 1px solid transparent;
                 border-radius: 2px;
+                font-family: {_SANS};
+                font-size: 9px;
+                font-weight: 800;
+                letter-spacing: 0.4px;
             }}
             QToolButton#barBtn:hover {{
-                background: rgba(255,255,255,0.07);
+                background: rgba(255,255,255,0.06);
+                border-color: {_C.BORDER};
                 color: {_C.T0};
             }}
             QToolButton#barBtn[active="true"] {{
                 color: {_C.CYAN};
+                border-color: rgba(0,212,255,0.24);
+                background: rgba(0,212,255,0.06);
             }}
             QToolButton#closeBtn {{
                 background: transparent;
                 color: {_C.T2};
-                border: none;
-                font-size: 11px;
+                border: 1px solid transparent;
                 border-radius: 2px;
+                font-size: 11px;
+                font-weight: 800;
             }}
             QToolButton#closeBtn:hover {{
-                background: rgba(255,77,106,0.15);
+                background: rgba(255,77,106,0.14);
+                border-color: rgba(255,77,106,0.28);
                 color: {_C.BEAR};
             }}
 
-            /* ── Table ─────────────────────────────────────────── */
+            /* Compact position table */
             QTableWidget#posTable {{
                 background: {_C.BG1};
                 alternate-background-color: {_C.BG2};
                 gridline-color: transparent;
                 border: none;
                 outline: none;
-                selection-background-color: transparent;
+                selection-background-color: {_C.SELECT};
+                selection-color: {_C.T0};
                 font-family: {_MONO};
-                font-size: 12px;
+                font-size: 11px;
+                color: {_C.T0};
             }}
             QTableWidget#posTable::item {{
-                padding: 0 6px;
+                padding: 0 5px;
                 border-bottom: 1px solid {_C.BG3};
             }}
             QTableWidget#posTable::item:selected {{
-                background-color: #1a2840;
+                background: {_C.SELECT};
                 color: {_C.T0};
             }}
             QTableWidget#posTable::item:hover {{
-                background-color: #141c28;
+                background: {_C.BG3};
             }}
             QHeaderView::section {{
-                background: {_C.BG3};
+                background: {_C.BG2};
                 color: {_C.T2};
                 font-family: {_SANS};
                 font-size: 9px;
                 font-weight: 800;
-                letter-spacing: 1.2px;
+                letter-spacing: 1.1px;
                 text-transform: uppercase;
                 border: none;
                 border-bottom: 1px solid {_C.BORDER};
-                padding: 0 6px;
-            }}
-            QHeaderView::section:first {{
-                padding-left: 10px;
+                padding: 0 5px;
+                min-height: 19px;
             }}
 
-            /* ── Footer ─────────────────────────────────────────── */
+            /* Footer */
             QFrame#footer {{
-                background: transparent;
+                background: {_C.BG4};
                 border-top: 1px solid {_C.BORDER};
             }}
             QLabel#footerLabel {{
                 color: {_C.T2};
                 font-family: {_SANS};
                 font-size: 9px;
-                font-weight: 700;
-                letter-spacing: 1px;
+                font-weight: 800;
+                letter-spacing: 0.9px;
                 background: transparent;
             }}
             QLabel[objectName^="footerVal"] {{
                 color: {_C.T1};
                 font-family: {_MONO};
-                font-size: 11px;
-                font-weight: 700;
+                font-size: 10px;
+                font-weight: 800;
                 background: transparent;
             }}
 
-            /* ── Context menu ────────────────────────────────────── */
+            /* Context menu */
             QMenu#posCtxMenu {{
-                background: #0c121e;
+                background: {_C.BG1};
                 border: 1px solid {_C.BORDER};
-                border-radius: 4px;
-                padding: 4px 0;
+                border-radius: 2px;
+                padding: 3px 0;
                 font-family: {_SANS};
-                font-size: 12px;
+                font-size: 11px;
                 color: {_C.T0};
             }}
             QMenu#posCtxMenu::item {{
-                padding: 6px 16px;
+                padding: 5px 14px;
+                background: transparent;
             }}
             QMenu#posCtxMenu::item:selected {{
-                background: #1a2840;
+                background: {_C.SELECT};
                 color: {_C.T0};
             }}
             QMenu#posCtxMenu::separator {{
                 height: 1px;
                 background: {_C.BORDER};
-                margin: 3px 10px;
+                margin: 3px 8px;
             }}
 
-            /* Scrollbar */
+            /* Scrollbars */
             QScrollBar:vertical {{
                 background: transparent;
                 width: 4px;
@@ -1088,14 +1116,30 @@ class FloatingPositionsDialog(QDialog):
             QScrollBar::handle:vertical {{
                 background: {_C.BORDER2};
                 border-radius: 2px;
-                min-height: 20px;
+                min-height: 18px;
             }}
             QScrollBar::handle:vertical:hover {{
                 background: {_C.T2};
             }}
             QScrollBar::add-line:vertical,
             QScrollBar::sub-line:vertical {{
-                height: 0; border: none;
+                height: 0;
+                border: none;
+            }}
+            QScrollBar:horizontal {{
+                background: transparent;
+                height: 4px;
+                border: none;
+            }}
+            QScrollBar::handle:horizontal {{
+                background: {_C.BORDER2};
+                border-radius: 2px;
+                min-width: 18px;
+            }}
+            QScrollBar::add-line:horizontal,
+            QScrollBar::sub-line:horizontal {{
+                width: 0;
+                border: none;
             }}
         """)
 

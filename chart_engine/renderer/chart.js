@@ -3054,6 +3054,13 @@ class FixedTradingChart {
         this.volumeData = cfg.volumeData || [];
         this.emaData = cfg.emaData || {};
         this.movingAverageConfigs = cfg.movingAverageConfigs || [];
+        if (cfg.initialIndicatorVisibility && typeof cfg.initialIndicatorVisibility === 'object') {
+            this.indicatorVisibility = {
+                ...this.indicatorVisibility,
+                ...cfg.initialIndicatorVisibility,
+            };
+            _saveIndicatorState(this.indicatorVisibility);
+        }
         this.currentADR = cfg.initialADR || {};
         this.percentageChanges = cfg.percentageChanges || {};
         this.currentInterval = cfg.interval || 'day';
