@@ -425,9 +425,13 @@ class AlertEngine(QThread):
                     condition_met = False
 
                     if alert.condition == AlertCondition.PRICE_IS_ABOVE:
-                        condition_met = prev_price < alert.price <= current_price
+                        # Fire immediately once price touches/crosses the alert level.
+                        # No candle close confirmation is required.
+                        condition_met = current_price >= alert.price
                     elif alert.condition == AlertCondition.PRICE_IS_BELOW:
-                        condition_met = prev_price > alert.price >= current_price
+                        # Fire immediately once price touches/crosses the alert level.
+                        # No candle close confirmation is required.
+                        condition_met = current_price <= alert.price
 
                     self._last_prices[alert.symbol] = current_price
 
