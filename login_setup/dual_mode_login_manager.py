@@ -48,6 +48,35 @@ logger = logging.getLogger(__name__)
 DEFAULT_KITE_CALLBACK_PORTS = (8765, 5678)
 
 
+
+# ==============================================================================
+# INSTITUTIONAL DARK TRADING TERMINAL UI TOKENS
+# ==============================================================================
+
+class UI:
+    BG0 = "#050709"      # deepest shell
+    BG1 = "#0a0d12"      # window body
+    BG2 = "#0f1318"      # panel/control layer
+    BG3 = "#141920"      # raised/hover layer
+    BG4 = "#1a2030"      # borders
+    BG5 = "#222b3a"      # strong border
+
+    TEXT0 = "#e8f0ff"    # primary
+    TEXT1 = "#a8bcd4"    # secondary
+    TEXT2 = "#5a7090"    # muted
+    TEXT3 = "#2a3a50"    # disabled
+
+    GREEN = "#00d4a8"    # success/buy/confirm
+    RED = "#ff4d6a"      # danger/sell/error
+    AMBER = "#f59e0b"    # warning/active
+    CYAN = "#00d4ff"     # info/utility
+    BLUE = "#3b82f6"     # neutral accent
+
+    SELECTION = "#1a2840"
+    MONO = "'Consolas', 'JetBrains Mono', monospace"
+    SANS = "'Inter', 'Segoe UI', sans-serif"
+
+
 def _resolve_callback_ports() -> List[int]:
     """Resolve callback ports from env, with safe defaults for local login flows."""
     raw_ports = os.getenv("KITE_CALLBACK_PORTS", "")
@@ -197,67 +226,77 @@ class DualModeLoginManager(QDialog):
     # Window & UI Setup
     # --------------------------------------------------------------------------
 
-    def _setup_window(self):
-        self.setWindowTitle("qullamaggie - Login")
-        self.setMinimumSize(500, 560)
-        self.setModal(True)
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
-        self.setAttribute(Qt.WA_TranslucentBackground, False)
 
-    def _setup_ui(self):
-        container = QFrame()
-        container.setObjectName("mainContainer")
-        container.mousePressEvent = self._handle_mouse_press
-        container.mouseMoveEvent = self._handle_mouse_move
-        container.mouseReleaseEvent = self._handle_mouse_release
+def _setup_window(self):
+    self.setWindowTitle("qullamaggie - Login")
+    self.setMinimumSize(500, 520)
+    self.resize(520, 560)
+    self.setModal(True)
+    self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
+    self.setAttribute(Qt.WA_TranslucentBackground, False)
 
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.addWidget(container)
 
-        container_layout = QVBoxLayout(container)
-        container_layout.setContentsMargins(0, 0, 0, 0)
-        container_layout.setSpacing(0)
-        container_layout.addWidget(self._create_header())
+def _setup_ui(self):
+    container = QFrame()
+    container.setObjectName("mainContainer")
+    container.mousePressEvent = self._handle_mouse_press
+    container.mouseMoveEvent = self._handle_mouse_move
+    container.mouseReleaseEvent = self._handle_mouse_release
 
-        self.stacked_widget = QStackedWidget()
-        self.stacked_widget.currentChanged.connect(self._on_page_changed)
-        container_layout.addWidget(self.stacked_widget)
+    main_layout = QVBoxLayout(self)
+    main_layout.setContentsMargins(1, 1, 1, 1)
+    main_layout.setSpacing(0)
+    main_layout.addWidget(container)
 
-        # Page indices:
-        # 0 - Auto-login splash
-        # 1 - Broker selection
-        # 2 - Kite credentials
-        # 3 - Kite token (auto-capture + manual fallback)
-        # 4 - IBKR connection
-        self.stacked_widget.addWidget(self._create_auto_login_page())
-        self.stacked_widget.addWidget(self._create_broker_selection_page())
-        self.stacked_widget.addWidget(self._create_kite_credentials_page())
-        self.stacked_widget.addWidget(self._create_kite_token_page())
-        self.stacked_widget.addWidget(self._create_ibkr_connection_page())
+    container_layout = QVBoxLayout(container)
+    container_layout.setContentsMargins(0, 0, 0, 0)
+    container_layout.setSpacing(0)
+    container_layout.addWidget(self._create_header())
 
-    def _create_header(self) -> QWidget:
-        header = QFrame()
-        header.setObjectName("titleBar")
-        header.setFixedHeight(36)
+    self.stacked_widget = QStackedWidget()
+    self.stacked_widget.setObjectName("loginStack")
+    self.stacked_widget.currentChanged.connect(self._on_page_changed)
+    container_layout.addWidget(self.stacked_widget, 1)
 
-        layout = QHBoxLayout(header)
-        layout.setContentsMargins(12, 0, 8, 0)
-        layout.setSpacing(8)
+    # Page indices:
+    # 0 - Auto-login splash
+    # 1 - Broker selection
+    # 2 - Kite credentials
+    # 3 - Kite token (auto-capture + manual fallback)
+    # 4 - IBKR connection
+    self.stacked_widget.addWidget(self._create_auto_login_page())
+    self.stacked_widget.addWidget(self._create_broker_selection_page())
+    self.stacked_widget.addWidget(self._create_kite_credentials_page())
+    self.stacked_widget.addWidget(self._create_kite_token_page())
+    self.stacked_widget.addWidget(self._create_ibkr_connection_page())
 
-        title = QLabel("LOGIN MANAGER")
-        title.setObjectName("dialogTitle")
 
-        close_btn = QPushButton("✕")
-        close_btn.setObjectName("closeButton")
-        close_btn.setFixedSize(26, 26)
-        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        close_btn.clicked.connect(self._on_close)
+def _create_header(self) -> QWidget:
+    header = QFrame()
+    header.setObjectName("titleBar")
+    header.setFixedHeight(30)
 
-        layout.addWidget(title)
-        layout.addStretch()
-        layout.addWidget(close_btn)
-        return header
+    layout = QHBoxLayout(header)
+    layout.setContentsMargins(10, 0, 6, 0)
+    layout.setSpacing(6)
+
+    title = QLabel("LOGIN MANAGER")
+    title.setObjectName("dialogTitle")
+
+    badge = QLabel("BROKER AUTH")
+    badge.setObjectName("titleBadge")
+
+    close_btn = QPushButton("✕")
+    close_btn.setObjectName("closeButton")
+    close_btn.setFixedSize(22, 22)
+    close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+    close_btn.clicked.connect(self._on_close)
+
+    layout.addWidget(title)
+    layout.addWidget(badge)
+    layout.addStretch()
+    layout.addWidget(close_btn)
+    return header
 
     def _on_close(self):
         self._stop_request_token_server()
@@ -268,20 +307,34 @@ class DualModeLoginManager(QDialog):
     # Page 0: Auto-login
     # --------------------------------------------------------------------------
 
-    def _create_auto_login_page(self) -> QWidget:
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self.auto_login_status = QLabel("Checking for existing session...")
-        self.auto_login_status.setObjectName("statusLabel")
-        self.auto_login_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+def _create_auto_login_page(self) -> QWidget:
+    page = QWidget()
+    page.setObjectName("loginPage")
+    layout = QVBoxLayout(page)
+    layout.setContentsMargins(20, 20, 20, 20)
+    layout.setSpacing(8)
+    layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        layout.addStretch()
-        layout.addWidget(QLabel("Welcome Back", objectName="welcomeTitle"), alignment=Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.auto_login_status, alignment=Qt.AlignmentFlag.AlignCenter)
-        layout.addStretch()
-        return page
+    self.auto_login_status = QLabel("Checking for existing session...")
+    self.auto_login_status.setObjectName("statusLabel")
+    self.auto_login_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+    title = QLabel("TERMINAL ACCESS")
+    title.setObjectName("welcomeTitle")
+    title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+    subtitle = QLabel("KITE / IBKR AUTHENTICATION")
+    subtitle.setObjectName("subTitle")
+    subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+    layout.addStretch()
+    layout.addWidget(title)
+    layout.addWidget(subtitle)
+    layout.addSpacing(12)
+    layout.addWidget(self.auto_login_status)
+    layout.addStretch()
+    return page
 
     def _try_auto_login(self):
         if not KITE_AVAILABLE:
@@ -307,116 +360,136 @@ class DualModeLoginManager(QDialog):
     # Page 1: Broker + Mode Selection
     # --------------------------------------------------------------------------
 
-    def _create_broker_selection_page(self) -> QWidget:
-        page = QWidget()
-        layout = QVBoxLayout(page)
 
-        title = QLabel("Select Your Broker")
-        title.setObjectName("brokerPageTitle")
+def _create_broker_selection_page(self) -> QWidget:
+    page = QWidget()
+    page.setObjectName("loginPage")
+    layout = QVBoxLayout(page)
+    layout.setContentsMargins(18, 14, 18, 14)
+    layout.setSpacing(10)
 
-        self.session_hint_label = QLabel("")
-        self.session_hint_label.setObjectName("statusLabel")
-        self.session_hint_label.setWordWrap(True)
-        self.session_hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    title = QLabel("BROKER + MODE")
+    title.setObjectName("brokerPageTitle")
+    title.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self.cancel_active_session_btn = QPushButton("Cancel active session")
-        self.cancel_active_session_btn.setObjectName("subtleActionButton")
-        self.cancel_active_session_btn.clicked.connect(self._clear_active_kite_session)
-        self.cancel_active_session_btn.setVisible(bool(self._active_kite_session))
+    self.session_hint_label = QLabel("")
+    self.session_hint_label.setObjectName("statusLabel")
+    self.session_hint_label.setWordWrap(True)
+    self.session_hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        broker_layout = QHBoxLayout()
-        broker_layout.setSpacing(10)
-        self.india_card = self._create_broker_card(BrokerMode.INDIA)
-        self.america_card = self._create_broker_card(BrokerMode.AMERICA)
-        broker_layout.addWidget(self.india_card)
-        broker_layout.addWidget(self.america_card)
+    self.cancel_active_session_btn = QPushButton("Clear active Kite session")
+    self.cancel_active_session_btn.setObjectName("subtleActionButton")
+    self.cancel_active_session_btn.clicked.connect(self._clear_active_kite_session)
+    self.cancel_active_session_btn.setVisible(bool(self._active_kite_session))
 
-        self.broker_group = QButtonGroup(self)
-        self.broker_group.setExclusive(True)
-        self.broker_group.addButton(self.india_radio)
-        self.broker_group.addButton(self.america_radio)
+    broker_layout = QHBoxLayout()
+    broker_layout.setContentsMargins(0, 0, 0, 0)
+    broker_layout.setSpacing(8)
+    self.india_card = self._create_broker_card(BrokerMode.INDIA)
+    self.america_card = self._create_broker_card(BrokerMode.AMERICA)
+    broker_layout.addWidget(self.india_card)
+    broker_layout.addWidget(self.america_card)
 
-        # Default to Kite when available; otherwise fall back to IBKR.
-        if self.india_radio.isEnabled():
-            self.india_radio.setChecked(True)
-        elif self.america_radio.isEnabled():
-            self.america_radio.setChecked(True)
+    self.broker_group = QButtonGroup(self)
+    self.broker_group.setExclusive(True)
+    self.broker_group.addButton(self.india_radio)
+    self.broker_group.addButton(self.america_radio)
 
-        mode_frame = self._create_trading_mode_selector()
-        continue_btn = QPushButton("Continue")
-        continue_btn.setObjectName("primaryButton")
-        continue_btn.clicked.connect(self._on_broker_selected)
+    # Default to Kite when available; otherwise fall back to IBKR.
+    if self.india_radio.isEnabled():
+        self.india_radio.setChecked(True)
+    elif self.america_radio.isEnabled():
+        self.america_radio.setChecked(True)
 
-        layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.session_hint_label)
-        layout.addLayout(broker_layout)
-        layout.addWidget(mode_frame)
-        layout.addStretch()
-        layout.addWidget(continue_btn)
-        layout.addWidget(self.cancel_active_session_btn, alignment=Qt.AlignmentFlag.AlignCenter)
-        return page
+    mode_frame = self._create_trading_mode_selector()
+    continue_btn = QPushButton("Continue")
+    continue_btn.setObjectName("primaryButton")
+    continue_btn.setFixedHeight(30)
+    continue_btn.clicked.connect(self._on_broker_selected)
 
-    def _create_broker_card(self, broker_mode: BrokerMode) -> QFrame:
-        display_cfg = get_display_config(broker_mode)   # dict
-        broker_cfg = get_broker_config(broker_mode)      # BrokerConfig dataclass
+    layout.addWidget(title)
+    layout.addWidget(self.session_hint_label)
+    layout.addLayout(broker_layout)
+    layout.addWidget(mode_frame)
+    layout.addStretch()
+    layout.addWidget(continue_btn)
+    layout.addWidget(self.cancel_active_session_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+    return page
 
-        card = QFrame()
-        card.setObjectName("brokerCard")
-        card.setCursor(Qt.PointingHandCursor)
-        card.setFixedHeight(126)
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(12, 10, 12, 10)
-        layout.setSpacing(4)
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        flag = QLabel(display_cfg.get("flag_emoji", ""))
-        flag.setStyleSheet("font-size: 26px; background: transparent;")
-        flag.setAlignment(Qt.AlignmentFlag.AlignCenter)
+def _create_broker_card(self, broker_mode: BrokerMode) -> QFrame:
+    display_cfg = get_display_config(broker_mode)   # dict retained for backend compatibility/future metadata
+    broker_cfg = get_broker_config(broker_mode)      # BrokerConfig dataclass
+    _ = display_cfg
 
-        radio = QRadioButton(broker_cfg.display_name)
-        radio.setObjectName("brokerRadio")
+    card = QFrame()
+    card.setObjectName("brokerCard")
+    card.setCursor(Qt.PointingHandCursor)
+    card.setFixedHeight(112)
+    layout = QVBoxLayout(card)
+    layout.setContentsMargins(10, 8, 10, 8)
+    layout.setSpacing(5)
+    layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        market_label = QLabel(broker_cfg.market)
-        market_label.setObjectName("brokerMarket")
-        market_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    region = "INDIA" if broker_mode == BrokerMode.INDIA else "AMERICA"
+    region_badge = QLabel(region)
+    region_badge.setObjectName("brokerRegionBadge")
+    region_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        layout.addWidget(flag)
-        layout.addWidget(market_label)
-        layout.addWidget(radio, alignment=Qt.AlignmentFlag.AlignCenter)
+    market_label = QLabel(broker_cfg.market)
+    market_label.setObjectName("brokerMarket")
+    market_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    market_label.setWordWrap(True)
 
-        if broker_mode == BrokerMode.INDIA:
-            self.india_radio = radio
-            if not KITE_AVAILABLE:
-                radio.setEnabled(False)
-                market_label.setText("kiteconnect not installed")
-        else:
-            self.america_radio = radio
-            if not is_ibkr_available():
-                radio.setEnabled(False)
-                market_label.setText("ib_insync not installed")
+    radio = QRadioButton(broker_cfg.display_name)
+    radio.setObjectName("brokerRadio")
+    radio.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        radio.toggled.connect(lambda checked, c=card: self._set_card_selected(c, checked))
+    layout.addWidget(region_badge)
+    layout.addWidget(market_label)
+    layout.addWidget(radio, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        card.mousePressEvent = lambda e: radio.setChecked(True)
-        return card
+    if broker_mode == BrokerMode.INDIA:
+        self.india_radio = radio
+        if not KITE_AVAILABLE:
+            radio.setEnabled(False)
+            market_label.setText("kiteconnect not installed")
+    else:
+        self.america_radio = radio
+        if not is_ibkr_available():
+            radio.setEnabled(False)
+            market_label.setText("ib_insync not installed")
+
+    radio.toggled.connect(lambda checked, c=card: self._set_card_selected(c, checked))
+
+    card.mousePressEvent = lambda e: radio.setChecked(True)
+    return card
 
     def _set_card_selected(self, card: QFrame, selected: bool):
         card.setProperty("selected", selected)
         card.style().unpolish(card)
         card.style().polish(card)
 
-    def _create_trading_mode_selector(self) -> QFrame:
-        frame = QFrame()
-        frame.setObjectName("modeFrame")
-        layout = QHBoxLayout(frame)
-        layout.setContentsMargins(12, 8, 12, 8)
-        self.paper_radio = QRadioButton("Paper")
-        self.live_radio = QRadioButton("Live")
-        self.live_radio.setChecked(True)
-        layout.addWidget(self.paper_radio)
-        layout.addWidget(self.live_radio)
-        layout.addStretch()
-        return frame
+
+def _create_trading_mode_selector(self) -> QFrame:
+    frame = QFrame()
+    frame.setObjectName("modeFrame")
+    layout = QHBoxLayout(frame)
+    layout.setContentsMargins(10, 6, 10, 6)
+    layout.setSpacing(12)
+
+    label = QLabel("TRADING MODE")
+    label.setObjectName("sectionLabel")
+
+    self.paper_radio = QRadioButton("Paper")
+    self.live_radio = QRadioButton("Live")
+    self.live_radio.setChecked(True)
+
+    layout.addWidget(label)
+    layout.addStretch()
+    layout.addWidget(self.paper_radio)
+    layout.addWidget(self.live_radio)
+    return frame
 
     def _on_broker_selected(self):
         if self.india_radio.isChecked():
@@ -478,60 +551,75 @@ class DualModeLoginManager(QDialog):
     # Page 2: Kite Credentials
     # --------------------------------------------------------------------------
 
-    def _create_kite_credentials_page(self) -> QWidget:
-        page = QWidget()
-        layout = QVBoxLayout(page)
 
-        title = QLabel("Kite API Credentials")
-        title.setObjectName("pageTitle")
+def _create_kite_credentials_page(self) -> QWidget:
+    page = QWidget()
+    page.setObjectName("loginPage")
+    layout = QVBoxLayout(page)
+    layout.setContentsMargins(18, 14, 18, 14)
+    layout.setSpacing(10)
 
-        creds_panel = QFrame()
-        creds_panel.setObjectName("inputPanel")
-        creds_layout = QVBoxLayout(creds_panel)
-        creds_layout.setContentsMargins(14, 14, 14, 14)
-        creds_layout.setSpacing(8)
+    title = QLabel("KITE CREDENTIALS")
+    title.setObjectName("pageTitle")
+    title.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self.kite_api_key_input = QLineEdit()
-        self.kite_api_key_input.setPlaceholderText("API Key")
+    creds_panel = QFrame()
+    creds_panel.setObjectName("inputPanel")
+    creds_layout = QVBoxLayout(creds_panel)
+    creds_layout.setContentsMargins(12, 10, 12, 10)
+    creds_layout.setSpacing(7)
 
-        self.kite_api_secret_input = QLineEdit()
-        self.kite_api_secret_input.setPlaceholderText("API Secret")
-        self.kite_api_secret_input.setEchoMode(QLineEdit.EchoMode.Password)
+    self.kite_api_key_input = QLineEdit()
+    self.kite_api_key_input.setObjectName("terminalInput")
+    self.kite_api_key_input.setPlaceholderText("API Key")
 
-        self.save_kite_creds = QCheckBox("Remember Credentials")
-        self.save_kite_creds.setChecked(True)
+    self.kite_api_secret_input = QLineEdit()
+    self.kite_api_secret_input.setObjectName("terminalInput")
+    self.kite_api_secret_input.setPlaceholderText("API Secret")
+    self.kite_api_secret_input.setEchoMode(QLineEdit.EchoMode.Password)
 
-        self.relay_settings_btn = QPushButton("⚙️ Configure Relay Server")
-        self.relay_settings_btn.setObjectName("subtleActionButton")
-        self.relay_settings_btn.clicked.connect(self._show_relay_settings)
+    self.save_kite_creds = QCheckBox("Remember Credentials")
+    self.save_kite_creds.setChecked(True)
 
-        redirect_hint = QLabel(
-            f'<small>Set Redirect URL in Kite Console to: '
-            f'<b>http://127.0.0.1:{_resolve_callback_ports()[0]}/</b></small>'
-        )
-        redirect_hint.setTextFormat(Qt.RichText)
-        redirect_hint.setObjectName("hintLabel")
+    self.relay_settings_btn = QPushButton("Configure Relay")
+    self.relay_settings_btn.setObjectName("subtleActionButton")
+    self.relay_settings_btn.clicked.connect(self._show_relay_settings)
 
-        nav = self._create_nav_buttons(
-            back_slot=lambda: self.stacked_widget.setCurrentIndex(1),
-            continue_slot=self._initiate_kite_login,
-            continue_text="Login with Kite"
-        )
+    redirect_hint = QLabel(
+        f'Redirect URL: http://127.0.0.1:{_resolve_callback_ports()[0]}/'
+    )
+    redirect_hint.setObjectName("hintLabel")
 
-        creds_layout.addWidget(self.kite_api_key_input)
-        creds_layout.addWidget(self.kite_api_secret_input)
-        bottom_options = QHBoxLayout()
-        bottom_options.addWidget(self.save_kite_creds)
-        bottom_options.addStretch()
-        bottom_options.addWidget(self.relay_settings_btn)
-        creds_layout.addLayout(bottom_options)
+    nav = self._create_nav_buttons(
+        back_slot=lambda: self.stacked_widget.setCurrentIndex(1),
+        continue_slot=self._initiate_kite_login,
+        continue_text="Login with Kite"
+    )
 
-        layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(creds_panel)
-        layout.addWidget(redirect_hint)
-        layout.addStretch()
-        layout.addLayout(nav)
-        return page
+    api_key_label = QLabel("API KEY")
+    api_key_label.setObjectName("fieldLabel")
+    api_secret_label = QLabel("API SECRET")
+    api_secret_label.setObjectName("fieldLabel")
+
+    creds_layout.addWidget(api_key_label)
+    creds_layout.addWidget(self.kite_api_key_input)
+    creds_layout.addWidget(api_secret_label)
+    creds_layout.addWidget(self.kite_api_secret_input)
+
+    bottom_options = QHBoxLayout()
+    bottom_options.setContentsMargins(0, 2, 0, 0)
+    bottom_options.setSpacing(8)
+    bottom_options.addWidget(self.save_kite_creds)
+    bottom_options.addStretch()
+    bottom_options.addWidget(self.relay_settings_btn)
+    creds_layout.addLayout(bottom_options)
+
+    layout.addWidget(title)
+    layout.addWidget(creds_panel)
+    layout.addWidget(redirect_hint)
+    layout.addStretch()
+    layout.addLayout(nav)
+    return page
 
     def _show_relay_settings(self):
         """Pops up the standalone relay settings dialog."""
@@ -542,41 +630,48 @@ class DualModeLoginManager(QDialog):
     # Page 3: Kite Token (auto-capture + manual fallback)
     # --------------------------------------------------------------------------
 
-    def _create_kite_token_page(self) -> QWidget:
-        page = QWidget()
-        layout = QVBoxLayout(page)
 
-        title = QLabel("Complete Kite Login")
-        title.setObjectName("pageTitle")
+def _create_kite_token_page(self) -> QWidget:
+    page = QWidget()
+    page.setObjectName("loginPage")
+    layout = QVBoxLayout(page)
+    layout.setContentsMargins(18, 14, 18, 14)
+    layout.setSpacing(10)
 
-        self.capture_status_label = QLabel("⏳ Waiting for browser login...")
-        self.capture_status_label.setObjectName("statusLabel")
-        self.capture_status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    title = QLabel("COMPLETE KITE LOGIN")
+    title.setObjectName("pageTitle")
+    title.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        separator = QLabel("— or paste manually —")
-        separator.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        separator.setObjectName("separatorLabel")
+    self.capture_status_label = QLabel("Waiting for browser login...")
+    self.capture_status_label.setObjectName("statusLabel")
+    self.capture_status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    self.capture_status_label.setWordWrap(True)
 
-        self.request_token_input = QLineEdit()
-        self.request_token_input.setPlaceholderText("Paste request_token here (fallback)")
+    separator = QLabel("MANUAL FALLBACK")
+    separator.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    separator.setObjectName("separatorLabel")
 
-        self.generate_session_btn = QPushButton("Generate Session")
-        self.generate_session_btn.setObjectName("primaryButton")
-        self.generate_session_btn.clicked.connect(self._complete_kite_login)
+    self.request_token_input = QLineEdit()
+    self.request_token_input.setObjectName("terminalInput")
+    self.request_token_input.setPlaceholderText("Paste request_token or full callback URL")
 
-        nav = self._create_nav_buttons(
-            back_slot=self._on_kite_token_back,
-        )
-        nav.addWidget(self.generate_session_btn)
+    self.generate_session_btn = QPushButton("Generate Session")
+    self.generate_session_btn.setObjectName("primaryButton")
+    self.generate_session_btn.clicked.connect(self._complete_kite_login)
 
-        layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.capture_status_label)
-        layout.addSpacing(20)
-        layout.addWidget(separator)
-        layout.addWidget(self.request_token_input)
-        layout.addStretch()
-        layout.addLayout(nav)
-        return page
+    nav = self._create_nav_buttons(
+        back_slot=self._on_kite_token_back,
+    )
+    nav.addWidget(self.generate_session_btn)
+
+    layout.addWidget(title)
+    layout.addWidget(self.capture_status_label)
+    layout.addSpacing(6)
+    layout.addWidget(separator)
+    layout.addWidget(self.request_token_input)
+    layout.addStretch()
+    layout.addLayout(nav)
+    return page
 
     def _on_kite_token_back(self):
         self._stop_request_token_server()
@@ -756,52 +851,70 @@ class DualModeLoginManager(QDialog):
     # Page 4: IBKR Connection
     # --------------------------------------------------------------------------
 
-    def _create_ibkr_connection_page(self) -> QWidget:
-        page = QWidget()
-        layout = QVBoxLayout(page)
 
-        title = QLabel("Interactive Brokers")
-        title.setObjectName("pageTitle")
+def _create_ibkr_connection_page(self) -> QWidget:
+    page = QWidget()
+    page.setObjectName("loginPage")
+    layout = QVBoxLayout(page)
+    layout.setContentsMargins(18, 14, 18, 14)
+    layout.setSpacing(10)
 
-        # Settings row
-        settings_layout = QHBoxLayout()
+    title = QLabel("INTERACTIVE BROKERS")
+    title.setObjectName("pageTitle")
+    title.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        host_col = QVBoxLayout()
-        self.ibkr_host_combo = QComboBox()
-        self.ibkr_host_combo.addItems(["::1 (IPv6 / localhost)", "127.0.0.1 (IPv4 / localhost)"])
-        host_col.addWidget(self.ibkr_host_combo)
+    settings_panel = QFrame()
+    settings_panel.setObjectName("inputPanel")
+    settings_layout = QHBoxLayout(settings_panel)
+    settings_layout.setContentsMargins(12, 10, 12, 10)
+    settings_layout.setSpacing(8)
 
-        client_id_col = QVBoxLayout()
-        self.ibkr_client_id_input = QSpinBox()
-        self.ibkr_client_id_input.setRange(1, 100)
-        self.ibkr_client_id_input.setValue(1)
-        client_id_col.addWidget(self.ibkr_client_id_input)
+    host_col = QVBoxLayout()
+    host_col.setSpacing(4)
+    host_label = QLabel("HOST")
+    host_label.setObjectName("fieldLabel")
+    self.ibkr_host_combo = QComboBox()
+    self.ibkr_host_combo.setObjectName("terminalInput")
+    self.ibkr_host_combo.addItems(["::1 (IPv6 / localhost)", "127.0.0.1 (IPv4 / localhost)"])
+    host_col.addWidget(host_label)
+    host_col.addWidget(self.ibkr_host_combo)
 
-        settings_layout.addLayout(host_col)
-        settings_layout.addLayout(client_id_col)
+    client_id_col = QVBoxLayout()
+    client_id_col.setSpacing(4)
+    client_label = QLabel("CLIENT ID")
+    client_label.setObjectName("fieldLabel")
+    self.ibkr_client_id_input = QSpinBox()
+    self.ibkr_client_id_input.setObjectName("terminalInput")
+    self.ibkr_client_id_input.setRange(1, 100)
+    self.ibkr_client_id_input.setValue(1)
+    client_id_col.addWidget(client_label)
+    client_id_col.addWidget(self.ibkr_client_id_input)
 
-        # Status area — QTextEdit handles long multi-line error messages cleanly
-        self.ibkr_status_display = QTextEdit()
-        self.ibkr_status_display.setObjectName("ibkrStatusDisplay")
-        self.ibkr_status_display.setReadOnly(True)
-        self.ibkr_status_display.setFixedHeight(160)
-        self.ibkr_status_display.setPlaceholderText(
-            "Status will appear here.\n\nMake sure IB Gateway or TWS is running and you're logged in."
-        )
+    settings_layout.addLayout(host_col, 2)
+    settings_layout.addLayout(client_id_col, 1)
 
-        self.connect_ibkr_btn = QPushButton("Connect")
-        self.connect_ibkr_btn.setObjectName("primaryButton")
-        self.connect_ibkr_btn.clicked.connect(self._connect_to_ibkr)
+    # Status area — QTextEdit handles long multi-line error messages cleanly
+    self.ibkr_status_display = QTextEdit()
+    self.ibkr_status_display.setObjectName("ibkrStatusDisplay")
+    self.ibkr_status_display.setReadOnly(True)
+    self.ibkr_status_display.setFixedHeight(150)
+    self.ibkr_status_display.setPlaceholderText(
+        "Status will appear here.\n\nMake sure IB Gateway or TWS is running and you're logged in."
+    )
 
-        nav = self._create_nav_buttons(back_slot=lambda: self.stacked_widget.setCurrentIndex(1))
-        nav.addWidget(self.connect_ibkr_btn)
+    self.connect_ibkr_btn = QPushButton("Connect")
+    self.connect_ibkr_btn.setObjectName("primaryButton")
+    self.connect_ibkr_btn.clicked.connect(self._connect_to_ibkr)
 
-        layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignCenter)
-        layout.addLayout(settings_layout)
-        layout.addWidget(self.ibkr_status_display)
-        layout.addStretch()
-        layout.addLayout(nav)
-        return page
+    nav = self._create_nav_buttons(back_slot=lambda: self.stacked_widget.setCurrentIndex(1))
+    nav.addWidget(self.connect_ibkr_btn)
+
+    layout.addWidget(title)
+    layout.addWidget(settings_panel)
+    layout.addWidget(self.ibkr_status_display)
+    layout.addStretch()
+    layout.addLayout(nav)
+    return page
 
     def _connect_to_ibkr(self):
         host = "::1" if self.ibkr_host_combo.currentIndex() == 0 else "127.0.0.1"
@@ -833,25 +946,30 @@ class DualModeLoginManager(QDialog):
     # Shared helpers
     # --------------------------------------------------------------------------
 
-    def _create_nav_buttons(
-        self,
-        back_slot=None,
-        continue_slot=None,
-        continue_text="Continue"
-    ) -> QHBoxLayout:
-        layout = QHBoxLayout()
-        if back_slot:
-            back_btn = QPushButton("← Back")
-            back_btn.setObjectName("secondaryButton")
-            back_btn.clicked.connect(back_slot)
-            layout.addWidget(back_btn)
-        layout.addStretch()
-        if continue_slot:
-            btn = QPushButton(continue_text)
-            btn.setObjectName("primaryButton")
-            btn.clicked.connect(continue_slot)
-            layout.addWidget(btn)
-        return layout
+
+def _create_nav_buttons(
+    self,
+    back_slot=None,
+    continue_slot=None,
+    continue_text="Continue"
+) -> QHBoxLayout:
+    layout = QHBoxLayout()
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(8)
+    if back_slot:
+        back_btn = QPushButton("Back")
+        back_btn.setObjectName("secondaryButton")
+        back_btn.setFixedHeight(30)
+        back_btn.clicked.connect(back_slot)
+        layout.addWidget(back_btn)
+    layout.addStretch()
+    if continue_slot:
+        btn = QPushButton(continue_text)
+        btn.setObjectName("primaryButton")
+        btn.setFixedHeight(30)
+        btn.clicked.connect(continue_slot)
+        layout.addWidget(btn)
+    return layout
 
     def get_authentication_data(self) -> Dict[str, Any]:
         return self.authentication_data
@@ -880,142 +998,364 @@ class DualModeLoginManager(QDialog):
     # Styles
     # --------------------------------------------------------------------------
 
-    def _apply_styles(self):
-        stylesheet = """
-            #mainContainer {
-                background-color: #0a0d12;
-                border-radius: 0px;
-                border: 1px solid #1a2030;
-            }
-            #titleBar {
-                background: #070a0f;
-                border-bottom: 1px solid #1a2030;
-            }
-            #dialogTitle {
-                font-size: 11px;
-                font-weight: 800;
-                color: #e8f0ff;
-                letter-spacing: 0.5px;
-            }
-            #closeButton {
-                background: transparent;
-                color: #5a7090;
-                border: none;
-                font-size: 16px;
-                border-radius: 4px;
-            }
-            #closeButton:hover { color: #ff4d6a; background: #2a1320; }
-            #pageTitle, #welcomeTitle {
-                font-size: 16px;
-                font-weight: 700;
-                color: #e5edf8;
-                margin-bottom: 2px;
-            }
-            #brokerPageTitle {
-                font-size: 16px;
-                font-weight: 500;
-                color: #8a95a5;
-                margin-bottom: 2px;
-            }
-            #inputPanel {
-                background: #0d121a;
-                border: 1px solid #1f2733;
-                border-radius: 7px;
-            }
-            QLineEdit, QComboBox, QSpinBox {
-                background: #101721;
-                border: 1px solid #253040;
-                border-radius: 5px;
-                padding: 7px 10px;
-                color: #e5edf8;
-                font-size: 12px;
-                min-height: 20px;
-            }
-            QLineEdit:focus, QComboBox:focus, QSpinBox:focus {
-                border-color: #52d894;
-            }
-            #primaryButton {
-                background: #2d9d68;
-                color: #e8fff2;
-                border: none;
-                border-radius: 5px;
-                padding: 8px 16px;
-                font-weight: 700;
-                font-size: 12px;
-                min-height: 32px;
-            }
-            #primaryButton:hover { background: #36b276; }
-            #primaryButton:disabled { background: #1b2733; color: #526176; }
-            #secondaryButton {
-                background: transparent;
-                color: #8693a6;
-                border: 1px solid #2a3342;
-                border-radius: 5px;
-                padding: 8px 16px;
-                font-size: 12px;
-                min-height: 32px;
-            }
-            #secondaryButton:hover { color: #e5edf8; border-color: #4f6078; }
-            #subtleActionButton {
-                background: transparent;
-                border: none;
-                color: #7f8fa5;
-                font-size: 11px;
-                text-decoration: underline;
-                padding: 2px;
-            }
-            #subtleActionButton:hover { color: #a2b2c9; }
-            #brokerCard {
-                background: #0d121a;
-                border: 1px solid #1f2733;
-                border-radius: 7px;
-                padding: 8px;
-            }
-            #brokerCard:hover { border-color: #52d894; }
-            #brokerCard[selected="true"] { border-color: #52d894; background: #101824; }
-            #brokerMarket {
-                color: #7c8ba2;
-                font-size: 10px;
-                letter-spacing: 0.8px;
-            }
-            #statusLabel {
-                color: #9ba9bc;
-                font-size: 12px;
-                padding: 8px;
-            }
-            #separatorLabel { color: #55647a; font-size: 10px; letter-spacing: 0.7px; }
-            #hintLabel { color: #6f7d91; font-size: 11px; margin-top: 4px; }
-            #ibkrStatusDisplay {
-                background: #091017;
-                border: 1px solid #1f2733;
-                border-radius: 6px;
-                color: #b8c6d9;
-                font-size: 12px;
-                font-family: monospace;
-                padding: 8px;
-            }
-            #modeFrame {
-                background: #0d121a;
-                border: 1px solid #1f2733;
-                border-radius: 6px;
-                padding: 8px;
-                margin-top: 8px;
-            }
-            QRadioButton { color: #c4d1e3; font-size: 12px; }
-            QRadioButton::indicator {
-                width: 12px;
-                height: 12px;
-            }
-            QRadioButton::indicator:unchecked {
-                border: 1px solid #3f4f66;
-                border-radius: 6px;
-                background: #0f1620;
-            }
-            QRadioButton::indicator:checked {
-                border: 1px solid #52d894;
-                border-radius: 6px;
-                background: #52d894;
-            }
-            QCheckBox { color: #c4d1e3; font-size: 12px; }
-        """
-        self.setStyleSheet(stylesheet)
+
+def _apply_styles(self):
+    stylesheet = f"""
+        * {{
+            font-family: {UI.SANS};
+        }}
+
+        DualModeLoginManager {{
+            background: {UI.BG0};
+        }}
+
+        #mainContainer {{
+            background-color: {UI.BG1};
+            border-radius: 2px;
+            border: 1px solid {UI.BG4};
+        }}
+
+        #titleBar {{
+            background: {UI.BG0};
+            border-bottom: 1px solid {UI.BG4};
+        }}
+
+        #dialogTitle {{
+            color: {UI.TEXT0};
+            font-family: {UI.MONO};
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 1.4px;
+            background: transparent;
+        }}
+
+        #titleBadge {{
+            color: {UI.CYAN};
+            background: rgba(0, 212, 255, 0.07);
+            border: 1px solid rgba(0, 212, 255, 0.20);
+            border-radius: 2px;
+            padding: 2px 6px;
+            font-family: {UI.MONO};
+            font-size: 8px;
+            font-weight: 800;
+            letter-spacing: 1px;
+        }}
+
+        #closeButton {{
+            background: transparent;
+            color: {UI.TEXT2};
+            border: none;
+            font-size: 12px;
+            border-radius: 2px;
+        }}
+
+        #closeButton:hover {{
+            color: {UI.RED};
+            background: rgba(255, 77, 106, 0.15);
+        }}
+
+        #loginStack,
+        QWidget#loginPage {{
+            background: {UI.BG1};
+        }}
+
+        #welcomeTitle,
+        #pageTitle,
+        #brokerPageTitle {{
+            color: {UI.TEXT0};
+            font-family: {UI.MONO};
+            font-size: 13px;
+            font-weight: 800;
+            letter-spacing: 1.6px;
+            background: transparent;
+        }}
+
+        #subTitle,
+        #sectionLabel,
+        #fieldLabel,
+        #separatorLabel {{
+            color: {UI.TEXT2};
+            font-family: {UI.MONO};
+            font-size: 9px;
+            font-weight: 800;
+            letter-spacing: 1.2px;
+            background: transparent;
+        }}
+
+        #statusLabel {{
+            color: {UI.TEXT1};
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid {UI.BG4};
+            border-radius: 2px;
+            font-size: 11px;
+            font-weight: 600;
+            padding: 7px 9px;
+        }}
+
+        #hintLabel {{
+            color: {UI.TEXT2};
+            background: transparent;
+            font-size: 10px;
+            font-weight: 600;
+            padding-left: 2px;
+        }}
+
+        #inputPanel,
+        #modeFrame {{
+            background: {UI.BG2};
+            border: 1px solid {UI.BG4};
+            border-radius: 2px;
+        }}
+
+        #brokerCard {{
+            background: {UI.BG2};
+            border: 1px solid {UI.BG4};
+            border-radius: 2px;
+        }}
+
+        #brokerCard:hover {{
+            background: {UI.BG3};
+            border-color: rgba(0, 212, 255, 0.38);
+        }}
+
+        #brokerCard[selected="true"] {{
+            background: {UI.BG3};
+            border: 1px solid {UI.AMBER};
+        }}
+
+        #brokerRegionBadge {{
+            color: {UI.AMBER};
+            background: rgba(245, 158, 11, 0.08);
+            border: 1px solid rgba(245, 158, 11, 0.22);
+            border-radius: 2px;
+            padding: 3px 8px;
+            font-family: {UI.MONO};
+            font-size: 9px;
+            font-weight: 800;
+            letter-spacing: 1.2px;
+            min-width: 70px;
+        }}
+
+        #brokerMarket {{
+            color: {UI.TEXT2};
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            background: transparent;
+        }}
+
+        #brokerRadio {{
+            color: {UI.TEXT1};
+            font-size: 11px;
+            font-weight: 700;
+            background: transparent;
+        }}
+
+        QLineEdit,
+        QComboBox,
+        QSpinBox {{
+            background: {UI.BG3};
+            border: 1px solid {UI.BG5};
+            border-radius: 2px;
+            padding: 5px 8px;
+            color: {UI.TEXT0};
+            selection-background-color: {UI.SELECTION};
+            selection-color: {UI.TEXT0};
+            font-family: {UI.MONO};
+            font-size: 11px;
+            font-weight: 650;
+            min-height: 18px;
+        }}
+
+        QLineEdit:focus,
+        QComboBox:focus,
+        QSpinBox:focus {{
+            border: 1px solid {UI.CYAN};
+            background: {UI.BG2};
+        }}
+
+        QLineEdit::placeholder {{
+            color: {UI.TEXT3};
+        }}
+
+        QComboBox::drop-down {{
+            width: 18px;
+            border: none;
+            background: transparent;
+        }}
+
+        QComboBox::down-arrow {{
+            image: none;
+            width: 0px;
+            height: 0px;
+            border-left: 4px solid transparent;
+            border-right: 4px solid transparent;
+            border-top: 5px solid {UI.TEXT2};
+            margin-right: 6px;
+        }}
+
+        QComboBox QAbstractItemView {{
+            background: {UI.BG2};
+            color: {UI.TEXT0};
+            border: 1px solid {UI.BG5};
+            selection-background-color: {UI.SELECTION};
+            selection-color: {UI.TEXT0};
+            outline: none;
+            padding: 2px;
+        }}
+
+        QSpinBox::up-button,
+        QSpinBox::down-button {{
+            width: 0px;
+            border: none;
+        }}
+
+        #primaryButton {{
+            background: rgba(0, 212, 168, 0.10);
+            color: {UI.GREEN};
+            border: 1px solid rgba(0, 212, 168, 0.36);
+            border-radius: 2px;
+            padding: 5px 14px;
+            font-family: {UI.MONO};
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 0.7px;
+            min-width: 112px;
+        }}
+
+        #primaryButton:hover {{
+            background: rgba(0, 212, 168, 0.17);
+            border-color: {UI.GREEN};
+            color: #baffea;
+        }}
+
+        #primaryButton:pressed {{
+            background: rgba(0, 212, 168, 0.22);
+        }}
+
+        #primaryButton:disabled {{
+            background: {UI.BG3};
+            color: {UI.TEXT3};
+            border-color: {UI.BG4};
+        }}
+
+        #secondaryButton {{
+            background: transparent;
+            color: {UI.TEXT1};
+            border: 1px solid {UI.BG5};
+            border-radius: 2px;
+            padding: 5px 14px;
+            font-family: {UI.MONO};
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 0.7px;
+            min-width: 80px;
+        }}
+
+        #secondaryButton:hover {{
+            color: {UI.TEXT0};
+            background: {UI.BG3};
+            border-color: {UI.TEXT2};
+        }}
+
+        #subtleActionButton {{
+            background: transparent;
+            border: 1px solid transparent;
+            color: {UI.CYAN};
+            border-radius: 2px;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 3px 6px;
+        }}
+
+        #subtleActionButton:hover {{
+            background: rgba(0, 212, 255, 0.08);
+            border-color: rgba(0, 212, 255, 0.20);
+            color: #b7f4ff;
+        }}
+
+        QRadioButton,
+        QCheckBox {{
+            color: {UI.TEXT1};
+            font-size: 11px;
+            font-weight: 700;
+            spacing: 6px;
+            background: transparent;
+        }}
+
+        QRadioButton::indicator {{
+            width: 12px;
+            height: 12px;
+            border-radius: 6px;
+        }}
+
+        QRadioButton::indicator:unchecked {{
+            border: 1px solid {UI.BG5};
+            background: {UI.BG1};
+        }}
+
+        QRadioButton::indicator:checked {{
+            border: 1px solid {UI.AMBER};
+            background: {UI.AMBER};
+        }}
+
+        QRadioButton::indicator:disabled {{
+            border-color: {UI.TEXT3};
+            background: {UI.BG2};
+        }}
+
+        QCheckBox::indicator {{
+            width: 13px;
+            height: 13px;
+            border-radius: 2px;
+            border: 1px solid {UI.BG5};
+            background: {UI.BG1};
+        }}
+
+        QCheckBox::indicator:checked {{
+            background: {UI.GREEN};
+            border-color: {UI.GREEN};
+        }}
+
+        #ibkrStatusDisplay {{
+            background: {UI.BG0};
+            border: 1px solid {UI.BG4};
+            border-radius: 2px;
+            color: {UI.TEXT1};
+            selection-background-color: {UI.SELECTION};
+            font-family: {UI.MONO};
+            font-size: 11px;
+            font-weight: 600;
+            padding: 7px;
+        }}
+
+        QTextEdit {{
+            background: {UI.BG0};
+            border: 1px solid {UI.BG4};
+            color: {UI.TEXT1};
+        }}
+
+        QScrollBar:vertical {{
+            background: transparent;
+            width: 4px;
+            border: none;
+        }}
+
+        QScrollBar::handle:vertical {{
+            background: {UI.BG5};
+            border-radius: 2px;
+            min-height: 20px;
+        }}
+
+        QScrollBar::handle:vertical:hover {{
+            background: {UI.TEXT2};
+        }}
+
+        QScrollBar::add-line:vertical,
+        QScrollBar::sub-line:vertical {{
+            height: 0;
+            border: none;
+        }}
+    """
+    self.setStyleSheet(stylesheet)
+
