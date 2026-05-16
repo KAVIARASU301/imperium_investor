@@ -57,6 +57,8 @@ def calculate_metrics(df: pd.DataFrame, moving_average_configs: List[Dict[str, A
         for item in ma_configs:
             span = max(1, int(item.get("period", 10) or 10))
             ma_type = str(item.get("type") or "ema").lower()
+            if ma_type not in {"ema", "sma"}:
+                continue
             key = str(item.get("id") or f"{ma_type}{span}")
             if ma_type == "sma":
                 df[key] = df["close"].rolling(window=span, min_periods=span).mean()

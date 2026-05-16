@@ -636,6 +636,13 @@ class CandlestickChart(QWidget):
             key = str(cfg.get("id") or "").strip()
             if key and key not in initial_indicator_visibility:
                 initial_indicator_visibility[key] = True
+        has_volume_indicator = any(
+            str(cfg.get("type") or "").lower() == "volume"
+            for cfg in self._moving_average_configs
+            if isinstance(cfg, dict)
+        )
+        up_volume_color = self._current_up_color if has_volume_indicator else self._current_volume_up_color
+        down_volume_color = self._current_down_color if has_volume_indicator else self._current_volume_down_color
         self._indicator_visibility = initial_indicator_visibility
         self.drawing_storage.save_global_indicator_visibility(self._indicator_visibility)
         self._apply_indicator_toolbar_state(initial_indicator_visibility)
@@ -688,8 +695,8 @@ class CandlestickChart(QWidget):
             candle_spacing              = self._current_candle_spacing,
             up_candle_color             = self._current_up_color,
             down_candle_color           = self._current_down_color,
-            up_volume_color             = self._current_volume_up_color,
-            down_volume_color           = self._current_volume_down_color,
+            up_volume_color             = up_volume_color,
+            down_volume_color           = down_volume_color,
             watermark_enabled           = self._watermark_enabled,
             watermark_color             = self._watermark_color,
             watermark_opacity           = self._watermark_opacity,

@@ -77,6 +77,7 @@ class IndicatorCatalogItem:
 _INDICATOR_CATALOG: List[IndicatorCatalogItem] = [
     IndicatorCatalogItem(type_id="ema", display_name="EMA", default_period=20, default_color="#2962ff"),
     IndicatorCatalogItem(type_id="sma", display_name="SMA", default_period=20, default_color="#ff9800"),
+    IndicatorCatalogItem(type_id="volume", display_name="Volume Bars", default_period=1, default_color="#00c896"),
 ]
 
 
@@ -730,6 +731,8 @@ class IndicatorLibraryDialog(QDialog):
 
     def _summary(self, item: Dict[str, Any]) -> str:
         disp = _catalog_display_name(str(item.get("type", "ema")))
+        if str(item.get("type", "")).lower() == "volume":
+            return disp
         return f"{disp} ({int(item.get('period', 20))})"
 
     def _style_summary(self, item: Dict[str, Any]) -> str:
@@ -789,7 +792,10 @@ class IndicatorLibraryDialog(QDialog):
                 1,
                 _table_item(item.display_name, _C.T_SYMBOL, Qt.AlignmentFlag.AlignLeft, bold=True),
             )
-            default_text = f"PERIOD {item.default_period} · {item.default_line_style.upper()} · {item.default_thickness:.1f}px"
+            if item.type_id == "volume":
+                default_text = "Uses candle up/down colors"
+            else:
+                default_text = f"PERIOD {item.default_period} · {item.default_line_style.upper()} · {item.default_thickness:.1f}px"
             default_item = _table_item(default_text, item.default_color, Qt.AlignmentFlag.AlignLeft, mono=True)
             self.available_table.setItem(idx, 2, default_item)
 
