@@ -1063,9 +1063,16 @@ class ChartinkScannerTable(QWidget):
         self.table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
 
-        # TC2000-inspired compact table density
+        # Match watchlist typography density
         self.table.verticalHeader().setDefaultSectionSize(24)
-        header_font = QFont("Segoe UI", 10)
+
+        # Match watchlist table font size
+        table_font = self.table.font()
+        table_font.setPointSize(12)
+        self.table.setFont(table_font)
+
+        # Match watchlist header font size
+        header_font = QFont("Segoe UI", 11)
         header_font.setBold(True)
         self.table.horizontalHeader().setFont(header_font)
         self.table.horizontalHeader().setSortIndicatorShown(False)

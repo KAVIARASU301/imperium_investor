@@ -1405,11 +1405,12 @@ class ChartinkScannerTable(QWidget):
         volume_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         change_pct_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        symbol_font = QFont("Segoe UI", 8)
+        # Match watchlist typography so scanner and watchlist rows feel identical.
+        symbol_font = QFont("Segoe UI", 9)
         symbol_font.setBold(True)
-        value_font = QFont("Consolas", 8)
+        value_font = QFont("Consolas", 9)
         value_font.setBold(False)
-        change_font = QFont("Consolas", 8)
+        change_font = QFont("Consolas", 9)
         change_font.setBold(True)
         symbol_item.setFont(symbol_font)
         price_item.setFont(value_font)
