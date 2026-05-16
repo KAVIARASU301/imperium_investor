@@ -79,7 +79,7 @@ class _C:
     CYAN = "#78cfe1"      # utility/focus, intentionally soft
     AMBER = "#d7a45d"     # alerts/warnings, muted amber
     BLUE = "#7fa6d8"      # informational
-    SEL = "#18283a"       # selected row
+    SEL = "#1f1f1f"       # selected row
 
     # Flag color (single-state)
     FLAG_GREEN = "#72cdb6"
@@ -1618,7 +1618,7 @@ class TabbedWatchlistWidget(QWidget):
                 border: 1px solid #222b38;
                 border-radius: 2px;
                 color: #d8e2ef;
-                selection-background-color: #18283a;
+                selection-background-color: #1f1f1f;
                 selection-color: #d8e2ef;
                 padding: 2px;
                 outline: none;
@@ -1661,7 +1661,7 @@ class TabbedWatchlistWidget(QWidget):
                 alternate-background-color: #10151c;
                 border: none;
                 gridline-color: transparent;
-                selection-background-color: #18283a;
+                selection-background-color: #1f1f1f;
                 color: #d8e2ef;
                 outline: none;
                 show-decoration-selected: 0;
@@ -1680,13 +1680,13 @@ class TabbedWatchlistWidget(QWidget):
             }
 
             TradingTable::item:selected {
-                background: #18283a !important;
+                background: #1f1f1f !important;
                 color: #d8e2ef;
                 outline: none;
             }
 
             TradingTable::item:focus {
-                background: #18283a !important;
+                background: #1f1f1f !important;
                 outline: none;
             }
 
@@ -1699,7 +1699,7 @@ class TabbedWatchlistWidget(QWidget):
             }
 
             TradingTable::item:alternate:selected {
-                background: #18283a !important;
+                background: #1f1f1f !important;
                 color: #d8e2ef;
             }
 
@@ -1740,7 +1740,7 @@ class TabbedWatchlistWidget(QWidget):
             }
             QMenu#wlCtxMenu::item:selected,
             QMenu#wlOptionsMenu::item:selected {
-                background: #18283a;
+                background: #1f1f1f;
                 color: #d8e2ef;
             }
             QMenu#wlCtxMenu::separator, QMenu#wlOptionsMenu::separator {

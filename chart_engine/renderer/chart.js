@@ -93,18 +93,18 @@ class FixedTradingChart {
 
         // ── Settings ──
         this.colors = {
-            bg:          '#0b0f18',
-            bgGradTop:   '#0d1320',
-            bgGradBot:   '#090c14',
-            grid:        '#1a2035',
-            gridMinor:   '#111826',
-            text:        '#8a95a8',
-            textBright:  '#c8d0e0',
-            crosshair:   'rgba(140,170,220,0.35)',
-            livePrice:   '#00bfff',
+            bg:          '#070707',
+            bgGradTop:   '#0a0a0a',
+            bgGradBot:   '#050505',
+            grid:        '#1f1f1f',
+            gridMinor:   '#141414',
+            text:        '#8f8f8f',
+            textBright:  '#d3d3d3',
+            crosshair:   'rgba(190,190,190,0.35)',
+            livePrice:   '#e5e5e5',
             upCandle:    cfg.upCandleColor   || '#00c896',
             downCandle:  cfg.downCandleColor || '#e84060',
-            dojiCandle:  '#5a7090',
+            dojiCandle:  '#6a6a6a',
             upWick:      '#009e78',
             downWick:    '#b83050',
         };
@@ -1339,11 +1339,11 @@ class FixedTradingChart {
         const ly     = Math.round(y - lh / 2);
 
         // Rectangular crosshair label
-        ctx.fillStyle = '#1e2d45';
+        ctx.fillStyle = '#171717';
         ctx.fillRect(lx, ly, lw, lh);
 
         // Border
-        ctx.strokeStyle = 'rgba(120,165,230,0.55)';
+        ctx.strokeStyle = 'rgba(185,185,185,0.55)';
         ctx.lineWidth   = 0.8;
         ctx.strokeRect(lx + 0.5, ly + 0.5, lw - 1, lh - 1);
 
@@ -1351,7 +1351,7 @@ class FixedTradingChart {
         ctx.font         = 'bold 10px "Segoe UI Mono", monospace';
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillStyle    = '#d4e6ff';
+        ctx.fillStyle    = '#ededed';
         ctx.fillText(plabel, lx + lw / 2, y);
 
         // ── Time label at bottom ────────────────────────────────────────────
@@ -1366,7 +1366,7 @@ class FixedTradingChart {
             const tly = this._paneBottom() + 1;
 
             // Rounded rect for time label
-            ctx.fillStyle = '#1e2d45';
+            ctx.fillStyle = '#171717';
             ctx.beginPath();
             const r = 3;
             ctx.moveTo(tlx + r, tly);
@@ -1381,11 +1381,11 @@ class FixedTradingChart {
             ctx.closePath();
             ctx.fill();
 
-            ctx.strokeStyle = 'rgba(120,165,230,0.4)';
+            ctx.strokeStyle = 'rgba(185,185,185,0.4)';
             ctx.lineWidth   = 0.7;
             ctx.stroke();
 
-            ctx.fillStyle    = '#c0d4f0';
+            ctx.fillStyle    = '#d6d6d6';
             ctx.textBaseline = 'middle';
             ctx.fillText(tlabel, x, tly + tlh / 2);
         }
@@ -2308,30 +2308,30 @@ class FixedTradingChart {
         const menu = document.createElement('div');
         menu.style.cssText = `
             position: fixed; left: ${clientX}px; top: ${clientY}px;
-            background: #0f1420; border: 1px solid #1e2840;
+            background: #101010; border: 1px solid #252525;
             border-radius: 6px; padding: 6px 0; z-index: 99999;
             box-shadow: 0 8px 24px rgba(0,0,0,0.6);
             font-family: "Segoe UI", sans-serif; font-size: 12px;
-            color: #c8d4e8; min-width: 200px; user-select: none;`;
+            color: #d8d8d8; min-width: 200px; user-select: none;`;
 
         items.forEach(item => {
             if (item.divider) {
                 const d = document.createElement('div');
-                d.style.cssText = 'height:1px; background:#1e2840; margin:4px 0;';
+                d.style.cssText = 'height:1px; background:#252525; margin:4px 0;';
                 menu.appendChild(d); return;
             }
             const mi = document.createElement('div');
             mi.style.cssText = `
                 padding: 7px 16px; cursor: pointer;
-                ${item.highlight ? 'background:rgba(50,100,200,0.12);' : ''}`;
+                ${item.highlight ? 'background:rgba(255,255,255,0.08);' : ''}`;
 
             mi.innerHTML = `
                 <div style="font-weight:${item.highlight ? '600' : '500'};
-                     color:${item.highlight ? '#90b8ff' : '#c8d4e8'};">${item.text}</div>
-                ${item.sub ? `<div style="font-size:10px;color:#5a7090;margin-top:2px;">${item.sub}</div>` : ''}`;
+                     color:${item.highlight ? '#f2f2f2' : '#d8d8d8'};">${item.text}</div>
+                ${item.sub ? `<div style="font-size:10px;color:#9a9a9a;margin-top:2px;">${item.sub}</div>` : ''}`;
 
-            mi.addEventListener('mouseenter', () => mi.style.background = item.highlight ? 'rgba(50,100,200,0.22)' : '#161e30');
-            mi.addEventListener('mouseleave', () => mi.style.background = item.highlight ? 'rgba(50,100,200,0.12)' : 'transparent');
+            mi.addEventListener('mouseenter', () => mi.style.background = item.highlight ? 'rgba(255,255,255,0.14)' : '#1a1a1a');
+            mi.addEventListener('mouseleave', () => mi.style.background = item.highlight ? 'rgba(255,255,255,0.08)' : 'transparent');
             mi.addEventListener('click', e => { e.stopPropagation(); item.action(); this._removeContextMenu(); });
             menu.appendChild(mi);
         });

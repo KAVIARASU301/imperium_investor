@@ -47,7 +47,7 @@ _T1 = "#9eacbc"
 _T2 = "#748396"
 _T3 = "#475466"
 _SYMBOL_TEXT = "#c2ccd9"  # clear symbol text without glowing white
-_SEL = "#18283a"
+_SEL = "#1f1f1f"
 _MONO = "'Consolas', 'JetBrains Mono', monospace"  # code, raw scan clauses, debug text only
 _SANS = "'Inter', 'Segoe UI Variable', 'Segoe UI', 'Noto Sans', Roboto, Arial, sans-serif"
 _NUM = "'Segoe UI Variable', 'Inter', 'Segoe UI', 'Noto Sans', sans-serif"
@@ -110,8 +110,8 @@ class VolumeStrengthDelegate(QStyledItemDelegate):
         if opt.state & QStyle.StateFlag.State_Selected:
             # Keep volume text/color stable during selection to avoid sudden text
             # color shifts while still indicating selected state.
-            empty_color = QColor(220, 235, 255, 60)
-            track_color = QColor(220, 235, 255, 40)
+            empty_color = QColor(210, 210, 210, 60)
+            track_color = QColor(190, 190, 190, 40)
 
         rect = opt.rect.adjusted(5, 0, -5, 0)
         segment_count = 3

@@ -683,7 +683,7 @@ class TradingTable(QTableWidget):
                 margin: 1px;
             }
             QMenu::item:selected {
-                background-color: #6a9cff;
+                background-color: #5e5e5e;
                 color: #ffffff;
             }
             QMenu::separator {
@@ -997,7 +997,7 @@ class TabbedWatchlistWidget(QWidget):
             /* Dynamic Tab Styling - Equal Width Distribution */
             QTabBar::tab {{
                 background-color: #1a1a1a;
-                color: #8892b0;
+                color: #9a9a9a;
                 padding: 6px 2px;
                 margin: 0px;
                 border: 1px solid #202020;
@@ -1018,8 +1018,8 @@ class TabbedWatchlistWidget(QWidget):
 
             QTabBar::tab:selected {{
                 background-color: #0a0a0a;
-                color: #6a9cff;
-                border-bottom: 2px solid #6a9cff;
+                color: #5e5e5e;
+                border-bottom: 2px solid #5e5e5e;
                 width: {tab_width_px};
                 min-width: {tab_width_px};
                 max-width: {tab_width_px};
@@ -1027,7 +1027,7 @@ class TabbedWatchlistWidget(QWidget):
 
             QTabBar::tab:hover:!selected {{
                 background-color: #2a2a2a;
-                color: #ccd6f6;
+                color: #d6d6d6;
                 width: {tab_width_px};
                 min-width: {tab_width_px};
                 max-width: {tab_width_px};
@@ -1038,7 +1038,7 @@ class TabbedWatchlistWidget(QWidget):
                 background-color: #0a0a0a;
                 border: none;
                 gridline-color: #2a2a2a;
-                selection-background-color: #1e3a5f;
+                selection-background-color: #252525;
                 alternate-background-color: #0f0f0f;
                 outline: none;
                 show-decoration-selected: 0;
@@ -1054,7 +1054,7 @@ class TabbedWatchlistWidget(QWidget):
             }}
 
             TradingTable::item:selected {{
-                background-color: #1e3a5f !important;
+                background-color: #252525 !important;
                 outline: none;
                 border: none;
                 color: #ffffff;
@@ -1062,7 +1062,7 @@ class TabbedWatchlistWidget(QWidget):
             }}
 
             TradingTable::item:focus {{
-                background-color: #1e3a5f !important;
+                background-color: #252525 !important;
                 outline: none;
                 border: none;
             }}
@@ -1076,7 +1076,7 @@ class TabbedWatchlistWidget(QWidget):
             }}
 
             TradingTable::item:alternate:selected {{
-                background-color: #1e3a5f !important;
+                background-color: #252525 !important;
                 color: #ffffff;
                 font-weight: 600;
             }}
@@ -1084,7 +1084,7 @@ class TabbedWatchlistWidget(QWidget):
             /* Header Styling - EXACT match to scanner table */
             QHeaderView::section {{
                 background-color: #1a1a1a;
-                color: #a0c0ff;
+                color: #bdbdbd;
                 padding: 3px 10px;
                 border: none;
                 border-bottom: 1px solid #303030;
@@ -1099,11 +1099,11 @@ class TabbedWatchlistWidget(QWidget):
 
             QHeaderView::section:hover {{
                 background-color: #2a2a2a;
-                color: #ccd6f6;
+                color: #d6d6d6;
             }}
 
             QHeaderView::down-arrow {{
-                color: #6a9cff;
+                color: #5e5e5e;
                 width: 8px;
                 height: 8px;
                 subcontrol-position: center right;
@@ -1112,7 +1112,7 @@ class TabbedWatchlistWidget(QWidget):
             }}
 
             QHeaderView::up-arrow {{
-                color: #6a9cff;
+                color: #5e5e5e;
                 width: 8px;
                 height: 8px;
                 subcontrol-position: center right;

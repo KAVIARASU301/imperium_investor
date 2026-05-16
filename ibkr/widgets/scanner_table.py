@@ -43,7 +43,7 @@ class VolumeStrengthDelegate(QStyledItemDelegate):
         QApplication.style().drawControl(QStyle.ControlElement.CE_ItemViewItem, opt, painter, opt.widget)
 
         level = max(0, min(3, int(index.data(VOLUME_STRENGTH_LEVEL_ROLE) or 0)))
-        fill_color = QColor(index.data(VOLUME_STRENGTH_COLOR_ROLE) or "#45d4ff")
+        fill_color = QColor(index.data(VOLUME_STRENGTH_COLOR_ROLE) or "#b8b8b8")
         track_color = QColor(fill_color)
         track_color.setAlpha(45)
         empty_color = QColor(70, 82, 98, 120)
@@ -51,8 +51,8 @@ class VolumeStrengthDelegate(QStyledItemDelegate):
         if opt.state & QStyle.StateFlag.State_Selected:
             # Keep volume text/color stable on row selection; only soften the track
             # so selected rows remain readable without drastic color flips.
-            empty_color = QColor(220, 235, 255, 60)
-            track_color = QColor(220, 235, 255, 40)
+            empty_color = QColor(210, 210, 210, 60)
+            track_color = QColor(190, 190, 190, 40)
 
         rect = opt.rect.adjusted(5, 0, -5, 0)
         segment_count = 3
@@ -322,7 +322,7 @@ class ModernAddScanDialog(QDialog):
                 subcontrol-origin: margin;
                 left: 10px;
                 padding: 0 5px;
-                color: #6a9cff;
+                color: #5e5e5e;
             }
 
             QLabel#fieldLabel {
@@ -339,14 +339,14 @@ class ModernAddScanDialog(QDialog):
                 color: #ffffff;
                 padding: 6px 8px;
                 font-size: 13px;
-                selection-background-color: #6a9cff;
+                selection-background-color: #5e5e5e;
                 font-family: "Segoe UI", sans-serif;
             }
             QTextEdit#minimalTextArea {
                 font-family: "Consolas", "Monaco", monospace;
             }
             QLineEdit#minimalInput:focus, QTextEdit#minimalTextArea:focus, QComboBox#minimalInput:focus {
-                border-color: #00d4ff;
+                border-color: #bfbfbf;
                 background-color: #1a1a1a;
             }
             QLineEdit#minimalInput::placeholder, QTextEdit#minimalTextArea::placeholder {
@@ -354,12 +354,12 @@ class ModernAddScanDialog(QDialog):
             }
 
             QFrame#helpFrame {
-                background-color: rgba(10, 10, 20, 0.7);
+                background-color: rgba(14, 14, 14, 0.82);
                 border: 1px solid rgba(40, 40, 60, 0.5);
                 border-radius: 6px;
             }
             QLabel#helpTitle {
-                color: #a0c0ff;
+                color: #bdbdbd;
                 font-size: 12px;
                 font-weight: 600;
                 margin-bottom: 5px;
@@ -379,11 +379,11 @@ class ModernAddScanDialog(QDialog):
                 min-width: 70px;
             }
             QPushButton#primaryMinimalButton {
-                background-color: #6a9cff;
+                background-color: #5e5e5e;
                 color: #ffffff;
             }
             QPushButton#primaryMinimalButton:hover {
-                background-color: #5a8be0;
+                background-color: #505050;
             }
             QPushButton#primaryMinimalButton:disabled {
                 background-color: #303030;
@@ -630,7 +630,7 @@ class ModernManageScansDialog(QDialog):
                 border: 1px solid #303030;
                 border-radius: 4px;
                 gridline-color: #202020;
-                selection-background-color: rgba(74, 122, 191, 0.2);
+                selection-background-color: rgba(255, 255, 255, 0.10);
                 selection-color: #ffffff;
                 font-size: 13px;
             }
@@ -640,7 +640,7 @@ class ModernManageScansDialog(QDialog):
                 background-color: transparent;
             }
             QTableWidget#minimalTable::item:selected {
-                background-color: rgba(74, 122, 191, 0.2);
+                background-color: rgba(255, 255, 255, 0.10);
                 color: #ffffff;
                 font-weight: 600;
             }
@@ -650,7 +650,7 @@ class ModernManageScansDialog(QDialog):
 
             QHeaderView::section {
                 background-color: #1a1a1a;
-                color: #a0c0ff;
+                color: #bdbdbd;
                 padding: 4px 8px;
                 border: none;
                 border-bottom: 1px solid #303030;
@@ -685,7 +685,7 @@ class ModernManageScansDialog(QDialog):
             }
 
             QLabel#infoLabel {
-                color: #a0c0ff;
+                color: #bdbdbd;
                 font-size: 12px;
                 font-weight: 500;
             }
@@ -699,11 +699,11 @@ class ModernManageScansDialog(QDialog):
                 min-width: 70px;
             }
             QPushButton#primaryMinimalButton {
-                background-color: #6a9cff;
+                background-color: #5e5e5e;
                 color: #ffffff;
             }
             QPushButton#primaryMinimalButton:hover {
-                background-color: #5a8be0;
+                background-color: #505050;
             }
             QPushButton#secondaryMinimalButton {
                 background-color: #303030;
@@ -832,7 +832,7 @@ class ChartinkScannerTable(QWidget):
         self._change_sort_state: Optional[str] = None  # None -> asc -> desc -> None
         self._color_theme = {
             "enable_volume_strength_indicator": False,
-            "tables": {"positive": "#26a69a", "negative": "#ef5350", "neutral": "#a9a9a9", "volume": "#45d4ff"}
+            "tables": {"positive": "#26a69a", "negative": "#ef5350", "neutral": "#a9a9a9", "volume": "#b8b8b8"}
         }
 
         self._setup_ui()
@@ -1165,7 +1165,7 @@ class ChartinkScannerTable(QWidget):
         volume_item.setData(VOLUME_STRENGTH_LEVEL_ROLE, volume_strength_level)
         volume_item.setData(
             VOLUME_STRENGTH_COLOR_ROLE,
-            self._color_theme.get("tables", {}).get("volume", "#45d4ff")
+            self._color_theme.get("tables", {}).get("volume", "#b8b8b8")
         )
         strength_label = f" | Strength: {volume_strength_level}/3" if show_volume_strength else ""
         volume_item.setToolTip(f"Reported volume: {volume:,.0f}{strength_label}")
@@ -1192,7 +1192,7 @@ class ChartinkScannerTable(QWidget):
         # Color the LTP and change % columns
         price_item.setForeground(color)
         change_pct_item.setForeground(color)
-        volume_item.setForeground(QColor(table_colors.get("volume", "#45d4ff")))
+        volume_item.setForeground(QColor(table_colors.get("volume", "#b8b8b8")))
 
         # Subtle directional tint in % change cell (keeps selected-row style readable)
         if directional_colors_enabled and change_pct > 0:
@@ -1767,7 +1767,7 @@ class ChartinkScannerTable(QWidget):
                 border-color: #505050;
             }
             QComboBox#minimalDropdown:focus {
-                border-color: #00d4ff;
+                border-color: #bfbfbf;
                 outline: none;
             }
             QComboBox#minimalDropdown:disabled {
@@ -1792,10 +1792,10 @@ class ChartinkScannerTable(QWidget):
             /* Dropdown List */
             QComboBox#minimalDropdown QAbstractItemView {
                 background-color: #1a1a1a;
-                border: 1px solid #6a9cff;
+                border: 1px solid #5e5e5e;
                 border-radius: 2px;
                 color: #ffffff;
-                selection-background-color: rgba(74, 122, 191, 0.2);
+                selection-background-color: rgba(255, 255, 255, 0.10);
                 selection-color: #ffffff;
                 padding: 1px;
                 outline: none;
@@ -1811,7 +1811,7 @@ class ChartinkScannerTable(QWidget):
                 background-color: #2a2a2a;
             }
             QComboBox#minimalDropdown QAbstractItemView::item:selected {
-                background-color: rgba(74, 122, 191, 0.2);
+                background-color: rgba(255, 255, 255, 0.10);
                 color: #ffffff;
             }
 
@@ -1827,7 +1827,7 @@ class ChartinkScannerTable(QWidget):
             }
             QPushButton#settingsMinimalButton:hover {
                 background-color: #121a25;
-                border-color: #00d4ff;
+                border-color: #bfbfbf;
             }
             QPushButton#settingsMinimalButton:pressed {
                 background-color: #1a1a1a;
