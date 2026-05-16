@@ -54,6 +54,7 @@ class ChartHtmlConfig:
     chart_type:              str   = "candle"
     initial_indicator_visibility:   Dict[str, bool] = field(default_factory=dict)
     info_visibility:        Dict[str, bool] = field(default_factory=dict)
+    price_scale_currency:   str   = ""
     qwebchannel_src:         str   = "qrc:///qtwebchannel/qwebchannel.js"
 
 
@@ -121,6 +122,7 @@ def build_chart_html(cfg: ChartHtmlConfig) -> str:
         "chartType":                 cfg.chart_type,
         "initialIndicatorVisibility": cfg.initial_indicator_visibility,
         "infoVisibility":            cfg.info_visibility,
+        "priceScaleCurrency":        (cfg.price_scale_currency or "").upper(),
     }
 
     data_json = json.dumps(data_obj)

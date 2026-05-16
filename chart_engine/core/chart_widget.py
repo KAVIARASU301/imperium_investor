@@ -601,6 +601,8 @@ class CandlestickChart(QWidget):
 
         # ── Path A: seamless reload on existing chart ─────────────────────
         if self.chart_view and self.current_state == ChartState.LOADED:
+            sym_upper = (self.current_symbol or "").upper()
+            price_scale_currency = "INR" if sym_upper.endswith((".NS", ".BO")) else "USD"
             payload_dict = {
                 "candlestickData":          candles,
                 "volumeData":               volumes,
@@ -617,6 +619,7 @@ class CandlestickChart(QWidget):
                 # viewPortStart/End which produces the wrong candle count.
                 "visibleCandleCount":       initial_zoom,
                 "chartType":                self.toolbar.get_chart_type(),
+                "priceScaleCurrency":       price_scale_currency,
             }
             self._js(f"if(window.chart) window.chart.loadNewData({json.dumps(payload_dict)});")
             self._update_symbol_info(df)
@@ -657,6 +660,7 @@ class CandlestickChart(QWidget):
             chart_type                  = self.toolbar.get_chart_type(),
             initial_indicator_visibility = initial_indicator_visibility,
             info_visibility            = dict(self._chart_info_visibility),
+            price_scale_currency       = "INR" if (self.current_symbol or "").upper().endswith((".NS", ".BO")) else "USD",
         )
 
         self._render_html(cfg)

@@ -83,6 +83,7 @@ class FixedTradingChart {
         this._renkoBoxPctIntraday = cfg.renkoBoxPctIntraday || 0.5;
         this._renkoBoxPctSwing = cfg.renkoBoxPctSwing || 1.5;
         this.currentSymbol = cfg.currentSymbol || '';
+        this.priceScaleCurrency = this._resolvePriceScaleCurrency(cfg.priceScaleCurrency, this.currentSymbol);
         this.currentSymbolDescription = cfg.watermarkDescription || '';
         this.showWatermarkDescription = cfg.showWatermarkDescription === true;
         this._intradayTimestampsAlreadyIst = null;
@@ -1874,7 +1875,7 @@ class FixedTradingChart {
 
         const axisX    = this.chartArea.x + this.chartArea.width;
         const axisW    = this.rightAxisWidth;
-        const axisTop  = this.chartArea.y;
+        const axisTop  = 0;
         const axisBot  = this.chartArea.y + this.chartArea.height;
 
         // ── Axis panel background ──────────────────────────────────────────
@@ -1904,7 +1905,7 @@ class FixedTradingChart {
         const tickLabelX        = axisX + tickLabelPadLeft;
         const tickLabelMaxW     = Math.max(0, axisW - tickLabelPadLeft - tickLabelPadRight);
 
-        ctx.font         = this._axisFont(10, 600);
+        ctx.font         = this._axisFont(10, 700);
         ctx.textAlign    = 'left';
         ctx.textBaseline = 'middle';
 
@@ -1936,6 +1937,24 @@ class FixedTradingChart {
             ctx.fillStyle = this.colors.textBright;
             ctx.fillText(p.toFixed(decimals), tickLabelX, y, tickLabelMaxW);
             lastY = y;
+        }
+
+        // Currency badge at top of price scale for mode clarity (INR/ USD).
+        const currencyLabel = this.priceScaleCurrency || '';
+        if (currencyLabel) {
+            const badgeTop = Math.max(4, this.chartArea.y - 24);
+            const badgeH = 18;
+            const badgeW = Math.max(34, Math.ceil(ctx.measureText(currencyLabel).width) + 14);
+            const badgeX = axisX + Math.max(2, Math.floor((axisW - badgeW) / 2));
+            ctx.fillStyle = '#121a2b';
+            ctx.fillRect(badgeX, badgeTop, badgeW, badgeH);
+            ctx.strokeStyle = 'rgba(96,134,194,0.95)';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(badgeX + 0.5, badgeTop + 0.5, badgeW - 1, badgeH - 1);
+            ctx.fillStyle = '#e4edff';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(currencyLabel, badgeX + badgeW / 2, badgeTop + badgeH / 2 + 0.5);
         }
     }
 
@@ -3935,6 +3954,7 @@ class FixedTradingChart {
             window.__CHART_DATA__.chartType = this._chartType;
         }
         this.currentSymbol = cfg.symbol || '';
+        this.priceScaleCurrency = this._resolvePriceScaleCurrency(cfg.priceScaleCurrency, this.currentSymbol);
         this.currentSymbolDescription = cfg.watermarkDescription || '';
         this.showWatermarkDescription = cfg.showWatermarkDescription === true;
         this._intradayTimestampsAlreadyIst = null;
@@ -4301,7 +4321,15 @@ class FixedTradingChart {
     }
 
     _axisFont(size, weight) {
-        return `${weight} ${size}px "Segoe UI", "Helvetica Neue", sans-serif`;
+        return `${weight} ${size}px "Inter", "Roboto Condensed", "Segoe UI", "Helvetica Neue", sans-serif`;
+    }
+
+    _resolvePriceScaleCurrency(explicitCurrency, symbol) {
+        const exp = String(explicitCurrency || '').trim().toUpperCase();
+        if (exp === 'INR' || exp === 'USD') return exp;
+        const sym = String(symbol || '').trim().toUpperCase();
+        if (sym.endsWith('.NS') || sym.endsWith('.BO')) return 'INR';
+        return 'USD';
     }
 
     _fmtVol(vol) {
