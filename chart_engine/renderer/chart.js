@@ -140,6 +140,7 @@ class FixedTradingChart {
         this.isUserZooming = false;
         this._rafPending = false;
         this._dirty = true;
+        this._lastInfoCandleIndex = -1;
         // Measure tool — ephemeral, zero DrawingEngine involvement
         this._measureStart = null;   // {x, y, price, time, candleIdx}
         this._measureEnd   = null;
@@ -2409,11 +2410,22 @@ class FixedTradingChart {
         const series = this._getPriceSeriesForRendering();
         const start = Math.max(0, this.viewPortStart);
         const end   = Math.min(series.length - 1, this.viewPortEnd);
-        const slice = series.slice(start, end + 1);
-        if (slice.length === 0) return;
+        if (end < start) return;
 
-        this.minPrice = Math.min(...slice.map(d => d.low));
-        this.maxPrice = Math.max(...slice.map(d => d.high));
+        let minPrice = Number.POSITIVE_INFINITY;
+        let maxPrice = Number.NEGATIVE_INFINITY;
+
+        for (let i = start; i <= end; i += 1) {
+            const d = series[i];
+            if (!d) continue;
+            if (d.low < minPrice) minPrice = d.low;
+            if (d.high > maxPrice) maxPrice = d.high;
+        }
+
+        if (!Number.isFinite(minPrice) || !Number.isFinite(maxPrice)) return;
+
+        this.minPrice = minPrice;
+        this.maxPrice = maxPrice;
 
         // Include EMA values in price range
         const firstT = series[start]?.time;
@@ -2722,7 +2734,9 @@ class FixedTradingChart {
     _updateCandleDetail(x) {
         const idx = this._xToCandle(x);
         if (idx < 0 || idx >= this.data.length) { this._displayLatestCandleDetails(); return; }
+        if (idx === this._lastInfoCandleIndex) return;
         const c = this.data[idx];
+        this._lastInfoCandleIndex = idx;
         this._renderPriceInfo(c, this._fmtTimeLabel(c.time), idx);
     }
 
@@ -2733,6 +2747,7 @@ class FixedTradingChart {
         const idx = this.data.length - 1;
         const c = this.data[idx];
         const dateStr = this._fmtDateLabel(c.time, true);
+        this._lastInfoCandleIndex = idx;
         this._renderPriceInfo(c, dateStr, idx);
     }
 

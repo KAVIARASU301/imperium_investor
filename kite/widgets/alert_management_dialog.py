@@ -59,25 +59,25 @@ _BG_SELECTED = "#1a2840"
 _BORDER_DARK = "#1a2030"
 _BORDER_LIGHT = "#243040"
 
-_TEXT_STRONG = "#d8e4f0"
-_SYMBOL_TEXT = "#b6c4d6"
-_TEXT = "#a8bcd4"
-_TEXT_MUTED = "#5a7090"
-_TEXT_FAINT = "#2a3a50"
+_TEXT_STRONG = "#cbd7e3"
+_SYMBOL_TEXT = "#b3c0ce"
+_TEXT = "#98aabd"
+_TEXT_MUTED = "#62758a"
+_TEXT_FAINT = "#35465a"
 
-_ACCENT = "#f59e0b"
-_GREEN = "#00d4a8"
-_RED = "#ff4d6a"
-_BLUE = "#3b82f6"
-_CYAN = "#00d4ff"
+_ACCENT = "#c89542"
+_GREEN = "#58bfa6"
+_RED = "#d86d7d"
+_BLUE = "#6f8fc8"
+_CYAN = "#69bdd2"
 
 _MONO_FAMILY = "Consolas"  # reserved for raw logs, IDs, code/debug text only
-_SANS = "'Inter', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif"
-_NUM = "'Inter', 'Segoe UI Variable', 'Segoe UI', sans-serif"
+_SANS = "'Inter', 'Segoe UI Variable', 'Segoe UI', 'Noto Sans', -apple-system, BlinkMacSystemFont, sans-serif"
+_NUM = "'Inter', 'Segoe UI Variable', 'Segoe UI', 'Noto Sans', sans-serif"
 _NUM_FONT = "Inter"
-_UI_FONT = "Segoe UI"
+_UI_FONT = "Inter"
 
-_ROW_H = 24
+_ROW_H = 25
 _DEFAULT_W = 860
 _DEFAULT_H = 520
 _MIN_W = 620
@@ -166,17 +166,19 @@ class _MetricChip(QFrame):
 
 
 class _ActionCell(QWidget):
-    """Transparent container for row action buttons."""
+    """Transparent container for compact row action buttons."""
 
     def __init__(self, *buttons: QToolButton, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
+        self.setFixedHeight(_ROW_H)
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(4, 3, 4, 3)
-        layout.setSpacing(6)
-        layout.addStretch()
+        # Keep this below the table row height; the old 3px top/bottom margin clipped DEL.
+        layout.setContentsMargins(2, 1, 2, 1)
+        layout.setSpacing(4)
+        layout.addStretch(1)
         for button in buttons:
             layout.addWidget(button)
-        layout.addStretch()
+        layout.addStretch(1)
         self.setStyleSheet("background: transparent;")
 
 
@@ -187,27 +189,28 @@ def _action_button(text: str, color: str, tooltip: str, callback: Callable[[], N
     button.setText(text)
     button.setToolTip(tooltip)
     button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-    button.setFixedHeight(22)
-    button.setMinimumWidth(34)
+    # Fixed size + zero padding prevents short labels like DEL from being clipped.
+    button.setFixedSize(32, 19)
     button.setStyleSheet(f"""
         QToolButton {{
-            background: {color}14;
+            background: {color}12;
             color: {color};
-            border: 1px solid {color}55;
+            border: 1px solid {color}44;
             border-radius: 2px;
-            padding: 1px 8px;
+            padding: 0px;
+            margin: 0px;
             font-family: {_SANS};
-            font-size: 9px;
-            font-weight: 800;
-            letter-spacing: 0.5px;
+            font-size: 8px;
+            font-weight: 600;
+            letter-spacing: 0.15px;
         }}
         QToolButton:hover {{
-            background: {color}26;
-            border-color: {color};
+            background: {color}20;
+            border-color: {color}aa;
             color: {_TEXT_STRONG};
         }}
         QToolButton:pressed {{
-            background: {color}40;
+            background: {color}30;
         }}
     """)
     button.clicked.connect(callback)
@@ -322,26 +325,17 @@ class AlertManagementDialog(QDialog):
     def _build_title_bar(self) -> QFrame:
         bar = QFrame()
         bar.setObjectName("alertTitleBar")
-        bar.setFixedHeight(34)
+        bar.setFixedHeight(30)
         bar.setCursor(QCursor(Qt.CursorShape.SizeAllCursor))
 
         layout = QHBoxLayout(bar)
         layout.setContentsMargins(12, 0, 8, 0)
         layout.setSpacing(10)
 
-        title_block = QWidget()
-        title_layout = QVBoxLayout(title_block)
-        title_layout.setContentsMargins(0, 0, 0, 0)
-        title_layout.setSpacing(0)
-
         title = QLabel("ALERT MANAGER")
         title.setObjectName("dialogTitle")
-        subtitle = QLabel("monitor · acknowledge · remove · open symbol")
-        subtitle.setObjectName("dialogSubtitle")
-        title_layout.addWidget(title)
-        title_layout.addWidget(subtitle)
 
-        layout.addWidget(title_block)
+        layout.addWidget(title)
         layout.addStretch()
 
         self._refresh_btn = self._title_button("↻", "Refresh")
@@ -445,7 +439,7 @@ class AlertManagementDialog(QDialog):
         for index, name in enumerate(headers):
             if name == "":
                 header.setSectionResizeMode(index, QHeaderView.ResizeMode.Fixed)
-                table.setColumnWidth(index, 92 if "Triggered" in headers else 58)
+                table.setColumnWidth(index, 76 if "Triggered" in headers else 44)
             elif name == "Symbol":
                 header.setSectionResizeMode(index, QHeaderView.ResizeMode.Fixed)
                 table.setColumnWidth(index, 118)
@@ -752,7 +746,7 @@ class AlertManagementDialog(QDialog):
         # use modern UI typography. Monospace is reserved only for raw logs/code/IDs.
         font = QFont(_NUM_FONT if mono else _UI_FONT, 9)
         font.setStyleHint(QFont.StyleHint.SansSerif)
-        font.setWeight(QFont.Weight.DemiBold if bold else QFont.Weight.Medium)
+        font.setWeight(QFont.Weight.Medium if bold else QFont.Weight.Normal)
         font.setKerning(True)
         item.setFont(font)
         return item
@@ -963,8 +957,8 @@ class AlertManagementDialog(QDialog):
             color: {_ACCENT};
             font-family: {_SANS};
             font-size: 11px;
-            font-weight: 900;
-            letter-spacing: 1.2px;
+            font-weight: 600;
+            letter-spacing: 0.7px;
             background: transparent;
         }}
 
@@ -972,7 +966,7 @@ class AlertManagementDialog(QDialog):
             color: {_TEXT_MUTED};
             font-family: {_SANS};
             font-size: 9px;
-            font-weight: 700;
+            font-weight: 500;
             letter-spacing: 0.3px;
             background: transparent;
         }}
@@ -984,7 +978,7 @@ class AlertManagementDialog(QDialog):
             border-radius: 2px;
             font-family: {_SANS};
             font-size: 9px;
-            font-weight: 900;
+            font-weight: 600;
         }}
 
         QToolButton#alertTitleBtn:hover {{
@@ -995,8 +989,8 @@ class AlertManagementDialog(QDialog):
 
         QToolButton#alertTitleBtn:checked {{
             color: {_CYAN};
-            border-color: rgba(0,212,255,0.35);
-            background: rgba(0,212,255,0.08);
+            border-color: rgba(105,189,210,0.32);
+            background: rgba(105,189,210,0.08);
         }}
 
         QToolButton#alertCloseBtn {{
@@ -1006,13 +1000,13 @@ class AlertManagementDialog(QDialog):
             border-radius: 2px;
             font-family: {_SANS};
             font-size: 11px;
-            font-weight: 900;
+            font-weight: 600;
         }}
 
         QToolButton#alertCloseBtn:hover {{
-            background: rgba(255,77,106,0.15);
+            background: rgba(216,109,125,0.12);
             color: {_RED};
-            border-color: rgba(255,77,106,0.35);
+            border-color: rgba(216,109,125,0.32);
         }}
 
         QFrame#summaryStrip {{
@@ -1030,7 +1024,7 @@ class AlertManagementDialog(QDialog):
             color: {_TEXT_MUTED};
             font-family: {_SANS};
             font-size: 8px;
-            font-weight: 900;
+            font-weight: 600;
             letter-spacing: 0.9px;
             background: transparent;
         }}
@@ -1038,7 +1032,7 @@ class AlertManagementDialog(QDialog):
         QLabel#metricValue {{
             font-family: {_NUM};
             font-size: 12px;
-            font-weight: 900;
+            font-weight: 600;
             background: transparent;
         }}
 
@@ -1046,7 +1040,7 @@ class AlertManagementDialog(QDialog):
             color: {_TEXT_FAINT};
             font-family: {_SANS};
             font-size: 9px;
-            font-weight: 700;
+            font-weight: 500;
             background: transparent;
         }}
 
@@ -1075,7 +1069,7 @@ class AlertManagementDialog(QDialog):
             margin-right: 2px;
             font-family: {_SANS};
             font-size: 9px;
-            font-weight: 900;
+            font-weight: 600;
             letter-spacing: 0.8px;
         }}
 
@@ -1132,7 +1126,7 @@ class AlertManagementDialog(QDialog):
             max-height: 23px;
             font-family: {_SANS};
             font-size: 8px;
-            font-weight: 900;
+            font-weight: 600;
             letter-spacing: 1px;
         }}
 
@@ -1155,7 +1149,7 @@ class AlertManagementDialog(QDialog):
             color: {_TEXT_MUTED};
             font-family: {_SANS};
             font-size: 9px;
-            font-weight: 800;
+            font-weight: 600;
             background: transparent;
         }}
 
@@ -1163,7 +1157,7 @@ class AlertManagementDialog(QDialog):
             color: {_TEXT_FAINT};
             font-family: {_SANS};
             font-size: 9px;
-            font-weight: 700;
+            font-weight: 500;
             background: transparent;
         }}
 
