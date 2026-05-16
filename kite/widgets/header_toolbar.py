@@ -505,32 +505,40 @@ class HeaderToolbar(QToolBar):
                 color: #e8f0ff;
             }
             #buyButton {
-                background-color: #0f1318;
-                color: #00d4a8;
-                border: 1px solid #1a2030;
-                padding: 3px 8px;
-                border-radius: 0px;
-                font-size: 9px;
-                font-weight: 700;
+                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 rgba(0, 212, 168, 0.16), stop:1 rgba(26, 243, 194, 0.10));
+                color: #94ffe0;
+                border: 1px solid #1f7e66;
+                border-radius: 3px;
+                padding: 2px;
             }
             #buyButton:hover {
-                background-color: #141920;
-                border: 1px solid #22c4a0;
-                color: #22c4a0;
+                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 rgba(0, 212, 168, 0.24), stop:1 rgba(26, 243, 194, 0.18));
+                border: 1px solid #27a081;
+                color: #c9ffee;
+            }
+            #buyButton:pressed {
+                background-color: rgba(0, 212, 168, 0.20);
+                border: 1px solid #30b893;
             }
             #sellButton {
-                background-color: #0f1318;
-                color: #ff4d6a;
-                border: 1px solid #1a2030;
-                padding: 3px 8px;
-                border-radius: 0px;
-                font-size: 9px;
-                font-weight: 700;
+                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 rgba(255, 77, 106, 0.16), stop:1 rgba(255, 112, 136, 0.10));
+                color: #ffd1da;
+                border: 1px solid #8d3848;
+                border-radius: 3px;
+                padding: 2px;
             }
             #sellButton:hover {
-                background-color: #141920;
-                border: 1px solid #ff4d6a;
-                color: #ff6b82;
+                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 rgba(255, 77, 106, 0.24), stop:1 rgba(255, 112, 136, 0.18));
+                border: 1px solid #b9475d;
+                color: #ffe6eb;
+            }
+            #sellButton:pressed {
+                background-color: rgba(255, 77, 106, 0.20);
+                border: 1px solid #d3566e;
             }
             #sectionGap { background: transparent; }
             #alertActionWidget {
@@ -588,26 +596,38 @@ class HeaderToolbar(QToolBar):
                 color: #b7f4ff;
             }
             #infoActionButton {
-                background-color: rgba(0, 212, 255, 0.05);
-                border: 1px solid transparent;
-                border-radius: 0px;
-                padding: 0px;
+                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 rgba(58, 160, 255, 0.16), stop:1 rgba(0, 212, 255, 0.10));
+                color: #cdeaff;
+                border: 1px solid #2d5c94;
+                border-radius: 3px;
+                padding: 2px;
             }
             #infoActionButton:hover {
-                background-color: rgba(255, 215, 0, 0.16);
-                border: 1px solid #f1c40f;
-                border-radius: 0px;
+                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 rgba(58, 160, 255, 0.24), stop:1 rgba(0, 212, 255, 0.18));
+                border: 1px solid #3f77bb;
+            }
+            #infoActionButton:pressed {
+                background-color: rgba(58, 160, 255, 0.20);
+                border: 1px solid #4a86d2;
             }
             #positionsActionButton {
-                background-color: rgba(0, 212, 255, 0.05);
-                border: 1px solid transparent;
-                border-radius: 0px;
-                padding: 0px;
+                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 rgba(156, 120, 255, 0.16), stop:1 rgba(111, 89, 217, 0.10));
+                color: #e7ddff;
+                border: 1px solid #5f4c93;
+                border-radius: 3px;
+                padding: 2px;
             }
             #positionsActionButton:hover {
-                background-color: rgba(139, 94, 60, 0.18);
-                border: 1px solid #8b5e3c;
-                border-radius: 0px;
+                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 rgba(156, 120, 255, 0.24), stop:1 rgba(111, 89, 217, 0.18));
+                border: 1px solid #7760bb;
+            }
+            #positionsActionButton:pressed {
+                background-color: rgba(156, 120, 255, 0.20);
+                border: 1px solid #8a70d1;
             }
             #accountInfoWidget {
                 background-color: rgba(255, 255, 255, 0.03);

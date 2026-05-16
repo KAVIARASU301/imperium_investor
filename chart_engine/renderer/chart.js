@@ -166,6 +166,8 @@ class FixedTradingChart {
             opacity:  typeof cfg.watermarkOpacity  === 'number' ? cfg.watermarkOpacity  : 0.06,
             position: cfg.watermarkPosition || 'mid_center',
             fontSize: cfg.watermarkFontSize || 0,
+            descriptionOpacity: typeof cfg.watermarkDescriptionOpacity === 'number' ? cfg.watermarkDescriptionOpacity : 0.08,
+            descriptionFontSize: cfg.watermarkDescriptionFontSize || 0,
         };
         this.indicatorScaleLabelsEnabled = cfg.indicatorScaleLabelsEnabled === true;
         this.crosshairSnapEnabled = cfg.crosshairSnapEnabled !== false;
@@ -2159,8 +2161,10 @@ class FixedTradingChart {
         ctx.fillText(this.currentSymbol, centerX, centerY - symbolYOffset);
 
         if (hasDescription) {
-            const descriptionFontSize = Math.max(14, Math.round(fontSize * 0.32));
-            ctx.globalAlpha = Math.max(0.01, Math.min(this.watermark.opacity * 0.5, 0.08));
+            const descriptionFontSize = this.watermark.descriptionFontSize > 0
+                ? this.watermark.descriptionFontSize
+                : Math.max(14, Math.round(fontSize * 0.32));
+            ctx.globalAlpha = Math.max(0.0, Math.min(1.0, this.watermark.descriptionOpacity));
             ctx.font        = `600 ${descriptionFontSize}px "Segoe UI", sans-serif`;
             ctx.fillText(this.currentSymbolDescription, centerX, centerY + Math.round(fontSize * 0.48));
         }
@@ -4073,6 +4077,8 @@ class FixedTradingChart {
         if (cfg.watermarkOpacity  !== undefined) this.watermark.opacity  = cfg.watermarkOpacity;
         if (cfg.watermarkPosition) this.watermark.position = cfg.watermarkPosition;
         if (cfg.watermarkFontSize !== undefined) this.watermark.fontSize = cfg.watermarkFontSize;
+        if (cfg.watermarkDescriptionOpacity !== undefined) this.watermark.descriptionOpacity = cfg.watermarkDescriptionOpacity;
+        if (cfg.watermarkDescriptionFontSize !== undefined) this.watermark.descriptionFontSize = cfg.watermarkDescriptionFontSize;
         if (cfg.showWatermarkDescription !== undefined)
             this.showWatermarkDescription = cfg.showWatermarkDescription === true;
         this._intradayTimestampsAlreadyIst = null;

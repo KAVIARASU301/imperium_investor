@@ -143,6 +143,8 @@ class CandlestickChart(QWidget):
         self._watermark_opacity         = self.global_chart_settings.get("watermark_opacity",  0.06)
         self._watermark_position        = self.global_chart_settings.get("watermark_position", "mid_center")
         self._watermark_font_size       = self.global_chart_settings.get("watermark_font_size", 0)
+        self._watermark_description_opacity = self.global_chart_settings.get("watermark_description_opacity", 0.08)
+        self._watermark_description_font_size = self.global_chart_settings.get("watermark_description_font_size", 0)
         self._indicator_scale_labels_enabled = self.global_chart_settings.get("indicator_scale_labels_enabled", False)
         self._crosshair_snap_enabled    = self.global_chart_settings.get("crosshair_snap_enabled", True)
         self._tool_selection_mode       = self.global_chart_settings.get("tool_selection_mode", "single_use")
@@ -647,6 +649,8 @@ class CandlestickChart(QWidget):
             watermark_opacity           = self._watermark_opacity,
             watermark_position          = self._watermark_position,
             watermark_font_size         = self._watermark_font_size,
+            watermark_description_opacity = self._watermark_description_opacity,
+            watermark_description_font_size = self._watermark_description_font_size,
             indicator_scale_labels_enabled = self._indicator_scale_labels_enabled,
             crosshair_snap_enabled      = self._crosshair_snap_enabled,
             tool_selection_mode         = self._tool_selection_mode,
@@ -1169,6 +1173,8 @@ class CandlestickChart(QWidget):
             "watermark_opacity":      self._watermark_opacity,
             "watermark_position":     self._watermark_position,
             "watermark_font_size":    self._watermark_font_size,
+            "watermark_description_opacity": self._watermark_description_opacity,
+            "watermark_description_font_size": self._watermark_description_font_size,
             "indicator_scale_labels_enabled": self._indicator_scale_labels_enabled,
             "crosshair_snap_enabled": self._crosshair_snap_enabled,
             "tool_selection_mode": self._tool_selection_mode,
@@ -1195,6 +1201,8 @@ class CandlestickChart(QWidget):
         self._watermark_opacity          = s.get("watermark_opacity",  self._watermark_opacity)
         self._watermark_position         = s.get("watermark_position", self._watermark_position)
         self._watermark_font_size        = int(s.get("watermark_font_size", self._watermark_font_size))
+        self._watermark_description_opacity = s.get("watermark_description_opacity", self._watermark_description_opacity)
+        self._watermark_description_font_size = int(s.get("watermark_description_font_size", self._watermark_description_font_size))
         self._indicator_scale_labels_enabled = s.get("indicator_scale_labels_enabled", self._indicator_scale_labels_enabled)
         self._crosshair_snap_enabled     = s.get("crosshair_snap_enabled", self._crosshair_snap_enabled)
         self._tool_selection_mode        = s.get("tool_selection_mode", self._tool_selection_mode)
@@ -1227,6 +1235,8 @@ class CandlestickChart(QWidget):
                 "watermarkOpacity": self._watermark_opacity,
                 "watermarkPosition":self._watermark_position,
                 "watermarkFontSize":self._watermark_font_size,
+                "watermarkDescriptionOpacity": self._watermark_description_opacity,
+                "watermarkDescriptionFontSize": self._watermark_description_font_size,
                 "indicatorScaleLabelsEnabled": self._indicator_scale_labels_enabled,
                 "crosshairSnapEnabled": self._crosshair_snap_enabled,
                 "toolSelectionMode": self._tool_selection_mode,

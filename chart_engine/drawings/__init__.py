@@ -28,6 +28,8 @@ _DEFAULT_GLOBAL_SETTINGS: Dict[str, Any] = {
     "watermark_opacity": 0.08,
     "watermark_position": "mid_center",
     "watermark_font_size": 0,
+    "watermark_description_opacity": 0.08,
+    "watermark_description_font_size": 0,
     "indicator_scale_labels_enabled": False,
     "crosshair_snap_enabled": True,
     "tool_selection_mode": "single_use",

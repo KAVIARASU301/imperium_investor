@@ -34,7 +34,7 @@ class ChartSettingsDialog(QDialog):
     def __init__(self, current_settings: Dict[str, Any], parent=None):
         super().__init__(parent)
         self.setWindowTitle("Chart Settings")
-        self.setFixedSize(380, 560)
+        self.setFixedSize(380, 620)
         self._s = dict(current_settings)          # working copy
         self._color_btns: Dict[str, QPushButton] = {}
         self._build_ui()
@@ -124,6 +124,19 @@ class ChartSettingsDialog(QDialog):
         self.wm_font_size.setValue(self._s.get("watermark_font_size", 0))
         self.wm_font_size.setToolTip("0 = auto size")
         layout.addRow("Watermark Font Size:", self.wm_font_size)
+
+        self.wm_description_opacity = QDoubleSpinBox()
+        self.wm_description_opacity.setRange(0.0, 1.0)
+        self.wm_description_opacity.setSingleStep(0.05)
+        self.wm_description_opacity.setDecimals(2)
+        self.wm_description_opacity.setValue(self._s.get("watermark_description_opacity", 0.08))
+        layout.addRow("Description Opacity:", self.wm_description_opacity)
+
+        self.wm_description_font_size = QSpinBox()
+        self.wm_description_font_size.setRange(0, 150)
+        self.wm_description_font_size.setValue(self._s.get("watermark_description_font_size", 0))
+        self.wm_description_font_size.setToolTip("0 = auto size")
+        layout.addRow("Description Font Size:", self.wm_description_font_size)
 
         tabs.addTab(display_tab, "Display")
 
@@ -224,6 +237,8 @@ class ChartSettingsDialog(QDialog):
             "watermark_opacity": self.wm_opacity.value(),
             "watermark_position": self.wm_position.currentData(),
             "watermark_font_size": self.wm_font_size.value(),
+            "watermark_description_opacity": self.wm_description_opacity.value(),
+            "watermark_description_font_size": self.wm_description_font_size.value(),
             "indicator_scale_labels_enabled": self.indicator_scale_labels_enabled.isChecked(),
             "crosshair_snap_enabled": self.crosshair_snap_enabled.isChecked(),
             "tool_selection_mode": self.tool_selection_mode.currentData(),

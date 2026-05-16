@@ -46,6 +46,8 @@ class ChartHtmlConfig:
     watermark_opacity:       float = 0.06
     watermark_position:      str   = "mid_center"
     watermark_font_size:     int   = 0
+    watermark_description_opacity: float = 0.08
+    watermark_description_font_size: int = 0
     indicator_scale_labels_enabled: bool = False
     crosshair_snap_enabled:  bool  = True
     tool_selection_mode:     str   = "single_use"
@@ -111,6 +113,8 @@ def build_chart_html(cfg: ChartHtmlConfig) -> str:
         "watermarkOpacity":          float(max(0.0, min(1.0, cfg.watermark_opacity))),
         "watermarkPosition":         cfg.watermark_position,
         "watermarkFontSize":         int(max(0, cfg.watermark_font_size)),
+        "watermarkDescriptionOpacity": float(max(0.0, min(1.0, cfg.watermark_description_opacity))),
+        "watermarkDescriptionFontSize": int(max(0, cfg.watermark_description_font_size)),
         "indicatorScaleLabelsEnabled": bool(cfg.indicator_scale_labels_enabled),
         "crosshairSnapEnabled":      bool(cfg.crosshair_snap_enabled),
         "toolSelectionMode":         cfg.tool_selection_mode,
