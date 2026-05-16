@@ -160,9 +160,13 @@ class HeaderToolbar(QToolBar):
 
         self._add_section_gap(4)
 
-        self.info_button = QPushButton("INFO")
-        self.info_button.setObjectName("tradingActionButton")
-        self.info_button.setFixedHeight(22)
+        self.info_button = QPushButton()
+        self.info_button.setObjectName("infoActionButton")
+        self.info_button.setFixedSize(24, 22)
+        self.info_button.setIconSize(QSize(12, 12))
+        info_icon_path = get_asset_path("icons", "info.svg", required=True)
+        if info_icon_path is not None:
+            self.info_button.setIcon(QIcon(str(info_icon_path)))
         self.info_button.clicked.connect(self._on_info_clicked)
         self.addWidget(self.info_button)
 
@@ -556,6 +560,17 @@ class HeaderToolbar(QToolBar):
                 background-color: rgba(0, 212, 255, 0.15);
                 border: 1px solid rgba(0, 212, 255, 0.35);
                 color: #b7f4ff;
+            }
+            #infoActionButton {
+                background-color: rgba(0, 212, 255, 0.05);
+                border: 1px solid #2a3342;
+                border-radius: 0px;
+                padding: 0px;
+            }
+            #infoActionButton:hover {
+                background-color: rgba(0, 212, 255, 0.18);
+                border: 1px solid #ffaa00;
+                border-radius: 0px;
             }
             #accountInfoWidget {
                 background-color: rgba(255, 255, 255, 0.03);

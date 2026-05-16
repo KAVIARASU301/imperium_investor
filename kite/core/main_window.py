@@ -1209,6 +1209,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         # Scanner & Watchlist → Chart
         self.chartink_scanner.symbol_selected.connect(self.candlestick_chart.on_search)
+        self.chartink_scanner.symbol_selected.connect(self.candlestick_chart_secondary.on_search)
         self.chartink_scanner.symbol_selected.connect(self._on_scanner_symbol_selected)
         # Re-evaluate subscription universe whenever scan results refresh or user scrolls
         self.chartink_scanner.scan_results_changed.connect(self._schedule_subscription_rebuild)
