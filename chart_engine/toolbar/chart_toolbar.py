@@ -339,6 +339,7 @@ class ChartToolbar(QFrame):
         self._favorite_tools = ["line", "horizontal_line", "note"]
         self._favorite_timeframes = ["minute", "5minute", "day"]
         self._tf_menu_items: Dict[str, TimeframeMenuItemWidget] = {}
+        self._drawing_menu_items: Dict[str, ToolMenuItemWidget] = {}
 
         # ── Public compat attributes ───────────────────────────────────────
         self.symbol_label:      Optional[QLabel]       = None
@@ -522,6 +523,7 @@ class ChartToolbar(QFrame):
                 ICON_ASSETS.get(tool_id) and tool_id,
                 self,
             )
+            self._drawing_menu_items[tool_id] = item
             item.triggered.connect(self._on_drawing_tool_from_menu)
             item.favorite_toggled.connect(self._on_fav_toggled)
             wa = QWidgetAction(self)
@@ -778,8 +780,20 @@ class ChartToolbar(QFrame):
         elif not is_fav and tool_id in self._favorite_tools:
             self._favorite_tools.remove(tool_id)
         self._rebuild_favorites_tray()
+        self._sync_drawing_menu_favorites_state()
         if not self._suppress_pref_events:
             self.toolbar_preferences_changed.emit(self.get_toolbar_preferences())
+
+    def _sync_drawing_menu_favorites_state(self) -> None:
+        favorite_set = set(self._favorite_tools)
+        for tool_id, item in self._drawing_menu_items.items():
+            should_be_checked = tool_id in favorite_set
+            if item.star.isChecked() == should_be_checked:
+                continue
+            item.star.blockSignals(True)
+            item.star.setChecked(should_be_checked)
+            item.star.setText("★" if should_be_checked else "☆")
+            item.star.blockSignals(False)
 
     def _on_tray_btn_clicked(self, tool_id: str, checked: bool) -> None:
         if checked:
@@ -910,6 +924,7 @@ class ChartToolbar(QFrame):
                 filtered = [str(tid) for tid in favorite_tools if str(tid) in all_tools]
                 self._favorite_tools = filtered
                 self._rebuild_favorites_tray()
+                self._sync_drawing_menu_favorites_state()
 
             all_tfs = {iv for _, iv, _ in TIMEFRAMES}
             favorite_tfs = prefs.get("favorite_timeframes")
