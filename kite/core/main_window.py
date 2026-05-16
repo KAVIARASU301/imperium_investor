@@ -1225,6 +1225,12 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.candlestick_chart.symbol_loaded.connect(self.header_toolbar.set_current_symbol)
         self.candlestick_chart.drawings_updated.connect(self._sync_drawings_to_secondary_chart)
         self.candlestick_chart_secondary.drawings_updated.connect(self._sync_drawings_to_primary_chart)
+        self.candlestick_chart.indicator_configs_updated.connect(
+            lambda configs: self._sync_indicator_configs_between_charts(self.candlestick_chart, configs)
+        )
+        self.candlestick_chart_secondary.indicator_configs_updated.connect(
+            lambda configs: self._sync_indicator_configs_between_charts(self.candlestick_chart_secondary, configs)
+        )
 
         if self.alert_system:
             self.candlestick_chart.alert_creation_requested.connect(self.alert_system.create_alert_from_chart)
@@ -1285,6 +1291,20 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             target_chart.set_drawings(json.loads(drawings_json))
         except Exception as exc:
             logger.error("Failed to sync drawings for %s: %s", symbol, exc)
+
+    def _sync_indicator_configs_between_charts(self, source_chart, configs: list[dict]) -> None:
+        """Keep both chart instances aligned when indicator manager applies changes."""
+        if source_chart is self.candlestick_chart:
+            target_chart = self.candlestick_chart_secondary
+        elif source_chart is self.candlestick_chart_secondary:
+            target_chart = self.candlestick_chart
+        else:
+            return
+
+        if target_chart is None:
+            return
+
+        target_chart.apply_indicator_configs(configs, reload_current_symbol=bool(target_chart.current_symbol))
 
 
     def _set_dual_chart_mode(self, enabled: bool):

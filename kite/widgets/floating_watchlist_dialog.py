@@ -46,7 +46,6 @@ from __future__ import annotations
 
 import json
 import logging
-from functools import partial
 from typing import Dict, List, Optional, Tuple
 
 from PySide6.QtCore import (
@@ -56,10 +55,10 @@ from PySide6.QtGui import (
     QColor, QFont, QBrush, QCursor, QMouseEvent, QKeyEvent, QPainter, QPen
 )
 from PySide6.QtWidgets import (
-    QWidget, QFrame, QLabel, QPushButton, QToolButton,
+    QWidget, QFrame, QLabel, QToolButton,
     QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
-    QHeaderView, QAbstractItemView, QMenu, QSizePolicy,
-    QComboBox, QDialog, QApplication
+    QHeaderView, QAbstractItemView, QMenu,
+    QComboBox, QDialog
 )
 
 logger = logging.getLogger(__name__)
@@ -69,35 +68,36 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 
 class _C:
-    # Backgrounds
-    BG0    = "#000000"    # OLED black — outermost shell
-    BG1    = "#08090d"    # dialog body
-    BG2    = "#0d1017"    # table rows
-    BG3    = "#0f1420"    # header / footer / tray
+    # Matte dark terminal layers
+    BG0    = "#050709"    # deepest app shell
+    BG1    = "#0a0d12"    # dialog/window body
+    BG2    = "#0f1318"    # table alternate rows / panels
+    BG3    = "#141920"    # hover / inner section
+    BGTB   = "#070a0f"    # title bar / footer
 
-    BORDER  = "#1a2535"
+    BORDER  = "#1a2030"
     BORDER2 = "#243040"
 
-    # Signal colours (TC2000 palette)
-    BULL     = "#00d4a8"   # teal-green
+    # Market semantics
+    BULL     = "#00d4a8"
     BULL_DIM = "#1a7a62"
-    BULL_BG  = "#0a2520"
-    BEAR     = "#ff4d6a"   # warm crimson
+    BULL_BG  = "#0a201a"
+    BEAR     = "#ff4d6a"
     BEAR_DIM = "#7a2030"
     BEAR_BG  = "#200a10"
     FLAT     = "#7a94b0"
 
     # Text hierarchy
-    T0 = "#e8f0ff"    # primary values
-    T1 = "#a8bcd4"    # secondary labels
-    T2 = "#5a7090"    # muted / axes
-    T3 = "#2a3a50"    # disabled / placeholder
+    T0 = "#e8f0ff"
+    T1 = "#a8bcd4"
+    T2 = "#5a7090"
+    T3 = "#2a3a50"
 
     # Accents
     CYAN  = "#00d4ff"
     AMBER = "#f59e0b"
     BLUE  = "#3b82f6"
-    SEL   = "#1a2840"   # selected row
+    SEL   = "#1a2840"
 
     # Flag palette (4-state cycle)
     FLAG_GREEN = "#00d4a8"
@@ -119,7 +119,7 @@ class _C:
 
 
 _MONO = "Consolas, 'JetBrains Mono', 'Courier New', monospace"
-_SANS = "'Segoe UI', -apple-system, Roboto, Arial, sans-serif"
+_SANS = "'Inter', 'Segoe UI', -apple-system, Roboto, Arial, sans-serif"
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  FLAG STORE — reuse the module-level singleton from watchlist_table
@@ -237,8 +237,8 @@ class FloatingWatchlistDialog(QDialog):
         )
         super().__init__(parent, flags)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
-        self.setMinimumSize(300, 200)
-        self.resize(340, 500)
+        self.setMinimumSize(320, 220)
+        self.resize(360, 500)
 
         # ── State ────────────────────────────────────────────────────────────
         # watchlists_meta: list of {"id": str, "name": str}
@@ -301,8 +301,8 @@ class FloatingWatchlistDialog(QDialog):
         bar.setCursor(QCursor(Qt.CursorShape.SizeAllCursor))
 
         h = QHBoxLayout(bar)
-        h.setContentsMargins(8, 0, 4, 0)
-        h.setSpacing(4)
+        h.setContentsMargins(8, 0, 5, 0)
+        h.setSpacing(5)
 
         self._dot = QLabel("●")
         self._dot.setObjectName("floatWlDot")
@@ -311,8 +311,14 @@ class FloatingWatchlistDialog(QDialog):
         title = QLabel("WATCHLIST")
         title.setObjectName("floatWlTitle")
 
+        self._count_badge = QLabel("0")
+        self._count_badge.setObjectName("floatWlBadge")
+        self._count_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._count_badge.setFixedHeight(16)
+
         h.addWidget(self._dot)
         h.addWidget(title)
+        h.addWidget(self._count_badge)
         h.addStretch()
 
         # Pin toggle
@@ -321,6 +327,7 @@ class FloatingWatchlistDialog(QDialog):
         self._pin_btn.setText("📌")
         self._pin_btn.setToolTip("Toggle always-on-top")
         self._pin_btn.setFixedSize(20, 20)
+        self._pin_btn.setProperty("active", True)
         self._pin_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._pin_btn.clicked.connect(self._toggle_pin)
 
@@ -354,10 +361,10 @@ class FloatingWatchlistDialog(QDialog):
         bar.setFixedHeight(26)
 
         h = QHBoxLayout(bar)
-        h.setContentsMargins(6, 0, 6, 0)
-        h.setSpacing(4)
+        h.setContentsMargins(7, 0, 7, 0)
+        h.setSpacing(5)
 
-        lbl = QLabel("LIST:")
+        lbl = QLabel("LIST")
         lbl.setObjectName("floatWlSelectorLabel")
         lbl.setFixedWidth(30)
         h.addWidget(lbl)
@@ -365,6 +372,7 @@ class FloatingWatchlistDialog(QDialog):
         self._wl_dropdown = QComboBox()
         self._wl_dropdown.setObjectName("floatWlDropdown")
         self._wl_dropdown.setMinimumHeight(20)
+        self._wl_dropdown.setMaximumHeight(20)
         self._wl_dropdown.currentIndexChanged.connect(self._on_dropdown_change)
         h.addWidget(self._wl_dropdown, 1)
 
@@ -379,10 +387,11 @@ class FloatingWatchlistDialog(QDialog):
         hdr.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
         hdr.setMinimumSectionSize(18)
         hdr.setHighlightSections(False)
+        hdr.setFixedHeight(21)
 
         # Flag: fixed narrow
         hdr.setSectionResizeMode(_COL_FLAG,   QHeaderView.ResizeMode.Fixed)
-        t.setColumnWidth(_COL_FLAG, 20)
+        t.setColumnWidth(_COL_FLAG, 18)
         # Symbol: stretches
         hdr.setSectionResizeMode(_COL_SYMBOL, QHeaderView.ResizeMode.Stretch)
         # Data: fit content
@@ -390,13 +399,15 @@ class FloatingWatchlistDialog(QDialog):
             hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
 
         t.verticalHeader().setVisible(False)
-        t.verticalHeader().setDefaultSectionSize(22)
+        t.verticalHeader().setDefaultSectionSize(21)
+        t.verticalHeader().setMinimumSectionSize(20)
 
         t.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         t.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         t.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        t.setShowGrid(True)
+        t.setShowGrid(False)
         t.setAlternatingRowColors(True)
+        t.setCornerButtonEnabled(False)
         t.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         t.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         t.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
@@ -413,11 +424,11 @@ class FloatingWatchlistDialog(QDialog):
     def _build_footer(self) -> QFrame:
         f = QFrame()
         f.setObjectName("floatWlFooter")
-        f.setFixedHeight(22)
+        f.setFixedHeight(24)
 
         h = QHBoxLayout(f)
         h.setContentsMargins(8, 0, 8, 0)
-        h.setSpacing(12)
+        h.setSpacing(10)
 
         self._sym_count_lbl = QLabel("0 symbols")
         self._sym_count_lbl.setObjectName("floatWlFooterLabel")
@@ -481,6 +492,9 @@ class FloatingWatchlistDialog(QDialog):
 
     def _toggle_pin(self):
         self._pinned = not self._pinned
+        self._pin_btn.setProperty("active", self._pinned)
+        self._pin_btn.style().unpolish(self._pin_btn)
+        self._pin_btn.style().polish(self._pin_btn)
         flags = self.windowFlags()
         if self._pinned:
             flags |= Qt.WindowType.WindowStaysOnTopHint
@@ -662,7 +676,9 @@ class FloatingWatchlistDialog(QDialog):
             rec = data.get(sym, {})
             self._write_row(row, sym, rec)
 
-        self._sym_count_lbl.setText(f"{len(sorted_syms)} symbols")
+        count = len(sorted_syms)
+        self._sym_count_lbl.setText(f"{count} symbols")
+        self._count_badge.setText(str(count) if count < 1000 else "999+")
         self._dot.setStyleSheet(
             f"color: {'#00d4a8' if sorted_syms else '#2a3a50'}; background: transparent;"
         )
@@ -676,11 +692,13 @@ class FloatingWatchlistDialog(QDialog):
         chg_pct   = rec.get("change_pct", 0.0)
 
         fg_chg, bg_chg = _C.change_color(chg_pct)
+        row_bg = QColor(_C.BG1 if row % 2 == 0 else _C.BG2)
 
-        # Ensure items exist
+        # Ensure items exist and keep all cells aligned to the compact row base.
         for col in range(_NUM_COLS):
             if not self.table.item(row, col):
                 self.table.setItem(row, col, QTableWidgetItem())
+            self.table.item(row, col).setBackground(QBrush(row_bg))
 
         # ── Flag ──
         self._paint_flag_cell(row, sym)
@@ -693,7 +711,8 @@ class FloatingWatchlistDialog(QDialog):
             sym_item.setTextAlignment(
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
             )
-            f = QFont("Segoe UI", 9)
+            f = QFont("Consolas, JetBrains Mono, Courier New")
+            f.setPointSize(9)
             f.setBold(True)
             sym_item.setFont(f)
 
@@ -705,7 +724,9 @@ class FloatingWatchlistDialog(QDialog):
             ltp_item.setTextAlignment(
                 Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
             )
-            ltp_item.setFont(QFont("Consolas", 9))
+            f = QFont("Consolas, JetBrains Mono, Courier New")
+            f.setPointSize(9)
+            ltp_item.setFont(f)
 
         # ── Volume ──
         vol_item = self.table.item(row, _COL_VOL)
@@ -716,7 +737,9 @@ class FloatingWatchlistDialog(QDialog):
                 Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
             )
             vol_item.setToolTip(f"Volume: {volume:,}")
-            vol_item.setFont(QFont("Consolas", 9))
+            f = QFont("Consolas, JetBrains Mono, Courier New")
+            f.setPointSize(9)
+            vol_item.setFont(f)
 
         # ── Chg% ──
         chg_item = self.table.item(row, _COL_CHG)
@@ -726,11 +749,14 @@ class FloatingWatchlistDialog(QDialog):
             )
             chg_item.setForeground(QColor(fg_chg))
             chg_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            chg_item.setFont(QFont("Consolas", 9))
+            f = QFont("Consolas, JetBrains Mono, Courier New")
+            f.setPointSize(9)
+            f.setBold(abs(chg_pct) >= 1.0)
+            chg_item.setFont(f)
             if bg_chg:
                 chg_item.setBackground(QBrush(QColor(bg_chg)))
             else:
-                chg_item.setBackground(QBrush(QColor(_C.BG2)))
+                chg_item.setBackground(QBrush(row_bg))
 
     def _paint_flag_cell(self, row: int, symbol: str):
         flag_store = _get_flag_store()
@@ -744,7 +770,7 @@ class FloatingWatchlistDialog(QDialog):
         item.setForeground(QColor(color))
         item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
         item.setToolTip(_FLAG_TOOLTIP[state])
-        f = QFont()
+        f = QFont("Consolas, JetBrains Mono, Courier New")
         f.setPointSize(8)
         item.setFont(f)
 
@@ -827,28 +853,28 @@ class FloatingWatchlistDialog(QDialog):
         menu = QMenu(self)
         menu.setObjectName("floatWlCtxMenu")
 
-        chart_act = menu.addAction("📈  Open Chart")
+        chart_act = menu.addAction("OPEN CHART")
         chart_act.triggered.connect(lambda: self.symbol_chart_requested.emit(sym))
 
         flag_store = _get_flag_store()
         state = flag_store.get(sym) if flag_store else None
-        next_labels = {None: "⚑ Flag (Green)", "green": "⚑ Upgrade (Amber)",
-                       "amber": "⚑ Upgrade (Red)", "red": "⚑ Clear Flag"}
-        flag_act = menu.addAction(next_labels.get(state, "⚑ Flag"))
+        next_labels = {None: "FLAG GREEN", "green": "FLAG AMBER",
+                       "amber": "FLAG RED", "red": "CLEAR FLAG"}
+        flag_act = menu.addAction(next_labels.get(state, "FLAG"))
         flag_act.triggered.connect(lambda: self._cycle_flag(row, sym))
 
         menu.addSeparator()
 
         buy_act  = menu.addAction("BUY")
         sell_act = menu.addAction("SELL")
-        bo_act   = menu.addAction("Bracket Order")
+        bo_act   = menu.addAction("BRACKET ORDER")
         buy_act.triggered.connect(lambda: self.advanced_buy_order_requested.emit(sym))
         sell_act.triggered.connect(lambda: self.advanced_sell_order_requested.emit(sym))
         bo_act.triggered.connect(lambda: self.bracket_order_requested.emit(sym))
 
         menu.addSeparator()
 
-        rm_act = menu.addAction("✕  Remove from Watchlist")
+        rm_act = menu.addAction("REMOVE FROM WATCHLIST")
         rm_act.triggered.connect(
             lambda: self.symbol_removed_from_watchlist.emit(
                 self._active_wl_id or "", sym
@@ -928,15 +954,15 @@ class FloatingWatchlistDialog(QDialog):
                 border-radius: 2px;
             }}
 
-            /* ── Title bar ──────────────────────────────────────────── */
+            /* Title bar */
             QFrame#floatWlTitleBar {{
-                background: {_C.BG3};
+                background: {_C.BGTB};
                 border-bottom: 1px solid {_C.BORDER};
             }}
             QLabel#floatWlDot {{
-                font-size: 7px;
                 color: {_C.BULL};
                 background: transparent;
+                font-size: 7px;
             }}
             QLabel#floatWlTitle {{
                 color: {_C.T1};
@@ -948,124 +974,144 @@ class FloatingWatchlistDialog(QDialog):
             }}
             QLabel#floatWlBadge {{
                 color: {_C.CYAN};
-                background: rgba(0,212,255,0.10);
-                border: 1px solid rgba(0,212,255,0.20);
+                background: rgba(0,212,255,0.08);
+                border: 1px solid rgba(0,212,255,0.24);
                 border-radius: 2px;
                 font-family: {_MONO};
                 font-size: 8px;
-                font-weight: 700;
-                padding: 0 4px;
-                min-width: 16px;
+                font-weight: 800;
+                padding: 0 5px;
+                min-width: 18px;
             }}
             QToolButton#floatWlBarBtn {{
                 background: transparent;
                 color: {_C.T2};
                 border: none;
-                font-size: 10px;
                 border-radius: 2px;
+                font-size: 10px;
+                padding: 0;
             }}
             QToolButton#floatWlBarBtn:hover {{
                 background: rgba(255,255,255,0.07);
                 color: {_C.T0};
             }}
+            QToolButton#floatWlBarBtn[active="true"] {{
+                color: {_C.CYAN};
+            }}
             QToolButton#floatWlCloseBtn {{
                 background: transparent;
                 color: {_C.T2};
                 border: none;
-                font-size: 10px;
                 border-radius: 2px;
+                font-size: 10px;
+                padding: 0;
             }}
             QToolButton#floatWlCloseBtn:hover {{
                 background: rgba(255,77,106,0.15);
                 color: {_C.BEAR};
             }}
 
-            /* ── Watchlist selector ─────────────────────────────────── */
+            /* Watchlist selector */
             QFrame#floatWlSelectorBar {{
-                background: {_C.BG3};
+                background: {_C.BG1};
                 border-bottom: 1px solid {_C.BORDER};
             }}
             QLabel#floatWlSelectorLabel {{
                 color: {_C.T2};
                 font-family: {_SANS};
                 font-size: 8px;
-                font-weight: 700;
+                font-weight: 800;
                 letter-spacing: 1px;
                 background: transparent;
             }}
             QComboBox#floatWlDropdown {{
-                background: {_C.BG1};
+                background: {_C.BG2};
                 color: {_C.T0};
                 border: 1px solid {_C.BORDER};
                 border-radius: 2px;
                 font-family: {_SANS};
-                font-size: 11px;
-                padding: 2px 6px;
+                font-size: 10px;
+                font-weight: 700;
+                padding: 1px 22px 1px 7px;
+                min-height: 18px;
+                max-height: 20px;
+            }}
+            QComboBox#floatWlDropdown:hover {{
+                border-color: {_C.BORDER2};
+                background: {_C.BG3};
             }}
             QComboBox#floatWlDropdown:focus {{
                 border-color: {_C.CYAN};
             }}
             QComboBox#floatWlDropdown::drop-down {{
-                border: none; width: 16px;
+                border: none;
+                width: 18px;
+                background: transparent;
             }}
             QComboBox#floatWlDropdown::down-arrow {{
                 image: none;
                 border-left: 4px solid transparent;
                 border-right: 4px solid transparent;
                 border-top: 4px solid {_C.T2};
-                margin-right: 4px;
+                margin-right: 5px;
             }}
             QComboBox#floatWlDropdown QAbstractItemView {{
                 background: {_C.BG1};
                 border: 1px solid {_C.BORDER};
                 color: {_C.T0};
                 selection-background-color: {_C.SEL};
+                selection-color: {_C.T0};
+                outline: none;
+                padding: 2px;
             }}
 
-            /* ── Table ──────────────────────────────────────────────── */
+            /* Compact table */
             QTableWidget#floatWlTable {{
                 background: {_C.BG1};
                 alternate-background-color: {_C.BG2};
-                gridline-color: {_C.BORDER};
+                gridline-color: transparent;
                 border: none;
                 outline: none;
-                selection-background-color: transparent;
+                selection-background-color: {_C.SEL};
+                selection-color: {_C.T0};
                 font-family: {_MONO};
                 font-size: 11px;
             }}
             QTableWidget#floatWlTable::item {{
                 padding: 0 5px;
-                border-bottom: 1px solid {_C.BORDER};
+                border-bottom: 1px solid {_C.BG3};
             }}
             QTableWidget#floatWlTable::item:selected {{
                 background: {_C.SEL};
                 color: {_C.T0};
             }}
             QTableWidget#floatWlTable::item:hover {{
-                background: #141c28;
+                background: {_C.BG3};
             }}
             QHeaderView::section {{
-                background: {_C.BG3};
+                background: {_C.BG2};
                 color: {_C.T2};
                 font-family: {_SANS};
                 font-size: 8px;
                 font-weight: 800;
                 letter-spacing: 1px;
+                text-transform: uppercase;
                 border: none;
                 border-bottom: 1px solid {_C.BORDER};
                 padding: 0 5px;
             }}
 
-            /* ── Footer ─────────────────────────────────────────────── */
+            /* Footer */
             QFrame#floatWlFooter {{
-                background: {_C.BG3};
+                background: {_C.BGTB};
                 border-top: 1px solid {_C.BORDER};
             }}
             QLabel#floatWlFooterLabel {{
                 color: {_C.T2};
                 font-family: {_SANS};
                 font-size: 9px;
-                font-weight: 600;
+                font-weight: 700;
+                letter-spacing: 0.4px;
                 background: transparent;
             }}
             QLabel#floatWlFooterHint {{
@@ -1076,18 +1122,19 @@ class FloatingWatchlistDialog(QDialog):
                 letter-spacing: 0.3px;
             }}
 
-            /* ── Context menu ───────────────────────────────────────── */
+            /* Context menu */
             QMenu#floatWlCtxMenu {{
-                background: #0c121e;
+                background: {_C.BG1};
                 border: 1px solid {_C.BORDER};
-                border-radius: 4px;
-                padding: 4px 0;
+                border-radius: 2px;
+                padding: 3px 0;
                 font-family: {_SANS};
                 font-size: 11px;
                 color: {_C.T0};
             }}
             QMenu#floatWlCtxMenu::item {{
-                padding: 6px 16px;
+                padding: 5px 14px;
+                background: transparent;
             }}
             QMenu#floatWlCtxMenu::item:selected {{
                 background: {_C.SEL};
@@ -1099,7 +1146,7 @@ class FloatingWatchlistDialog(QDialog):
                 margin: 3px 8px;
             }}
 
-            /* ── Scrollbars ─────────────────────────────────────────── */
+            /* Scrollbars */
             QScrollBar:vertical {{
                 background: transparent;
                 width: 4px;
@@ -1110,9 +1157,29 @@ class FloatingWatchlistDialog(QDialog):
                 border-radius: 2px;
                 min-height: 20px;
             }}
-            QScrollBar::handle:vertical:hover {{ background: {_C.T2}; }}
+            QScrollBar::handle:vertical:hover {{
+                background: {_C.T2};
+            }}
             QScrollBar::add-line:vertical,
-            QScrollBar::sub-line:vertical {{ height: 0; border: none; }}
+            QScrollBar::sub-line:vertical {{
+                height: 0;
+                border: none;
+            }}
+            QScrollBar:horizontal {{
+                background: transparent;
+                height: 4px;
+                border: none;
+            }}
+            QScrollBar::handle:horizontal {{
+                background: {_C.BORDER2};
+                border-radius: 2px;
+                min-width: 20px;
+            }}
+            QScrollBar::add-line:horizontal,
+            QScrollBar::sub-line:horizontal {{
+                width: 0;
+                border: none;
+            }}
         """)
 
 

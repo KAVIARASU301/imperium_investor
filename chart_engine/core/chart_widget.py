@@ -89,6 +89,7 @@ class CandlestickChart(QWidget):
     data_request_for_symbol    = Signal(str)
     chart_bridge_ready         = Signal()
     drawings_updated           = Signal(str, str)  # (symbol, drawings_json)
+    indicator_configs_updated  = Signal(list)      # moving-average indicator configs
 
     def __init__(
         self,
@@ -467,11 +468,16 @@ class CandlestickChart(QWidget):
     def _open_indicator_library(self) -> None:
         dlg = IndicatorLibraryDialog(self._moving_average_configs, self)
         if dlg.exec():
-            self._moving_average_configs = dlg.selected_payload()
-            self.global_chart_settings["moving_average_configs"] = self._moving_average_configs
-            self.drawing_storage.save_global_settings(self.global_chart_settings)
-            if self.current_symbol:
-                self.load_chart(self.current_symbol, self.current_interval)
+            self.apply_indicator_configs(dlg.selected_payload(), reload_current_symbol=True)
+            self.indicator_configs_updated.emit([dict(item) for item in self._moving_average_configs])
+
+    def apply_indicator_configs(self, configs: list[dict], reload_current_symbol: bool = True) -> None:
+        """Apply/persist indicator configs and optionally refresh the current symbol."""
+        self._moving_average_configs = [dict(item) for item in (configs or []) if isinstance(item, dict)]
+        self.global_chart_settings["moving_average_configs"] = self._moving_average_configs
+        self.drawing_storage.save_global_settings(self.global_chart_settings)
+        if reload_current_symbol and self.current_symbol:
+            self.load_chart(self.current_symbol, self.current_interval)
 
     def _on_timeframe_selected(self, index: int) -> None:
         if not self.toolbar.timeframe_dropdown:
