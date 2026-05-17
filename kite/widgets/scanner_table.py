@@ -1080,6 +1080,7 @@ class ChartinkScannerTable(QWidget):
         self._change_sort_state: Optional[str] = None  # None -> asc -> desc -> None
         self._color_theme = {
             "enable_volume_strength_indicator": False,
+            "show_table_vertical_lines": False,
             "tables": {"positive": "#72cdb6", "negative": "#e07a84", "neutral": "#7f90a3", "volume": "#78cfe1"}
         }
 
@@ -1133,6 +1134,7 @@ class ChartinkScannerTable(QWidget):
 
     def apply_color_theme(self, theme: Dict):
         self._color_theme = theme or self._color_theme
+        self.table.setShowGrid(bool(self._color_theme.get("show_table_vertical_lines", False)))
         self.table.setColumnHidden(2, not bool(self._color_theme.get("show_scanner_volume_column", True)))
         for symbol, row in self._symbol_to_row.items():
             data = self._symbol_data.get(symbol)
@@ -1321,7 +1323,7 @@ class ChartinkScannerTable(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setShowGrid(False)
+        self.table.setShowGrid(bool(self._color_theme.get("show_table_vertical_lines", False)))
         self.table.setAlternatingRowColors(True)
         self.table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
@@ -1991,6 +1993,9 @@ class ChartinkScannerTable(QWidget):
 
     def _apply_enhanced_styles(self):
         """Institutional Dark Trading Terminal UI styling."""
+        show_vertical_lines = bool(self._color_theme.get("show_table_vertical_lines", False))
+        gridline_color = "rgba(116,131,150,0.26)" if show_vertical_lines else "transparent"
+
         self.setStyleSheet(f"""
             QWidget {{
                 background-color: {_BG0};
@@ -2118,7 +2123,7 @@ class ChartinkScannerTable(QWidget):
                 background-color: {_BG1};
                 alternate-background-color: {_BG2};
                 border: none;
-                gridline-color: transparent;
+                gridline-color: {gridline_color};
                 selection-background-color: {_SEL};
                 selection-color: {_T0};
                 color: {_T0};

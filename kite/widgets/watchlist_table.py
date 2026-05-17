@@ -391,6 +391,9 @@ class _RenameDialog(QDialog):
         self._drag_pos = None
 
     def _apply_dialog_style(self):
+        show_vertical_lines = bool(self._color_theme.get("show_table_vertical_lines", False))
+        gridline_color = "rgba(116,131,150,0.26)" if show_vertical_lines else "transparent"
+
         self.setStyleSheet(f"""
             QFrame#nameDialogContainer {{
                 background: {_C.BG1};
@@ -581,6 +584,9 @@ class _AddWatchlistDialog(QDialog):
         self._drag_pos = None
 
     def _apply_dialog_style(self):
+        show_vertical_lines = bool(self._color_theme.get("show_table_vertical_lines", False))
+        gridline_color = "rgba(116,131,150,0.26)" if show_vertical_lines else "transparent"
+
         self.setStyleSheet(f"""
             QFrame#nameDialogContainer {{
                 background: {_C.BG1};
@@ -711,7 +717,7 @@ class TradingTable(QTableWidget):
         self._symbols: List[str] = []  # ordered list
         self._dirty: set = set()
 
-        self._color_theme: Dict = {}
+        self._color_theme: Dict = {"show_table_vertical_lines": False}
         self._sort_col: int = _COL_SYMBOL
         self._sort_asc: bool = True
         self._chg_sort_state = None  # None -> asc -> desc -> None
@@ -761,7 +767,7 @@ class TradingTable(QTableWidget):
         self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.setShowGrid(False)
+        self.setShowGrid(bool(self._color_theme.get("show_table_vertical_lines", False)))
         self.setAlternatingRowColors(True)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -866,6 +872,7 @@ class TradingTable(QTableWidget):
 
     def apply_color_theme(self, theme: Dict) -> None:
         self._color_theme = theme
+        self.setShowGrid(bool(self._color_theme.get("show_table_vertical_lines", False)))
         self.setColumnHidden(_COL_VOL, not bool(self._color_theme.get("show_watchlist_volume_column", True)))
         for sym, row in self._symbol_to_row.items():
             data = self._watchlist_data.get(sym)
@@ -1769,7 +1776,7 @@ class TabbedWatchlistWidget(QWidget):
                 background: #0a0e13;
                 alternate-background-color: #10151c;
                 border: none;
-                gridline-color: transparent;
+                gridline-color: {gridline_color};
                 selection-background-color: #1f1f1f;
                 color: #d8e2ef;
                 outline: none;

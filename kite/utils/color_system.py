@@ -10,6 +10,7 @@ DEFAULT_COLOR_THEME: Dict[str, Any] = {
     "link_all_sections": True,
     "enable_table_directional_colors": True,
     "enable_volume_strength_indicator": False,
+    "show_table_vertical_lines": False,
     "show_scanner_volume_column": False,
     "show_watchlist_volume_column": False,
     "scanner_live_ticks": False,
@@ -80,6 +81,9 @@ class ColorThemeManager(QObject):
         )
         merged["enable_volume_strength_indicator"] = bool(
             custom.get("enable_volume_strength_indicator", merged["enable_volume_strength_indicator"])
+        )
+        merged["show_table_vertical_lines"] = bool(
+            custom.get("show_table_vertical_lines", merged["show_table_vertical_lines"])
         )
         merged["show_scanner_volume_column"] = bool(
             custom.get("show_scanner_volume_column", merged["show_scanner_volume_column"])

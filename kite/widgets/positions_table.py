@@ -234,6 +234,7 @@ class PositionsTable(QWidget):
 
         self._color_theme: Dict = {
             "enable_table_directional_colors": False,
+            "show_table_vertical_lines": False,
             "tables": {
                 "positive": _GREEN,
                 "negative": _RED,
@@ -282,7 +283,7 @@ class PositionsTable(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setShowGrid(False)
+        self.table.setShowGrid(bool(self._color_theme.get("show_table_vertical_lines", False)))
         self.table.setAlternatingRowColors(True)
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -690,6 +691,9 @@ class PositionsTable(QWidget):
     # ══════════════════════════════════════════════════════════════════════════
 
     def _apply_styles(self):
+        show_vertical_lines = bool(self._color_theme.get("show_table_vertical_lines", False))
+        gridline_color = "rgba(111,129,148,0.28)" if show_vertical_lines else "transparent"
+
         self.setStyleSheet(f"""
             QWidget {{
                 background-color: {_BG_APP};
@@ -703,7 +707,7 @@ class PositionsTable(QWidget):
                 background-color: {_BG_BASE};
                 alternate-background-color: {_BG_ALT};
                 border: none;
-                gridline-color: transparent;
+                gridline-color: {gridline_color};
                 selection-background-color: {_BG_SEL};
                 selection-color: {_T0};
                 color: {_T0};
@@ -877,6 +881,8 @@ class PositionsTable(QWidget):
 
     def apply_color_theme(self, theme: Dict):
         self._color_theme = theme or self._color_theme
+        self.table.setShowGrid(bool(self._color_theme.get("show_table_vertical_lines", False)))
+        self._apply_styles()
         for sym, row in self.symbol_to_row.items():
             pos = self.positions_data.get(sym)
             if pos:
