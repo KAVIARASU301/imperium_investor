@@ -186,23 +186,6 @@ class HeaderToolbar(QToolBar):
         search_layout.setContentsMargins(6, 2, 6, 2)
         search_layout.setSpacing(5)
 
-        symbol_label = QLabel("SYMBOL")
-        symbol_label.setObjectName("symbolLabel")
-        symbol_label.setFont(_modern_font(9, QFont.Weight.ExtraBold))
-        search_layout.addWidget(symbol_label)
-
-        self.search_input = EnhancedSearchInput()
-        self.search_input.setPlaceholderText("Symbol / company…")
-        self.search_input.setObjectName("enhancedSymbolSearch")
-        self.search_input.setFixedHeight(_CONTROL_H)
-        self.search_input.setFont(_modern_font(10, QFont.Weight.DemiBold))
-        self.search_input.setMinimumWidth(126)
-        self.search_input.setMaximumWidth(176)
-
-        # Fast symbol commit path used by the app search/index system.
-        self.search_input.symbol_selected.connect(self._on_symbol_committed)
-        search_layout.addWidget(self.search_input)
-
         self.buy_button = self._make_icon_button(
             object_name="buyButton",
             icon_name="plus.svg",
@@ -229,6 +212,23 @@ class HeaderToolbar(QToolBar):
         )
         self.info_button.clicked.connect(self._on_info_clicked)
         search_layout.addWidget(self.info_button)
+
+        symbol_label = QLabel("SYMBOL")
+        symbol_label.setObjectName("symbolLabel")
+        symbol_label.setFont(_modern_font(9, QFont.Weight.ExtraBold))
+        search_layout.addWidget(symbol_label)
+
+        self.search_input = EnhancedSearchInput()
+        self.search_input.setPlaceholderText("Symbol / company…")
+        self.search_input.setObjectName("enhancedSymbolSearch")
+        self.search_input.setFixedHeight(_CONTROL_H)
+        self.search_input.setFont(_modern_font(10, QFont.Weight.DemiBold))
+        self.search_input.setMinimumWidth(126)
+        self.search_input.setMaximumWidth(176)
+
+        # Fast symbol commit path used by the app search/index system.
+        self.search_input.symbol_selected.connect(self._on_symbol_committed)
+        search_layout.addWidget(self.search_input)
 
         self.positions_button = self._make_icon_button(
             object_name="positionsActionButton",
