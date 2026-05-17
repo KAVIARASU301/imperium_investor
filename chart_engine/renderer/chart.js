@@ -1164,13 +1164,17 @@ class FixedTradingChart {
         ctx.fillStyle = '#0f1420';
         ctx.fillRect(axisX, axisTop, axisW, axisBot - axisTop);
 
-        // ── Left border line of axis panel ────────────────────────────────
+        // ── Border lines of axis panel (left divider + right edge) ───────
         ctx.strokeStyle = 'rgba(40,60,100,0.7)';
         ctx.lineWidth   = 1;
         ctx.setLineDash([]);
         ctx.beginPath();
-        ctx.moveTo(axisX, axisTop);
-        ctx.lineTo(axisX, axisBot);
+        // Left divider between chart pane and price scale
+        ctx.moveTo(axisX + 0.5, axisTop);
+        ctx.lineTo(axisX + 0.5, axisBot);
+        // Right edge to frame the scale in dual-chart mode
+        ctx.moveTo(axisX + axisW - 0.5, axisTop);
+        ctx.lineTo(axisX + axisW - 0.5, axisBot);
         ctx.stroke();
 
         // ── Price ticks & labels ──────────────────────────────────────────
