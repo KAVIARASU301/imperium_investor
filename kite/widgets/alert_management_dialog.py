@@ -143,31 +143,6 @@ class _ResizeGrip(QWidget):
         super().mouseReleaseEvent(event)
 
 
-class _MetricChip(QFrame):
-    """Compact count chip used in the header summary strip."""
-
-    def __init__(self, label: str, accent: str, parent: Optional[QWidget] = None) -> None:
-        super().__init__(parent)
-        self.setObjectName("metricChip")
-        self._accent = accent
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 4, 10, 4)
-        layout.setSpacing(8)
-
-        self._label = QLabel(label.upper())
-        self._label.setObjectName("metricLabel")
-        self._value = QLabel("0")
-        self._value.setObjectName("metricValue")
-        self._value.setStyleSheet(f"color: {accent};")
-
-        layout.addWidget(self._label)
-        layout.addWidget(self._value)
-
-    def set_value(self, value: int) -> None:
-        self._value.setText(str(value))
-
-
 class _ActionCell(QWidget):
     """Transparent container for compact row action buttons."""
 
@@ -400,13 +375,6 @@ class AlertManagementDialog(QDialog):
         layout.setContentsMargins(10, 6, 10, 6)
         layout.setSpacing(8)
 
-        self._active_chip = _MetricChip("Active", _GREEN)
-        self._triggered_chip = _MetricChip("Triggered", _ACCENT)
-        self._history_chip = _MetricChip("History", _BLUE)
-
-        layout.addWidget(self._active_chip)
-        layout.addWidget(self._triggered_chip)
-        layout.addWidget(self._history_chip)
         layout.addStretch()
 
         self._market_hint = QLabel("auto refresh 3s")
@@ -622,10 +590,6 @@ class AlertManagementDialog(QDialog):
         self.tabs.setTabText(0, f"ACTIVE  {len(active)}")
         self.tabs.setTabText(1, f"TRIGGERED  {len(triggered)}")
         self.tabs.setTabText(2, f"HISTORY  {len(history)}")
-
-        self._active_chip.set_value(len(active))
-        self._triggered_chip.set_value(len(triggered))
-        self._history_chip.set_value(len(history))
 
         if active or triggered or history:
             self._status_lbl.setText(
@@ -1047,28 +1011,6 @@ class AlertManagementDialog(QDialog):
         QFrame#summaryStrip {{
             background: {_BG_PANEL};
             border-bottom: 1px solid {_BORDER_DARK};
-        }}
-
-        QFrame#metricChip {{
-            background: {_BG_PANEL_ALT};
-            border: 1px solid {_BORDER_DARK};
-            border-radius: 2px;
-        }}
-
-        QLabel#metricLabel {{
-            color: {_TEXT_MUTED};
-            font-family: {_SANS};
-            font-size: 8px;
-            font-weight: 600;
-            letter-spacing: 0.9px;
-            background: transparent;
-        }}
-
-        QLabel#metricValue {{
-            font-family: {_NUM};
-            font-size: 12px;
-            font-weight: 600;
-            background: transparent;
         }}
 
         QLabel#marketHint {{
