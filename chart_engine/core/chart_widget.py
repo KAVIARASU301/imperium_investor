@@ -128,6 +128,7 @@ class CandlestickChart(QWidget):
         self._current_volume_down_color = self.global_chart_settings.get("down_volume_color", "#e84060")
         self._current_candle_width      = self.global_chart_settings.get("candle_width",   3)
         self._current_candle_spacing    = self.global_chart_settings.get("candle_spacing", 3)
+        self._right_buffer_candles      = int(self.global_chart_settings.get("right_buffer_candles", 20))
         self._watermark_enabled         = self.global_chart_settings.get("watermark_enabled",  True)
         self._show_watermark_description = self.global_chart_settings.get("show_watermark_description", True)
         self._watermark_color           = self.global_chart_settings.get("watermark_color",    "#ffffff")
@@ -707,6 +708,7 @@ class CandlestickChart(QWidget):
                 "visibleCandleCount":       initial_zoom,
                 "chartType":                self.toolbar.get_chart_type(),
                 "priceScaleCurrency":       price_scale_currency,
+                "rightBufferCandles":       self._right_buffer_candles,
                 "movingAverageConfigs":      self._moving_average_configs,
                 "initialIndicatorVisibility": self._indicator_visibility,
             }
@@ -732,6 +734,7 @@ class CandlestickChart(QWidget):
             visible_candle_count        = initial_zoom,
             candle_width                = self._current_candle_width,
             candle_spacing              = self._current_candle_spacing,
+            right_buffer_candles        = self._right_buffer_candles,
             up_candle_color             = self._current_up_color,
             down_candle_color           = self._current_down_color,
             up_volume_color             = up_volume_color,
@@ -1282,6 +1285,7 @@ class CandlestickChart(QWidget):
         current = {
             "candle_width":           self._current_candle_width,
             "candle_spacing":         self._current_candle_spacing,
+            "right_buffer_candles":   self._right_buffer_candles,
             "default_visible_candles": self.current_visible_candle_count,
             "up_candle_color":        self._current_up_color,
             "down_candle_color":      self._current_down_color,
@@ -1311,6 +1315,7 @@ class CandlestickChart(QWidget):
         self._current_candle_width       = int(s.get("candle_width", self._current_candle_width))
         self._current_candle_spacing     = int(s.get("candle_spacing", self._current_candle_spacing))
         self.current_visible_candle_count = int(s.get("default_visible_candles", self.current_visible_candle_count))
+        self._right_buffer_candles     = int(s.get("right_buffer_candles", self._right_buffer_candles))
         self._current_up_color           = s.get("up_candle_color", self._current_up_color)
         self._current_down_color         = s.get("down_candle_color", self._current_down_color)
         self._current_volume_up_color    = s.get("up_volume_color",   self._current_up_color)
@@ -1345,6 +1350,7 @@ class CandlestickChart(QWidget):
             payload = json.dumps({
                 "candleWidth":      self._current_candle_width,
                 "candleSpacing":    self._current_candle_spacing,
+                "rightBufferCandles": self._right_buffer_candles,
                 "upCandleColor":    self._current_up_color,
                 "downCandleColor":  self._current_down_color,
                 "upVolumeColor":    self._current_volume_up_color,

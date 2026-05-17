@@ -113,7 +113,7 @@ class FixedTradingChart {
         // Model: candleWidth + candleSpacing are FIXED (user-set).
         // visibleCount is DERIVED from chartArea.width / slotW — never set directly.
         // On resize: more/fewer candles appear automatically, no stretching.
-        this.rightBufferCandles = 20;
+        this.rightBufferCandles = Math.max(0, Number.isFinite(cfg.rightBufferCandles) ? cfg.rightBufferCandles : 20);
         this.candleWidth   = cfg.initialCandleWidth   || 8;   // body+wick pixel width — user control
         this.candleSpacing = cfg.initialCandleSpacing || 2;   // gap between candles in px
         this.visibleCandleCount = 100;                         // computed — don't use cfg value
@@ -3225,6 +3225,12 @@ class FixedTradingChart {
         }
         this.currentSymbol = cfg.symbol || '';
         this.priceScaleCurrency = this._resolvePriceScaleCurrency(cfg.priceScaleCurrency, this.currentSymbol);
+        if (cfg.rightBufferCandles !== undefined) {
+            const nextRightBuffer = Number(cfg.rightBufferCandles);
+            if (Number.isFinite(nextRightBuffer)) {
+                this.rightBufferCandles = Math.max(0, Math.round(nextRightBuffer));
+            }
+        }
         this.currentSymbolDescription = cfg.watermarkDescription || '';
         this.showWatermarkDescription = cfg.showWatermarkDescription === true;
         this._intradayTimestampsAlreadyIst = null;
@@ -3341,6 +3347,10 @@ class FixedTradingChart {
                             (cfg.candleSpacing !== undefined && cfg.candleSpacing !== this.candleSpacing);
         if (cfg.candleWidth)                    this.candleWidth   = cfg.candleWidth;
         if (cfg.candleSpacing !== undefined)    this.candleSpacing = cfg.candleSpacing;
+        if (cfg.rightBufferCandles !== undefined) {
+            const nextRightBuffer = Number(cfg.rightBufferCandles);
+            if (Number.isFinite(nextRightBuffer)) this.rightBufferCandles = Math.max(0, Math.round(nextRightBuffer));
+        }
         if (cfg.watermarkEnabled  !== undefined) this.watermark.enabled  = cfg.watermarkEnabled;
         if (cfg.watermarkColor)   this.watermark.color   = cfg.watermarkColor;
         if (cfg.watermarkOpacity  !== undefined) this.watermark.opacity  = cfg.watermarkOpacity;
@@ -3374,7 +3384,7 @@ class FixedTradingChart {
             }
         }
         // If slot dimensions changed, recalculate how many candles fit.
-        if (slotChanged) {
+        if (slotChanged || cfg.rightBufferCandles !== undefined) {
             this.viewPortEnd = Math.max(0, this.data.length - 1 + this.rightBufferCandles);
             this._updateViewport();
             this.calculateBounds();

@@ -177,6 +177,12 @@ class ChartSettingsDialog(QDialog):
             spin.setValue(int(saved_days.get(key, _DEFAULT_HISTORY_DAYS_BY_INTERVAL[key])))
             chart_layout.addRow(f"{label} (days):", spin)
             self.history_days_inputs[key] = spin
+
+        self.right_buffer_candles = QSpinBox()
+        self.right_buffer_candles.setRange(0, 200)
+        self.right_buffer_candles.setValue(int(self._s.get("right_buffer_candles", 20)))
+        self.right_buffer_candles.setToolTip("Empty candles space between latest candle and price scale.")
+        chart_layout.addRow("Right Empty Space:", self.right_buffer_candles)
         tabs.addTab(chart_tab, "Chart")
 
         toggles_tab = QWidget()
@@ -267,6 +273,7 @@ class ChartSettingsDialog(QDialog):
                 interval: spin.value()
                 for interval, spin in self.history_days_inputs.items()
             },
+            "right_buffer_candles": self.right_buffer_candles.value(),
             **{key: cb.isChecked() for key, cb in self.chart_info_toggles.items()},
         }
         self.settings_changed.emit(new)

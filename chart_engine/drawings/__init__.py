@@ -19,6 +19,7 @@ _DEFAULT_GLOBAL_SETTINGS: Dict[str, Any] = {
     "candle_width": 3,
     "candle_spacing": 3,
     "default_visible_candles": 100,
+    "right_buffer_candles": 20,
     "up_candle_color": "#00c896",
     "down_candle_color": "#e84060",
     "up_volume_color": "#00c896",

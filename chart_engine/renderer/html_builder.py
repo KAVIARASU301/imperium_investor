@@ -37,6 +37,7 @@ class ChartHtmlConfig:
     visible_candle_count:    int   = 100
     candle_width:            int   = 3
     candle_spacing:          int   = 3
+    right_buffer_candles:    int   = 20
     up_candle_color:         str   = "#00c896"
     down_candle_color:       str   = "#e84060"
     up_volume_color:         str   = "#00c896"
@@ -106,6 +107,7 @@ def build_chart_html(cfg: ChartHtmlConfig) -> str:
         "initialVisibleCandleCount": cfg.visible_candle_count,
         "initialCandleWidth":        cfg.candle_width,
         "initialCandleSpacing":      cfg.candle_spacing,
+        "rightBufferCandles":        int(max(0, cfg.right_buffer_candles)),
         "upCandleColor":             cfg.up_candle_color,
         "downCandleColor":           cfg.down_candle_color,
         "upVolumeColor":             cfg.up_volume_color,
