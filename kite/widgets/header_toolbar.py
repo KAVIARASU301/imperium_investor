@@ -315,7 +315,7 @@ class HeaderToolbar(QToolBar):
             self.profile_avatar_label.setPixmap(QIcon(str(avatar_icon_path)).pixmap(14, 14))
         account_layout.addWidget(self.profile_avatar_label)
 
-        self.user_id_label = QLabel("KE6286")
+        self.user_id_label = QLabel(self._account_info.get("user_id", "N/A"))
         self.user_id_label.setObjectName("userIdLabel")
         self.user_id_label.setFont(_modern_font(9, QFont.Weight.Bold))
         account_layout.addWidget(self.user_id_label)
