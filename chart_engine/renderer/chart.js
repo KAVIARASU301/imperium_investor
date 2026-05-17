@@ -3717,7 +3717,7 @@ class FixedTradingChart {
         if (tf === '3minute')  return m % 30 === 0 ? `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}` : null;
         if (tf === '5minute')  return m % 30 === 0 ? `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}` : null;
         if (tf === '15minute') return h % 2 === 0 && m === 0 ? `${String(h).padStart(2,'0')}:00` : null;
-        if (tf === '30minute') return m === 0 ? `${String(h).padStart(2,'0')}:00` : null;
+        if (tf === '30minute') return m === 15 ? `${String(h).padStart(2,'0')}:15` : null;
         if (tf === '60minute') return h === 9  ? this._fmtExchangeDayMonth(d) : null;
         if (tf === 'day')      return dow === 1 ? this._fmtExchangeDayMonth(d) : null;
         if (tf === 'week')     return mon % 3 === 0 && dom <= 7 ? this._fmtExchangeMonthYear(d) : null;
