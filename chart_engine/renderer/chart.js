@@ -1248,7 +1248,19 @@ class FixedTradingChart {
         const ctx = this.ctx;
         const tf  = this.currentInterval || 'day';
         const candidates = this._buildTimeCandidates(tf);
+        const axisTopY   = this._paneBottom() + 0.5;
         const labelY     = this._paneBottom() + 14;
+
+        // Subtle top border so the time axis visually connects with the price axis.
+        ctx.strokeStyle = 'rgba(88, 107, 138, 0.45)';
+        ctx.lineWidth   = 1;
+        ctx.beginPath();
+        // Left chart border (up to time-axis top border) to match the axis framing.
+        ctx.moveTo(this.chartArea.x + 0.5, this.chartArea.y);
+        ctx.lineTo(this.chartArea.x + 0.5, axisTopY);
+        ctx.moveTo(this.chartArea.x, axisTopY);
+        ctx.lineTo(this.chartArea.x + this.chartArea.width + this.rightAxisWidth, axisTopY);
+        ctx.stroke();
 
         ctx.font          = this._axisFont(10, 500);
         ctx.textAlign     = 'center';
