@@ -109,6 +109,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             broker="kite",
             mode=self.trading_mode,
         )
+        self.chart_drawings_dir = os.path.join(
+            "kite", "user_data", f"chart_drawings_{self.trading_mode}"
+        )
 
         # SIMPLIFIED MANAGERS - NO NOTIFICATION SYSTEM
         self.position_manager = PositionManager(self.trader, main_window=self, trade_logger=self.trade_logger)
@@ -267,8 +270,14 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         # Create components
         self.chartink_scanner = ChartinkScannerTable()
-        self.candlestick_chart = ChartWindow(self.real_kite_client)
-        self.candlestick_chart_secondary = ChartWindow(self.real_kite_client)
+        self.candlestick_chart = ChartWindow(
+            self.real_kite_client,
+            storage_dir=self.chart_drawings_dir,
+        )
+        self.candlestick_chart_secondary = ChartWindow(
+            self.real_kite_client,
+            storage_dir=self.chart_drawings_dir,
+        )
         self.candlestick_chart.data_cache = MarketAwareDataCache(parent=self.candlestick_chart)
         # Backward-compat for force-refresh path still using `_cache`.
         if not hasattr(self.candlestick_chart.data_cache, '_cache'):

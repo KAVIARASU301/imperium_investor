@@ -54,7 +54,8 @@ class ChartLinesManager(QObject):
     def __init__(self, main_window):
         super().__init__()
         self.main_window = main_window
-        self.drawings_dir = "kite/user_data/chart_drawings"
+        mode = self._get_trading_mode()
+        self.drawings_dir = os.path.join("kite", "user_data", f"chart_drawings_{mode}")
         os.makedirs(self.drawings_dir, exist_ok=True)
         _recent_draws.clear()
         _lines_drawn_this_session.clear()
