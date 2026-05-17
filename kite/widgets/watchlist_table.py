@@ -100,14 +100,15 @@ class _C:
 
 
 _MONO = "Consolas, 'JetBrains Mono', 'Courier New', monospace"  # raw logs / IDs / code only
-_SANS = "'Aptos', 'Inter', 'Segoe UI Variable', 'Segoe UI', 'Noto Sans', Roboto, Arial, sans-serif"
-_SYMBOL = "'Aptos', 'Inter', 'Segoe UI Variable', 'Segoe UI', 'Noto Sans', Roboto, Arial, sans-serif"
-_NUM = "'Inter', 'Segoe UI Variable', 'Segoe UI', 'Noto Sans', sans-serif"
-_UI_FONT_FAMILIES = ["Aptos", "Inter", "Segoe UI Variable", "Segoe UI", "Noto Sans", "Arial"]
-_SYMBOL_FONT_FAMILIES = ["Aptos", "Inter", "Segoe UI Variable", "Segoe UI", "Noto Sans", "Arial"]
-_NUM_FONT_FAMILIES = ["Inter", "Segoe UI Variable", "Segoe UI", "Noto Sans", "Arial"]
+_SANS = "'Inter', 'Segoe UI Variable', 'Segoe UI', 'Noto Sans', Roboto, Arial, sans-serif"
+_SYMBOL = "'Inter', 'Segoe UI Variable', 'Segoe UI', 'Noto Sans', Roboto, Arial, sans-serif"
+_NUM = "'Segoe UI Variable', 'Inter', 'Segoe UI', 'Noto Sans', sans-serif"
+_UI_FONT_FAMILIES = ["Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", "Noto Sans"]
+_SYMBOL_FONT_FAMILIES = ["Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", "Noto Sans"]
+_NUM_FONT_FAMILIES = ["Segoe UI Variable", "Inter", "Aptos", "Segoe UI", "Roboto", "Noto Sans"]
 _UI_FONT = _UI_FONT_FAMILIES[0]
 _NUM_FONT = _NUM_FONT_FAMILIES[0]
+_ROW_H = 21
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  FLAG STATES
@@ -740,7 +741,7 @@ class TradingTable(QTableWidget):
         hdr.setMinimumSectionSize(20)
         hdr.setStretchLastSection(False)
         hdr.setHighlightSections(False)
-        hdr.setFixedHeight(22)
+        hdr.setFixedHeight(20)
 
         # Flag col — fixed tight
         hdr.setSectionResizeMode(_COL_FLAG, QHeaderView.ResizeMode.Fixed)
@@ -754,8 +755,8 @@ class TradingTable(QTableWidget):
             hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
 
         self.verticalHeader().setVisible(False)
-        self.verticalHeader().setDefaultSectionSize(23)
-        self.verticalHeader().setMinimumSectionSize(23)
+        self.verticalHeader().setDefaultSectionSize(_ROW_H)
+        self.verticalHeader().setMinimumSectionSize(_ROW_H)
 
         self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -996,9 +997,7 @@ class TradingTable(QTableWidget):
 
         symbol_font = self._symbol_font()
         value_font = self._number_font(False)
-        value_font.setPointSize(10)
         strong_value_font = self._number_font(True)
-        strong_value_font.setPointSize(10)
 
         # ── Symbol ──
         sym_item = self.item(row, _COL_SYMBOL)
@@ -1208,18 +1207,23 @@ class TradingTable(QTableWidget):
     @staticmethod
     def _font_from_families(
         families: List[str],
-        point_size: int = 10,
+        point_size: int = 9,
         weight: QFont.Weight = QFont.Weight.Normal,
         letter_spacing: float = 100.0,
+        pixel_size: Optional[int] = None,
     ) -> QFont:
-        """Build a Qt font with a real fallback chain, not a CSS-style family string."""
+        """Build a Qt font with real fallbacks and optional pixel sizing."""
         f = QFont()
         if hasattr(f, "setFamilies"):
             f.setFamilies(families)
         elif families:
             f.setFamily(families[0])
+
         f.setStyleHint(QFont.StyleHint.SansSerif)
-        f.setPointSize(point_size)
+        if pixel_size is not None:
+            f.setPixelSize(pixel_size)
+        else:
+            f.setPointSize(point_size)
         f.setWeight(weight)
         f.setKerning(True)
         f.setLetterSpacing(QFont.SpacingType.PercentageSpacing, letter_spacing)
@@ -1227,29 +1231,29 @@ class TradingTable(QTableWidget):
 
     @staticmethod
     def _ui_font() -> QFont:
-        """Calm modern UI font for labels."""
+        """Modern readable UI font; matched to the scanner table sizing."""
         return TradingTable._font_from_families(
             _UI_FONT_FAMILIES,
-            point_size=10,
+            point_size=9,
             weight=QFont.Weight.Normal,
         )
 
     @staticmethod
     def _symbol_font() -> QFont:
-        """Slightly smaller, airier font for ticker symbols only."""
+        """Compact symbol font. Pixel sizing prevents ticker text from growing too large."""
         return TradingTable._font_from_families(
             _SYMBOL_FONT_FAMILIES,
-            point_size=9,
+            pixel_size=10,
             weight=QFont.Weight.Normal,
             letter_spacing=103.0,
         )
 
     @staticmethod
     def _number_font(bold: bool = False) -> QFont:
-        """Readable modern UI number font for prices, volume and percentage values."""
+        """Calm modern UI number font for prices, volume and percentage values."""
         return TradingTable._font_from_families(
             _NUM_FONT_FAMILIES,
-            point_size=10,
+            point_size=9,
             weight=QFont.Weight.Medium if bold else QFont.Weight.Normal,
         )
 
@@ -1257,9 +1261,11 @@ class TradingTable(QTableWidget):
     def _mono_font(bold: bool = False) -> QFont:
         """Monospace reserved for raw logs, IDs, code and technical debug text."""
         f = QFont("Consolas")
+        if hasattr(f, "setFamilies"):
+            f.setFamilies(["Consolas", "JetBrains Mono", "Courier New"])
         f.setStyleHint(QFont.StyleHint.Monospace)
-        f.setPointSize(10)
-        f.setBold(bold)
+        f.setPointSize(9)
+        f.setWeight(QFont.Weight.Medium if bold else QFont.Weight.Normal)
         return f
 
     @staticmethod
@@ -1768,8 +1774,8 @@ class TabbedWatchlistWidget(QWidget):
                 color: #d8e2ef;
                 outline: none;
                 show-decoration-selected: 0;
-                font-size: 11px;
-                font-family: "Aptos", "Inter", "Segoe UI Variable", "Segoe UI", "Noto Sans", sans-serif;
+                font-size: 10px;
+                font-family: "Inter", "Segoe UI Variable", "Segoe UI", "Noto Sans", Roboto, Arial, sans-serif;
                 border-radius: 0;
             }
 
@@ -1778,7 +1784,7 @@ class TabbedWatchlistWidget(QWidget):
                 border-bottom: 1px solid #151b24;
                 background: transparent;
                 font-size: 10px;
-                font-family: "Aptos", "Inter", "Segoe UI Variable", "Segoe UI", "Noto Sans", sans-serif;
+                font-family: "Inter", "Segoe UI Variable", "Segoe UI", "Noto Sans", Roboto, Arial, sans-serif;
                 font-weight: 400;
             }
 
@@ -1815,7 +1821,7 @@ class TabbedWatchlistWidget(QWidget):
                 border-bottom: 1px solid #222b38;
                 font-family: "Inter", "Segoe UI Variable", "Segoe UI", "Noto Sans", Roboto, Arial, sans-serif;
                 font-weight: 500;
-                font-size: 10px;
+                font-size: 9px;
                 letter-spacing: 0.6px;
                 text-transform: uppercase;
             }

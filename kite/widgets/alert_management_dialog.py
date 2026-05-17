@@ -302,12 +302,10 @@ class AlertManagementDialog(QDialog):
         shell.setSpacing(0)
 
         shell.addWidget(self._build_title_bar())
-        shell.addWidget(self._build_summary_bar())
-
         body = QWidget()
         body.setObjectName("alertBody")
         body_layout = QVBoxLayout(body)
-        body_layout.setContentsMargins(10, 8, 10, 8)
+        body_layout.setContentsMargins(10, 2, 10, 8)
         body_layout.setSpacing(8)
 
         self.tabs = QTabWidget()
@@ -365,22 +363,6 @@ class AlertManagementDialog(QDialog):
         bar.mouseMoveEvent = self._tb_move
         bar.mouseReleaseEvent = self._tb_release
         return bar
-
-    def _build_summary_bar(self) -> QFrame:
-        strip = QFrame()
-        strip.setObjectName("summaryStrip")
-        strip.setFixedHeight(34)
-
-        layout = QHBoxLayout(strip)
-        layout.setContentsMargins(10, 6, 10, 6)
-        layout.setSpacing(8)
-
-        layout.addStretch()
-
-        self._market_hint = QLabel("auto refresh 3s")
-        self._market_hint.setObjectName("marketHint")
-        layout.addWidget(self._market_hint)
-        return strip
 
     def _build_footer(self) -> QFrame:
         footer = QFrame()
@@ -1006,19 +988,6 @@ class AlertManagementDialog(QDialog):
             background: rgba(216,109,125,0.12);
             color: {_RED};
             border-color: rgba(216,109,125,0.32);
-        }}
-
-        QFrame#summaryStrip {{
-            background: {_BG_PANEL};
-            border-bottom: 1px solid {_BORDER_DARK};
-        }}
-
-        QLabel#marketHint {{
-            color: {_TEXT_FAINT};
-            font-family: {_SANS};
-            font-size: 9px;
-            font-weight: 500;
-            background: transparent;
         }}
 
         QWidget#alertBody {{
