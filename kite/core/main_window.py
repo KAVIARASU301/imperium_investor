@@ -407,6 +407,11 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         floating_positions_action = tools_menu.addAction("Floating Positions", self._show_floating_positions_dialog)
         floating_positions_action.setShortcut(QKeySequence("Ctrl+P"))
         floating_positions_action.setShortcutVisibleInContextMenu(True)
+
+        stock_info_action = tools_menu.addAction("Stock Info", self._show_stock_info_for_active_symbol)
+        stock_info_action.setShortcuts([QKeySequence("Ctrl+I"), QKeySequence("Shift+I")])
+        stock_info_action.setShortcutVisibleInContextMenu(True)
+
         tools_menu.addAction("Floating Watchlist", self._show_floating_watchlist_dialog)
         tools_menu.addSeparator()
 

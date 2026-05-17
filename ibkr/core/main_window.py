@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QHeaderView, QMessageBox, QStatusBar, QMenuBar, QMenu, QDialog
 )
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QFont, QColor, QPalette, QAction
+from PySide6.QtGui import QFont, QColor, QPalette, QAction, QShortcut, QKeySequence
 
 try:
     from ib_insync import Stock, Contract
@@ -79,6 +79,7 @@ class IBKRMainWindow(QMainWindow):
         self._setup_ui()
         self._setup_signals()
         self._setup_timers()
+        self._setup_shortcuts()
         self._load_initial_data()
 
         # Window properties
@@ -164,6 +165,45 @@ class IBKRMainWindow(QMainWindow):
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("Ready")
+
+
+    def _setup_shortcuts(self):
+        """Set up global keyboard shortcuts."""
+        self.stock_info_shortcut_ctrl_i = QShortcut(QKeySequence("Ctrl+I"), self)
+        self.stock_info_shortcut_ctrl_i.activated.connect(self._show_stock_info_dialog)
+
+        self.stock_info_shortcut_shift_i = QShortcut(QKeySequence("Shift+I"), self)
+        self.stock_info_shortcut_shift_i.activated.connect(self._show_stock_info_dialog)
+
+    def _show_stock_info_dialog(self):
+        """Show a quick stock information dialog for the selected watchlist symbol."""
+        if self.watchlist_table is None:
+            return
+
+        selected_rows = self.watchlist_table.selectionModel().selectedRows()
+        if not selected_rows:
+            QMessageBox.information(self, "Stock Info", "Select a symbol in the watchlist first.")
+            return
+
+        row = selected_rows[0].row()
+        symbol_item = self.watchlist_table.item(row, 0)
+        if symbol_item is None:
+            QMessageBox.information(self, "Stock Info", "No symbol found for the selected row.")
+            return
+
+        symbol = symbol_item.text().strip().upper()
+        stock_data = self.market_data.get(symbol, {})
+
+        lines = [
+            f"Symbol: {symbol}",
+            f"Last: {stock_data.get('last_price', 'N/A')}",
+            f"Change: {stock_data.get('change', 'N/A')}",
+            f"Change %: {stock_data.get('change_percent', 'N/A')}%",
+            f"Volume: {stock_data.get('volume', 'N/A')}",
+            f"Bid: {stock_data.get('bid', 'N/A')}",
+            f"Ask: {stock_data.get('ask', 'N/A')}",
+        ]
+        QMessageBox.information(self, f"Stock Info - {symbol}", "\n".join(lines))
 
     def _create_menu_bar(self):
         """Create application menu bar"""
