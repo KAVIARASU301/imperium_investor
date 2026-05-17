@@ -271,10 +271,6 @@ class FixedTradingChart {
         }
 
         try {
-            // Force a resize/redraw to ensure canvas dimensions are correct
-            // (Qt WebEngine may not have painted yet on first call).
-            this._onResize();
-
             // Flush the latest render synchronously so pending drawing/price changes are
             // captured before Qt reads the PNG data URL.
             this._dirty = false;
@@ -324,6 +320,7 @@ class FixedTradingChart {
                     this.drawingEngine.ctx = out;
                 }
                 this.draw();
+                this._drawMetricsInfoToCanvas(out);
             } finally {
                 this.canvas = liveCanvas;
                 this.ctx = liveCtx;
@@ -357,6 +354,112 @@ class FixedTradingChart {
         } catch (e) {
             return { ok: false, error: e ? (e.message || String(e)) : 'Unknown JS error in exportSnapshot' };
         }
+    }
+
+
+    _drawMetricsInfoToCanvas(ctx) {
+        if (!ctx || this.data.length === 0) return;
+
+        const idx = this._lastInfoCandleIndex >= 0 && this._lastInfoCandleIndex < this.data.length
+            ? this._lastInfoCandleIndex
+            : this.data.length - 1;
+        const c = this.data[idx];
+        if (!c) return;
+
+        const dateStr = idx === this.data.length - 1
+            ? this._fmtDateLabel(c.time, true)
+            : this._fmtTimeLabel(c.time);
+        const closePrice = Number(c.close || 0);
+        const prevClose = Number(c.prevClose || c.previousClose || c.open || 0);
+        const dayChange = closePrice - prevClose;
+        const dayPct = prevClose !== 0 ? ((dayChange / prevClose) * 100) : 0;
+        const dayColor = dayChange >= 0 ? '#2dd4a7' : '#ff6b7f';
+        const daySign = dayChange >= 0 ? '+' : '';
+        const volume = Number(c?.volume) || 0;
+
+        const adrPercent = Number(this.currentADR?.percent ?? 0);
+        const adrPctColor = adrPercent > 4 ? '#22c55e' : (adrPercent >= 2 ? '#e2e8f0' : '#f87171');
+        const metricSepColor = '#60779d';
+        const priceSepColor = '#6f86ab';
+
+        const rows = [[], []];
+
+        if (this.infoVisibility?.show_adr) {
+            if (this.currentADR?.value > 0) {
+                rows[0].push({ text: 'ADR ', color: '#bfdbfe' });
+                rows[0].push({ text: `₹${this.currentADR.value.toFixed(2)}`, color: '#e0ecff' });
+                rows[0].push({ text: ` (${adrPercent.toFixed(2)}%)`, color: adrPctColor });
+            } else {
+                rows[0].push({ text: 'ADR N/A', color: '#8da2c3' });
+            }
+        }
+
+        const perfDefs = [
+            { label: 'Monthly', toggle: 'show_perf_monthly' },
+            { label: '3M', toggle: 'show_perf_3m' },
+            { label: '6M', toggle: 'show_perf_6m' },
+            { label: '1Y', toggle: 'show_perf_1y' },
+        ];
+        for (const perf of perfDefs) {
+            if (!this.infoVisibility?.[perf.toggle]) continue;
+            if (rows[0].length > 0) rows[0].push({ text: ' • ', color: metricSepColor });
+            const v = this.percentageChanges?.[perf.label];
+            if (v == null) {
+                rows[0].push({ text: `${perf.label} N/A`, color: '#8ea3c3' });
+            } else {
+                rows[0].push({ text: `${perf.label} `, color: '#b2c2dc' });
+                rows[0].push({ text: `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`, color: v >= 0 ? '#34d399' : '#fb7185' });
+            }
+        }
+
+        const addPriceItem = (enabled, items) => {
+            if (!enabled) return;
+            if (rows[1].length > 0) rows[1].push({ text: ' • ', color: priceSepColor });
+            rows[1].push(...items);
+        };
+        addPriceItem(this.infoVisibility?.show_info_date, [{ text: dateStr, color: '#9fb2d3' }]);
+        addPriceItem(this.infoVisibility?.show_info_open, [{ text: 'O ', color: '#b8c7e1' }, { text: `₹${Number(c.open || 0).toFixed(2)}`, color: '#e2e8f0' }]);
+        addPriceItem(this.infoVisibility?.show_info_high, [{ text: 'H ', color: '#b8c7e1' }, { text: `₹${Number(c.high || 0).toFixed(2)}`, color: '#e2e8f0' }]);
+        addPriceItem(this.infoVisibility?.show_info_low, [{ text: 'L ', color: '#b8c7e1' }, { text: `₹${Number(c.low || 0).toFixed(2)}`, color: '#e2e8f0' }]);
+        addPriceItem(this.infoVisibility?.show_info_close, [{ text: 'C ', color: '#b8c7e1' }, { text: `₹${closePrice.toFixed(2)}`, color: '#e2e8f0' }]);
+        addPriceItem(this.infoVisibility?.show_info_pct_change, [{ text: `Chg ${daySign}₹${dayChange.toFixed(2)} (${daySign}${dayPct.toFixed(2)}%)`, color: dayColor }]);
+        addPriceItem(this.infoVisibility?.show_info_volume, [{ text: 'Vol ', color: '#b8c7e1' }, { text: `${Math.round(volume).toLocaleString('en-IN')}`, color: '#dbe6fb' }]);
+
+        const hasRenderableRows = rows.some((line) => line.length > 0);
+        if (!hasRenderableRows) return;
+
+        const padX = 8;
+        const padY = 8;
+        const lineGap = 4;
+        const lineHeight = 14;
+
+        ctx.save();
+        ctx.font = '600 11px "Segoe UI", "Helvetica Neue", Arial, sans-serif';
+        ctx.textBaseline = 'top';
+
+        const rowWidths = rows.map((line) => line.reduce((acc, item) => acc + ctx.measureText(item.text).width, 0));
+        const activeRows = rows.filter((line) => line.length > 0).length;
+        const boxWidth = Math.max(...rowWidths) + padX * 2;
+        const boxHeight = activeRows * lineHeight + (activeRows - 1) * lineGap + padY * 2;
+
+        const originX = 8;
+        const originY = 8;
+        ctx.fillStyle = 'rgba(6, 12, 24, 0.72)';
+        ctx.fillRect(originX, originY, boxWidth, boxHeight);
+
+        let y = originY + padY;
+        for (const line of rows) {
+            if (!line.length) continue;
+            let x = originX + padX;
+            for (const item of line) {
+                ctx.fillStyle = item.color;
+                ctx.fillText(item.text, x, y);
+                x += ctx.measureText(item.text).width;
+            }
+            y += lineHeight + lineGap;
+        }
+
+        ctx.restore();
     }
 
 
