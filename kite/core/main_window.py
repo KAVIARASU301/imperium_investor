@@ -13,8 +13,8 @@ from typing import List, Dict, Union, Any, Optional
 
 from PySide6.QtCore import Qt, QByteArray, QTimer, Slot, Signal, QEvent
 from PySide6.QtWidgets import QMainWindow, QSplitter, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, \
-    QPushButton, QLabel, QApplication, QMessageBox, QMenuBar, QSizePolicy, QDialog, QLineEdit
-from PySide6.QtGui import QMouseEvent, QKeySequence, QShortcut, QKeyEvent, QAction
+    QPushButton, QLabel, QApplication, QMessageBox, QMenuBar, QSizePolicy, QDialog, QLineEdit, QGraphicsDropShadowEffect
+from PySide6.QtGui import QMouseEvent, QKeySequence, QShortcut, QKeyEvent, QAction, QColor
 
 from kite.widgets.scanner_table import ChartinkScannerTable
 from kite.widgets.positions_table import PositionsTable
@@ -285,6 +285,11 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.watchlist = TabbedWatchlistWidget()
         self.watchlist.set_quote_client(self.real_kite_client)
         self.positions_table = PositionsTable(parent=self)
+        self.chartink_scanner.setObjectName("scannerPanel")
+        self.candlestick_chart.setObjectName("primaryChartPanel")
+        self.candlestick_chart_secondary.setObjectName("secondaryChartPanel")
+        self.watchlist.setObjectName("watchlistPanel")
+        self.positions_table.setObjectName("positionsPanel")
 
         initial_theme = self.color_theme_manager.get_theme()
         self.header_toolbar.apply_color_theme(initial_theme)
@@ -316,8 +321,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         # Keep side panels compact while preserving readability.
         self.chartink_scanner.setMinimumWidth(220)
         right_panel_splitter.setMinimumWidth(220)
-        self.candlestick_chart.setMinimumWidth(520)
-        self.candlestick_chart_secondary.setMinimumWidth(520)
+        self.candlestick_chart.setMinimumWidth(460)
+        self.candlestick_chart_secondary.setMinimumWidth(460)
 
         # Add to the main splitter
         self.main_splitter.addWidget(self.chartink_scanner)
@@ -359,6 +364,24 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self._saved_watchlist_panel_width = None
         self._saved_scanner_panel_width = None
         self._apply_intelligent_main_splitter_layout()
+        self._apply_panel_elevation()
+
+    def _apply_subtle_shadow(self, widget: QWidget, blur_radius: float = 14.0, y_offset: float = 1.0) -> None:
+        """Apply subtle edge elevation so panels feel grouped without harsh framing."""
+        if widget is None:
+            return
+        effect = QGraphicsDropShadowEffect(widget)
+        effect.setBlurRadius(blur_radius)
+        effect.setOffset(0, y_offset)
+        effect.setColor(QColor(0, 0, 0, 95))
+        widget.setGraphicsEffect(effect)
+
+    def _apply_panel_elevation(self) -> None:
+        """Give primary widgets a gentle, cohesive elevation."""
+        self._apply_subtle_shadow(self.chartink_scanner, blur_radius=12.0, y_offset=0.0)
+        self._apply_subtle_shadow(self.watchlist, blur_radius=12.0, y_offset=0.0)
+        self._apply_subtle_shadow(self.positions_table, blur_radius=12.0, y_offset=0.0)
+        self._apply_subtle_shadow(self.app_status_bar, blur_radius=16.0, y_offset=-1.0)
 
     def _create_menu_bar(self) -> QMenuBar:
         """Create a compact menu bar with flat action lists for quick access."""
@@ -551,7 +574,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         left_min = 200 if left_visible else 0
         right_min = 220 if right_visible else 0
-        center_min = max(520, int(splitter_width * 0.45))
+        center_min = max(460, int(splitter_width * 0.45))
 
         left_max = int(splitter_width * 0.3) if left_visible else 0
         right_max = int(splitter_width * 0.34) if right_visible else 0
@@ -3228,6 +3251,16 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 font-family: "Segoe UI", Arial, sans-serif; 
             }
 
+            #scannerPanel, #watchlistPanel, #positionsPanel {
+                background-color: #0e1117;
+                border: 1px solid #1f2530;
+            }
+
+            #primaryChartPanel, #secondaryChartPanel {
+                background-color: #0c1016;
+                border: 1px solid #202634;
+            }
+
             /* Ultra-thin splitter styling */
             QSplitter { 
                 background-color: #0a0a0a;
@@ -3335,8 +3368,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             }
 
             #bottomAppStatusBar {
-                background-color: #0f0f0f;
-                border-top: 1px solid #1f1f1f;
+                background-color: #0f131b;
+                border-top: 1px solid #2a3342;
+                border-bottom: 1px solid #0a0c10;
                 min-height: 22px;
                 max-height: 24px;
             }

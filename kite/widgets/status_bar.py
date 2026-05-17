@@ -23,8 +23,8 @@ class StatusBar(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("bottomStatusBar")
-        # Lock to a strict, thin ribbon size
-        self.setFixedHeight(20)
+        # Keep compact but slightly roomier for polished alignment.
+        self.setFixedHeight(22)
         self._layout: Optional[QHBoxLayout] = None
         self._status_alignment = "left"
         self._metrics_on_right = True
@@ -35,8 +35,8 @@ class StatusBar(QWidget):
         layout = QHBoxLayout(self)
         self._layout = layout
         # 0 vertical margin makes it sit flush against the bottom edge
-        layout.setContentsMargins(10, 0, 10, 0)
-        layout.setSpacing(16)
+        layout.setContentsMargins(10, 1, 10, 1)
+        layout.setSpacing(14)
 
         # Uppercase for a stronger, institutional feel
         self.market_label = QLabel("MARKET: --")
@@ -117,9 +117,9 @@ class StatusBar(QWidget):
         self.setStyleSheet(
             """
             #bottomStatusBar {
-                background-color: #0d0f14; /* Deep, solid background */
-                border-top: 1px solid #222630; /* Sharp top separator line */
-                border-bottom: none;
+                background-color: #101620;
+                border-top: 1px solid #2b3545;
+                border-bottom: 1px solid #0b0f16;
                 border-left: none;
                 border-right: none;
                 border-radius: 0px; /* Force sharp edges */
