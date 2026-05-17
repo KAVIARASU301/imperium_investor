@@ -1256,9 +1256,9 @@ class FixedTradingChart {
         ctx.lineWidth   = 1;
         ctx.beginPath();
         // Left chart border (up to time-axis top border) to match the axis framing.
-        ctx.moveTo(0.5, this.chartArea.y);
+        ctx.moveTo(0.5, 0.5);
         ctx.lineTo(0.5, axisTopY);
-        ctx.moveTo(this.chartArea.x, axisTopY);
+        ctx.moveTo(0.5, axisTopY);
         ctx.lineTo(this.chartArea.x + this.chartArea.width + this.rightAxisWidth, axisTopY);
         ctx.stroke();
 
