@@ -335,6 +335,15 @@ class FixedTradingChart {
 
             out.setTransform(1, 0, 0, 1, 0, 0);
 
+            const includeMetadata = options.includeMetadata !== false;
+            if (includeMetadata) {
+                try {
+                    this._drawSnapshotInfoOverlay(out, renderScale);
+                } catch (_overlayError) {
+                    // Best effort: snapshot should still succeed even if overlay render fails.
+                }
+            }
+
             return {
                 ok: true,
                 dataUrl: output.toDataURL('image/png'),
@@ -348,6 +357,54 @@ class FixedTradingChart {
         } catch (e) {
             return { ok: false, error: e ? (e.message || String(e)) : 'Unknown JS error in exportSnapshot' };
         }
+    }
+
+
+    _drawSnapshotInfoOverlay(ctx, renderScale = 1) {
+        const metricsEl = document.getElementById('metricsInfo');
+        if (!metricsEl) return;
+
+        const rows = Array.from(metricsEl.querySelectorAll('.info-row'));
+        if (!rows.length) return;
+
+        const scale = Number.isFinite(renderScale) && renderScale > 0 ? renderScale : 1;
+        const padX = 8 * scale;
+        const padY = 6 * scale;
+        const lineGap = 4 * scale;
+        const fontSize = 12 * scale;
+        const font = `600 ${fontSize}px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif`;
+
+        ctx.save();
+        ctx.font = font;
+        ctx.textBaseline = 'top';
+
+        const lineData = rows
+            .map((row) => {
+                const txt = (row.textContent || '').replace(/\s+/g, ' ').trim();
+                if (!txt) return null;
+                return { text: txt, width: ctx.measureText(txt).width };
+            })
+            .filter(Boolean);
+
+        if (!lineData.length) {
+            ctx.restore();
+            return;
+        }
+
+        const boxWidth = Math.max(...lineData.map((line) => line.width)) + padX * 2;
+        const boxHeight = lineData.length * fontSize + (lineData.length - 1) * lineGap + padY * 2;
+
+        ctx.fillStyle = 'rgba(6, 12, 24, 0.72)';
+        ctx.fillRect(8 * scale, 8 * scale, boxWidth, boxHeight);
+
+        let y = 8 * scale + padY;
+        for (const line of lineData) {
+            ctx.fillStyle = '#dbe6fb';
+            ctx.fillText(line.text, 8 * scale + padX, y);
+            y += fontSize + lineGap;
+        }
+
+        ctx.restore();
     }
 
     _updateChartAreas() {
