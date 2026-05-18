@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem
 )
 from PySide6.QtCore import (
-    Qt, Signal, Slot, QTimer
+    Qt, Signal, Slot, QTimer, QSignalBlocker
 )
 from PySide6.QtGui import QColor, QFont, QBrush, QCursor
 
@@ -302,12 +302,29 @@ class PositionsTable(QWidget):
         self.table.setColumnWidth(COL_FLAG, 20)
         hdr.setSectionResizeMode(COL_SYMBOL, QHeaderView.ResizeMode.Stretch)
         for col in (COL_QTY, COL_OPEN_PNL):
-            hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+            hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.Fixed)
+
+        self._apply_dynamic_column_widths()
 
         hdr.setMinimumSectionSize(20)
         hdr.setHighlightSections(False)
         hdr.setFont(_ui_font(8, QFont.Weight.Medium))
         hdr.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+
+
+    def _apply_dynamic_column_widths(self) -> None:
+        """Size Qty and %Chg to remain visually aligned with watchlist numeric columns."""
+        flag_w = 20
+        min_symbol_w = 96
+        min_data_w = 62
+        max_data_w = 120
+
+        viewport_w = max(self.table.viewport().width(), 0)
+        available_for_data = max(0, viewport_w - flag_w - min_symbol_w)
+        data_w = max(min_data_w, min(max_data_w, available_for_data // 2))
+
+        self.table.setColumnWidth(COL_QTY, data_w)
+        self.table.setColumnWidth(COL_OPEN_PNL, data_w)
 
     def _build_footer(self) -> QFrame:
         frame = QFrame()
@@ -331,6 +348,12 @@ class PositionsTable(QWidget):
         self._footer_exposure = _metric("EXPOSURE")
         lay.addStretch()
         return frame
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        with QSignalBlocker(self.table.horizontalHeader()):
+            self.table.setColumnWidth(COL_FLAG, 20)
+            self._apply_dynamic_column_widths()
 
     # ══════════════════════════════════════════════════════════════════════════
     # POSITIONS POPULATION

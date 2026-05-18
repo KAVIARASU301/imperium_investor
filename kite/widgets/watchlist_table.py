@@ -29,7 +29,7 @@ import uuid
 from functools import partial
 from typing import Dict, List, Optional, Tuple
 
-from PySide6.QtCore import Qt, Signal, Slot, QPoint, QTimer, QSize
+from PySide6.QtCore import Qt, Signal, Slot, QPoint, QTimer, QSize, QSignalBlocker
 from PySide6.QtGui import (
     QColor, QFont, QBrush, QCursor, QAction, QFontMetrics, QMouseEvent, QIcon
 )
@@ -756,9 +756,11 @@ class TradingTable(QTableWidget):
         # Symbol — stretches
         hdr.setSectionResizeMode(_COL_SYMBOL, QHeaderView.ResizeMode.Stretch)
 
-        # Data cols — fit content
+        # Data cols — dynamically sized to keep right-side tables visually aligned
         for col in (_COL_LTP, _COL_VOL, _COL_CHG):
-            hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+            hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.Fixed)
+
+        self._apply_dynamic_column_widths()
 
         self.verticalHeader().setVisible(False)
         self.verticalHeader().setDefaultSectionSize(_ROW_H)
@@ -779,6 +781,29 @@ class TradingTable(QTableWidget):
         hdr.sectionClicked.connect(self._on_header_click)
         hdr.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.setColumnHidden(_COL_VOL, not bool(self._color_theme.get("show_watchlist_volume_column", True)))
+        self._apply_dynamic_column_widths()
+
+
+    def _apply_dynamic_column_widths(self) -> None:
+        """Keep numeric columns balanced and adaptive with available width."""
+        flag_w = 20
+        min_symbol_w = 96
+        min_data_w = 62
+        max_data_w = 120
+
+        visible_data_cols = [_COL_LTP, _COL_CHG]
+        if not self.isColumnHidden(_COL_VOL):
+            visible_data_cols.insert(1, _COL_VOL)
+
+        if not visible_data_cols:
+            return
+
+        viewport_w = max(self.viewport().width(), 0)
+        available_for_data = max(0, viewport_w - flag_w - min_symbol_w)
+        data_w = max(min_data_w, min(max_data_w, available_for_data // len(visible_data_cols)))
+
+        for col in visible_data_cols:
+            self.setColumnWidth(col, data_w)
 
     def _connect_signals(self):
         self.cellClicked.connect(self._on_cell_click)
@@ -874,6 +899,7 @@ class TradingTable(QTableWidget):
         self._color_theme = theme
         self.setShowGrid(bool(self._color_theme.get("show_table_vertical_lines", False)))
         self.setColumnHidden(_COL_VOL, not bool(self._color_theme.get("show_watchlist_volume_column", True)))
+        self._apply_dynamic_column_widths()
         for sym, row in self._symbol_to_row.items():
             data = self._watchlist_data.get(sym)
             if data:
@@ -1296,9 +1322,9 @@ class TradingTable(QTableWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        hdr = self.horizontalHeader()
-        hdr.setSectionResizeMode(_COL_FLAG, QHeaderView.ResizeMode.Fixed)
-        self.setColumnWidth(_COL_FLAG, 20)
+        with QSignalBlocker(self.horizontalHeader()):
+            self.setColumnWidth(_COL_FLAG, 20)
+            self._apply_dynamic_column_widths()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
