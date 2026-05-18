@@ -18,6 +18,7 @@ DEFAULT_COLOR_THEME: Dict[str, Any] = {
     "status_bar_metrics_right": True,
     "show_account_name": False,
     "show_account_balance": True,
+    "preferred_username": "",
     "dual_chart_mode": True,
     "candles": {
         "up": "#00C896",
@@ -99,6 +100,7 @@ class ColorThemeManager(QObject):
         )
         merged["show_account_name"] = bool(custom.get("show_account_name", merged["show_account_name"]))
         merged["show_account_balance"] = bool(custom.get("show_account_balance", merged["show_account_balance"]))
+        merged["preferred_username"] = str(custom.get("preferred_username", merged["preferred_username"])).strip()
         merged["dual_chart_mode"] = bool(custom.get("dual_chart_mode", merged["dual_chart_mode"]))
 
         for section in ("candles", "volume", "tables"):

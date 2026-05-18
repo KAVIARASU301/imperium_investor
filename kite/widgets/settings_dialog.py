@@ -15,7 +15,8 @@ from PySide6.QtWidgets import (
     QWidget,
     QFrame,
     QLabel,
-    QApplication
+    QApplication,
+    QLineEdit,
 )
 from PySide6.QtGui import QColor, QMouseEvent, QCursor
 
@@ -224,6 +225,17 @@ class ColorSettingsDialog(QDialog):
         self.show_account_balance_checkbox = _Toggle("SHOW ACCOUNT BALANCE")
         self.show_account_balance_checkbox.setChecked(bool(self._theme.get("show_account_balance", True)))
         account_layout.addWidget(self.show_account_balance_checkbox)
+
+        username_row = QHBoxLayout()
+        username_label = _Label("PREFERRED USERNAME", color=P.T1, size=10, bold=True)
+        self.preferred_username_input = QLineEdit()
+        self.preferred_username_input.setPlaceholderText("Leave blank to use profile ID")
+        self.preferred_username_input.setText(str(self._theme.get("preferred_username", "")))
+        self.preferred_username_input.setClearButtonEnabled(True)
+        self.preferred_username_input.setMaxLength(40)
+        username_row.addWidget(username_label)
+        username_row.addWidget(self.preferred_username_input)
+        account_layout.addLayout(username_row)
 
         more_layout.addWidget(account_group)
         more_layout.addStretch()
@@ -455,6 +467,7 @@ class ColorSettingsDialog(QDialog):
         self._theme["status_bar_metrics_right"] = self.status_pnl_exposure_right_checkbox.isChecked()
         self._theme["show_account_name"] = self.show_account_name_checkbox.isChecked()
         self._theme["show_account_balance"] = self.show_account_balance_checkbox.isChecked()
+        self._theme["preferred_username"] = self.preferred_username_input.text().strip()
         self._theme["dual_chart_mode"] = self.dual_chart_mode_checkbox.isChecked()
         return self._theme
 

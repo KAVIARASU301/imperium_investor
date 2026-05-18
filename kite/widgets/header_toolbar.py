@@ -160,6 +160,7 @@ class HeaderToolbar(QToolBar):
         }
         self._show_account_name = True
         self._show_account_balance = True
+        self._preferred_username = ""
         self._symbol_index = SymbolIndex()
         self.threadpool = QThreadPool()
         self._enable_account_polling = bool(enable_account_polling)
@@ -444,6 +445,8 @@ class HeaderToolbar(QToolBar):
         theme = theme or {}
         self._show_account_name = bool(theme.get("show_account_name", True))
         self._show_account_balance = bool(theme.get("show_account_balance", True))
+        self._preferred_username = str(theme.get("preferred_username", "")).strip()
+        self._update_account_display()
         self._update_account_display_visibility()
 
     def update_performance_metrics(self, performance_data: Dict[str, Any]) -> None:
@@ -527,7 +530,9 @@ class HeaderToolbar(QToolBar):
         return _extract_available_balance_from_data(self.trader, profile, margins)
 
     def _update_account_display(self):
-        self.user_id_label.setText(self._account_info.get("user_id", "DEMO"))
+        profile_user_id = str(self._account_info.get("user_id", "DEMO")).strip() or "DEMO"
+        display_name = self._preferred_username if self._preferred_username else profile_user_id
+        self.user_id_label.setText(display_name)
         balance = self._account_info.get("available_balance", 0.0)
         self.balance_label.setText(self._format_account_balance(balance))
         self._update_account_display_visibility()
