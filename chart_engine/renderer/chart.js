@@ -3093,7 +3093,7 @@ class FixedTradingChart {
         return numeric < 1e12 ? numeric * 1000 : numeric;
     }
 
-    updateLivePrice(price, tickTime = null, tickOpen = 0, tickHigh = 0, tickLow = 0) {
+    updateLivePrice(price, tickTime = null, tickOpen = 0, tickHigh = 0, tickLow = 0, tickVolume = null) {
         this.livePrice     = price;
         this._hasLiveTicks = true;
 
@@ -3168,6 +3168,14 @@ class FixedTradingChart {
         active.close = price;
 
         if (isDailyInterval) {
+            const parsedTickVolume = Number(tickVolume);
+            if (Number.isFinite(parsedTickVolume) && parsedTickVolume >= 0) {
+                active.volume = parsedTickVolume;
+                if (this.volumeData.length > 0) {
+                    this.volumeData[this.volumeData.length - 1] = { time: active.time, value: parsedTickVolume };
+                }
+                this._volVpKey = null;
+            }
             // For daily interval: honour broker-supplied session OHLC when available.
             // tickHigh/tickLow are the day's high/low from the broker tick payload.
             if (tickHigh > 0) active.high = Math.max(active.high, tickHigh, price);
