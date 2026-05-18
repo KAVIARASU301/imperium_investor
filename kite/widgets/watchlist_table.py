@@ -391,7 +391,7 @@ class _RenameDialog(QDialog):
         self._drag_pos = None
 
     def _apply_dialog_style(self):
-        show_vertical_lines = bool(self._color_theme.get("show_table_vertical_lines", False))
+        show_vertical_lines = bool(self._color_theme.get("show_table_vertical_lines", True))
         gridline_color = "rgba(116,131,150,0.26)" if show_vertical_lines else "transparent"
 
         self.setStyleSheet(f"""
@@ -717,7 +717,7 @@ class TradingTable(QTableWidget):
         self._symbols: List[str] = []  # ordered list
         self._dirty: set = set()
 
-        self._color_theme: Dict = {"show_table_vertical_lines": False}
+        self._color_theme: Dict = {"show_table_vertical_lines": True}
         self._sort_col: int = _COL_SYMBOL
         self._sort_asc: bool = True
         self._chg_sort_state = None  # None -> asc -> desc -> None
@@ -769,7 +769,7 @@ class TradingTable(QTableWidget):
         self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.setShowGrid(bool(self._color_theme.get("show_table_vertical_lines", False)))
+        self.setShowGrid(bool(self._color_theme.get("show_table_vertical_lines", True)))
         self.setAlternatingRowColors(True)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -897,7 +897,7 @@ class TradingTable(QTableWidget):
 
     def apply_color_theme(self, theme: Dict) -> None:
         self._color_theme = theme
-        self.setShowGrid(bool(self._color_theme.get("show_table_vertical_lines", False)))
+        self.setShowGrid(bool(self._color_theme.get("show_table_vertical_lines", True)))
         self.setColumnHidden(_COL_VOL, not bool(self._color_theme.get("show_watchlist_volume_column", True)))
         self._apply_dynamic_column_widths()
         for sym, row in self._symbol_to_row.items():
@@ -1353,6 +1353,7 @@ class TabbedWatchlistWidget(QWidget):
         self._quote_client = None
         self._tables: Dict[str, TradingTable] = {}  # id → table
         self._config = _WatchlistConfig()
+        self._color_theme: Dict = {"show_table_vertical_lines": True}
 
         self._setup_ui()
         self._apply_styles()
@@ -1582,6 +1583,8 @@ class TabbedWatchlistWidget(QWidget):
             table.update_data(ticks)
 
     def apply_color_theme(self, theme: Dict) -> None:
+        self._color_theme = dict(theme or {})
+        self._apply_styles()
         for table in self._tables.values():
             table.apply_color_theme(theme)
 
@@ -1701,9 +1704,11 @@ class TabbedWatchlistWidget(QWidget):
     # ── Styles ─────────────────────────────────────────────────────────────
 
     def _apply_styles(self):
+        show_vertical_lines = bool(self._color_theme.get("show_table_vertical_lines", True))
+        gridline_color = "rgba(111,129,148,0.28)" if show_vertical_lines else "transparent"
         dropdown_icon_path = get_asset_path("icons", "dropdown-arrow.svg", required=False)
         dropdown_icon_url = dropdown_icon_path.as_posix() if dropdown_icon_path is not None else ""
-        stylesheet = """
+        stylesheet = f"""
             /* ── Widget shell ─────────────────────────────────────── */
             TabbedWatchlistWidget {
                 background: #06080c;

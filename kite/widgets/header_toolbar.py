@@ -465,14 +465,14 @@ class HeaderToolbar(QToolBar):
         if isinstance(raw_tickers, str):
             raw_tickers = [raw_tickers]
         cleaned = [str(sym).strip().upper() for sym in raw_tickers if str(sym).strip()]
-        self._ticker_symbols = cleaned[:3] if cleaned else ["NIFTY", "BANKNIFTY", "INDIAVIX"]
+        self._ticker_symbols = cleaned[:5] if cleaned else ["NIFTY", "BANKNIFTY", "INDIAVIX"]
         self._update_account_display()
         self._update_account_display_visibility()
         self._refresh_ticker_board_display()
 
 
     def _refresh_ticker_board_display(self) -> None:
-        symbols = self._ticker_symbols[:3]
+        symbols = self._ticker_symbols[:5]
         if symbols:
             divider = f" <span style='color:{_TEXT_FAINT};'>│</span> "
             joined = divider.join(self._format_ticker_pill(symbol) for symbol in symbols)
@@ -510,7 +510,7 @@ class HeaderToolbar(QToolBar):
             self._ticker_token_to_symbol = {}
             return []
 
-        for display_symbol in self._ticker_symbols[:3]:
+        for display_symbol in self._ticker_symbols[:5]:
             token = self._find_instrument_token_for_symbol(display_symbol, instrument_map)
             if token is not None:
                 resolved[int(token)] = display_symbol.upper()

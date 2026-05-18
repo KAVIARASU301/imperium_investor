@@ -110,7 +110,7 @@ class ColorThemeManager(QObject):
             raw_symbols = [raw_symbols]
         if isinstance(raw_symbols, list):
             cleaned = [str(sym).strip().upper() for sym in raw_symbols if str(sym).strip()]
-            merged["ticker_board_symbols"] = cleaned[:3] if cleaned else merged["ticker_board_symbols"]
+            merged["ticker_board_symbols"] = cleaned[:5] if cleaned else merged["ticker_board_symbols"]
 
         for section in ("candles", "volume", "tables"):
             section_data = custom.get(section, {})
