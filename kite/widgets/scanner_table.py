@@ -1080,7 +1080,7 @@ class ChartinkScannerTable(QWidget):
         self._change_sort_state: Optional[str] = None  # None -> asc -> desc -> None
         self._color_theme = {
             "enable_volume_strength_indicator": False,
-            "show_table_vertical_lines": False,
+            "show_table_vertical_lines": True,
             "tables": {"positive": "#72cdb6", "negative": "#e07a84", "neutral": "#7f90a3", "volume": "#78cfe1"}
         }
 
@@ -1134,7 +1134,7 @@ class ChartinkScannerTable(QWidget):
 
     def apply_color_theme(self, theme: Dict):
         self._color_theme = theme or self._color_theme
-        self.table.setShowGrid(bool(self._color_theme.get("show_table_vertical_lines", False)))
+        self.table.setShowGrid(True)
         self.table.setColumnHidden(2, not bool(self._color_theme.get("show_scanner_volume_column", True)))
         for symbol, row in self._symbol_to_row.items():
             data = self._symbol_data.get(symbol)
@@ -1323,7 +1323,7 @@ class ChartinkScannerTable(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setShowGrid(bool(self._color_theme.get("show_table_vertical_lines", False)))
+        self.table.setShowGrid(True)
         self.table.setAlternatingRowColors(True)
         self.table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
@@ -1993,8 +1993,7 @@ class ChartinkScannerTable(QWidget):
 
     def _apply_enhanced_styles(self):
         """Institutional Dark Trading Terminal UI styling."""
-        show_vertical_lines = bool(self._color_theme.get("show_table_vertical_lines", False))
-        gridline_color = "rgba(116,131,150,0.26)" if show_vertical_lines else "transparent"
+        gridline_color = "rgba(116,131,150,0.26)"
 
         self.setStyleSheet(f"""
             QWidget {{
@@ -2141,17 +2140,25 @@ class ChartinkScannerTable(QWidget):
                 font-size: 10px;
             }}
             QTableWidget::item:selected {{
-                background-color: {_SEL};
+                background-color: {_SEL} !important;
                 color: {_T0};
                 font-weight: 400;
+                outline: none;
             }}
             QTableWidget::item:focus {{
-                background-color: {_SEL};
+                background-color: {_SEL} !important;
                 color: {_T0};
                 outline: none;
             }}
             QTableWidget::item:hover {{
                 background-color: {_BG3};
+            }}
+            QTableWidget::item:alternate {{
+                background-color: {_BG2};
+            }}
+            QTableWidget::item:alternate:selected {{
+                background-color: {_SEL} !important;
+                color: {_T0};
             }}
 
             QHeaderView::section {{
