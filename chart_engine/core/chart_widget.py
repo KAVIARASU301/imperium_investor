@@ -995,10 +995,23 @@ class CandlestickChart(QWidget):
             tick_high = float(ohlc.get("high", 0) or 0)
             tick_low = float(ohlc.get("low", 0) or 0)
 
+            tick_volume = None
+            for volume_key in ("volume_traded", "volume", "day_volume"):
+                raw_volume = tick.get(volume_key)
+                if raw_volume in (None, ""):
+                    continue
+                try:
+                    parsed_volume = float(raw_volume)
+                except (TypeError, ValueError):
+                    continue
+                if parsed_volume >= 0:
+                    tick_volume = parsed_volume
+                    break
+
             self._js(
                 "if(window.chart) window.chart.updateLivePrice("
                 f"{json.dumps(float(price))}, {json.dumps(tick_time_ms)}, "
-                f"{json.dumps(tick_open)}, {json.dumps(tick_high)}, {json.dumps(tick_low)}"
+                f"{json.dumps(tick_open)}, {json.dumps(tick_high)}, {json.dumps(tick_low)}, {json.dumps(tick_volume)}"
                 ");"
             )
 
