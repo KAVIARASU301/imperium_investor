@@ -503,7 +503,7 @@ class HeaderToolbar(QToolBar):
         return (
             f"<span style='color:{_TEXT_SOFT}; font-size:8px; font-weight:700;'>{symbol}</span> "
             f"<span style='color:{_TEXT}; font-size:9px; font-weight:800;'>{price_text}</span> "
-            f"<span style='color:{chg_color}; font-size:8px; font-weight:800;'>{chg_text}</span>"
+            f"<span style='color:{chg_color}; font-size:11px; font-weight:900;'>{chg_text}</span>"
         )
 
     def configure_ticker_ws_tokens(self, instrument_map: Dict[str, Dict[str, Any]]) -> List[int]:

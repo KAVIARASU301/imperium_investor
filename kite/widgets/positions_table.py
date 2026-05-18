@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem
 )
 from PySide6.QtCore import (
-    Qt, Signal, Slot, QTimer, QSignalBlocker
+    Qt, Signal, Slot, QTimer, QSignalBlocker, QEvent
 )
 from PySide6.QtGui import QColor, QFont, QBrush, QCursor
 
@@ -311,6 +311,8 @@ class PositionsTable(QWidget):
         hdr.setFont(_ui_font(8, QFont.Weight.Medium))
         hdr.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
+        self.table.viewport().installEventFilter(self)
+
 
     def _apply_dynamic_column_widths(self) -> None:
         """Size Qty and %Chg to remain visually aligned with watchlist numeric columns."""
@@ -351,6 +353,21 @@ class PositionsTable(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        with QSignalBlocker(self.table.horizontalHeader()):
+            self.table.setColumnWidth(COL_FLAG, 20)
+            self._apply_dynamic_column_widths()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        QTimer.singleShot(0, self._fit_columns_after_layout)
+
+    def eventFilter(self, watched, event):
+        if watched is self.table.viewport() and event.type() == QEvent.Type.Resize:
+            self._fit_columns_after_layout()
+        return super().eventFilter(watched, event)
+
+    def _fit_columns_after_layout(self) -> None:
+        """Re-apply fixed column widths after Qt settles initial layout geometry."""
         with QSignalBlocker(self.table.horizontalHeader()):
             self.table.setColumnWidth(COL_FLAG, 20)
             self._apply_dynamic_column_widths()
