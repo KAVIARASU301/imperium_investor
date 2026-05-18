@@ -3066,7 +3066,18 @@ class FixedTradingChart {
         const nowBucket  = this._istBucketStartMs(nowMs, intervalMs);
         if (!Number.isFinite(lastBucket) || !Number.isFinite(nowBucket)) return false;
 
-        return nowBucket > lastBucket;
+        if (nowBucket > lastBucket) return true;
+
+        // Some broker historical feeds stamp intraday candles at bucket *end*
+        // while live ticks belong to the next bucket right at the boundary.
+        // In that mode the most recent candle can have time == nowBucket even
+        // though it represents the previous displayed bar, which causes a
+        // persistent one-candle lag unless we advance on boundary-cross ticks.
+        if (nowBucket === lastBucket && nowMs > lastTimeMs) {
+            return true;
+        }
+
+        return false;
     }
 
     _coerceEpochMs(value) {
