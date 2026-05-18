@@ -1820,6 +1820,17 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         alert_tokens = self._get_alert_tokens()
         all_tokens.update(alert_tokens)
 
+        # Priority 6: Header ticker board tokens
+        # Keep these in the core subscription universe so they are not dropped
+        # when set_instruments() replaces the websocket subscriptions.
+        if hasattr(self, "header_toolbar") and getattr(self, "instrument_map", None):
+            try:
+                header_tokens = self.header_toolbar.configure_ticker_ws_tokens(self.instrument_map)
+                all_tokens.update(header_tokens)
+                logger.info(f"Added {len(header_tokens)} header ticker tokens")
+            except Exception as exc:
+                logger.error(f"Failed to resolve header ticker tokens: {exc}")
+
         # Subscribe to all tokens (or clear when empty)
         if self.market_data_worker:
             self.market_data_worker.set_instruments(list(all_tokens))
