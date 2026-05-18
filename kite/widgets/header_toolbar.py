@@ -304,6 +304,24 @@ class HeaderToolbar(QToolBar):
         account_layout.setContentsMargins(6, 2, 6, 2)
         account_layout.setSpacing(6)
 
+        self.order_history_button = self._make_icon_button(
+            object_name="orderHistoryActionButton",
+            icon_name="order_history.svg",
+            required=True,
+            tooltip="Open order history",
+        )
+        self.order_history_button.clicked.connect(self.order_history_requested.emit)
+        account_layout.addWidget(self.order_history_button)
+
+        self.pending_orders_button = self._make_icon_button(
+            object_name="pendingOrdersActionButton",
+            icon_name="pending.svg",
+            required=True,
+            tooltip="Open pending orders",
+        )
+        self.pending_orders_button.clicked.connect(self.pending_orders_requested.emit)
+        account_layout.addWidget(self.pending_orders_button)
+
         self.settings_button = self._make_icon_button(
             object_name="settingsActionButton",
             icon_name="gear_setting.svg",
