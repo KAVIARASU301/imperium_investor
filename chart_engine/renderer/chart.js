@@ -3068,15 +3068,9 @@ class FixedTradingChart {
 
         if (nowBucket > lastBucket) return true;
 
-        // Some broker historical feeds stamp intraday candles at bucket *end*
-        // while live ticks belong to the next bucket right at the boundary.
-        // In that mode the most recent candle can have time == nowBucket even
-        // though it represents the previous displayed bar, which causes a
-        // persistent one-candle lag unless we advance on boundary-cross ticks.
-        if (nowBucket === lastBucket && nowMs > lastTimeMs) {
-            return true;
-        }
-
+        // Same bucket: keep updating the current live candle instead of
+        // appending. Appending within the same bucket creates ghost candles
+        // and shifts the chart left on every tick.
         return false;
     }
 
