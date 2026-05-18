@@ -275,16 +275,13 @@ class HeaderToolbar(QToolBar):
         ticker_layout.setContentsMargins(6, 2, 6, 2)
         ticker_layout.setSpacing(4)
 
-        self.ticker_symbol_labels: List[QLabel] = []
-        for _ in range(3):
-            symbol_label = QLabel("---")
-            symbol_label.setObjectName("tickerSymbolPill")
-            symbol_label.setFont(_modern_font(8, QFont.Weight.Bold))
-            symbol_label.setTextFormat(Qt.TextFormat.RichText)
-            symbol_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            symbol_label.setFixedWidth(180)
-            ticker_layout.addWidget(symbol_label)
-            self.ticker_symbol_labels.append(symbol_label)
+        self.ticker_board_label = QLabel("---")
+        self.ticker_board_label.setObjectName("tickerBoardText")
+        self.ticker_board_label.setFont(_modern_font(8, QFont.Weight.Bold))
+        self.ticker_board_label.setTextFormat(Qt.TextFormat.RichText)
+        self.ticker_board_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self.ticker_board_label.setMinimumWidth(520)
+        ticker_layout.addWidget(self.ticker_board_label)
 
         self.addWidget(self.ticker_board_widget)
         self._refresh_ticker_board_display()
@@ -476,12 +473,12 @@ class HeaderToolbar(QToolBar):
 
     def _refresh_ticker_board_display(self) -> None:
         symbols = self._ticker_symbols[:3]
-        for idx, label in enumerate(self.ticker_symbol_labels):
-            if idx < len(symbols):
-                label.setText(self._format_ticker_pill(symbols[idx]))
-                label.setVisible(True)
-            else:
-                label.setVisible(False)
+        if symbols:
+            divider = f" <span style='color:{_TEXT_FAINT};'>│</span> "
+            joined = divider.join(self._format_ticker_pill(symbol) for symbol in symbols)
+            self.ticker_board_label.setText(joined)
+        else:
+            self.ticker_board_label.setText("---")
         self.ticker_board_widget.setVisible(self._show_ticker_board and len(symbols) > 0)
 
     def _format_ticker_pill(self, symbol: str) -> str:
@@ -878,12 +875,11 @@ class HeaderToolbar(QToolBar):
 
 
 
-        QLabel#tickerSymbolPill {{
-            background-color: rgba(11, 20, 32, 0.92);
+        QLabel#tickerBoardText {{
+            background: transparent;
             color: {_TEXT_SOFT};
-            border: 1px solid rgba(68, 93, 130, 0.35);
-            border-radius: 2px;
-            padding: 2px 7px;
+            border: none;
+            padding: 1px 2px;
             font-family: {_SANS};
         }}
 
