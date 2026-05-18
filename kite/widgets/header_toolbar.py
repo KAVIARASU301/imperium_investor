@@ -281,6 +281,8 @@ class HeaderToolbar(QToolBar):
             symbol_label.setObjectName("tickerSymbolPill")
             symbol_label.setFont(_modern_font(8, QFont.Weight.Bold))
             symbol_label.setTextFormat(Qt.TextFormat.RichText)
+            symbol_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            symbol_label.setFixedWidth(180)
             ticker_layout.addWidget(symbol_label)
             self.ticker_symbol_labels.append(symbol_label)
 
