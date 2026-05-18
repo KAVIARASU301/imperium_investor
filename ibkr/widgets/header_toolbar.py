@@ -75,16 +75,10 @@ class HeaderToolbar(QToolBar):
         self._create_symbol_search_section()
         self._create_status_bar_section()  # NEW: Status bar section
         self._create_center_spacer()
-        self._create_alert_section()
-        self._create_trading_actions_section()
         self._create_account_section()
 
     def _create_symbol_search_section(self):
-        """Creates symbol search section with buy/sell buttons."""
-        symbol_label = QLabel("SYMBOL:")
-        symbol_label.setObjectName("symbolLabel")
-        self.addWidget(symbol_label)
-
+        """Creates symbol search section with compact production-grade action icons."""
         # Use custom symbol input instead of regular QLineEdit
         self.search_input = SymbolSearchInput()
         self.search_input.setPlaceholderText("Search symbol, company, exchange")
@@ -114,6 +108,46 @@ class HeaderToolbar(QToolBar):
             self.sell_button.setIcon(QIcon(str(sell_icon_path)))
         self.sell_button.clicked.connect(self._on_sell_clicked)
         self.addWidget(self.sell_button)
+
+        # Info button
+        self.info_button = QPushButton("")
+        self.info_button.setObjectName("tradingActionButton")
+        self.info_button.setToolTip("Performance Info")
+        self.info_button.setFixedSize(24, 20)
+        self.info_button.setIconSize(QSize(12, 12))
+        info_icon_path = get_asset_path("icons", "info.svg", required=True)
+        if info_icon_path is not None:
+            self.info_button.setIcon(QIcon(str(info_icon_path)))
+        self.info_button.clicked.connect(self.performance_dashboard_requested.emit)
+        self.addWidget(self.info_button)
+
+        # Positions button
+        self.positions_button = QPushButton("")
+        self.positions_button.setObjectName("tradingActionButton")
+        self.positions_button.setToolTip("Positions / Order History")
+        self.positions_button.setFixedSize(24, 20)
+        self.positions_button.setIconSize(QSize(12, 12))
+        positions_icon_path = get_asset_path("icons", "portfolio.svg", required=True)
+        if positions_icon_path is not None:
+            self.positions_button.setIcon(QIcon(str(positions_icon_path)))
+        self.positions_button.clicked.connect(self.order_history_requested.emit)
+        self.addWidget(self.positions_button)
+
+        # Alerts button
+        self.alerts_button = QPushButton("")
+        self.alerts_button.setObjectName("alertActionButton")
+        self.alerts_button.setToolTip("Alerts")
+        self.alerts_button.setIconSize(QSize(14, 14))
+        alert_icon_path = get_asset_path("icons", "alert.svg", required=True)
+        if alert_icon_path is not None:
+            self.alerts_button.setIcon(QIcon(str(alert_icon_path)))
+        self.alerts_button.clicked.connect(self.alert_manager_requested.emit)
+        self.alerts_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.alerts_button.setFixedSize(24, 20)
+        self.addWidget(self.alerts_button)
+
+        self.alerts_badge = NotificationBadge()
+        self.addWidget(self.alerts_badge)
 
         # Setup completer with enhanced settings
         self.completer = QCompleter(self)
@@ -167,58 +201,12 @@ class HeaderToolbar(QToolBar):
         self.addWidget(spacer)
 
     def _create_alert_section(self):
-        """Creates alert management section."""
-        self._add_section_gap()
-
-        alert_widget = QWidget()
-        alert_widget.setObjectName("alertActionWidget")
-
-        alert_layout = QHBoxLayout(alert_widget)
-        alert_layout.setContentsMargins(0, 0, 0, 0)
-        alert_layout.setSpacing(4)
-
-        self.alerts_button = QPushButton("")
-        self.alerts_button.setObjectName("alertActionButton")
-        self.alerts_button.setIconSize(QSize(14, 14))
-        alert_icon_path = get_asset_path("icons", "alert.svg", required=True)
-        if alert_icon_path is not None:
-            self.alerts_button.setIcon(QIcon(str(alert_icon_path)))
-        self.alerts_button.clicked.connect(self.alert_manager_requested.emit)
-        self.alerts_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.alerts_button.setFixedSize(24, 20)
-        alert_layout.addWidget(self.alerts_button)
-
-        self.alerts_badge = NotificationBadge()
-        alert_layout.addWidget(self.alerts_badge)
-
-        self.addWidget(alert_widget)
+        """Legacy placeholder kept for backwards compatibility."""
+        return
 
     def _create_trading_actions_section(self):
-        """Creates trading actions section."""
-        self._add_section_gap()
-
-        actions_widget = QWidget()
-        actions_widget.setObjectName("tradingActionWidget")
-
-        actions_layout = QHBoxLayout(actions_widget)
-        actions_layout.setContentsMargins(4, 2, 4, 2)
-        actions_layout.setSpacing(2)
-
-        # Order History Button
-        self.order_history_btn = QPushButton("Order History")
-        self.order_history_btn.setObjectName("tradingActionButton")
-        self.order_history_btn.clicked.connect(self.order_history_requested.emit)
-        self.order_history_btn.setFixedSize(84, 20)
-        actions_layout.addWidget(self.order_history_btn)
-
-        # Performance Dashboard Button
-        self.performance_btn = QPushButton("Performance")
-        self.performance_btn.setObjectName("tradingActionButton")
-        self.performance_btn.clicked.connect(self.performance_dashboard_requested.emit)
-        self.performance_btn.setFixedSize(76, 20)
-        actions_layout.addWidget(self.performance_btn)
-
-        self.addWidget(actions_widget)
+        """Legacy placeholder kept for backwards compatibility."""
+        return
 
     def _create_account_section(self):
         """Creates simplified account information display."""
@@ -450,13 +438,13 @@ class HeaderToolbar(QToolBar):
 
             # Simple color indicator on performance button
             if daily_pnl > 0:
-                self.performance_btn.setStyleSheet(
-                    self.performance_btn.styleSheet() +
+                self.info_button.setStyleSheet(
+                    self.info_button.styleSheet() +
                     "border-left: 3px solid #00b894;"
                 )
             elif daily_pnl < 0:
-                self.performance_btn.setStyleSheet(
-                    self.performance_btn.styleSheet() +
+                self.info_button.setStyleSheet(
+                    self.info_button.styleSheet() +
                     "border-left: 3px solid #d63031;"
                 )
 
@@ -478,15 +466,6 @@ class HeaderToolbar(QToolBar):
             }
             #centerSpacer {
                 background-color: transparent;
-            }
-            #symbolLabel { 
-                background-color: #1a1a1a; 
-                color: #ffffff; 
-                font-size: 11px; 
-                font-weight: 900; 
-                text-transform: uppercase;
-                letter-spacing: 1px;
-                padding-right: 6px;
             }
             #enhancedSymbolSearch {
                 background-color: #0f1318;

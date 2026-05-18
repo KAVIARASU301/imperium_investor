@@ -64,6 +64,7 @@ def _modern_font(point_size: int = 9, weight: QFont.Weight = QFont.Weight.Medium
 _TOOLBAR_H = 34
 _CONTROL_H = 24
 _ICON_BTN_W = 26
+_TICKER_REFRESH_MS = 12_000
 
 
 # ── Data helpers ─────────────────────────────────────────────────────────────
@@ -164,6 +165,15 @@ class HeaderToolbar(QToolBar):
         self._preferred_username = ""
         self._show_ticker_board = True
         self._ticker_symbols: List[str] = ["NIFTY", "BANKNIFTY", "INDIAVIX"]
+        self._ticker_alias_map: Dict[str, str] = {
+            "NIFTY": "NSE:NIFTY 50",
+            "NIFTY50": "NSE:NIFTY 50",
+            "BANKNIFTY": "NSE:NIFTY BANK",
+            "NIFTYBANK": "NSE:NIFTY BANK",
+            "INDIAVIX": "NSE:INDIA VIX",
+            "VIX": "NSE:INDIA VIX",
+        }
+        self._ticker_snapshot: Dict[str, Dict[str, Any]] = {}
         self._symbol_index = SymbolIndex()
         self.threadpool = QThreadPool()
         self._enable_account_polling = bool(enable_account_polling)
@@ -180,8 +190,6 @@ class HeaderToolbar(QToolBar):
         self._create_symbol_search_section()
         self._create_center_spacer()
         self._create_ticker_board_section()
-        self._create_alert_section()
-        self._create_trading_actions_section()
         self._create_account_section()
 
     def _create_symbol_search_section(self):
@@ -218,11 +226,6 @@ class HeaderToolbar(QToolBar):
         self.info_button.clicked.connect(self._on_info_clicked)
         search_layout.addWidget(self.info_button)
 
-        symbol_label = QLabel("SYMBOL")
-        symbol_label.setObjectName("symbolLabel")
-        symbol_label.setFont(_modern_font(9, QFont.Weight.ExtraBold))
-        search_layout.addWidget(symbol_label)
-
         self.search_input = EnhancedSearchInput()
         self.search_input.setPlaceholderText("Symbol / company…")
         self.search_input.setObjectName("enhancedSymbolSearch")
@@ -244,6 +247,18 @@ class HeaderToolbar(QToolBar):
         self.positions_button.clicked.connect(self.positions_requested.emit)
         search_layout.addWidget(self.positions_button)
 
+        self.alerts_button = self._make_icon_button(
+            object_name="alertActionButton",
+            icon_name="alert.svg",
+            required=True,
+            tooltip="Open alert manager",
+        )
+        self.alerts_button.clicked.connect(self.alert_manager_requested.emit)
+        search_layout.addWidget(self.alerts_button)
+
+        self.alerts_badge = NotificationBadge()
+        search_layout.addWidget(self.alerts_badge)
+
         self.addWidget(search_group)
 
     def _create_center_spacer(self):
@@ -260,16 +275,12 @@ class HeaderToolbar(QToolBar):
         ticker_layout.setContentsMargins(6, 2, 6, 2)
         ticker_layout.setSpacing(4)
 
-        self.ticker_board_label = QLabel("TICKERS")
-        self.ticker_board_label.setObjectName("tickerBoardLabel")
-        self.ticker_board_label.setFont(_modern_font(8, QFont.Weight.ExtraBold))
-        ticker_layout.addWidget(self.ticker_board_label)
-
         self.ticker_symbol_labels: List[QLabel] = []
         for _ in range(3):
             symbol_label = QLabel("---")
             symbol_label.setObjectName("tickerSymbolPill")
             symbol_label.setFont(_modern_font(8, QFont.Weight.Bold))
+            symbol_label.setTextFormat(Qt.TextFormat.RichText)
             ticker_layout.addWidget(symbol_label)
             self.ticker_symbol_labels.append(symbol_label)
 
@@ -277,55 +288,12 @@ class HeaderToolbar(QToolBar):
         self._refresh_ticker_board_display()
 
     def _create_alert_section(self):
-        self._add_section_gap(8)
-
-        alert_widget = QWidget()
-        alert_widget.setObjectName("alertActionWidget")
-        alert_layout = QHBoxLayout(alert_widget)
-        alert_layout.setContentsMargins(4, 2, 4, 2)
-        alert_layout.setSpacing(3)
-
-        self.alerts_button = self._make_icon_button(
-            object_name="alertActionButton",
-            icon_name="alert.svg",
-            required=True,
-            tooltip="Open alert manager",
-        )
-        self.alerts_button.clicked.connect(self.alert_manager_requested.emit)
-        alert_layout.addWidget(self.alerts_button)
-
-        self.alerts_badge = NotificationBadge()
-        alert_layout.addWidget(self.alerts_badge)
-
-        self.addWidget(alert_widget)
+        """Legacy placeholder kept for API compatibility."""
+        return
 
     def _create_trading_actions_section(self):
-        self._add_section_gap(8)
-
-        actions_widget = QWidget()
-        actions_widget.setObjectName("tradingActionWidget")
-        actions_layout = QHBoxLayout(actions_widget)
-        actions_layout.setContentsMargins(5, 2, 5, 2)
-        actions_layout.setSpacing(3)
-
-        self.order_history_btn = self._make_text_button("Order History")
-        self.order_history_btn.clicked.connect(self.order_history_requested.emit)
-        actions_layout.addWidget(self.order_history_btn)
-
-        self.pending_orders_btn = self._make_text_button("Pending")
-        self.pending_orders_btn.clicked.connect(self.pending_orders_requested.emit)
-        actions_layout.addWidget(self.pending_orders_btn)
-
-        self.performance_btn = self._make_text_button("Performance")
-        self.performance_btn.setProperty("pnlState", "flat")
-        self.performance_btn.clicked.connect(self.performance_dashboard_requested.emit)
-        actions_layout.addWidget(self.performance_btn)
-
-        self.color_settings_btn = self._make_text_button("Settings")
-        self.color_settings_btn.clicked.connect(self.color_settings_requested.emit)
-        actions_layout.addWidget(self.color_settings_btn)
-
-        self.addWidget(actions_widget)
+        """Legacy placeholder kept for API compatibility."""
+        return
 
     def _create_account_section(self):
         self._add_section_gap(8)
@@ -396,9 +364,13 @@ class HeaderToolbar(QToolBar):
 
     def _setup_timers(self):
         QTimer.singleShot(1000, self._trigger_account_refresh)
+        QTimer.singleShot(1500, self._trigger_ticker_refresh)
         self.account_timer = QTimer(self)
         self.account_timer.timeout.connect(self._trigger_account_refresh)
         self.account_timer.start(30_000)
+        self.ticker_timer = QTimer(self)
+        self.ticker_timer.timeout.connect(self._trigger_ticker_refresh)
+        self.ticker_timer.start(_TICKER_REFRESH_MS)
 
     # ── Signal handlers ───────────────────────────────────────────────────────
 
@@ -481,11 +453,75 @@ class HeaderToolbar(QToolBar):
         symbols = self._ticker_symbols[:3]
         for idx, label in enumerate(self.ticker_symbol_labels):
             if idx < len(symbols):
-                label.setText(symbols[idx])
+                label.setText(self._format_ticker_pill(symbols[idx]))
                 label.setVisible(True)
             else:
                 label.setVisible(False)
         self.ticker_board_widget.setVisible(self._show_ticker_board and len(symbols) > 0)
+
+    def _format_ticker_pill(self, symbol: str) -> str:
+        snap = self._ticker_snapshot.get(symbol.upper(), {})
+        price = snap.get("price")
+        chg = snap.get("change_pct")
+        if isinstance(price, (int, float)):
+            price_text = f"{float(price):,.2f}"
+        else:
+            price_text = "--"
+        if isinstance(chg, (int, float)):
+            chg_val = float(chg)
+            sign = "+" if chg_val > 0 else ""
+            chg_color = _BULL if chg_val > 0 else (_BEAR if chg_val < 0 else _TEXT_SOFT)
+            chg_text = f"{sign}{chg_val:.2f}%"
+        else:
+            chg_color = _TEXT_MUTED
+            chg_text = "--%"
+        return (
+            f"<span style='color:{_TEXT_SOFT}; font-size:8px; font-weight:700;'>{symbol}</span> "
+            f"<span style='color:{_TEXT}; font-size:9px; font-weight:800;'>{price_text}</span> "
+            f"<span style='color:{chg_color}; font-size:8px; font-weight:800;'>{chg_text}</span>"
+        )
+
+    def _trigger_ticker_refresh(self) -> None:
+        if not self.trader or not self._show_ticker_board:
+            return
+        worker = Worker(self._fetch_ticker_board_sync)
+        worker.signals.result.connect(self._handle_ticker_board_update)
+        worker.signals.error.connect(self._handle_ticker_board_error)
+        self.threadpool.start(worker)
+
+    def _fetch_ticker_board_sync(self) -> Dict[str, Dict[str, Any]]:
+        symbols = self._ticker_symbols[:3]
+        instruments = [self._resolve_ticker_instrument(sym) for sym in symbols]
+        quote_fn = getattr(self.trader, "quote", None)
+        if not callable(quote_fn) or not instruments:
+            return {}
+        quotes = quote_fn(instruments) or {}
+        out: Dict[str, Dict[str, Any]] = {}
+        for display_symbol, instrument in zip(symbols, instruments):
+            q = quotes.get(instrument) or {}
+            ohlc = q.get("ohlc") if isinstance(q.get("ohlc"), dict) else {}
+            price = q.get("last_price")
+            prev_close = ohlc.get("close")
+            change_pct = ((float(price) - float(prev_close)) / float(prev_close) * 100.0) if price and prev_close else 0.0
+            out[display_symbol.upper()] = {"price": price, "change_pct": change_pct}
+        return out
+
+    def _resolve_ticker_instrument(self, symbol: str) -> str:
+        key = str(symbol or "").strip().upper()
+        if key in self._ticker_alias_map:
+            return self._ticker_alias_map[key]
+        return key if ":" in key else f"NSE:{key}"
+
+    @Slot(object)
+    def _handle_ticker_board_update(self, payload: Dict[str, Dict[str, Any]]) -> None:
+        if payload:
+            self._ticker_snapshot.update(payload)
+        self._refresh_ticker_board_display()
+
+    @Slot(tuple)
+    def _handle_ticker_board_error(self, _error: tuple) -> None:
+        logger.debug("Ticker board refresh failed", exc_info=False)
+        self._refresh_ticker_board_display()
 
     def update_performance_metrics(self, performance_data: Dict[str, Any]) -> None:
         daily_pnl = performance_data.get("daily_pnl", 0)
@@ -495,10 +531,10 @@ class HeaderToolbar(QToolBar):
             state = "loss"
         else:
             state = "flat"
-        self.performance_btn.setProperty("pnlState", state)
-        self.performance_btn.style().unpolish(self.performance_btn)
-        self.performance_btn.style().polish(self.performance_btn)
-        self.performance_btn.update()
+        self.info_button.setProperty("pnlState", state)
+        self.info_button.style().unpolish(self.info_button)
+        self.info_button.style().polish(self.info_button)
+        self.info_button.update()
 
     def set_watchlist_symbols(self, symbols: List[str]) -> None:
         pass  # index handles this now
@@ -625,10 +661,6 @@ class HeaderToolbar(QToolBar):
             self.info_button,
             self.positions_button,
             self.alerts_button,
-            self.order_history_btn,
-            self.pending_orders_btn,
-            self.performance_btn,
-            self.color_settings_btn,
         ):
             widget.setFont(modern_small)
 
@@ -659,23 +691,11 @@ class HeaderToolbar(QToolBar):
         }}
 
         QWidget#symbolSearchGroup,
-        QWidget#tradingActionWidget,
         QWidget#accountInfoWidget,
-        QWidget#alertActionWidget,
         QFrame#tickerBoardWidget {{
             background-color: {_BG_PANEL};
             border: 1px solid {_BG_BORDER};
             border-radius: 2px;
-        }}
-
-        QLabel#symbolLabel {{
-            background: transparent;
-            color: {_TEXT_MUTED};
-            font-family: {_SANS};
-            font-size: 9px;
-            font-weight: 800;
-            letter-spacing: 1.1px;
-            padding: 0 2px 0 0;
         }}
 
         #enhancedSymbolSearch {{
@@ -751,6 +771,12 @@ class HeaderToolbar(QToolBar):
         QPushButton#infoActionButton:pressed {{
             background-color: rgba(0, 212, 255, 0.20);
         }}
+        QPushButton#infoActionButton[pnlState="profit"] {{
+            border-left: 3px solid {_BULL};
+        }}
+        QPushButton#infoActionButton[pnlState="loss"] {{
+            border-left: 3px solid {_BEAR};
+        }}
 
         QPushButton#positionsActionButton {{
             color: {_BLUE};
@@ -778,19 +804,12 @@ class HeaderToolbar(QToolBar):
 
 
 
-        QLabel#tickerBoardLabel {{
-            color: {_TEXT_MUTED};
-            font-family: {_SANS};
-            letter-spacing: 1px;
-            padding-right: 2px;
-        }}
-
         QLabel#tickerSymbolPill {{
-            background-color: rgba(0, 212, 255, 0.08);
-            color: {_CYAN};
-            border: 1px solid rgba(0, 212, 255, 0.20);
+            background-color: rgba(11, 20, 32, 0.92);
+            color: {_TEXT_SOFT};
+            border: 1px solid rgba(68, 93, 130, 0.35);
             border-radius: 2px;
-            padding: 1px 6px;
+            padding: 2px 7px;
             font-family: {_SANS};
         }}
 
@@ -884,6 +903,8 @@ class HeaderToolbar(QToolBar):
     def closeEvent(self, event):
         if hasattr(self, "account_timer"):
             self.account_timer.stop()
+        if hasattr(self, "ticker_timer"):
+            self.ticker_timer.stop()
         if hasattr(self, "_account_polling_thread"):
             self._account_polling_thread.quit()
             self._account_polling_thread.wait(2000)
