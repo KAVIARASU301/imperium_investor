@@ -64,7 +64,6 @@ def _modern_font(point_size: int = 9, weight: QFont.Weight = QFont.Weight.Medium
 _TOOLBAR_H = 34
 _CONTROL_H = 24
 _ICON_BTN_W = 26
-_TICKER_REFRESH_MS = 12_000
 
 
 # ── Data helpers ─────────────────────────────────────────────────────────────
@@ -174,6 +173,7 @@ class HeaderToolbar(QToolBar):
             "VIX": "NSE:INDIA VIX",
         }
         self._ticker_snapshot: Dict[str, Dict[str, Any]] = {}
+        self._ticker_token_to_symbol: Dict[int, str] = {}
         self._symbol_index = SymbolIndex()
         self.threadpool = QThreadPool()
         self._enable_account_polling = bool(enable_account_polling)
@@ -391,13 +391,9 @@ class HeaderToolbar(QToolBar):
 
     def _setup_timers(self):
         QTimer.singleShot(1000, self._trigger_account_refresh)
-        QTimer.singleShot(1500, self._trigger_ticker_refresh)
         self.account_timer = QTimer(self)
         self.account_timer.timeout.connect(self._trigger_account_refresh)
         self.account_timer.start(30_000)
-        self.ticker_timer = QTimer(self)
-        self.ticker_timer.timeout.connect(self._trigger_ticker_refresh)
-        self.ticker_timer.start(_TICKER_REFRESH_MS)
 
     # ── Signal handlers ───────────────────────────────────────────────────────
 
@@ -508,30 +504,79 @@ class HeaderToolbar(QToolBar):
             f"<span style='color:{chg_color}; font-size:8px; font-weight:800;'>{chg_text}</span>"
         )
 
-    def _trigger_ticker_refresh(self) -> None:
-        if not self.trader or not self._show_ticker_board:
-            return
-        worker = Worker(self._fetch_ticker_board_sync)
-        worker.signals.result.connect(self._handle_ticker_board_update)
-        worker.signals.error.connect(self._handle_ticker_board_error)
-        self.threadpool.start(worker)
+    def configure_ticker_ws_tokens(self, instrument_map: Dict[str, Dict[str, Any]]) -> List[int]:
+        """Resolve ticker board symbols to instrument tokens for WS subscriptions."""
+        resolved: Dict[int, str] = {}
+        if not isinstance(instrument_map, dict):
+            self._ticker_token_to_symbol = {}
+            return []
 
-    def _fetch_ticker_board_sync(self) -> Dict[str, Dict[str, Any]]:
-        symbols = self._ticker_symbols[:3]
-        instruments = [self._resolve_ticker_instrument(sym) for sym in symbols]
-        quote_fn = getattr(self.trader, "quote", None)
-        if not callable(quote_fn) or not instruments:
-            return {}
-        quotes = quote_fn(instruments) or {}
-        out: Dict[str, Dict[str, Any]] = {}
-        for display_symbol, instrument in zip(symbols, instruments):
-            q = quotes.get(instrument) or {}
-            ohlc = q.get("ohlc") if isinstance(q.get("ohlc"), dict) else {}
-            price = q.get("last_price")
-            prev_close = ohlc.get("close")
-            change_pct = ((float(price) - float(prev_close)) / float(prev_close) * 100.0) if price and prev_close else 0.0
-            out[display_symbol.upper()] = {"price": price, "change_pct": change_pct}
-        return out
+        for display_symbol in self._ticker_symbols[:3]:
+            token = self._find_instrument_token_for_symbol(display_symbol, instrument_map)
+            if token is not None:
+                resolved[int(token)] = display_symbol.upper()
+
+        self._ticker_token_to_symbol = resolved
+        return list(resolved.keys())
+
+    def _find_instrument_token_for_symbol(self, symbol: str, instrument_map: Dict[str, Dict[str, Any]]) -> int | None:
+        normalized = str(symbol or '').strip().upper().replace(' ', '')
+        candidates = {normalized}
+
+        alias = self._resolve_ticker_instrument(symbol)
+        alias_tail = alias.split(':', 1)[-1].strip().upper().replace(' ', '')
+        if alias_tail:
+            candidates.add(alias_tail)
+
+        for inst in instrument_map.values():
+            keys = {
+                str(inst.get('tradingsymbol', '')).strip().upper().replace(' ', ''),
+                str(inst.get('name', '')).strip().upper().replace(' ', ''),
+            }
+            if keys & candidates:
+                token = inst.get('instrument_token')
+                try:
+                    return int(token)
+                except (TypeError, ValueError):
+                    return None
+        return None
+
+    def ingest_ws_ticks(self, ticks: List[Dict[str, Any]]) -> None:
+        """Update ticker board snapshots from websocket ticks."""
+        if not ticks or not self._ticker_token_to_symbol:
+            return
+
+        updated = False
+        for tick in ticks:
+            token = tick.get('instrument_token')
+            if token is None:
+                continue
+            try:
+                display_symbol = self._ticker_token_to_symbol.get(int(token))
+            except (TypeError, ValueError):
+                continue
+            if not display_symbol:
+                continue
+
+            price = tick.get('last_price')
+            ohlc = tick.get('ohlc') if isinstance(tick.get('ohlc'), dict) else {}
+            prev_close = ohlc.get('close')
+            change_pct = None
+            try:
+                if price is not None and prev_close not in (None, 0):
+                    change_pct = ((float(price) - float(prev_close)) / float(prev_close)) * 100.0
+            except (TypeError, ValueError, ZeroDivisionError):
+                change_pct = None
+
+            existing = self._ticker_snapshot.get(display_symbol, {})
+            self._ticker_snapshot[display_symbol] = {
+                'price': price if price is not None else existing.get('price'),
+                'change_pct': change_pct if change_pct is not None else existing.get('change_pct'),
+            }
+            updated = True
+
+        if updated:
+            self._refresh_ticker_board_display()
 
     def _resolve_ticker_instrument(self, symbol: str) -> str:
         key = str(symbol or "").strip().upper()
@@ -930,8 +975,6 @@ class HeaderToolbar(QToolBar):
     def closeEvent(self, event):
         if hasattr(self, "account_timer"):
             self.account_timer.stop()
-        if hasattr(self, "ticker_timer"):
-            self.ticker_timer.stop()
         if hasattr(self, "_account_polling_thread"):
             self._account_polling_thread.quit()
             self._account_polling_thread.wait(2000)

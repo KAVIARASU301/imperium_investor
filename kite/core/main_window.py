@@ -1170,6 +1170,18 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             except Exception as e:
                 logger.error(f"Failed to ensure chart subscription for {symbol}: {e}")
 
+
+    def _refresh_header_ticker_ws_subscriptions(self) -> None:
+        """Subscribe websocket tokens needed by the header ticker board."""
+        if not hasattr(self, "header_toolbar") or not getattr(self, "instrument_map", None):
+            return
+        try:
+            tokens = self.header_toolbar.configure_ticker_ws_tokens(self.instrument_map)
+            if tokens and self.market_data_worker:
+                self.market_data_worker.add_instruments(tokens)
+        except Exception as exc:
+            logger.error(f"Failed to configure header ticker subscriptions: {exc}")
+
     def _refresh_chart_drawings(self):
         """Refresh chart drawings when lines are updated"""
         try:
@@ -1434,6 +1446,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         QTimer.singleShot(1000, lambda: self.position_manager.fetch_positions_from_kite("instruments_loaded"))
 
         self._schedule_subscription_rebuild()
+        self._refresh_header_ticker_ws_subscriptions()
         self.chart_init_timer.start(1000)
         logger.info("Instruments loaded successfully.")
 
@@ -1521,6 +1534,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         """
         if not ticks:
             return
+
+        if hasattr(self, "header_toolbar"):
+            self.header_toolbar.ingest_ws_ticks(ticks)
 
         # 1. Watchlist and scanner — direct dispatch (O(1) per tick per component)
         self.watchlist.update_data(ticks)
