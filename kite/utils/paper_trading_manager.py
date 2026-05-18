@@ -129,9 +129,28 @@ class PaperTradingManager(BasePaperTrader):
         if ":" in canonical:
             candidates.append(canonical.split(":")[-1])
 
+        # Include alias/canonicalized candidates so order symbols like
+        # "NSE:SBIN" / "SBIN-EQ" / alias names can still resolve to
+        # instrument-map keys registered by set_instrument_map().
+        normalized_candidates = []
+        for key in candidates:
+            resolved = self._resolve_trading_symbol(key)
+            if resolved:
+                normalized_candidates.append(resolved)
+        candidates.extend(normalized_candidates)
+
         # Try live market data
         for key in candidates:
             live = self._market_data.get(key)
+            if live:
+                return float(live.get("last_price", 0.0))
+
+        # Try by mapped instrument token (live ticks are also indexed by token).
+        for key in candidates:
+            token = self._symbol_to_token.get(key)
+            if token is None:
+                continue
+            live = self._market_data.get(token)
             if live:
                 return float(live.get("last_price", 0.0))
 
