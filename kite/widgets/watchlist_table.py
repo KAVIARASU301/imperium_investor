@@ -1504,6 +1504,13 @@ class TabbedWatchlistWidget(QWidget):
         """Add symbol to currently active watchlist."""
         return self.add_symbol(symbol)
 
+    def remove_symbol_from_active_watchlist(self, symbol: str) -> bool:
+        """Remove symbol from currently active watchlist."""
+        table = self._current_table()
+        if not table:
+            return False
+        return table.remove_symbol(symbol)
+
     def _refresh_symbol_snapshot(self, table: TradingTable, symbol: str) -> None:
         """
         Refresh newly added symbol with a quote snapshot so LTP/%Chg are available

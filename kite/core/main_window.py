@@ -503,7 +503,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 <tr><td>Open order dialog</td><td><code>F3</code> / <code>Shift+O</code></td></tr>
                 <tr><td>Toggle floating positions</td><td><code>Ctrl+P</code> / <code>Shift+P</code></td></tr>
                 <tr><td>Show stock info</td><td><code>Ctrl+I</code> / <code>Shift+I</code></td></tr>
-                <tr><td>Add symbol to active watchlist</td><td><code>Ctrl+Shift+0</code></td></tr>
+                <tr><td>Remove symbol from active watchlist</td><td><code>Ctrl+Shift+0</code></td></tr>
                 <tr><td>Add symbol to watchlist #1-#9</td><td><code>Ctrl+Shift+1..9</code></td></tr>
                 <tr><td>Open Order History</td><td><code>Ctrl+H</code></td></tr>
                 <tr><td>Open Performance</td><td><code>Ctrl+D</code></td></tr>
@@ -2538,9 +2538,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             shortcut.activated.connect(lambda idx=num - 1: self._add_symbol_to_watchlist_from_chart_index(idx))
             self._watchlist_shortcuts.append(shortcut)
 
-        # Ctrl+Shift+0 -> add to currently active watchlist
+        # Ctrl+Shift+0 -> remove from currently active watchlist
         active_shortcut = QShortcut(QKeySequence("Ctrl+Shift+0"), self)
-        active_shortcut.activated.connect(self._add_symbol_to_active_watchlist_from_chart)
+        active_shortcut.activated.connect(self._remove_symbol_from_active_watchlist_from_chart)
         self._watchlist_shortcuts.append(active_shortcut)
 
         # Order history shortcut (Ctrl+H)
@@ -2572,18 +2572,18 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         else:
             status.show_info(f"{current_symbol} already in {watchlist_name}")
 
-    def _add_symbol_to_active_watchlist_from_chart(self):
-        """Add current chart symbol to the active watchlist."""
+    def _remove_symbol_from_active_watchlist_from_chart(self):
+        """Remove current chart symbol from the active watchlist."""
         current_symbol = getattr(self.candlestick_chart, 'current_symbol', None)
         if not current_symbol:
             status.show_info("No symbol on chart")
             return
 
         active_name = self.watchlist.get_active_watchlist_name()
-        if self.watchlist.add_symbol_to_active_watchlist(current_symbol):
-            status.show_info(f"Added {current_symbol} to {active_name or 'active watchlist'}")
+        if self.watchlist.remove_symbol_from_active_watchlist(current_symbol):
+            status.show_info(f"Removed {current_symbol} from {active_name or 'active watchlist'}")
         else:
-            status.show_info(f"{current_symbol} already in {active_name or 'active watchlist'}")
+            status.show_info(f"{current_symbol} is not in {active_name or 'active watchlist'}")
 
     def _setup_global_shortcuts(self):
         """Setup global trading/navigation shortcuts."""

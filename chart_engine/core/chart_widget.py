@@ -53,6 +53,11 @@ SNAPSHOT_READY_MAX_ATTEMPTS = 20
 
 DEFAULT_INDICATOR_VISIBILITY = {}
 
+
+POLL_MS_INTRADAY = 60_000
+MINUTE_BOUNDARY_POLL_OFFSET_MS = 1000
+INTRADAY_INTERVALS = {"minute", "3minute", "5minute", "10minute", "15minute", "30minute", "60minute"}
+
 # ChartState is used internally to manage the stacked-widget visibility.
 from enum import Enum
 
@@ -166,6 +171,10 @@ class CandlestickChart(QWidget):
         self.data_cache   = DataCache()
         self.data_loader_thread: Optional[ChartDataLoaderThread] = None
 
+        self._historical_sync_timer = QTimer(self)
+        self._historical_sync_timer.setSingleShot(True)
+        self._historical_sync_timer.timeout.connect(self._poll_intraday_historical_sync)
+
         # ── WebEngine ──
         self.chart_view:   Optional[QWebEngineView] = None
         self.chart_bridge: Optional[ChartBridge]    = None
@@ -183,6 +192,40 @@ class CandlestickChart(QWidget):
                 last["symbol"], None, 0, last.get("interval", "day")
             ))
 
+    def _is_intraday_interval(self, interval: Optional[str] = None) -> bool:
+        return str(interval or self.current_interval or "").strip().lower() in INTRADAY_INTERVALS
+
+    def _ms_until_next_minute_boundary(self) -> int:
+        now = datetime.now()
+        elapsed_ms = (now.second * 1000) + (now.microsecond // 1000)
+        remaining_ms = POLL_MS_INTRADAY - elapsed_ms
+        return max(1, remaining_ms + MINUTE_BOUNDARY_POLL_OFFSET_MS)
+
+    def _restart_historical_sync_timer(self) -> None:
+        if not self.current_symbol or self.current_state != ChartState.LOADED:
+            self._historical_sync_timer.stop()
+            return
+        if not self._is_intraday_interval():
+            self._historical_sync_timer.stop()
+            return
+
+        delay_ms = self._ms_until_next_minute_boundary()
+        self._historical_sync_timer.start(delay_ms)
+
+    @Slot()
+    def _poll_intraday_historical_sync(self) -> None:
+        """Refresh intraday candles at minute boundaries to keep timestamps in sync."""
+        if self.current_state != ChartState.LOADED:
+            self._historical_sync_timer.stop()
+            return
+        if not self.current_symbol or not self._is_intraday_interval():
+            self._historical_sync_timer.stop()
+            return
+        if self.data_loader_thread and self.data_loader_thread.isRunning():
+            self._restart_historical_sync_timer()
+            return
+        self._load_chart_data(force_refresh=True)
+
     # ═══════════════════════════════════════════════════════════════════════
     # PUBLIC API
     # ═══════════════════════════════════════════════════════════════════════
@@ -198,6 +241,7 @@ class CandlestickChart(QWidget):
         """Load a new symbol (or reload current). Safe to call from any thread."""
         if not symbol:
             return
+        self._historical_sync_timer.stop()
         self.current_symbol           = symbol
         self.current_ltp              = 0.0
         self._current_watermark_description = self._resolve_symbol_description(symbol)
@@ -717,6 +761,7 @@ class CandlestickChart(QWidget):
             self.symbol_loaded.emit(self.current_symbol)
             self.data_request_for_symbol.emit(self.current_symbol)
             logger.info("Chart seamlessly updated: %s (%d candles)", self.current_symbol, len(candles))
+            self._restart_historical_sync_timer()
             return
 
         # ── Path B: first render — build full HTML ────────────────────────
@@ -762,6 +807,7 @@ class CandlestickChart(QWidget):
         self.symbol_loaded.emit(self.current_symbol)
         self.data_request_for_symbol.emit(self.current_symbol)
         logger.info("Chart HTML loaded: %s (%d candles)", self.current_symbol, len(candles))
+        self._restart_historical_sync_timer()
 
 
     def _infer_default_price_scale_currency(self) -> str:
