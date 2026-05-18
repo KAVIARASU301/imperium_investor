@@ -55,7 +55,7 @@ DEFAULT_INDICATOR_VISIBILITY = {}
 
 
 POLL_MS_INTRADAY = 60_000
-MINUTE_BOUNDARY_POLL_OFFSET_MS = 1000
+MINUTE_BOUNDARY_POLL_OFFSET_MS = 5000
 INTRADAY_INTERVALS = {"minute", "3minute", "5minute", "10minute", "15minute", "30minute", "60minute"}
 
 # ChartState is used internally to manage the stacked-widget visibility.
