@@ -496,6 +496,13 @@ class PositionsTable(QWidget):
 
     @Slot(int, float)
     def update_market_data(self, token: int, ltp: float):
+        try:
+            token = int(token)
+            ltp = float(ltp)
+        except (TypeError, ValueError):
+            return
+        if token <= 0 or ltp <= 0:
+            return
         self._pending_ticks[token] = ltp
 
     def _flush_pending_ticks(self):
@@ -686,11 +693,23 @@ class PositionsTable(QWidget):
         return next((s for s, r in self.symbol_to_row.items() if r == row), None)
 
     def _subscribe_tokens(self, positions: List[Position]):
-        tokens = [p.token for p in positions if p.token > 0]
-        new_tokens = [t for t in tokens if t not in self._subscribed_tokens]
-        if new_tokens:
-            self.subscribe_to_market_data.emit(new_tokens)
-            self._subscribed_tokens.update(new_tokens)
+        tokens = {int(p.token) for p in positions if int(p.token) > 0}
+        if not tokens:
+            self._subscribed_tokens.clear()
+            return
+
+        # Always re-emit full position tokens when the set changes so positions
+        # recover quickly after reconnect/app reopen websocket resets.
+        if tokens != self._subscribed_tokens:
+            self.subscribe_to_market_data.emit(sorted(tokens))
+            self._subscribed_tokens = set(tokens)
+            return
+
+        # Safety net: if the set is unchanged but we still have stale/zero LTPs,
+        # request the same subscriptions again to force immediate refresh.
+        stale_symbols = [p.symbol for p in positions if p.token > 0 and p.ltp <= 0]
+        if stale_symbols:
+            self.subscribe_to_market_data.emit(sorted(tokens))
 
 
     def get_position_by_symbol(self, symbol: str) -> Optional[Position]:
