@@ -326,7 +326,7 @@ class DualModeLoginManager(QDialog):
         title.setObjectName("welcomeTitle")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        subtitle = QLabel("Sign in to continue with your selected broker")
+        subtitle = QLabel("Big money comes from holding. Hold! Hold! Hold!")
         subtitle.setObjectName("subTitle")
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -406,6 +406,12 @@ class DualModeLoginManager(QDialog):
             self.america_radio.setChecked(True)
 
         mode_frame = self._create_trading_mode_selector()
+
+        hold_message = QLabel("Big money comes from holding. Hold! Hold! Hold!")
+        hold_message.setObjectName("subTitle")
+        hold_message.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        hold_message.setWordWrap(True)
+
         continue_btn = QPushButton("Continue")
         continue_btn.setObjectName("primaryButton")
         continue_btn.setFixedHeight(30)
@@ -415,6 +421,7 @@ class DualModeLoginManager(QDialog):
         layout.addWidget(self.session_hint_label)
         layout.addLayout(broker_layout)
         layout.addWidget(mode_frame)
+        layout.addWidget(hold_message)
         layout.addStretch()
         layout.addWidget(continue_btn)
         layout.addWidget(self.cancel_active_session_btn, alignment=Qt.AlignmentFlag.AlignCenter)
