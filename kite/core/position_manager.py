@@ -477,9 +477,9 @@ class PositionManager(QObject):
             pos = Position(
                 symbol   = pos_data.get("tradingsymbol", ""),
                 quantity = quantity,
-                avg_price= pos_data.get("average_price", 0),
-                token    = pos_data.get("instrument_token", 0),
-                ltp      = pos_data.get("last_price", 0),
+                avg_price= float(pos_data.get("average_price") or 0.0),
+                token    = int(pos_data.get("instrument_token") or 0),
+                ltp      = float(pos_data.get("last_price") or 0.0),
                 product  = product,
             )
             for tracked in self._tracked.values():

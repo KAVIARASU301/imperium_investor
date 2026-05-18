@@ -1260,6 +1260,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.position_manager.partial_fill_symbols_updated.connect(
             self.positions_table.mark_partial_symbols
         )
+        self.position_manager.positions_updated.connect(self._schedule_subscription_rebuild)
         self.position_manager.positions_updated.connect(self._update_floating_positions_dialog)
         self.position_manager.show_notification.connect(self._show_position_manager_notification)
         if hasattr(self, 'market_data_worker') and self.market_data_worker:
