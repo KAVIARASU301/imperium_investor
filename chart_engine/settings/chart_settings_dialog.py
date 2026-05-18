@@ -132,6 +132,18 @@ class ChartSettingsDialog(QDialog):
         self.tool_selection_mode.setToolTip("Applies only to drawing tools in the tools container.")
         layout.addRow("Tool Selection Mode:", self.tool_selection_mode)
 
+        self.show_snapshot = QCheckBox("Show snapshot button in toolbar")
+        self.show_snapshot.setChecked(self._s.get("show_snapshot", True))
+        layout.addRow("Toolbar Snapshot:", self.show_snapshot)
+
+        self.show_autoscale = QCheckBox("Show auto-scale button in toolbar")
+        self.show_autoscale.setChecked(self._s.get("show_autoscale", True))
+        layout.addRow("Toolbar Auto-scale:", self.show_autoscale)
+
+        self.show_refresh = QCheckBox("Show refresh button in toolbar")
+        self.show_refresh.setChecked(self._s.get("show_refresh", True))
+        layout.addRow("Toolbar Refresh:", self.show_refresh)
+
         self.wm_font_size = QSpinBox()
         self.wm_font_size.setRange(0, 300)
         self.wm_font_size.setValue(self._s.get("watermark_font_size", 50))
@@ -269,6 +281,9 @@ class ChartSettingsDialog(QDialog):
             "indicator_scale_labels_enabled": self.indicator_scale_labels_enabled.isChecked(),
             "crosshair_snap_enabled": self.crosshair_snap_enabled.isChecked(),
             "tool_selection_mode": self.tool_selection_mode.currentData(),
+            "show_snapshot": self.show_snapshot.isChecked(),
+            "show_autoscale": self.show_autoscale.isChecked(),
+            "show_refresh": self.show_refresh.isChecked(),
             "history_days_by_interval": {
                 interval: spin.value()
                 for interval, spin in self.history_days_inputs.items()

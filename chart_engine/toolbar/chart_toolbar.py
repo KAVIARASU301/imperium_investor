@@ -317,6 +317,7 @@ class ChartToolbar(QFrame):
     timeframe_changed = Signal(str)
     toolbar_preferences_changed = Signal(dict)
     manage_indicators_requested = Signal()
+    _UTILITY_HIDE_WIDTH = 600
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -338,6 +339,9 @@ class ChartToolbar(QFrame):
         self._tool_btn_group:   Optional[QButtonGroup] = None
         self._favorite_tools = ["line"]
         self._favorite_timeframes = []
+        self._show_snapshot = True
+        self._show_autoscale = True
+        self._show_refresh = True
         self._tf_menu_items: Dict[str, TimeframeMenuItemWidget] = {}
         self._drawing_menu_items: Dict[str, ToolMenuItemWidget] = {}
 
@@ -640,6 +644,7 @@ class ChartToolbar(QFrame):
         # Set defaults
         self.set_timeframe("day")
         self._refresh_color_btn()
+        self._apply_utility_controls_visibility()
 
     @staticmethod
     def _icon_btn(icon: str, tip: str, size: int = 28, icon_key: str = "") -> QPushButton:
@@ -817,6 +822,41 @@ class ChartToolbar(QFrame):
             f"}}"
         )
 
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._apply_utility_controls_visibility()
+
+    def _apply_utility_controls_visibility(self) -> None:
+        is_compact = self.width() < self._UTILITY_HIDE_WIDTH
+        if self.snapshot_btn:
+            self.snapshot_btn.setVisible(self._show_snapshot and not is_compact)
+        if self.autoscale_btn:
+            self.autoscale_btn.setVisible(self._show_autoscale and not is_compact)
+        if self.refresh_btn:
+            self.refresh_btn.setVisible(self._show_refresh and not is_compact)
+
+    def set_utility_controls_visibility(
+        self,
+        *,
+        show_snapshot: Optional[bool] = None,
+        show_autoscale: Optional[bool] = None,
+        show_refresh: Optional[bool] = None,
+        emit_change: bool = False,
+    ) -> None:
+        changed = False
+        if show_snapshot is not None and self._show_snapshot != bool(show_snapshot):
+            self._show_snapshot = bool(show_snapshot)
+            changed = True
+        if show_autoscale is not None and self._show_autoscale != bool(show_autoscale):
+            self._show_autoscale = bool(show_autoscale)
+            changed = True
+        if show_refresh is not None and self._show_refresh != bool(show_refresh):
+            self._show_refresh = bool(show_refresh)
+            changed = True
+        self._apply_utility_controls_visibility()
+        if emit_change and changed and not self._suppress_pref_events:
+            self.toolbar_preferences_changed.emit(self.get_toolbar_preferences())
+
     # ═══════════════════════════════════════════════════════════════════════
     # PUBLIC API
     # ═══════════════════════════════════════════════════════════════════════
@@ -911,6 +951,9 @@ class ChartToolbar(QFrame):
             "favorite_timeframes": list(self._favorite_timeframes),
             "chart_type": self._active_chart_type,
             "drawing_color": self._drawing_color,
+            "show_snapshot": self._show_snapshot,
+            "show_autoscale": self._show_autoscale,
+            "show_refresh": self._show_refresh,
         }
 
     def apply_toolbar_preferences(self, prefs: Optional[Dict[str, object]]) -> None:
@@ -944,6 +987,12 @@ class ChartToolbar(QFrame):
             drawing_color = prefs.get("drawing_color")
             if isinstance(drawing_color, str) and drawing_color.strip():
                 self.set_drawing_color(drawing_color)
+            self.set_utility_controls_visibility(
+                show_snapshot=prefs.get("show_snapshot") if isinstance(prefs.get("show_snapshot"), bool) else None,
+                show_autoscale=prefs.get("show_autoscale") if isinstance(prefs.get("show_autoscale"), bool) else None,
+                show_refresh=prefs.get("show_refresh") if isinstance(prefs.get("show_refresh"), bool) else None,
+                emit_change=False,
+            )
         finally:
             self._suppress_pref_events = False
 

@@ -1282,6 +1282,7 @@ class CandlestickChart(QWidget):
     # ── Settings dialog ───────────────────────────────────────────────────
 
     def _open_settings_dialog(self) -> None:
+        toolbar_prefs = self.toolbar.get_toolbar_preferences() if self.toolbar else {}
         current = {
             "candle_width":           self._current_candle_width,
             "candle_spacing":         self._current_candle_spacing,
@@ -1304,6 +1305,9 @@ class CandlestickChart(QWidget):
             "tool_selection_mode": self._tool_selection_mode,
             "toolbar_symbol_display": self._toolbar_symbol_display,
             "history_days_by_interval": dict(self._history_days_by_interval),
+            "show_snapshot": bool(toolbar_prefs.get("show_snapshot", True)),
+            "show_autoscale": bool(toolbar_prefs.get("show_autoscale", True)),
+            "show_refresh": bool(toolbar_prefs.get("show_refresh", True)),
             **dict(self._chart_info_visibility),
         }
         dlg = ChartSettingsDialog(current, self)
@@ -1332,6 +1336,13 @@ class CandlestickChart(QWidget):
         self._crosshair_snap_enabled     = s.get("crosshair_snap_enabled", self._crosshair_snap_enabled)
         self._tool_selection_mode        = s.get("tool_selection_mode", self._tool_selection_mode)
         self._toolbar_symbol_display     = s.get("toolbar_symbol_display", self._toolbar_symbol_display)
+        if self.toolbar:
+            self.toolbar.set_utility_controls_visibility(
+                show_snapshot=bool(s.get("show_snapshot", True)),
+                show_autoscale=bool(s.get("show_autoscale", True)),
+                show_refresh=bool(s.get("show_refresh", True)),
+                emit_change=True,
+            )
         self._history_days_by_interval    = dict(DEFAULT_DAYS_BACK)
         self._history_days_by_interval.update(s.get("history_days_by_interval", {}))
         for key in self._chart_info_visibility.keys():
