@@ -308,7 +308,7 @@ class PositionsTable(QWidget):
 
         hdr.setMinimumSectionSize(20)
         hdr.setHighlightSections(False)
-        hdr.setFont(_ui_font(8, QFont.Weight.Medium))
+        hdr.setFont(_ui_font(9, QFont.Weight.Medium))
         hdr.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
         self.table.viewport().installEventFilter(self)
@@ -819,8 +819,8 @@ class PositionsTable(QWidget):
                 border-bottom: 1px solid {_BORDER};
                 font-family: {_SANS};
                 font-weight: 500;
-                font-size: 8px;
-                letter-spacing: 1px;
+                font-size: 9px;
+                letter-spacing: 0.6px;
                 text-transform: uppercase;
                 min-height: {_HEADER_H}px;
                 max-height: {_HEADER_H}px;

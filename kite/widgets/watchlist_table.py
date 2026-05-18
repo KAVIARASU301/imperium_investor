@@ -1381,12 +1381,6 @@ class TabbedWatchlistWidget(QWidget):
         h.setContentsMargins(6, 0, 4, 0)
         h.setSpacing(4)
 
-        # Static label
-        lbl = QLabel("WATCHLIST")
-        lbl.setObjectName("wlLabel")
-        lbl.setFixedWidth(72)
-        h.addWidget(lbl)
-
         # Dropdown selector
         self._dropdown = QComboBox()
         self._dropdown.setObjectName("wlDropdown")
