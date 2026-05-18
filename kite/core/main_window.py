@@ -2145,6 +2145,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             symbol = order_data.get("tradingsymbol", "")
             tx_type = order_data.get("transaction_type", "BUY")
             qty = order_data.get("quantity", 0)
+            self._ensure_symbol_subscription_for_order(symbol)
             status.set_message(
                 f"Submitting {tx_type} {qty} {symbol}…", 3000, level="action"
             )
@@ -2192,6 +2193,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             symbol = order_data.get("tradingsymbol", "")
             tx_type = order_data.get("transaction_type", "SELL")
             qty = order_data.get("quantity", 0)
+            self._ensure_symbol_subscription_for_order(symbol)
 
             status.set_message(
                 f"Submitting exit {tx_type} {qty} {symbol}…", 3000, level="action"
@@ -2220,6 +2222,20 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             compact_error = self._compact_broker_error(e)
             status.notify("rejected", symbol, compact_error)
             logger.error(f"[EXIT] Exit placement exception: {e}", exc_info=True)
+
+    def _ensure_symbol_subscription_for_order(self, symbol: str) -> None:
+        """Subscribe order symbol immediately so paper/live flows get fresh ticks."""
+        symbol = (symbol or "").strip().upper()
+        if not symbol or symbol not in self.instrument_map:
+            return
+
+        token = self.instrument_map[symbol].get("instrument_token")
+        if not token:
+            return
+
+        self._subscribe_to_tokens([int(token)])
+        self._schedule_subscription_rebuild()
+        logger.info(f"Ensured pre-order subscription for {symbol} ({token})")
 
     def _log_order_placement_immediate(self, order_data: Dict[str, Any], order_id: str):
         """
