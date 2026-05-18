@@ -226,6 +226,23 @@ class ColorSettingsDialog(QDialog):
         self.show_account_balance_checkbox.setChecked(bool(self._theme.get("show_account_balance", True)))
         account_layout.addWidget(self.show_account_balance_checkbox)
 
+
+        self.show_ticker_board_checkbox = _Toggle("SHOW HEADER TICKER BOARD")
+        self.show_ticker_board_checkbox.setChecked(bool(self._theme.get("show_ticker_board", True)))
+        account_layout.addWidget(self.show_ticker_board_checkbox)
+
+        ticker_row = QHBoxLayout()
+        ticker_label = _Label("TICKER SYMBOLS (MAX 3)", color=P.T1, size=10, bold=True)
+        self.ticker_symbols_input = QLineEdit()
+        self.ticker_symbols_input.setPlaceholderText("NIFTY, BANKNIFTY, INDIAVIX")
+        default_symbols = self._theme.get("ticker_board_symbols", ["NIFTY", "BANKNIFTY", "INDIAVIX"])
+        if isinstance(default_symbols, list):
+            self.ticker_symbols_input.setText(", ".join(str(sym).strip().upper() for sym in default_symbols[:3] if str(sym).strip()))
+        self.ticker_symbols_input.setClearButtonEnabled(True)
+        ticker_row.addWidget(ticker_label)
+        ticker_row.addWidget(self.ticker_symbols_input)
+        account_layout.addLayout(ticker_row)
+
         username_row = QHBoxLayout()
         username_label = _Label("PREFERRED USERNAME", color=P.T1, size=10, bold=True)
         self.preferred_username_input = QLineEdit()
@@ -468,6 +485,10 @@ class ColorSettingsDialog(QDialog):
         self._theme["show_account_name"] = self.show_account_name_checkbox.isChecked()
         self._theme["show_account_balance"] = self.show_account_balance_checkbox.isChecked()
         self._theme["preferred_username"] = self.preferred_username_input.text().strip()
+        self._theme["show_ticker_board"] = self.show_ticker_board_checkbox.isChecked()
+        raw_symbols = [part.strip().upper() for part in self.ticker_symbols_input.text().split(",")]
+        symbols = [sym for sym in raw_symbols if sym][:3]
+        self._theme["ticker_board_symbols"] = symbols if symbols else ["NIFTY", "BANKNIFTY", "INDIAVIX"]
         self._theme["dual_chart_mode"] = self.dual_chart_mode_checkbox.isChecked()
         return self._theme
 

@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QToolBar,
     QWidget,
+    QFrame,
 )
 from kiteconnect import KiteConnect
 
@@ -161,6 +162,8 @@ class HeaderToolbar(QToolBar):
         self._show_account_name = True
         self._show_account_balance = True
         self._preferred_username = ""
+        self._show_ticker_board = True
+        self._ticker_symbols: List[str] = ["NIFTY", "BANKNIFTY", "INDIAVIX"]
         self._symbol_index = SymbolIndex()
         self.threadpool = QThreadPool()
         self._enable_account_polling = bool(enable_account_polling)
@@ -176,6 +179,7 @@ class HeaderToolbar(QToolBar):
     def _init_ui(self):
         self._create_symbol_search_section()
         self._create_center_spacer()
+        self._create_ticker_board_section()
         self._create_alert_section()
         self._create_trading_actions_section()
         self._create_account_section()
@@ -247,6 +251,30 @@ class HeaderToolbar(QToolBar):
         spacer.setObjectName("centerSpacer")
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.addWidget(spacer)
+
+
+    def _create_ticker_board_section(self):
+        self.ticker_board_widget = QFrame()
+        self.ticker_board_widget.setObjectName("tickerBoardWidget")
+        ticker_layout = QHBoxLayout(self.ticker_board_widget)
+        ticker_layout.setContentsMargins(6, 2, 6, 2)
+        ticker_layout.setSpacing(4)
+
+        self.ticker_board_label = QLabel("TICKERS")
+        self.ticker_board_label.setObjectName("tickerBoardLabel")
+        self.ticker_board_label.setFont(_modern_font(8, QFont.Weight.ExtraBold))
+        ticker_layout.addWidget(self.ticker_board_label)
+
+        self.ticker_symbol_labels: List[QLabel] = []
+        for _ in range(3):
+            symbol_label = QLabel("---")
+            symbol_label.setObjectName("tickerSymbolPill")
+            symbol_label.setFont(_modern_font(8, QFont.Weight.Bold))
+            ticker_layout.addWidget(symbol_label)
+            self.ticker_symbol_labels.append(symbol_label)
+
+        self.addWidget(self.ticker_board_widget)
+        self._refresh_ticker_board_display()
 
     def _create_alert_section(self):
         self._add_section_gap(8)
@@ -438,8 +466,26 @@ class HeaderToolbar(QToolBar):
         self._show_account_name = bool(theme.get("show_account_name", True))
         self._show_account_balance = bool(theme.get("show_account_balance", True))
         self._preferred_username = str(theme.get("preferred_username", "")).strip()
+        self._show_ticker_board = bool(theme.get("show_ticker_board", True))
+        raw_tickers = theme.get("ticker_board_symbols", ["NIFTY", "BANKNIFTY", "INDIAVIX"])
+        if isinstance(raw_tickers, str):
+            raw_tickers = [raw_tickers]
+        cleaned = [str(sym).strip().upper() for sym in raw_tickers if str(sym).strip()]
+        self._ticker_symbols = cleaned[:3] if cleaned else ["NIFTY", "BANKNIFTY", "INDIAVIX"]
         self._update_account_display()
         self._update_account_display_visibility()
+        self._refresh_ticker_board_display()
+
+
+    def _refresh_ticker_board_display(self) -> None:
+        symbols = self._ticker_symbols[:3]
+        for idx, label in enumerate(self.ticker_symbol_labels):
+            if idx < len(symbols):
+                label.setText(symbols[idx])
+                label.setVisible(True)
+            else:
+                label.setVisible(False)
+        self.ticker_board_widget.setVisible(self._show_ticker_board and len(symbols) > 0)
 
     def update_performance_metrics(self, performance_data: Dict[str, Any]) -> None:
         daily_pnl = performance_data.get("daily_pnl", 0)
@@ -615,7 +661,8 @@ class HeaderToolbar(QToolBar):
         QWidget#symbolSearchGroup,
         QWidget#tradingActionWidget,
         QWidget#accountInfoWidget,
-        QWidget#alertActionWidget {{
+        QWidget#alertActionWidget,
+        QFrame#tickerBoardWidget {{
             background-color: {_BG_PANEL};
             border: 1px solid {_BG_BORDER};
             border-radius: 2px;
@@ -727,6 +774,24 @@ class HeaderToolbar(QToolBar):
         }}
         QPushButton#alertActionButton:pressed {{
             background-color: rgba(245, 158, 11, 0.22);
+        }}
+
+
+
+        QLabel#tickerBoardLabel {{
+            color: {_TEXT_MUTED};
+            font-family: {_SANS};
+            letter-spacing: 1px;
+            padding-right: 2px;
+        }}
+
+        QLabel#tickerSymbolPill {{
+            background-color: rgba(0, 212, 255, 0.08);
+            color: {_CYAN};
+            border: 1px solid rgba(0, 212, 255, 0.20);
+            border-radius: 2px;
+            padding: 1px 6px;
+            font-family: {_SANS};
         }}
 
         QLabel#notificationBadge {{

@@ -20,6 +20,8 @@ DEFAULT_COLOR_THEME: Dict[str, Any] = {
     "show_account_balance": True,
     "preferred_username": "",
     "dual_chart_mode": True,
+    "show_ticker_board": True,
+    "ticker_board_symbols": ["NIFTY", "BANKNIFTY", "INDIAVIX"],
     "candles": {
         "up": "#00C896",
         "down": "#E84060",
@@ -102,6 +104,13 @@ class ColorThemeManager(QObject):
         merged["show_account_balance"] = bool(custom.get("show_account_balance", merged["show_account_balance"]))
         merged["preferred_username"] = str(custom.get("preferred_username", merged["preferred_username"])).strip()
         merged["dual_chart_mode"] = bool(custom.get("dual_chart_mode", merged["dual_chart_mode"]))
+        merged["show_ticker_board"] = bool(custom.get("show_ticker_board", merged["show_ticker_board"]))
+        raw_symbols = custom.get("ticker_board_symbols", merged["ticker_board_symbols"])
+        if isinstance(raw_symbols, str):
+            raw_symbols = [raw_symbols]
+        if isinstance(raw_symbols, list):
+            cleaned = [str(sym).strip().upper() for sym in raw_symbols if str(sym).strip()]
+            merged["ticker_board_symbols"] = cleaned[:3] if cleaned else merged["ticker_board_symbols"]
 
         for section in ("candles", "volume", "tables"):
             section_data = custom.get(section, {})
