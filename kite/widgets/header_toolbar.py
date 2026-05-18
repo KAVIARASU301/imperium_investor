@@ -304,6 +304,15 @@ class HeaderToolbar(QToolBar):
         account_layout.setContentsMargins(6, 2, 6, 2)
         account_layout.setSpacing(6)
 
+        self.settings_button = self._make_icon_button(
+            object_name="settingsActionButton",
+            icon_name="gear_setting.svg",
+            required=True,
+            tooltip="Open settings",
+        )
+        self.settings_button.clicked.connect(self.color_settings_requested.emit)
+        account_layout.addWidget(self.settings_button)
+
         self.user_id_label = QLabel(self._account_info.get("user_id", "N/A"))
         self.user_id_label.setObjectName("userIdLabel")
         self.user_id_label.setFont(_modern_font(9, QFont.Weight.Bold))
