@@ -124,17 +124,24 @@ class PaperTradingManager(BasePaperTrader):
         Checks market data registry (fed by update_market_data) first,
         then falls back to instrument map static price.
         """
+        canonical = (symbol or "").strip().upper()
+        candidates = [canonical]
+        if ":" in canonical:
+            candidates.append(canonical.split(":")[-1])
+
         # Try live market data
-        live = self._market_data.get(symbol)
-        if live:
-            return float(live.get("last_price", 0.0))
+        for key in candidates:
+            live = self._market_data.get(key)
+            if live:
+                return float(live.get("last_price", 0.0))
 
         # Fallback: instrument map static price (stale but better than 0)
-        if symbol in self._instrument_map:
-            inst = self._instrument_map[symbol]
-            price = inst.get("last_price") or inst.get("ohlc", {}).get("close", 0.0)
-            if price:
-                return float(price)
+        for key in candidates:
+            if key in self._instrument_map:
+                inst = self._instrument_map[key]
+                price = inst.get("last_price") or inst.get("ohlc", {}).get("close", 0.0)
+                if price:
+                    return float(price)
 
         return 0.0
 

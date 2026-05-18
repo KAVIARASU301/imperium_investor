@@ -138,6 +138,16 @@ class BasePaperTrader(QObject, ABC, metaclass=QObjectABCMeta):
     VARIETY_BO      = "bo"
     VARIETY_CO      = "co"
 
+    @staticmethod
+    def _normalize_token(token: Any) -> Optional[int]:
+        """Normalize instrument token to int for stable dict keying."""
+        if token in (None, ""):
+            return None
+        try:
+            return int(token)
+        except (TypeError, ValueError):
+            return None
+
     def __init__(self, broker: str = "kite", initial_balance: float = 1_000_000.0):
         super().__init__()
 
@@ -348,21 +358,27 @@ class BasePaperTrader(QObject, ABC, metaclass=QObjectABCMeta):
         Ticks must have 'instrument_token' or 'tradingsymbol' + 'last_price'.
         """
         for tick in ticks:
-            token  = tick.get("instrument_token")
-            symbol = tick.get("tradingsymbol") or self._token_to_symbol.get(token)
+            raw_token = tick.get("instrument_token")
+            token = self._normalize_token(raw_token)
+            symbol = tick.get("tradingsymbol") or (
+                self._token_to_symbol.get(token) if token is not None else None
+            )
             price  = tick.get("last_price", 0.0)
 
             if symbol and price:
                 self._market_data[symbol] = tick
-                if token:
+                if token is not None:
                     self._market_data[token] = tick
                     self._token_to_symbol[token] = symbol
                     self._symbol_to_token[symbol] = token
 
     def register_instrument(self, symbol: str, token: int) -> None:
         """Register symbol ↔ token mapping so market data lookups work."""
-        self._symbol_to_token[symbol] = token
-        self._token_to_symbol[token] = symbol
+        normalized_token = self._normalize_token(token)
+        if normalized_token is None:
+            return
+        self._symbol_to_token[symbol] = normalized_token
+        self._token_to_symbol[normalized_token] = symbol
 
     # ─────────────────────────────────────────────────────────────────────────
     # EXECUTION ENGINE
