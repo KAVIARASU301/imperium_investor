@@ -370,24 +370,34 @@ class GlobalStatusManager(QObject):
             "info": "info",
             "action": "info",
         }
-        title_map = {
-            "error": "Order Alert",
-            "warn": "Order Update",
-            "success": "Order Filled",
-            "info": "Notification",
-        }
         kind = kind_map.get(normalized_level, "info")
         display_message = self._translate_message(message) if kind == "error" else (message or "")
-        sub_kind = None
-        text_upper = display_message.upper()
-        if kind == "success" and ("FILL" in text_upper or "COMPLETE" in text_upper):
-            sub_kind = "filled"
-        elif kind == "error":
-            sub_kind = "rejected"
-        elif "PARTIAL" in text_upper:
-            sub_kind = "partial_fill"
 
-        self._post(title_map.get(kind, "Notification"), display_message, kind, timeout, sub_kind=sub_kind)
+        text_upper = display_message.upper()
+        is_network_notice = any(token in text_upper for token in ("NETWORK", "OFFLINE", "ONLINE", "RECONNECT"))
+
+        if is_network_notice:
+            title = "Network"
+            sub_kind = "network"
+            if timeout <= 0:
+                timeout = 2500
+        else:
+            title_map = {
+                "error": "Order Alert",
+                "warn": "Order Update",
+                "success": "Order Filled",
+                "info": "Notification",
+            }
+            title = title_map.get(kind, "Notification")
+            sub_kind = None
+            if kind == "success" and ("FILL" in text_upper or "COMPLETE" in text_upper):
+                sub_kind = "filled"
+            elif kind == "error":
+                sub_kind = "rejected"
+            elif "PARTIAL" in text_upper:
+                sub_kind = "partial_fill"
+
+        self._post(title, display_message, kind, timeout, sub_kind=sub_kind)
         self._play_notification_sound(kind)
 
     @staticmethod

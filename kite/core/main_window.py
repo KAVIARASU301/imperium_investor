@@ -1208,9 +1208,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         # Reconnection manager → UI
         self.reconnection_manager.reconnection_started.connect(
-            lambda: status.show_notification("Reconnecting to Kite…", "warn", 0))
+            lambda: status.show_notification("Reconnecting…", "warn", 2500))
         self.reconnection_manager.reconnection_complete.connect(
-            lambda: status.show_notification("✅ Reconnected to Kite", "success", 4000))
+            lambda: status.show_notification("Back online", "success", 2200))
         self.reconnection_manager.reconnection_failed.connect(
             lambda r: status.show_notification(f"Reconnect failed: {r}", "error", 8000))
 
@@ -1220,14 +1220,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     @Slot()
     def _on_network_offline_ui(self):
         """Immediate UI feedback when network drops."""
-        from kite.widgets.notifications import ToastNotification
-
-        ToastNotification(
-            "Network Offline",
-            "Lost connection to Kite. Reconnecting automatically…",
-            "error",
-            0,       # 0 = persist until dismissed
-        ).show_toast()
+        status.show_notification("Offline", "warn", 2500)
 
         # Heartbeat goes red immediately
         if hasattr(self, "app_status_bar"):
