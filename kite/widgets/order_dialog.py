@@ -297,6 +297,12 @@ class _IntInput(QSpinBox):
             }}
         """)
 
+    def mousePressEvent(self, event):
+        super().mousePressEvent(event)
+        line_edit = self.lineEdit()
+        if line_edit is not None:
+            line_edit.setCursorPosition(len(line_edit.text()))
+
 
 class _StepButton(QPushButton):
     def __init__(self, text, parent=None):
