@@ -1708,7 +1708,7 @@ class TabbedWatchlistWidget(QWidget):
         gridline_color = "rgba(111,129,148,0.28)" if show_vertical_lines else "transparent"
         dropdown_icon_path = get_asset_path("icons", "dropdown-arrow.svg", required=False)
         dropdown_icon_url = dropdown_icon_path.as_posix() if dropdown_icon_path is not None else ""
-        stylesheet = f"""
+        stylesheet = """
             /* ── Widget shell ─────────────────────────────────────── */
             TabbedWatchlistWidget {
                 background: #06080c;
@@ -1814,7 +1814,7 @@ class TabbedWatchlistWidget(QWidget):
                 background: #0a0e13;
                 alternate-background-color: #10151c;
                 border: none;
-                gridline-color: {gridline_color};
+                gridline-color: __GRIDLINE_COLOR__;
                 selection-background-color: #1f1f1f;
                 color: #d8e2ef;
                 outline: none;
@@ -1946,4 +1946,8 @@ class TabbedWatchlistWidget(QWidget):
                 margin: 0;
             }
         """
-        self.setStyleSheet(stylesheet.replace("__DROPDOWN_ICON_URL__", dropdown_icon_url))
+        self.setStyleSheet(
+            stylesheet
+            .replace("__DROPDOWN_ICON_URL__", dropdown_icon_url)
+            .replace("__GRIDLINE_COLOR__", gridline_color)
+        )
