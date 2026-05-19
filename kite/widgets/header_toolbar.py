@@ -72,6 +72,7 @@ def _modern_font(point_size: int = 9, weight: QFont.Weight = QFont.Weight.Medium
 _TOOLBAR_H = 34
 _CONTROL_H = 24
 _ICON_BTN_W = 26
+_ACTION_BTN_H = 24
 
 
 # ── Data helpers ─────────────────────────────────────────────────────────────
@@ -473,34 +474,40 @@ class HeaderToolbar(QToolBar):
         search_group.setObjectName("symbolSearchGroup")
         search_layout = QHBoxLayout(search_group)
         search_layout.setContentsMargins(6, 2, 6, 2)
-        search_layout.setSpacing(5)
+        search_layout.setSpacing(4)
 
-        self.buy_button = self._make_icon_button(
+        self.buy_button = self._make_action_button(
             object_name="buyButton",
             icon_name="plus.svg",
             required=True,
             tooltip="Buy selected symbol",
+            label="Buy",
         )
         self.buy_button.clicked.connect(self._on_buy_clicked)
         search_layout.addWidget(self.buy_button)
+        search_layout.addWidget(self._create_vertical_divider())
 
-        self.sell_button = self._make_icon_button(
+        self.sell_button = self._make_action_button(
             object_name="sellButton",
             icon_name="minus.svg",
             required=True,
             tooltip="Sell selected symbol",
+            label="Sell",
         )
         self.sell_button.clicked.connect(self._on_sell_clicked)
         search_layout.addWidget(self.sell_button)
+        search_layout.addWidget(self._create_vertical_divider())
 
-        self.info_button = self._make_icon_button(
+        self.info_button = self._make_action_button(
             object_name="infoActionButton",
             icon_name="info.svg",
             required=True,
             tooltip="Open stock information",
+            label="Info",
         )
         self.info_button.clicked.connect(self._on_info_clicked)
         search_layout.addWidget(self.info_button)
+        search_layout.addWidget(self._create_vertical_divider())
 
         self.search_input = EnhancedSearchInput()
         self.search_input.setPlaceholderText("Symbol / company…")
@@ -512,20 +519,23 @@ class HeaderToolbar(QToolBar):
         self.search_input.symbol_selected.connect(self._on_symbol_committed)
         search_layout.addWidget(self.search_input)
 
-        self.positions_button = self._make_icon_button(
+        self.positions_button = self._make_action_button(
             object_name="positionsActionButton",
             icon_name="portfolio.svg",
             required=True,
             tooltip="Open positions",
+            label="Positions",
         )
         self.positions_button.clicked.connect(self.positions_requested.emit)
         search_layout.addWidget(self.positions_button)
+        search_layout.addWidget(self._create_vertical_divider())
 
-        self.alerts_button = self._make_icon_button(
+        self.alerts_button = self._make_action_button(
             object_name="alertActionButton",
             icon_name="alert.svg",
             required=True,
             tooltip="Open alert manager",
+            label="Alerts",
         )
         self.alerts_button.clicked.connect(self.alert_manager_requested.emit)
         search_layout.addWidget(self.alerts_button)
@@ -535,12 +545,7 @@ class HeaderToolbar(QToolBar):
 
         # ── Ticker board inline — right of alert button ──────────────────
         # A thin vertical separator visually groups alert from ticker section.
-        ticker_vsep = QFrame()
-        ticker_vsep.setFrameShape(QFrame.Shape.VLine)
-        ticker_vsep.setFixedWidth(1)
-        ticker_vsep.setFixedHeight(14)
-        ticker_vsep.setStyleSheet("background: #1a2030; border: none;")
-        search_layout.addWidget(ticker_vsep)
+        search_layout.addWidget(self._create_vertical_divider())
 
         self._ticker_board = TickerBoard(search_group)
         search_layout.addWidget(self._ticker_board)
@@ -581,29 +586,34 @@ class HeaderToolbar(QToolBar):
         account_layout.setContentsMargins(6, 2, 6, 2)
         account_layout.setSpacing(6)
 
-        self.order_history_button = self._make_icon_button(
+        self.order_history_button = self._make_action_button(
             object_name="orderHistoryActionButton",
             icon_name="order_history.svg",
             required=True,
             tooltip="Open order history",
+            label="Orders",
         )
         self.order_history_button.clicked.connect(self.order_history_requested.emit)
         account_layout.addWidget(self.order_history_button)
+        account_layout.addWidget(self._create_vertical_divider())
 
-        self.pending_orders_button = self._make_icon_button(
+        self.pending_orders_button = self._make_action_button(
             object_name="pendingOrdersActionButton",
             icon_name="pending.svg",
             required=True,
             tooltip="Open pending orders",
+            label="Pending",
         )
         self.pending_orders_button.clicked.connect(self.pending_orders_requested.emit)
         account_layout.addWidget(self.pending_orders_button)
+        account_layout.addWidget(self._create_vertical_divider())
 
-        self.settings_button = self._make_icon_button(
+        self.settings_button = self._make_action_button(
             object_name="settingsActionButton",
             icon_name="gear_setting.svg",
             required=True,
             tooltip="Open settings",
+            label="Settings",
         )
         self.settings_button.clicked.connect(self.color_settings_requested.emit)
         account_layout.addWidget(self.settings_button)
@@ -643,6 +653,31 @@ class HeaderToolbar(QToolBar):
         if icon_path is not None:
             button.setIcon(QIcon(str(icon_path)))
         return button
+
+    def _make_action_button(
+        self,
+        object_name: str,
+        icon_name: str,
+        required: bool,
+        tooltip: str,
+        label: str,
+    ) -> QPushButton:
+        button = self._make_icon_button(object_name, icon_name, required, tooltip)
+        button.setText(label)
+        button.setFixedHeight(_ACTION_BTN_H)
+        button.setMinimumWidth(74)
+        button.setMaximumWidth(98)
+        button.setIconSize(QSize(11, 11))
+        button.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+        return button
+
+    @staticmethod
+    def _create_vertical_divider() -> QFrame:
+        divider = QFrame()
+        divider.setObjectName("toolbarDivider")
+        divider.setFrameShape(QFrame.Shape.VLine)
+        divider.setFixedSize(1, 16)
+        return divider
 
     @staticmethod
     def _make_text_button(text: str) -> QPushButton:
@@ -1078,7 +1113,7 @@ class HeaderToolbar(QToolBar):
 
         QPushButton {{
             outline: none;
-            border-radius: 2px;
+            border-radius: 0px;
             font-family: {_SANS};
         }}
 
@@ -1087,18 +1122,18 @@ class HeaderToolbar(QToolBar):
         QPushButton#infoActionButton,
         QPushButton#positionsActionButton,
         QPushButton#alertActionButton {{
-            background-color: rgba(255, 255, 255, 0.035);
-            border: 1px solid {_BG_BORDER_HI};
-            padding: 2px;
+            background-color: transparent;
+            border: 1px solid transparent;
+            padding: 2px 7px;
+            text-align: left;
+            color: {_TEXT_SOFT};
         }}
 
         QPushButton#buyButton {{
             color: {_BULL};
-            border-color: rgba(0, 212, 168, 0.38);
         }}
         QPushButton#buyButton:hover {{
-            background-color: rgba(0, 212, 168, 0.14);
-            border-color: {_BULL};
+            background-color: rgba(0, 212, 168, 0.10);
         }}
         QPushButton#buyButton:pressed {{
             background-color: rgba(0, 212, 168, 0.22);
@@ -1106,11 +1141,9 @@ class HeaderToolbar(QToolBar):
 
         QPushButton#sellButton {{
             color: {_BEAR};
-            border-color: rgba(255, 77, 106, 0.38);
         }}
         QPushButton#sellButton:hover {{
-            background-color: rgba(255, 77, 106, 0.14);
-            border-color: {_BEAR};
+            background-color: rgba(255, 77, 106, 0.10);
         }}
         QPushButton#sellButton:pressed {{
             background-color: rgba(255, 77, 106, 0.22);
@@ -1118,11 +1151,9 @@ class HeaderToolbar(QToolBar):
 
         QPushButton#infoActionButton {{
             color: {_CYAN};
-            border-color: rgba(0, 212, 255, 0.34);
         }}
         QPushButton#infoActionButton:hover {{
-            background-color: rgba(0, 212, 255, 0.12);
-            border-color: {_CYAN};
+            background-color: rgba(0, 212, 255, 0.09);
         }}
         QPushButton#infoActionButton:pressed {{
             background-color: rgba(0, 212, 255, 0.20);
@@ -1136,11 +1167,9 @@ class HeaderToolbar(QToolBar):
 
         QPushButton#positionsActionButton {{
             color: {_BLUE};
-            border-color: rgba(0, 212, 255, 0.34);
         }}
         QPushButton#positionsActionButton:hover {{
-            background-color: rgba(0, 212, 255, 0.12);
-            border-color: {_BLUE};
+            background-color: rgba(0, 212, 255, 0.09);
         }}
         QPushButton#positionsActionButton:pressed {{
             background-color: rgba(0, 212, 255, 0.20);
@@ -1148,11 +1177,9 @@ class HeaderToolbar(QToolBar):
 
         QPushButton#alertActionButton {{
             color: {_AMBER};
-            border-color: rgba(245, 158, 11, 0.40);
         }}
         QPushButton#alertActionButton:hover {{
-            background-color: rgba(245, 158, 11, 0.14);
-            border-color: {_AMBER};
+            background-color: rgba(245, 158, 11, 0.10);
         }}
         QPushButton#alertActionButton:pressed {{
             background-color: rgba(245, 158, 11, 0.22);
@@ -1167,6 +1194,11 @@ class HeaderToolbar(QToolBar):
             font-size: 9px;
             font-weight: 800;
             padding: 0px;
+        }}
+
+        QFrame#toolbarDivider {{
+            background-color: {_BG_BORDER};
+            border: none;
         }}
 
         QPushButton#tradingActionButton {{
