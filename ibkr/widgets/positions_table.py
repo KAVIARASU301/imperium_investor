@@ -384,6 +384,7 @@ class PositionsTable(QWidget):
             QTableWidget {
                 background-color: #0a0a0a;
                 border: none;
+                border-top: 2px solid #3f3f3f;
                 gridline-color: #2a2a2a;
                 selection-background-color: #1e3a5f;
                 alternate-background-color: #0f0f0f;

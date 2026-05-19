@@ -766,6 +766,7 @@ class PositionsTable(QWidget):
                 background-color: {_BG_BASE};
                 alternate-background-color: {_BG_ALT};
                 border: none;
+                border-top: 2px solid #2b3444;
                 gridline-color: {gridline_color};
                 selection-background-color: {_BG_SEL};
                 selection-color: {_T0};
