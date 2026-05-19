@@ -358,8 +358,11 @@ class FloatingPositionsDialog(QDialog):
         self._dot.setObjectName("dotIndicator")
         self._dot.setFixedWidth(10)
 
-        title = QLabel("POSITIONS MONITOR")
-        title.setObjectName("barTitle")
+        self._title_label = QLabel("POSITIONS MONITOR")
+        self._title_label.setObjectName("barTitle")
+        # Keep the title hierarchy consistent with other dialogs (amber title)
+        # even when parent-level/global styles are active.
+        self._title_label.setStyleSheet(f"color: {_C.AMBER};")
 
         self._count_badge = QLabel("0")
         self._count_badge.setObjectName("countBadge")
@@ -367,7 +370,7 @@ class FloatingPositionsDialog(QDialog):
         self._count_badge.setFixedHeight(16)
 
         h.addWidget(self._dot)
-        h.addWidget(title)
+        h.addWidget(self._title_label)
         h.addWidget(self._count_badge)
         h.addStretch()
 
@@ -981,7 +984,7 @@ class FloatingPositionsDialog(QDialog):
                 font-weight: 900;
             }}
             QLabel#barTitle {{
-                color: {_C.T1};
+                color: {_C.AMBER};
                 font-family: {_SANS};
                 font-size: 10px;
                 font-weight: 800;
@@ -1067,7 +1070,7 @@ class FloatingPositionsDialog(QDialog):
             QTableWidget#posTable::item:hover {{
                 background: {_C.BG3};
             }}
-            QHeaderView::section {{
+            QTableWidget#posTable QHeaderView::section {{
                 background: {_C.BG2};
                 color: {_C.T2};
                 font-family: {_SANS};
