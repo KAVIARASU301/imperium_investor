@@ -997,6 +997,10 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 self.candlestick_chart.symbol_loaded.connect(
                     self.alert_system.sync_chart_lines_for_symbol
                 )
+                if getattr(self, 'candlestick_chart_secondary', None):
+                    self.candlestick_chart_secondary.symbol_loaded.connect(
+                        self.alert_system.sync_chart_lines_for_symbol
+                    )
                 # ALERT DRAG SYNC: chart line drag → alert manager price update
                 if hasattr(self.candlestick_chart, 'alert_price_updated'):
                     self.candlestick_chart.alert_price_updated.connect(
@@ -1018,8 +1022,13 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     def _restore_alert_lines(self) -> None:
         """Redraw all active alert lines after chart is confirmed ready."""
         if self.alert_system:
-            current_symbol = getattr(self.candlestick_chart, 'current_symbol', '')
-            self.alert_system.sync_chart_lines_for_symbol(current_symbol)
+            current_symbols = {
+                getattr(self.candlestick_chart, 'current_symbol', ''),
+                getattr(getattr(self, 'candlestick_chart_secondary', None), 'current_symbol', ''),
+            }
+            for symbol in current_symbols:
+                if symbol:
+                    self.alert_system.sync_chart_lines_for_symbol(symbol)
 
     @Slot(str)
     def _on_alert_line_deleted_from_chart(self, payload: str) -> None:
@@ -1293,6 +1302,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         if self.alert_system:
             self.candlestick_chart.alert_creation_requested.connect(self.alert_system.create_alert_from_chart)
+            self.candlestick_chart_secondary.alert_creation_requested.connect(self.alert_system.create_alert_from_chart)
 
         # Scanner & Watchlist → Chart
         self.chartink_scanner.symbol_selected.connect(self.candlestick_chart.on_search)

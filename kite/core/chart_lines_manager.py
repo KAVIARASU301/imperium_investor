@@ -604,14 +604,21 @@ class ChartLinesManager(QObject):
             if not hasattr(self.main_window, 'candlestick_chart'):
                 return
 
-            chart = self.main_window.candlestick_chart
-            symbol = getattr(chart, 'current_symbol', None)
-            if not symbol:
-                return
+            charts = [getattr(self.main_window, 'candlestick_chart', None)]
+            secondary = getattr(self.main_window, 'candlestick_chart_secondary', None)
+            if secondary is not None:
+                charts.append(secondary)
 
-            # Check that the chart is in LOADED state
+            # Check that all visible charts are in LOADED state before injecting
             from chart_engine.core.chart_widget import ChartState
-            if getattr(chart, 'current_state', None) != ChartState.LOADED:
+            pending_ready = [
+                chart for chart in charts
+                if chart is not None
+                and chart.isVisible()
+                and getattr(chart, 'current_symbol', None)
+                and getattr(chart, 'current_state', None) != ChartState.LOADED
+            ]
+            if pending_ready:
                 if retry_count < 10:
                     QTimer.singleShot(
                         100,
@@ -620,20 +627,27 @@ class ChartLinesManager(QObject):
                     logger.debug(f"Chart not ready, retry {retry_count + 1}/10")
                 return
 
-            state = self._load_symbol_drawings(symbol)
-            drawings = state.get("drawings", {})
-            filtered_drawings = self._filter_drawings_for_mode(drawings)
+            for chart in charts:
+                if chart is None:
+                    continue
+                symbol = getattr(chart, 'current_symbol', None)
+                if not symbol:
+                    continue
 
-            if hasattr(chart, 'set_drawings'):
-                chart.set_drawings(filtered_drawings)
-                logger.debug(f"Chart drawings refreshed for {symbol}")
-            elif hasattr(chart, 'chart_view') and chart.chart_view:
-                js_code = (
-                    "if(window.chart && window.chart.updateDrawings)"
-                    f"window.chart.updateDrawings({json.dumps(filtered_drawings)});"
-                )
-                chart.chart_view.page().runJavaScript(js_code)
-                logger.debug(f"Chart drawings injected via JS for {symbol}")
+                state = self._load_symbol_drawings(symbol)
+                drawings = state.get("drawings", {})
+                filtered_drawings = self._filter_drawings_for_mode(drawings)
+
+                if hasattr(chart, 'set_drawings'):
+                    chart.set_drawings(filtered_drawings)
+                    logger.debug(f"Chart drawings refreshed for {symbol}")
+                elif hasattr(chart, 'chart_view') and chart.chart_view:
+                    js_code = (
+                        "if(window.chart && window.chart.updateDrawings)"
+                        f"window.chart.updateDrawings({json.dumps(filtered_drawings)});"
+                    )
+                    chart.chart_view.page().runJavaScript(js_code)
+                    logger.debug(f"Chart drawings injected via JS for {symbol}")
 
         except Exception as e:
             logger.error(f"Error refreshing chart: {e}")
