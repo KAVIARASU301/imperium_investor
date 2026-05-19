@@ -627,7 +627,7 @@ class FixedTradingChart {
     }
 
     _drawSessionSeparators() {
-        if (!this.currentInterval.includes('minute')) return;
+        if (!this.currentInterval.includes('minute') || this.currentInterval === '60minute') return;
         const ctx = this.ctx;
         const MARKET_OPEN_HOUR = 9, MARKET_OPEN_MIN = 15;
 
