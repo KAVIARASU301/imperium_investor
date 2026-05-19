@@ -17,7 +17,9 @@ from PySide6.QtWidgets import (
     QDialog,
     QDoubleSpinBox,
     QFormLayout,
+    QGridLayout,
     QHBoxLayout,
+    QLabel,
     QPushButton,
     QSpinBox,
     QTabWidget,
@@ -47,7 +49,7 @@ class ChartSettingsDialog(QDialog):
     def __init__(self, current_settings: Dict[str, Any], parent=None):
         super().__init__(parent)
         self.setWindowTitle("Chart Settings")
-        self.setFixedSize(380, 620)
+        self.setMinimumSize(680, 560)
         self._s = dict(current_settings)          # working copy
         self._color_btns: Dict[str, QPushButton] = {}
         self._build_ui()
@@ -58,28 +60,42 @@ class ChartSettingsDialog(QDialog):
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 16, 16, 16)
-        root.setSpacing(10)
+        root.setSpacing(12)
+
+        title = QLabel("Chart Settings")
+        title.setObjectName("dialogTitle")
+        subtitle = QLabel("Display, history, and chart info preferences")
+        subtitle.setObjectName("dialogSubtitle")
+        root.addWidget(title)
+        root.addWidget(subtitle)
 
         tabs = QTabWidget()
         root.addWidget(tabs)
 
         display_tab = QWidget()
-        layout = QFormLayout(display_tab)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(10)
+        display_grid = QGridLayout(display_tab)
+        display_grid.setContentsMargins(8, 8, 8, 8)
+        display_grid.setHorizontalSpacing(16)
+        display_grid.setVerticalSpacing(10)
+
+        left_form = QFormLayout()
+        left_form.setSpacing(10)
+        left_form.setLabelAlignment(left_form.labelAlignment())
+        right_form = QFormLayout()
+        right_form.setSpacing(10)
 
         # ── Candle colors ──
-        layout.addRow("Up Candle Color:", self._color_row("up_candle_color", "#00c896"))
-        layout.addRow("Down Candle Color:", self._color_row("down_candle_color", "#e84060"))
+        left_form.addRow("Up Candle Color:", self._color_row("up_candle_color", "#00c896"))
+        left_form.addRow("Down Candle Color:", self._color_row("down_candle_color", "#e84060"))
 
         # ── Watermark ──
         self.wm_enabled = QCheckBox("Show symbol watermark")
         self.wm_enabled.setChecked(self._s.get("watermark_enabled", True))
-        layout.addRow("Watermark:", self.wm_enabled)
+        left_form.addRow("Watermark:", self.wm_enabled)
 
         self.wm_description = QCheckBox("Show company description under symbol")
         self.wm_description.setChecked(self._s.get("show_watermark_description", True))
-        layout.addRow("Watermark Description:", self.wm_description)
+        left_form.addRow("Watermark Description:", self.wm_description)
 
         self.toolbar_symbol_display = QComboBox()
         self.toolbar_symbol_display.addItem("Symbol Name", "symbol")
@@ -89,16 +105,16 @@ class ChartSettingsDialog(QDialog):
             if self.toolbar_symbol_display.itemData(i) == current_toolbar_display:
                 self.toolbar_symbol_display.setCurrentIndex(i)
                 break
-        layout.addRow("Toolbar Symbol Text:", self.toolbar_symbol_display)
+        left_form.addRow("Toolbar Symbol Text:", self.toolbar_symbol_display)
 
-        layout.addRow("Watermark Color:", self._color_row("watermark_color", "#ffffff"))
+        left_form.addRow("Watermark Color:", self._color_row("watermark_color", "#ffffff"))
 
         self.wm_opacity = QDoubleSpinBox()
         self.wm_opacity.setRange(0.0, 1.0)
         self.wm_opacity.setSingleStep(0.05)
         self.wm_opacity.setDecimals(2)
         self.wm_opacity.setValue(self._s.get("watermark_opacity", 0.28))
-        layout.addRow("Watermark Opacity:", self.wm_opacity)
+        left_form.addRow("Watermark Opacity:", self.wm_opacity)
 
         self.wm_position = QComboBox()
         for label, data in [("Top Center", "top_center"),
@@ -110,20 +126,20 @@ class ChartSettingsDialog(QDialog):
             if self.wm_position.itemData(i) == current_pos:
                 self.wm_position.setCurrentIndex(i)
                 break
-        layout.addRow("Watermark Position:", self.wm_position)
+        left_form.addRow("Watermark Position:", self.wm_position)
 
         # ── Indicator labels ──
         self.indicator_scale_labels_enabled = QCheckBox("Show indicator labels on price scale")
         self.indicator_scale_labels_enabled.setChecked(self._s.get("indicator_scale_labels_enabled", False))
-        layout.addRow("Indicator Labels:", self.indicator_scale_labels_enabled)
+        right_form.addRow("Indicator Labels:", self.indicator_scale_labels_enabled)
 
         self.crosshair_snap_enabled = QCheckBox("Snap crosshair to OHLC")
         self.crosshair_snap_enabled.setChecked(self._s.get("crosshair_snap_enabled", False))
-        layout.addRow("Crosshair Snap:", self.crosshair_snap_enabled)
+        right_form.addRow("Crosshair Snap:", self.crosshair_snap_enabled)
 
         self.show_time_slider = QCheckBox("Show time slider")
         self.show_time_slider.setChecked(self._s.get("show_time_slider", True))
-        layout.addRow("Time Slider:", self.show_time_slider)
+        right_form.addRow("Time Slider:", self.show_time_slider)
 
         self.tool_selection_mode = QComboBox()
         self.tool_selection_mode.addItem("One use (reselect each time)", "single_use")
@@ -134,38 +150,43 @@ class ChartSettingsDialog(QDialog):
                 self.tool_selection_mode.setCurrentIndex(i)
                 break
         self.tool_selection_mode.setToolTip("Applies only to drawing tools in the tools container.")
-        layout.addRow("Tool Selection Mode:", self.tool_selection_mode)
+        right_form.addRow("Tool Selection Mode:", self.tool_selection_mode)
 
         self.show_snapshot = QCheckBox("Show snapshot button in toolbar")
         self.show_snapshot.setChecked(self._s.get("show_snapshot", True))
-        layout.addRow("Toolbar Snapshot:", self.show_snapshot)
+        right_form.addRow("Toolbar Snapshot:", self.show_snapshot)
 
         self.show_autoscale = QCheckBox("Show auto-scale button in toolbar")
         self.show_autoscale.setChecked(self._s.get("show_autoscale", True))
-        layout.addRow("Toolbar Auto-scale:", self.show_autoscale)
+        right_form.addRow("Toolbar Auto-scale:", self.show_autoscale)
 
         self.show_refresh = QCheckBox("Show refresh button in toolbar")
         self.show_refresh.setChecked(self._s.get("show_refresh", True))
-        layout.addRow("Toolbar Refresh:", self.show_refresh)
+        right_form.addRow("Toolbar Refresh:", self.show_refresh)
 
         self.wm_font_size = QSpinBox()
         self.wm_font_size.setRange(0, 300)
         self.wm_font_size.setValue(self._s.get("watermark_font_size", 50))
         self.wm_font_size.setToolTip("0 = auto size")
-        layout.addRow("Watermark Font Size:", self.wm_font_size)
+        right_form.addRow("Watermark Font Size:", self.wm_font_size)
 
         self.wm_description_opacity = QDoubleSpinBox()
         self.wm_description_opacity.setRange(0.0, 1.0)
         self.wm_description_opacity.setSingleStep(0.05)
         self.wm_description_opacity.setDecimals(2)
         self.wm_description_opacity.setValue(self._s.get("watermark_description_opacity", 0.13))
-        layout.addRow("Description Opacity:", self.wm_description_opacity)
+        right_form.addRow("Description Opacity:", self.wm_description_opacity)
 
         self.wm_description_font_size = QSpinBox()
         self.wm_description_font_size.setRange(0, 150)
         self.wm_description_font_size.setValue(self._s.get("watermark_description_font_size", 25))
         self.wm_description_font_size.setToolTip("0 = auto size")
-        layout.addRow("Description Font Size:", self.wm_description_font_size)
+        right_form.addRow("Description Font Size:", self.wm_description_font_size)
+
+        display_grid.addLayout(left_form, 0, 0)
+        display_grid.addLayout(right_form, 0, 1)
+        display_grid.setColumnStretch(0, 1)
+        display_grid.setColumnStretch(1, 1)
 
         tabs.addTab(display_tab, "Display")
 
@@ -303,26 +324,34 @@ class ChartSettingsDialog(QDialog):
 
     def _apply_styles(self) -> None:
         self.setStyleSheet("""
-            QDialog { background-color: #141414; color: #d8d8d8; border: 1px solid #2e2e2e; }
-            QLabel { color: #d0d0d0; font-size: 12px; background: transparent; }
+            QDialog { background-color: #111827; color: #e5e7eb; border: 1px solid #233044; }
+            QLabel { color: #cbd5e1; font-size: 12px; background: transparent; }
+            QLabel#dialogTitle { color: #f8fafc; font-size: 16px; font-weight: 700; }
+            QLabel#dialogSubtitle { color: #94a3b8; font-size: 11px; margin-bottom: 4px; }
+            QTabWidget::pane { border: 1px solid #334155; background: #0f172a; }
+            QTabBar::tab {
+                background: #1e293b; color: #cbd5e1;
+                border: 1px solid #334155; padding: 6px 10px; min-width: 90px;
+            }
+            QTabBar::tab:selected { background: #334155; color: #f8fafc; }
             QSpinBox, QDoubleSpinBox, QComboBox {
-                background-color: #1e1e1e; color: #d8d8d8;
-                border: 1px solid #363636; border-radius: 3px; padding: 2px 4px;
+                background-color: #0b1220; color: #e5e7eb;
+                border: 1px solid #334155; border-radius: 4px; padding: 4px 6px;
             }
             QSpinBox::up-button, QSpinBox::down-button,
             QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {
-                width: 16px; background-color: #2a2a2a; border-left: 1px solid #363636;
+                width: 16px; background-color: #1e293b; border-left: 1px solid #334155;
             }
-            QSpinBox::up-button:hover, QSpinBox::down-button:hover { background-color: #333; }
-            QComboBox QAbstractItemView { background-color: #1e1e1e; color: #d8d8d8; }
+            QSpinBox::up-button:hover, QSpinBox::down-button:hover { background-color: #334155; }
+            QComboBox QAbstractItemView { background-color: #0b1220; color: #e5e7eb; }
             QPushButton {
-                background-color: #2f3b52; color: #e8e8e8;
-                border: 1px solid #4a5d80; border-radius: 3px;
+                background-color: #1d4ed8; color: #eff6ff;
+                border: 1px solid #3b82f6; border-radius: 4px;
                 padding: 5px 12px; font-weight: 600;
             }
-            QPushButton:hover { background-color: #4a5d80; }
-            QPushButton:pressed { background-color: #243146; }
-            QCheckBox { color: #d0d0d0; }
-            QCheckBox::indicator { width: 14px; height: 14px; border: 1px solid #444; border-radius: 2px; }
-            QCheckBox::indicator:checked { background-color: #4a5d80; }
+            QPushButton:hover { background-color: #2563eb; }
+            QPushButton:pressed { background-color: #1e40af; }
+            QCheckBox { color: #cbd5e1; spacing: 8px; }
+            QCheckBox::indicator { width: 14px; height: 14px; border: 1px solid #64748b; border-radius: 3px; }
+            QCheckBox::indicator:checked { background-color: #3b82f6; border-color: #3b82f6; }
         """)

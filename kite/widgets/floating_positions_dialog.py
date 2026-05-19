@@ -353,25 +353,12 @@ class FloatingPositionsDialog(QDialog):
         h.setContentsMargins(8, 0, 5, 0)
         h.setSpacing(6)
 
-        # Dot indicator + title
-        self._dot = QLabel("●")
-        self._dot.setObjectName("dotIndicator")
-        self._dot.setFixedWidth(10)
-
         self._title_label = QLabel("POSITIONS MONITOR")
         self._title_label.setObjectName("barTitle")
         # Keep the title hierarchy consistent with other dialogs (amber title)
         # even when parent-level/global styles are active.
         self._title_label.setStyleSheet(f"color: {_C.AMBER};")
-
-        self._count_badge = QLabel("0")
-        self._count_badge.setObjectName("countBadge")
-        self._count_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._count_badge.setFixedHeight(16)
-
-        h.addWidget(self._dot)
         h.addWidget(self._title_label)
-        h.addWidget(self._count_badge)
         h.addStretch()
 
         # Right controls
@@ -592,14 +579,6 @@ class FloatingPositionsDialog(QDialog):
 
         self._subscribe_new_tokens()
         self._update_footer()
-        if hasattr(self, "_count_badge"):
-            self._count_badge.setText(str(len(new_data)))
-            self._count_badge.setProperty("active", bool(new_data))
-            self._count_badge.style().unpolish(self._count_badge)
-            self._count_badge.style().polish(self._count_badge)
-        self._dot.setStyleSheet(
-            f"color: {_C.BULL if new_data else _C.T3}; background: transparent;"
-        )
 
     @Slot(str)
     def refresh_stop_loss_values(self, symbol: str = "") -> None:
@@ -976,13 +955,6 @@ class FloatingPositionsDialog(QDialog):
                 border-bottom: 1px solid {_C.BORDER};
                 border-radius: 0px;
             }}
-            QLabel#dotIndicator {{
-                color: {_C.BULL};
-                background: transparent;
-                font-family: {_SANS};
-                font-size: 8px;
-                font-weight: 900;
-            }}
             QLabel#barTitle {{
                 color: {_C.AMBER};
                 font-family: {_SANS};
@@ -990,22 +962,6 @@ class FloatingPositionsDialog(QDialog):
                 font-weight: 800;
                 letter-spacing: 1.6px;
                 background: transparent;
-            }}
-            QLabel#countBadge {{
-                color: {_C.T2};
-                background: rgba(255,255,255,0.03);
-                border: 1px solid {_C.BORDER};
-                border-radius: 2px;
-                font-family: {_NUM};
-                font-size: 9px;
-                font-weight: 800;
-                padding: 0 5px;
-                min-width: 18px;
-            }}
-            QLabel#countBadge[active="true"] {{
-                color: {_C.CYAN};
-                border-color: rgba(0,212,255,0.35);
-                background: rgba(0,212,255,0.08);
             }}
             QToolButton#barBtn {{
                 background: transparent;

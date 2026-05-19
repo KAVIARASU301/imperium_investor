@@ -47,7 +47,7 @@ _T3 = "#2a3a50"
 _SEL = "#1a2840"
 
 _SANS = "'Inter', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif"
-_MONO = "'Consolas', 'JetBrains Mono', 'Courier New', monospace"
+_NUM = "'Segoe UI Variable', 'Inter', 'Aptos', 'Segoe UI', 'Roboto', 'Noto Sans', sans-serif"
 
 _TITLE_H = 32
 _FOOTER_H = 32
@@ -72,8 +72,8 @@ class PnlHistoryDialog(QDialog):
 
     def _setup_window(self):
         self.setWindowTitle("P&L History")
-        self.setMinimumSize(900, 600)
-        self.resize(1040, 680)
+        self.setMinimumSize(860, 560)
+        self.resize(980, 620)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
         self.setAttribute(Qt.WA_TranslucentBackground, False)
 
@@ -218,12 +218,18 @@ class PnlHistoryDialog(QDialog):
 
         month_total_pnl = 0.0
         traded_days = 0
+        visible_values = [
+            abs(v) for k, v in self.pnl_data.items()
+            if k.startswith(f"{year:04d}-{month:02d}-")
+        ]
+        max_abs_pnl = max(visible_values) if visible_values else 0.0
+
         for row in range(6):
             for col in range(7):
                 day = start_day + timedelta(days=row * 7 + col)
                 pnl = self.pnl_data.get(day.strftime("%Y-%m-%d"))
                 is_current_month = day.month == month
-                cell_widget = self._create_calendar_cell(day, pnl, is_current_month)
+                cell_widget = self._create_calendar_cell(day, pnl, is_current_month, max_abs_pnl)
                 self.calendar_table.setCellWidget(row, col, cell_widget)
                 if pnl is not None and is_current_month:
                     month_total_pnl += pnl
@@ -232,15 +238,23 @@ class PnlHistoryDialog(QDialog):
         pnl_color = _BULL if month_total_pnl >= 0 else _BEAR
         self.total_pnl_label.setText(f"MONTH P&L: ₹{month_total_pnl:,.2f}")
         self.total_pnl_label.setStyleSheet(
-            f"color: {pnl_color}; font-family: {_MONO}; font-size: 12px; "
+            f"color: {pnl_color}; font-family: {_NUM}; font-size: 12px; "
             "font-weight: 800; letter-spacing: 0.4px; background: transparent;"
         )
         self.status_label.setText(f"MONTHLY REALIZED P&L  ·  TRADE DAYS {traded_days}")
 
     @staticmethod
-    def _create_calendar_cell(day: datetime, pnl: float, is_current_month: bool) -> QWidget:
+    def _create_calendar_cell(day: datetime, pnl: float, is_current_month: bool, max_abs_pnl: float) -> QWidget:
+        host = QWidget()
+        host.setObjectName("calendarCellHost")
+        host_layout = QVBoxLayout(host)
+        host_layout.setContentsMargins(3, 2, 3, 2)
+        host_layout.setSpacing(0)
+
         widget = QWidget()
         widget.setObjectName("calendarCell")
+        host_layout.addWidget(widget)
+
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(8, 6, 8, 6)
         layout.setSpacing(3)
@@ -270,7 +284,7 @@ class PnlHistoryDialog(QDialog):
             pnl_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             color = _BULL if pnl >= 0 else _BEAR
             pnl_label.setStyleSheet(
-                f"color: {color}; font-family: {_MONO}; font-size: 12px; "
+                f"color: {color}; font-family: {_NUM}; font-size: 12px; "
                 "font-weight: 800; background: transparent;"
             )
             layout.addWidget(pnl_label)
@@ -280,12 +294,26 @@ class PnlHistoryDialog(QDialog):
         elif pnl is not None:
             widget.setProperty("tradeDay", "true")
             widget.setProperty("isProfit", "true" if pnl >= 0 else "false")
+            widget.setProperty("pnlTone", PnlHistoryDialog._pnl_tone(abs(pnl), max_abs_pnl))
         else:
             widget.setProperty("tradeDay", "false")
 
         widget.style().unpolish(widget)
         widget.style().polish(widget)
-        return widget
+        return host
+
+    @staticmethod
+    def _pnl_tone(value: float, max_value: float) -> str:
+        if max_value <= 0:
+            return "1"
+        ratio = value / max_value
+        if ratio >= 0.75:
+            return "4"
+        if ratio >= 0.5:
+            return "3"
+        if ratio >= 0.25:
+            return "2"
+        return "1"
 
     def _reload_pnl_data(self):
         self.pnl_data = {}
@@ -390,7 +418,7 @@ class PnlHistoryDialog(QDialog):
                 letter-spacing: 1.2px;
             }}
             #totalPnlLabel {{
-                font-family: {_MONO};
+                font-family: {_NUM};
                 font-size: 12px;
                 font-weight: 800;
                 letter-spacing: 0.4px;
@@ -434,6 +462,10 @@ class PnlHistoryDialog(QDialog):
                 border: none;
                 padding: 0;
             }}
+            #calendarCellHost {{
+                background: transparent;
+                border: none;
+            }}
             QHeaderView::section {{
                 background: {_BGTB};
                 color: {_T2};
@@ -459,13 +491,48 @@ class PnlHistoryDialog(QDialog):
                 border-color: {_BG3};
             }}
             #calendarCell[tradeDay="true"] {{
-                background: {_BG3};
+                background: qlineargradient(
+                    x1: 0, y1: 0, x2: 0, y2: 1,
+                    stop: 0 {_BG3}, stop: 1 {_BG2}
+                );
             }}
             #calendarCell[isProfit="true"] {{
                 border-left: 2px solid {_BULL};
             }}
             #calendarCell[isProfit="false"] {{
                 border-left: 2px solid {_BEAR};
+            }}
+            #calendarCell[isProfit="true"][pnlTone="1"] {{
+                background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
+                    stop:0 rgba(0,212,168,0.10), stop:1 {_BG2});
+            }}
+            #calendarCell[isProfit="true"][pnlTone="2"] {{
+                background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
+                    stop:0 rgba(0,212,168,0.16), stop:1 {_BG2});
+            }}
+            #calendarCell[isProfit="true"][pnlTone="3"] {{
+                background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
+                    stop:0 rgba(0,212,168,0.22), stop:1 {_BG2});
+            }}
+            #calendarCell[isProfit="true"][pnlTone="4"] {{
+                background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
+                    stop:0 rgba(0,212,168,0.30), stop:1 {_BG2});
+            }}
+            #calendarCell[isProfit="false"][pnlTone="1"] {{
+                background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
+                    stop:0 rgba(255,77,106,0.10), stop:1 {_BG2});
+            }}
+            #calendarCell[isProfit="false"][pnlTone="2"] {{
+                background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
+                    stop:0 rgba(255,77,106,0.16), stop:1 {_BG2});
+            }}
+            #calendarCell[isProfit="false"][pnlTone="3"] {{
+                background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
+                    stop:0 rgba(255,77,106,0.22), stop:1 {_BG2});
+            }}
+            #calendarCell[isProfit="false"][pnlTone="4"] {{
+                background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
+                    stop:0 rgba(255,77,106,0.30), stop:1 {_BG2});
             }}
             #calendarCell[isProfit="true"]:hover {{
                 border-color: {_BULL};
@@ -495,9 +562,10 @@ class PnlHistoryDialog(QDialog):
                 padding: 1px 4px;
             }}
             #pnlLabel {{
-                font-family: {_MONO};
+                font-family: {_NUM};
                 font-size: 12px;
                 font-weight: 800;
+                letter-spacing: 0.3px;
                 background: transparent;
             }}
             QScrollBar:vertical {{

@@ -25,16 +25,22 @@ from PySide6.QtGui import QColor, QMouseEvent, QCursor
 #  PALETTE & TYPOGRAPHY (TC2000 Institutional Dark)
 # ─────────────────────────────────────────────────────────────────────────────
 class P:
-    BG0 = "#000000"  # OLED Black app shell
-    BG1 = "#0a0c10"  # Deep charcoal for dialog body
-    BG2 = "#1c212b"  # Selected segments / hover
-    BG3 = "#11141a"  # Input background
-    BORDER = "#1f2530"  # Sharp inner divisions
-    BORDER2 = "#2a3241"  # Accent borders
-    T0 = "#ffffff"  # Pure white primary text
-    T1 = "#a5b0c2"  # Muted silver labels
-    T2 = "#67758d"  # Darker for table headers
-    BLUE = "#2979ff"  # Focus / Selection
+    BG0 = "#050709"
+    BG1 = "#0a0d12"
+    BG2 = "#0f1318"
+    BG3 = "#141920"
+    BG4 = "#1a2030"
+    BORDER = "#1a2030"
+    BORDER2 = "#2a3a50"
+    T0 = "#e8f0ff"
+    T1 = "#a8bcd4"
+    T2 = "#5a7090"
+    T3 = "#2a3a50"
+    BULL = "#00d4a8"
+    BEAR = "#ff4d6a"
+    AMBER = "#f59e0b"
+    CYAN = "#00d4ff"
+    BLUE = "#3b82f6"
 
 
 FONT_UI = "Inter, 'Segoe UI', Arial, sans-serif"
@@ -121,8 +127,8 @@ class ColorSettingsDialog(QDialog):
         # Main Body
         body_widget = QWidget()
         body_layout = QVBoxLayout(body_widget)
-        body_layout.setContentsMargins(14, 14, 14, 14)
-        body_layout.setSpacing(12)
+        body_layout.setContentsMargins(8, 8, 8, 8)
+        body_layout.setSpacing(8)
 
         self.tabs = QTabWidget()
         self.tabs.setObjectName("customTabs")
@@ -130,8 +136,8 @@ class ColorSettingsDialog(QDialog):
         # --- TAB: COLORS ---
         colors_tab = QWidget()
         colors_layout = QVBoxLayout(colors_tab)
-        colors_layout.setContentsMargins(0, 12, 0, 0)
-        colors_layout.setSpacing(12)
+        colors_layout.setContentsMargins(0, 8, 0, 0)
+        colors_layout.setSpacing(8)
 
         self.link_checkbox = _Toggle("LINK GREEN/RED ACROSS CANDLES, VOLUME, TABLES")
         self.link_checkbox.setChecked(bool(self._theme.get("link_all_sections", True)))
@@ -164,7 +170,7 @@ class ColorSettingsDialog(QDialog):
         # --- TAB: MORE ---
         more_tab = QWidget()
         more_layout = QVBoxLayout(more_tab)
-        more_layout.setContentsMargins(0, 12, 0, 0)
+        more_layout.setContentsMargins(0, 8, 0, 0)
 
         self.volume_strength_toggle_checkbox = _Toggle("SHOW VOLUME STRENGTH PROGRESS BAR")
         self.volume_strength_toggle_checkbox.setChecked(
@@ -215,8 +221,8 @@ class ColorSettingsDialog(QDialog):
 
         account_group = QGroupBox("ACCOUNT HEADER")
         account_layout = QVBoxLayout(account_group)
-        account_layout.setContentsMargins(12, 16, 12, 12)
-        account_layout.setSpacing(8)
+        account_layout.setContentsMargins(8, 8, 8, 8)
+        account_layout.setSpacing(6)
 
         self.show_account_name_checkbox = _Toggle("SHOW ACCOUNT NAME")
         self.show_account_name_checkbox.setChecked(bool(self._theme.get("show_account_name", True)))
@@ -263,7 +269,7 @@ class ColorSettingsDialog(QDialog):
 
         # Bottom Buttons
         btn_layout = QHBoxLayout()
-        btn_layout.setContentsMargins(0, 8, 0, 0)
+        btn_layout.setContentsMargins(0, 6, 0, 0)
         btn_layout.addStretch()
 
         cancel_btn = QPushButton("CANCEL")
@@ -291,12 +297,12 @@ class ColorSettingsDialog(QDialog):
     def _build_header(self) -> QFrame:
         f = QFrame()
         f.setObjectName("header")
-        f.setFixedHeight(40)
+        f.setFixedHeight(28)
         h = QHBoxLayout(f)
-        h.setContentsMargins(16, 0, 16, 0)
+        h.setContentsMargins(8, 0, 8, 0)
         h.setSpacing(12)
 
-        h.addWidget(_Label("COLOR CONFIGURATION", P.T0, 12, bold=True))
+        h.addWidget(_Label("COLOR SETTINGS", P.T0, 11, bold=True))
         h.addStretch()
 
         self._close_btn = QPushButton("✕")
@@ -313,7 +319,7 @@ class ColorSettingsDialog(QDialog):
     def _build_group(self, title: str, items: list) -> QGroupBox:
         group = QGroupBox(title)
         form = QFormLayout(group)
-        form.setContentsMargins(12, 16, 12, 12)
+        form.setContentsMargins(8, 8, 8, 8)
         form.setVerticalSpacing(8)
 
         for label_text, key, initial_val in items:
@@ -344,13 +350,13 @@ class ColorSettingsDialog(QDialog):
             QPushButton {{
                 background-color: {color_hex};
                 color: {text_color};
-                border: 1px solid {P.BORDER};
-                border-radius: 1px;
+                border: 1px solid {P.BORDER2};
+                border-radius: 2px;
                 font-family: {FONT_MONO};
                 font-size: 11px;
                 font-weight: bold;
             }}
-            QPushButton:hover {{ border: 1px solid {P.T0}; }}
+            QPushButton:hover {{ border: 1px solid {P.CYAN}; }}
             QPushButton:disabled {{ opacity: 0.3; }}
         """)
 
@@ -372,7 +378,7 @@ class ColorSettingsDialog(QDialog):
             QTabBar::tab {{
                 background: {P.BG3};
                 color: {P.T2};
-                padding: 6px 16px;
+                padding: 4px 12px;
                 border: 1px solid {P.BORDER};
                 border-bottom: none;
                 margin-right: 2px;
@@ -386,16 +392,16 @@ class ColorSettingsDialog(QDialog):
                 color: {P.T0};
                 border: 1px solid {P.BORDER2};
                 border-bottom: none;
-                border-top: 2px solid {P.BLUE};
+                border-top: 2px solid {P.AMBER};
             }}
             QTabBar::tab:hover:!selected {{
                 background: {P.BG2};
                 color: {P.T1};
             }}
             QGroupBox {{
-                border: 1px solid {P.BORDER};
-                border-radius: 1px;
-                margin-top: 12px;
+                border: 1px solid {P.BORDER2};
+                border-radius: 2px;
+                margin-top: 8px;
                 font-family: {FONT_UI};
                 font-size: 10px;
                 font-weight: 800;
@@ -408,30 +414,43 @@ class ColorSettingsDialog(QDialog):
                 padding: 0 4px;
             }}
             QPushButton#actionBtnPrimary {{
-                background: {P.BLUE};
-                color: #ffffff;
-                border: none;
-                border-radius: 1px;
-                padding: 6px 16px;
+                background: {P.BULL};
+                color: {P.BG0};
+                border: 1px solid {P.BULL};
+                border-radius: 2px;
+                padding: 4px 12px;
                 font-family: {FONT_UI};
                 font-weight: 800;
                 font-size: 11px;
                 letter-spacing: 1px;
             }}
-            QPushButton#actionBtnPrimary:hover {{ background: #4b8eff; }}
+            QPushButton#actionBtnPrimary:hover {{ background: #00e6b5; }}
 
             QPushButton#actionBtnSecondary {{
                 background: {P.BG3};
                 color: {P.T1};
                 border: 1px solid {P.BORDER2};
-                border-radius: 1px;
-                padding: 6px 16px;
+                border-radius: 2px;
+                padding: 4px 12px;
                 font-family: {FONT_UI};
                 font-weight: 800;
                 font-size: 11px;
                 letter-spacing: 1px;
             }}
             QPushButton#actionBtnSecondary:hover {{ background: {P.BG2}; color: {P.T0}; border: 1px solid {P.T2}; }}
+            QLineEdit {{
+                background: {P.BG3};
+                color: {P.T0};
+                border: 1px solid {P.BORDER};
+                border-radius: 2px;
+                padding: 4px 6px;
+                font-family: {FONT_UI};
+                font-size: 11px;
+                selection-background-color: {P.BG4};
+            }}
+            QLineEdit:focus {{
+                border: 1px solid {P.CYAN};
+            }}
         """)
 
     def _pick_color(self, key: str):
