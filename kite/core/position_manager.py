@@ -171,6 +171,30 @@ class PositionManager(QObject):
                 avg_fill = float(order_dict.get("average_price") or 0)
                 tx_type = order_dict.get("transaction_type", "")
 
+                # Draw/update entry line immediately on partial fills so the user
+                # sees the in-progress position without waiting for COMPLETE.
+                if (
+                    self.main_window
+                    and hasattr(self.main_window, "chart_lines_manager")
+                    and symbol
+                    and avg_fill > 0
+                ):
+                    newly_filled_qty = max(0, filled_qty - tracked.last_partial_filled_qty)
+                    if newly_filled_qty > 0:
+                        self.main_window.chart_lines_manager.add_position_line(
+                            symbol=symbol,
+                            order_type=tx_type,
+                            quantity=newly_filled_qty,
+                            avg_price=avg_fill,
+                        )
+                        logger.info(
+                            "[PARTIAL] Chart line updated immediately: %s %s +%s @ ₹%.2f",
+                            symbol,
+                            tx_type,
+                            newly_filled_qty,
+                            avg_fill,
+                        )
+
                 self.show_notification.emit(
                     f"⚠ Partial fill: {tx_type} {filled_qty}/{filled_qty + pending_qty} "
                     f"{symbol} @ ₹{avg_fill:.2f} — {pending_qty} pending",

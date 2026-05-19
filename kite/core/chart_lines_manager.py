@@ -181,6 +181,7 @@ class ChartLinesManager(QObject):
             "startPrice": price,
             "color": color,
             "lineWidth": 1,
+            "lineStyle": "solid",
             "timestamp": current_time,
         }
         if metadata:
@@ -588,7 +589,14 @@ class ChartLinesManager(QObject):
                 return True
             return str(ray.get("tradingMode", "live")).lower() == mode
 
-        out["horizontal_rays"] = [r for r in rays if _keep(r)]
+        filtered_rays = [r for r in rays if _keep(r)]
+        for ray in filtered_rays:
+            category = ray.get("lineCategory")
+            if category in {"alert", "position", "stop_loss"} or ray.get("color") in {
+                "#FFD700", "#00FF00", "#FF0000", "#FF4D4F"
+            }:
+                ray["lineStyle"] = "solid"
+        out["horizontal_rays"] = filtered_rays
         return out
 
     # ─────────────────────────────────────────────────────────────────────────
