@@ -174,6 +174,7 @@ class CandlestickChart(QWidget):
         self._historical_sync_timer = QTimer(self)
         self._historical_sync_timer.setSingleShot(True)
         self._historical_sync_timer.timeout.connect(self._poll_intraday_historical_sync)
+        self._is_periodic_historical_refresh = False
 
         # ── WebEngine ──
         self.chart_view:   Optional[QWebEngineView] = None
@@ -223,7 +224,9 @@ class CandlestickChart(QWidget):
             return
         if self.data_loader_thread and self.data_loader_thread.isRunning():
             self._restart_historical_sync_timer()
+            self._is_periodic_historical_refresh = False
             return
+        self._is_periodic_historical_refresh = True
         self._load_chart_data(force_refresh=True)
 
     # ═══════════════════════════════════════════════════════════════════════
@@ -618,11 +621,20 @@ class CandlestickChart(QWidget):
             return
 
         self._stop_loader()
-        if not self.chart_view or self.current_state != ChartState.LOADED:
+        is_background_refresh = bool(
+            force_refresh
+            and self._is_periodic_historical_refresh
+            and self.chart_view
+            and self.current_state == ChartState.LOADED
+        )
+        if not is_background_refresh and (not self.chart_view or self.current_state != ChartState.LOADED):
             self._set_state(ChartState.LOADING)
         self.progress_bar.setValue(0)
         self.progress_bar.setGeometry(0, 0, self.width(), 2)
-        self.progress_bar.show()
+        if is_background_refresh:
+            self.progress_bar.hide()
+        else:
+            self.progress_bar.show()
         self.loading_label.setText(f"Loading {self.current_symbol}…")
 
         load_key = f"{self.current_symbol}_{self.current_interval}"
@@ -669,6 +681,7 @@ class CandlestickChart(QWidget):
         # ── Primary stale-data guard ──────────────────────────────────────
         if key != self._active_load_key:
             logger.debug("Discarding stale data for %s (active: %s)", key, self._active_load_key)
+            self._is_periodic_historical_refresh = False
             return
 
         # ── Secondary guard: key must match current symbol ────────────────
@@ -679,6 +692,7 @@ class CandlestickChart(QWidget):
                 "Discarding data: key symbol '%s' != current symbol '%s'",
                 key_symbol, self.current_symbol,
             )
+            self._is_periodic_historical_refresh = False
             return
 
         self.last_df = df
@@ -756,12 +770,14 @@ class CandlestickChart(QWidget):
                 "movingAverageConfigs":      self._moving_average_configs,
                 "initialIndicatorVisibility": self._indicator_visibility,
             }
-            self._js(f"if(window.chart) window.chart.loadNewData({json.dumps(payload_dict)});")
+            loader_method = "refreshHistoricalData" if self._is_periodic_historical_refresh else "loadNewData"
+            self._js(f"if(window.chart) window.chart.{loader_method}({json.dumps(payload_dict)});")
             self._update_symbol_info(df)
             self.symbol_loaded.emit(self.current_symbol)
             self.data_request_for_symbol.emit(self.current_symbol)
             logger.info("Chart seamlessly updated: %s (%d candles)", self.current_symbol, len(candles))
             self._restart_historical_sync_timer()
+            self._is_periodic_historical_refresh = False
             return
 
         # ── Path B: first render — build full HTML ────────────────────────
@@ -808,6 +824,7 @@ class CandlestickChart(QWidget):
         self.data_request_for_symbol.emit(self.current_symbol)
         logger.info("Chart HTML loaded: %s (%d candles)", self.current_symbol, len(candles))
         self._restart_historical_sync_timer()
+        self._is_periodic_historical_refresh = False
 
 
     def _infer_default_price_scale_currency(self) -> str:
@@ -1545,9 +1562,11 @@ class CandlestickChart(QWidget):
     def _on_load_error(self, msg: str, key: Optional[str] = None) -> None:
         if key and key != self._active_load_key:
             return
+        self._is_periodic_historical_refresh = False
         self._show_error(msg)
 
     def _on_thread_finished(self) -> None:
+        self._is_periodic_historical_refresh = False
         self.progress_bar.hide()
         if self.data_loader_thread:
             self.data_loader_thread.quit()

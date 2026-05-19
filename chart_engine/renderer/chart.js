@@ -3303,6 +3303,38 @@ class FixedTradingChart {
         this._displayLatestCandleDetails();
     }
 
+    refreshHistoricalData(cfg) {
+        // Minute-boundary historical refresh should NOT reset user's viewport
+        // or y-axis range. Preserve current navigation context and reuse the
+        // common load path, then restore.
+        const prev = {
+            viewPortStart: this.viewPortStart,
+            viewPortEnd: this.viewPortEnd,
+            minPrice: this.minPrice,
+            maxPrice: this.maxPrice,
+            isUserYRange: this.isUserYRange,
+            panOffsetPx: this.panOffsetPx,
+        };
+
+        this.loadNewData(cfg);
+
+        const maxEnd = Math.max(0, this.data.length - 1 + this.rightBufferCandles);
+        this.viewPortEnd = Math.max(0, Math.min(maxEnd, prev.viewPortEnd));
+        this.viewPortStart = Math.max(0, Math.min(this.viewPortEnd, prev.viewPortStart));
+        this.panOffsetPx = prev.panOffsetPx || 0;
+
+        this.isUserYRange = !!prev.isUserYRange;
+        if (this.isUserYRange && Number.isFinite(prev.minPrice) && Number.isFinite(prev.maxPrice) && prev.maxPrice > prev.minPrice) {
+            this.minPrice = prev.minPrice;
+            this.maxPrice = prev.maxPrice;
+        } else {
+            this.calculateBounds();
+        }
+
+        this.requestDraw();
+        this.updateSlider();
+    }
+
     updateDrawings(drawings) {
         if (!drawings) return;
         if (this.drawingEngine) {
