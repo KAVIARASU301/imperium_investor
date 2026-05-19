@@ -68,7 +68,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     """
     SIMPLIFIED Main Window with subtle bottom status bar:
     - Simple Position Manager (only works when tracking orders)
-    - Bottom app status bar for market/API/heartbeat indicators
+    - Bottom app status bar for market/API indicators
     - Self-Managing Positions Table (local PnL calculation)
     - Event-driven updates (no continuous polling)
     """
@@ -459,23 +459,10 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
     def _setup_status_indicators(self) -> None:
         """Drive subtle bottom-bar operational indicators."""
-        self._heartbeat_timer = QTimer(self)
-        self._heartbeat_timer.timeout.connect(self._refresh_heartbeat)
-        self._heartbeat_timer.start(1000)
-
         self._market_status_timer = QTimer(self)
         self._market_status_timer.timeout.connect(self._refresh_market_status)
         self._market_status_timer.start(60_000)
         self._refresh_market_status()
-
-    def _refresh_heartbeat(self) -> None:
-        """Update heartbeat pulse while reflecting network connectivity state."""
-        nm = getattr(self, "network_monitor", None)
-        if nm and not nm.is_online():
-            # Force red, no pulse animation while offline.
-            self.app_status_bar.set_heartbeat("●", color="#ff4d6a")
-        else:
-            status.pulse_heartbeat()
 
     def _refresh_market_status(self) -> None:
         """Update bottom status bar with NSE session status based on IST."""
@@ -1252,10 +1239,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         """Immediate UI feedback when network drops."""
         status.show_notification("Offline", "warn", 2500)
 
-        # Heartbeat goes red immediately
         if hasattr(self, "app_status_bar"):
-            self.app_status_bar._heartbeat_pulse_on = False
-            self.app_status_bar.set_heartbeat("●")
             self.app_status_bar.set_api_status("OFFLINE")
 
     @Slot()

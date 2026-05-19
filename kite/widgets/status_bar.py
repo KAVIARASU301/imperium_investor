@@ -41,16 +41,13 @@ class StatusBar(QWidget):
         # Uppercase for a stronger, institutional feel
         self.market_label = QLabel("MARKET: --")
         self.api_label = QLabel("API: --")
-        self.heartbeat_label = QLabel("HEARTBEAT: ●")
         self.open_pnl_label = QLabel("OPEN P&L: --")
         self.exposure_label = QLabel("EXPOSURE: --")
-        self._heartbeat_pulse_on = False
 
         # Add indicators to layout
         for label in (
             self.market_label,
             self.api_label,
-            self.heartbeat_label,
             self.open_pnl_label,
             self.exposure_label,
         ):
@@ -80,7 +77,7 @@ class StatusBar(QWidget):
         while self._layout.count():
             self._layout.takeAt(0)
 
-        base_labels = (self.market_label, self.api_label, self.heartbeat_label)
+        base_labels = (self.market_label, self.api_label)
         metric_labels = (self.open_pnl_label, self.exposure_label)
 
         if self._status_alignment == "right":
@@ -152,16 +149,6 @@ class StatusBar(QWidget):
         dot_color = dot_color_map.get(status, "#7b8496")
         self.api_label.setText(f'API: {status} <span style="color:{dot_color};">●</span>')
 
-    def set_heartbeat(self, text: str, color: Optional[str] = None) -> None:
-        # If offline, force red regardless of pulse state.
-        if color:
-            pulse_color = color
-        else:
-            pulse_color = "#00d4a8" if self._heartbeat_pulse_on else "#2a3a50"
-        self.heartbeat_label.setText(
-            f'HEARTBEAT: <span style="color:{pulse_color};">{text}</span>'
-        )
-
     def set_message(self, text: str) -> None:
         # Dummy method to prevent crashes since we removed message_label
         pass
@@ -184,7 +171,6 @@ class GlobalStatusManager(QObject):
         if self._status_bar:
             self._status_bar.set_market_status("--")
             self._status_bar.set_api_status("--")
-            self._status_bar.set_heartbeat("●")
         logger.debug("GlobalStatusManager initialized")
 
     def is_initialized(self) -> bool:
@@ -345,11 +331,6 @@ class GlobalStatusManager(QObject):
     def set_api_indicator(self, status_text: str) -> None:
         if getattr(self, "_status_bar", None):
             self._status_bar.set_api_status(status_text)
-
-    def pulse_heartbeat(self) -> None:
-        if getattr(self, "_status_bar", None):
-            self._status_bar._heartbeat_pulse_on = not self._status_bar._heartbeat_pulse_on
-            self._status_bar.set_heartbeat("●")
 
     def set_ready(self) -> None:
         # We removed the "Ready" label, so this method safely does nothing.

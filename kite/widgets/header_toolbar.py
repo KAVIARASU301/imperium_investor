@@ -292,14 +292,14 @@ class TickerPill(QFrame):
             QLabel#tickerPillPrice {{
                 color: {_TEXT};
                 background: transparent;
-                font-size: 9px;
+                font-size: 10px;
                 font-weight: 700;
                 border: none;
             }}
             QLabel#tickerPillChange {{
                 color: {chg_color};
                 background: transparent;
-                font-size: 9px;
+                font-size: 10px;
                 font-weight: 800;
                 border: none;
                 min-width: 52px;
