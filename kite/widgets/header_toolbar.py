@@ -2,15 +2,22 @@
 
 Institutional Dark Trading Terminal UI with modern UI typography for all visible
 text and numbers. Monospace is reserved only for raw logs / debug text.
+
+Ticker board redesign:
+  - Individual TickerPill widgets with FIXED width — no layout reflow on ticks
+  - Only QLabel.setText() is called on price updates → zero jitter
+  - Width is computed once at pill construction and on symbol-set changes
+  - Beautiful institutional design: symbol / price / change % with color bar
 """
 
 import logging
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional, Union
 
 from PySide6.QtCore import QSize, QThreadPool, QTimer, Qt, Signal, Slot
-from PySide6.QtGui import QFont, QFontMetrics, QIcon
+from PySide6.QtGui import QFont, QFontMetrics, QIcon, QColor
 from PySide6.QtWidgets import (
     QHBoxLayout,
+    QVBoxLayout,
     QLabel,
     QPushButton,
     QSizePolicy,
@@ -42,13 +49,13 @@ _CYAN = "#00d4ff"
 _BLUE = "#00d4ff"
 
 _TEXT = "#e8f0ff"
-_TEXT_SYMBOL = "#b6c4d6"      # softer active symbol/account text
+_TEXT_SYMBOL = "#b6c4d6"
 _TEXT_SOFT = "#a8bcd4"
 _TEXT_MUTED = "#5a7090"
 _TEXT_FAINT = "#2a3a50"
 _SELECTION = "#1a2840"
 
-_MONO = "'Consolas', 'JetBrains Mono', monospace"  # raw logs/debug only
+_MONO = "'Consolas', 'JetBrains Mono', monospace"
 _SANS = "'Inter', 'Segoe UI Variable', 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Arial, sans-serif"
 _NUM = _SANS
 _UI_FONT_FAMILY = "Inter"
@@ -60,6 +67,7 @@ def _modern_font(point_size: int = 9, weight: QFont.Weight = QFont.Weight.Medium
     font.setPointSize(point_size)
     font.setWeight(weight)
     return font
+
 
 _TOOLBAR_H = 34
 _CONTROL_H = 24
@@ -113,9 +121,276 @@ class NotificationBadge(QLabel):
             self.hide()
 
     def set_count(self, count: int):
-        """Backward-compatible alias."""
         self.update_count(count)
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TICKER PILL  — one fixed-width widget per symbol
+# No layout changes on tick updates, only label text is mutated.
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TickerPill(QFrame):
+    """
+    Compact, fixed-width ticker card for a single symbol.
+
+    Layout (28 px tall, fixed width):
+    ┌──────────────────────────────┐
+    │ ▌ NIFTY   24,850.20  +0.42% │
+    └──────────────────────────────┘
+      ^color bar  ^name  ^price  ^chg
+
+    The widget width is computed ONCE on construction and never changes again,
+    eliminating all horizontal jitter from the toolbar layout.
+    """
+
+    # Fixed per-pill dimensions
+    _PILL_H = 26          # height matches _CONTROL_H
+    _BAR_W = 3            # colored left accent bar width
+    _PAD_L = 7            # padding after bar
+    _PAD_R = 10           # right padding
+    _GAP = 5              # gap between sub-labels
+
+    def __init__(self, symbol: str, parent=None):
+        super().__init__(parent)
+        self._symbol = symbol.upper()
+        self._bull_color = _BULL
+        self._bear_color = _BEAR
+        self._neutral_color = _TEXT_MUTED
+
+        self.setObjectName("tickerPill")
+        self.setFixedHeight(self._PILL_H)
+        self.setFrameShape(QFrame.Shape.NoFrame)
+
+        # ── inner layout ──
+        inner = QHBoxLayout(self)
+        inner.setContentsMargins(self._PAD_L, 0, self._PAD_R, 0)
+        inner.setSpacing(self._GAP)
+
+        self._sym_label = QLabel(self._symbol)
+        self._sym_label.setObjectName("tickerPillSymbol")
+        self._sym_label.setFont(_modern_font(8, QFont.Weight.Bold))
+        self._sym_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+
+        self._price_label = QLabel("--")
+        self._price_label.setObjectName("tickerPillPrice")
+        self._price_label.setFont(_modern_font(9, QFont.Weight.Bold))
+        self._price_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self._price_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+
+        self._chg_label = QLabel("--%")
+        self._chg_label.setObjectName("tickerPillChange")
+        self._chg_label.setFont(_modern_font(9, QFont.Weight.ExtraBold))
+        self._chg_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self._chg_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+
+        inner.addWidget(self._sym_label)
+        inner.addStretch(1)
+        inner.addWidget(self._price_label)
+        inner.addWidget(self._chg_label)
+
+        # Compute and LOCK width now — never changes on tick updates
+        self._compute_fixed_width()
+
+        # State tracking: only repaint color bar when state actually changes
+        self._last_state: Optional[str] = None  # "bull" | "bear" | "flat" | None
+        self._apply_style(state=None)
+
+    # ── Public update API ─────────────────────────────────────────────────────
+
+    def update_data(self, price: Optional[float], change_pct: Optional[float]) -> None:
+        """Update displayed values. Only setText() is called — zero layout impact."""
+        if isinstance(price, (int, float)):
+            self._price_label.setText(f"{float(price):,.2f}")
+        else:
+            self._price_label.setText("--")
+
+        if isinstance(change_pct, (int, float)):
+            chg = float(change_pct)
+            sign = "+" if chg > 0 else ""
+            self._chg_label.setText(f"{sign}{chg:.2f}%")
+            new_state = "bull" if chg > 0 else ("bear" if chg < 0 else "flat")
+        else:
+            self._chg_label.setText("--%")
+            new_state = None
+
+        # Only repaint when state actually changes — avoids unnecessary redraws
+        if new_state != self._last_state:
+            self._last_state = new_state
+            self._apply_style(state=new_state)
+
+    # ── Private helpers ───────────────────────────────────────────────────────
+
+    def _compute_fixed_width(self) -> None:
+        """
+        Calculate the pill width that will comfortably hold the widest
+        realistic values for this symbol, then fix it permanently.
+
+        Uses the actual rendered font metrics so the calculation matches
+        what Qt will paint, regardless of DPI or font substitution.
+        """
+        sym_fm = QFontMetrics(self._sym_label.font())
+        price_fm = QFontMetrics(self._price_label.font())
+        chg_fm = QFontMetrics(self._chg_label.font())
+
+        # Reserve for the widest realistic symbol display text
+        sym_w = sym_fm.horizontalAdvance(self._symbol)
+
+        # Reserve for price: 6 digits before decimal + 2 after + comma separators
+        # e.g. "99,999.99" — plenty for NSE indices up to 6 figures
+        price_w = price_fm.horizontalAdvance("88,888.88")
+
+        # Reserve for change: sign + 3 digits + dot + 2 decimals + %
+        # e.g. "+12.88%"
+        chg_w = chg_fm.horizontalAdvance("+12.88%")
+
+        total = (
+            self._PAD_L
+            + sym_w
+            + self._GAP * 2
+            + price_w
+            + self._GAP
+            + chg_w
+            + self._PAD_R
+            + self._BAR_W   # color bar on left (painted in stylesheet via border-left)
+            + 6             # headroom for anti-aliasing / subpixel rounding
+        )
+        self.setFixedWidth(max(total, 100))
+
+    def _apply_style(self, state: Optional[str]) -> None:
+        """Paint the pill background, border, and label colors for bull/bear/flat."""
+        if state == "bull":
+            bar_color = self._bull_color
+            chg_color = self._bull_color
+            bg = "rgba(0,212,168,0.055)"
+            border = "rgba(0,212,168,0.20)"
+        elif state == "bear":
+            bar_color = self._bear_color
+            chg_color = self._bear_color
+            bg = "rgba(255,77,106,0.055)"
+            border = "rgba(255,77,106,0.20)"
+        else:
+            bar_color = _TEXT_FAINT
+            chg_color = _TEXT_MUTED
+            bg = f"{_BG_PANEL}"
+            border = _BG_BORDER
+
+        self.setStyleSheet(f"""
+            QFrame#tickerPill {{
+                background: {bg};
+                border: 1px solid {border};
+                border-left: {self._BAR_W}px solid {bar_color};
+                border-radius: 2px;
+            }}
+            QLabel#tickerPillSymbol {{
+                color: {_TEXT_MUTED};
+                background: transparent;
+                font-size: 8px;
+                font-weight: 700;
+                letter-spacing: 0.4px;
+                border: none;
+            }}
+            QLabel#tickerPillPrice {{
+                color: {_TEXT};
+                background: transparent;
+                font-size: 9px;
+                font-weight: 700;
+                border: none;
+            }}
+            QLabel#tickerPillChange {{
+                color: {chg_color};
+                background: transparent;
+                font-size: 9px;
+                font-weight: 800;
+                border: none;
+                min-width: 52px;
+            }}
+        """)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TICKER BOARD  — container that holds all pills side by side
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TickerBoard(QFrame):
+    """
+    Fixed-size horizontal strip containing one TickerPill per symbol.
+
+    The board width = sum of pill widths + gaps.  It is set ONCE when the
+    symbol list changes and never touched on tick updates.
+    """
+
+    _PILL_GAP = 4        # px between adjacent pills
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("tickerBoard")
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setFixedHeight(_CONTROL_H)
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+
+        self._layout = QHBoxLayout(self)
+        self._layout.setContentsMargins(4, 0, 4, 0)
+        self._layout.setSpacing(self._PILL_GAP)
+
+        self._pills: Dict[str, TickerPill] = {}
+
+        self.setStyleSheet(f"""
+            QFrame#tickerBoard {{
+                background: {_BG_PANEL};
+                border: 1px solid {_BG_BORDER};
+                border-radius: 3px;
+            }}
+        """)
+
+    # ── Public API ────────────────────────────────────────────────────────────
+
+    def set_symbols(self, symbols: List[str]) -> None:
+        """Rebuild pills when the symbol list changes. Called infrequently."""
+        # Clear existing pills
+        for pill in self._pills.values():
+            self._layout.removeWidget(pill)
+            pill.deleteLater()
+        self._pills.clear()
+
+        if not symbols:
+            self.setFixedWidth(0)
+            self.hide()
+            return
+
+        for sym in symbols:
+            pill = TickerPill(sym, self)
+            self._layout.addWidget(pill)
+            self._pills[sym.upper()] = pill
+
+        # Lock board width to exactly fit all pills + gaps
+        self._update_fixed_width()
+        self.show()
+
+    def update_ticker(self, symbol: str, price: Optional[float], change_pct: Optional[float]) -> None:
+        """Update a single pill. ONLY setText is called — no geometry changes."""
+        pill = self._pills.get(symbol.upper())
+        if pill:
+            pill.update_data(price, change_pct)
+
+    def is_empty(self) -> bool:
+        return len(self._pills) == 0
+
+    # ── Private ───────────────────────────────────────────────────────────────
+
+    def _update_fixed_width(self) -> None:
+        if not self._pills:
+            self.setFixedWidth(0)
+            return
+        n = len(self._pills)
+        pill_total = sum(p.width() for p in self._pills.values())
+        gap_total = self._PILL_GAP * max(0, n - 1)
+        margins_total = 4 + 4   # left + right contentsMargins
+        self.setFixedWidth(pill_total + gap_total + margins_total)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HEADER TOOLBAR
+# ─────────────────────────────────────────────────────────────────────────────
 
 class HeaderToolbar(QToolBar):
     """
@@ -172,6 +447,7 @@ class HeaderToolbar(QToolBar):
             "INDIAVIX": "NSE:INDIA VIX",
             "VIX": "NSE:INDIA VIX",
         }
+        # Snapshot still kept for REST-based fallback queries
         self._ticker_snapshot: Dict[str, Dict[str, Any]] = {}
         self._ticker_token_to_symbol: Dict[int, str] = {}
         self._symbol_index = SymbolIndex()
@@ -233,8 +509,6 @@ class HeaderToolbar(QToolBar):
         self.search_input.setFont(_modern_font(10, QFont.Weight.DemiBold))
         self.search_input.setMinimumWidth(126)
         self.search_input.setMaximumWidth(176)
-
-        # Fast symbol commit path used by the app search/index system.
         self.search_input.symbol_selected.connect(self._on_symbol_committed)
         search_layout.addWidget(self.search_input)
 
@@ -259,6 +533,21 @@ class HeaderToolbar(QToolBar):
         self.alerts_badge = NotificationBadge()
         search_layout.addWidget(self.alerts_badge)
 
+        # ── Ticker board inline — right of alert button ──────────────────
+        # A thin vertical separator visually groups alert from ticker section.
+        ticker_vsep = QFrame()
+        ticker_vsep.setFrameShape(QFrame.Shape.VLine)
+        ticker_vsep.setFixedWidth(1)
+        ticker_vsep.setFixedHeight(14)
+        ticker_vsep.setStyleSheet("background: #1a2030; border: none;")
+        search_layout.addWidget(ticker_vsep)
+
+        self._ticker_board = TickerBoard(search_group)
+        search_layout.addWidget(self._ticker_board)
+
+        # Build initial pills immediately
+        self._rebuild_ticker_pills(self._ticker_symbols)
+
         self.addWidget(search_group)
 
     def _create_center_spacer(self):
@@ -267,25 +556,13 @@ class HeaderToolbar(QToolBar):
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.addWidget(spacer)
 
+    # ── Ticker board (moved into search section) ──────────────────────────────
 
     def _create_ticker_board_section(self):
-        self.ticker_board_widget = QFrame()
-        self.ticker_board_widget.setObjectName("tickerBoardWidget")
-        ticker_layout = QHBoxLayout(self.ticker_board_widget)
-        ticker_layout.setContentsMargins(6, 2, 6, 2)
-        ticker_layout.setSpacing(4)
+        """No-op — ticker board is now built inside _create_symbol_search_section."""
+        pass
 
-        self.ticker_board_label = QLabel("---")
-        self.ticker_board_label.setObjectName("tickerBoardText")
-        self.ticker_board_label.setFont(_modern_font(8, QFont.Weight.Bold))
-        self.ticker_board_label.setTextFormat(Qt.TextFormat.RichText)
-        self.ticker_board_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        self.ticker_board_label.setMinimumWidth(0)
-        self.ticker_board_label.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Preferred)
-        ticker_layout.addWidget(self.ticker_board_label)
-
-        self.addWidget(self.ticker_board_widget)
-        self._refresh_ticker_board_display()
+    # ── Account section ───────────────────────────────────────────────────────
 
     def _create_alert_section(self):
         """Legacy placeholder kept for API compatibility."""
@@ -346,6 +623,8 @@ class HeaderToolbar(QToolBar):
 
         self.addWidget(self.account_info_widget)
 
+    # ── Widget factories ──────────────────────────────────────────────────────
+
     def _make_icon_button(
         self,
         object_name: str,
@@ -398,7 +677,6 @@ class HeaderToolbar(QToolBar):
     # ── Signal handlers ───────────────────────────────────────────────────────
 
     def _on_symbol_committed(self, symbol: str, inst: Dict) -> None:
-        """Called when user selects from dropdown or presses Enter."""
         self._remember_recent_symbol(symbol)
         self.symbol_selected.emit(symbol)
 
@@ -425,7 +703,6 @@ class HeaderToolbar(QToolBar):
         instrument_map: Dict[str, Dict[str, Any]] | None = None,
         symbol_index: SymbolIndex | None = None,
     ) -> None:
-        """Set instrument data, optionally with pre-built map/index from worker thread."""
         self._instrument_map = instrument_map or {
             inst["tradingsymbol"]: inst
             for inst in instruments
@@ -466,123 +743,49 @@ class HeaderToolbar(QToolBar):
         if isinstance(raw_tickers, str):
             raw_tickers = [raw_tickers]
         cleaned = [str(sym).strip().upper() for sym in raw_tickers if str(sym).strip()]
-        self._ticker_symbols = cleaned[:5] if cleaned else ["NIFTY", "BANKNIFTY", "INDIAVIX"]
+        new_symbols = cleaned[:5] if cleaned else ["NIFTY", "BANKNIFTY", "INDIAVIX"]
+
+        # Only rebuild pills when symbol list actually changes (avoids layout thrash)
+        if new_symbols != self._ticker_symbols:
+            self._ticker_symbols = new_symbols
+            self._rebuild_ticker_pills(new_symbols)
+
         self._update_account_display()
         self._update_account_display_visibility()
-        self._refresh_ticker_board_display()
+        self._update_ticker_board_visibility()
 
+    # ── Ticker board internals (jitter-free) ──────────────────────────────────
 
+    def _rebuild_ticker_pills(self, symbols: List[str]) -> None:
+        """
+        Create a fresh set of TickerPill widgets for the given symbol list.
+        Called only when the symbol list changes, NOT on every tick.
+        """
+        self._ticker_board.set_symbols(symbols)
+        # Re-populate any snapshot data we already have
+        for sym in symbols:
+            snap = self._ticker_snapshot.get(sym.upper(), {})
+            self._ticker_board.update_ticker(
+                sym,
+                price=snap.get("price"),
+                change_pct=snap.get("change_pct"),
+            )
+        self._update_ticker_board_visibility()
 
-    def _adjust_ticker_board_width(self, symbols: List[str]) -> None:
-        """Dynamically size ticker board to content with per-symbol jitter headroom."""
-        if not symbols:
-            self.ticker_board_widget.setMinimumWidth(0)
-            return
-
-        metrics = QFontMetrics(self.ticker_board_label.font())
-        divider = " │ "
-        divider_width = metrics.horizontalAdvance(divider)
-
-        extra_digits_headroom = metrics.horizontalAdvance("88")
-        per_symbol_padding = 20
-
-        base_width = 0
-        for symbol in symbols:
-            snap = self._ticker_snapshot.get(symbol.upper(), {})
-            if isinstance(snap.get("price"), (int, float)):
-                price_text = f"{float(snap['price']):,.2f}"
-            else:
-                price_text = "--"
-
-            if isinstance(snap.get("change_pct"), (int, float)):
-                change_pct = float(snap["change_pct"])
-                sign = "+" if change_pct > 0 else ""
-                change_text = f"{sign}{change_pct:.2f}%"
-            else:
-                change_text = "--%"
-
-            segment_text = f"{symbol} {price_text} {change_text}"
-            base_width += metrics.horizontalAdvance(segment_text) + per_symbol_padding + extra_digits_headroom
-
-        board_width = base_width + max(0, len(symbols) - 1) * divider_width
-        self.ticker_board_widget.setMinimumWidth(max(240, board_width))
-
-    def _refresh_ticker_board_display(self) -> None:
-        symbols = self._ticker_symbols[:5]
-        if symbols:
-            divider = f" <span style='color:{_TEXT_FAINT};'>│</span> "
-            joined = divider.join(self._format_ticker_pill(symbol) for symbol in symbols)
-            self.ticker_board_label.setText(joined)
-        else:
-            self.ticker_board_label.setText("---")
-        self._adjust_ticker_board_width(symbols)
-        self.ticker_board_widget.setVisible(self._show_ticker_board and len(symbols) > 0)
-
-    def _format_ticker_pill(self, symbol: str) -> str:
-        snap = self._ticker_snapshot.get(symbol.upper(), {})
-        price = snap.get("price")
-        chg = snap.get("change_pct")
-        if isinstance(price, (int, float)):
-            price_text = f"{float(price):,.2f}"
-        else:
-            price_text = "--"
-        if isinstance(chg, (int, float)):
-            chg_val = float(chg)
-            sign = "+" if chg_val > 0 else ""
-            chg_color = _BULL if chg_val > 0 else (_BEAR if chg_val < 0 else _TEXT_SOFT)
-            chg_text = f"{sign}{chg_val:.2f}%"
-        else:
-            chg_color = _TEXT_MUTED
-            chg_text = "--%"
-        return (
-            f"<span style='color:{_TEXT_SOFT}; font-size:8px; font-weight:700;'>{symbol}</span> "
-            f"<span style='color:{_TEXT}; font-size:9px; font-weight:800;'>{price_text}</span> "
-            f"<span style='color:{chg_color}; font-size:11px; font-weight:900;'>{chg_text}</span>"
-        )
-
-    def configure_ticker_ws_tokens(self, instrument_map: Dict[str, Dict[str, Any]]) -> List[int]:
-        """Resolve ticker board symbols to instrument tokens for WS subscriptions."""
-        resolved: Dict[int, str] = {}
-        if not isinstance(instrument_map, dict):
-            self._ticker_token_to_symbol = {}
-            return []
-
-        for display_symbol in self._ticker_symbols[:5]:
-            token = self._find_instrument_token_for_symbol(display_symbol, instrument_map)
-            if token is not None:
-                resolved[int(token)] = display_symbol.upper()
-
-        self._ticker_token_to_symbol = resolved
-        return list(resolved.keys())
-
-    def _find_instrument_token_for_symbol(self, symbol: str, instrument_map: Dict[str, Dict[str, Any]]) -> int | None:
-        normalized = str(symbol or '').strip().upper().replace(' ', '')
-        candidates = {normalized}
-
-        alias = self._resolve_ticker_instrument(symbol)
-        alias_tail = alias.split(':', 1)[-1].strip().upper().replace(' ', '')
-        if alias_tail:
-            candidates.add(alias_tail)
-
-        for inst in instrument_map.values():
-            keys = {
-                str(inst.get('tradingsymbol', '')).strip().upper().replace(' ', ''),
-                str(inst.get('name', '')).strip().upper().replace(' ', ''),
-            }
-            if keys & candidates:
-                token = inst.get('instrument_token')
-                try:
-                    return int(token)
-                except (TypeError, ValueError):
-                    return None
-        return None
+    def _update_ticker_board_visibility(self) -> None:
+        visible = self._show_ticker_board and not self._ticker_board.is_empty()
+        self._ticker_board.setVisible(visible)
 
     def ingest_ws_ticks(self, ticks: List[Dict[str, Any]]) -> None:
-        """Update ticker board snapshots from websocket ticks."""
+        """
+        Process live WebSocket ticks for the ticker board.
+
+        ONLY updates label text on each TickerPill — zero layout, zero resize,
+        zero jitter. The width of each pill was fixed at construction time.
+        """
         if not ticks or not self._ticker_token_to_symbol:
             return
 
-        updated = False
         for tick in ticks:
             token = tick.get('instrument_token')
             if token is None:
@@ -604,15 +807,56 @@ class HeaderToolbar(QToolBar):
             except (TypeError, ValueError, ZeroDivisionError):
                 change_pct = None
 
+            # Cache the latest snapshot for theme-rebuild hydration
             existing = self._ticker_snapshot.get(display_symbol, {})
             self._ticker_snapshot[display_symbol] = {
                 'price': price if price is not None else existing.get('price'),
                 'change_pct': change_pct if change_pct is not None else existing.get('change_pct'),
             }
-            updated = True
 
-        if updated:
-            self._refresh_ticker_board_display()
+            # Direct pill update — setText only, no geometry changes
+            self._ticker_board.update_ticker(
+                display_symbol,
+                price=price if price is not None else existing.get('price'),
+                change_pct=change_pct if change_pct is not None else existing.get('change_pct'),
+            )
+
+    def configure_ticker_ws_tokens(self, instrument_map: Dict[str, Dict[str, Any]]) -> List[int]:
+        """Resolve ticker board symbols to instrument tokens for WS subscriptions."""
+        resolved: Dict[int, str] = {}
+        if not isinstance(instrument_map, dict):
+            self._ticker_token_to_symbol = {}
+            return []
+
+        for display_symbol in self._ticker_symbols[:5]:
+            token = self._find_instrument_token_for_symbol(display_symbol, instrument_map)
+            if token is not None:
+                resolved[int(token)] = display_symbol.upper()
+
+        self._ticker_token_to_symbol = resolved
+        return list(resolved.keys())
+
+    def _find_instrument_token_for_symbol(self, symbol: str, instrument_map: Dict[str, Dict[str, Any]]) -> Optional[int]:
+        normalized = str(symbol or '').strip().upper().replace(' ', '')
+        candidates = {normalized}
+
+        alias = self._resolve_ticker_instrument(symbol)
+        alias_tail = alias.split(':', 1)[-1].strip().upper().replace(' ', '')
+        if alias_tail:
+            candidates.add(alias_tail)
+
+        for inst in instrument_map.values():
+            keys = {
+                str(inst.get('tradingsymbol', '')).strip().upper().replace(' ', ''),
+                str(inst.get('name', '')).strip().upper().replace(' ', ''),
+            }
+            if keys & candidates:
+                token = inst.get('instrument_token')
+                try:
+                    return int(token)
+                except (TypeError, ValueError):
+                    return None
+        return None
 
     def _resolve_ticker_instrument(self, symbol: str) -> str:
         key = str(symbol or "").strip().upper()
@@ -620,16 +864,25 @@ class HeaderToolbar(QToolBar):
             return self._ticker_alias_map[key]
         return key if ":" in key else f"NSE:{key}"
 
+    # ── Legacy REST-based ticker update (fallback, rarely used) ──────────────
+
     @Slot(object)
     def _handle_ticker_board_update(self, payload: Dict[str, Dict[str, Any]]) -> None:
         if payload:
             self._ticker_snapshot.update(payload)
-        self._refresh_ticker_board_display()
+        # Re-hydrate pills from snapshot
+        for sym, snap in payload.items():
+            self._ticker_board.update_ticker(
+                sym,
+                price=snap.get("price"),
+                change_pct=snap.get("change_pct"),
+            )
 
     @Slot(tuple)
     def _handle_ticker_board_error(self, _error: tuple) -> None:
         logger.debug("Ticker board refresh failed", exc_info=False)
-        self._refresh_ticker_board_display()
+
+    # ── Misc public helpers ───────────────────────────────────────────────────
 
     def update_performance_metrics(self, performance_data: Dict[str, Any]) -> None:
         daily_pnl = performance_data.get("daily_pnl", 0)
@@ -645,7 +898,7 @@ class HeaderToolbar(QToolBar):
         self.info_button.update()
 
     def set_watchlist_symbols(self, symbols: List[str]) -> None:
-        pass  # index handles this now
+        pass  # search index handles this now
 
     # ── Account helpers ───────────────────────────────────────────────────────
 
@@ -753,12 +1006,7 @@ class HeaderToolbar(QToolBar):
         self._recent_symbols = updated[:10]
 
     def _apply_explicit_fonts(self) -> None:
-        """Force modern UI typography on visible toolbar widgets.
-
-        Stylesheets cover most cases, but explicit QFont assignment keeps the
-        toolbar visually consistent even when child widgets or platform themes
-        try to fall back to default/monospace fonts.
-        """
+        """Force modern UI typography on visible toolbar widgets."""
         modern_small = _modern_font(9, QFont.Weight.Bold)
         modern_text = _modern_font(10, QFont.Weight.Bold)
         modern_number = _modern_font(10, QFont.Weight.DemiBold)
@@ -794,13 +1042,13 @@ class HeaderToolbar(QToolBar):
         }}
 
         QWidget#centerSpacer,
-        QWidget#sectionGap {{
+        QWidget#sectionGap,
+        QWidget#tickerBoardWrapper {{
             background: transparent;
         }}
 
         QWidget#symbolSearchGroup,
-        QWidget#accountInfoWidget,
-        QFrame#tickerBoardWidget {{
+        QWidget#accountInfoWidget {{
             background-color: {_BG_PANEL};
             border: 1px solid {_BG_BORDER};
             border-radius: 2px;
@@ -908,16 +1156,6 @@ class HeaderToolbar(QToolBar):
         }}
         QPushButton#alertActionButton:pressed {{
             background-color: rgba(245, 158, 11, 0.22);
-        }}
-
-
-
-        QLabel#tickerBoardText {{
-            background: transparent;
-            color: {_TEXT_SOFT};
-            border: none;
-            padding: 1px 2px;
-            font-family: {_SANS};
         }}
 
         QLabel#notificationBadge {{
