@@ -37,7 +37,15 @@ def _effective_to_date(interval: str):
     load up to the latest available bar.
     """
     now_ist = datetime.now(tz=_IST)
-    if interval in {"day", "week", "month"}:
+    if interval == "day":
+        # Day timeframe UX: include the in-progress trading session immediately
+        # on symbol switch (mid-session), so the current day candle appears in
+        # the initial historical payload instead of being appended later by the
+        # first live tick.
+        session_date = now_ist.date()
+        return datetime.combine(session_date, dt_time(23, 59, 59), tzinfo=_IST)
+
+    if interval in {"week", "month"}:
         session_date = now_ist.date()
         if now_ist.time() < dt_time(15, 30):
             session_date = session_date - timedelta(days=1)

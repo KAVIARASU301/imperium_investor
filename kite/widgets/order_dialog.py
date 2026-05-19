@@ -650,7 +650,7 @@ class OrderDialog(QDialog):
         h.addWidget(self._sym_label)
 
         exch = _Label(self._exchange, P.T2, 9, bold=True)
-        exch.setObjectName("exchangePill")
+        exch.setObjectName("exchangeLabel")
         h.addWidget(exch)
 
         h.addStretch()
@@ -1085,12 +1085,11 @@ class OrderDialog(QDialog):
                 letter-spacing:0.4px;
                 background:transparent;
             }}
-            QLabel#exchangePill {{
+            QLabel#exchangeLabel {{
                 color:{P.CYAN};
-                background:rgba(0,212,255,0.07);
-                border:1px solid rgba(0,212,255,0.20);
-                border-radius:2px;
-                padding:2px 6px;
+                background:transparent;
+                border:none;
+                padding:0;
                 font-family:'{FONT_UI}',{FONT_FALL};
                 font-size:9px;
                 font-weight:800;
