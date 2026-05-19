@@ -259,7 +259,6 @@ class AlertManagementDialog(QDialog):
         self.manager = manager
         self.store = manager.store
 
-        self._pinned = True
         self._drag_active = False
         self._drag_offset = QPoint()
         self._geometry_restored = False
@@ -347,16 +346,10 @@ class AlertManagementDialog(QDialog):
         self._refresh_btn = self._title_button("↻", "Refresh")
         self._refresh_btn.clicked.connect(lambda: self.refresh_tables(force=True))
 
-        self._pin_btn = self._title_button("PIN", "Toggle always-on-top")
-        self._pin_btn.setCheckable(True)
-        self._pin_btn.setChecked(True)
-        self._pin_btn.toggled.connect(self._toggle_pin)
-
         close_btn = self._title_button("✕", "Close", close=True)
         close_btn.clicked.connect(self.close)
 
         layout.addWidget(self._refresh_btn)
-        layout.addWidget(self._pin_btn)
         layout.addWidget(close_btn)
 
         bar.mousePressEvent = self._tb_press
@@ -391,7 +384,7 @@ class AlertManagementDialog(QDialog):
         button.setToolTip(tooltip)
         button.setObjectName("alertCloseBtn" if close else "alertTitleBtn")
         button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        button.setFixedSize(32 if text == "PIN" else 26, 22)
+        button.setFixedSize(26, 22)
         return button
 
     def _make_table(self, headers: List[str]) -> QTableWidget:
@@ -454,18 +447,6 @@ class AlertManagementDialog(QDialog):
 
     def _tb_release(self, _event: QMouseEvent) -> None:
         self._drag_active = False
-
-    def _toggle_pin(self, pinned: bool) -> None:
-        self._pinned = pinned
-        flags = self.windowFlags()
-        if pinned:
-            flags |= Qt.WindowType.WindowStaysOnTopHint
-            self._pin_btn.setText("PIN")
-        else:
-            flags &= ~Qt.WindowType.WindowStaysOnTopHint
-            self._pin_btn.setText("TOP")
-        self.setWindowFlags(flags)
-        self.show()
 
     def _restore_geometry(self) -> None:
         cfg = getattr(self.parent(), "config_manager", None)

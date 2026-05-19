@@ -15,7 +15,7 @@ Architecture
   • Heat-map Chg% coloring (same bands as TradingTable).
   • Modern UI typography for symbols, LTP, volume, change %, counts and dropdowns.
   • Throttled redraws at ~4 fps (225 ms timer) to keep UI readable.
-  • Frameless, draggable, always-on-top with pin toggle.
+  • Frameless, draggable, always-on-top.
   • Resize grip (bottom-right corner).
   • Context menu: chart, buy, sell, bracket, remove, flag.
   • Keyboard: Space = next symbol → chart; ↑↓ = navigate.
@@ -270,7 +270,6 @@ class FloatingWatchlistDialog(QDialog):
         self._pending_ticks: Dict[int, float] = {}
         self._dirty_symbols: set = set()
 
-        self._pinned   = True
         self._dragging = False
         self._drag_offset = QPoint()
         self._nav_idx  = 0
@@ -334,16 +333,6 @@ class FloatingWatchlistDialog(QDialog):
         h.addWidget(self._count_badge)
         h.addStretch()
 
-        # Pin toggle
-        self._pin_btn = QToolButton()
-        self._pin_btn.setObjectName("floatWlBarBtn")
-        self._pin_btn.setText("PIN")
-        self._pin_btn.setToolTip("Toggle always-on-top")
-        self._pin_btn.setFixedSize(30, 20)
-        self._pin_btn.setProperty("active", True)
-        self._pin_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self._pin_btn.clicked.connect(self._toggle_pin)
-
         min_btn = QToolButton()
         min_btn.setObjectName("floatWlBarBtn")
         min_btn.setText("—")
@@ -358,7 +347,6 @@ class FloatingWatchlistDialog(QDialog):
         close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         close_btn.clicked.connect(self.hide)
 
-        h.addWidget(self._pin_btn)
         h.addWidget(min_btn)
         h.addWidget(close_btn)
 
@@ -502,19 +490,6 @@ class FloatingWatchlistDialog(QDialog):
 
     def _tb_release(self, _):
         self._dragging = False
-
-    def _toggle_pin(self):
-        self._pinned = not self._pinned
-        self._pin_btn.setProperty("active", self._pinned)
-        self._pin_btn.style().unpolish(self._pin_btn)
-        self._pin_btn.style().polish(self._pin_btn)
-        flags = self.windowFlags()
-        if self._pinned:
-            flags |= Qt.WindowType.WindowStaysOnTopHint
-        else:
-            flags &= ~Qt.WindowType.WindowStaysOnTopHint
-        self.setWindowFlags(flags)
-        self.show()
 
     # ═══════════════════════════════════════════════════════════════════════
     # RESIZE

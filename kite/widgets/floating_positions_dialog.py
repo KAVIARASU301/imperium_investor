@@ -9,7 +9,7 @@ Design language:
   • Monospace reserved only for raw logs, IDs, code, and debug text
   • Purposeful color semantics: green profit/buy, red loss/sell, amber warning/SL,
     cyan utility/pinned/live state, muted blue-gray labels
-  • Frameless, draggable, always-on-top with pin toggle and minimal controls
+  • Frameless, draggable, always-on-top with minimal controls
   • Live P&L footer with a centered exposure pressure bar
   • Right-click context menu: chart, stop-loss, exit full, exit half
   • Keyboard: Space / Up / Down cycles symbols into chart
@@ -299,7 +299,6 @@ class FloatingPositionsDialog(QDialog):
         self._pending_ticks: Dict[int, float] = {}     # token → ltp (buffered)
         self._flashes: List[_Flash] = []
         self._prev_ltps: Dict[str, float] = {}
-        self._pinned = True                            # always-on-top toggle
         self._dragging = False
         self._drag_offset = QPoint()
         self._subscribed: set = set()
@@ -359,7 +358,7 @@ class FloatingPositionsDialog(QDialog):
         self._dot.setObjectName("dotIndicator")
         self._dot.setFixedWidth(10)
 
-        title = QLabel("POSITIONS")
+        title = QLabel("POSITIONS MONITOR")
         title.setObjectName("barTitle")
 
         self._count_badge = QLabel("0")
@@ -373,15 +372,6 @@ class FloatingPositionsDialog(QDialog):
         h.addStretch()
 
         # Right controls
-        self._pin_btn = QToolButton()
-        self._pin_btn.setObjectName("barBtn")
-        self._pin_btn.setText("PIN")
-        self._pin_btn.setToolTip("Toggle always-on-top")
-        self._pin_btn.setFixedSize(30, 20)
-        self._pin_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self._pin_btn.clicked.connect(self._toggle_pin)
-        self._pin_btn.setProperty("active", True)
-
         min_btn = QToolButton()
         min_btn.setObjectName("barBtn")
         min_btn.setText("—")
@@ -396,7 +386,6 @@ class FloatingPositionsDialog(QDialog):
         close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         close_btn.clicked.connect(self.hide)
 
-        h.addWidget(self._pin_btn)
         h.addWidget(min_btn)
         h.addWidget(close_btn)
 
@@ -497,19 +486,6 @@ class FloatingPositionsDialog(QDialog):
 
     def _tb_release(self, _):
         self._dragging = False
-
-    def _toggle_pin(self):
-        self._pinned = not self._pinned
-        self._pin_btn.setProperty("active", self._pinned)
-        self._pin_btn.style().unpolish(self._pin_btn)
-        self._pin_btn.style().polish(self._pin_btn)
-        flags = self.windowFlags()
-        if self._pinned:
-            flags |= Qt.WindowType.WindowStaysOnTopHint
-        else:
-            flags &= ~Qt.WindowType.WindowStaysOnTopHint
-        self.setWindowFlags(flags)
-        self.show()
 
     def _load_state(self) -> Dict:
         parent = self.parent()
