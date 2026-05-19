@@ -1068,7 +1068,7 @@ class DrawingEngine {
         const endX = a.x + a.width + (this.cs.rightAxisWidth || 0);
         if (sy < a.y - 2 || sy > a.y + a.height + 2) return;
 
-        ctx.setLineDash([5, 3]);
+        ctx.setLineDash([]);
         this._drawLine(ctx, sx, sy, endX, sy);
 
         /* price label on right axis */

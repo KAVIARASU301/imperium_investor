@@ -1536,7 +1536,7 @@ class FixedTradingChart {
             const sel = ray.id === this.selectedDrawingId;
             ctx.strokeStyle = ray.color || '#FFD700';
             ctx.lineWidth   = sel ? 2.5 : 1.5;
-            ctx.setLineDash([5, 3]);
+            ctx.setLineDash([]);
             ctx.beginPath();
             ctx.moveTo(startX, y);
             ctx.lineTo(this.chartArea.x + this.chartArea.width, y);
@@ -1787,7 +1787,7 @@ class FixedTradingChart {
 
         ctx.strokeStyle = 'rgba(100, 160, 255, 0.45)';
         ctx.lineWidth   = 1;
-        ctx.setLineDash([5, 3]);
+        ctx.setLineDash([]);
         ctx.strokeRect(rectX, rectY, rectW, rectH);
         ctx.setLineDash([]);
 
