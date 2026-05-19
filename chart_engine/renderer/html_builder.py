@@ -51,6 +51,7 @@ class ChartHtmlConfig:
     watermark_description_font_size: int = 25
     indicator_scale_labels_enabled: bool = False
     crosshair_snap_enabled:  bool  = False
+    show_time_slider:        bool  = True
     tool_selection_mode:     str   = "single_use"
     chart_type:              str   = "candle"
     initial_indicator_visibility:   Dict[str, bool] = field(default_factory=dict)
@@ -121,6 +122,7 @@ def build_chart_html(cfg: ChartHtmlConfig) -> str:
         "watermarkDescriptionFontSize": int(max(0, cfg.watermark_description_font_size)),
         "indicatorScaleLabelsEnabled": bool(cfg.indicator_scale_labels_enabled),
         "crosshairSnapEnabled":      bool(cfg.crosshair_snap_enabled),
+        "showTimeSlider":           bool(cfg.show_time_slider),
         "toolSelectionMode":         cfg.tool_selection_mode,
         "chartType":                 cfg.chart_type,
         "initialIndicatorVisibility": cfg.initial_indicator_visibility,

@@ -166,6 +166,7 @@ class FixedTradingChart {
         };
         this.indicatorScaleLabelsEnabled = cfg.indicatorScaleLabelsEnabled === true;
         this.crosshairSnapEnabled = cfg.crosshairSnapEnabled !== false;
+        this.showTimeSlider = cfg.showTimeSlider !== false;
         this.toolSelectionMode = cfg.toolSelectionMode === 'multi_use' ? 'multi_use' : 'single_use';
         this.infoVisibility = {
             show_adr: cfg.infoVisibility?.show_adr !== false,
@@ -2448,6 +2449,7 @@ class FixedTradingChart {
                 setTimeout(trySetup, 100); return;
             }
             this._bindSlider();
+            this._syncSliderVisibility();
         };
         trySetup();
     }
@@ -2483,8 +2485,14 @@ class FixedTradingChart {
         document.addEventListener('mouseup', () => { dragging = false; });
     }
 
+    _syncSliderVisibility() {
+        if (!this.slider || !this.canvas) return;
+        this.slider.style.display = this.showTimeSlider ? "flex" : "none";
+        this.canvas.style.height = this.showTimeSlider ? "calc(100% - 14px)" : "100%";
+    }
+
     updateSlider() {
-        if (!this.sliderThumb || !this.sliderTrack) return;
+        if (!this.showTimeSlider || !this.sliderThumb || !this.sliderTrack) return;
         const total  = Math.max(1, this.data.length + this.rightBufferCandles);
         const vis    = this.viewPortEnd - this.viewPortStart + 1;
         const thumbW = Math.max(40, Math.round((vis / total) * this.sliderTrack.clientWidth));
@@ -3410,6 +3418,10 @@ class FixedTradingChart {
             this.indicatorScaleLabelsEnabled = cfg.indicatorScaleLabelsEnabled === true;
         if (cfg.crosshairSnapEnabled !== undefined)
             this.crosshairSnapEnabled = cfg.crosshairSnapEnabled === true;
+        if (cfg.showTimeSlider !== undefined) {
+            this.showTimeSlider = cfg.showTimeSlider === true;
+            this._syncSliderVisibility();
+        }
         if (cfg.chartType !== undefined) {
             this._chartType = cfg.chartType === 'renko' ? 'candle' : cfg.chartType;
             if (window.__CHART_DATA__) {

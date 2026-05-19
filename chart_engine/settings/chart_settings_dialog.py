@@ -121,6 +121,10 @@ class ChartSettingsDialog(QDialog):
         self.crosshair_snap_enabled.setChecked(self._s.get("crosshair_snap_enabled", False))
         layout.addRow("Crosshair Snap:", self.crosshair_snap_enabled)
 
+        self.show_time_slider = QCheckBox("Show time slider")
+        self.show_time_slider.setChecked(self._s.get("show_time_slider", True))
+        layout.addRow("Time Slider:", self.show_time_slider)
+
         self.tool_selection_mode = QComboBox()
         self.tool_selection_mode.addItem("One use (reselect each time)", "single_use")
         self.tool_selection_mode.addItem("Multiple use (stay active)", "multi_use")
@@ -280,6 +284,7 @@ class ChartSettingsDialog(QDialog):
             "watermark_description_font_size": self.wm_description_font_size.value(),
             "indicator_scale_labels_enabled": self.indicator_scale_labels_enabled.isChecked(),
             "crosshair_snap_enabled": self.crosshair_snap_enabled.isChecked(),
+            "show_time_slider": self.show_time_slider.isChecked(),
             "tool_selection_mode": self.tool_selection_mode.currentData(),
             "show_snapshot": self.show_snapshot.isChecked(),
             "show_autoscale": self.show_autoscale.isChecked(),

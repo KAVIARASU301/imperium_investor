@@ -144,6 +144,7 @@ class CandlestickChart(QWidget):
         self._watermark_description_font_size = self.global_chart_settings.get("watermark_description_font_size", 25)
         self._indicator_scale_labels_enabled = self.global_chart_settings.get("indicator_scale_labels_enabled", False)
         self._crosshair_snap_enabled    = self.global_chart_settings.get("crosshair_snap_enabled", False)
+        self._show_time_slider         = self.global_chart_settings.get("show_time_slider", True)
         self._tool_selection_mode       = self.global_chart_settings.get("tool_selection_mode", "single_use")
         self._toolbar_symbol_display    = self.global_chart_settings.get("toolbar_symbol_display", "description")
         self.current_visible_candle_count = self.global_chart_settings.get("default_visible_candles", 100)
@@ -767,6 +768,7 @@ class CandlestickChart(QWidget):
                 "chartType":                self.toolbar.get_chart_type(),
                 "priceScaleCurrency":       price_scale_currency,
                 "rightBufferCandles":       self._right_buffer_candles,
+                "showTimeSlider":         self._show_time_slider,
                 "movingAverageConfigs":      self._moving_average_configs,
                 "initialIndicatorVisibility": self._indicator_visibility,
             }
@@ -809,6 +811,7 @@ class CandlestickChart(QWidget):
             watermark_description_font_size = self._watermark_description_font_size,
             indicator_scale_labels_enabled = self._indicator_scale_labels_enabled,
             crosshair_snap_enabled      = self._crosshair_snap_enabled,
+            show_time_slider            = self._show_time_slider,
             tool_selection_mode         = self._tool_selection_mode,
             chart_type                  = self.toolbar.get_chart_type(),
             initial_indicator_visibility = initial_indicator_visibility,
@@ -1378,6 +1381,7 @@ class CandlestickChart(QWidget):
             "watermark_description_font_size": self._watermark_description_font_size,
             "indicator_scale_labels_enabled": self._indicator_scale_labels_enabled,
             "crosshair_snap_enabled": self._crosshair_snap_enabled,
+            "show_time_slider": self._show_time_slider,
             "tool_selection_mode": self._tool_selection_mode,
             "toolbar_symbol_display": self._toolbar_symbol_display,
             "history_days_by_interval": dict(self._history_days_by_interval),
@@ -1410,6 +1414,7 @@ class CandlestickChart(QWidget):
         self._watermark_description_font_size = int(s.get("watermark_description_font_size", self._watermark_description_font_size))
         self._indicator_scale_labels_enabled = s.get("indicator_scale_labels_enabled", self._indicator_scale_labels_enabled)
         self._crosshair_snap_enabled     = s.get("crosshair_snap_enabled", self._crosshair_snap_enabled)
+        self._show_time_slider          = s.get("show_time_slider", self._show_time_slider)
         self._tool_selection_mode        = s.get("tool_selection_mode", self._tool_selection_mode)
         self._toolbar_symbol_display     = s.get("toolbar_symbol_display", self._toolbar_symbol_display)
         if self.toolbar:
@@ -1452,6 +1457,7 @@ class CandlestickChart(QWidget):
                 "watermarkDescriptionFontSize": self._watermark_description_font_size,
                 "indicatorScaleLabelsEnabled": self._indicator_scale_labels_enabled,
                 "crosshairSnapEnabled": self._crosshair_snap_enabled,
+                "showTimeSlider": self._show_time_slider,
                 "toolSelectionMode": self._tool_selection_mode,
                 "infoVisibility": dict(self._chart_info_visibility),
             })
