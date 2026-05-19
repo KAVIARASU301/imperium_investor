@@ -1226,19 +1226,20 @@ class FixedTradingChart {
             lastY = y;
         }
 
-        // Currency badge at top of price scale for mode clarity (INR/ USD).
+        // Currency label at top of price scale for mode clarity (INR/ USD).
+        // Intentionally very subtle to avoid drawing attention away from price action.
         const currencyLabel = this.priceScaleCurrency || '';
         if (currencyLabel) {
             const badgeTop = Math.max(4, this.chartArea.y - 24);
             const badgeH = 18;
             const badgeW = Math.max(34, Math.ceil(ctx.measureText(currencyLabel).width) + 14);
             const badgeX = axisX + Math.max(2, Math.floor((axisW - badgeW) / 2));
-            ctx.fillStyle = '#121a2b';
+            ctx.fillStyle = 'rgba(18,26,43,0.22)';
             ctx.fillRect(badgeX, badgeTop, badgeW, badgeH);
-            ctx.strokeStyle = 'rgba(96,134,194,0.95)';
+            ctx.strokeStyle = 'rgba(96,134,194,0.28)';
             ctx.lineWidth = 1;
             ctx.strokeRect(badgeX + 0.5, badgeTop + 0.5, badgeW - 1, badgeH - 1);
-            ctx.fillStyle = '#e4edff';
+            ctx.fillStyle = 'rgba(228,237,255,0.52)';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText(currencyLabel, badgeX + badgeW / 2, badgeTop + badgeH / 2 + 0.5);
