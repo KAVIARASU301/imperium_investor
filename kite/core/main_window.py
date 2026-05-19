@@ -2608,7 +2608,21 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             return
 
         active_name = self.watchlist.get_active_watchlist_name()
+        target_row_after_remove = None
+        active_table = getattr(self.watchlist, "_current_table", lambda: None)()
+        if active_table and hasattr(active_table, "get_symbol_list"):
+            symbols = active_table.get_symbol_list()
+            try:
+                removed_index = symbols.index(current_symbol)
+                target_row_after_remove = max(removed_index - 1, 0)
+            except ValueError:
+                target_row_after_remove = None
+
         if self.watchlist.remove_symbol_from_active_watchlist(current_symbol):
+            if active_table and target_row_after_remove is not None and active_table.rowCount() > 0:
+                target_row_after_remove = min(target_row_after_remove, active_table.rowCount() - 1)
+                active_table.selectRow(target_row_after_remove)
+                active_table.setCurrentCell(target_row_after_remove, 1)
             status.show_info(f"Removed {current_symbol} from {active_name or 'active watchlist'}")
         else:
             status.show_info(f"{current_symbol} is not in {active_name or 'active watchlist'}")
