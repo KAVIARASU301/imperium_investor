@@ -8,7 +8,7 @@ import logging
 from typing import Any, Dict, List, Union
 
 from PySide6.QtCore import QSize, QThreadPool, QTimer, Qt, Signal, Slot
-from PySide6.QtGui import QFont, QIcon
+from PySide6.QtGui import QFont, QFontMetrics, QIcon
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -280,7 +280,8 @@ class HeaderToolbar(QToolBar):
         self.ticker_board_label.setFont(_modern_font(8, QFont.Weight.Bold))
         self.ticker_board_label.setTextFormat(Qt.TextFormat.RichText)
         self.ticker_board_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        self.ticker_board_label.setMinimumWidth(520)
+        self.ticker_board_label.setMinimumWidth(0)
+        self.ticker_board_label.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Preferred)
         ticker_layout.addWidget(self.ticker_board_label)
 
         self.addWidget(self.ticker_board_widget)
@@ -471,6 +472,41 @@ class HeaderToolbar(QToolBar):
         self._refresh_ticker_board_display()
 
 
+
+    def _adjust_ticker_board_width(self, symbols: List[str]) -> None:
+        """Dynamically size ticker board to content with per-symbol jitter headroom."""
+        if not symbols:
+            self.ticker_board_widget.setMinimumWidth(0)
+            return
+
+        metrics = QFontMetrics(self.ticker_board_label.font())
+        divider = " │ "
+        divider_width = metrics.horizontalAdvance(divider)
+
+        extra_digits_headroom = metrics.horizontalAdvance("88")
+        per_symbol_padding = 20
+
+        base_width = 0
+        for symbol in symbols:
+            snap = self._ticker_snapshot.get(symbol.upper(), {})
+            if isinstance(snap.get("price"), (int, float)):
+                price_text = f"{float(snap['price']):,.2f}"
+            else:
+                price_text = "--"
+
+            if isinstance(snap.get("change_pct"), (int, float)):
+                change_pct = float(snap["change_pct"])
+                sign = "+" if change_pct > 0 else ""
+                change_text = f"{sign}{change_pct:.2f}%"
+            else:
+                change_text = "--%"
+
+            segment_text = f"{symbol} {price_text} {change_text}"
+            base_width += metrics.horizontalAdvance(segment_text) + per_symbol_padding + extra_digits_headroom
+
+        board_width = base_width + max(0, len(symbols) - 1) * divider_width
+        self.ticker_board_widget.setMinimumWidth(max(240, board_width))
+
     def _refresh_ticker_board_display(self) -> None:
         symbols = self._ticker_symbols[:5]
         if symbols:
@@ -479,6 +515,7 @@ class HeaderToolbar(QToolBar):
             self.ticker_board_label.setText(joined)
         else:
             self.ticker_board_label.setText("---")
+        self._adjust_ticker_board_width(symbols)
         self.ticker_board_widget.setVisible(self._show_ticker_board and len(symbols) > 0)
 
     def _format_ticker_pill(self, symbol: str) -> str:
