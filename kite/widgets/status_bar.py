@@ -2,7 +2,6 @@
 
 import logging
 import re
-from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import QObject, Qt
@@ -146,18 +145,9 @@ class StatusBar(QWidget):
         dot_color_map = {
             "CONNECTED": "#00d4a8",
             "ERROR": "#ff4d6a",
-            "OFFLINE": "#ff4d6a",
-            "DISCONNECTED": "#ff4d6a",
-            "RECONNECTING": "#ffaa00",
         }
         dot_color = dot_color_map.get(status, "#7b8496")
-        icon_path = (Path(__file__).resolve().parents[2] / "assets" / "icons" / "api.svg").as_posix()
-
-        # Keep label compact: use the static API icon + API text + colored LED only.
-        self.api_label.setText(
-            f'<img src="{icon_path}" width="10" height="10" /> API '
-            f'<span style="color:{dot_color};">●</span>'
-        )
+        self.api_label.setText(f'API: {status} <span style="color:{dot_color};">●</span>')
 
     def set_message(self, text: str) -> None:
         # Dummy method to prevent crashes since we removed message_label
