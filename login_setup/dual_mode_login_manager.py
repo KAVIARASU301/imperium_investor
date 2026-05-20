@@ -372,10 +372,8 @@ class DualModeLoginManager(QDialog):
         layout.setContentsMargins(18, 14, 18, 14)
         layout.setSpacing(12)
 
-        selection_panel = QFrame()
-        selection_panel.setObjectName("selectionPanel")
-        selection_layout = QVBoxLayout(selection_panel)
-        selection_layout.setContentsMargins(12, 12, 12, 12)
+        selection_layout = QVBoxLayout()
+        selection_layout.setContentsMargins(0, 0, 0, 0)
         selection_layout.setSpacing(12)
 
         title = QLabel("Broker and Trading Mode")
@@ -413,7 +411,7 @@ class DualModeLoginManager(QDialog):
 
         mode_frame = self._create_trading_mode_selector()
 
-        hold_message = QLabel("Big money comes from holding. Hold! Hold! Hold!")
+        hold_message = QLabel("Big money comes from holding.\nHold! Hold! Hold!")
         hold_message.setObjectName("subTitle")
         hold_message.setAlignment(Qt.AlignmentFlag.AlignCenter)
         hold_message.setWordWrap(True)
@@ -427,9 +425,10 @@ class DualModeLoginManager(QDialog):
         selection_layout.addWidget(self.session_hint_label)
         selection_layout.addLayout(broker_layout)
         selection_layout.addWidget(mode_frame)
+        selection_layout.addSpacing(14)
         selection_layout.addWidget(hold_message)
 
-        layout.addWidget(selection_panel)
+        layout.addLayout(selection_layout)
         layout.addStretch()
         layout.addWidget(continue_btn)
         layout.addWidget(self.cancel_active_session_btn, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -1058,8 +1057,7 @@ class DualModeLoginManager(QDialog):
 
             #mainContainer {{
                 background-color: {UI.BG1};
-                border-radius: 2px;
-                border: 1px solid {UI.BG5};
+                border: none;
             }}
 
             #titleBar {{
@@ -1137,12 +1135,6 @@ class DualModeLoginManager(QDialog):
                 font-size: 11px;
                 font-weight: 600;
                 padding: 8px 10px;
-            }}
-
-            #selectionPanel {{
-                background: rgba(255, 255, 255, 0.02);
-                border: 1px solid rgba(0, 212, 255, 0.24);
-                border-radius: 3px;
             }}
 
             #hintLabel {{
