@@ -473,8 +473,8 @@ class HeaderToolbar(QToolBar):
         search_group = QWidget()
         search_group.setObjectName("symbolSearchGroup")
         search_layout = QHBoxLayout(search_group)
-        search_layout.setContentsMargins(4, 2, 4, 2)
-        search_layout.setSpacing(2)
+        search_layout.setContentsMargins(3, 2, 3, 2)
+        search_layout.setSpacing(1)
 
         self.buy_button = self._make_action_button(
             object_name="buyButton",
@@ -485,7 +485,6 @@ class HeaderToolbar(QToolBar):
         )
         self.buy_button.clicked.connect(self._on_buy_clicked)
         search_layout.addWidget(self.buy_button)
-        search_layout.addWidget(self._create_vertical_divider())
 
         self.sell_button = self._make_action_button(
             object_name="sellButton",
@@ -496,7 +495,6 @@ class HeaderToolbar(QToolBar):
         )
         self.sell_button.clicked.connect(self._on_sell_clicked)
         search_layout.addWidget(self.sell_button)
-        search_layout.addWidget(self._create_vertical_divider())
 
         self.info_button = self._make_action_button(
             object_name="infoActionButton",
@@ -519,32 +517,7 @@ class HeaderToolbar(QToolBar):
         self.search_input.symbol_selected.connect(self._on_symbol_committed)
         search_layout.addWidget(self.search_input)
 
-        self.positions_button = self._make_action_button(
-            object_name="positionsActionButton",
-            icon_name="portfolio.svg",
-            required=True,
-            tooltip="Open positions",
-            label="Positions",
-        )
-        self.positions_button.clicked.connect(self.positions_requested.emit)
-        search_layout.addWidget(self.positions_button)
-        search_layout.addWidget(self._create_vertical_divider())
-
-        self.alerts_button = self._make_action_button(
-            object_name="alertActionButton",
-            icon_name="alert.svg",
-            required=True,
-            tooltip="Open alert manager",
-            label="Alerts",
-        )
-        self.alerts_button.clicked.connect(self.alert_manager_requested.emit)
-        search_layout.addWidget(self.alerts_button)
-
-        self.alerts_badge = NotificationBadge()
-        search_layout.addWidget(self.alerts_badge)
-
-        # ── Ticker board inline — right of alert button ──────────────────
-        # A thin vertical separator visually groups alert from ticker section.
+        # ── Ticker board inline — right of symbol search ──────────────────
         search_layout.addWidget(self._create_vertical_divider())
 
         self._ticker_board = TickerBoard(search_group)
@@ -591,9 +564,34 @@ class HeaderToolbar(QToolBar):
             icon_name="order_history.svg",
             required=True,
             tooltip="Open order history",
-            label="Orders",
+            label="Order History",
         )
         self.order_history_button.clicked.connect(self.order_history_requested.emit)
+        
+        self.alerts_button = self._make_action_button(
+            object_name="alertActionButton",
+            icon_name="alert.svg",
+            required=True,
+            tooltip="Open alert manager",
+            label="Alerts",
+        )
+        self.alerts_button.clicked.connect(self.alert_manager_requested.emit)
+        account_layout.addWidget(self.alerts_button)
+        self.alerts_badge = NotificationBadge()
+        account_layout.addWidget(self.alerts_badge)
+        account_layout.addWidget(self._create_vertical_divider())
+
+        self.positions_button = self._make_action_button(
+            object_name="positionsActionButton",
+            icon_name="portfolio.svg",
+            required=True,
+            tooltip="Open positions",
+            label="Positions",
+        )
+        self.positions_button.clicked.connect(self.positions_requested.emit)
+        account_layout.addWidget(self.positions_button)
+        account_layout.addWidget(self._create_vertical_divider())
+
         account_layout.addWidget(self.order_history_button)
         account_layout.addWidget(self._create_vertical_divider())
 
@@ -602,7 +600,7 @@ class HeaderToolbar(QToolBar):
             icon_name="pending.svg",
             required=True,
             tooltip="Open pending orders",
-            label="Pending",
+            label="Pending Orders",
         )
         self.pending_orders_button.clicked.connect(self.pending_orders_requested.emit)
         account_layout.addWidget(self.pending_orders_button)
@@ -666,7 +664,7 @@ class HeaderToolbar(QToolBar):
         button.setText(label)
         button.setFixedHeight(_ACTION_BTN_H)
         button.setMinimumWidth(56)
-        button.setMaximumWidth(76)
+        button.setMaximumWidth(130)
         button.setIconSize(QSize(14, 14))
         button.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
         return button
@@ -1120,71 +1118,41 @@ class HeaderToolbar(QToolBar):
         QPushButton#buyButton,
         QPushButton#sellButton,
         QPushButton#infoActionButton,
+        QPushButton#alertActionButton,
         QPushButton#positionsActionButton,
-        QPushButton#alertActionButton {{
+        QPushButton#orderHistoryActionButton,
+        QPushButton#pendingOrdersActionButton,
+        QPushButton#settingsActionButton {{
             background-color: transparent;
             border: 1px solid transparent;
-            padding: 2px 5px;
+            padding: 2px 4px;
             text-align: left;
-            color: {_TEXT_SOFT};
+            color: #bcc6d3;
             font-size: 10px;
             font-weight: 400;
         }}
-
-        QPushButton#buyButton {{
-            color: {_BULL};
+        
+        QPushButton#buyButton:hover,
+        QPushButton#sellButton:hover,
+        QPushButton#infoActionButton:hover,
+        QPushButton#alertActionButton:hover,
+        QPushButton#positionsActionButton:hover,
+        QPushButton#orderHistoryActionButton:hover,
+        QPushButton#pendingOrdersActionButton:hover,
+        QPushButton#settingsActionButton:hover {{
+            background-color: rgba(188, 198, 211, 0.08);
+            color: #d0d8e2;
         }}
-        QPushButton#buyButton:hover {{
-            background-color: rgba(0, 212, 168, 0.10);
-        }}
-        QPushButton#buyButton:pressed {{
-            background-color: rgba(0, 212, 168, 0.22);
-        }}
-
-        QPushButton#sellButton {{
-            color: {_BEAR};
-        }}
-        QPushButton#sellButton:hover {{
-            background-color: rgba(255, 77, 106, 0.10);
-        }}
-        QPushButton#sellButton:pressed {{
-            background-color: rgba(255, 77, 106, 0.22);
-        }}
-
-        QPushButton#infoActionButton {{
-            color: {_CYAN};
-        }}
-        QPushButton#infoActionButton:hover {{
-            background-color: rgba(0, 212, 255, 0.09);
-        }}
-        QPushButton#infoActionButton:pressed {{
-            background-color: rgba(0, 212, 255, 0.20);
-        }}
-        QPushButton#infoActionButton[pnlState="profit"] {{
-            border-left: 3px solid {_BULL};
-        }}
-        QPushButton#infoActionButton[pnlState="loss"] {{
-            border-left: 3px solid {_BEAR};
-        }}
-
-        QPushButton#positionsActionButton {{
-            color: {_BLUE};
-        }}
-        QPushButton#positionsActionButton:hover {{
-            background-color: rgba(0, 212, 255, 0.09);
-        }}
-        QPushButton#positionsActionButton:pressed {{
-            background-color: rgba(0, 212, 255, 0.20);
-        }}
-
-        QPushButton#alertActionButton {{
-            color: {_AMBER};
-        }}
-        QPushButton#alertActionButton:hover {{
-            background-color: rgba(245, 158, 11, 0.10);
-        }}
-        QPushButton#alertActionButton:pressed {{
-            background-color: rgba(245, 158, 11, 0.22);
+        QPushButton#buyButton:pressed,
+        QPushButton#sellButton:pressed,
+        QPushButton#infoActionButton:pressed,
+        QPushButton#alertActionButton:pressed,
+        QPushButton#positionsActionButton:pressed,
+        QPushButton#orderHistoryActionButton:pressed,
+        QPushButton#pendingOrdersActionButton:pressed,
+        QPushButton#settingsActionButton:pressed {{
+            background-color: rgba(188, 198, 211, 0.16);
+            color: #dce2ea;
         }}
 
         QLabel#notificationBadge {{
