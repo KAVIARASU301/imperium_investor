@@ -150,20 +150,12 @@ class StatusBar(QWidget):
             "DISCONNECTED": "#ff4d6a",
             "RECONNECTING": "#ffaa00",
         }
-        icon_name_map = {
-            "CONNECTED": "connected.svg",
-            "ERROR": "disconnected.svg",
-            "OFFLINE": "disconnected.svg",
-            "DISCONNECTED": "disconnected.svg",
-            "RECONNECTING": "pending.svg",
-        }
         dot_color = dot_color_map.get(status, "#7b8496")
-        icon_name = icon_name_map.get(status, "pending.svg")
-        icon_path = (Path(__file__).resolve().parents[2] / "assets" / "icons" / icon_name).as_posix()
+        icon_path = (Path(__file__).resolve().parents[2] / "assets" / "icons" / "api.svg").as_posix()
 
-        # Keep label compact: show API text + icon + colored LED only (no CONNECTED/OFFLINE text).
+        # Keep label compact: use the static API icon + API text + colored LED only.
         self.api_label.setText(
-            f'API <img src="{icon_path}" width="10" height="10" /> '
+            f'<img src="{icon_path}" width="10" height="10" /> API '
             f'<span style="color:{dot_color};">●</span>'
         )
 
