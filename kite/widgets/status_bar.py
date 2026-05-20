@@ -2,6 +2,7 @@
 
 import logging
 import re
+from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import QObject, Qt
@@ -145,9 +146,26 @@ class StatusBar(QWidget):
         dot_color_map = {
             "CONNECTED": "#00d4a8",
             "ERROR": "#ff4d6a",
+            "OFFLINE": "#ff4d6a",
+            "DISCONNECTED": "#ff4d6a",
+            "RECONNECTING": "#ffaa00",
+        }
+        icon_name_map = {
+            "CONNECTED": "connected.svg",
+            "ERROR": "disconnected.svg",
+            "OFFLINE": "disconnected.svg",
+            "DISCONNECTED": "disconnected.svg",
+            "RECONNECTING": "pending.svg",
         }
         dot_color = dot_color_map.get(status, "#7b8496")
-        self.api_label.setText(f'API: {status} <span style="color:{dot_color};">●</span>')
+        icon_name = icon_name_map.get(status, "pending.svg")
+        icon_path = (Path(__file__).resolve().parents[2] / "assets" / "icons" / icon_name).as_posix()
+
+        # Keep label compact: show API text + icon + colored LED only (no CONNECTED/OFFLINE text).
+        self.api_label.setText(
+            f'API <img src="{icon_path}" width="10" height="10" /> '
+            f'<span style="color:{dot_color};">●</span>'
+        )
 
     def set_message(self, text: str) -> None:
         # Dummy method to prevent crashes since we removed message_label
