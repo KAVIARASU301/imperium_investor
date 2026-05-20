@@ -954,6 +954,8 @@ class PendingOrdersDialog(QDialog):
         self._refresh_inflight = False
 
     def _render_table(self):
+        selected_order_id = self._selected_order_id()
+
         self.table.setSortingEnabled(False)
         self.table.setRowCount(0)
 
@@ -963,7 +965,33 @@ class PendingOrdersDialog(QDialog):
             self._populate_row(row, order)
 
         self.table.setSortingEnabled(True)
+        self._restore_selection(selected_order_id)
         self._set_action_state(self.selected_order() is not None)
+
+    def _selected_order_id(self) -> Optional[str]:
+        selected = self.table.selectionModel().selectedRows()
+        if not selected:
+            return None
+
+        row = selected[0].row()
+        order_id_item = self.table.item(row, 1)
+        if order_id_item is None:
+            return None
+
+        order_id = (order_id_item.text() or "").strip()
+        return order_id or None
+
+    def _restore_selection(self, order_id: Optional[str]) -> None:
+        if not order_id:
+            return
+
+        for row in range(self.table.rowCount()):
+            order_id_item = self.table.item(row, 1)
+            if order_id_item is None:
+                continue
+            if (order_id_item.text() or "").strip() == order_id:
+                self.table.selectRow(row)
+                return
 
     def _populate_row(self, row: int, order: Dict[str, Any]):
         ts = str(order.get("order_timestamp") or order.get("exchange_timestamp") or "-")
