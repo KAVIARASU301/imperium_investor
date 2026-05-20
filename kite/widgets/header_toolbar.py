@@ -667,7 +667,7 @@ class HeaderToolbar(QToolBar):
         button.setFixedHeight(_ACTION_BTN_H)
         button.setMinimumWidth(74)
         button.setMaximumWidth(98)
-        button.setIconSize(QSize(11, 11))
+        button.setIconSize(QSize(15, 15))
         button.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
         return button
 
@@ -1192,7 +1192,7 @@ class HeaderToolbar(QToolBar):
             border-radius: 2px;
             font-family: {_NUM};
             font-size: 9px;
-            font-weight: 800;
+            font-weight: 600;
             padding: 0px;
         }}
 

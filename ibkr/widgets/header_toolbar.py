@@ -114,7 +114,7 @@ class HeaderToolbar(QToolBar):
         self.info_button.setObjectName("tradingActionButton")
         self.info_button.setToolTip("Performance Info")
         self.info_button.setFixedSize(24, 20)
-        self.info_button.setIconSize(QSize(12, 12))
+        self.info_button.setIconSize(QSize(15, 15))
         info_icon_path = get_asset_path("icons", "info.svg", required=True)
         if info_icon_path is not None:
             self.info_button.setIcon(QIcon(str(info_icon_path)))
@@ -126,7 +126,7 @@ class HeaderToolbar(QToolBar):
         self.positions_button.setObjectName("tradingActionButton")
         self.positions_button.setToolTip("Positions / Order History")
         self.positions_button.setFixedSize(24, 20)
-        self.positions_button.setIconSize(QSize(12, 12))
+        self.positions_button.setIconSize(QSize(15, 15))
         positions_icon_path = get_asset_path("icons", "portfolio.svg", required=True)
         if positions_icon_path is not None:
             self.positions_button.setIcon(QIcon(str(positions_icon_path)))
@@ -137,7 +137,7 @@ class HeaderToolbar(QToolBar):
         self.alerts_button = QPushButton("")
         self.alerts_button.setObjectName("alertActionButton")
         self.alerts_button.setToolTip("Alerts")
-        self.alerts_button.setIconSize(QSize(14, 14))
+        self.alerts_button.setIconSize(QSize(15, 15))
         alert_icon_path = get_asset_path("icons", "alert.svg", required=True)
         if alert_icon_path is not None:
             self.alerts_button.setIcon(QIcon(str(alert_icon_path)))
@@ -474,7 +474,7 @@ class HeaderToolbar(QToolBar):
                 padding: 3px 8px; 
                 border-radius: 0px;
                 font-size: 11px; 
-                font-weight: 500;
+                font-weight: 400;
                 min-width: 84px; 
                 max-width: 100px; 
                 max-height: 20px;
