@@ -230,7 +230,7 @@ class DualModeLoginManager(QDialog):
 
 
     def _setup_window(self):
-        self.setWindowTitle("qullamaggie - Login")
+        self.setWindowTitle("Qullamaggie Swing Trader - Login")
         self.setMinimumSize(460, 520)
         # self.resize(540, 620)
         self.setModal(True)
@@ -282,7 +282,7 @@ class DualModeLoginManager(QDialog):
         layout.setContentsMargins(14, 0, 10, 0)
         layout.setSpacing(6)
 
-        title = QLabel("Qullamaggie")
+        title = QLabel("Qullamaggie Swing Trader")
         title.setObjectName("dialogTitle")
 
         close_btn = QPushButton("✕")
@@ -370,7 +370,13 @@ class DualModeLoginManager(QDialog):
         page.setObjectName("loginPage")
         layout = QVBoxLayout(page)
         layout.setContentsMargins(18, 14, 18, 14)
-        layout.setSpacing(10)
+        layout.setSpacing(12)
+
+        selection_panel = QFrame()
+        selection_panel.setObjectName("selectionPanel")
+        selection_layout = QVBoxLayout(selection_panel)
+        selection_layout.setContentsMargins(12, 12, 12, 12)
+        selection_layout.setSpacing(12)
 
         title = QLabel("Broker and Trading Mode")
         title.setObjectName("brokerPageTitle")
@@ -417,11 +423,13 @@ class DualModeLoginManager(QDialog):
         continue_btn.setFixedHeight(30)
         continue_btn.clicked.connect(self._on_broker_selected)
 
-        layout.addWidget(title)
-        layout.addWidget(self.session_hint_label)
-        layout.addLayout(broker_layout)
-        layout.addWidget(mode_frame)
-        layout.addWidget(hold_message)
+        selection_layout.addWidget(title)
+        selection_layout.addWidget(self.session_hint_label)
+        selection_layout.addLayout(broker_layout)
+        selection_layout.addWidget(mode_frame)
+        selection_layout.addWidget(hold_message)
+
+        layout.addWidget(selection_panel)
         layout.addStretch()
         layout.addWidget(continue_btn)
         layout.addWidget(self.cancel_active_session_btn, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -1129,6 +1137,12 @@ class DualModeLoginManager(QDialog):
                 font-size: 11px;
                 font-weight: 600;
                 padding: 8px 10px;
+            }}
+
+            #selectionPanel {{
+                background: rgba(255, 255, 255, 0.02);
+                border: 1px solid rgba(0, 212, 255, 0.24);
+                border-radius: 3px;
             }}
 
             #hintLabel {{
