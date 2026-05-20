@@ -231,7 +231,7 @@ class DualModeLoginManager(QDialog):
 
     def _setup_window(self):
         self.setWindowTitle("qullamaggie - Login")
-        self.setMinimumSize(560, 620)
+        self.setMinimumSize(460, 520)
         # self.resize(540, 620)
         self.setModal(True)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)

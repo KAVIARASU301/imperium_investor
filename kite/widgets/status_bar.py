@@ -356,12 +356,22 @@ class GlobalStatusManager(QObject):
 
         text_upper = display_message.upper()
         is_network_notice = any(token in text_upper for token in ("NETWORK", "OFFLINE", "ONLINE", "RECONNECT"))
+        is_api_notice = self._is_api_related_message(text_upper)
 
         if is_network_notice:
             title = "Network"
             sub_kind = "network"
             if timeout <= 0:
                 timeout = 2500
+        elif is_api_notice:
+            title_map = {
+                "error": "API Error",
+                "warn": "API Warning",
+                "success": "API Status",
+                "info": "API Update",
+            }
+            title = title_map.get(kind, "API Update")
+            sub_kind = "api"
         else:
             title_map = {
                 "error": "Order Alert",
@@ -413,11 +423,28 @@ class GlobalStatusManager(QObject):
     # ── Internal ──────────────────────────────────────────────────────────
 
     @staticmethod
+    def _is_api_related_message(text_upper: str) -> bool:
+        """Detect broker/API notices so toasts use API-specific titles."""
+        api_tokens = (
+            " API",
+            "BROKER",
+            "RATE LIMIT",
+            "AUTH",
+            "TOKEN",
+            "SESSION",
+            "WEBSOCKET",
+            "CONNECTION",
+            "CONNECTIVITY",
+        )
+        return any(token in text_upper for token in api_tokens)
+
+    @staticmethod
     def _resolve_border_color(sub_kind: str | None) -> str | None:
         border_by_sub_kind = {
             "rejected": "#e05555",     # red
             "filled": "#4ec994",       # teal
             "network": "#d4a84b",      # amber
+            "api": "#57a5ff",          # blue
             "rate_limit": "#b081ff",   # purple
             "partial_fill": "#f59e0b", # amber
         }
