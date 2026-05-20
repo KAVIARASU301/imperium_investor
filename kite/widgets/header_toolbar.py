@@ -473,8 +473,8 @@ class HeaderToolbar(QToolBar):
         search_group = QWidget()
         search_group.setObjectName("symbolSearchGroup")
         search_layout = QHBoxLayout(search_group)
-        search_layout.setContentsMargins(6, 2, 6, 2)
-        search_layout.setSpacing(4)
+        search_layout.setContentsMargins(4, 2, 4, 2)
+        search_layout.setSpacing(2)
 
         self.buy_button = self._make_action_button(
             object_name="buyButton",
@@ -578,13 +578,13 @@ class HeaderToolbar(QToolBar):
         return
 
     def _create_account_section(self):
-        self._add_section_gap(8)
+        self._add_section_gap(4)
 
         self.account_info_widget = QWidget()
         self.account_info_widget.setObjectName("accountInfoWidget")
         account_layout = QHBoxLayout(self.account_info_widget)
-        account_layout.setContentsMargins(6, 2, 6, 2)
-        account_layout.setSpacing(6)
+        account_layout.setContentsMargins(4, 2, 4, 2)
+        account_layout.setSpacing(4)
 
         self.order_history_button = self._make_action_button(
             object_name="orderHistoryActionButton",
@@ -620,7 +620,7 @@ class HeaderToolbar(QToolBar):
 
         self.user_id_label = QLabel(self._account_info.get("user_id", "N/A"))
         self.user_id_label.setObjectName("userIdLabel")
-        self.user_id_label.setFont(_modern_font(9, QFont.Weight.Bold))
+        self.user_id_label.setFont(_modern_font(9, QFont.Weight.Normal))
         account_layout.addWidget(self.user_id_label)
 
         self.account_separator = self._create_separator_dot()
@@ -628,7 +628,7 @@ class HeaderToolbar(QToolBar):
 
         self.balance_label = QLabel("₹0")
         self.balance_label.setObjectName("balanceLabel")
-        self.balance_label.setFont(_modern_font(10, QFont.Weight.Bold))
+        self.balance_label.setFont(_modern_font(10, QFont.Weight.Normal))
         account_layout.addWidget(self.balance_label)
 
         self.addWidget(self.account_info_widget)
@@ -648,7 +648,7 @@ class HeaderToolbar(QToolBar):
         button.setIconSize(QSize(12, 12))
         button.setToolTip(tooltip)
         button.setCursor(Qt.CursorShape.PointingHandCursor)
-        button.setFont(_modern_font(9, QFont.Weight.Bold))
+        button.setFont(_modern_font(9, QFont.Weight.Normal))
         icon_path = get_asset_path("icons", icon_name, required=required)
         if icon_path is not None:
             button.setIcon(QIcon(str(icon_path)))
@@ -665,9 +665,9 @@ class HeaderToolbar(QToolBar):
         button = self._make_icon_button(object_name, icon_name, required, tooltip)
         button.setText(label)
         button.setFixedHeight(_ACTION_BTN_H)
-        button.setMinimumWidth(74)
-        button.setMaximumWidth(98)
-        button.setIconSize(QSize(15, 15))
+        button.setMinimumWidth(56)
+        button.setMaximumWidth(76)
+        button.setIconSize(QSize(14, 14))
         button.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
         return button
 
@@ -685,14 +685,14 @@ class HeaderToolbar(QToolBar):
         button.setObjectName("tradingActionButton")
         button.setFixedHeight(_CONTROL_H)
         button.setCursor(Qt.CursorShape.PointingHandCursor)
-        button.setFont(_modern_font(9, QFont.Weight.Bold))
+        button.setFont(_modern_font(9, QFont.Weight.Normal))
         return button
 
     @staticmethod
     def _create_separator_dot() -> QLabel:
         dot = QLabel("•")
         dot.setObjectName("separatorDot")
-        dot.setFont(_modern_font(8, QFont.Weight.Black))
+        dot.setFont(_modern_font(8, QFont.Weight.Normal))
         return dot
 
     def _add_section_gap(self, width: int = 10) -> None:
@@ -1042,9 +1042,8 @@ class HeaderToolbar(QToolBar):
 
     def _apply_explicit_fonts(self) -> None:
         """Force modern UI typography on visible toolbar widgets."""
-        modern_small = _modern_font(9, QFont.Weight.Bold)
-        modern_text = _modern_font(10, QFont.Weight.Bold)
-        modern_number = _modern_font(10, QFont.Weight.DemiBold)
+        normal_small = _modern_font(9, QFont.Weight.Normal)
+        normal_text  = _modern_font(10, QFont.Weight.Normal)
 
         for widget in (
             self.buy_button,
@@ -1053,13 +1052,13 @@ class HeaderToolbar(QToolBar):
             self.positions_button,
             self.alerts_button,
         ):
-            widget.setFont(modern_small)
+            widget.setFont(normal_small)
 
-        self.search_input.setFont(_modern_font(10, QFont.Weight.DemiBold))
-        self.alerts_badge.setFont(_modern_font(9, QFont.Weight.Black))
-        self.user_id_label.setFont(modern_small)
-        self.balance_label.setFont(modern_number)
-        self.account_separator.setFont(_modern_font(8, QFont.Weight.Black))
+        self.search_input.setFont(_modern_font(10, QFont.Weight.Medium))
+        self.alerts_badge.setFont(_modern_font(9, QFont.Weight.Medium))
+        self.user_id_label.setFont(normal_small)
+        self.balance_label.setFont(normal_text)
+        self.account_separator.setFont(_modern_font(8, QFont.Weight.Normal))
 
     # ── Styles ────────────────────────────────────────────────────────────────
 
@@ -1115,6 +1114,7 @@ class HeaderToolbar(QToolBar):
             outline: none;
             border-radius: 0px;
             font-family: {_SANS};
+            font-weight: 400;
         }}
 
         QPushButton#buyButton,
@@ -1124,9 +1124,11 @@ class HeaderToolbar(QToolBar):
         QPushButton#alertActionButton {{
             background-color: transparent;
             border: 1px solid transparent;
-            padding: 2px 7px;
+            padding: 2px 5px;
             text-align: left;
             color: {_TEXT_SOFT};
+            font-size: 10px;
+            font-weight: 400;
         }}
 
         QPushButton#buyButton {{
@@ -1206,11 +1208,10 @@ class HeaderToolbar(QToolBar):
             color: {_TEXT_MUTED};
             border: 1px solid transparent;
             border-radius: 2px;
-            padding: 2px 8px;
+            padding: 2px 6px;
             font-family: {_SANS};
             font-size: 10px;
-            font-weight: 800;
-            letter-spacing: 0.25px;
+            font-weight: 400;
         }}
         QPushButton#tradingActionButton:hover {{
             background-color: rgba(0, 212, 255, 0.09);
@@ -1242,28 +1243,26 @@ class HeaderToolbar(QToolBar):
             color: {_CYAN};
             border: 1px solid rgba(0, 212, 255, 0.16);
             border-radius: 2px;
-            padding: 2px 7px;
+            padding: 2px 6px;
             font-family: {_SANS};
             font-size: 9px;
-            font-weight: 800;
-            letter-spacing: 0.45px;
+            font-weight: 400;
         }}
         QLabel#balanceLabel {{
             background-color: rgba(0, 212, 168, 0.075);
             color: {_BULL};
             border: 1px solid rgba(0, 212, 168, 0.16);
             border-radius: 2px;
-            padding: 2px 8px;
+            padding: 2px 7px;
             font-family: {_NUM};
             font-size: 10px;
-            font-weight: 800;
-            letter-spacing: 0.15px;
+            font-weight: 400;
         }}
         QLabel#separatorDot {{
             background: transparent;
             color: {_TEXT_FAINT};
             font-size: 8px;
-            font-weight: 800;
+            font-weight: 400;
         }}
 
         QToolTip {{
