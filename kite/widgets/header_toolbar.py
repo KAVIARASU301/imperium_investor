@@ -439,7 +439,7 @@ class HeaderToolbar(QToolBar):
         self._show_account_balance = True
         self._preferred_username = ""
         self._show_ticker_board = True
-        self._ticker_symbols: List[str] = ["NIFTY", "BANKNIFTY", "INDIAVIX"]
+        self._ticker_symbols: List[str] = ["NIFTY", "SENSEX"]
         self._ticker_alias_map: Dict[str, str] = {
             "NIFTY": "NSE:NIFTY 50",
             "NIFTY50": "NSE:NIFTY 50",
@@ -772,11 +772,11 @@ class HeaderToolbar(QToolBar):
         self._show_account_balance = bool(theme.get("show_account_balance", True))
         self._preferred_username = str(theme.get("preferred_username", "")).strip()
         self._show_ticker_board = bool(theme.get("show_ticker_board", True))
-        raw_tickers = theme.get("ticker_board_symbols", ["NIFTY", "BANKNIFTY", "INDIAVIX"])
+        raw_tickers = theme.get("ticker_board_symbols", ["NIFTY", "SENSEX"])
         if isinstance(raw_tickers, str):
             raw_tickers = [raw_tickers]
         cleaned = [str(sym).strip().upper() for sym in raw_tickers if str(sym).strip()]
-        new_symbols = cleaned[:5] if cleaned else ["NIFTY", "BANKNIFTY", "INDIAVIX"]
+        new_symbols = cleaned[:5] if cleaned else ["NIFTY", "SENSEX"]
 
         # Only rebuild pills when symbol list actually changes (avoids layout thrash)
         if new_symbols != self._ticker_symbols:

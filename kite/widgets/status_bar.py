@@ -40,7 +40,7 @@ class StatusBar(QWidget):
 
         # Uppercase for a stronger, institutional feel
         self.market_label = QLabel("MARKET: --")
-        self.api_label = QLabel("API: --")
+        self.api_label = QLabel('API <span style="color:#7b8496;">●</span>')
         self.open_pnl_label = QLabel("OPEN P&L: --")
         self.exposure_label = QLabel("EXPOSURE: --")
 
@@ -147,7 +147,7 @@ class StatusBar(QWidget):
             "ERROR": "#ff4d6a",
         }
         dot_color = dot_color_map.get(status, "#7b8496")
-        self.api_label.setText(f'API: {status} <span style="color:{dot_color};">●</span>')
+        self.api_label.setText(f'API <span style="color:{dot_color};">●</span>')
 
     def set_message(self, text: str) -> None:
         # Dummy method to prevent crashes since we removed message_label

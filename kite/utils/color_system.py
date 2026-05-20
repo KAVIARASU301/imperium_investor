@@ -21,7 +21,7 @@ DEFAULT_COLOR_THEME: Dict[str, Any] = {
     "preferred_username": "",
     "dual_chart_mode": True,
     "show_ticker_board": True,
-    "ticker_board_symbols": ["NIFTY", "BANKNIFTY", "INDIAVIX"],
+    "ticker_board_symbols": ["NIFTY", "SENSEX"],
     "candles": {
         "up": "#00C896",
         "down": "#E84060",
