@@ -1046,7 +1046,7 @@ class TradingTable(QTableWidget):
         if ltp_item:
             ltp_item.setText(ltp_text)
             ltp_item.setForeground(QColor(_C.T0))
-            ltp_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            ltp_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
             ltp_item.setFont(value_font)
 
         # ── Volume ──
@@ -1055,7 +1055,7 @@ class TradingTable(QTableWidget):
         if vol_item:
             vol_item.setText(vol_text)
             vol_item.setForeground(QColor(_C.T2))
-            vol_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            vol_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
             vol_item.setToolTip(f"Volume: {vol:,}")
             vol_item.setFont(value_font)
 
@@ -1066,7 +1066,7 @@ class TradingTable(QTableWidget):
         if chg_item:
             chg_item.setText(chg_text)
             chg_item.setForeground(QColor(fg))
-            chg_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            chg_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
             chg_item.setFont(strong_value_font)
             if bg_rgba:
                 r, g, b, a = self._parse_rgba(bg_rgba)

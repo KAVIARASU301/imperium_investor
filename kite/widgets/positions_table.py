@@ -431,8 +431,8 @@ class PositionsTable(QWidget):
         cells = [
             (COL_SYMBOL, symbol_text, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, _SYMBOL_TEXT, symbol_font),
             (COL_FLAG, "", Qt.AlignmentFlag.AlignCenter, _T2, symbol_font),
-            (COL_QTY, f"{qty_sign}{abs(pos.quantity)}", Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, profit_color if is_long else loss_color, number_font),
-            (COL_OPEN_PNL, f"{entry_change_pct:+.2f}%", Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, change_color, strong_number_font),
+            (COL_QTY, f"{qty_sign}{abs(pos.quantity)}", Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, profit_color if is_long else loss_color, number_font),
+            (COL_OPEN_PNL, f"{entry_change_pct:+.2f}%", Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, change_color, strong_number_font),
         ]
 
         for col, text, align, color, font in cells:

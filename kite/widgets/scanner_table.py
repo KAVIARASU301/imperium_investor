@@ -163,7 +163,7 @@ class VolumeStrengthDelegate(QStyledItemDelegate):
 
         painter.setPen(text_color)
         text_rect = rect.adjusted(used_bar_width + 7, 0, 0, 0)
-        painter.drawText(text_rect, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, volume_text)
+        painter.drawText(text_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, volume_text)
         painter.restore()
 
     def sizeHint(self, option, index):
@@ -1464,9 +1464,9 @@ class ChartinkScannerTable(QWidget):
 
         # Set text alignments and modern UI number typography.
         symbol_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        price_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        volume_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        change_pct_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        price_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        volume_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        change_pct_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 
         # Keep symbols on a dedicated compact font path; use modern UI numbers for price/volume/change.
         symbol_font = _symbol_font(10, QFont.Weight.Normal)
