@@ -294,7 +294,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.positions_title = QLabel("Positions")
         self.positions_title.setObjectName("positionsPanelTitle")
         self.positions_title.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        self.positions_title.setContentsMargins(8, 4, 8, 4)
+        self.positions_title.setContentsMargins(8, 2, 8, 2)
         positions_panel_layout.addWidget(self.positions_title)
         positions_panel_layout.addWidget(self.positions_table, 1)
         self.chartink_scanner.setObjectName("scannerPanel")
@@ -3371,12 +3371,14 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             #positionsPanelTitle {
                 background-color: #121826;
                 color: #d7deef;
-                font-size: 11px;
+                font-size: 10px;
                 font-weight: 600;
-                letter-spacing: 0.4px;
+                letter-spacing: 0.35px;
                 border: none;
+                border-top: 1px solid #2a3345;
+                border-right: 1px solid #2a3345;
                 border-bottom: 1px solid #2a3345;
-                padding: 4px 8px;
+                padding: 2px 8px;
             }
 
             #primaryChartPanel, #secondaryChartPanel {
