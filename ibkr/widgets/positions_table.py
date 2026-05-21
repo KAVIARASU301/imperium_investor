@@ -71,6 +71,7 @@ class PositionsTable(QWidget):
 
         # Connect table signals
         self.table.cellClicked.connect(self._on_cell_clicked)
+        self.table.currentCellChanged.connect(self._on_current_cell_changed)
         self.table.customContextMenuRequested.connect(self._show_context_menu)
 
     def _configure_table(self):
@@ -306,6 +307,20 @@ class PositionsTable(QWidget):
                 self.symbol_selected.emit(symbol)
             except Exception as e:
                 logger.error(f"Error handling cell click: {e}")
+
+
+    def _on_current_cell_changed(self, current_row: int, current_column: int, previous_row: int, previous_column: int):
+        """Keep chart symbol in sync with keyboard-driven row navigation."""
+        if current_row < 0 or current_row >= self.table.rowCount():
+            return
+
+        if current_column == 4:
+            return
+
+        symbol_item = self.table.item(current_row, 0)
+        symbol = symbol_item.text().strip() if symbol_item else ""
+        if symbol:
+            self.symbol_selected.emit(symbol)
 
     def _show_context_menu(self, position):
         """Show simple context menu"""
