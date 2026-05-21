@@ -5,7 +5,7 @@ import re
 from typing import Optional
 
 from PySide6.QtCore import QObject, Qt
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QWidget
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 # Import our new professional popups
 from kite.widgets.notifications import ToastNotification
@@ -16,35 +16,66 @@ logger = logging.getLogger(__name__)
 
 class StatusBar(QWidget):
     """
-    Ultra-compact, production-ready bottom ribbon.
-    Sharp edges, no rounded corners, strictly for core system vitals.
+    Production-grade bottom status ribbon.
+
+    Purpose:
+    - Visually closes the application at the bottom edge.
+    - Keeps only persistent system vitals here.
+    - Routes temporary messages to toast notifications.
     """
+
+    HEIGHT = 26
+    EDGE_HEIGHT = 1
+    CONTENT_HEIGHT = HEIGHT - EDGE_HEIGHT
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("bottomStatusBar")
-        # Keep compact but slightly roomier for polished alignment.
-        self.setFixedHeight(22)
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setFixedHeight(self.HEIGHT)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
         self._layout: Optional[QHBoxLayout] = None
         self._status_alignment = "left"
         self._metrics_on_right = True
+
         self._build_ui()
         self._apply_styles()
 
     def _build_ui(self) -> None:
-        layout = QHBoxLayout(self)
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
+
+        self.top_edge = QFrame(self)
+        self.top_edge.setObjectName("statusTopEdge")
+        self.top_edge.setFixedHeight(self.EDGE_HEIGHT)
+        self.top_edge.setFrameShape(QFrame.NoFrame)
+
+        self.content = QWidget(self)
+        self.content.setObjectName("statusContent")
+        self.content.setAttribute(Qt.WA_StyledBackground, True)
+        self.content.setFixedHeight(self.CONTENT_HEIGHT)
+        self.content.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+        layout = QHBoxLayout(self.content)
         self._layout = layout
-        # 0 vertical margin makes it sit flush against the bottom edge
-        layout.setContentsMargins(10, 1, 10, 1)
-        layout.setSpacing(14)
+        layout.setContentsMargins(12, 0, 12, 1)
+        layout.setSpacing(12)
 
-        # Uppercase for a stronger, institutional feel
-        self.market_label = QLabel("MARKET: --")
-        self.api_label = QLabel('API <span style="color:#7b8496;">●</span>')
-        self.open_pnl_label = QLabel("OPEN P&L: --")
-        self.exposure_label = QLabel("EXPOSURE: --")
+        root_layout.addWidget(self.top_edge)
+        root_layout.addWidget(self.content)
 
-        # Add indicators to layout
+        self.market_label = QLabel("MARKET: --", self.content)
+        self.api_label = QLabel('API <span style="color:#6f7a8c;">●</span>', self.content)
+        self.open_pnl_label = QLabel("OPEN P&L: --", self.content)
+        self.exposure_label = QLabel("EXPOSURE: --", self.content)
+
+        self.group_separator = QFrame(self.content)
+        self.group_separator.setObjectName("statusGroupSeparator")
+        self.group_separator.setFixedSize(1, 13)
+        self.group_separator.setFrameShape(QFrame.NoFrame)
+
         for label in (
             self.market_label,
             self.api_label,
@@ -52,9 +83,13 @@ class StatusBar(QWidget):
             self.exposure_label,
         ):
             label.setObjectName("statusLabel")
+            label.setTextFormat(Qt.RichText)
             label.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
-        self._rebuild_layout()
+            label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+            label.setMinimumHeight(self.CONTENT_HEIGHT - 2)
+            label.setContentsMargins(0, 0, 0, 0)
 
+        self._rebuild_layout()
 
     def set_elements_alignment(self, alignment: str) -> None:
         desired = "right" if str(alignment).lower() == "right" else "left"
@@ -71,88 +106,124 @@ class StatusBar(QWidget):
         self._metrics_on_right = bool(on_right)
         self._rebuild_layout()
 
-    def _rebuild_layout(self) -> None:
+    def _clear_layout(self) -> None:
         if not self._layout:
             return
         while self._layout.count():
-            self._layout.takeAt(0)
+            item = self._layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(self.content)
+
+    def _add_status_widgets(self, widgets: tuple[QWidget, ...]) -> None:
+        if not self._layout:
+            return
+        for widget in widgets:
+            self._layout.addWidget(widget)
+
+    def _rebuild_layout(self) -> None:
+        if not self._layout:
+            return
+
+        self._clear_layout()
 
         base_labels = (self.market_label, self.api_label)
         metric_labels = (self.open_pnl_label, self.exposure_label)
 
+        if self._metrics_on_right:
+            left_group = base_labels
+            right_group = metric_labels
+        else:
+            left_group = metric_labels
+            right_group = base_labels
+
         if self._status_alignment == "right":
             self._layout.addStretch(1)
+            self._add_status_widgets((*left_group, self.group_separator, *right_group))
+            return
 
-        if self._metrics_on_right:
-            for label in base_labels:
-                self._layout.addWidget(label)
-            self._layout.addStretch(1)
-            for label in metric_labels:
-                self._layout.addWidget(label)
-            if self._status_alignment == "right":
-                self._layout.addSpacing(0)
-        else:
-            for label in metric_labels:
-                self._layout.addWidget(label)
-            for label in base_labels:
-                self._layout.addWidget(label)
-            if self._status_alignment == "left":
-                self._layout.addStretch(1)
+        self._add_status_widgets(left_group)
+        self._layout.addStretch(1)
+        self._layout.addWidget(self.group_separator)
+        self._add_status_widgets(right_group)
 
     def set_positions_metrics(self, has_data: bool, open_pnl: float = 0.0, exposure: float = 0.0) -> None:
         if not has_data:
             self.open_pnl_label.setText("OPEN P&L: --")
             self.exposure_label.setText("EXPOSURE: --")
             return
-        pnl_color = "#00d4a8" if open_pnl >= 0 else "#ff4d6a"
+
+        pnl_color = "#48c78e" if open_pnl >= 0 else "#e65a6a"
+        sign = "+" if open_pnl >= 0 else ""
         self.open_pnl_label.setText(
-            f'OPEN P&L: <span style="color:{pnl_color};">{"+" if open_pnl >= 0 else ""}{open_pnl:,.0f}</span>'
+            f'OPEN P&L: <span style="color:{pnl_color}; font-weight:700;">{sign}{open_pnl:,.0f}</span>'
         )
-        self.exposure_label.setText(f"EXPOSURE: {exposure:,.0f}")
+        self.exposure_label.setText(
+            f'EXPOSURE: <span style="color:#aab4c3; font-weight:650;">{exposure:,.0f}</span>'
+        )
 
     def _apply_styles(self) -> None:
         self.setStyleSheet(
             """
-            #bottomStatusBar {
-                background-color: #101620;
-                border-top: 1px solid #2b3545;
-                border-bottom: 1px solid #0b0f16;
-                border-left: none;
-                border-right: none;
-                border-radius: 0px; /* Force sharp edges */
+            QWidget#bottomStatusBar {
+                background-color: #080d14;
+                border: none;
+                border-radius: 0px;
             }
-            #statusLabel {
-                color: #7b8496; /* Subdued gray text so it doesn't distract */
-                font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+
+            QFrame#statusTopEdge {
+                background-color: #2a3442;
+                border: none;
+            }
+
+            QWidget#statusContent {
+                background-color: #0c121b;
+                border: none;
+                border-bottom: 1px solid #05080d;
+                border-radius: 0px;
+            }
+
+            QFrame#statusGroupSeparator {
+                background-color: #263141;
+                border: none;
+            }
+
+            QLabel#statusLabel {
+                background: transparent;
+                border: none;
+                color: #7e899a;
+                font-family: "Inter", "Segoe UI", "Roboto", "Noto Sans", sans-serif;
                 font-size: 10px;
                 font-weight: 600;
-                letter-spacing: 0.35px; /* Slight tracking for readability */
+                padding: 0px;
+                margin: 0px;
             }
-        """
+            """
         )
 
     def set_market_status(self, text: str) -> None:
         status = (text or "--").upper()
         market_color_map = {
-            "OPEN": "#00d4a8",
-            "CLOSED": "#3a4d60",
+            "OPEN": "#48c78e",
+            "CLOSED": "#5f6b7a",
         }
-        color = market_color_map.get(status, "#7b8496")
-        self.market_label.setText(f'MARKET: <span style="color:{color};">{status}</span>')
+        color = market_color_map.get(status, "#7e899a")
+        self.market_label.setText(f'MARKET: <span style="color:{color}; font-weight:700;">{status}</span>')
 
     def set_api_status(self, text: str) -> None:
         status = (text or "--").upper()
         dot_color_map = {
-            "CONNECTED": "#00d4a8",
-            "ERROR": "#ff4d6a",
+            "CONNECTED": "#48c78e",
+            "ERROR": "#e65a6a",
+            "DISCONNECTED": "#d4a84b",
         }
-        dot_color = dot_color_map.get(status, "#7b8496")
-        self.api_label.setText(f'API <span style="color:{dot_color};">●</span>')
+        dot_color = dot_color_map.get(status, "#6f7a8c")
+        self.api_label.setText(f'API <span style="color:{dot_color}; font-size:11px;">●</span>')
 
     def set_message(self, text: str) -> None:
-        # Dummy method to prevent crashes since we removed message_label
+        # Status bar is reserved for persistent system vitals.
+        # Temporary messages should go through GlobalStatusManager toasts.
         pass
-
 
 class GlobalStatusManager(QObject):
     """
