@@ -3169,12 +3169,16 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         table.setCurrentCell(next_row, 0)
 
         try:
-            symbol_item = table.item(next_row, 0)
-            if symbol_item:
-                symbol = symbol_item.text()
-                if symbol and symbol != 'N/A':
-                    self.positions_table.symbol_selected.emit(symbol)
-                    logger.debug(f"Positions navigation: Selected {symbol}")
+            symbol = None
+            if hasattr(self.positions_table, '_symbol_at_row'):
+                symbol = self.positions_table._symbol_at_row(next_row)
+            if not symbol:
+                symbol_item = table.item(next_row, 0)
+                symbol = symbol_item.text().strip() if symbol_item else None
+
+            if symbol and symbol != 'N/A':
+                self.positions_table.symbol_selected.emit(symbol)
+                logger.debug(f"Positions navigation: Selected {symbol}")
         except Exception as e:
             logger.warning(f"Error navigating position symbols: {e}")
 
