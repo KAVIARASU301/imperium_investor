@@ -391,9 +391,6 @@ class _RenameDialog(QDialog):
         self._drag_pos = None
 
     def _apply_dialog_style(self):
-        show_vertical_lines = bool(self._color_theme.get("show_table_vertical_lines", True))
-        gridline_color = "rgba(116,131,150,0.26)" if show_vertical_lines else "transparent"
-
         self.setStyleSheet(f"""
             QFrame#nameDialogContainer {{
                 background: {_C.BG1};
@@ -584,9 +581,6 @@ class _AddWatchlistDialog(QDialog):
         self._drag_pos = None
 
     def _apply_dialog_style(self):
-        show_vertical_lines = bool(self._color_theme.get("show_table_vertical_lines", False))
-        gridline_color = "rgba(116,131,150,0.26)" if show_vertical_lines else "transparent"
-
         self.setStyleSheet(f"""
             QFrame#nameDialogContainer {{
                 background: {_C.BG1};
