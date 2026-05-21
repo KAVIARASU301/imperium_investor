@@ -18,20 +18,34 @@ class StatusBar(QWidget):
     """
     Production-grade bottom status ribbon.
 
-    Purpose:
-    - Visually closes the application at the bottom edge.
-    - Keeps only persistent system vitals here.
-    - Routes temporary messages to toast notifications.
+    Design intent:
+    - Acts as a hard visual end-cap for the application.
+    - Keeps only persistent system vitals in the bar.
+    - Leaves transient text/messages to toast notifications.
     """
 
-    HEIGHT = 26
+    HEIGHT = 27
     EDGE_HEIGHT = 1
     CONTENT_HEIGHT = HEIGHT - EDGE_HEIGHT
+
+    COLOR_BG_OUTER = "#070b11"
+    COLOR_BG_CONTENT = "#0b111a"
+    COLOR_TOP_EDGE = "#2c3747"
+    COLOR_BOTTOM_EDGE = "#04070b"
+    COLOR_SEPARATOR = "#263141"
+    COLOR_TEXT_MUTED = "#7f8a9a"
+    COLOR_TEXT_STRONG = "#aeb8c7"
+    COLOR_GREEN = "#46c58f"
+    COLOR_RED = "#e65a6a"
+    COLOR_AMBER = "#d4a84b"
+    COLOR_CLOSED = "#5f6b7a"
+    COLOR_BLUE = "#58a6ff"
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("bottomStatusBar")
         self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setFocusPolicy(Qt.NoFocus)
         self.setFixedHeight(self.HEIGHT)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
@@ -51,6 +65,7 @@ class StatusBar(QWidget):
         self.top_edge.setObjectName("statusTopEdge")
         self.top_edge.setFixedHeight(self.EDGE_HEIGHT)
         self.top_edge.setFrameShape(QFrame.NoFrame)
+        self.top_edge.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         self.content = QWidget(self)
         self.content.setObjectName("statusContent")
@@ -75,36 +90,64 @@ class StatusBar(QWidget):
         self.group_separator.setObjectName("statusGroupSeparator")
         self.group_separator.setFixedSize(1, 13)
         self.group_separator.setFrameShape(QFrame.NoFrame)
+        self.group_separator.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
 
-        for label in (
-            self.market_label,
-            self.api_label,
-            self.open_pnl_label,
-            self.exposure_label,
-        ):
+        min_widths = {
+            self.market_label: 92,
+            self.api_label: 56,
+            self.open_pnl_label: 132,
+            self.exposure_label: 132,
+        }
+
+        for label in min_widths:
             label.setObjectName("statusLabel")
             label.setTextFormat(Qt.RichText)
             label.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
-            label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+            label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
             label.setMinimumHeight(self.CONTENT_HEIGHT - 2)
+            label.setMinimumWidth(min_widths[label])
             label.setContentsMargins(0, 0, 0, 0)
+            label.setTextInteractionFlags(Qt.NoTextInteraction)
 
         self._rebuild_layout()
 
     def set_elements_alignment(self, alignment: str) -> None:
         desired = "right" if str(alignment).lower() == "right" else "left"
-        if not self._layout:
-            self._status_alignment = desired
-            return
-        if desired == self._status_alignment:
-            self._rebuild_layout()
+        if desired == self._status_alignment and self._layout:
             return
         self._status_alignment = desired
         self._rebuild_layout()
 
     def set_metrics_alignment(self, on_right: bool) -> None:
-        self._metrics_on_right = bool(on_right)
+        desired = bool(on_right)
+        if desired == self._metrics_on_right and self._layout:
+            return
+        self._metrics_on_right = desired
         self._rebuild_layout()
+
+    @staticmethod
+    def _set_label_text(label: QLabel, text: str) -> None:
+        """Avoid unnecessary QLabel repaints when repeated status events arrive."""
+        if label.text() != text:
+            label.setText(text)
+
+    @staticmethod
+    def _format_number(value: float) -> str:
+        try:
+            return f"{float(value):,.0f}"
+        except (TypeError, ValueError):
+            return "--"
+
+    @staticmethod
+    def _is_non_negative(value: float) -> bool:
+        try:
+            return float(value or 0.0) >= 0
+        except (TypeError, ValueError):
+            return True
+
+    @staticmethod
+    def _normalize_status(text: str) -> str:
+        return str(text or "--").strip().upper() or "--"
 
     def _clear_layout(self) -> None:
         if not self._layout:
@@ -114,116 +157,142 @@ class StatusBar(QWidget):
             widget = item.widget()
             if widget is not None:
                 widget.setParent(self.content)
+            del item
 
     def _add_status_widgets(self, widgets: tuple[QWidget, ...]) -> None:
         if not self._layout:
             return
         for widget in widgets:
-            self._layout.addWidget(widget)
+            self._layout.addWidget(widget, 0, Qt.AlignVCenter)
 
     def _rebuild_layout(self) -> None:
         if not self._layout:
             return
 
-        self._clear_layout()
+        self.content.setUpdatesEnabled(False)
+        try:
+            self._clear_layout()
 
-        base_labels = (self.market_label, self.api_label)
-        metric_labels = (self.open_pnl_label, self.exposure_label)
+            base_labels = (self.market_label, self.api_label)
+            metric_labels = (self.open_pnl_label, self.exposure_label)
 
-        if self._metrics_on_right:
-            left_group = base_labels
-            right_group = metric_labels
-        else:
-            left_group = metric_labels
-            right_group = base_labels
+            if self._metrics_on_right:
+                left_group = base_labels
+                right_group = metric_labels
+            else:
+                left_group = metric_labels
+                right_group = base_labels
 
-        if self._status_alignment == "right":
+            if self._status_alignment == "right":
+                self._layout.addStretch(1)
+                self._add_status_widgets((*left_group, self.group_separator, *right_group))
+                return
+
+            self._add_status_widgets(left_group)
             self._layout.addStretch(1)
-            self._add_status_widgets((*left_group, self.group_separator, *right_group))
-            return
-
-        self._add_status_widgets(left_group)
-        self._layout.addStretch(1)
-        self._layout.addWidget(self.group_separator)
-        self._add_status_widgets(right_group)
+            self._layout.addWidget(self.group_separator, 0, Qt.AlignVCenter)
+            self._add_status_widgets(right_group)
+        finally:
+            self.content.setUpdatesEnabled(True)
 
     def set_positions_metrics(self, has_data: bool, open_pnl: float = 0.0, exposure: float = 0.0) -> None:
         if not has_data:
-            self.open_pnl_label.setText("OPEN P&L: --")
-            self.exposure_label.setText("EXPOSURE: --")
+            self._set_label_text(self.open_pnl_label, "OPEN P&L: --")
+            self._set_label_text(self.exposure_label, "EXPOSURE: --")
             return
 
-        pnl_color = "#48c78e" if open_pnl >= 0 else "#e65a6a"
-        sign = "+" if open_pnl >= 0 else ""
-        self.open_pnl_label.setText(
-            f'OPEN P&L: <span style="color:{pnl_color}; font-weight:700;">{sign}{open_pnl:,.0f}</span>'
+        pnl_value = self._format_number(open_pnl)
+        exposure_value = self._format_number(exposure)
+        pnl_positive = self._is_non_negative(open_pnl)
+        pnl_color = self.COLOR_GREEN if pnl_positive else self.COLOR_RED
+        sign = "+" if pnl_positive else ""
+
+        self._set_label_text(
+            self.open_pnl_label,
+            f'OPEN P&L: <span style="color:{pnl_color}; font-weight:700;">{sign}{pnl_value}</span>',
         )
-        self.exposure_label.setText(
-            f'EXPOSURE: <span style="color:#aab4c3; font-weight:650;">{exposure:,.0f}</span>'
+        self._set_label_text(
+            self.exposure_label,
+            f'EXPOSURE: <span style="color:{self.COLOR_TEXT_STRONG}; font-weight:650;">{exposure_value}</span>',
         )
 
     def _apply_styles(self) -> None:
         self.setStyleSheet(
-            """
-            QWidget#bottomStatusBar {
-                background-color: #080d14;
+            f"""
+            QWidget#bottomStatusBar {{
+                background-color: {self.COLOR_BG_OUTER};
                 border: none;
                 border-radius: 0px;
-            }
+            }}
 
-            QFrame#statusTopEdge {
-                background-color: #2a3442;
+            QFrame#statusTopEdge {{
+                background-color: {self.COLOR_TOP_EDGE};
                 border: none;
-            }
+            }}
 
-            QWidget#statusContent {
-                background-color: #0c121b;
+            QWidget#statusContent {{
+                background-color: {self.COLOR_BG_CONTENT};
                 border: none;
-                border-bottom: 1px solid #05080d;
+                border-bottom: 1px solid {self.COLOR_BOTTOM_EDGE};
                 border-radius: 0px;
-            }
+            }}
 
-            QFrame#statusGroupSeparator {
-                background-color: #263141;
+            QFrame#statusGroupSeparator {{
+                background-color: {self.COLOR_SEPARATOR};
                 border: none;
-            }
+            }}
 
-            QLabel#statusLabel {
+            QLabel#statusLabel {{
                 background: transparent;
                 border: none;
-                color: #7e899a;
+                color: {self.COLOR_TEXT_MUTED};
                 font-family: "Inter", "Segoe UI", "Roboto", "Noto Sans", sans-serif;
                 font-size: 10px;
                 font-weight: 600;
                 padding: 0px;
                 margin: 0px;
-            }
+            }}
             """
         )
 
     def set_market_status(self, text: str) -> None:
-        status = (text or "--").upper()
+        status = self._normalize_status(text)
         market_color_map = {
-            "OPEN": "#48c78e",
-            "CLOSED": "#5f6b7a",
+            "OPEN": self.COLOR_GREEN,
+            "LIVE": self.COLOR_GREEN,
+            "CLOSED": self.COLOR_CLOSED,
+            "PREOPEN": self.COLOR_AMBER,
+            "PRE-OPEN": self.COLOR_AMBER,
+            "HALTED": self.COLOR_RED,
         }
-        color = market_color_map.get(status, "#7e899a")
-        self.market_label.setText(f'MARKET: <span style="color:{color}; font-weight:700;">{status}</span>')
+        color = market_color_map.get(status, self.COLOR_TEXT_MUTED)
+        self._set_label_text(
+            self.market_label,
+            f'MARKET: <span style="color:{color}; font-weight:700;">{status}</span>',
+        )
 
     def set_api_status(self, text: str) -> None:
-        status = (text or "--").upper()
+        status = self._normalize_status(text)
         dot_color_map = {
-            "CONNECTED": "#48c78e",
-            "ERROR": "#e65a6a",
-            "DISCONNECTED": "#d4a84b",
+            "CONNECTED": self.COLOR_GREEN,
+            "ONLINE": self.COLOR_GREEN,
+            "ERROR": self.COLOR_RED,
+            "FAILED": self.COLOR_RED,
+            "DISCONNECTED": self.COLOR_AMBER,
+            "RECONNECTING": self.COLOR_AMBER,
+            "CONNECTING": self.COLOR_BLUE,
         }
         dot_color = dot_color_map.get(status, "#6f7a8c")
-        self.api_label.setText(f'API <span style="color:{dot_color}; font-size:11px;">●</span>')
+        self._set_label_text(
+            self.api_label,
+            f'API <span style="color:{dot_color}; font-size:11px;">●</span>',
+        )
 
     def set_message(self, text: str) -> None:
         # Status bar is reserved for persistent system vitals.
         # Temporary messages should go through GlobalStatusManager toasts.
         pass
+
 
 class GlobalStatusManager(QObject):
     """
@@ -262,21 +331,25 @@ class GlobalStatusManager(QObject):
         """
         from kite.utils.sounds import play_alert, play_entry_exit, play_error, play_order_placed
 
-        if event == "submitted":
+        normalized_event = str(event or "").strip().lower()
+        symbol = str(symbol or "").strip().upper()
+        detail = str(detail or "").strip()
+
+        if normalized_event == "submitted":
             play_order_placed()
             return
-        if event == "filled":
+        if normalized_event == "filled":
             self._post("FILLED", f"{symbol} {detail}".strip(), "success", 3000, sub_kind="filled")
             play_entry_exit()
             return
-        if event == "rejected":
+        if normalized_event == "rejected":
             self._post("REJECTED", f"{symbol} — {detail}".strip(" —"), "error", 4000, sub_kind="rejected")
             play_error()
             return
-        if event == "cancelled":
-            self._post("CANCELLED", symbol, "warn", 3000)
+        if normalized_event in {"cancelled", "canceled"}:
+            self._post("CANCELED", symbol or "UNKNOWN", "warn", 3000)
             return
-        if event == "partial":
+        if normalized_event == "partial":
             self._post("PARTIAL FILL", f"{symbol} {detail}".strip(), "warn", 6000, sub_kind="partial_fill")
             play_alert()
             return
@@ -301,6 +374,23 @@ class GlobalStatusManager(QObject):
         msg = f"{symbol}" if symbol else "UNKNOWN"
         self._post("CANCELED", msg, "warn", 3000)
 
+    @staticmethod
+    def _safe_int(value) -> int:
+        try:
+            return int(float(value or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    @staticmethod
+    def _format_order_price(value) -> str:
+        if value in (None, "", "MKT"):
+            return "MKT"
+        try:
+            number = float(value)
+            return f"{number:.2f}" if number % 1 else f"{number:.0f}"
+        except (TypeError, ValueError):
+            return str(value)
+
     def show_order_update(self, order_dict: dict) -> None:
         """
         Gatekeeper for order notifications.
@@ -308,10 +398,9 @@ class GlobalStatusManager(QObject):
         """
         raw_status = str(order_dict.get("status", "")).upper().strip()
         symbol = str(order_dict.get("tradingsymbol") or "UNKNOWN").upper()
-        qty = int(order_dict.get("filled_quantity") or order_dict.get("quantity") or 0)
-        price = order_dict.get("average_price") or order_dict.get("price") or "MKT"
+        qty = self._safe_int(order_dict.get("filled_quantity") or order_dict.get("quantity") or 0)
+        price = self._format_order_price(order_dict.get("average_price") or order_dict.get("price") or "MKT")
         side = str(order_dict.get("transaction_type") or "BUY").upper()
-        order_type = str(order_dict.get("order_type") or "MKT").upper()
 
         if raw_status in {"ROUTED", "PUT ORDER REQ RECEIVED"}:
             # Keep routed acknowledgements silent visually but provide subtle
@@ -374,7 +463,7 @@ class GlobalStatusManager(QObject):
 
     @staticmethod
     def _is_order_lifecycle_text(message: str) -> bool:
-        text = (message or "").upper()
+        text = str(message or "").upper()
         order_tokens = (
             "ORDER", "ROUTED", "FILLED", "REJECTED", "CANCELED", "CANCELLED",
             "SUBMITTING", "ENTRY", "EXIT", "QTY", "MKT", "LMT"
@@ -392,7 +481,7 @@ class GlobalStatusManager(QObject):
 
     def show_api_status(self, status_text: str) -> None:
         self.set_api_indicator(status_text)
-        kind = "success" if status_text.upper() == "CONNECTED" else "warn"
+        kind = "success" if str(status_text or "").upper() == "CONNECTED" else "warn"
         self._post("API Status", status_text, kind, 4000)
 
     def set_market_indicator(self, status_text: str) -> None:
@@ -412,7 +501,7 @@ class GlobalStatusManager(QObject):
 
     def show_notification(self, message: str, level: str = "info", timeout: int = 4000) -> None:
         """Show an explicit component notification without lifecycle text filtering."""
-        normalized_level = (level or "info").lower()
+        normalized_level = str(level or "info").lower()
         kind_map = {
             "error": "error",
             "danger": "error",
@@ -423,7 +512,7 @@ class GlobalStatusManager(QObject):
             "action": "info",
         }
         kind = kind_map.get(normalized_level, "info")
-        display_message = self._translate_message(message) if kind == "error" else (message or "")
+        display_message = self._translate_message(message) if kind == "error" else str(message or "")
 
         text_upper = display_message.upper()
         is_network_notice = any(token in text_upper for token in ("NETWORK", "OFFLINE", "ONLINE", "RECONNECT"))
@@ -484,7 +573,7 @@ class GlobalStatusManager(QObject):
             "success": "success",
             "action": "info",
         }
-        kind = level_map.get(level.lower(), "info")
+        kind = level_map.get(str(level or "info").lower(), "info")
         if self._is_order_lifecycle_text(message):
             return
         if kind == "error":
@@ -498,6 +587,7 @@ class GlobalStatusManager(QObject):
         """Detect broker/API notices so toasts use API-specific titles."""
         api_tokens = (
             " API",
+            "API ",
             "BROKER",
             "RATE LIMIT",
             "AUTH",
@@ -536,8 +626,8 @@ class GlobalStatusManager(QObject):
             adaptive_ttl = self._resolve_toast_ttl(message, kind, ttl)
             border_color = self._resolve_border_color(sub_kind)
             toast = ToastNotification(
-                title,
-                message,
+                str(title or "Notification"),
+                str(message or ""),
                 kind,
                 adaptive_ttl,
                 border_color=border_color,
@@ -548,7 +638,7 @@ class GlobalStatusManager(QObject):
 
     @staticmethod
     def _resolve_toast_ttl(message: str, kind: str, fallback_ttl: int) -> int:
-        text = (message or "").strip()
+        text = str(message or "").strip()
         msg_len = len(text)
 
         if kind == "error" and msg_len > 150:
@@ -562,7 +652,7 @@ class GlobalStatusManager(QObject):
     @staticmethod
     def _translate_message(message: str) -> str:
         """Translate noisy broker/API failures into compact trader-facing alerts."""
-        cleaned = re.sub(r"\s+", " ", (message or "").strip())
+        cleaned = re.sub(r"\s+", " ", str(message or "").strip())
         if not cleaned:
             return "Unknown error"
 
