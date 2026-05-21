@@ -1282,11 +1282,16 @@ class FixedTradingChart {
 
 
         let lastRight = this.chartArea.x - 9999;
+        let todayMarker = null;
 
         for (const pt of candidates) {
             const x = this._timeToX(pt.time);
             if (x < this.chartArea.x + 20 || x > this.chartArea.x + this.chartArea.width - 20) continue;
             const w = ctx.measureText(pt.label).width + 8;
+            if (pt.isToday) {
+                todayMarker = { ...pt, x, w };
+                continue;
+            }
             if (x - w / 2 < lastRight + 6) continue;
 
             ctx.strokeStyle = 'rgba(40,60,90,0.5)';
@@ -1298,6 +1303,15 @@ class FixedTradingChart {
 
             ctx.fillText(pt.label, x, timeAxisMidY);
             lastRight = x + w / 2;
+        }
+
+        if (todayMarker) {
+            const x = Math.max(this.chartArea.x + 20, Math.min(todayMarker.x, this.chartArea.x + this.chartArea.width - 20));
+            ctx.fillStyle = 'rgba(255, 224, 138, 0.96)';
+            ctx.font = this._axisFont(10, 700);
+            ctx.fillText(todayMarker.label, x, timeAxisMidY);
+            ctx.fillStyle = this.colors.text;
+            ctx.font = this._axisFont(10, 500);
         }
     }
 
@@ -3773,11 +3787,26 @@ class FixedTradingChart {
         const start = Math.max(0, this.viewPortStart - 1);
         const end   = Math.min(this.data.length - 1, this.viewPortEnd + 1);
 
+        const todayKey = this.currentInterval.includes('minute')
+            ? this._actualIstDayKey(Date.now())
+            : new Date().toISOString().slice(0, 10);
+        let todayMarker = null;
+
         for (let i = start; i <= end; i++) {
-            const d     = this._exchangeDate(this.data[i].time);
+            const t = this.data[i].time;
+            const d = this._exchangeDate(t);
             const label = this._timeCandidateLabel(d, tf);
-            if (label) candidates.push({ time: this.data[i].time, label });
+            if (label) candidates.push({ time: t, label });
+
+            const candleKey = this.currentInterval.includes('minute')
+                ? this._exchangeDayKey(t)
+                : new Date(Number(t)).toISOString().slice(0, 10);
+            if (candleKey === todayKey) {
+                todayMarker = { time: t, label: this.currentInterval.includes('minute') ? this._fmtExchangeDayMonth(d) : this._fmtDateLabel(t, false), isToday: true };
+            }
         }
+
+        if (todayMarker) candidates.push(todayMarker);
         return candidates;
     }
 
