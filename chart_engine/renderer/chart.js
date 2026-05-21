@@ -107,6 +107,8 @@ class FixedTradingChart {
             dojiCandle:  '#6a6a6a',
             upWick:      '#009e78',
             downWick:    '#b83050',
+            upOhlc:      '#6bc77f',
+            downOhlc:    '#c76b88',
         };
 
         // ── Viewport ──
@@ -767,8 +769,8 @@ class FixedTradingChart {
     _drawOHLCBars() {
         const ctx = this.ctx;
         const slotW = this._slotW();
-        const stemW = Math.max(1, Math.min(1.5, this.candleWidth * 0.16));
-        const tickW = Math.max(2, Math.min(Math.floor(slotW * 0.32), Math.floor(this.candleWidth * 0.9)));
+        const stemW = Math.max(2, Math.min(4, this.candleWidth * 0.42));
+        const tickW = Math.max(4, Math.min(Math.floor(slotW * 0.5), Math.floor(this.candleWidth * 1.4)));
 
         for (let i = this.viewPortStart; i <= this.viewPortEnd; i++) {
             if (i < 0 || i >= this.data.length) continue;
@@ -784,7 +786,7 @@ class FixedTradingChart {
 
             const isDoji = Math.abs(c.close - c.open) < 1e-10;
             const isUp = c.close > c.open;
-            const col = isDoji ? this.colors.dojiCandle : (isUp ? this.colors.upCandle : this.colors.downCandle);
+            const col = isDoji ? '#a88a57' : (isUp ? this.colors.upOhlc : this.colors.downOhlc);
 
             ctx.strokeStyle = col;
             ctx.lineWidth = stemW;

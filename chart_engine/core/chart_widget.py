@@ -133,7 +133,7 @@ class CandlestickChart(QWidget):
         self._current_down_color        = self.global_chart_settings.get("down_candle_color", "#e84060")
         self._current_volume_up_color   = self.global_chart_settings.get("up_volume_color",   "#00c896")
         self._current_volume_down_color = self.global_chart_settings.get("down_volume_color", "#e84060")
-        self._current_candle_width      = self.global_chart_settings.get("candle_width",   3)
+        self._current_candle_width      = self.global_chart_settings.get("candle_width",   7)
         self._current_candle_spacing    = self.global_chart_settings.get("candle_spacing", 3)
         self._right_buffer_candles      = int(self.global_chart_settings.get("right_buffer_candles", 20))
         self._watermark_enabled         = self.global_chart_settings.get("watermark_enabled",  True)

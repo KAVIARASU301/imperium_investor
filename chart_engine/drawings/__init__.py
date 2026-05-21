@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 # ─── Default values ──────────────────────────────────────────────────────────
 
 _DEFAULT_GLOBAL_SETTINGS: Dict[str, Any] = {
-    "candle_width": 3,
+    "candle_width": 7,
     "candle_spacing": 3,
     "default_visible_candles": 100,
     "right_buffer_candles": 20,
