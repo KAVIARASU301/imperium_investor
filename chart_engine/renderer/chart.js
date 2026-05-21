@@ -71,6 +71,9 @@ class FixedTradingChart {
         this.canvas = document.getElementById(cfg.canvasId);
         this.ctx = this.canvas.getContext('2d', { alpha: false, desynchronized: false });
         this.dpr = 1;
+        this.renderQualityMultiplier = Number.isFinite(cfg.renderQualityMultiplier)
+            ? Math.min(Math.max(cfg.renderQualityMultiplier, 1), 2)
+            : 1.5;
         this.fontStack = '"Inter", "Segoe UI", "SF Pro Text", "Helvetica Neue", Arial, sans-serif';
 
         // ── Data ──
@@ -235,7 +238,7 @@ class FixedTradingChart {
     }
 
     _setupCanvas() {
-        const dpr = window.devicePixelRatio || 1;
+        const dpr = this._getEffectiveDpr();
         const w = this.canvas.clientWidth  || this.canvas.offsetWidth  || 800;
         const h = this.canvas.clientHeight || this.canvas.offsetHeight || 500;
         this.dpr = dpr;
@@ -257,7 +260,7 @@ class FixedTradingChart {
     }
 
     _onResize() {
-        const dpr = window.devicePixelRatio || 1;
+        const dpr = this._getEffectiveDpr();
         const w = this.canvas.clientWidth  || 800;
         const h = this.canvas.clientHeight || 500;
         this.dpr = dpr;
@@ -301,7 +304,7 @@ class FixedTradingChart {
                 return { ok: false, error: `Canvas has zero dimensions (${sourceWidth}x${sourceHeight}). Chart may not be fully rendered.` };
             }
 
-            const dpr = window.devicePixelRatio || 1;
+            const dpr = this._getEffectiveDpr();
             const requestedScale = Number(options.scale);
             const exportScale = Number.isFinite(requestedScale) ? Math.min(Math.max(requestedScale, 1), 5) : 2;
             const outputWidth = Math.round(cssWidth * dpr * exportScale);
@@ -1971,7 +1974,7 @@ class FixedTradingChart {
 
         this.canvas = fresh;
         this.ctx = fresh.getContext('2d');
-        const dpr = window.devicePixelRatio || 1;
+        const dpr = this._getEffectiveDpr();
         this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         this.drawingEngine.canvas = fresh;
         this.drawingEngine.ctx = this.ctx;
@@ -2011,6 +2014,11 @@ class FixedTradingChart {
             }
             if (e.key === 'F5') this._force_refresh?.();
         });
+    }
+
+    _getEffectiveDpr() {
+        const deviceDpr = window.devicePixelRatio || 1;
+        return deviceDpr * this.renderQualityMultiplier;
     }
 
     _onMouseMove(e) {

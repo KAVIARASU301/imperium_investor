@@ -29,6 +29,15 @@ from PySide6.QtGui import QColor, QFont, QBrush, QCursor
 
 logger = logging.getLogger(__name__)
 
+
+def _prefer_text_antialias(font: QFont) -> QFont:
+    """Prefer antialiased glyph rasterization for crisper HiDPI text."""
+    try:
+        font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
+    except Exception:
+        pass
+    return font
+
 # ─── Institutional Dark Trading Terminal UI Tokens ─────────────────────────────
 # Softer terminal palette: still dark/compact, but less neon and easier to read.
 _BG_APP = "#05070a"

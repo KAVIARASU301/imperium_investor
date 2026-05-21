@@ -13,6 +13,15 @@ from functools import partial
 logger = logging.getLogger(__name__)
 
 
+def _prefer_text_antialias(font: QFont) -> QFont:
+    """Prefer antialiased glyph rasterization for crisper HiDPI text."""
+    try:
+        font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
+    except Exception:
+        pass
+    return font
+
+
 @dataclass
 class Position:
     """Simple position data structure"""

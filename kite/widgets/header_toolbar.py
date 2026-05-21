@@ -32,6 +32,15 @@ from kite.utils.worker import Worker
 from kite.widgets.search_bar import EnhancedSearchInput, SymbolIndex
 
 logger = logging.getLogger(__name__)
+
+
+def _prefer_text_antialias(font: QFont) -> QFont:
+    """Prefer antialiased glyph rasterization for crisper HiDPI text."""
+    try:
+        font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
+    except Exception:
+        pass
+    return font
 DEFAULT_PAPER_BALANCE = 1_000_000.0
 
 # ── Institutional Dark Trading Terminal palette ──────────────────────────────

@@ -18,6 +18,15 @@ from PySide6.QtCore import QItemSelectionModel
 from app_paths import get_asset_path
 
 logger = logging.getLogger(__name__)
+
+
+def _prefer_text_antialias(font: QFont) -> QFont:
+    """Prefer antialiased glyph rasterization for crisper HiDPI text."""
+    try:
+        font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
+    except Exception:
+        pass
+    return font
 SCAN_URL_FILE = os.path.join(os.path.expanduser("~/.qullamaggie"), "chartink_scans.json")
 SETTINGS_FILE = os.path.join(os.path.expanduser("~/.qullamaggie"), "scanner_settings.json")
 SCAN_GROUP_ORDER = ["Momentum Breakouts", "Episodic Pivot", "Parabolic", "Others"]
@@ -510,7 +519,7 @@ class ModernManageScansDialog(QDialog):
         for row, scan in enumerate(self.scans):
             # Name
             name_item = QTableWidgetItem(scan.get("name", "Unnamed"))
-            name_item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+            name_item.setFont(_prefer_text_antialias(QFont("Segoe UI", 9, QFont.Weight.Bold)))
             self.scans_table.setItem(row, 0, name_item)
 
             # Tag
@@ -521,7 +530,7 @@ class ModernManageScansDialog(QDialog):
             url = scan.get("url", "")
             preview = url[:60] + "..." if len(url) > 60 else url
             preview_item = QTableWidgetItem(preview)
-            preview_item.setFont(QFont("Consolas", 8))
+            preview_item.setFont(_prefer_text_antialias(QFont("Consolas", 8)))
             self.scans_table.setItem(row, 2, preview_item)
 
             # Actions button
