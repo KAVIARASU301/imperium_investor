@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QWidget,
     QPushButton, QFrame, QGroupBox, QFormLayout
 )
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWebEngineWidgets import QWebEngineView
 import plotly.graph_objects as go
 import pandas as pd
@@ -181,6 +182,8 @@ class PerformanceDialog(QDialog):
         self.chart_view = QWebEngineView()
         self.chart_view.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
         self.chart_view.setStyleSheet("QWebEngineView { background-color: #000000; border: none; }")
+        self.chart_view.page().setBackgroundColor(Qt.GlobalColor.black)
+        self._apply_webengine_zoom()
         # Set initial black background to avoid white flash
         self.chart_view.setHtml("""
             <html>
@@ -207,6 +210,21 @@ class PerformanceDialog(QDialog):
         layout.addWidget(self.chart_view)
 
         return chart_group
+
+    def _apply_webengine_zoom(self):
+        if not self.chart_view:
+            return
+        window_handle = self.window().windowHandle() if self.window() else None
+        screen = window_handle.screen() if window_handle else QGuiApplication.primaryScreen()
+        dpr = float(screen.devicePixelRatio() if screen else 1.0)
+        logical_dpi = float(screen.logicalDotsPerInch() if screen else 96.0)
+        dpi_scale = logical_dpi / 96.0 if logical_dpi > 0 else 1.0
+        self.chart_view.setZoomFactor(max(0.9, min(1.5, round(dpr * dpi_scale, 2))))
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event and event.type() in (QEvent.Type.ScreenChangeInternal, QEvent.Type.DevicePixelRatioChange):
+            self._apply_webengine_zoom()
 
     def refresh_data(self):
         """

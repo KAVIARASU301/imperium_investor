@@ -69,7 +69,9 @@ class FixedTradingChart {
     constructor(cfg) {
         // ── Canvas ──
         this.canvas = document.getElementById(cfg.canvasId);
-        this.ctx = this.canvas.getContext('2d');
+        this.ctx = this.canvas.getContext('2d', { alpha: false, desynchronized: false });
+        this.dpr = 1;
+        this.fontStack = '"Inter", "Segoe UI", "SF Pro Text", "Helvetica Neue", Arial, sans-serif';
 
         // ── Data ──
         this.data = cfg.candlestickData || [];
@@ -236,10 +238,14 @@ class FixedTradingChart {
         const dpr = window.devicePixelRatio || 1;
         const w = this.canvas.clientWidth  || this.canvas.offsetWidth  || 800;
         const h = this.canvas.clientHeight || this.canvas.offsetHeight || 500;
-
+        this.dpr = dpr;
         this.canvas.width  = Math.round(w * dpr);
         this.canvas.height = Math.round(h * dpr);
-        this.ctx.scale(dpr, dpr);
+        this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        this.ctx.imageSmoothingEnabled = true;
+        this.ctx.imageSmoothingQuality = 'high';
+        this.ctx.textRendering = 'geometricPrecision';
+        this.ctx.textBaseline = 'middle';
 
         this.width  = w;
         this.height = h;
@@ -254,6 +260,7 @@ class FixedTradingChart {
         const dpr = window.devicePixelRatio || 1;
         const w = this.canvas.clientWidth  || 800;
         const h = this.canvas.clientHeight || 500;
+        this.dpr = dpr;
         this.canvas.width  = Math.round(w * dpr);
         this.canvas.height = Math.round(h * dpr);
         this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -690,7 +697,7 @@ class FixedTradingChart {
         // candleWidth is user-fixed — never recalculate to fill space.
         const bodyInset = this.candleWidth >= 8 ? 0.5 : 0.25;
         const bodyW     = Math.max(1, this.candleWidth - bodyInset * 2);
-        const wickW     = this.candleWidth >= 7 ? 1.5 : 1;
+        const wickW     = this._snapStrokeWidth(this.candleWidth >= 7 ? 1.5 : 1);
         const drawBorder = this.candleWidth >= 6;
 
         ctx.lineJoin = 'miter';
@@ -731,7 +738,7 @@ class FixedTradingChart {
 
             if (drawBorder) {
                 ctx.strokeStyle = brdr;
-                ctx.lineWidth   = 0.7;
+                ctx.lineWidth   = this._snapStrokeWidth(0.7);
                 ctx.strokeRect(bx + 0.5, topY + 0.5, Math.max(0, bodyW - 1), Math.max(0, bodyH - 1));
             }
         }
@@ -817,7 +824,7 @@ class FixedTradingChart {
         let first = true;
 
         ctx.strokeStyle = '#4fc3f7';
-        ctx.lineWidth = Math.max(1.2, Math.min(2.2, this.candleWidth * 0.25));
+        ctx.lineWidth = this._snapStrokeWidth(Math.max(1.2, Math.min(2.2, this.candleWidth * 0.25)));
         ctx.setLineDash([]);
         ctx.beginPath();
 
@@ -3655,7 +3662,13 @@ class FixedTradingChart {
     }
 
     _axisFont(size, weight) {
-        return `${weight} ${size}px "Inter", "Roboto Condensed", "Segoe UI", "Helvetica Neue", sans-serif`;
+        return `${weight} ${size}px ${this.fontStack}`;
+    }
+
+    _snapStrokeWidth(cssWidth) {
+        const dpr = this.dpr || window.devicePixelRatio || 1;
+        const devPx = Math.max(1, Math.round(cssWidth * dpr));
+        return devPx / dpr;
     }
 
     _resolvePriceScaleCurrency(explicitCurrency, symbol) {

@@ -21,9 +21,9 @@ import signal
 import atexit
 from typing import Optional
 
-from PySide6.QtGui import QIcon
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QGuiApplication, QIcon, QSurfaceFormat
 from PySide6.QtWidgets import QApplication, QMessageBox, QWidget
-from PySide6.QtCore import QTimer
 
 from app_paths import get_app_icon_path
 
@@ -33,6 +33,23 @@ from login_setup.broker_factory import BrokerFactory, BrokerClientManager
 from login_setup.broker_modes import BrokerMode
 from login_setup.login_setup_config import setup_logging
 from login_setup.token_manager import EnhancedTokenManager
+
+
+
+def configure_qt_startup() -> None:
+    """Configure global Qt startup behavior before QApplication is created."""
+    QGuiApplication.setHighDpiScaleFactorRoundingPolicy(
+        Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+    )
+
+    if hasattr(Qt.ApplicationAttribute, "AA_EnableHighDpiScaling"):
+        QApplication.setAttribute(Qt.ApplicationAttribute.AA_EnableHighDpiScaling, True)
+    QApplication.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps, True)
+
+    surface_format = QSurfaceFormat()
+    surface_format.setSamples(8)
+    QSurfaceFormat.setDefaultFormat(surface_format)
+
 
 # --- Setup Logging ---
 # It's crucial to set up logging at the very beginning.
@@ -52,6 +69,7 @@ class Application:
     def run(self):
         """Main entry point to run the application."""
         logger.info("🚀 Starting qullamaggie Application...")
+        configure_qt_startup()
         self.app = QApplication(sys.argv)
         self.app.setApplicationName("qullamaggie")
         icon_path = get_app_icon_path()

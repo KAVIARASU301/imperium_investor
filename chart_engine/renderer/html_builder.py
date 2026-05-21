@@ -142,7 +142,9 @@ def build_chart_html(cfg: ChartHtmlConfig) -> str:
         *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
         body {{
             background: #0b0f18;
-            font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+            font-family: "Inter", "Segoe UI", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+            -webkit-font-smoothing: antialiased;
+            text-rendering: geometricPrecision;
             color: #c8d0e0;
             overflow: hidden;
         }}
@@ -161,8 +163,10 @@ def build_chart_html(cfg: ChartHtmlConfig) -> str:
             color: #d4def2; font-size: 12px;
             pointer-events: none; z-index: 5;
             line-height: 1.45;
-            font-family: "Inter", "Segoe UI", sans-serif;
+            font-family: "Inter", "Segoe UI", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
             font-weight: 600; letter-spacing: 0.2px;
+            -webkit-font-smoothing: antialiased;
+            text-rendering: optimizeLegibility;
             user-select: none; -webkit-user-select: none;
         }}
         #metricsInfo {{ font-size: 12px; color: #d1dcf2; font-weight: 600; white-space: nowrap; }}

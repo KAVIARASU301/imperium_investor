@@ -28,7 +28,7 @@ import logging
 from typing import Any, Dict, Optional
 
 from PySide6.QtCore import Qt, QPoint, QObject, Signal, QThread
-from PySide6.QtGui import QMouseEvent, QCursor
+from PySide6.QtGui import QMouseEvent, QCursor, QGuiApplication
 from PySide6.QtWidgets import (
     QAbstractButton, QAbstractSpinBox, QComboBox, QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QTableWidget, QVBoxLayout, QApplication,
@@ -838,6 +838,8 @@ class StockInfoDialog(QDialog):
 
         self._web = QWebEngineView()
         self._web.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
+        self._web.page().setBackgroundColor(Qt.GlobalColor.black)
+        self._apply_webengine_zoom()
         root.addWidget(self._web, 1)
 
         root.addWidget(self._build_footer())
@@ -928,6 +930,22 @@ class StockInfoDialog(QDialog):
     def showEvent(self, event):
         super().showEvent(event)
         self._center_on_parent()
+        self._apply_webengine_zoom()
+
+    def _apply_webengine_zoom(self):
+        if not self._web:
+            return
+        window_handle = self.window().windowHandle() if self.window() else None
+        screen = window_handle.screen() if window_handle else QGuiApplication.primaryScreen()
+        dpr = float(screen.devicePixelRatio() if screen else 1.0)
+        logical_dpi = float(screen.logicalDotsPerInch() if screen else 96.0)
+        dpi_scale = logical_dpi / 96.0 if logical_dpi > 0 else 1.0
+        self._web.setZoomFactor(max(0.9, min(1.5, round(dpr * dpi_scale, 2))))
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event and event.type() in (QEvent.Type.ScreenChangeInternal, QEvent.Type.DevicePixelRatioChange):
+            self._apply_webengine_zoom()
 
     def _center_on_parent(self):
         if self.parent():

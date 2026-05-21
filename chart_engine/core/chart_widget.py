@@ -23,13 +23,14 @@ from typing import Any, Dict, Optional
 import pandas as pd
 from kiteconnect import KiteConnect
 from PySide6.QtCore import QEvent, QTimer, Signal, Slot, Qt
+from PySide6.QtGui import QColor, QShortcut, QKeySequence, QGuiApplication
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
     QColorDialog, QFrame, QLabel, QMessageBox,
     QProgressBar, QStackedWidget, QVBoxLayout, QWidget,
 )
-from PySide6.QtGui import QColor, QShortcut, QKeySequence
+
 
 from chart_engine.core.chart_bridge import ChartBridge
 from chart_engine.core.data_loader import (
@@ -898,6 +899,24 @@ class CandlestickChart(QWidget):
 
         self.chart_layout.addWidget(self.chart_view)
         self.chart_view.installEventFilter(self)
+        self._apply_webengine_zoom(self.chart_view)
+
+    def _apply_webengine_zoom(self, web_view: QWebEngineView) -> None:
+        if not web_view:
+            return
+        window_handle = self.window().windowHandle() if self.window() else None
+        screen = window_handle.screen() if window_handle else QGuiApplication.primaryScreen()
+        dpr = float(screen.devicePixelRatio() if screen else 1.0)
+        logical_dpi = float(screen.logicalDotsPerInch() if screen else 96.0)
+        dpi_scale = logical_dpi / 96.0 if logical_dpi > 0 else 1.0
+        zoom_factor = max(0.9, min(1.5, round(dpr * dpi_scale, 2)))
+        web_view.setZoomFactor(zoom_factor)
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event and event.type() in (QEvent.Type.ScreenChangeInternal, QEvent.Type.DevicePixelRatioChange):
+            if self.chart_view:
+                self._apply_webengine_zoom(self.chart_view)
 
     def eventFilter(self, watched, event):
         if watched is self.chart_view and event is not None:
