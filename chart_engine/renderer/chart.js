@@ -3796,7 +3796,10 @@ class FixedTradingChart {
             const t = this.data[i].time;
             const d = this._exchangeDate(t);
             const label = this._timeCandidateLabel(d, tf);
-            if (label) candidates.push({ time: t, label });
+            const isIntradayTodayCandle = this.currentInterval.includes('minute') && (this._exchangeDayKey(t) === todayKey);
+            if (label && !(tf === '60minute' && isIntradayTodayCandle)) {
+                candidates.push({ time: t, label });
+            }
 
             const candleKey = this.currentInterval.includes('minute')
                 ? this._exchangeDayKey(t)
