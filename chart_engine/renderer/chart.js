@@ -1234,12 +1234,14 @@ class FixedTradingChart {
         const tf  = this.currentInterval || 'day';
         const candidates = this._buildTimeCandidates(tf);
         const axisTopY   = this._paneBottom() + 0.5;
-        const labelY     = this._paneBottom() + 14;
 
         const frameLeft   = 0.5;
         const frameRight  = this.chartArea.x + this.chartArea.width + this.rightAxisWidth - 0.5;
         const frameTop    = 0.5;
         const frameBottom = this.height - 0.5;
+
+        // Keep time labels vertically centered in the axis lane so they don't touch borders.
+        const timeAxisMidY = axisTopY + ((frameBottom - axisTopY) / 2);
 
         // Production-grade frame: unify chart + time axis + right scale into one clean border.
         ctx.strokeStyle = 'rgba(88, 107, 138, 0.52)';
@@ -1257,7 +1259,7 @@ class FixedTradingChart {
 
         ctx.font          = this._axisFont(10, 500);
         ctx.textAlign     = 'center';
-        ctx.textBaseline  = 'alphabetic';
+        ctx.textBaseline  = 'middle';
         ctx.fillStyle     = this.colors.text;
 
 
@@ -1294,7 +1296,7 @@ class FixedTradingChart {
             ctx.lineTo(x, this._paneBottom());
             ctx.stroke();
 
-            ctx.fillText(pt.label, x, labelY);
+            ctx.fillText(pt.label, x, timeAxisMidY);
             lastRight = x + w / 2;
         }
     }
