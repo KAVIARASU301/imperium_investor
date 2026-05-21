@@ -1161,7 +1161,7 @@ class FixedTradingChart {
         const axisX    = this.chartArea.x + this.chartArea.width;
         const axisW    = this.rightAxisWidth;
         const axisTop  = 0;
-        const axisBot  = this.chartArea.y + this.chartArea.height;
+        const axisBot  = this.height;
 
         // ── Axis panel background ──────────────────────────────────────────
         ctx.fillStyle = '#0f1420';
@@ -1255,15 +1255,23 @@ class FixedTradingChart {
         const axisTopY   = this._paneBottom() + 0.5;
         const labelY     = this._paneBottom() + 14;
 
-        // Subtle top border so the time axis visually connects with the price axis.
-        ctx.strokeStyle = 'rgba(88, 107, 138, 0.45)';
+        const frameLeft   = 0.5;
+        const frameRight  = this.chartArea.x + this.chartArea.width + this.rightAxisWidth - 0.5;
+        const frameTop    = 0.5;
+        const frameBottom = this.height - 0.5;
+
+        // Production-grade frame: unify chart + time axis + right scale into one clean border.
+        ctx.strokeStyle = 'rgba(88, 107, 138, 0.52)';
         ctx.lineWidth   = 1;
         ctx.beginPath();
-        // Left chart border (up to time-axis top border) to match the axis framing.
-        ctx.moveTo(0.5, 0.5);
-        ctx.lineTo(0.5, axisTopY);
-        ctx.moveTo(0.5, axisTopY);
-        ctx.lineTo(this.chartArea.x + this.chartArea.width + this.rightAxisWidth, axisTopY);
+        // Outer rectangle (left, right and bottom edges).
+        ctx.moveTo(frameLeft, frameTop);
+        ctx.lineTo(frameLeft, frameBottom);
+        ctx.lineTo(frameRight, frameBottom);
+        ctx.lineTo(frameRight, frameTop);
+        // Separator where the price pane ends and time-axis starts.
+        ctx.moveTo(frameLeft, axisTopY);
+        ctx.lineTo(frameRight, axisTopY);
         ctx.stroke();
 
         ctx.font          = this._axisFont(10, 500);
