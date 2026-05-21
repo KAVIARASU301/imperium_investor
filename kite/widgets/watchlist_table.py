@@ -776,6 +776,9 @@ class TradingTable(QTableWidget):
         self.setSortingEnabled(False)
         self.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        # Keep a stable viewport width so dynamic column sizing stays aligned
+        # with the positions table even when row count crosses scrollbar threshold.
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self.setWordWrap(False)
 
         hdr.sectionClicked.connect(self._on_header_click)

@@ -293,6 +293,9 @@ class PositionsTable(QWidget):
         self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        # Keep viewport geometry consistent with watchlist table so columns stay
+        # visually aligned regardless of scrollbar visibility.
+        self.table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self.table.setSortingEnabled(False)
 
         self.table.verticalHeader().setDefaultSectionSize(_ROW_H)
