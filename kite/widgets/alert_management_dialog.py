@@ -830,9 +830,10 @@ class AlertManagementDialog(QDialog):
         symbol = (item.text() or "").strip().upper()
         if not symbol or symbol == "—":
             return
-        chart = getattr(self.parent(), "candlestick_chart", None)
-        if chart and hasattr(chart, "on_search"):
-            chart.on_search(symbol)
+        for chart_attr in ("candlestick_chart", "candlestick_chart_secondary"):
+            chart = getattr(self.parent(), chart_attr, None)
+            if chart and hasattr(chart, "on_search"):
+                chart.on_search(symbol)
 
     def _delete_alert(self, alert_id: str) -> None:
         if not alert_id:

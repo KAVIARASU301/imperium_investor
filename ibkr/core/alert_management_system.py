@@ -1527,10 +1527,12 @@ class AlertSystemManager(QObject):
         return {}
 
     def _switch_chart_symbol(self, symbol: str):
-        """Switch to symbol on chart."""
+        """Switch selected symbol on every chart panel."""
         try:
-            if hasattr(self.main_window, 'candlestick_chart'):
-                self.main_window.candlestick_chart.on_search(symbol)
+            for chart_attr in ("candlestick_chart", "candlestick_chart_secondary"):
+                chart = getattr(self.main_window, chart_attr, None)
+                if chart is not None and hasattr(chart, "on_search"):
+                    chart.on_search(symbol)
         except Exception as e:
             logger.error(f"Error switching chart symbol: {e}")
 
