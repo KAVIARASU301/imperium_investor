@@ -465,6 +465,63 @@ class ChartLinesManager(QObject):
             logger.error(f"Error removing stop-loss line: {e}")
             return False
 
+    def add_target_line(self, symbol: str, target_price: float) -> bool:
+        """Add or update a target line across all interval files for a symbol."""
+        try:
+            mode = self._get_trading_mode()
+            new_line = self._create_horizontal_ray_line(
+                price=float(target_price),
+                color="#00FFFF",
+                start_time=0,
+                text="",
+                metadata={
+                    "lineCategory": "target",
+                    "targetPrice": float(target_price),
+                    "tradingMode": mode,
+                },
+            )
+
+            def _apply(d):
+                rays = []
+                for ray in d.get("horizontal_rays", []):
+                    is_target = (
+                        ray.get("type") == "horizontal_ray" and
+                        (ray.get("lineCategory") == "target" or ray.get("color") == "#00FFFF") and
+                        str(ray.get("tradingMode", "live")).lower() == mode
+                    )
+                    if not is_target:
+                        rays.append(ray)
+                d["horizontal_rays"] = rays
+                d["horizontal_rays"].append(new_line)
+
+            success = self._save_to_all_intervals(symbol, _apply)
+            if success:
+                self._refresh_chart()
+            return success
+        except Exception as e:
+            logger.error(f"Error adding target line: {e}")
+            return False
+
+    def remove_target_line(self, symbol: str) -> bool:
+        try:
+            mode = self._get_trading_mode()
+            def _apply(d):
+                d["horizontal_rays"] = [
+                    ray for ray in d.get("horizontal_rays", [])
+                    if not (
+                        ray.get("type") == "horizontal_ray" and
+                        (ray.get("lineCategory") == "target" or ray.get("color") == "#00FFFF") and
+                        str(ray.get("tradingMode", "live")).lower() == mode
+                    )
+                ]
+            success = self._save_to_all_intervals(symbol, _apply)
+            if success:
+                self._refresh_chart()
+            return success
+        except Exception as e:
+            logger.error(f"Error removing target line: {e}")
+            return False
+
     def sync_position_lines(self, positions: List[Any]) -> None:
         """
         Ensure chart position lines exactly match the latest positions table.
@@ -585,15 +642,16 @@ class ChartLinesManager(QObject):
             is_alert = category == "alert" or ray.get("color") == "#FFD700"
             is_position = category == "position" or ray.get("color") in ["#00FF00", "#FF0000"]
             is_stop_loss = category == "stop_loss" or ray.get("color") == "#FF4D4F"
-            if not (is_alert or is_position or is_stop_loss):
+            is_target = category == "target" or ray.get("color") == "#00FFFF"
+            if not (is_alert or is_position or is_stop_loss or is_target):
                 return True
             return str(ray.get("tradingMode", "live")).lower() == mode
 
         filtered_rays = [r for r in rays if _keep(r)]
         for ray in filtered_rays:
             category = ray.get("lineCategory")
-            if category in {"alert", "position", "stop_loss"} or ray.get("color") in {
-                "#FFD700", "#00FF00", "#FF0000", "#FF4D4F"
+            if category in {"alert", "position", "stop_loss", "target"} or ray.get("color") in {
+                "#FFD700", "#00FF00", "#FF0000", "#FF4D4F", "#00FFFF"
             }:
                 ray["lineStyle"] = "solid"
         out["horizontal_rays"] = filtered_rays

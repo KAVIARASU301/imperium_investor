@@ -157,6 +157,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.performance_dialog = None
         self.pnl_history_dialog = None
         self.floating_positions_dialog = None
+        self._target_prices: Dict[str, float] = {}
         self.floating_watchlist_dialog = None
         self._last_spacebar_context = None
         self._start_maximized = True
@@ -1014,6 +1015,14 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 self.candlestick_chart.stop_loss_line_deleted.connect(
                     self._on_stop_loss_line_deleted_from_chart
                 )
+            if hasattr(self.candlestick_chart, 'target_price_updated'):
+                self.candlestick_chart.target_price_updated.connect(
+                    self._on_target_line_moved_from_chart
+                )
+            if hasattr(self.candlestick_chart, 'target_line_deleted'):
+                self.candlestick_chart.target_line_deleted.connect(
+                    self._on_target_line_deleted_from_chart
+                )
 
     def _restore_alert_lines(self) -> None:
         """Redraw all active alert lines after chart is confirmed ready."""
@@ -1145,6 +1154,39 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self._update_floating_positions_dialog(
             getattr(self.positions_table, 'positions_data', {}).values()
         )
+
+    @Slot(str)
+    def _on_target_line_moved_from_chart(self, payload: str) -> None:
+        try:
+            data = json.loads(payload or "{}")
+            symbol = str(data.get("symbol", "")).strip().upper()
+            new_price = float(data.get("new_price", 0.0))
+        except (json.JSONDecodeError, ValueError, TypeError) as exc:
+            logger.error(f"Invalid target_price_updated payload: {exc}")
+            return
+        if not symbol or new_price <= 0:
+            return
+        self._target_prices[symbol] = new_price
+        self.chart_lines_manager.add_target_line(symbol, new_price)
+        dialog = getattr(self, "floating_positions_dialog", None)
+        if dialog is not None and hasattr(dialog, "set_target_value"):
+            dialog.set_target_value(symbol, new_price)
+
+    @Slot(str)
+    def _on_target_line_deleted_from_chart(self, payload: str) -> None:
+        try:
+            data = json.loads(payload or "{}")
+            symbol = str(data.get("symbol", "")).strip().upper()
+        except (json.JSONDecodeError, ValueError, TypeError) as exc:
+            logger.error(f"Invalid target_line_deleted payload: {exc}")
+            return
+        if not symbol:
+            return
+        self._target_prices.pop(symbol, None)
+        self.chart_lines_manager.remove_target_line(symbol)
+        dialog = getattr(self, "floating_positions_dialog", None)
+        if dialog is not None and hasattr(dialog, "clear_target_value"):
+            dialog.clear_target_value(symbol)
 
     @Slot(str)
     def _on_chart_symbol_changed(self, symbol: str):

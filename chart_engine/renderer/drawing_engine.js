@@ -479,6 +479,7 @@ class DrawingEngine {
         const color = String(d.color || '').toUpperCase();
         if (color === '#FFD700') return 'alert';
         if (color === '#FF4D4F') return 'stop_loss';
+        if (color === '#00FFFF') return 'target';
         return '';
     }
 
@@ -496,6 +497,8 @@ class DrawingEngine {
                 bridge.notify_alert_line_deleted(JSON.stringify({ symbol, price }));
             } else if (category === 'stop_loss' && typeof bridge.notify_stop_loss_line_deleted === 'function') {
                 bridge.notify_stop_loss_line_deleted(JSON.stringify({ symbol, price }));
+            } else if (category === 'target' && typeof bridge.notify_target_line_deleted === 'function') {
+                bridge.notify_target_line_deleted(JSON.stringify({ symbol, price }));
             }
         }
         if (this.selectedId === id) this.selectedId = null;
@@ -685,7 +688,7 @@ class DrawingEngine {
                 this.activeHandle = hit;
                 const lineCategory = this._lineCategory(d);
                 this._activeDragLine = (
-                    d.type === 'horizontal_ray' && ['alert', 'stop_loss'].includes(lineCategory)
+                    d.type === 'horizontal_ray' && ['alert', 'stop_loss', 'target'].includes(lineCategory)
                 ) ? { category: lineCategory, price: d.startPrice } : null;
                 this._lastDragX = x; this._lastDragY = y;
                 this.canvas.style.cursor = 'grabbing';
@@ -709,7 +712,7 @@ class DrawingEngine {
             if (
                 d &&
                 d.type === 'horizontal_ray' &&
-                ['alert', 'stop_loss'].includes(this._lineCategory(d)) &&
+                ['alert', 'stop_loss', 'target'].includes(this._lineCategory(d)) &&
                 this._activeDragLine !== null
             ) {
                 const oldPrice = Number(this._activeDragLine.price);
@@ -733,6 +736,8 @@ class DrawingEngine {
                         bridge.notify_alert_price_updated(payload);
                     } else if (category === 'stop_loss' && typeof bridge.notify_stop_loss_price_updated === 'function') {
                         bridge.notify_stop_loss_price_updated(payload);
+                    } else if (category === 'target' && typeof bridge.notify_target_price_updated === 'function') {
+                        bridge.notify_target_price_updated(payload);
                     }
                 }
             }

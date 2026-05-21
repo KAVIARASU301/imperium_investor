@@ -141,6 +141,7 @@ _COLS = [
     ("LTP",     "ltp",       74, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
     ("P&L",     "pnl",       88, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
     ("SL",      "sl",        78, Qt.AlignmentFlag.AlignCenter),
+    ("Target",  "target",    78, Qt.AlignmentFlag.AlignCenter),
 ]
 
 _COL_IDX = {name: i for i, (name, *_) in enumerate(_COLS)}
@@ -302,6 +303,7 @@ class FloatingPositionsDialog(QDialog):
         self._dragging = False
         self._drag_offset = QPoint()
         self._subscribed: set = set()
+        self._targets: Dict[str, float] = {}
         self._nav_idx = 0                              # keyboard nav index
 
         # ── Build ────────────────────────────────────────────────────────────
@@ -596,6 +598,28 @@ class FloatingPositionsDialog(QDialog):
             self._write_row(row, pos)
         self._update_footer()
 
+    @Slot(str, float)
+    def set_target_value(self, symbol: str, target_price: float) -> None:
+        sym = str(symbol or "").strip().upper()
+        if not sym:
+            return
+        self._targets[sym] = float(target_price)
+        row = self._sym_to_row.get(sym)
+        pos = self._positions.get(sym)
+        if row is not None and pos is not None:
+            self._write_row(row, pos)
+
+    @Slot(str)
+    def clear_target_value(self, symbol: str) -> None:
+        sym = str(symbol or "").strip().upper()
+        if not sym:
+            return
+        self._targets.pop(sym, None)
+        row = self._sym_to_row.get(sym)
+        pos = self._positions.get(sym)
+        if row is not None and pos is not None:
+            self._write_row(row, pos)
+
     # ═══════════════════════════════════════════════════════════════════════
     # PUBLIC: TICK FEED
     # ═══════════════════════════════════════════════════════════════════════
@@ -679,6 +703,8 @@ class FloatingPositionsDialog(QDialog):
         pnl_sign = "+" if pos.pnl >= 0 else ""
 
         sl_text, sl_color = self._get_sl_display(pos)
+        target_price = self._targets.get(pos.symbol)
+        target_text = f"{target_price:.2f}" if isinstance(target_price, (int, float)) and target_price > 0 else "—"
         values = [
             (pos.symbol,                                       _C.SYMBOL, True),
             (f"{qty_sign}{abs(pos.quantity)}",                 qty_col, False),
@@ -686,6 +712,7 @@ class FloatingPositionsDialog(QDialog):
             (f"{pos.ltp:,.2f}" if pos.ltp > 0 else "—",       _C.T0,   False),
             (f"{pnl_sign}{pos.pnl:,.2f}",                     pnl_col, True),
             (sl_text,                                           sl_color, False),
+            (target_text,                                       _C.CYAN if target_text != "—" else "#2a3a50", False),
         ]
 
         align_map = [a for _, _, _, a in _COLS]
@@ -820,6 +847,17 @@ class FloatingPositionsDialog(QDialog):
         chart_act = menu.addAction("📈  Open Chart")
         chart_act.triggered.connect(lambda: self.symbol_chart_requested.emit(sym))
         menu.addSeparator()
+        target_price = self._targets.get(sym)
+        if target_price and target_price > 0:
+            mod_target_act = menu.addAction(f"🎯  Modify Target @ ₹{target_price:.2f}")
+            mod_target_act.triggered.connect(lambda: self._set_target_for_symbol(sym, position, target_price))
+            clear_target_act = menu.addAction("✕  Remove Target")
+            clear_target_act.triggered.connect(lambda: self._clear_target_for_symbol(sym))
+        else:
+            set_target_act = menu.addAction("🎯  Set Target…")
+            set_target_act.triggered.connect(lambda: self._set_target_for_symbol(sym, position, None))
+
+        menu.addSeparator()
 
         # ── Stop-Loss section ────────────────────────────────────────────────
         sl_mgr = self._get_sl_manager()
@@ -905,6 +943,29 @@ class FloatingPositionsDialog(QDialog):
         if not parent:
             return None
         return getattr(parent, "sl_manager", None) or getattr(parent, "stop_loss_manager", None)
+
+    def _set_target_for_symbol(self, symbol: str, position, existing: Optional[float]) -> None:
+        from PySide6.QtWidgets import QInputDialog
+        base_price = position.ltp if position.ltp > 0 else position.avg_price
+        default_price = float(existing if existing and existing > 0 else base_price)
+        value, ok = QInputDialog.getDouble(
+            self, f"Set Target — {symbol}", "Target Price",
+            default_price, 0.05, 9_999_999.0, 2
+        )
+        if not ok or value <= 0:
+            return
+        self.set_target_value(symbol, value)
+        parent = self.parent()
+        clm = getattr(parent, "chart_lines_manager", None) if parent else None
+        if clm:
+            clm.add_target_line(symbol, value)
+
+    def _clear_target_for_symbol(self, symbol: str) -> None:
+        self.clear_target_value(symbol)
+        parent = self.parent()
+        clm = getattr(parent, "chart_lines_manager", None) if parent else None
+        if clm:
+            clm.remove_target_line(symbol)
 
     # ═══════════════════════════════════════════════════════════════════════
     # KEYBOARD NAV

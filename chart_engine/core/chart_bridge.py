@@ -40,6 +40,8 @@ class ChartBridge(QObject):
     alert_line_deleted = Signal(str)        # {symbol, price} — alert line deleted
     stop_loss_price_updated = Signal(str)   # {symbol, old_price, new_price} — SL drag
     stop_loss_line_deleted = Signal(str)    # {symbol, price} — SL line deleted
+    target_price_updated = Signal(str)      # {symbol, old_price, new_price} — target drag
+    target_line_deleted = Signal(str)       # {symbol, price} — target line deleted
     order_dialog_requested = Signal(str)    # order JSON
     text_note_requested = Signal(str)       # mouse-pos JSON
     text_note_edit_requested = Signal(str)  # note JSON
@@ -148,6 +150,20 @@ class ChartBridge(QObject):
             return
         if self._valid_json(payload, "stop_loss_line_deleted"):
             self.stop_loss_line_deleted.emit(payload)
+
+    @Slot(str)
+    def notify_target_price_updated(self, payload: str) -> None:
+        if self._guard("notify_target_price_updated", payload):
+            return
+        if self._valid_json(payload, "target_price_updated"):
+            self.target_price_updated.emit(payload)
+
+    @Slot(str)
+    def notify_target_line_deleted(self, payload: str) -> None:
+        if self._guard("notify_target_line_deleted", payload):
+            return
+        if self._valid_json(payload, "target_line_deleted"):
+            self.target_line_deleted.emit(payload)
 
     @Slot(str)
     def notify_order_dialog_requested(self, order_json: str) -> None:
