@@ -273,6 +273,7 @@ class PositionsTable(QWidget):
         main_layout.addWidget(self._footer_frame)
 
         self.table.cellClicked.connect(self._on_cell_clicked)
+        self.table.currentCellChanged.connect(self._on_current_cell_changed)
         self.table.cellDoubleClicked.connect(self._on_cell_double_clicked)
         self.table.customContextMenuRequested.connect(self._show_context_menu)
         self.table.horizontalHeader().sectionClicked.connect(self._on_header_clicked)
@@ -676,6 +677,16 @@ class PositionsTable(QWidget):
             self._paint_flag_cell(row, symbol)
             return
         self.symbol_selected.emit(symbol)
+
+    def _on_current_cell_changed(self, current_row: int, current_col: int, previous_row: int, previous_col: int):
+        """Keep chart symbol synced when keyboard navigation changes table row."""
+        if current_row < 0 or current_row >= self.table.rowCount():
+            return
+        if current_col == COL_FLAG:
+            return
+        symbol = self._symbol_at_row(current_row)
+        if symbol:
+            self.symbol_selected.emit(symbol)
 
     def _on_cell_double_clicked(self, row: int, col: int):
         self._on_cell_clicked(row, col)
