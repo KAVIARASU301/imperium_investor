@@ -36,7 +36,7 @@ _BG_BASE = "#0a0d11"
 _BG_ALT = "#0e1217"
 _BG_HEADER = "#0c1015"
 _BG_FOOTER = "#070a0e"
-_BG_SEL = "#182436"
+_BG_SEL = "#1f1f1f"
 _BG_HOVER = "#121821"
 _BORDER = "#202838"
 
@@ -231,6 +231,7 @@ class PositionsTable(QWidget):
         self._sort_asc: bool = True
         self._flashes: List[_FlashCell] = []
         self._pending_ticks: Dict[int, float] = {}
+        self._selected_rows: Set[int] = set()
 
         self._color_theme: Dict = {
             "enable_table_directional_colors": False,
@@ -264,6 +265,7 @@ class PositionsTable(QWidget):
         main_layout.setSpacing(0)
 
         self.table = QTableWidget()
+        self.table.setObjectName("positionsDataTable")
         self._configure_table()
         main_layout.addWidget(self.table, 1)
 
@@ -274,6 +276,7 @@ class PositionsTable(QWidget):
         self.table.cellDoubleClicked.connect(self._on_cell_double_clicked)
         self.table.customContextMenuRequested.connect(self._show_context_menu)
         self.table.horizontalHeader().sectionClicked.connect(self._on_header_clicked)
+        self.table.itemSelectionChanged.connect(self._on_selection_changed)
 
     def _configure_table(self):
         self.table.setColumnCount(len(HEADERS))
@@ -418,7 +421,10 @@ class PositionsTable(QWidget):
         symbol_font = _symbol_font(10, QFont.Weight.Normal)
         number_font = self._number_font(False, 9)
         strong_number_font = self._number_font(True, 9)
-        base_bg = QBrush(QColor(_BG_BASE if row % 2 == 0 else _BG_ALT))
+        # Let QSS own normal/alternate/selected row backgrounds.
+        # Per-item brushes have higher priority in some Qt states and can
+        # visually override row selection during live refreshes.
+        no_bg = QBrush()
 
         # Notice: No ₹ symbols to save horizontal space
         symbol_text = f"⚡ {pos.symbol}" if pos.symbol in self._partial_fill_symbols else pos.symbol
@@ -439,7 +445,7 @@ class PositionsTable(QWidget):
             item.setFont(font)
 
             if col != COL_OPEN_PNL:
-                item.setBackground(base_bg)
+                item.setBackground(no_bg)
 
             item.setData(Qt.ItemDataRole.UserRole, self._sort_key(col, pos))
             if col == COL_SYMBOL:
@@ -491,12 +497,31 @@ class PositionsTable(QWidget):
             bg = QBrush(QColor(238, 117, 128, 18))
         else:
             fg = QColor(_OPEN_FLAT)
-            bg = QBrush(QColor(_BG_BASE if row % 2 == 0 else _BG_ALT))
+            bg = QBrush()
 
         pnl_item = self.table.item(row, COL_OPEN_PNL)
         if pnl_item:
             pnl_item.setForeground(QBrush(fg))
-            pnl_item.setBackground(bg)
+            # While selected, do not paint a cell-level brush over the row
+            # selection. This matches the watchlist table behavior.
+            pnl_item.setBackground(QBrush() if self._is_row_selected(row) else bg)
+
+    def _is_row_selected(self, row: int) -> bool:
+        selection_model = self.table.selectionModel()
+        if not selection_model:
+            return False
+        return any(idx.row() == row for idx in selection_model.selectedRows())
+
+    def _on_selection_changed(self) -> None:
+        current_rows = {idx.row() for idx in self.table.selectionModel().selectedRows()}
+        affected_rows = self._selected_rows | current_rows
+        self._selected_rows = current_rows
+
+        for row in affected_rows:
+            symbol = self._symbol_at_row(row)
+            pos = self.positions_data.get(symbol) if symbol else None
+            if pos:
+                self._refresh_row(row, pos)
 
     def _sort_key(self, col: int, pos: Position):
         pnl = (pos.ltp - pos.avg_price) * pos.quantity
@@ -566,6 +591,11 @@ class PositionsTable(QWidget):
             if item:
                 ratio = max(0.0, flash.remaining_ms / _FLASH_DURATION_MS)
                 if ratio > 0:
+                    if self._is_row_selected(flash.row):
+                        item.setBackground(QBrush())
+                        surviving.append(flash)
+                        continue
+
                     if flash.direction > 0:
                         r = int(24 + (16 - 24) * (1 - ratio))
                         g = int(74 + (44 - 74) * (1 - ratio))
@@ -762,7 +792,7 @@ class PositionsTable(QWidget):
                 font-weight: 400;
             }}
 
-            QTableWidget {{
+            QTableWidget#positionsDataTable {{
                 background-color: {_BG_BASE};
                 alternate-background-color: {_BG_ALT};
                 border: none;
@@ -779,7 +809,7 @@ class PositionsTable(QWidget):
                 border-radius: 0px;
             }}
 
-            QTableWidget::item {{
+            QTableWidget#positionsDataTable::item {{
                 padding: 0 5px;
                 border-bottom: 1px solid {_BG_HOVER};
                 background-color: transparent;
@@ -788,26 +818,28 @@ class PositionsTable(QWidget):
                 font-weight: 400;
             }}
 
-            QTableWidget::item:selected {{
+            QTableWidget#positionsDataTable::item:selected,
+            QTableWidget#positionsDataTable::item:selected:active,
+            QTableWidget#positionsDataTable::item:selected:!active {{
                 background-color: {_BG_SEL} !important;
                 color: {_T0};
                 outline: none;
             }}
 
-            QTableWidget::item:focus {{
+            QTableWidget#positionsDataTable::item:focus {{
                 background-color: {_BG_SEL} !important;
                 outline: none;
             }}
 
-            QTableWidget::item:hover {{
+            QTableWidget#positionsDataTable::item:hover {{
                 background-color: {_BG_HOVER};
             }}
 
-            QTableWidget::item:alternate {{
+            QTableWidget#positionsDataTable::item:alternate {{
                 background-color: {_BG_ALT};
             }}
 
-            QTableWidget::item:alternate:selected {{
+            QTableWidget#positionsDataTable::item:alternate:selected {{
                 background-color: {_BG_SEL} !important;
                 color: {_T0};
             }}
