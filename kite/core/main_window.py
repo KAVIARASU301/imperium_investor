@@ -3363,6 +3363,22 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 border: 1px solid #1f2530;
             }
 
+            #positionsPanelContainer {
+                background-color: #0e1117;
+                border: 1px solid #1f2530;
+            }
+
+            #positionsPanelTitle {
+                background-color: #121826;
+                color: #d7deef;
+                font-size: 11px;
+                font-weight: 600;
+                letter-spacing: 0.4px;
+                border: none;
+                border-bottom: 1px solid #2a3345;
+                padding: 4px 8px;
+            }
+
             #primaryChartPanel, #secondaryChartPanel {
                 background-color: #0c1016;
                 border: 1px solid #202634;
