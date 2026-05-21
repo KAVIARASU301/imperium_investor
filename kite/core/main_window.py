@@ -671,7 +671,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self._queue_window_state_save()
 
     def _set_positions_visible(self, visible: bool):
-        self.positions_table.setVisible(visible)
+        # Hide/show the full positions pane (title + table) from View → Positions.
+        self.positions_panel.setVisible(visible)
         if not visible:
             self.app_status_bar.set_positions_metrics(False)
         self._sync_right_panel_visibility()
