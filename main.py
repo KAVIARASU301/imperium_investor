@@ -30,7 +30,7 @@ from app_paths import get_app_icon_path
 # --- Local Imports ---
 from login_setup.dual_mode_login_manager import DualModeLoginManager
 from login_setup.broker_factory import BrokerFactory, BrokerClientManager
-from login_setup.broker_modes import BrokerMode
+from login_setup.broker_modes import BrokerMode, TradingMode
 from login_setup.login_setup_config import setup_logging
 from login_setup.token_manager import EnhancedTokenManager
 
@@ -42,9 +42,8 @@ def configure_qt_startup() -> None:
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
     )
 
-    if hasattr(Qt.ApplicationAttribute, "AA_EnableHighDpiScaling"):
-        QApplication.setAttribute(Qt.ApplicationAttribute.AA_EnableHighDpiScaling, True)
-    QApplication.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps, True)
+    # Qt6 enables high-DPI scaling and high-DPI pixmaps by default.
+    # Avoid setting deprecated application attributes that trigger warnings.
 
     surface_format = QSurfaceFormat()
     surface_format.setSamples(8)
@@ -93,7 +92,15 @@ class Application:
                 data_client = None
                 broker_mode = None
 
+                auth_data = self._load_resume_auth_data_if_requested()
+                if auth_data:
+                    broker_mode = auth_data.get('broker_mode')
+                    logger.info(f"Resume session requested for broker: {broker_mode.value}")
+                    trader, data_client = self._initialize_clients(auth_data)
+
                 for attempt in range(1, max_login_attempts + 1):
+                    if auth_data:
+                        break
                     login_manager = DualModeLoginManager()
                     if not login_manager.exec():
                         logger.info("Login cancelled by user. Exiting.")
@@ -146,6 +153,35 @@ class Application:
                 logger.critical(f"An unhandled error occurred: {e}", exc_info=True)
                 self._show_critical_error(str(e))
                 sys.exit(1)
+
+    def _load_resume_auth_data_if_requested(self) -> Optional[dict]:
+        """Build auth payload from persisted Kite session when resume flag is present."""
+        if "--resume-kite-session" not in sys.argv:
+            return None
+
+        token_manager = EnhancedTokenManager()
+        session = token_manager.load_broker_session(BrokerMode.INDIA)
+        creds = token_manager.load_broker_credentials(BrokerMode.INDIA)
+        access_token = (session or {}).get("session_data", {}).get("access_token")
+        api_key = (creds or {}).get("api_key")
+
+        if not session or not creds or not access_token or not api_key:
+            logger.warning("Resume requested but no valid persisted Kite session found; falling back to login.")
+            return None
+
+        trading_mode_raw = (session or {}).get("trading_mode")
+        if trading_mode_raw == TradingMode.LIVE.value:
+            trading_mode = TradingMode.LIVE
+        else:
+            trading_mode = TradingMode.PAPER
+
+        return {
+            "broker_mode": BrokerMode.INDIA,
+            "trading_mode": trading_mode,
+            "api_key": api_key,
+            "access_token": access_token,
+            "token_manager": token_manager,
+        }
 
     def _initialize_clients(self, auth_data: dict):
         """Initializes and validates broker clients."""

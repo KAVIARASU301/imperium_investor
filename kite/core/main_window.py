@@ -5,6 +5,7 @@
 import ast
 import logging
 import os
+import sys
 import json
 import re
 from collections import deque
@@ -172,6 +173,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self._subscription_rebuild_timer.setSingleShot(True)
         self._subscription_rebuild_timer.setInterval(300)
         self._subscription_rebuild_timer.timeout.connect(self._rebuild_subscription_universe)
+        self._pending_fresh_restart = False
 
         # --- Setup Sequence ---
         self._setup_frameless_window()
@@ -1292,6 +1294,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     def _on_network_offline_ui(self):
         """Immediate UI feedback when network drops."""
         status.show_notification("Offline", "warn", 2500)
+        self._pending_fresh_restart = True
 
         if hasattr(self, "app_status_bar"):
             self.app_status_bar.set_api_status("OFFLINE")
@@ -1302,6 +1305,20 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         # Toast is shown by reconnection_manager.reconnection_started
         if hasattr(self, "app_status_bar"):
             self.app_status_bar.set_api_status("CONNECTED")
+        if self._pending_fresh_restart:
+            self._pending_fresh_restart = False
+            QTimer.singleShot(1200, self._restart_app_with_saved_session)
+
+    def _restart_app_with_saved_session(self):
+        """Fully restart app process and resume using persisted Kite session."""
+        try:
+            status.show_notification("Network restored. Restarting fresh session…", "warn", 2200)
+            QApplication.instance().quit()
+            argv = [arg for arg in sys.argv if arg != "--resume-kite-session"]
+            os.execl(sys.executable, sys.executable, *argv, "--resume-kite-session")
+        except Exception as exc:
+            logger.error(f"Failed to restart app after network recovery: {exc}", exc_info=True)
+            status.show_notification("Auto-restart failed. Please reopen app.", "error", 6000)
 
     # ==============================================================================
     # SIMPLIFIED SIGNAL CONNECTIONS
