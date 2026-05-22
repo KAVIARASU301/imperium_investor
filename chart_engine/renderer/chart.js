@@ -1029,15 +1029,22 @@ class FixedTradingChart {
         return false;
     }
 
-    _getVolumeOpacity() {
-        if (!Array.isArray(this.movingAverageConfigs) || this.movingAverageConfigs.length === 0) return 0.75;
+    _getActiveVolumeIndicatorConfig() {
+        if (!Array.isArray(this.movingAverageConfigs) || this.movingAverageConfigs.length === 0) return null;
         for (const cfg of this.movingAverageConfigs) {
-            if (!cfg || String(cfg.type || '').toLowerCase() !== 'volume') continue;
-            const key = String(cfg.id || '').trim();
+            if (!cfg || String(cfg.type || "").toLowerCase() !== "volume") continue;
+            const key = String(cfg.id || "").trim();
             if (key && this.indicatorVisibility?.[key] !== true) continue;
-            const raw = Number(cfg.volume_opacity);
-            if (Number.isFinite(raw)) return Math.max(0, Math.min(1, raw));
+            return cfg;
         }
+        return null;
+    }
+
+    _getVolumeOpacity() {
+        const cfg = this._getActiveVolumeIndicatorConfig();
+        if (!cfg) return 0.75;
+        const raw = Number(cfg.volume_opacity);
+        if (Number.isFinite(raw)) return Math.max(0, Math.min(1, raw));
         return 0.75;
     }
 
@@ -1072,7 +1079,10 @@ class FixedTradingChart {
 
         const ctx = this.ctx;
         const area = this.chartArea;
+        const volumeCfg = this._getActiveVolumeIndicatorConfig();
         const barOpacity = this._getVolumeOpacity();
+        const upColor = String(volumeCfg?.volume_bull_color || "#00c896");
+        const downColor = String(volumeCfg?.volume_bear_color || "#e84060");
         // Keep a small buffer above the time axis so labels stay visually below volume.
         const timeAxisGap = 4;
         const baseY = area.y + area.height - timeAxisGap;
@@ -1092,9 +1102,8 @@ class FixedTradingChart {
             const h = Math.max(minReadableHeight, Math.round(eased * volHeight));
             const y = baseY - h;
             const isUp = (Number(c.close) || 0) >= (Number(c.open) || 0);
-            ctx.fillStyle = isUp
-                ? `rgba(0,200,150,${barOpacity})`
-                : `rgba(232,64,96,${barOpacity})`;
+            const baseColor = isUp ? upColor : downColor;
+            ctx.fillStyle = this._hexToRgba(baseColor, barOpacity);
             ctx.fillRect(x, y, Math.max(1, this.candleWidth), h);
         }
         ctx.restore();

@@ -246,6 +246,22 @@ class IndicatorSettingsDialog(QDialog):
         self.color_btn.clicked.connect(self._pick_color)
         form.addRow(self._field_label("COLOR"), self.color_btn)
 
+        self.volume_bull_color_btn = QPushButton("PICK BULL COLOR")
+        self.volume_bull_color_btn.setObjectName("colorButton")
+        self.volume_bull_color_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self._volume_bull_color = str(self._current.get("volume_bull_color", "#00c896") or "#00c896")
+        self._apply_volume_color_style(self.volume_bull_color_btn, self._volume_bull_color, "PICK BULL COLOR")
+        self.volume_bull_color_btn.clicked.connect(lambda: self._pick_volume_color("bull"))
+        form.addRow(self._field_label("BULL BAR COLOR"), self.volume_bull_color_btn)
+
+        self.volume_bear_color_btn = QPushButton("PICK BEAR COLOR")
+        self.volume_bear_color_btn.setObjectName("colorButton")
+        self.volume_bear_color_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self._volume_bear_color = str(self._current.get("volume_bear_color", "#e84060") or "#e84060")
+        self._apply_volume_color_style(self.volume_bear_color_btn, self._volume_bear_color, "PICK BEAR COLOR")
+        self.volume_bear_color_btn.clicked.connect(lambda: self._pick_volume_color("bear"))
+        form.addRow(self._field_label("BEAR BAR COLOR"), self.volume_bear_color_btn)
+
         self.volume_opacity_spin = QDoubleSpinBox()
         self.volume_opacity_spin.setObjectName("terminalSpin")
         self.volume_opacity_spin.setRange(0.0, 1.0)
@@ -375,6 +391,42 @@ class IndicatorSettingsDialog(QDialog):
             }}
         """)
 
+
+    def _pick_volume_color(self, side: str) -> None:
+        current = self._volume_bull_color if side == "bull" else self._volume_bear_color
+        color = QColorDialog.getColor(QColor(current), self, "Pick Volume Bar Color")
+        if not color.isValid():
+            return
+        if side == "bull":
+            self._volume_bull_color = color.name()
+            self._apply_volume_color_style(self.volume_bull_color_btn, self._volume_bull_color, "PICK BULL COLOR")
+        else:
+            self._volume_bear_color = color.name()
+            self._apply_volume_color_style(self.volume_bear_color_btn, self._volume_bear_color, "PICK BEAR COLOR")
+
+    def _apply_volume_color_style(self, button: QPushButton, color: str, label: str) -> None:
+        button.setText(f"{color.upper()}  ·  {label}")
+        button.setStyleSheet(f"""
+            QPushButton#colorButton {{
+                background: {_C.BG2};
+                color: {_C.T1};
+                border: 1px solid {color};
+                border-left: 5px solid {color};
+                border-radius: 2px;
+                font-family: {_NUM};
+                font-size: 10px;
+                font-weight: 800;
+                letter-spacing: 0.6px;
+                padding: 4px 8px;
+                text-align: left;
+            }}
+            QPushButton#colorButton:hover {{
+                background: {_C.BG3};
+                border-color: {color};
+                border-left: 5px solid {color};
+            }}
+        """)
+
     def payload(self) -> Dict[str, Any]:
         return {
             "type": str(self.type_combo.currentData() or "ema"),
@@ -383,14 +435,22 @@ class IndicatorSettingsDialog(QDialog):
             "line_style": str(self.line_style_combo.currentData() or "solid"),
             "color": self._color,
             "volume_opacity": float(self.volume_opacity_spin.value()),
+            "volume_bull_color": self._volume_bull_color,
+            "volume_bear_color": self._volume_bear_color,
         }
 
     def _sync_volume_fields(self) -> None:
         is_volume = str(self.type_combo.currentData() or "").lower() == "volume"
-        self.volume_opacity_spin.setVisible(is_volume)
-        lbl = self.volume_opacity_spin.parentWidget().layout().labelForField(self.volume_opacity_spin)
-        if lbl is not None:
-            lbl.setVisible(is_volume)
+        controls = [
+            self.volume_opacity_spin,
+            self.volume_bull_color_btn,
+            self.volume_bear_color_btn,
+        ]
+        for control in controls:
+            control.setVisible(is_volume)
+            lbl = control.parentWidget().layout().labelForField(control)
+            if lbl is not None:
+                lbl.setVisible(is_volume)
 
     def _apply_styles(self) -> None:
         self.setStyleSheet(f"""
@@ -724,6 +784,8 @@ class IndicatorLibraryDialog(QDialog):
             "thickness": float(item.get("thickness", 1.2) or 1.2),
             "line_style": str(item.get("line_style") or "solid"),
             "volume_opacity": max(0.0, min(1.0, volume_opacity)),
+            "volume_bull_color": str(item.get("volume_bull_color") or "#00c896"),
+            "volume_bear_color": str(item.get("volume_bear_color") or "#e84060"),
         }
 
     def _build_section_label(self, text: str) -> QLabel:
@@ -809,7 +871,9 @@ class IndicatorLibraryDialog(QDialog):
     def _style_summary(self, item: Dict[str, Any]) -> str:
         if str(item.get("type", "")).lower() == "volume":
             opacity_pct = int(round(float(item.get("volume_opacity", 0.75) or 0.75) * 100))
-            return f"BAR OPACITY · {opacity_pct}%"
+            bull = str(item.get("volume_bull_color") or "#00c896").upper()
+            bear = str(item.get("volume_bear_color") or "#E84060").upper()
+            return f"BULL {bull} · BEAR {bear} · OPACITY {opacity_pct}%"
         thickness = float(item.get("thickness", 1.2) or 1.2)
         line_style = str(item.get("line_style") or "solid").upper()
         color = str(item.get("color") or "#00d4ff").upper()
@@ -889,6 +953,8 @@ class IndicatorLibraryDialog(QDialog):
             "thickness": catalog.default_thickness,
             "line_style": catalog.default_line_style,
             "volume_opacity": 0.75,
+            "volume_bull_color": "#00c896",
+            "volume_bear_color": "#e84060",
         })
         self._refresh_tables()
 
