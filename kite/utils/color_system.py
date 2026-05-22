@@ -122,11 +122,7 @@ class ColorThemeManager(QObject):
         return merged
 
     def _normalize_linked_sections(self, theme: Dict[str, Any]) -> None:
-        if theme.get("link_all_sections"):
-            theme["volume"]["up"] = theme["candles"]["up"]
-            theme["volume"]["down"] = theme["candles"]["down"]
-            theme["tables"]["positive"] = theme["candles"]["up"]
-            theme["tables"]["negative"] = theme["candles"]["down"]
+        return
 
 
 _theme_manager: ColorThemeManager = None
