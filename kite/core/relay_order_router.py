@@ -51,6 +51,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
+from kite.core.order_router import OrderRouteMode
 from typing import Any, Dict, List, Optional, Union
 
 import requests
@@ -69,6 +70,12 @@ class RelayConfig:
     timeout_seconds:    float = 20.0
     market_protection:  float = 5.0               # % protection for MARKET / SL-M orders
     enabled:            bool  = True              # quick kill-switch without clearing config
+    route_mode:         OrderRouteMode = OrderRouteMode.RELAY
+    auto_fallback_enabled: bool = False
+    auto_fallback_direction: str = "relay_first"
+    isp_last_known_ip: str = ""
+    isp_ip_confirmed_at: Optional[str] = None
+    isp_ip_check_interval: int = 300
 
     def __post_init__(self):
         self.url = self.url.rstrip("/")
@@ -414,6 +421,12 @@ class RelayConfigStore:
             "timeout_seconds":   cfg.timeout_seconds,
             "market_protection": cfg.market_protection,
             "enabled":           cfg.enabled,
+            "route_mode":        cfg.route_mode.value,
+            "auto_fallback_enabled": cfg.auto_fallback_enabled,
+            "auto_fallback_direction": cfg.auto_fallback_direction,
+            "isp_last_known_ip": cfg.isp_last_known_ip,
+            "isp_ip_confirmed_at": cfg.isp_ip_confirmed_at,
+            "isp_ip_check_interval": cfg.isp_ip_check_interval,
         }
         return token_manager.save_dialog_state(
             RelayConfigStore._KEY, json.dumps(data)
@@ -432,6 +445,12 @@ class RelayConfigStore:
                 timeout_seconds   = float(data.get("timeout_seconds", 20.0)),
                 market_protection = float(data.get("market_protection", 5.0)),
                 enabled           = bool(data.get("enabled", True)),
+                route_mode        = OrderRouteMode(data.get("route_mode", "relay")),
+                auto_fallback_enabled = bool(data.get("auto_fallback_enabled", False)),
+                auto_fallback_direction = str(data.get("auto_fallback_direction", "relay_first")),
+                isp_last_known_ip = str(data.get("isp_last_known_ip", "")),
+                isp_ip_confirmed_at = data.get("isp_ip_confirmed_at"),
+                isp_ip_check_interval = int(data.get("isp_ip_check_interval", 300)),
             )
         except Exception as e:
             logger.warning("Failed to load relay config: %s", e)

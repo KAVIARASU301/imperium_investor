@@ -1,83 +1,45 @@
-"""
-Relay Integration — wires RelayOrderRouter into the live Kite login flow.
-
-What this module does
-─────────────────────
-1.  _build_relay_client(auth_data, token_manager)
-        Called by broker_factory right after a live KiteConnect is created.
-        Loads RelayConfig from encrypted storage.
-        If a valid relay config exists → wraps the client in RelayOrderRouter.
-        If no relay config → returns the raw KiteConnect client unchanged.
-
-Usage (in broker_factory._create_kite_client)
-─────────────────────────────────────────────
-    from kite.core.relay_integration import build_relay_client
-    client = build_relay_client(kite_client, api_key, access_token, token_manager)
-    # client is either KiteClientWrapper or RelayOrderRouter-wrapped KiteClientWrapper
-"""
-
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
 
 log = logging.getLogger(__name__)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# PUBLIC — call from broker_factory
-# ─────────────────────────────────────────────────────────────────────────────
-
-def build_relay_client(
-    raw_kite_client,
-    api_key:       str,
-    access_token:  str,
-    token_manager,
-):
-    """
-    Wrap `raw_kite_client` in a RelayOrderRouter if a relay config is saved.
-    Returns the original client unchanged if no relay is configured.
-
-    Parameters
-    ──────────
-    raw_kite_client : KiteConnect or KiteClientWrapper
-    api_key         : Kite API key (forwarded to relay for Authorization header)
-    access_token    : Today's Kite access token (same purpose)
-    token_manager   : EnhancedTokenManager instance (provides encrypted storage)
-    """
+def build_relay_client(raw_kite_client, api_key: str, access_token: str, token_manager):
+    from kite.core.direct_order_router import DirectOrderRouter
+    from kite.core.ip_manager import IPManager
+    from kite.core.order_router import OrderRouteMode, OrderRouter
     from kite.core.relay_order_router import RelayConfigStore, RelayOrderRouter, RelayUnavailableError
 
     cfg = RelayConfigStore.load(token_manager)
-
     if cfg is None:
-        log.info("No relay config found — using direct Kite client")
+        log.info("No routing config found — using direct Kite client")
         return raw_kite_client
 
-    if not cfg.enabled:
-        log.info("Relay config present but disabled — using direct Kite client")
-        return raw_kite_client
+    ip_manager = IPManager(check_interval_seconds=cfg.isp_ip_check_interval)
+    ip_manager.start()
 
-    log.info("Relay config found: %s  market_protection=%.1f%%", cfg.url, cfg.market_protection)
-
-    # Connectivity pre-check (non-fatal — we warn but don't block login)
-    router = RelayOrderRouter(
-        kite_client   = raw_kite_client,
-        relay_config  = cfg,
-        api_key       = api_key,
-        access_token  = access_token,
+    relay_router = RelayOrderRouter(
+        kite_client=raw_kite_client,
+        relay_config=cfg,
+        api_key=api_key,
+        access_token=access_token,
     )
-    try:
-        router.check_health()
-        log.info("Relay health OK — all live orders will be routed via %s", cfg.url)
-    except RelayUnavailableError as e:
-        log.warning(
-            "Relay health check FAILED: %s\n"
-            "Live orders will fail until the relay is reachable. "
-            "Disable the relay in Settings > Relay Server to bypass.",
-            e,
-        )
-        # Still return the router — let the first actual order fail loudly
-        # rather than silently using the dynamic IP.
+    direct_router = DirectOrderRouter(raw_kite_client, ip_manager)
 
-    return router
+    if cfg.route_mode == OrderRouteMode.RELAY:
+        try:
+            relay_router.check_health()
+        except RelayUnavailableError as e:
+            log.warning("Relay health check failed: %s", e)
+        return relay_router
 
+    if cfg.route_mode == OrderRouteMode.DIRECT_ISP:
+        return direct_router
+
+    return OrderRouter(
+        mode=cfg.route_mode,
+        relay_router=relay_router,
+        direct_router=direct_router,
+        auto_direction=cfg.auto_fallback_direction,
+    )
