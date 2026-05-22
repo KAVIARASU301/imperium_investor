@@ -460,7 +460,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         tools_menu.addSeparator()
 
         tools_menu.addAction("Color Settings", self._open_color_settings_dialog)
-        tools_menu.addAction("Relay Server Settings", self._show_relay_settings_dialog)
+        tools_menu.addAction("Order Routing Settings", self._show_relay_settings_dialog)
 
         about_menu = menu_bar.addMenu("About")
         about_menu.addAction("Keyboard Shortcuts", self._show_shortcuts_reference_dialog)
@@ -894,7 +894,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     def _show_relay_settings_dialog(self):
         """Open relay settings and hot-reload an active RelayOrderRouter."""
         from kite.core.relay_order_router import _HMACSigner
-        from kite.widgets.order_router_settings import RelaySettingsDialog
+        from kite.widgets.order_routing_settings import RelaySettingsDialog
         from login_setup.token_manager import EnhancedTokenManager
 
         dialog = RelaySettingsDialog(token_manager=EnhancedTokenManager(), parent=self)

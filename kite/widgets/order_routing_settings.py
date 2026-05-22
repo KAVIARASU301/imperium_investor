@@ -1,4 +1,4 @@
-# kite/widgets/order_router_settings.py
+# kite/widgets/order_routing_settings.py
 """
 RelaySettingsWidget — compact, TC2000-dark panel for configuring the relay server.
 

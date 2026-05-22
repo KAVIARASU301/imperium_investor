@@ -41,7 +41,7 @@ except ImportError:
 from login_setup.broker_modes import BrokerMode, TradingMode, get_broker_config, get_display_config
 from login_setup.token_manager import EnhancedTokenManager
 from login_setup.ibkr_auth import IBKRAuth, is_ibkr_available
-from kite.widgets.order_router_settings import RelaySettingsDialog
+from kite.widgets.order_routing_settings import RelaySettingsDialog
 from utils.resource_path import resource_path
 
 logger = logging.getLogger(__name__)
