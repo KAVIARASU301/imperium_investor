@@ -2839,6 +2839,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         # Check positions focus
         if self._is_positions_focused(focused_widget):
+            self._set_last_spacebar_context("positions")
             self._navigate_position_symbols(direction='next')
             return
 
@@ -2894,6 +2895,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             return
 
         if self._is_positions_focused(focused_widget):
+            self._set_last_spacebar_context("positions")
             self._navigate_position_symbols(direction='previous')
             return
 
@@ -2902,6 +2904,24 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     def _set_last_spacebar_context(self, context: str):
         """Remember where the latest user mouse selection came from."""
         self._last_spacebar_context = context
+        self._clear_non_active_table_selections(context)
+
+    def _clear_non_active_table_selections(self, active_context: str):
+        """Keep row highlight visible only on the active spacebar navigation table."""
+        try:
+            scanner_table = getattr(self.chartink_scanner, "table", None)
+            if scanner_table is not None and active_context != "scanner":
+                scanner_table.clearSelection()
+
+            if active_context != "watchlist":
+                for table in getattr(self.watchlist, "_tables", {}).values():
+                    table.clearSelection()
+
+            positions_table = getattr(self.positions_table, "table", None)
+            if positions_table is not None and active_context != "positions":
+                positions_table.clearSelection()
+        except Exception as e:
+            logger.debug(f"Failed to clear non-active table selections: {e}")
 
     def _resolve_spacebar_context(self, focused_widget):
         """Resolve navigation context without letting chart focus reset table choice.
