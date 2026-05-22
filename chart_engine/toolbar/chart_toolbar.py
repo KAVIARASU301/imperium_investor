@@ -606,7 +606,7 @@ class ChartToolbar(QFrame):
 
         # ── 6. RIGHT UTILITY CLUSTER ──────────────────────────────────────
         # Snapshot
-        self.snapshot_btn = self._icon_btn("", "Capture high quality PNG snapshot  [Ctrl+S]", 28, "snapshot")
+        self.snapshot_btn = self._icon_btn("", "Capture high quality PNG snapshot  [Ctrl+S]", 24, "snapshot")
         lay.addWidget(self.snapshot_btn)
         lay.addWidget(_gap(2))
 
@@ -614,19 +614,19 @@ class ChartToolbar(QFrame):
         lay.addWidget(_gap(4))
 
         # Autoscale
-        self.autoscale_btn = self._icon_btn("", "Auto-scale  [Ctrl+A]", 28, "auto_scale")
+        self.autoscale_btn = self._icon_btn("", "Auto-scale  [Ctrl+A]", 24, "auto_scale")
         self.autoscale_btn.setCheckable(True)
         self.autoscale_btn.setChecked(False)
         lay.addWidget(self.autoscale_btn)
         lay.addWidget(_gap(2))
 
         # Refresh
-        self.refresh_btn = self._icon_btn("", "Refresh  [F5]", 28, "refresh")
+        self.refresh_btn = self._icon_btn("", "Refresh  [F5]", 24, "refresh")
         lay.addWidget(self.refresh_btn)
         lay.addWidget(_gap(2))
 
         # Settings
-        self.settings_btn = self._icon_btn("⚙", "Chart settings", 28, "settings")
+        self.settings_btn = self._icon_btn("⚙", "Chart settings", 24, "settings")
         lay.addWidget(self.settings_btn)
 
         lay.addWidget(_gap(8))
@@ -647,7 +647,7 @@ class ChartToolbar(QFrame):
         self._apply_utility_controls_visibility()
 
     @staticmethod
-    def _icon_btn(icon: str, tip: str, size: int = 28, icon_key: str = "") -> QPushButton:
+    def _icon_btn(icon: str, tip: str, size: int = 24, icon_key: str = "") -> QPushButton:
         btn = QPushButton(icon)
         if icon_key:
             btn.setText("")
@@ -683,7 +683,7 @@ class ChartToolbar(QFrame):
                 btn.setText("")
                 _apply_icon(btn, icon_key, 16)
             btn.setCheckable(True)
-            btn.setFixedSize(28, 22)
+            btn.setFixedSize(24, 20)
             btn.setToolTip(TOOL_DISPLAY.get(tool_id, tool_id))
             if self._drawing_actions.get(tool_id, QAction()).isChecked():
                 btn.setChecked(True)
@@ -749,7 +749,7 @@ class ChartToolbar(QFrame):
             btn = QPushButton(display_map.get(kite_iv, kite_iv))
             btn.setObjectName("toolBtn")
             btn.setCheckable(True)
-            btn.setFixedSize(30, 22)
+            btn.setFixedSize(28, 20)
             btn.setChecked(kite_iv == self._active_tf)
             btn.clicked.connect(lambda checked, iv=kite_iv: checked and self._on_tf_clicked(iv))
             self._tf_fav_buttons[kite_iv] = btn
@@ -1077,13 +1077,13 @@ class ChartToolbar(QFrame):
                 padding: 0;
             }}
             QToolButton#drawMenuBtn:hover {{
-                color: {P.T_BRIGHT};
-                background: rgba(255,255,255,0.06);
+                color: {P.T_MAIN};
+                background: rgba(255,255,255,0.035);
                 border-radius: 3px;
             }}
             QToolButton#drawMenuBtn:pressed, QToolButton#drawMenuBtn:open {{
-                color: {P.CYAN};
-                background: rgba(0,212,255,0.10);
+                color: #8fb3cf;
+                background: rgba(100,130,160,0.12);
             }}
             QToolButton#drawMenuBtn::menu-indicator {{
                 image: none;
@@ -1101,20 +1101,20 @@ class ChartToolbar(QFrame):
                 padding: 0;
             }}
             QPushButton#toolBtn:hover {{
-                color: {P.T_MAIN};
-                background: rgba(255,255,255,0.07);
+                color: #93abc3;
+                background: rgba(255,255,255,0.04);
             }}
             QPushButton#toolBtn:checked {{
-                color: {P.CYAN};
-                background: rgba(0,212,255,0.12);
-                border-left: 2px solid {P.CYAN};
+                color: #a4bfd8;
+                background: rgba(115,148,182,0.16);
+                border-left: 2px solid rgba(140,178,214,0.75);
             }}
 
             /* Measure button */
             QPushButton#toolBtn[toolRole="measure"]:checked {{
-                color: {P.AMBER};
-                background: rgba(251,191,36,0.10);
-                border-left: 2px solid {P.AMBER};
+                color: #b7a06f;
+                background: rgba(196,157,92,0.12);
+                border-left: 2px solid rgba(196,157,92,0.7);
             }}
 
             /* ─ COLOR BUTTON — inline style drives this, see _refresh_color_btn ─ */
@@ -1136,25 +1136,25 @@ class ChartToolbar(QFrame):
             /* ─ ICON BUTTONS (right cluster) ──────────────────────────── */
             QPushButton#iconBtn {{
                 background: transparent;
-                color: {P.T_DIM};
+                color: #5f748e;
                 border: none;
                 border-radius: 3px;
                 font-size: 14px;
-                font-weight: 700;
+                font-weight: 600;
                 padding: 0;
             }}
             QPushButton#iconBtn:hover {{
-                color: {P.T_MAIN};
-                background: rgba(255,255,255,0.07);
+                color: #8ea6bf;
+                background: rgba(255,255,255,0.035);
             }}
             QPushButton#iconBtn:pressed {{
-                color: {P.CYAN};
-                background: rgba(0,212,255,0.10);
+                color: #9cb7d0;
+                background: rgba(110,140,172,0.14);
             }}
             QPushButton#iconBtn:checked {{
-                color: {P.CYAN};
-                background: rgba(0,212,255,0.14);
-                border: 1px solid rgba(0,212,255,0.40);
+                color: #aac3db;
+                background: rgba(110,140,172,0.17);
+                border: 1px solid rgba(130,162,196,0.45);
             }}
 
             /* ─ ORDER BUTTON ──────────────────────────────────────────── */
