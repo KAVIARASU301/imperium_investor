@@ -30,6 +30,20 @@ from ibkr.core.trading_client import IBKRTradingClient
 from ibkr.utils.paper_trading_manager import IBKRPaperTradingManager
 from ibkr.widgets.status_bar import StatusBar
 
+from ibkr.widgets.pending_orders_dialog import PendingOrdersDialog
+from ibkr.widgets.pnl_history_dialog import PnlHistoryDialog
+from ibkr.widgets.floating_positions_dialog import FloatingPositionsDialog
+from ibkr.widgets.floating_watchlist_dialog import attach_floating_watchlist
+from ibkr.widgets.reconnecting_overlay import ReconnectingOverlay
+from ibkr.widgets.settings_dialog import ColorSettingsDialog
+from ibkr.widgets.stock_info_dialog import show_stock_info
+from ibkr.widgets.stop_loss_dialog import StopLossDialog
+from ibkr.widgets.alert_management_dialog import AlertManagementDialog
+try:
+    from ibkr.widgets.order_routing_settings import RelaySettingsDialog
+except Exception:
+    RelaySettingsDialog = None
+
 # Import the separate order dialog
 try:
     from ibkr.ui.order_dialog import OrderDialog
@@ -76,12 +90,19 @@ class IBKRMainWindow(QMainWindow):
         self.orders_table = None
         self.account_info_widget = None
         self.status_bar = None
+        self.pending_orders_dialog = None
+        self.pnl_history_dialog = None
+        self.floating_positions_dialog = None
+        self.floating_watchlist_dialog = None
+        self.alert_management_dialog = None
+        self.reconnect_overlay = None
 
         self._setup_ui()
         self._setup_signals()
         self._setup_timers()
         self._setup_shortcuts()
         self._load_initial_data()
+        self.reconnect_overlay = ReconnectingOverlay(self)
 
         # Window properties
         self.setWindowTitle(f"qullamaggie - IBKR Trading - {trading_mode.value.title()} Mode")
@@ -182,34 +203,17 @@ class IBKRMainWindow(QMainWindow):
         self.stock_info_shortcut_shift_i.activated.connect(self._show_stock_info_dialog)
 
     def _show_stock_info_dialog(self):
-        """Show a quick stock information dialog for the selected watchlist symbol."""
+        """Show stock information dialog for selected watchlist symbol."""
         if self.watchlist_table is None:
             return
-
         selected_rows = self.watchlist_table.selectionModel().selectedRows()
         if not selected_rows:
             QMessageBox.information(self, "Stock Info", "Select a symbol in the watchlist first.")
             return
-
-        row = selected_rows[0].row()
-        symbol_item = self.watchlist_table.item(row, 0)
+        symbol_item = self.watchlist_table.item(selected_rows[0].row(), 0)
         if symbol_item is None:
-            QMessageBox.information(self, "Stock Info", "No symbol found for the selected row.")
             return
-
-        symbol = symbol_item.text().strip().upper()
-        stock_data = self.market_data.get(symbol, {})
-
-        lines = [
-            f"Symbol: {symbol}",
-            f"Last: {stock_data.get('last_price', 'N/A')}",
-            f"Change: {stock_data.get('change', 'N/A')}",
-            f"Change %: {stock_data.get('change_percent', 'N/A')}%",
-            f"Volume: {stock_data.get('volume', 'N/A')}",
-            f"Bid: {stock_data.get('bid', 'N/A')}",
-            f"Ask: {stock_data.get('ask', 'N/A')}",
-        ]
-        QMessageBox.information(self, f"Stock Info - {symbol}", "\n".join(lines))
+        show_stock_info(symbol_item.text().strip().upper(), parent=self)
 
     def _create_menu_bar(self):
         """Create application menu bar"""
@@ -250,6 +254,39 @@ class IBKRMainWindow(QMainWindow):
             reset_action = QAction("Reset Paper Account", self)
             reset_action.triggered.connect(self._reset_paper_account)
             tools_menu.addAction(reset_action)
+
+        alert_action = QAction("Alert Management", self)
+        alert_action.triggered.connect(self._show_alert_management_dialog)
+        tools_menu.addAction(alert_action)
+
+        pending_action = QAction("Pending Orders", self)
+        pending_action.triggered.connect(self._show_pending_orders_dialog)
+        tools_menu.addAction(pending_action)
+
+        pnl_action = QAction("PnL History", self)
+        pnl_action.triggered.connect(self._show_pnl_history_dialog)
+        tools_menu.addAction(pnl_action)
+
+        float_pos_action = QAction("Floating Positions", self)
+        float_pos_action.triggered.connect(self._show_floating_positions_dialog)
+        tools_menu.addAction(float_pos_action)
+
+        float_watch_action = QAction("Floating Watchlist", self)
+        float_watch_action.triggered.connect(self._show_floating_watchlist_dialog)
+        tools_menu.addAction(float_watch_action)
+
+        color_action = QAction("Color Settings", self)
+        color_action.triggered.connect(self._show_color_settings_dialog)
+        tools_menu.addAction(color_action)
+
+        stop_loss_action = QAction("Stop Loss", self)
+        stop_loss_action.triggered.connect(self._show_stop_loss_dialog)
+        tools_menu.addAction(stop_loss_action)
+
+        if RelaySettingsDialog is not None:
+            routing_action = QAction("Order Routing", self)
+            routing_action.triggered.connect(self._show_order_routing_settings)
+            tools_menu.addAction(routing_action)
 
         refresh_action = QAction("Refresh All Data", self)
         refresh_action.triggered.connect(self._refresh_all_data)
@@ -944,6 +981,43 @@ class IBKRMainWindow(QMainWindow):
             logger.error(f"Error placing order: {e}")
             QMessageBox.critical(self, "Order Error", str(e))
 
+
+    def _show_alert_management_dialog(self):
+        self.alert_management_dialog = AlertManagementDialog(parent=self)
+        self.alert_management_dialog.show()
+
+    def _show_pending_orders_dialog(self):
+        self.pending_orders_dialog = PendingOrdersDialog(self)
+        self.pending_orders_dialog.show()
+
+    def _show_pnl_history_dialog(self):
+        self.pnl_history_dialog = PnlHistoryDialog(self)
+        self.pnl_history_dialog.show()
+
+    def _show_floating_positions_dialog(self):
+        self.floating_positions_dialog = FloatingPositionsDialog(self)
+        self.floating_positions_dialog.show()
+
+    def _show_floating_watchlist_dialog(self):
+        self.floating_watchlist_dialog = attach_floating_watchlist(self)
+        self.floating_watchlist_dialog.show()
+
+    def _show_color_settings_dialog(self):
+        dialog = ColorSettingsDialog(self)
+        dialog.exec()
+
+    def _show_stop_loss_dialog(self):
+        symbol = self.quick_symbol.text().strip().upper()
+        if not symbol:
+            QMessageBox.information(self, "Stop Loss", "Enter or select a symbol first.")
+            return
+        StopLossDialog(symbol, parent=self).exec()
+
+    def _show_order_routing_settings(self):
+        if RelaySettingsDialog is None:
+            QMessageBox.information(self, "Order Routing", "Order routing settings unavailable.")
+            return
+        RelaySettingsDialog(parent=self).exec()
 
     def _show_order_dialog(self):
         """Show advanced order dialog"""
