@@ -12,7 +12,7 @@ from collections import deque
 from datetime import datetime, timedelta
 from typing import List, Dict, Union, Any, Optional
 
-from PySide6.QtCore import Qt, QByteArray, QTimer, Slot, Signal, QEvent
+from PySide6.QtCore import Qt, QByteArray, QTimer, Slot, Signal, QEvent, QProcess
 from PySide6.QtWidgets import QMainWindow, QSplitter, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, \
     QPushButton, QLabel, QApplication, QMessageBox, QMenuBar, QSizePolicy, QDialog, QLineEdit, QGraphicsDropShadowEffect
 from PySide6.QtGui import QMouseEvent, QKeySequence, QShortcut, QKeyEvent, QAction, QColor
@@ -1307,15 +1307,25 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             self.app_status_bar.set_api_status("CONNECTED")
         if self._pending_fresh_restart:
             self._pending_fresh_restart = False
-            QTimer.singleShot(1200, self._restart_app_with_saved_session)
+            # Skip in-process reconnect orchestration and relaunch fresh session.
+            if hasattr(self, "reconnection_manager") and self.reconnection_manager:
+                self.reconnection_manager._retry_timer.stop()
+                self.reconnection_manager._reconnecting = False
+            QTimer.singleShot(600, self._restart_app_with_saved_session)
 
     def _restart_app_with_saved_session(self):
         """Fully restart app process and resume using persisted Kite session."""
         try:
             status.show_notification("Network restored. Restarting fresh session…", "warn", 2200)
-            QApplication.instance().quit()
             argv = [arg for arg in sys.argv if arg != "--resume-kite-session"]
-            os.execl(sys.executable, sys.executable, *argv, "--resume-kite-session")
+            program = sys.executable
+            arguments = [*argv, "--resume-kite-session"]
+
+            detached_ok = QProcess.startDetached(program, arguments)
+            if not detached_ok:
+                raise RuntimeError("startDetached returned False")
+
+            QApplication.instance().quit()
         except Exception as exc:
             logger.error(f"Failed to restart app after network recovery: {exc}", exc_info=True)
             status.show_notification("Auto-restart failed. Please reopen app.", "error", 6000)
