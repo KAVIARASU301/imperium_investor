@@ -152,6 +152,7 @@ class ReconnectingOverlay(QWidget):
             }}
 
             QLabel#reconnectStatusLabel {{
+                background: transparent;
                 color: {_AMBER};
                 font-family: {_UI_FONT};
                 font-size: 10px;
@@ -159,6 +160,7 @@ class ReconnectingOverlay(QWidget):
             }}
 
             QLabel#reconnectHeaderMeta {{
+                background: transparent;
                 color: {_T2};
                 font-family: {_UI_FONT};
                 font-size: 9px;
@@ -170,6 +172,7 @@ class ReconnectingOverlay(QWidget):
             }}
 
             QLabel#reconnectTitle {{
+                background: transparent;
                 color: {_T0};
                 font-family: {_UI_FONT};
                 font-size: 13px;
@@ -177,6 +180,7 @@ class ReconnectingOverlay(QWidget):
             }}
 
             QLabel#reconnectHint {{
+                background: transparent;
                 color: {_T1};
                 font-family: {_UI_FONT};
                 font-size: 11px;
@@ -203,6 +207,7 @@ class ReconnectingOverlay(QWidget):
             }}
 
             QLabel#reconnectFooterText {{
+                background: transparent;
                 color: {_T2};
                 font-family: {_UI_FONT};
                 font-size: 9px;
@@ -210,6 +215,7 @@ class ReconnectingOverlay(QWidget):
             }}
 
             QLabel#reconnectFooterAccent {{
+                background: transparent;
                 color: {_CYAN};
                 font-family: {_UI_FONT};
                 font-size: 9px;
