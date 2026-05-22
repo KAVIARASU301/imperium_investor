@@ -972,7 +972,7 @@ class ModernManageScansDialog(QDialog):
 
 
 class ScanWorker(QThread):
-    """Worker thread for Chartink scans - returns complete EOD data."""
+    """Worker thread for scanner sources - returns symbol data for table rows."""
     scan_completed = Signal(list)  # Emits list of complete symbol data
     scan_error = Signal(str)
 
@@ -982,89 +982,98 @@ class ScanWorker(QThread):
 
     def run(self):
         try:
-            clause = self.scan_url.strip()
-            if not clause:
-                raise Exception("No scan clause provided")
+            scan_query = self.scan_url.strip()
+            if not scan_query:
+                raise Exception("No scan query provided")
 
-            # Use the direct XHR method
-            with requests.Session() as s:
-                # Step 1: Get the main page to establish session
-                main_page = s.get('https://chartink.com/', timeout=30)
-                main_page.raise_for_status()
-
-                # Step 2: Get the screener page to get CSRF token
-                screener_page = s.get('https://chartink.com/screener', timeout=30)
-                screener_page.raise_for_status()
-
-                # Extract CSRF token
-                csrf_token = None
-                if 'csrf-token' in screener_page.text:
-                    import re
-                    csrf_match = re.search(r'<meta name="csrf-token" content="([^"]*)"', screener_page.text)
-                    if csrf_match:
-                        csrf_token = csrf_match.group(1)
-                    else:
-                        csrf_match = re.search(r'csrf-token["\']?\s*:\s*["\']([^"\']+)["\']', screener_page.text)
-                        if csrf_match:
-                            csrf_token = csrf_match.group(1)
-
-                if not csrf_token:
-                    raise Exception("Could not extract CSRF token from screener page")
-
-                # Step 3: Prepare the direct XHR request
-                xhr_headers = {
-                    'Accept': 'application/json, text/javascript, */*; q=0.01',
-                    'Accept-Language': 'en-US,en;q=0.9',
-                    'Cache-Control': 'no-cache',
-                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                    'Origin': 'https://chartink.com',
-                    'Pragma': 'no-cache',
-                    'Referer': 'https://chartink.com/screener',
-                    'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-                    'Sec-Ch-Ua-Mobile': '?0',
-                    'Sec-Ch-Ua-Platform': '"Linux"',
-                    'Sec-Fetch-Dest': 'empty',
-                    'Sec-Fetch-Mode': 'cors',
-                    'Sec-Fetch-Site': 'same-origin',
-                    'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'X-Csrf-Token': csrf_token,
-                    'X-Requested-With': 'XMLHttpRequest'
-                }
-
-                s.headers.update(xhr_headers)
-
-                # Step 4: Make the request
-                payload = {'scan_clause': clause}
-                process_url = 'https://chartink.com/screener/process'
-                response = s.post(process_url, data=payload, timeout=60)
-                response.raise_for_status()
-
-                # Step 5: Parse response and extract complete data
-                data = response.json()
-                results = data.get("data", [])
-
-                scan_results = []
-                for row in results:
-                    if isinstance(row, dict) and "nsecode" in row:
-                        # Extract all EOD data from Chartink
-                        symbol_data = {
-                            'symbol': row.get('nsecode', ''),
-                            'name': row.get('name', row.get('nsecode', '')),
-                            'price': float(row.get('close', 0.0)),  # EOD closing price
-                            'change_pct': float(row.get('per_chg', 0.0)),  # % change from Chartink
-                            'volume': int(row.get('volume', 0)),  # Volume from Chartink
-                            'bsecode': row.get('bsecode'),
-                            'sr': row.get('sr', 0),
-                            '_raw_data': row  # Store complete raw data for debugging
-                        }
-                        scan_results.append(symbol_data)
-
-                logger.info(f"EOD Scan completed: {len(scan_results)} symbols with complete data")
+            if "finviz.com" in scan_query.lower():
+                scan_results = self._run_finviz_scan(scan_query)
+                logger.info(f"Finviz scan completed: {len(scan_results)} symbols")
                 self.scan_completed.emit(scan_results)
+                return
+
+            scan_results = self._run_chartink_scan(scan_query)
+            logger.info(f"EOD Chartink scan completed: {len(scan_results)} symbols with complete data")
+            self.scan_completed.emit(scan_results)
 
         except Exception as e:
             logger.error(f"ScanWorker failed: {e}", exc_info=True)
             self.scan_error.emit(str(e))
+
+    def _run_chartink_scan(self, clause: str) -> List[Dict]:
+        with requests.Session() as s:
+            main_page = s.get('https://chartink.com/', timeout=30)
+            main_page.raise_for_status()
+            screener_page = s.get('https://chartink.com/screener', timeout=30)
+            screener_page.raise_for_status()
+
+            import re
+            csrf_match = re.search(r'<meta name="csrf-token" content="([^"]*)"', screener_page.text)
+            if not csrf_match:
+                csrf_match = re.search(r'csrf-token["\']?\s*:\s*["\']([^"\']+)["\']', screener_page.text)
+            if not csrf_match:
+                raise Exception("Could not extract CSRF token from screener page")
+            csrf_token = csrf_match.group(1)
+
+            s.headers.update({
+                'Accept': 'application/json, text/javascript, */*; q=0.01',
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                'Origin': 'https://chartink.com',
+                'Referer': 'https://chartink.com/screener',
+                'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'X-Csrf-Token': csrf_token,
+                'X-Requested-With': 'XMLHttpRequest'
+            })
+            response = s.post('https://chartink.com/screener/process', data={'scan_clause': clause}, timeout=60)
+            response.raise_for_status()
+            data = response.json()
+
+        scan_results = []
+        for row in data.get("data", []):
+            if isinstance(row, dict) and "nsecode" in row:
+                scan_results.append({
+                    'symbol': row.get('nsecode', ''),
+                    'name': row.get('name', row.get('nsecode', '')),
+                    'price': float(row.get('close', 0.0)),
+                    'change_pct': float(row.get('per_chg', 0.0)),
+                    'volume': int(row.get('volume', 0)),
+                    'bsecode': row.get('bsecode'),
+                    'sr': row.get('sr', 0),
+                    '_raw_data': row
+                })
+        return scan_results
+
+    def _run_finviz_scan(self, url: str) -> List[Dict]:
+        import re
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+        response = requests.get(url, headers=headers, timeout=45)
+        response.raise_for_status()
+
+        match = re.search(r'<!-- TS\n(.*?)\nTE -->', response.text, re.DOTALL)
+        if not match:
+            raise Exception("Could not parse Finviz results from page source")
+
+        results: List[Dict] = []
+        for line in match.group(1).splitlines():
+            if "|" not in line:
+                continue
+            parts = [part.strip() for part in line.split("|")]
+            symbol = parts[0].upper()
+            if not symbol.isalpha() or len(symbol) > 6:
+                continue
+            price = float(parts[1]) if len(parts) > 1 and parts[1] else 0.0
+            volume = int(float(parts[2])) if len(parts) > 2 and parts[2] else 0
+            results.append({
+                "symbol": symbol,
+                "name": symbol,
+                "price": price,
+                "change_pct": 0.0,
+                "volume": volume,
+                "_raw_data": {"source": "finviz", "raw_line": line}
+            })
+        return results
 
 
 class ChartinkScannerTable(QWidget):
