@@ -27,8 +27,8 @@ DEFAULT_COLOR_THEME: Dict[str, Any] = {
         "down": "#E84060",
     },
     "volume": {
-        "up": "#22C55E",
-        "down": "#EF4444",
+        "up": "#00C896",
+        "down": "#E84060",
     },
     "tables": {
         "positive": "#00d4a8",
@@ -122,7 +122,11 @@ class ColorThemeManager(QObject):
         return merged
 
     def _normalize_linked_sections(self, theme: Dict[str, Any]) -> None:
-        return
+        if theme.get("link_all_sections"):
+            theme["volume"]["up"] = theme["candles"]["up"]
+            theme["volume"]["down"] = theme["candles"]["down"]
+            theme["tables"]["positive"] = theme["candles"]["up"]
+            theme["tables"]["negative"] = theme["candles"]["down"]
 
 
 _theme_manager: ColorThemeManager = None

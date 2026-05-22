@@ -84,6 +84,10 @@ class ChartSettingsDialog(QDialog):
         right_form = QFormLayout()
         right_form.setSpacing(10)
 
+        # ── Candle colors ──
+        left_form.addRow("Up Candle Color:", self._color_row("up_candle_color", "#00c896"))
+        left_form.addRow("Down Candle Color:", self._color_row("down_candle_color", "#e84060"))
+
         # ── Watermark ──
         self.wm_enabled = QCheckBox("Show symbol watermark")
         self.wm_enabled.setChecked(self._s.get("watermark_enabled", True))
@@ -218,41 +222,6 @@ class ChartSettingsDialog(QDialog):
         chart_layout.addRow("Right Empty Space:", self.right_buffer_candles)
         tabs.addTab(chart_tab, "Chart")
 
-        candles_tab = QWidget()
-        candles_layout = QFormLayout(candles_tab)
-        candles_layout.setContentsMargins(8, 8, 8, 8)
-        candles_layout.setSpacing(10)
-        candles_layout.addRow("Bull Body Color:", self._color_row("up_candle_color", "#22C55E"))
-        candles_layout.addRow("Bull Wick Color:", self._color_row("up_wick_color", self._s.get("up_candle_color", "#22C55E")))
-        candles_layout.addRow("Bear Body Color:", self._color_row("down_candle_color", "#EF4444"))
-        candles_layout.addRow("Bear Wick Color:", self._color_row("down_wick_color", self._s.get("down_candle_color", "#EF4444")))
-        candles_layout.addRow("Bull Border Color:", self._color_row("up_border_color", self._s.get("up_candle_color", "#22C55E")))
-        candles_layout.addRow("Bear Border Color:", self._color_row("down_border_color", self._s.get("down_candle_color", "#EF4444")))
-
-        self.candle_wick_width = QSpinBox()
-        self.candle_wick_width.setRange(1, 5)
-        self.candle_wick_width.setValue(int(self._s.get("candle_wick_width", 1)))
-        candles_layout.addRow("Wick Width:", self.candle_wick_width)
-
-        self.candle_body_width_ratio = QDoubleSpinBox()
-        self.candle_body_width_ratio.setRange(0.2, 1.0)
-        self.candle_body_width_ratio.setSingleStep(0.05)
-        self.candle_body_width_ratio.setDecimals(2)
-        self.candle_body_width_ratio.setValue(float(self._s.get("candle_body_width_ratio", 0.65)))
-        candles_layout.addRow("Body Width Ratio:", self.candle_body_width_ratio)
-
-        self.candle_opacity = QDoubleSpinBox()
-        self.candle_opacity.setRange(0.1, 1.0)
-        self.candle_opacity.setSingleStep(0.05)
-        self.candle_opacity.setDecimals(2)
-        self.candle_opacity.setValue(float(self._s.get("candle_opacity", 1.0)))
-        candles_layout.addRow("Candle Opacity:", self.candle_opacity)
-
-        self.candle_border_enabled = QCheckBox("Enable candle body border")
-        self.candle_border_enabled.setChecked(bool(self._s.get("candle_border_enabled", False)))
-        candles_layout.addRow("Body Border:", self.candle_border_enabled)
-        tabs.addTab(candles_tab, "Candles")
-
         toggles_tab = QWidget()
         toggles_layout = QFormLayout(toggles_tab)
         toggles_layout.setContentsMargins(8, 8, 8, 8)
@@ -323,14 +292,6 @@ class ChartSettingsDialog(QDialog):
         new = {
             "up_candle_color": self._s.get("up_candle_color", "#00c896"),
             "down_candle_color": self._s.get("down_candle_color", "#e84060"),
-            "up_wick_color": self._s.get("up_wick_color", self._s.get("up_candle_color", "#22C55E")),
-            "down_wick_color": self._s.get("down_wick_color", self._s.get("down_candle_color", "#EF4444")),
-            "up_border_color": self._s.get("up_border_color", self._s.get("up_candle_color", "#22C55E")),
-            "down_border_color": self._s.get("down_border_color", self._s.get("down_candle_color", "#EF4444")),
-            "candle_wick_width": self.candle_wick_width.value(),
-            "candle_body_width_ratio": self.candle_body_width_ratio.value(),
-            "candle_opacity": self.candle_opacity.value(),
-            "candle_border_enabled": self.candle_border_enabled.isChecked(),
             "up_volume_color": self._s.get("up_volume_color", self._s.get("up_candle_color", "#00c896")),
             "down_volume_color": self._s.get("down_volume_color", self._s.get("down_candle_color", "#e84060")),
             "watermark_enabled": self.wm_enabled.isChecked(),

@@ -107,13 +107,11 @@ class FixedTradingChart {
             textBright:  '#d3d3d3',
             crosshair:   'rgba(190,190,190,0.35)',
             livePrice:   '#e5e5e5',
-            upCandle:    cfg.upCandleColor   || '#22C55E',
-            downCandle:  cfg.downCandleColor || '#EF4444',
+            upCandle:    cfg.upCandleColor   || '#00c896',
+            downCandle:  cfg.downCandleColor || '#e84060',
             dojiCandle:  '#6a6a6a',
-            upWick:      cfg.upWickColor || cfg.upCandleColor || '#22C55E',
-            downWick:    cfg.downWickColor || cfg.downCandleColor || '#EF4444',
-            upBorder:    cfg.upBorderColor || cfg.upCandleColor || '#22C55E',
-            downBorder:  cfg.downBorderColor || cfg.downCandleColor || '#EF4444',
+            upWick:      '#009e78',
+            downWick:    '#b83050',
             upOhlc:      '#6bc77f',
             downOhlc:    '#c76b88',
         };
@@ -700,11 +698,10 @@ class FixedTradingChart {
         if (visCount <= 0) return;
 
         // candleWidth is user-fixed — never recalculate to fill space.
-        const bodyWidthRatio = Math.max(0.2, Math.min(1.0, Number(this.candleBodyWidthRatio || 0.65)));
-        const bodyW = Math.max(1, this.candleWidth * bodyWidthRatio);
-        const bodyInset = Math.max(0, (this.candleWidth - bodyW) / 2);
-        const wickW = this._snapStrokeWidth(Math.max(1, Number(this.candleWickWidth || 1)));
-        const drawBorder = this.candleBorderEnabled === true;
+        const bodyInset = this.candleWidth >= 8 ? 0.5 : 0.25;
+        const bodyW     = Math.max(1, this.candleWidth - bodyInset * 2);
+        const wickW     = this._snapStrokeWidth(this.candleWidth >= 7 ? 1.5 : 1);
+        const drawBorder = this.candleWidth >= 6;
 
         ctx.lineJoin = 'miter';
         ctx.lineCap  = 'butt';
@@ -723,7 +720,7 @@ class FixedTradingChart {
             const isUp   = c.close > c.open;
             const col    = isDoji ? this.colors.dojiCandle : (isUp ? this.colors.upCandle : this.colors.downCandle);
             const wick   = isDoji ? this.colors.dojiCandle : (isUp ? this.colors.upWick : this.colors.downWick);
-            const brdr   = isDoji ? this.colors.dojiCandle : (isUp ? this.colors.upBorder : this.colors.downBorder);
+            const brdr   = wick;
             const cx    = x + this.candleWidth / 2;
 
             // Wick
@@ -739,10 +736,8 @@ class FixedTradingChart {
             const bodyH  = Math.max(1, Math.abs(closeY - openY));
             const bx     = x + bodyInset;
 
-            ctx.globalAlpha = Math.max(0.1, Math.min(1.0, Number(this.candleOpacity || 1)));
             ctx.fillStyle = col;
             ctx.fillRect(bx, topY, bodyW, bodyH);
-            ctx.globalAlpha = 1;
 
             if (drawBorder) {
                 ctx.strokeStyle = brdr;
@@ -3443,14 +3438,6 @@ class FixedTradingChart {
     setChartSettings(cfg) {
         if (cfg.upCandleColor)   this.colors.upCandle   = cfg.upCandleColor;
         if (cfg.downCandleColor) this.colors.downCandle = cfg.downCandleColor;
-        if (cfg.upWickColor)     this.colors.upWick     = cfg.upWickColor;
-        if (cfg.downWickColor)   this.colors.downWick   = cfg.downWickColor;
-        if (cfg.upBorderColor)   this.colors.upBorder   = cfg.upBorderColor;
-        if (cfg.downBorderColor) this.colors.downBorder = cfg.downBorderColor;
-        if (cfg.candleWickWidth !== undefined) this.candleWickWidth = cfg.candleWickWidth;
-        if (cfg.candleBodyWidthRatio !== undefined) this.candleBodyWidthRatio = cfg.candleBodyWidthRatio;
-        if (cfg.candleOpacity !== undefined) this.candleOpacity = cfg.candleOpacity;
-        if (cfg.candleBorderEnabled !== undefined) this.candleBorderEnabled = cfg.candleBorderEnabled === true;
         const slotChanged = (cfg.candleWidth && cfg.candleWidth !== this.candleWidth) ||
                             (cfg.candleSpacing !== undefined && cfg.candleSpacing !== this.candleSpacing);
         if (cfg.candleWidth)                    this.candleWidth   = cfg.candleWidth;

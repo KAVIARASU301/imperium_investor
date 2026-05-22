@@ -130,16 +130,8 @@ class CandlestickChart(QWidget):
         self.global_chart_settings = self.drawing_storage.load_global_settings()
         self._restore_drawing_style_from_settings()
 
-        self._current_up_color          = self.global_chart_settings.get("up_candle_color",   "#22C55E")
-        self._current_down_color        = self.global_chart_settings.get("down_candle_color", "#EF4444")
-        self._current_up_wick_color     = self.global_chart_settings.get("up_wick_color", self._current_up_color)
-        self._current_down_wick_color   = self.global_chart_settings.get("down_wick_color", self._current_down_color)
-        self._current_up_border_color   = self.global_chart_settings.get("up_border_color", self._current_up_color)
-        self._current_down_border_color = self.global_chart_settings.get("down_border_color", self._current_down_color)
-        self._current_candle_wick_width = int(self.global_chart_settings.get("candle_wick_width", 1))
-        self._current_candle_body_width_ratio = float(self.global_chart_settings.get("candle_body_width_ratio", 0.65))
-        self._current_candle_opacity = float(self.global_chart_settings.get("candle_opacity", 1.0))
-        self._current_candle_border_enabled = bool(self.global_chart_settings.get("candle_border_enabled", False))
+        self._current_up_color          = self.global_chart_settings.get("up_candle_color",   "#00c896")
+        self._current_down_color        = self.global_chart_settings.get("down_candle_color", "#e84060")
         self._current_volume_up_color   = self.global_chart_settings.get("up_volume_color",   "#00c896")
         self._current_volume_down_color = self.global_chart_settings.get("down_volume_color", "#e84060")
         self._current_candle_width      = self.global_chart_settings.get("candle_width",   7)
@@ -1400,14 +1392,6 @@ class CandlestickChart(QWidget):
             "default_visible_candles": self.current_visible_candle_count,
             "up_candle_color":        self._current_up_color,
             "down_candle_color":      self._current_down_color,
-            "up_wick_color":          self._current_up_wick_color,
-            "down_wick_color":        self._current_down_wick_color,
-            "up_border_color":        self._current_up_border_color,
-            "down_border_color":      self._current_down_border_color,
-            "candle_wick_width":      self._current_candle_wick_width,
-            "candle_body_width_ratio": self._current_candle_body_width_ratio,
-            "candle_opacity":         self._current_candle_opacity,
-            "candle_border_enabled":  self._current_candle_border_enabled,
             "up_volume_color":        self._current_volume_up_color,
             "down_volume_color":      self._current_volume_down_color,
             "watermark_enabled":      self._watermark_enabled,
@@ -1441,14 +1425,6 @@ class CandlestickChart(QWidget):
         self._right_buffer_candles     = int(s.get("right_buffer_candles", self._right_buffer_candles))
         self._current_up_color           = s.get("up_candle_color", self._current_up_color)
         self._current_down_color         = s.get("down_candle_color", self._current_down_color)
-        self._current_up_wick_color      = s.get("up_wick_color", self._current_up_wick_color)
-        self._current_down_wick_color    = s.get("down_wick_color", self._current_down_wick_color)
-        self._current_up_border_color    = s.get("up_border_color", self._current_up_border_color)
-        self._current_down_border_color  = s.get("down_border_color", self._current_down_border_color)
-        self._current_candle_wick_width  = int(s.get("candle_wick_width", self._current_candle_wick_width))
-        self._current_candle_body_width_ratio = float(s.get("candle_body_width_ratio", self._current_candle_body_width_ratio))
-        self._current_candle_opacity     = float(s.get("candle_opacity", self._current_candle_opacity))
-        self._current_candle_border_enabled = bool(s.get("candle_border_enabled", self._current_candle_border_enabled))
         self._current_volume_up_color    = s.get("up_volume_color",   self._current_up_color)
         self._current_volume_down_color  = s.get("down_volume_color", self._current_down_color)
         self._watermark_enabled          = s.get("watermark_enabled",  self._watermark_enabled)
@@ -1492,14 +1468,6 @@ class CandlestickChart(QWidget):
                 "rightBufferCandles": self._right_buffer_candles,
                 "upCandleColor":    self._current_up_color,
                 "downCandleColor":  self._current_down_color,
-                "upWickColor":      self._current_up_wick_color,
-                "downWickColor":    self._current_down_wick_color,
-                "upBorderColor":    self._current_up_border_color,
-                "downBorderColor":  self._current_down_border_color,
-                "candleWickWidth":  self._current_candle_wick_width,
-                "candleBodyWidthRatio": self._current_candle_body_width_ratio,
-                "candleOpacity":    self._current_candle_opacity,
-                "candleBorderEnabled": self._current_candle_border_enabled,
                 "upVolumeColor":    self._current_volume_up_color,
                 "downVolumeColor":  self._current_volume_down_color,
                 "watermarkEnabled": self._watermark_enabled,
