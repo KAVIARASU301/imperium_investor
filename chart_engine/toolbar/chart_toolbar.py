@@ -1023,11 +1023,11 @@ class ChartToolbar(QFrame):
                 background: transparent;
             }}
             QLabel#symbolBadge {{
-                color: #b7cff8;
-                font-family: "Inter", "Segoe UI", "SF Pro Text", "Helvetica Neue", sans-serif;
+                color: #f2ede3;
+                font-family: "SF Pro Text", "Inter", "Segoe UI", "Helvetica Neue", sans-serif;
                 font-size: 13px;
-                font-weight: 700;
-                letter-spacing: 0.2px;
+                font-weight: 400;
+                letter-spacing: 0.1px;
                 padding: 0 6px 0 0;
                 background: transparent;
                 min-width: 50px;
