@@ -14,7 +14,7 @@ Features
   • Direct ISP public IP lookup with one-click clipboard copy
   • Kite developer profile shortcut for pasting the IP
   • Live connection test with latency readout
-  • Save / Clear buttons (encrypted via EnhancedTokenManager)
+  • Save / Close buttons (encrypted via EnhancedTokenManager)
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ _BG3 = "#141920"      # Hover/inner surface
 _BG4 = "#1a2030"      # Thin borders
 _BGTB = "#070a0f"     # Title/footer bars
 _BULL = "#00d4a8"     # Success / enabled
-_BEAR = "#ff4d6a"     # Danger / clear / error
+_BEAR = "#ff4d6a"     # Danger / error
 _AMBER = "#f59e0b"    # Active / warning / selected
 _CYAN = "#00d4ff"     # Info / utility
 _BLUE = "#3b82f6"     # Link/action
@@ -95,42 +95,24 @@ class _HealthCheckWorker(QThread):
 
 
 class _IpLookupWorker(QThread):
-    result = Signal(bool, str)  # ok, ip_or_message
+    result = Signal(bool, str, str)  # ok, ipv4, ipv6_or_message
 
-    _ENDPOINTS = (
+    _IPV4_ENDPOINTS = (
         "https://api4.ipify.org?format=json",
-        "https://api.ipify.org?format=json",
-        "https://icanhazip.com",
-        "https://checkip.amazonaws.com",
+        "https://ipv4.icanhazip.com",
+    )
+    _IPV6_ENDPOINTS = (
+        "https://api6.ipify.org?format=json",
+        "https://ipv6.icanhazip.com",
     )
 
     def run(self):
-        import requests
-        last_error = "DIRECT ISP IP LOOKUP FAILED"
-        for url in self._ENDPOINTS:
-            try:
-                resp = requests.get(url, timeout=3)
-                if resp.status_code != 200:
-                    last_error = f"IP LOOKUP HTTP {resp.status_code}"
-                    continue
-
-                content_type = str(resp.headers.get("Content-Type", "")).lower()
-                if "json" in content_type:
-                    ip = str((resp.json() or {}).get("ip", "")).strip()
-                else:
-                    ip = str(resp.text or "").strip()
-
-                if self._is_ipv4(ip):
-                    self.result.emit(True, ip)
-                    return
-                if ip:
-                    last_error = f"NON-IPv4 ADDRESS RETURNED: {ip}"
-            except requests.Timeout:
-                last_error = "DIRECT ISP IP LOOKUP TIMED OUT"
-            except Exception as e:
-                last_error = str(e)[:80] or last_error
-
-        self.result.emit(False, last_error.upper())
+        ipv4 = self._lookup_ip(self._IPV4_ENDPOINTS, want_ipv6=False)
+        ipv6 = self._lookup_ip(self._IPV6_ENDPOINTS, want_ipv6=True)
+        if ipv4 or ipv6:
+            self.result.emit(True, ipv4, ipv6)
+            return
+        self.result.emit(False, "", "DIRECT ISP IP LOOKUP FAILED")
 
 
     @staticmethod
@@ -139,6 +121,35 @@ class _IpLookupWorker(QThread):
             return isinstance(ipaddress.ip_address(value), ipaddress.IPv4Address)
         except Exception:
             return False
+
+    @staticmethod
+    def _is_ipv6(value: str) -> bool:
+        try:
+            return isinstance(ipaddress.ip_address(value), ipaddress.IPv6Address)
+        except Exception:
+            return False
+
+    def _lookup_ip(self, endpoints: tuple[str, ...], want_ipv6: bool) -> str:
+        import requests
+
+        validator = self._is_ipv6 if want_ipv6 else self._is_ipv4
+        for url in endpoints:
+            try:
+                resp = requests.get(url, timeout=3)
+                if resp.status_code != 200:
+                    continue
+
+                content_type = str(resp.headers.get("Content-Type", "")).lower()
+                if "json" in content_type:
+                    ip = str((resp.json() or {}).get("ip", "")).strip()
+                else:
+                    ip = str(resp.text or "").strip()
+
+                if validator(ip):
+                    return ip
+            except Exception:
+                continue
+        return ""
 
 # ─────────────────────────────────────────────────────────────────────────────
 # RELAY SETTINGS WIDGET
@@ -297,7 +308,7 @@ class RelaySettingsWidget(QWidget):
         ip_panel = QFrame()
         ip_panel.setObjectName("relayIpPanel")
         ip_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        ip_panel.setMinimumHeight(68)
+        ip_panel.setMinimumHeight(112)
         ip_lay = QVBoxLayout(ip_panel)
         ip_lay.setContentsMargins(8, 7, 8, 7)
         ip_lay.setSpacing(6)
@@ -309,6 +320,14 @@ class RelaySettingsWidget(QWidget):
         ip_top.addWidget(ip_title)
         ip_top.addStretch()
 
+        self._ip_refresh_btn = QPushButton("↻")
+        self._ip_refresh_btn.setObjectName("relayIconBtn")
+        self._ip_refresh_btn.setFixedSize(26, 24)
+        self._ip_refresh_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        self._ip_refresh_btn.setToolTip("Refresh Direct ISP IP.")
+        self._ip_refresh_btn.clicked.connect(self._refresh_ip_label)
+        ip_top.addWidget(self._ip_refresh_btn)
+
         self._kite_profile_btn = QPushButton("KITE PROFILE ↗")
         self._kite_profile_btn.setObjectName("relayInfoBtn")
         self._kite_profile_btn.setFixedHeight(24)
@@ -318,30 +337,23 @@ class RelaySettingsWidget(QWidget):
         ip_top.addWidget(self._kite_profile_btn)
         ip_lay.addLayout(ip_top)
 
-        ip_value_row = QHBoxLayout()
-        ip_value_row.setContentsMargins(0, 0, 0, 0)
-        ip_value_row.setSpacing(6)
-        self._ip_lbl = QLabel("--")
-        self._ip_lbl.setObjectName("relayIpValue")
-        self._ip_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        ip_value_row.addWidget(self._ip_lbl, 1)
+        self._ipv4_input, self._ipv4_copy_btn = self._ip_value_row(
+            ip_lay,
+            label="IPv4",
+            tooltip="Copy IPv4 Direct ISP IP to clipboard.",
+            copy_handler=lambda: self._copy_ip_to_clipboard("ipv4"),
+        )
+        self._ipv6_input, self._ipv6_copy_btn = self._ip_value_row(
+            ip_lay,
+            label="IPv6",
+            tooltip="Copy IPv6 Direct ISP IP to clipboard.",
+            copy_handler=lambda: self._copy_ip_to_clipboard("ipv6"),
+        )
 
-        self._ip_copy_btn = QPushButton("COPY")
-        self._ip_copy_btn.setObjectName("relayCopyBtn")
-        self._ip_copy_btn.setFixedSize(54, 24)
-        self._ip_copy_btn.setCursor(QCursor(Qt.PointingHandCursor))
-        self._ip_copy_btn.setToolTip("Copy Direct ISP IP to clipboard.")
-        self._ip_copy_btn.clicked.connect(self._copy_ip_to_clipboard)
-        ip_value_row.addWidget(self._ip_copy_btn)
-
-        self._ip_refresh_btn = QPushButton("↻")
-        self._ip_refresh_btn.setObjectName("relayIconBtn")
-        self._ip_refresh_btn.setFixedSize(26, 24)
-        self._ip_refresh_btn.setCursor(QCursor(Qt.PointingHandCursor))
-        self._ip_refresh_btn.setToolTip("Refresh Direct ISP IP.")
-        self._ip_refresh_btn.clicked.connect(self._refresh_ip_label)
-        ip_value_row.addWidget(self._ip_refresh_btn)
-        ip_lay.addLayout(ip_value_row)
+        ip_note = QLabel("Paste the matching IP in Kite whitelist. IPv6 usually works more reliably on Direct ISP.")
+        ip_note.setObjectName("relayHint")
+        ip_note.setWordWrap(True)
+        ip_lay.addWidget(ip_note)
         card_lay.addWidget(ip_panel)
 
         # ── Status bar ───────────────────────────────────────────────────────
@@ -359,19 +371,19 @@ class RelaySettingsWidget(QWidget):
         btn_row.setSpacing(8)
         btn_row.addStretch()
 
-        self._clear_btn = QPushButton("CLEAR")
-        self._clear_btn.setObjectName("relayClearBtn")
-        self._clear_btn.setFixedHeight(28)
-        self._clear_btn.setCursor(QCursor(Qt.PointingHandCursor))
-        self._clear_btn.clicked.connect(self._clear_config)
-        btn_row.addWidget(self._clear_btn)
-
         self._save_btn = QPushButton("SAVE CONFIG")
         self._save_btn.setObjectName("relaySaveBtn")
         self._save_btn.setFixedHeight(28)
         self._save_btn.setCursor(QCursor(Qt.PointingHandCursor))
         self._save_btn.clicked.connect(self._save_config)
         btn_row.addWidget(self._save_btn)
+
+        self._close_btn = QPushButton("CLOSE")
+        self._close_btn.setObjectName("relayCloseBtn")
+        self._close_btn.setFixedHeight(28)
+        self._close_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        self._close_btn.clicked.connect(self._close_panel)
+        btn_row.addWidget(self._close_btn)
 
         card_lay.addLayout(btn_row)
 
@@ -388,6 +400,36 @@ class RelaySettingsWidget(QWidget):
         btn.setCursor(QCursor(Qt.PointingHandCursor))
         btn.setToolTip(tooltip)
         return btn
+
+    def _ip_value_row(self, parent_lay: QVBoxLayout, label: str, tooltip: str, copy_handler):
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6)
+
+        type_lbl = QLabel(label)
+        type_lbl.setObjectName("relayIpType")
+        type_lbl.setFixedWidth(34)
+        type_lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        row.addWidget(type_lbl)
+
+        ip_field = QLineEdit("--")
+        ip_field.setObjectName("relayIpField")
+        ip_field.setReadOnly(True)
+        ip_field.setCursorPosition(0)
+        ip_field.setToolTip(tooltip.replace("Copy", "Select or copy"))
+        ip_field.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        row.addWidget(ip_field, 1)
+
+        copy_btn = QPushButton("COPY")
+        copy_btn.setObjectName("relayCopyBtn")
+        copy_btn.setFixedSize(54, 24)
+        copy_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        copy_btn.setToolTip(tooltip)
+        copy_btn.clicked.connect(copy_handler)
+        row.addWidget(copy_btn)
+
+        parent_lay.addLayout(row)
+        return ip_field, copy_btn
 
     # ─────────────────────────────────────────────────────────────────────────
     # STYLES
@@ -458,7 +500,18 @@ class RelaySettingsWidget(QWidget):
                 padding:0;
             }}
 
-            QLabel#relayIpValue {{
+            QLabel#relayIpType {{
+                color:{_T2};
+                font-family:{_UI_FONT};
+                font-size:9px;
+                font-weight:800;
+                letter-spacing:0.8px;
+                background:transparent;
+                border:none;
+                padding:0;
+            }}
+
+            QLineEdit#relayIpField {{
                 background:{_BG1};
                 color:{_T0};
                 border:1px solid {_BG4};
@@ -466,8 +519,17 @@ class RelaySettingsWidget(QWidget):
                 font-family:{_NUM_FONT};
                 font-size:12px;
                 font-weight:700;
-                padding:4px 8px;
-                min-height:14px;
+                padding:3px 8px;
+                min-height:16px;
+                selection-background-color:{_SEL};
+            }}
+            QLineEdit#relayIpField:hover {{
+                background:{_BG3};
+                border-color:{_T3};
+            }}
+            QLineEdit#relayIpField:focus {{
+                background:{_BG3};
+                border-color:{_CYAN};
             }}
 
             QLabel#relayStatus {{
@@ -650,22 +712,6 @@ class RelaySettingsWidget(QWidget):
                 background:transparent;
             }}
 
-            QPushButton#relayClearBtn {{
-                background:transparent;
-                color:{_BEAR};
-                border:1px solid rgba(255,77,106,0.60);
-                border-radius:2px;
-                font-family:{_UI_FONT};
-                font-size:10px;
-                font-weight:800;
-                padding:0 16px;
-                letter-spacing:0.5px;
-            }}
-            QPushButton#relayClearBtn:hover {{
-                background:rgba(255,77,106,0.10);
-                border-color:{_BEAR};
-            }}
-
             QPushButton#relaySaveBtn {{
                 background:{_BULL};
                 color:{_BG0};
@@ -680,6 +726,23 @@ class RelaySettingsWidget(QWidget):
             QPushButton#relaySaveBtn:hover {{
                 background:#25e5bb;
                 border-color:#25e5bb;
+            }}
+
+            QPushButton#relayCloseBtn {{
+                background:transparent;
+                color:{_T1};
+                border:1px solid {_BG4};
+                border-radius:2px;
+                font-family:{_UI_FONT};
+                font-size:10px;
+                font-weight:800;
+                padding:0 16px;
+                letter-spacing:0.5px;
+            }}
+            QPushButton#relayCloseBtn:hover {{
+                color:{_T0};
+                background:{_BG3};
+                border-color:{_T3};
             }}
         """)
 
@@ -772,16 +835,17 @@ class RelaySettingsWidget(QWidget):
         if target_w > current.width() or target_h > current.height():
             host.resize(target_w, target_h)
 
-    def _copy_ip_to_clipboard(self):
-        ip = self._extract_ip_text()
+    def _copy_ip_to_clipboard(self, version: Optional[str] = None):
+        ip = self._ip_value(version) if version else self._extract_ip_text()
+        label = (version or "direct ISP IP").upper()
         if not ip:
-            self._set_status("NO DIRECT ISP IP AVAILABLE TO COPY.", _AMBER)
+            self._set_status(f"NO {label} AVAILABLE TO COPY.", _AMBER)
             return
 
         clipboard = QApplication.clipboard()
         if clipboard:
             clipboard.setText(ip)
-            self._set_status("DIRECT ISP IP COPIED TO CLIPBOARD.", _BULL)
+            self._set_status(f"{label} COPIED TO CLIPBOARD.", _BULL)
         else:
             self._set_status("CLIPBOARD IS NOT AVAILABLE.", _BEAR)
 
@@ -794,7 +858,6 @@ class RelaySettingsWidget(QWidget):
 
     def _save_config(self):
         from kite.core.relay_order_router import RelayConfig, RelayConfigStore
-        from kite.core.order_router import OrderRouteMode
 
         url = self._url_input.text().strip()
         secret = self._secret_input.text().strip()
@@ -847,18 +910,18 @@ class RelaySettingsWidget(QWidget):
         self._set_status("✓ RELAY CONFIG SAVED (ENCRYPTED).", _BULL)
         log.info("Relay config saved: %s  enabled=%s", url, cfg.enabled)
 
-    def _clear_config(self):
-        from kite.core.relay_order_router import RelayConfigStore
-        self._url_input.clear()
-        self._secret_input.clear()
-        self._mp_spin.setValue(5.0)
-        self._enabled_chk.setChecked(True)
-        self._mode_relay.setChecked(True)
-        self._sync_route_controls()
-        if self._token_manager:
-            RelayConfigStore.clear(self._token_manager)
-        self.config_changed.emit(None)
-        self._set_status("RELAY CONFIG CLEARED.", _T2)
+    def _close_panel(self):
+        """Close the host dialog/window without changing any saved config."""
+        host = self.window()
+        if isinstance(host, QDialog):
+            host.reject()
+            return
+
+        if host is not None and host is not self:
+            host.close()
+            return
+
+        self.close()
 
     def _load_saved(self):
         from kite.core.relay_order_router import RelayConfigStore
@@ -875,7 +938,10 @@ class RelaySettingsWidget(QWidget):
             else:
                 self._mode_relay.setChecked(True)
             if cfg.isp_last_known_ip:
-                self._ip_lbl.setText(cfg.isp_last_known_ip)
+                if ":" in cfg.isp_last_known_ip:
+                    self._set_ip_values(ipv6=cfg.isp_last_known_ip)
+                else:
+                    self._set_ip_values(ipv4=cfg.isp_last_known_ip)
             log.info("Loaded relay config from storage: %s", cfg.url)
         self._sync_route_controls()
         self._refresh_ip_label(silent=True)
@@ -911,11 +977,30 @@ class RelaySettingsWidget(QWidget):
             return OrderRouteMode.AUTO
         return OrderRouteMode.RELAY
 
-    def _extract_ip_text(self) -> str:
-        text = self._ip_lbl.text().replace("Public IP:", "").strip()
-        if text in ("--", "LOOKUP...", "FETCHING..."):
+    def _clean_ip_text(self, value: str) -> str:
+        value = (value or "").strip()
+        if value in ("", "--", "LOOKUP...", "FETCHING..."):
             return ""
-        return text
+        return value
+
+    def _ip_value(self, version: Optional[str]) -> str:
+        if version == "ipv4":
+            return self._clean_ip_text(self._ipv4_input.text())
+        if version == "ipv6":
+            return self._clean_ip_text(self._ipv6_input.text())
+        return ""
+
+    def _set_ip_values(self, ipv4: str = "", ipv6: str = ""):
+        self._ipv4_input.setText(ipv4 or "--")
+        self._ipv6_input.setText(ipv6 or "--")
+        self._ipv4_input.setCursorPosition(0)
+        self._ipv6_input.setCursorPosition(0)
+
+    def _extract_ip_text(self) -> str:
+        # Stored for backward compatibility with RelayConfig's single IP field.
+        # Prefer IPv6 because Kite/IP whitelisting is usually more reliable with it
+        # on consumer ISPs, but still fall back to IPv4.
+        return self._ip_value("ipv6") or self._ip_value("ipv4")
 
     def _refresh_ip_label(self, silent: bool = False):
         if self._ip_worker and self._ip_worker.isRunning():
@@ -924,27 +1009,31 @@ class RelaySettingsWidget(QWidget):
         self._ip_refresh_silent = bool(silent)
         has_existing_ip = bool(self._extract_ip_text())
         if not silent or not has_existing_ip:
-            self._ip_lbl.setText("LOOKUP...")
+            self._set_ip_values("LOOKUP...", "LOOKUP...")
 
         self._ip_refresh_btn.setEnabled(False)
         self._ip_refresh_btn.setText("...")
+        self._ipv4_copy_btn.setEnabled(False)
+        self._ipv6_copy_btn.setEnabled(False)
 
         self._ip_worker = _IpLookupWorker()
         self._ip_worker.result.connect(self._on_ip_lookup_result)
         self._ip_worker.start()
 
-    def _on_ip_lookup_result(self, ok: bool, payload: str):
+    def _on_ip_lookup_result(self, ok: bool, ipv4: str, payload: str):
         self._ip_refresh_btn.setEnabled(True)
         self._ip_refresh_btn.setText("↻")
+        self._ipv4_copy_btn.setEnabled(True)
+        self._ipv6_copy_btn.setEnabled(True)
 
         if ok:
-            self._ip_lbl.setText(payload)
+            ipv6 = payload
+            self._set_ip_values(ipv4=ipv4, ipv6=ipv6)
             if not self._ip_refresh_silent:
                 self._set_status("DIRECT ISP IP REFRESHED.", _CYAN)
             return
 
-        if not self._extract_ip_text():
-            self._ip_lbl.setText("--")
+        self._set_ip_values()
         if not self._ip_refresh_silent:
             self._set_status(payload or "DIRECT ISP IP LOOKUP FAILED.", _AMBER)
 
