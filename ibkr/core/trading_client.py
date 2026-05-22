@@ -199,6 +199,9 @@ class IBKRTradingClient(QObject, BrokerClientInterface):
             exchange: Exchange (default: SMART)
         """
         try:
+            if not self.ib or not self.ib.isConnected():
+                return {'error': 'IBKR client is not connected'}
+
             # Use data converter to prepare order parameters
             order_params = prepare_order_for_ibkr(kwargs)
 
@@ -211,8 +214,12 @@ class IBKRTradingClient(QObject, BrokerClientInterface):
             if not symbol or quantity <= 0:
                 return {'error': 'Invalid symbol or quantity'}
 
-            # Create contract
+            # Create and qualify contract so order routing is deterministic
             contract = Stock(symbol, exchange, order_params['currency'])
+            qualified_contracts = self.ib.qualifyContracts(contract)
+            if not qualified_contracts:
+                return {'error': f'Unable to qualify contract for symbol {symbol}'}
+            contract = qualified_contracts[0]
 
             # Create order based on type
             if order_type in ['MARKET', 'MKT']:
@@ -236,16 +243,34 @@ class IBKRTradingClient(QObject, BrokerClientInterface):
 
             # Place the order
             trade = self.ib.placeOrder(contract, order)
+            if not trade:
+                return {'error': 'Failed to place order with IBKR'}
+
+            # Drive an initial placement cycle so callers receive an accurate
+            # first status (instead of always reporting OPEN).
+            for _ in range(10):
+                status = getattr(trade.orderStatus, 'status', '')
+                if status and status not in {'PendingSubmit', 'ApiPending'}:
+                    break
+                self.ib.waitOnUpdate(timeout=0.2)
+
+            normalized_status = IBKRDataConverter.normalize_order_status(
+                getattr(trade.orderStatus, 'status', 'PendingSubmit')
+            )
+            filled = float(getattr(trade.orderStatus, 'filled', 0) or 0)
+            avg_fill_price = float(getattr(trade.orderStatus, 'avgFillPrice', 0) or 0)
 
             # Return order confirmation in standard format
             return {
                 'order_id': str(trade.order.orderId),
-                'status': 'OPEN',  # Normalize status
+                'status': normalized_status,
                 'symbol': symbol,
                 'quantity': quantity,
+                'filled_quantity': int(filled),
                 'order_type': IBKRDataConverter.normalize_order_type(order_type),
                 'transaction_type': action,
                 'price': order_params.get('limit_price') or order_params.get('stop_price'),
+                'average_price': avg_fill_price,
                 'timestamp': datetime.now().isoformat(),
                 'exchange': exchange,
                 'product': 'IBKR'
