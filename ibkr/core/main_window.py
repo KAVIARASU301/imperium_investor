@@ -28,6 +28,7 @@ except ImportError:
 from login_setup.broker_modes import BrokerMode, TradingMode
 from ibkr.core.trading_client import IBKRTradingClient
 from ibkr.utils.paper_trading_manager import IBKRPaperTradingManager
+from ibkr.widgets.status_bar import StatusBar
 
 # Import the separate order dialog
 try:
@@ -165,6 +166,11 @@ class IBKRMainWindow(QMainWindow):
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("Ready")
+
+        self.bottom_status = StatusBar(self)
+        self.status_bar.addPermanentWidget(self.bottom_status, 1)
+        self.bottom_status.set_market_status("--")
+        self.bottom_status.set_api_status("DISCONNECTED")
 
 
     def _setup_shortcuts(self):
@@ -512,6 +518,11 @@ class IBKRMainWindow(QMainWindow):
         self.account_timer.timeout.connect(self._refresh_account_info)
         self.account_timer.start(60000)
 
+        # Keep watchlist rows fresh even when events are sparse (esp. paper mode)
+        self.market_timer = QTimer()
+        self.market_timer.timeout.connect(self._refresh_watchlist_market_data)
+        self.market_timer.start(1500)
+
 
     def _load_initial_data(self):
         """Load initial data on startup"""
@@ -549,6 +560,8 @@ class IBKRMainWindow(QMainWindow):
         self.market_data[symbol] = market_data
         self._update_watchlist_display()
         self._update_market_data_display()
+        if hasattr(self, "bottom_status"):
+            self.bottom_status.set_market_status("OPEN")
 
 
     def _on_account_update(self, account_data: Dict[str, Any]):
@@ -571,17 +584,23 @@ class IBKRMainWindow(QMainWindow):
         if connected:
             self.connection_label.setText("🟢 Connected")
             self.connection_label.setStyleSheet("color: green;")
+            if hasattr(self, "bottom_status"):
+                self.bottom_status.set_api_status("CONNECTED")
         else:
             self.connection_label.setText("🔴 Disconnected")
             self.connection_label.setStyleSheet("color: red;")
+            if hasattr(self, "bottom_status"):
+                self.bottom_status.set_api_status("DISCONNECTED")
 
 
     def _refresh_positions(self):
         """Refresh positions data"""
         try:
             positions = self.trading_client.get_positions()
-            self.positions = {pos['tradingsymbol']: pos for pos in positions}
+            self.positions = {pos.get('tradingsymbol', pos.get('symbol', '')): pos for pos in positions}
+            self.positions = {k:v for k,v in self.positions.items() if k}
             self._refresh_positions_table()
+            self._update_status_metrics()
         except Exception as e:
             logger.error(f"Error refreshing positions: {e}")
             self.status_bar.showMessage(f"Error refreshing positions: {e}", 5000)
@@ -754,6 +773,49 @@ class IBKRMainWindow(QMainWindow):
                     self.watchlist_table.setItem(row, 4, QTableWidgetItem(f"{volume:,}"))
 
 
+    def _refresh_watchlist_market_data(self):
+        """Poll latest quotes for watchlist symbols when the client supports point market-data fetch."""
+        if not hasattr(self.trading_client, "get_market_data"):
+            return
+
+        updated_any = False
+        for symbol in self.watchlist:
+            try:
+                quote = self.trading_client.get_market_data(symbol)
+            except Exception:
+                continue
+            if quote:
+                self.market_data[symbol] = quote
+                updated_any = True
+
+        if updated_any:
+            self._update_watchlist_display()
+            self._update_market_data_display()
+
+    def _update_status_metrics(self):
+        """Mirror Kite-style status metrics with open P&L and gross exposure."""
+        if not hasattr(self, "bottom_status"):
+            return
+
+        if not self.positions:
+            self.bottom_status.set_positions_metrics(False)
+            return
+
+        open_pnl = 0.0
+        exposure = 0.0
+        for position in self.positions.values():
+            qty = float(position.get("quantity", 0) or 0)
+            avg_price = float(position.get("average_price", 0) or 0)
+            current_price = float(position.get("current_price", 0) or 0)
+            if current_price <= 0:
+                symbol = position.get("tradingsymbol") or position.get("symbol")
+                if symbol and symbol in self.market_data:
+                    current_price = float(self.market_data[symbol].get("last_price", 0) or 0)
+            open_pnl += float(position.get("pnl", 0) or ((current_price - avg_price) * qty if avg_price and current_price else 0.0))
+            exposure += abs(qty * (current_price if current_price > 0 else avg_price))
+
+        self.bottom_status.set_positions_metrics(True, open_pnl=open_pnl, exposure=exposure)
+
     def _update_market_data_display(self):
         """Update market data text display"""
         if not self.market_data:
@@ -795,6 +857,9 @@ class IBKRMainWindow(QMainWindow):
         self.watchlist_table.setItem(row, 2, QTableWidgetItem("--"))
         self.watchlist_table.setItem(row, 3, QTableWidgetItem("--"))
         self.watchlist_table.setItem(row, 4, QTableWidgetItem("--"))
+
+        if symbol not in self.watchlist:
+            self.watchlist.append(symbol)
 
         # Subscribe to market data if client supports it
         if hasattr(self.trading_client, 'subscribe_market_data'):
@@ -1081,6 +1146,8 @@ class IBKRMainWindow(QMainWindow):
             self.orders_timer.stop()
         if hasattr(self, 'account_timer'):
             self.account_timer.stop()
+        if hasattr(self, 'market_timer'):
+            self.market_timer.stop()
 
         # Unsubscribe from market data
         if hasattr(self.trading_client, 'unsubscribe_market_data') and self.watchlist:
