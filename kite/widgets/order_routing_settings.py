@@ -1,6 +1,6 @@
 # kite/widgets/order_routing_settings.py
 """
-RelaySettingsWidget — compact, TC2000-dark panel for configuring the relay server.
+RelaySettingsWidget — compact, institutional dark panel for configuring the relay server.
 
 Embedded inside DualModeLoginManager on the Kite credentials page.
 Also available as a standalone dialog from Settings > Relay Server.
@@ -10,6 +10,9 @@ Features
   • URL + Secret fields (secret masked by default)
   • Market Protection % spinner  (exchange mandate for MARKET / SL-M)
   • Enable / Disable toggle
+  • Segmented routing mode selector (Relay / Direct ISP / Auto)
+  • Direct ISP public IP lookup with one-click clipboard copy
+  • Kite developer profile shortcut for pasting the IP
   • Live connection test with latency readout
   • Save / Clear buttons (encrypted via EnhancedTokenManager)
 """
@@ -19,35 +22,47 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from PySide6.QtCore import Qt, Signal, QThread, QPoint
+from PySide6.QtCore import Qt, Signal, QThread, QPoint, QUrl, QTimer
 from PySide6.QtWidgets import (
     QDialog, QFrame, QVBoxLayout, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QCheckBox, QDoubleSpinBox,
-    QWidget, QApplication, QRadioButton,
+    QWidget, QApplication, QButtonGroup, QSizePolicy,
 )
-from PySide6.QtGui import QColor, QCursor, QMouseEvent
+from PySide6.QtGui import QCursor, QDesktopServices, QMouseEvent
 
 log = logging.getLogger(__name__)
 
-# ── palette (Keeping original backgrounds, just sharpening elements) ───────────
-_BG0 = "#0d1117"  # Main app/dialog shell
-_BG1 = "#141b24"  # Panel/Card background
-_BG2 = "#1c2738"  # Input background
-_BOR = "#253347"  # Panel borders
-_BOR2 = "#2d4060"  # Input/Hover borders
-_T0 = "#e2eaf5"  # Primary text
-_T1 = "#8faac8"  # Secondary text
-_T2 = "#5a7090"  # Muted text
-_GREEN = "#3ecf8e"
-_RED = "#ff5b6e"
-_AMBER = "#f59e0b"
-_BLUE = "#387ed1"
-_MONO = "Consolas, 'Roboto Mono', 'Courier New', monospace"
-_SANS = "Inter, 'Segoe UI', Arial, sans-serif"
+# ── Institutional Dark Trading Terminal UI tokens ────────────────────────────
+_BG0 = "#050709"      # Deepest app/dialog shell
+_BG1 = "#0a0d12"      # Main window/card body
+_BG2 = "#0f1318"      # Panel/input body
+_BG3 = "#141920"      # Hover/inner surface
+_BG4 = "#1a2030"      # Thin borders
+_BGTB = "#070a0f"     # Title/footer bars
+_BULL = "#00d4a8"     # Success / enabled
+_BEAR = "#ff4d6a"     # Danger / clear / error
+_AMBER = "#f59e0b"    # Active / warning / selected
+_CYAN = "#00d4ff"     # Info / utility
+_BLUE = "#3b82f6"     # Link/action
+_T0 = "#e8f0ff"       # Primary text
+_T1 = "#a8bcd4"       # Secondary text
+_T2 = "#5a7090"       # Muted text
+_T3 = "#2a3a50"       # Disabled text
+_SEL = "#1a2840"      # Selection background
+_UI_FONT = "'Inter', 'Aptos', 'Segoe UI', 'Roboto', 'Noto Sans', sans-serif"
+_NUM_FONT = "'Inter', 'Aptos', 'Segoe UI', sans-serif"
+_MONO = "'JetBrains Mono', 'Consolas', monospace"
+
+# Backward aliases used by existing code paths/status helpers.
+_GREEN = _BULL
+_RED = _BEAR
+_SANS = _UI_FONT
+
+_KITE_PROFILE_URL = "https://developers.kite.trade/profile"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CONNECTIVITY TEST THREAD
+# CONNECTIVITY / IP WORKERS
 # ─────────────────────────────────────────────────────────────────────────────
 
 class _HealthCheckWorker(QThread):
@@ -78,6 +93,36 @@ class _HealthCheckWorker(QThread):
             self.result.emit(False, str(e)[:100])
 
 
+class _IpLookupWorker(QThread):
+    result = Signal(bool, str)  # ok, ip_or_message
+
+    _ENDPOINTS = (
+        "https://api4.ipify.org?format=json",
+        "https://api.ipify.org?format=json",
+    )
+
+    def run(self):
+        import requests
+        last_error = "DIRECT ISP IP LOOKUP FAILED"
+        for url in self._ENDPOINTS:
+            try:
+                resp = requests.get(url, timeout=3)
+                if resp.status_code != 200:
+                    last_error = f"IP LOOKUP HTTP {resp.status_code}"
+                    continue
+
+                ip = str((resp.json() or {}).get("ip", "")).strip()
+                if ip:
+                    self.result.emit(True, ip)
+                    return
+            except requests.Timeout:
+                last_error = "DIRECT ISP IP LOOKUP TIMED OUT"
+            except Exception as e:
+                last_error = str(e)[:80] or last_error
+
+        self.result.emit(False, last_error.upper())
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # RELAY SETTINGS WIDGET
 # ─────────────────────────────────────────────────────────────────────────────
@@ -97,12 +142,16 @@ class RelaySettingsWidget(QWidget):
         super().__init__(parent)
         self._token_manager = token_manager
         self._worker: Optional[_HealthCheckWorker] = None
+        self._ip_worker: Optional[_IpLookupWorker] = None
+        self._ip_refresh_silent = False
 
         self._build_ui()
         self._apply_styles()
 
         if token_manager:
             self._load_saved()
+        else:
+            self._refresh_ip_label(silent=True)
 
     # ─────────────────────────────────────────────────────────────────────────
     # UI
@@ -116,9 +165,10 @@ class RelaySettingsWidget(QWidget):
         # ── Card shell ───────────────────────────────────────────────────────
         card = QFrame()
         card.setObjectName("relayCard")
+        card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         card_lay = QVBoxLayout(card)
-        card_lay.setContentsMargins(14, 14, 14, 14)
-        card_lay.setSpacing(12)
+        card_lay.setContentsMargins(10, 10, 10, 10)
+        card_lay.setSpacing(8)
         root.addWidget(card)
 
         # ── Header row ───────────────────────────────────────────────────────
@@ -128,7 +178,7 @@ class RelaySettingsWidget(QWidget):
         badge = QLabel("RELAY")
         badge.setObjectName("relayBadge")
 
-        title = QLabel("ORDER RELAY SERVER")
+        title = QLabel("ORDER ROUTING")
         title.setObjectName("relayTitle")
 
         self._enabled_chk = QCheckBox("ACTIVE")
@@ -143,104 +193,152 @@ class RelaySettingsWidget(QWidget):
         hdr.addWidget(self._enabled_chk)
         card_lay.addLayout(hdr)
 
-        # ── Explanation ──────────────────────────────────────────────────────
-        hint = QLabel(
-            "Route live orders through your static-IP cloud VM. "
-            "All other API calls (quotes, positions, WebSocket) remain direct."
-        )
+        # ── Concise explanation ──────────────────────────────────────────────
+        hint = QLabel("Live order route, relay credentials, and Direct ISP IP registration.")
         hint.setObjectName("relayHint")
         hint.setWordWrap(True)
         card_lay.addWidget(hint)
 
-        route_row = QHBoxLayout()
-        route_row.setSpacing(10)
-        route_row.addWidget(self._field_label("ROUTING MODE"))
-        self._mode_relay = QRadioButton("Relay")
-        self._mode_direct = QRadioButton("Direct ISP")
-        self._mode_auto = QRadioButton("Auto")
+        # ── Routing mode segmented selector (no Qt radio indicator/dot) ──────
+        route_box = QFrame()
+        route_box.setObjectName("relayRouteBox")
+        route_box.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        route_lay = QHBoxLayout(route_box)
+        route_lay.setContentsMargins(8, 6, 8, 6)
+        route_lay.setSpacing(6)
+
+        route_lay.addWidget(self._field_label("ROUTING MODE"))
+        route_lay.addStretch(1)
+
+        self._route_group = QButtonGroup(self)
+        self._route_group.setExclusive(True)
+
+        self._mode_relay = self._route_button("RELAY", "Use configured relay VM for live order placement.")
+        self._mode_direct = self._route_button("DIRECT ISP", "Use the current ISP public IP directly.")
+        self._mode_auto = self._route_button("AUTO", "Prefer relay when available, otherwise use Direct ISP.")
         self._mode_relay.setChecked(True)
+
         for btn in (self._mode_relay, self._mode_direct, self._mode_auto):
-            btn.setCursor(QCursor(Qt.PointingHandCursor))
-            route_row.addWidget(btn)
-        route_row.addStretch()
-        card_lay.addLayout(route_row)
+            self._route_group.addButton(btn)
+            route_lay.addWidget(btn)
+
+        self._route_group.buttonToggled.connect(lambda *_: self._sync_route_controls())
+        card_lay.addWidget(route_box)
 
         # ── URL field ────────────────────────────────────────────────────────
         card_lay.addWidget(self._field_label("RELAY SERVER URL"))
         url_row = QHBoxLayout()
-        url_row.setSpacing(4)
+        url_row.setSpacing(6)
         self._url_input = QLineEdit()
         self._url_input.setPlaceholderText("https://relay.example.com")
         self._url_input.setObjectName("relayField")
         url_row.addWidget(self._url_input)
 
         self._test_btn = QPushButton("TEST")
-        self._test_btn.setObjectName("relayTestBtn")
-        self._test_btn.setFixedSize(54, 26)
+        self._test_btn.setObjectName("relayOutlineBtn")
+        self._test_btn.setFixedSize(56, 26)
         self._test_btn.setCursor(QCursor(Qt.PointingHandCursor))
         self._test_btn.clicked.connect(self._run_health_check)
         url_row.addWidget(self._test_btn)
         card_lay.addLayout(url_row)
 
         # ── Secret field ─────────────────────────────────────────────────────
-        card_lay.addWidget(self._field_label("SHARED SECRET (HMAC-SHA256)"))
+        card_lay.addWidget(self._field_label("SHARED SECRET"))
         secret_row = QHBoxLayout()
-        secret_row.setSpacing(4)
+        secret_row.setSpacing(6)
         self._secret_input = QLineEdit()
-        self._secret_input.setPlaceholderText("Your relay secret key")
+        self._secret_input.setPlaceholderText("Relay HMAC secret key")
         self._secret_input.setObjectName("relayField")
         self._secret_input.setEchoMode(QLineEdit.Password)
         secret_row.addWidget(self._secret_input)
 
-        self._show_btn = QPushButton("👁")
-        self._show_btn.setObjectName("relayShowBtn")
-        self._show_btn.setFixedSize(26, 26)
+        self._show_btn = QPushButton("SHOW")
+        self._show_btn.setObjectName("relayGhostBtn")
+        self._show_btn.setFixedSize(48, 26)
         self._show_btn.setCheckable(True)
         self._show_btn.setCursor(QCursor(Qt.PointingHandCursor))
-        self._show_btn.toggled.connect(
-            lambda on: self._secret_input.setEchoMode(
-                QLineEdit.Normal if on else QLineEdit.Password
-            )
-        )
+        self._show_btn.toggled.connect(self._toggle_secret_visibility)
         secret_row.addWidget(self._show_btn)
         card_lay.addLayout(secret_row)
 
         # ── Market protection ────────────────────────────────────────────────
         mp_row = QHBoxLayout()
         mp_row.setSpacing(8)
-        mp_row.addWidget(self._field_label("MARKET PROTECTION %  (MARKET / SL-M)"))
+        mp_row.addWidget(self._field_label("MARKET PROTECTION %"))
         mp_row.addStretch()
         self._mp_spin = QDoubleSpinBox()
         self._mp_spin.setRange(0.0, 20.0)
         self._mp_spin.setSingleStep(0.5)
         self._mp_spin.setDecimals(1)
         self._mp_spin.setValue(5.0)
-        self._mp_spin.setFixedWidth(70)
+        self._mp_spin.setFixedWidth(76)
         self._mp_spin.setObjectName("relayMpSpin")
         mp_row.addWidget(self._mp_spin)
         card_lay.addLayout(mp_row)
 
+        # ── Direct ISP IP utility strip ──────────────────────────────────────
+        ip_panel = QFrame()
+        ip_panel.setObjectName("relayIpPanel")
+        ip_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        ip_panel.setMinimumHeight(68)
+        ip_lay = QVBoxLayout(ip_panel)
+        ip_lay.setContentsMargins(8, 7, 8, 7)
+        ip_lay.setSpacing(6)
+
+        ip_top = QHBoxLayout()
+        ip_top.setContentsMargins(0, 0, 0, 0)
+        ip_top.setSpacing(6)
+        ip_title = self._field_label("DIRECT ISP IP")
+        ip_top.addWidget(ip_title)
+        ip_top.addStretch()
+
+        self._kite_profile_btn = QPushButton("KITE PROFILE ↗")
+        self._kite_profile_btn.setObjectName("relayInfoBtn")
+        self._kite_profile_btn.setFixedHeight(24)
+        self._kite_profile_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        self._kite_profile_btn.setToolTip("Open Kite developer profile to paste this IP.")
+        self._kite_profile_btn.clicked.connect(self._open_kite_profile)
+        ip_top.addWidget(self._kite_profile_btn)
+        ip_lay.addLayout(ip_top)
+
+        ip_value_row = QHBoxLayout()
+        ip_value_row.setContentsMargins(0, 0, 0, 0)
+        ip_value_row.setSpacing(6)
+        self._ip_lbl = QLabel("--")
+        self._ip_lbl.setObjectName("relayIpValue")
+        self._ip_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        ip_value_row.addWidget(self._ip_lbl, 1)
+
+        self._ip_copy_btn = QPushButton("COPY")
+        self._ip_copy_btn.setObjectName("relayCopyBtn")
+        self._ip_copy_btn.setFixedSize(54, 24)
+        self._ip_copy_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        self._ip_copy_btn.setToolTip("Copy Direct ISP IP to clipboard.")
+        self._ip_copy_btn.clicked.connect(self._copy_ip_to_clipboard)
+        ip_value_row.addWidget(self._ip_copy_btn)
+
+        self._ip_refresh_btn = QPushButton("↻")
+        self._ip_refresh_btn.setObjectName("relayIconBtn")
+        self._ip_refresh_btn.setFixedSize(26, 24)
+        self._ip_refresh_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        self._ip_refresh_btn.setToolTip("Refresh Direct ISP IP.")
+        self._ip_refresh_btn.clicked.connect(self._refresh_ip_label)
+        ip_value_row.addWidget(self._ip_refresh_btn)
+        ip_lay.addLayout(ip_value_row)
+        card_lay.addWidget(ip_panel)
+
         # ── Status bar ───────────────────────────────────────────────────────
         self._status_lbl = QLabel("")
         self._status_lbl.setObjectName("relayStatus")
+        self._status_lbl.setWordWrap(False)
+        self._status_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self._status_lbl.setMinimumHeight(0)
         self._status_lbl.setVisible(False)
         card_lay.addWidget(self._status_lbl)
 
-        ip_row = QHBoxLayout()
-        self._ip_lbl = QLabel("Public IP: --")
-        self._ip_lbl.setObjectName("relayHint")
-        self._ip_refresh_btn = QPushButton("↺")
-        self._ip_refresh_btn.setObjectName("relayTestBtn")
-        self._ip_refresh_btn.setFixedSize(28, 24)
-        self._ip_refresh_btn.clicked.connect(self._refresh_ip_label)
-        ip_row.addWidget(self._ip_lbl)
-        ip_row.addStretch()
-        ip_row.addWidget(self._ip_refresh_btn)
-        card_lay.addLayout(ip_row)
-
         # ── Action buttons ───────────────────────────────────────────────────
         btn_row = QHBoxLayout()
-        btn_row.setContentsMargins(0, 4, 0, 0)
+        btn_row.setContentsMargins(0, 2, 0, 0)
         btn_row.setSpacing(8)
         btn_row.addStretch()
 
@@ -265,135 +363,307 @@ class RelaySettingsWidget(QWidget):
         lbl.setObjectName("relayFieldLabel")
         return lbl
 
+    def _route_button(self, text: str, tooltip: str) -> QPushButton:
+        btn = QPushButton(text)
+        btn.setObjectName("relayRouteBtn")
+        btn.setCheckable(True)
+        btn.setFixedHeight(26)
+        btn.setCursor(QCursor(Qt.PointingHandCursor))
+        btn.setToolTip(tooltip)
+        return btn
+
     # ─────────────────────────────────────────────────────────────────────────
     # STYLES
     # ─────────────────────────────────────────────────────────────────────────
 
     def _apply_styles(self):
         self.setStyleSheet(f"""
-            QWidget {{ background:transparent; }}
+            QWidget {{
+                background:transparent;
+                color:{_T0};
+                font-family:{_UI_FONT};
+            }}
 
             QFrame#relayCard {{
                 background:{_BG1};
-                border:1px solid {_BOR};
-                border-radius:1px;
+                border:1px solid {_BG4};
+                border-radius:2px;
+            }}
+
+            QFrame#relayRouteBox,
+            QFrame#relayIpPanel {{
+                background:{_BG2};
+                border:1px solid {_BG4};
+                border-radius:2px;
             }}
 
             QLabel#relayBadge {{
-                background:{_BLUE};
-                color:#ffffff;
-                font-family:'{_MONO}';
-                font-size:9px; font-weight:700;
+                background:{_SEL};
+                color:{_AMBER};
+                font-family:{_UI_FONT};
+                font-size:9px;
+                font-weight:800;
                 letter-spacing:1px;
-                padding:2px 4px;
-                border-radius:1px;
+                padding:2px 5px;
+                border:1px solid rgba(245,158,11,0.35);
+                border-radius:2px;
             }}
 
             QLabel#relayTitle {{
                 color:{_T0};
-                font-family:'{_SANS}';
-                font-size:11px; font-weight:800;
-                letter-spacing:0.5px;
-                background:transparent; border:none;
+                font-family:{_UI_FONT};
+                font-size:12px;
+                font-weight:800;
+                letter-spacing:0.8px;
+                background:transparent;
+                border:none;
             }}
 
             QLabel#relayHint {{
                 color:{_T2};
-                font-family:'{_SANS}';
-                font-size:10px; font-weight:500;
-                background:transparent; border:none;
-                line-height:1.4;
+                font-family:{_UI_FONT};
+                font-size:10px;
+                font-weight:500;
+                background:transparent;
+                border:none;
+                line-height:1.35;
             }}
 
             QLabel#relayFieldLabel {{
                 color:{_T2};
-                font-family:'{_SANS}';
-                font-size:9px; font-weight:700;
+                font-family:{_UI_FONT};
+                font-size:9px;
+                font-weight:800;
                 letter-spacing:1px;
-                background:transparent; border:none;
-                margin-bottom:2px;
-                margin-top:4px;
+                background:transparent;
+                border:none;
+                margin:0;
+                padding:0;
+            }}
+
+            QLabel#relayIpValue {{
+                background:{_BG1};
+                color:{_T0};
+                border:1px solid {_BG4};
+                border-radius:2px;
+                font-family:{_NUM_FONT};
+                font-size:12px;
+                font-weight:700;
+                padding:4px 8px;
+                min-height:14px;
             }}
 
             QLabel#relayStatus {{
-                font-family:'{_MONO}';
-                font-size:10px; font-weight:700;
-                padding:6px 10px;
-                border-radius:1px;
-                background:transparent; border:1px solid transparent;
+                font-family:{_UI_FONT};
+                font-size:10px;
+                font-weight:700;
+                padding:6px 8px;
+                border-radius:2px;
+                background:{_BGTB};
+                border:1px solid {_BG4};
             }}
 
-            /* Input fields */
             QLineEdit#relayField {{
-                background:{_BG2}; color:{_T0};
-                border:1px solid {_BOR2}; border-radius:1px;
-                font-family:'{_MONO}'; font-size:11px; font-weight:700;
-                padding:4px 8px; min-height:18px;
+                background:{_BG2};
+                color:{_T0};
+                border:1px solid {_BG4};
+                border-radius:2px;
+                font-family:{_UI_FONT};
+                font-size:11px;
+                font-weight:600;
+                padding:4px 8px;
+                min-height:18px;
+                selection-background-color:{_SEL};
+            }}
+            QLineEdit#relayField:hover {{
+                border-color:{_T3};
+                background:{_BG3};
             }}
             QLineEdit#relayField:focus {{
-                border:1px solid {_BLUE}; background:#1a2535;
+                border:1px solid {_CYAN};
+                background:{_BG3};
+            }}
+            QLineEdit#relayField:disabled {{
+                color:{_T3};
+                background:{_BG1};
+                border-color:{_BG4};
+            }}
+            QLineEdit#relayField::placeholder {{
+                color:{_T3};
             }}
 
-            /* Spinner */
             QDoubleSpinBox#relayMpSpin {{
-                background:{_BG2}; color:{_T0};
-                border:1px solid {_BOR2}; border-radius:1px;
-                font-family:'{_MONO}'; font-size:12px; font-weight:700;
+                background:{_BG2};
+                color:{_T0};
+                border:1px solid {_BG4};
+                border-radius:2px;
+                font-family:{_NUM_FONT};
+                font-size:12px;
+                font-weight:700;
                 padding:4px 6px;
             }}
-            QDoubleSpinBox#relayMpSpin:focus {{ border:1px solid {_BLUE}; }}
-            QDoubleSpinBox#relayMpSpin::up-button, QDoubleSpinBox#relayMpSpin::down-button {{ width:0px; border:none; }}
+            QDoubleSpinBox#relayMpSpin:hover {{
+                background:{_BG3};
+                border-color:{_T3};
+            }}
+            QDoubleSpinBox#relayMpSpin:focus {{
+                border:1px solid {_CYAN};
+            }}
+            QDoubleSpinBox#relayMpSpin:disabled {{
+                color:{_T3};
+                background:{_BG1};
+            }}
+            QDoubleSpinBox#relayMpSpin::up-button,
+            QDoubleSpinBox#relayMpSpin::down-button {{
+                width:0px;
+                border:none;
+            }}
 
-            /* Toggle/Checkbox - Sharp Institutional */
             QCheckBox#relayToggle {{
                 color:{_T1};
-                font-family:'{_SANS}'; font-size:10px; font-weight:700;
-                letter-spacing: 0.5px; spacing:6px; background:transparent;
+                font-family:{_UI_FONT};
+                font-size:10px;
+                font-weight:800;
+                letter-spacing:0.6px;
+                spacing:6px;
+                background:transparent;
             }}
             QCheckBox#relayToggle::indicator {{
-                width:12px; height:12px; border-radius:1px;
-                background:{_BG2}; border:1px solid {_BOR2};
+                width:12px;
+                height:12px;
+                border-radius:2px;
+                background:{_BG2};
+                border:1px solid {_BG4};
+            }}
+            QCheckBox#relayToggle::indicator:hover {{
+                border-color:{_BULL};
             }}
             QCheckBox#relayToggle::indicator:checked {{
-                background:{_GREEN}; border:1px solid {_GREEN};
+                background:{_BULL};
+                border:1px solid {_BULL};
             }}
 
-            /* Test button */
-            QPushButton#relayTestBtn {{
-                background:transparent; color:{_AMBER};
-                border:1px solid {_AMBER}; border-radius:1px;
-                font-family:'{_SANS}'; font-size:9px; font-weight:800;
-                letter-spacing:1px;
+            QPushButton#relayRouteBtn {{
+                background:{_BG1};
+                color:{_T1};
+                border:1px solid {_BG4};
+                border-radius:2px;
+                font-family:{_UI_FONT};
+                font-size:10px;
+                font-weight:800;
+                letter-spacing:0.5px;
+                padding:0 10px;
+                min-width:70px;
             }}
-            QPushButton#relayTestBtn:hover  {{ background:rgba(245,158,11,0.12); }}
-            QPushButton#relayTestBtn:disabled{{ color:{_T2}; border-color:{_BOR}; }}
-
-            /* Show/hide secret */
-            QPushButton#relayShowBtn {{
-                background:{_BG2}; color:{_T1};
-                border:1px solid {_BOR2}; border-radius:1px;
-                font-size:12px;
+            QPushButton#relayRouteBtn:hover {{
+                color:{_T0};
+                background:{_BG3};
+                border-color:{_T3};
             }}
-            QPushButton#relayShowBtn:hover {{ background:{_BG1}; color:{_T0}; border:1px solid {_BLUE}; }}
-            QPushButton#relayShowBtn:checked {{ color:{_BLUE}; border-color:{_BLUE}; }}
+            QPushButton#relayRouteBtn:checked {{
+                color:{_AMBER};
+                background:{_SEL};
+                border:1px solid {_AMBER};
+            }}
+            QPushButton#relayRouteBtn:disabled {{
+                color:{_T3};
+                background:{_BG1};
+                border-color:{_BG4};
+            }}
 
-            /* Clear */
+            QPushButton#relayOutlineBtn,
+            QPushButton#relayInfoBtn,
+            QPushButton#relayCopyBtn,
+            QPushButton#relayIconBtn,
+            QPushButton#relayGhostBtn {{
+                background:transparent;
+                color:{_T1};
+                border:1px solid {_BG4};
+                border-radius:2px;
+                font-family:{_UI_FONT};
+                font-size:9px;
+                font-weight:800;
+                letter-spacing:0.5px;
+                padding:0 8px;
+            }}
+            QPushButton#relayOutlineBtn {{
+                color:{_AMBER};
+                border-color:rgba(245,158,11,0.65);
+            }}
+            QPushButton#relayInfoBtn {{
+                color:{_CYAN};
+                border-color:rgba(0,212,255,0.45);
+            }}
+            QPushButton#relayCopyBtn {{
+                color:{_BULL};
+                border-color:rgba(0,212,168,0.50);
+            }}
+            QPushButton#relayIconBtn {{
+                color:{_T1};
+                font-size:13px;
+                padding:0;
+            }}
+            QPushButton#relayGhostBtn:checked {{
+                color:{_CYAN};
+                border-color:{_CYAN};
+                background:rgba(0,212,255,0.10);
+            }}
+            QPushButton#relayOutlineBtn:hover {{
+                background:rgba(245,158,11,0.10);
+                border-color:{_AMBER};
+            }}
+            QPushButton#relayInfoBtn:hover,
+            QPushButton#relayIconBtn:hover,
+            QPushButton#relayGhostBtn:hover {{
+                color:{_T0};
+                background:{_BG3};
+                border-color:{_CYAN};
+            }}
+            QPushButton#relayCopyBtn:hover {{
+                background:rgba(0,212,168,0.10);
+                border-color:{_BULL};
+            }}
+            QPushButton#relayOutlineBtn:disabled,
+            QPushButton#relayInfoBtn:disabled,
+            QPushButton#relayCopyBtn:disabled,
+            QPushButton#relayIconBtn:disabled,
+            QPushButton#relayGhostBtn:disabled {{
+                color:{_T3};
+                border-color:{_BG4};
+                background:transparent;
+            }}
+
             QPushButton#relayClearBtn {{
-                background:transparent; color:{_RED};
-                border:1px solid {_RED}; border-radius:1px;
-                font-family:'{_SANS}'; font-size:10px; font-weight:800;
-                padding:0 16px; letter-spacing:0.5px;
+                background:transparent;
+                color:{_BEAR};
+                border:1px solid rgba(255,77,106,0.60);
+                border-radius:2px;
+                font-family:{_UI_FONT};
+                font-size:10px;
+                font-weight:800;
+                padding:0 16px;
+                letter-spacing:0.5px;
             }}
-            QPushButton#relayClearBtn:hover {{ background:rgba(255,91,110,0.10); }}
+            QPushButton#relayClearBtn:hover {{
+                background:rgba(255,77,106,0.10);
+                border-color:{_BEAR};
+            }}
 
-            /* Save */
             QPushButton#relaySaveBtn {{
-                background:{_BLUE}; color:#ffffff;
-                border:none; border-radius:1px;
-                font-family:'{_SANS}'; font-size:10px; font-weight:800;
-                padding:0 16px; letter-spacing:0.5px;
+                background:{_BULL};
+                color:{_BG0};
+                border:1px solid {_BULL};
+                border-radius:2px;
+                font-family:{_UI_FONT};
+                font-size:10px;
+                font-weight:800;
+                padding:0 16px;
+                letter-spacing:0.5px;
             }}
-            QPushButton#relaySaveBtn:hover {{ background:#4a90d9; }}
+            QPushButton#relaySaveBtn:hover {{
+                background:#25e5bb;
+                border-color:#25e5bb;
+            }}
         """)
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -401,10 +671,20 @@ class RelaySettingsWidget(QWidget):
     # ─────────────────────────────────────────────────────────────────────────
 
     def _on_toggle(self, checked: bool):
-        self._url_input.setEnabled(checked)
-        self._secret_input.setEnabled(checked)
-        self._mp_spin.setEnabled(checked)
-        self._test_btn.setEnabled(checked)
+        self._sync_route_controls()
+
+    def _sync_route_controls(self):
+        active = self._enabled_chk.isChecked()
+        relay_fields_enabled = active and not self._mode_direct.isChecked()
+        self._url_input.setEnabled(relay_fields_enabled)
+        self._secret_input.setEnabled(relay_fields_enabled)
+        self._show_btn.setEnabled(relay_fields_enabled)
+        self._test_btn.setEnabled(relay_fields_enabled)
+        self._mp_spin.setEnabled(active)
+
+    def _toggle_secret_visibility(self, checked: bool):
+        self._secret_input.setEchoMode(QLineEdit.Normal if checked else QLineEdit.Password)
+        self._show_btn.setText("HIDE" if checked else "SHOW")
 
     def _run_health_check(self):
         url = self._url_input.text().strip()
@@ -425,18 +705,75 @@ class RelaySettingsWidget(QWidget):
         self._test_btn.setEnabled(True)
         self._test_btn.setText("TEST")
         if ok:
-            self._set_status(f"✓ {msg}", _GREEN)
+            self._set_status(f"✓ {msg}", _BULL)
         else:
-            self._set_status(f"✗ {msg}", _RED)
+            self._set_status(f"✗ {msg}", _BEAR)
 
     def _set_status(self, text: str, color: str):
         self._status_lbl.setText(text)
         self._status_lbl.setStyleSheet(
-            f"color:{color}; font-family:'{_MONO}'; font-size:10px;"
-            f" font-weight:700; padding:6px 10px; border-radius:1px;"
-            f" background:rgba(0,0,0,0.25); border:1px solid {color};"
+            f"color:{color}; font-family:{_UI_FONT}; font-size:10px;"
+            f" font-weight:700; padding:6px 8px; border-radius:2px;"
+            f" background:{_BGTB}; border:1px solid {color};"
         )
         self._status_lbl.setVisible(True)
+        self._status_lbl.adjustSize()
+        self.updateGeometry()
+        QTimer.singleShot(0, self._grow_dialog_to_content)
+
+    def _grow_dialog_to_content(self):
+        """Grow the standalone dialog when the status bar appears.
+
+        Without this, Qt keeps the previous dialog height and compresses the
+        Direct ISP IP controls to make room for the newly visible status label.
+        The login-embedded widget is left alone unless its top-level host is a
+        QDialog, so existing external layouts are not forced to resize.
+        """
+        host = self.window()
+        if not isinstance(host, QDialog):
+            return
+
+        # Recalculate all nested layouts before reading size hints.
+        widget = self
+        while widget is not None:
+            layout = widget.layout()
+            if layout is not None:
+                layout.activate()
+            if widget is host:
+                break
+            widget = widget.parentWidget()
+
+        host_layout = host.layout()
+        if host_layout is not None:
+            host_layout.activate()
+
+        size_hint = host.sizeHint()
+        current = host.size()
+        target_w = max(current.width(), size_hint.width())
+        target_h = max(current.height(), size_hint.height())
+
+        if target_w > current.width() or target_h > current.height():
+            host.resize(target_w, target_h)
+
+    def _copy_ip_to_clipboard(self):
+        ip = self._extract_ip_text()
+        if not ip:
+            self._set_status("NO DIRECT ISP IP AVAILABLE TO COPY.", _AMBER)
+            return
+
+        clipboard = QApplication.clipboard()
+        if clipboard:
+            clipboard.setText(ip)
+            self._set_status("DIRECT ISP IP COPIED TO CLIPBOARD.", _BULL)
+        else:
+            self._set_status("CLIPBOARD IS NOT AVAILABLE.", _BEAR)
+
+    def _open_kite_profile(self):
+        opened = QDesktopServices.openUrl(QUrl(_KITE_PROFILE_URL))
+        if opened:
+            self._set_status("KITE PROFILE OPENED. PASTE THE DIRECT ISP IP THERE.", _CYAN)
+        else:
+            self._set_status("COULD NOT OPEN KITE PROFILE IN BROWSER.", _BEAR)
 
     def _save_config(self):
         from kite.core.relay_order_router import RelayConfig, RelayConfigStore
@@ -480,17 +817,17 @@ class RelaySettingsWidget(QWidget):
                 isp_last_known_ip=self._extract_ip_text(),
             )
         except ValueError as e:
-            self._set_status(str(e).upper(), _RED)
+            self._set_status(str(e).upper(), _BEAR)
             return
 
         if self._token_manager:
             ok = RelayConfigStore.save(self._token_manager, cfg)
             if not ok:
-                self._set_status("FAILED TO SAVE (STORAGE ERROR).", _RED)
+                self._set_status("FAILED TO SAVE (STORAGE ERROR).", _BEAR)
                 return
 
         self.config_changed.emit(cfg)
-        self._set_status("✓ RELAY CONFIG SAVED (ENCRYPTED).", _GREEN)
+        self._set_status("✓ RELAY CONFIG SAVED (ENCRYPTED).", _BULL)
         log.info("Relay config saved: %s  enabled=%s", url, cfg.enabled)
 
     def _clear_config(self):
@@ -499,6 +836,8 @@ class RelaySettingsWidget(QWidget):
         self._secret_input.clear()
         self._mp_spin.setValue(5.0)
         self._enabled_chk.setChecked(True)
+        self._mode_relay.setChecked(True)
+        self._sync_route_controls()
         if self._token_manager:
             RelayConfigStore.clear(self._token_manager)
         self.config_changed.emit(None)
@@ -519,9 +858,10 @@ class RelaySettingsWidget(QWidget):
             else:
                 self._mode_relay.setChecked(True)
             if cfg.isp_last_known_ip:
-                self._ip_lbl.setText(f"Public IP: {cfg.isp_last_known_ip}")
+                self._ip_lbl.setText(cfg.isp_last_known_ip)
             log.info("Loaded relay config from storage: %s", cfg.url)
-        self._refresh_ip_label()
+        self._sync_route_controls()
+        self._refresh_ip_label(silent=True)
 
     # ─────────────────────────────────────────────────────────────────────────
     # PUBLIC HELPERS
@@ -556,21 +896,40 @@ class RelaySettingsWidget(QWidget):
 
     def _extract_ip_text(self) -> str:
         text = self._ip_lbl.text().replace("Public IP:", "").strip()
-        return "" if text == "--" else text
+        if text in ("--", "LOOKUP...", "FETCHING..."):
+            return ""
+        return text
 
-    def _refresh_ip_label(self):
-        import requests
-        ip = "--"
-        for url in ("https://api4.ipify.org?format=json", "https://api.ipify.org?format=json"):
-            try:
-                resp = requests.get(url, timeout=3)
-                if resp.status_code == 200:
-                    ip = (resp.json() or {}).get("ip", "--")
-                    if ip:
-                        break
-            except Exception:
-                continue
-        self._ip_lbl.setText(f"Public IP: {ip}")
+    def _refresh_ip_label(self, silent: bool = False):
+        if self._ip_worker and self._ip_worker.isRunning():
+            return
+
+        self._ip_refresh_silent = bool(silent)
+        has_existing_ip = bool(self._extract_ip_text())
+        if not silent or not has_existing_ip:
+            self._ip_lbl.setText("LOOKUP...")
+
+        self._ip_refresh_btn.setEnabled(False)
+        self._ip_refresh_btn.setText("...")
+
+        self._ip_worker = _IpLookupWorker()
+        self._ip_worker.result.connect(self._on_ip_lookup_result)
+        self._ip_worker.start()
+
+    def _on_ip_lookup_result(self, ok: bool, payload: str):
+        self._ip_refresh_btn.setEnabled(True)
+        self._ip_refresh_btn.setText("↻")
+
+        if ok:
+            self._ip_lbl.setText(payload)
+            if not self._ip_refresh_silent:
+                self._set_status("DIRECT ISP IP REFRESHED.", _CYAN)
+            return
+
+        if not self._extract_ip_text():
+            self._ip_lbl.setText("--")
+        if not self._ip_refresh_silent:
+            self._set_status(payload or "DIRECT ISP IP LOOKUP FAILED.", _AMBER)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -589,8 +948,8 @@ class RelaySettingsDialog(QDialog):
         super().__init__(parent)
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.setMinimumWidth(500)
-        self.setMaximumWidth(560)
+        self.setMinimumWidth(540)
+        self.setMaximumWidth(620)
 
         self._drag_active = False
         self._drag_offset = QPoint()
@@ -602,11 +961,12 @@ class RelaySettingsDialog(QDialog):
         # Main Shell
         self._container = QFrame()
         self._container.setObjectName("dialogContainer")
+        self._container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         self._container.setStyleSheet(f"""
             QFrame#dialogContainer {{
                 background:{_BG0};
-                border:1px solid {_BOR2};
-                border-radius:1px;
+                border:1px solid {_BG4};
+                border-radius:2px;
             }}
         """)
         root.addWidget(self._container)
@@ -617,14 +977,17 @@ class RelaySettingsDialog(QDialog):
 
         # Header Bar
         hdr = QFrame()
-        hdr.setFixedHeight(36)
-        hdr.setStyleSheet(f"background:{_BG1}; border-bottom:1px solid {_BOR};")
+        hdr.setFixedHeight(32)
+        hdr.setStyleSheet(f"background:{_BGTB}; border-bottom:1px solid {_BG4};")
         hdr_lay = QHBoxLayout(hdr)
-        hdr_lay.setContentsMargins(16, 0, 16, 0)
+        hdr_lay.setContentsMargins(12, 0, 10, 0)
+        hdr_lay.setSpacing(8)
 
         title = QLabel("RELAY SETTINGS")
         title.setStyleSheet(
-            f"color:{_T0}; font-family:'{_SANS}'; font-size:11px; font-weight:800; letter-spacing:1px; border:none;")
+            f"color:{_T0}; font-family:{_UI_FONT}; font-size:11px; "
+            f"font-weight:800; letter-spacing:1px; border:none; background:transparent;"
+        )
         hdr_lay.addWidget(title)
         hdr_lay.addStretch()
 
@@ -633,8 +996,17 @@ class RelaySettingsDialog(QDialog):
         close_btn.setCursor(QCursor(Qt.PointingHandCursor))
         close_btn.clicked.connect(self.reject)
         close_btn.setStyleSheet(f"""
-            QPushButton {{ background:transparent; color:{_T1}; font-size:16px; border:none; font-weight:bold; }}
-            QPushButton:hover {{ color:{_RED}; }}
+            QPushButton {{
+                background:transparent;
+                color:{_T1};
+                font-size:14px;
+                border:none;
+                font-weight:700;
+            }}
+            QPushButton:hover {{
+                color:{_BEAR};
+                background:rgba(255,77,106,0.08);
+            }}
         """)
         hdr_lay.addWidget(close_btn)
 
@@ -642,20 +1014,21 @@ class RelaySettingsDialog(QDialog):
 
         # Body
         body_widget = QWidget()
+        body_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        body_widget.setStyleSheet(f"QWidget {{ background:{_BG0}; }}")
         body_lay = QVBoxLayout(body_widget)
-        body_lay.setContentsMargins(16, 16, 16, 16)
-        body_lay.setSpacing(12)
+        body_lay.setContentsMargins(8, 8, 8, 8)
+        body_lay.setSpacing(8)
 
         # Instruction banner
         banner = QLabel(
-            "⚡ SEBI/NSE require a static IP for live order placement. "
-            "Deploy relay_server.py on any cloud VM and configure it here."
+            "Static-IP live order setup. Deploy relay_server.py on a cloud VM, or use Direct ISP after adding this IP in Kite."
         )
         banner.setWordWrap(True)
         banner.setStyleSheet(
-            f"color:{_AMBER}; background:rgba(245,158,11,0.07);"
-            f" border:1px solid rgba(245,158,11,0.25); border-radius:1px;"
-            f" padding:8px 12px; font-family:'{_SANS}'; font-size:10px; font-weight:600;"
+            f"color:{_AMBER}; background:rgba(245,158,11,0.06);"
+            f" border:1px solid rgba(245,158,11,0.28); border-radius:2px;"
+            f" padding:7px 10px; font-family:{_UI_FONT}; font-size:10px; font-weight:600;"
         )
         body_lay.addWidget(banner)
 
@@ -664,6 +1037,7 @@ class RelaySettingsDialog(QDialog):
         body_lay.addWidget(self._widget)
 
         container_lay.addWidget(body_widget)
+        QTimer.singleShot(0, self.adjustSize)
 
     # ─────────────────────────────────────────────────────────────────────────
     # FRAMELESS WINDOW DRAG SUPPORT
