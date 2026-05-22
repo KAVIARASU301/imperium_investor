@@ -165,8 +165,8 @@ class IndicatorSettingsDialog(QDialog):
         self.setWindowTitle("Indicator Settings")
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.setModal(True)
-        self.setMinimumSize(420, 308)
-        self.resize(440, 326)
+        self.setMinimumSize(440, 360)
+        self.resize(460, 380)
         self._current = dict(current)
         self._drag_active = False
         self._drag_offset = QPoint()
@@ -199,13 +199,13 @@ class IndicatorSettingsDialog(QDialog):
         meta.setObjectName("sectionLabel")
         body_layout.addWidget(meta)
 
-        panel = QFrame()
-        panel.setObjectName("formPanel")
-        form = QFormLayout(panel)
-        form.setContentsMargins(10, 8, 10, 10)
-        form.setHorizontalSpacing(12)
-        form.setVerticalSpacing(8)
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self.type_panel = QFrame()
+        self.type_panel.setObjectName("formPanel")
+        type_form = QFormLayout(self.type_panel)
+        type_form.setContentsMargins(10, 8, 10, 10)
+        type_form.setHorizontalSpacing(12)
+        type_form.setVerticalSpacing(8)
+        type_form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 
         self.type_combo = QComboBox()
         self.type_combo.setObjectName("terminalCombo")
@@ -214,13 +214,22 @@ class IndicatorSettingsDialog(QDialog):
         current_type = str(self._current.get("type", "ema"))
         idx = self.type_combo.findData(current_type)
         self.type_combo.setCurrentIndex(idx if idx >= 0 else 0)
-        form.addRow(self._field_label("TYPE"), self.type_combo)
+        type_form.addRow(self._field_label("TYPE"), self.type_combo)
+        body_layout.addWidget(self.type_panel)
+
+        self.line_panel = QFrame()
+        self.line_panel.setObjectName("formPanel")
+        line_form = QFormLayout(self.line_panel)
+        line_form.setContentsMargins(10, 8, 10, 10)
+        line_form.setHorizontalSpacing(12)
+        line_form.setVerticalSpacing(8)
+        line_form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 
         self.period_spin = QSpinBox()
         self.period_spin.setObjectName("terminalSpin")
         self.period_spin.setRange(1, 2000)
         self.period_spin.setValue(int(self._current.get("period", 20) or 20))
-        form.addRow(self._field_label("PERIOD"), self.period_spin)
+        line_form.addRow(self._field_label("PERIOD"), self.period_spin)
 
         self.thickness_spin = QDoubleSpinBox()
         self.thickness_spin.setObjectName("terminalSpin")
@@ -228,7 +237,7 @@ class IndicatorSettingsDialog(QDialog):
         self.thickness_spin.setDecimals(1)
         self.thickness_spin.setSingleStep(0.1)
         self.thickness_spin.setValue(float(self._current.get("thickness", 1.2) or 1.2))
-        form.addRow(self._field_label("THICKNESS"), self.thickness_spin)
+        line_form.addRow(self._field_label("THICKNESS"), self.thickness_spin)
 
         self.line_style_combo = QComboBox()
         self.line_style_combo.setObjectName("terminalCombo")
@@ -236,7 +245,7 @@ class IndicatorSettingsDialog(QDialog):
             self.line_style_combo.addItem(style.upper(), style)
         st_idx = self.line_style_combo.findData(str(self._current.get("line_style", "solid")))
         self.line_style_combo.setCurrentIndex(st_idx if st_idx >= 0 else 0)
-        form.addRow(self._field_label("LINE STYLE"), self.line_style_combo)
+        line_form.addRow(self._field_label("LINE STYLE"), self.line_style_combo)
 
         self.color_btn = QPushButton("PICK COLOR")
         self.color_btn.setObjectName("colorButton")
@@ -244,7 +253,24 @@ class IndicatorSettingsDialog(QDialog):
         self._color = str(self._current.get("color", "#00d4ff") or "#00d4ff")
         self._apply_color_style()
         self.color_btn.clicked.connect(self._pick_color)
-        form.addRow(self._field_label("COLOR"), self.color_btn)
+        line_form.addRow(self._field_label("COLOR"), self.color_btn)
+        body_layout.addWidget(self.line_panel)
+
+        self.volume_panel = QFrame()
+        self.volume_panel.setObjectName("volumePanel")
+        volume_layout = QVBoxLayout(self.volume_panel)
+        volume_layout.setContentsMargins(10, 8, 10, 10)
+        volume_layout.setSpacing(8)
+
+        volume_title = QLabel("VOLUME BAR STYLE")
+        volume_title.setObjectName("subSectionLabel")
+        volume_layout.addWidget(volume_title)
+
+        volume_form = QFormLayout()
+        volume_form.setContentsMargins(0, 0, 0, 0)
+        volume_form.setHorizontalSpacing(12)
+        volume_form.setVerticalSpacing(8)
+        volume_form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 
         self.volume_bull_color_btn = QPushButton("PICK BULL COLOR")
         self.volume_bull_color_btn.setObjectName("colorButton")
@@ -252,7 +278,7 @@ class IndicatorSettingsDialog(QDialog):
         self._volume_bull_color = str(self._current.get("volume_bull_color", "#00c896") or "#00c896")
         self._apply_volume_color_style(self.volume_bull_color_btn, self._volume_bull_color, "PICK BULL COLOR")
         self.volume_bull_color_btn.clicked.connect(lambda: self._pick_volume_color("bull"))
-        form.addRow(self._field_label("BULL BAR COLOR"), self.volume_bull_color_btn)
+        volume_form.addRow(self._field_label("BULL BAR COLOR"), self.volume_bull_color_btn)
 
         self.volume_bear_color_btn = QPushButton("PICK BEAR COLOR")
         self.volume_bear_color_btn.setObjectName("colorButton")
@@ -260,7 +286,7 @@ class IndicatorSettingsDialog(QDialog):
         self._volume_bear_color = str(self._current.get("volume_bear_color", "#e84060") or "#e84060")
         self._apply_volume_color_style(self.volume_bear_color_btn, self._volume_bear_color, "PICK BEAR COLOR")
         self.volume_bear_color_btn.clicked.connect(lambda: self._pick_volume_color("bear"))
-        form.addRow(self._field_label("BEAR BAR COLOR"), self.volume_bear_color_btn)
+        volume_form.addRow(self._field_label("BEAR BAR COLOR"), self.volume_bear_color_btn)
 
         self.volume_opacity_spin = QDoubleSpinBox()
         self.volume_opacity_spin.setObjectName("terminalSpin")
@@ -268,14 +294,17 @@ class IndicatorSettingsDialog(QDialog):
         self.volume_opacity_spin.setDecimals(2)
         self.volume_opacity_spin.setSingleStep(0.05)
         self.volume_opacity_spin.setValue(float(self._current.get("volume_opacity", 0.75) or 0.75))
-        form.addRow(self._field_label("VOLUME OPACITY"), self.volume_opacity_spin)
-        self.type_combo.currentIndexChanged.connect(self._sync_volume_fields)
-        self._sync_volume_fields()
+        volume_form.addRow(self._field_label("OPACITY"), self.volume_opacity_spin)
 
-        body_layout.addWidget(panel)
+        volume_layout.addLayout(volume_form)
+        body_layout.addWidget(self.volume_panel)
+
         body_layout.addStretch()
         root.addWidget(body, 1)
         root.addWidget(self._build_footer())
+
+        self.type_combo.currentIndexChanged.connect(self._sync_volume_fields)
+        self._sync_volume_fields()
 
     def _build_title_bar(self) -> QFrame:
         bar = QFrame()
@@ -441,16 +470,17 @@ class IndicatorSettingsDialog(QDialog):
 
     def _sync_volume_fields(self) -> None:
         is_volume = str(self.type_combo.currentData() or "").lower() == "volume"
-        controls = [
-            self.volume_opacity_spin,
-            self.volume_bull_color_btn,
-            self.volume_bear_color_btn,
-        ]
-        for control in controls:
-            control.setVisible(is_volume)
-            lbl = control.parentWidget().layout().labelForField(control)
-            if lbl is not None:
-                lbl.setVisible(is_volume)
+
+        # Volume bars use their own compact configuration section. Hiding the
+        # line-specific panel prevents Qt from squeezing eight rows into the
+        # same small dialog height and keeps the footer/status bar aligned.
+        self.line_panel.setVisible(not is_volume)
+        self.volume_panel.setVisible(is_volume)
+
+        target_height = 360 if not is_volume else 344
+        self.setMinimumHeight(target_height)
+        if self.height() < target_height:
+            self.resize(max(self.width(), 460), target_height)
 
     def _apply_styles(self) -> None:
         self.setStyleSheet(f"""
@@ -475,7 +505,8 @@ class IndicatorSettingsDialog(QDialog):
         QFrame#settingsBody {{
             background: {_C.BG1};
         }}
-        QFrame#formPanel {{
+        QFrame#formPanel,
+        QFrame#volumePanel {{
             background: {_C.BG2};
             border: 1px solid {_C.BG4};
             border-radius: 2px;
@@ -497,6 +528,7 @@ class IndicatorSettingsDialog(QDialog):
             background: transparent;
         }}
         QLabel#sectionLabel,
+        QLabel#subSectionLabel,
         QLabel#fieldLabel {{
             color: {_C.T2};
             font-family: {_SANS};
@@ -504,6 +536,10 @@ class IndicatorSettingsDialog(QDialog):
             font-weight: 800;
             letter-spacing: 1px;
             background: transparent;
+        }}
+        QLabel#subSectionLabel {{
+            color: {_C.CYAN};
+            padding-bottom: 2px;
         }}
         QComboBox#terminalCombo {{
             background: {_C.BG1};
