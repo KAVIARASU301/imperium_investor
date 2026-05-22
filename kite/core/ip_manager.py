@@ -28,8 +28,8 @@ class IPManager(QObject):
     ip_checked = Signal(object)    # IPStatus
 
     _PROVIDERS: Tuple[str, ...] = (
-        "https://api.ipify.org?format=json",
         "https://api4.ipify.org?format=json",
+        "https://api.ipify.org?format=json",
         "https://icanhazip.com",
         "https://checkip.amazonaws.com",
     )

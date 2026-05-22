@@ -19,6 +19,7 @@ Features
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 from typing import Optional
 
@@ -99,6 +100,8 @@ class _IpLookupWorker(QThread):
     _ENDPOINTS = (
         "https://api4.ipify.org?format=json",
         "https://api.ipify.org?format=json",
+        "https://icanhazip.com",
+        "https://checkip.amazonaws.com",
     )
 
     def run(self):
@@ -111,10 +114,17 @@ class _IpLookupWorker(QThread):
                     last_error = f"IP LOOKUP HTTP {resp.status_code}"
                     continue
 
-                ip = str((resp.json() or {}).get("ip", "")).strip()
-                if ip:
+                content_type = str(resp.headers.get("Content-Type", "")).lower()
+                if "json" in content_type:
+                    ip = str((resp.json() or {}).get("ip", "")).strip()
+                else:
+                    ip = str(resp.text or "").strip()
+
+                if self._is_ipv4(ip):
                     self.result.emit(True, ip)
                     return
+                if ip:
+                    last_error = f"NON-IPv4 ADDRESS RETURNED: {ip}"
             except requests.Timeout:
                 last_error = "DIRECT ISP IP LOOKUP TIMED OUT"
             except Exception as e:
@@ -122,6 +132,13 @@ class _IpLookupWorker(QThread):
 
         self.result.emit(False, last_error.upper())
 
+
+    @staticmethod
+    def _is_ipv4(value: str) -> bool:
+        try:
+            return isinstance(ipaddress.ip_address(value), ipaddress.IPv4Address)
+        except Exception:
+            return False
 
 # ─────────────────────────────────────────────────────────────────────────────
 # RELAY SETTINGS WIDGET
