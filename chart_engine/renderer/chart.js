@@ -590,6 +590,7 @@ class FixedTradingChart {
                 this._drawCandlesticks();
             }
             this._drawVolumeBars();
+            this._drawAwesomeOscillator();
             this._drawAxes();
             this.drawingEngine.render();
             this._drawMeasureOverlay();
@@ -887,6 +888,7 @@ class FixedTradingChart {
         for (const cfg of this.movingAverageConfigs) {
             const key = String(cfg?.id || '');
             if (!key || this.indicatorVisibility?.[key] !== true) continue;
+            if (String(cfg?.type || '').toLowerCase() === 'ao') continue;
 
             const points = this.emaData[key];
             if (!Array.isArray(points) || points.length === 0) continue;
@@ -1107,6 +1109,51 @@ class FixedTradingChart {
             ctx.fillRect(x, y, Math.max(1, this.candleWidth), h);
         }
         ctx.restore();
+    }
+
+    _drawAwesomeOscillator() {
+        if (!Array.isArray(this.movingAverageConfigs) || this.movingAverageConfigs.length === 0) return;
+        if (!this.emaData || Object.keys(this.emaData).length === 0) return;
+        const start = Math.max(0, this.viewPortStart);
+        const end = Math.min(this.data.length - 1, this.viewPortEnd);
+        if (end < start) return;
+        const area = this.chartArea;
+        const paneHeight = Math.max(36, Math.floor(area.height * 0.18));
+        const paneBottom = area.y + area.height - 8;
+        const paneTop = paneBottom - paneHeight;
+        const ctx = this.ctx;
+
+        for (const cfg of this.movingAverageConfigs) {
+            if (String(cfg?.type || '').toLowerCase() !== 'ao') continue;
+            const key = String(cfg?.id || '').trim();
+            if (!key || this.indicatorVisibility?.[key] !== true) continue;
+            const points = this.emaData[key];
+            if (!Array.isArray(points) || points.length === 0) continue;
+            const visible = points.filter((p) => {
+                const t = Number(p?.time);
+                return Number.isFinite(t) && t >= Number(this.data[start]?.time) && t <= Number(this.data[end]?.time);
+            });
+            if (visible.length === 0) continue;
+            let maxAbs = 0;
+            for (const p of visible) maxAbs = Math.max(maxAbs, Math.abs(Number(p?.value) || 0));
+            if (maxAbs <= 0) continue;
+            const upColor = String(cfg?.ao_green_color || '#009688');
+            const downColor = String(cfg?.ao_red_color || '#F44336');
+            const zeroY = paneTop + paneHeight / 2;
+
+            for (const p of visible) {
+                const t = Number(p?.time);
+                const v = Number(p?.value);
+                const d = Number(p?.diff);
+                if (!Number.isFinite(t) || !Number.isFinite(v)) continue;
+                const x = Math.round(this._timeToX(t));
+                const h = Math.round((Math.abs(v) / maxAbs) * (paneHeight * 0.48));
+                const y = v >= 0 ? zeroY - h : zeroY;
+                const color = d <= 0 ? downColor : upColor;
+                ctx.fillStyle = color;
+                ctx.fillRect(x, y, Math.max(1, this.candleWidth), Math.max(1, h));
+            }
+        }
     }
 
 

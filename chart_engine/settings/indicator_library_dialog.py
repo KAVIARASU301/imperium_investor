@@ -84,6 +84,7 @@ class IndicatorCatalogItem:
 _INDICATOR_CATALOG: List[IndicatorCatalogItem] = [
     IndicatorCatalogItem(type_id="ema", display_name="EMA", default_period=20, default_color="#00d4ff"),
     IndicatorCatalogItem(type_id="sma", display_name="SMA", default_period=20, default_color="#ff9800"),
+    IndicatorCatalogItem(type_id="ao", display_name="Awesome Oscillator", default_period=5, default_color="#009688"),
     IndicatorCatalogItem(type_id="volume", display_name="Volume Bars", default_period=1, default_color="#00c896"),
 ]
 
@@ -299,6 +300,40 @@ class IndicatorSettingsDialog(QDialog):
         volume_layout.addLayout(volume_form)
         body_layout.addWidget(self.volume_panel)
 
+        self.ao_panel = QFrame()
+        self.ao_panel.setObjectName("volumePanel")
+        ao_layout = QVBoxLayout(self.ao_panel)
+        ao_layout.setContentsMargins(10, 8, 10, 10)
+        ao_layout.setSpacing(8)
+        ao_title = QLabel("AWESOME OSCILLATOR STYLE")
+        ao_title.setObjectName("subSectionLabel")
+        ao_layout.addWidget(ao_title)
+        ao_form = QFormLayout()
+        self.ao_fast_spin = QSpinBox()
+        self.ao_fast_spin.setObjectName("terminalSpin")
+        self.ao_fast_spin.setRange(1, 2000)
+        self.ao_fast_spin.setValue(int(self._current.get("ao_fast_period", 5) or 5))
+        ao_form.addRow(self._field_label("FAST PERIOD"), self.ao_fast_spin)
+        self.ao_slow_spin = QSpinBox()
+        self.ao_slow_spin.setObjectName("terminalSpin")
+        self.ao_slow_spin.setRange(2, 4000)
+        self.ao_slow_spin.setValue(int(self._current.get("ao_slow_period", 34) or 34))
+        ao_form.addRow(self._field_label("SLOW PERIOD"), self.ao_slow_spin)
+        self.ao_green_color_btn = QPushButton("PICK GREEN COLOR")
+        self.ao_green_color_btn.setObjectName("colorButton")
+        self._ao_green_color = str(self._current.get("ao_green_color", "#009688") or "#009688")
+        self._apply_volume_color_style(self.ao_green_color_btn, self._ao_green_color, "PICK GREEN COLOR")
+        self.ao_green_color_btn.clicked.connect(lambda: self._pick_ao_color("green"))
+        ao_form.addRow(self._field_label("UP COLOR"), self.ao_green_color_btn)
+        self.ao_red_color_btn = QPushButton("PICK RED COLOR")
+        self.ao_red_color_btn.setObjectName("colorButton")
+        self._ao_red_color = str(self._current.get("ao_red_color", "#F44336") or "#F44336")
+        self._apply_volume_color_style(self.ao_red_color_btn, self._ao_red_color, "PICK RED COLOR")
+        self.ao_red_color_btn.clicked.connect(lambda: self._pick_ao_color("red"))
+        ao_form.addRow(self._field_label("DOWN COLOR"), self.ao_red_color_btn)
+        ao_layout.addLayout(ao_form)
+        body_layout.addWidget(self.ao_panel)
+
         body_layout.addStretch()
         root.addWidget(body, 1)
         root.addWidget(self._build_footer())
@@ -456,6 +491,18 @@ class IndicatorSettingsDialog(QDialog):
             }}
         """)
 
+    def _pick_ao_color(self, side: str) -> None:
+        current = self._ao_green_color if side == "green" else self._ao_red_color
+        color = QColorDialog.getColor(QColor(current), self, "Pick AO Color")
+        if not color.isValid():
+            return
+        if side == "green":
+            self._ao_green_color = color.name()
+            self._apply_volume_color_style(self.ao_green_color_btn, self._ao_green_color, "PICK GREEN COLOR")
+        else:
+            self._ao_red_color = color.name()
+            self._apply_volume_color_style(self.ao_red_color_btn, self._ao_red_color, "PICK RED COLOR")
+
     def payload(self) -> Dict[str, Any]:
         return {
             "type": str(self.type_combo.currentData() or "ema"),
@@ -466,16 +513,22 @@ class IndicatorSettingsDialog(QDialog):
             "volume_opacity": float(self.volume_opacity_spin.value()),
             "volume_bull_color": self._volume_bull_color,
             "volume_bear_color": self._volume_bear_color,
+            "ao_fast_period": int(self.ao_fast_spin.value()),
+            "ao_slow_period": int(self.ao_slow_spin.value()),
+            "ao_green_color": self._ao_green_color,
+            "ao_red_color": self._ao_red_color,
         }
 
     def _sync_volume_fields(self) -> None:
         is_volume = str(self.type_combo.currentData() or "").lower() == "volume"
+        is_ao = str(self.type_combo.currentData() or "").lower() == "ao"
 
         # Volume bars use their own compact configuration section. Hiding the
         # line-specific panel prevents Qt from squeezing eight rows into the
         # same small dialog height and keeps the footer/status bar aligned.
-        self.line_panel.setVisible(not is_volume)
+        self.line_panel.setVisible(not is_volume and not is_ao)
         self.volume_panel.setVisible(is_volume)
+        self.ao_panel.setVisible(is_ao)
 
         target_height = 360 if not is_volume else 344
         self.setMinimumHeight(target_height)
@@ -822,6 +875,10 @@ class IndicatorLibraryDialog(QDialog):
             "volume_opacity": max(0.0, min(1.0, volume_opacity)),
             "volume_bull_color": str(item.get("volume_bull_color") or "#00c896"),
             "volume_bear_color": str(item.get("volume_bear_color") or "#e84060"),
+            "ao_fast_period": max(1, int(item.get("ao_fast_period", 5) or 5)),
+            "ao_slow_period": max(2, int(item.get("ao_slow_period", 34) or 34)),
+            "ao_green_color": str(item.get("ao_green_color") or "#009688"),
+            "ao_red_color": str(item.get("ao_red_color") or "#F44336"),
         }
 
     def _build_section_label(self, text: str) -> QLabel:
@@ -910,6 +967,10 @@ class IndicatorLibraryDialog(QDialog):
             bull = str(item.get("volume_bull_color") or "#00c896").upper()
             bear = str(item.get("volume_bear_color") or "#E84060").upper()
             return f"BULL {bull} · BEAR {bear} · OPACITY {opacity_pct}%"
+        if str(item.get("type", "")).lower() == "ao":
+            fast = int(item.get("ao_fast_period", 5) or 5)
+            slow = int(item.get("ao_slow_period", 34) or 34)
+            return f"FAST {fast} · SLOW {slow}"
         thickness = float(item.get("thickness", 1.2) or 1.2)
         line_style = str(item.get("line_style") or "solid").upper()
         color = str(item.get("color") or "#00d4ff").upper()
@@ -991,6 +1052,10 @@ class IndicatorLibraryDialog(QDialog):
             "volume_opacity": 0.75,
             "volume_bull_color": "#00c896",
             "volume_bear_color": "#e84060",
+            "ao_fast_period": 5,
+            "ao_slow_period": 34,
+            "ao_green_color": "#009688",
+            "ao_red_color": "#F44336",
         })
         self._refresh_tables()
 

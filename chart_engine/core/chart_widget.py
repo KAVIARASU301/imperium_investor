@@ -493,6 +493,10 @@ class CandlestickChart(QWidget):
                 "thickness": float(item.get("thickness", 1.2) or 1.2),
                 "line_style": str(item.get("line_style") or "solid"),
                 "volume_opacity": max(0.0, min(1.0, volume_opacity)),
+                "ao_fast_period": max(1, int(item.get("ao_fast_period", 5) or 5)),
+                "ao_slow_period": max(2, int(item.get("ao_slow_period", 34) or 34)),
+                "ao_green_color": str(item.get("ao_green_color") or "#009688"),
+                "ao_red_color": str(item.get("ao_red_color") or "#F44336"),
             })
         return cleaned
 

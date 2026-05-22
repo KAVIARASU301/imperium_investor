@@ -57,9 +57,21 @@ def calculate_metrics(df: pd.DataFrame, moving_average_configs: List[Dict[str, A
         for item in ma_configs:
             span = max(1, int(item.get("period", 10) or 10))
             ma_type = str(item.get("type") or "ema").lower()
+            key = str(item.get("id") or f"{ma_type}{span}")
+            if ma_type == "ao":
+                fast = max(1, int(item.get("ao_fast_period", 5) or 5))
+                slow = max(fast + 1, int(item.get("ao_slow_period", 34) or 34))
+                hl2 = (df["high"] + df["low"]) / 2.0
+                ao = hl2.rolling(window=fast, min_periods=fast).mean() - hl2.rolling(window=slow, min_periods=slow).mean()
+                diff = ao.diff()
+                result.ema_data[key] = (
+                    pd.DataFrame({"time": df["time_ms"], "value": ao, "diff": diff})
+                    .dropna()
+                    .to_dict(orient="records")
+                )
+                continue
             if ma_type not in {"ema", "sma"}:
                 continue
-            key = str(item.get("id") or f"{ma_type}{span}")
             if ma_type == "sma":
                 df[key] = df["close"].rolling(window=span, min_periods=span).mean()
             else:
