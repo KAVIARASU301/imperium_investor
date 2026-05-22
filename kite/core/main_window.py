@@ -32,6 +32,7 @@ from kite.widgets.performance_dialog import PerformanceDialog
 from kite.widgets.pnl_history_dialog import PnlHistoryDialog
 from kite.widgets.floating_positions_dialog import FloatingPositionsDialog
 from kite.widgets.floating_watchlist_dialog import attach_floating_watchlist
+from kite.widgets.reconnecting_overlay import ReconnectingOverlay
 from kite.core.alert_management_system import AlertSystemManager
 from kite.core.chart_lines_manager import ChartLinesManager
 from kite.core.data_cache import MarketAwareDataCache
@@ -174,6 +175,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self._subscription_rebuild_timer.setInterval(300)
         self._subscription_rebuild_timer.timeout.connect(self._rebuild_subscription_universe)
         self._pending_fresh_restart = False
+        self._reconnect_overlay = ReconnectingOverlay(self)
 
         # --- Setup Sequence ---
         self._setup_frameless_window()
@@ -1282,18 +1284,33 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         # Reconnection manager → UI
         self.reconnection_manager.reconnection_started.connect(
             lambda: status.show_notification("Reconnecting…", "warn", 2500))
+        self.reconnection_manager.reconnection_started.connect(self._show_reconnect_overlay)
         self.reconnection_manager.reconnection_complete.connect(
             lambda: status.show_notification("Back online", "success", 2200))
+        self.reconnection_manager.reconnection_complete.connect(self._hide_reconnect_overlay)
         self.reconnection_manager.reconnection_failed.connect(
             lambda r: status.show_notification(f"Reconnect failed: {r}", "error", 8000))
+        self.reconnection_manager.reconnection_failed.connect(lambda _r: self._hide_reconnect_overlay())
 
         self.network_monitor.start()
         logger.info("Network resilience layer initialized")
+
+
+    @Slot()
+    def _show_reconnect_overlay(self):
+        if hasattr(self, "_reconnect_overlay") and self._reconnect_overlay:
+            self._reconnect_overlay.show_overlay()
+
+    @Slot()
+    def _hide_reconnect_overlay(self):
+        if hasattr(self, "_reconnect_overlay") and self._reconnect_overlay:
+            self._reconnect_overlay.hide_overlay()
 
     @Slot()
     def _on_network_offline_ui(self):
         """Immediate UI feedback when network drops."""
         status.show_notification("Offline", "warn", 2500)
+        self._show_reconnect_overlay()
         self._pending_fresh_restart = True
 
         if hasattr(self, "app_status_bar"):
