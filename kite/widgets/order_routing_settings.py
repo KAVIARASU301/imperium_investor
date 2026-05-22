@@ -445,19 +445,29 @@ class RelaySettingsWidget(QWidget):
         url = self._url_input.text().strip()
         secret = self._secret_input.text().strip()
 
-        # Allow saving a "disabled" empty config (user clears relay)
+        # Relay credentials are optional: users can trade with direct ISP routing.
+        route_mode = self._selected_route_mode()
+        relay_required = route_mode.value in ("relay", "auto") and self._enabled_chk.isChecked()
+
+        # Empty relay credentials should never block saving from the login flow.
         if not url and not secret:
             if self._token_manager:
                 RelayConfigStore.clear(self._token_manager)
             self.config_changed.emit(None)
-            self._set_status("RELAY CONFIG CLEARED.", _T2)
+            self._set_status("RELAY CONFIG CLEARED. DIRECT ISP ROUTING REMAINS AVAILABLE.", _T2)
             return
 
-        if not url:
-            self._set_status("URL IS REQUIRED.", _AMBER)
+        # Partial credentials are only invalid when relay routing is explicitly required.
+        if relay_required and not url:
+            self._set_status("URL IS REQUIRED FOR RELAY ROUTING.", _AMBER)
             return
-        if not secret:
-            self._set_status("SECRET IS REQUIRED.", _AMBER)
+        if relay_required and not secret:
+            self._set_status("SECRET IS REQUIRED FOR RELAY ROUTING.", _AMBER)
+            return
+
+        # If user entered one field, request both so a complete relay profile is saved.
+        if (url and not secret) or (secret and not url):
+            self._set_status("ENTER BOTH URL AND SECRET, OR LEAVE BOTH BLANK.", _AMBER)
             return
 
         try:
