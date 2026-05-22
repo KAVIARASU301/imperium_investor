@@ -27,8 +27,8 @@ DEFAULT_COLOR_THEME: Dict[str, Any] = {
         "down": "#E84060",
     },
     "volume": {
-        "up": "#00C896",
-        "down": "#E84060",
+        "up": "#22C55E",
+        "down": "#EF4444",
     },
     "tables": {
         "positive": "#00d4a8",
