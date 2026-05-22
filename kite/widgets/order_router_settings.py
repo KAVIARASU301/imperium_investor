@@ -1,4 +1,4 @@
-# kite/widgets/relay_settings_widget.py
+# kite/widgets/order_router_settings.py
 """
 RelaySettingsWidget — compact, TC2000-dark panel for configuring the relay server.
 
@@ -23,7 +23,7 @@ from PySide6.QtCore import Qt, Signal, QThread, QPoint
 from PySide6.QtWidgets import (
     QDialog, QFrame, QVBoxLayout, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QCheckBox, QDoubleSpinBox,
-    QWidget, QApplication,
+    QWidget, QApplication, QRadioButton,
 )
 from PySide6.QtGui import QColor, QCursor, QMouseEvent
 
@@ -152,6 +152,19 @@ class RelaySettingsWidget(QWidget):
         hint.setWordWrap(True)
         card_lay.addWidget(hint)
 
+        route_row = QHBoxLayout()
+        route_row.setSpacing(10)
+        route_row.addWidget(self._field_label("ROUTING MODE"))
+        self._mode_relay = QRadioButton("Relay")
+        self._mode_direct = QRadioButton("Direct ISP")
+        self._mode_auto = QRadioButton("Auto")
+        self._mode_relay.setChecked(True)
+        for btn in (self._mode_relay, self._mode_direct, self._mode_auto):
+            btn.setCursor(QCursor(Qt.PointingHandCursor))
+            route_row.addWidget(btn)
+        route_row.addStretch()
+        card_lay.addLayout(route_row)
+
         # ── URL field ────────────────────────────────────────────────────────
         card_lay.addWidget(self._field_label("RELAY SERVER URL"))
         url_row = QHBoxLayout()
@@ -212,6 +225,18 @@ class RelaySettingsWidget(QWidget):
         self._status_lbl.setObjectName("relayStatus")
         self._status_lbl.setVisible(False)
         card_lay.addWidget(self._status_lbl)
+
+        ip_row = QHBoxLayout()
+        self._ip_lbl = QLabel("Public IP: --")
+        self._ip_lbl.setObjectName("relayHint")
+        self._ip_refresh_btn = QPushButton("↺")
+        self._ip_refresh_btn.setObjectName("relayTestBtn")
+        self._ip_refresh_btn.setFixedSize(28, 24)
+        self._ip_refresh_btn.clicked.connect(self._refresh_ip_label)
+        ip_row.addWidget(self._ip_lbl)
+        ip_row.addStretch()
+        ip_row.addWidget(self._ip_refresh_btn)
+        card_lay.addLayout(ip_row)
 
         # ── Action buttons ───────────────────────────────────────────────────
         btn_row = QHBoxLayout()
@@ -415,6 +440,7 @@ class RelaySettingsWidget(QWidget):
 
     def _save_config(self):
         from kite.core.relay_order_router import RelayConfig, RelayConfigStore
+        from kite.core.order_router import OrderRouteMode
 
         url = self._url_input.text().strip()
         secret = self._secret_input.text().strip()
@@ -440,6 +466,8 @@ class RelaySettingsWidget(QWidget):
                 secret=secret,
                 market_protection=self._mp_spin.value(),
                 enabled=self._enabled_chk.isChecked(),
+                route_mode=self._selected_route_mode(),
+                isp_last_known_ip=self._extract_ip_text(),
             )
         except ValueError as e:
             self._set_status(str(e).upper(), _RED)
@@ -474,7 +502,16 @@ class RelaySettingsWidget(QWidget):
             self._secret_input.setText(cfg.secret)
             self._mp_spin.setValue(cfg.market_protection)
             self._enabled_chk.setChecked(cfg.enabled)
+            if cfg.route_mode.value == "direct_isp":
+                self._mode_direct.setChecked(True)
+            elif cfg.route_mode.value == "auto":
+                self._mode_auto.setChecked(True)
+            else:
+                self._mode_relay.setChecked(True)
+            if cfg.isp_last_known_ip:
+                self._ip_lbl.setText(f"Public IP: {cfg.isp_last_known_ip}")
             log.info("Loaded relay config from storage: %s", cfg.url)
+        self._refresh_ip_label()
 
     # ─────────────────────────────────────────────────────────────────────────
     # PUBLIC HELPERS
@@ -493,9 +530,37 @@ class RelaySettingsWidget(QWidget):
                 secret=secret,
                 market_protection=self._mp_spin.value(),
                 enabled=self._enabled_chk.isChecked(),
+                route_mode=self._selected_route_mode(),
+                isp_last_known_ip=self._extract_ip_text(),
             )
         except ValueError:
             return None
+
+    def _selected_route_mode(self):
+        from kite.core.order_router import OrderRouteMode
+        if self._mode_direct.isChecked():
+            return OrderRouteMode.DIRECT_ISP
+        if self._mode_auto.isChecked():
+            return OrderRouteMode.AUTO
+        return OrderRouteMode.RELAY
+
+    def _extract_ip_text(self) -> str:
+        text = self._ip_lbl.text().replace("Public IP:", "").strip()
+        return "" if text == "--" else text
+
+    def _refresh_ip_label(self):
+        import requests
+        ip = "--"
+        for url in ("https://api4.ipify.org?format=json", "https://api.ipify.org?format=json"):
+            try:
+                resp = requests.get(url, timeout=3)
+                if resp.status_code == 200:
+                    ip = (resp.json() or {}).get("ip", "--")
+                    if ip:
+                        break
+            except Exception:
+                continue
+        self._ip_lbl.setText(f"Public IP: {ip}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

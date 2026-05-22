@@ -40,6 +40,7 @@ class IPManager(QObject):
         self._lock = threading.Lock()
         self._timer = QTimer(self)
         self._timer.timeout.connect(self.refresh)
+        self._refresh_in_flight = False
 
     def start(self):
         self.refresh()
@@ -71,19 +72,28 @@ class IPManager(QObject):
             return int((datetime.utcnow() - self._status.last_checked).total_seconds())
 
     def refresh(self):
-        old_ip = self._status.current_ip
-        new_ip = self._fetch_public_ipv4()
-        isp = self._fetch_isp_name(new_ip) if new_ip else None
-        with self._lock:
-            self._status.current_ip = new_ip or self._status.current_ip
-            self._status.last_checked = datetime.utcnow()
-            if isp:
-                self._status.isp_name = isp
-            snapshot = IPStatus(**self._status.__dict__)
-        if old_ip and new_ip and old_ip != new_ip:
-            logger.warning("Public IP changed: %s -> %s", old_ip, new_ip)
-            self.ip_changed.emit(old_ip, new_ip)
-        self.ip_checked.emit(snapshot)
+        if self._refresh_in_flight:
+            return
+        self._refresh_in_flight = True
+        threading.Thread(target=self._refresh_worker, daemon=True, name="IPManagerRefresh").start()
+
+    def _refresh_worker(self):
+        try:
+            old_ip = self._status.current_ip
+            new_ip = self._fetch_public_ipv4()
+            isp = self._fetch_isp_name(new_ip) if new_ip else None
+            with self._lock:
+                self._status.current_ip = new_ip or self._status.current_ip
+                self._status.last_checked = datetime.utcnow()
+                if isp:
+                    self._status.isp_name = isp
+                snapshot = IPStatus(**self._status.__dict__)
+            if old_ip and new_ip and old_ip != new_ip:
+                logger.warning("Public IP changed: %s -> %s", old_ip, new_ip)
+                self.ip_changed.emit(old_ip, new_ip)
+            self.ip_checked.emit(snapshot)
+        finally:
+            self._refresh_in_flight = False
 
     def _fetch_public_ipv4(self) -> str:
         for url in self._PROVIDERS:

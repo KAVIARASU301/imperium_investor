@@ -96,6 +96,11 @@ class ShutdownManager:
                 critical=True,  # Must drain DB queue before exit
             ),
             ShutdownStep(
+                name="stop_ip_manager",
+                fn=lambda: w._stop_ip_manager() if hasattr(w, "_stop_ip_manager") else None,
+                timeout_ms=1_000,
+            ),
+            ShutdownStep(
                 name="stop_remaining_timers",
                 fn=self._stop_all_timers,
                 timeout_ms=500,

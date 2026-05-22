@@ -894,7 +894,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     def _show_relay_settings_dialog(self):
         """Open relay settings and hot-reload an active RelayOrderRouter."""
         from kite.core.relay_order_router import _HMACSigner
-        from kite.widgets.relay_settings_widget import RelaySettingsDialog
+        from kite.widgets.order_router_settings import RelaySettingsDialog
         from login_setup.token_manager import EnhancedTokenManager
 
         dialog = RelaySettingsDialog(token_manager=EnhancedTokenManager(), parent=self)
@@ -2300,12 +2300,43 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         """
         try:
             if hasattr(self, 'trade_logger') and self.trade_logger:
+                order_data = dict(order_data or {})
+                order_data["order_source"] = self._resolve_order_source()
                 # This is now fully async and won't block the UI
                 self.trade_logger.log_order_placement(order_data, order_id)
                 logger.info(f"Order queued for logging: {order_id}")
         except Exception as log_error:
             # Even if logging fails, don't block the UI
             logger.error(f"Failed to queue order for logging: {log_error}")
+
+    def _resolve_order_source(self) -> str:
+        router = getattr(self, "trader", None)
+        mode = getattr(router, "_mode", None)
+        if mode is not None and getattr(mode, "value", ""):
+            if mode.value == "direct_isp":
+                ip_manager = getattr(getattr(router, "_direct", None), "_ip_manager", None)
+                if ip_manager:
+                    ip = ip_manager.get_cached_status().current_ip
+                    return f"direct_isp:{ip}" if ip else "direct_isp"
+                return "direct_isp"
+            if mode.value == "auto":
+                return "auto"
+            return "relay"
+        if hasattr(router, "_cfg"):
+            return "relay"
+        return "manual"
+
+    def _stop_ip_manager(self):
+        try:
+            router = getattr(self, "trader", None)
+            for candidate in (
+                getattr(router, "_ip_manager", None),
+                getattr(getattr(router, "_direct", None), "_ip_manager", None),
+            ):
+                if candidate and hasattr(candidate, "stop"):
+                    candidate.stop()
+        except Exception as e:
+            logger.warning(f"Failed to stop IP manager: {e}")
 
     # ==============================================================================
     # DIALOG SHOW METHODS
