@@ -18,7 +18,7 @@
 from typing import Dict, List, Optional, Tuple
 
 from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QAction, QActionGroup, QColor, QFont, QIcon, QPixmap
+from PySide6.QtGui import QAction, QActionGroup, QColor, QFont, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup,
     QComboBox,
@@ -107,30 +107,39 @@ ICON_ASSETS: Dict[str, str] = {
 # ─── Palette constants ────────────────────────────────────────────────────────
 
 class P:
-    # Backgrounds
-    BG_BASE   = "#070a0f"   # toolbar root
-    BG_RAISED = "#0d1219"   # pill / badge backgrounds
-    BG_HOVER  = "#111a26"   # hover state
-    BG_ACTIVE = "#0a1828"   # selected / checked
+    # AMOLED / TC2000-style terminal palette. Keep icons and accents quiet.
+    BG_BASE   = "#050709"   # toolbar root
+    BG_RAISED = "#0a0d12"   # compact controls
+    BG_PANEL  = "#0f1318"   # grouped trays / menus
+    BG_HOVER  = "#141920"   # hover state
+    BG_ACTIVE = "#1a2840"   # selected / checked
 
-    # Borders
-    BORDER      = "#1a2535"
-    BORDER_MID  = "#243040"
-    BORDER_LIVE = "#00d4ff"  # cyan accent border
+    BORDER      = "#1a2030"
+    BORDER_MID  = "#263247"
+    BORDER_SOFT = "#111722"
 
-    # Text
-    T_DIM    = "#2e4060"
-    T_MID    = "#4a6280"
-    T_MUTED  = "#7a94b0"
-    T_MAIN   = "#b8cce0"
-    T_BRIGHT = "#ddeeff"
+    T_DIM    = "#2a3a50"
+    T_MID    = "#5a7090"
+    T_MUTED  = "#8292a8"
+    T_MAIN   = "#a8bcd4"
+    T_BRIGHT = "#e8f0ff"
+    SYMBOL   = "#cbd5e1"
 
-    # Accents
+    ICON_DIM   = "#586579"
+    ICON_HOVER = "#7a8798"
+    ICON_ON    = "#9aa7b8"
+
     CYAN   = "#00d4ff"
-    TEAL   = "#22d3a0"
-    AMBER  = "#fbbf24"
+    TEAL   = "#00d4a8"
+    AMBER  = "#f59e0b"
     RED    = "#ff4d6a"
-    PURPLE = "#a78bfa"
+    PURPLE = "#8b7bc8"
+
+
+_TOOLBAR_H = 26
+_CONTROL_H = 20
+_ICON_SIZE = 13
+_MENU_ROW_H = 26
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -165,20 +174,41 @@ def _icon_path(icon_key: str) -> str:
     return resource_path(f"assets/icons/{ICON_ASSETS[icon_key]}")
 
 
-def _icon(icon_key: str) -> QIcon:
-    """Return a bundled toolbar SVG icon, or an empty icon for unknown keys."""
+def _raw_icon(icon_key: str) -> QIcon:
+    """Return the bundled SVG/PNG icon without color treatment."""
     asset_name = ICON_ASSETS.get(icon_key)
     if not asset_name:
         return QIcon()
     return QIcon(resource_path(f"assets/icons/{asset_name}"))
 
 
-def _icon_pixmap(icon_key: str, size: int = 16) -> QPixmap:
-    return _icon(icon_key).pixmap(QSize(size, size))
+def _tinted_icon(icon_key: str, size: int = _ICON_SIZE, color: str = P.ICON_DIM) -> QIcon:
+    """Render bundled icons as quiet grey glyphs so the toolbar stays non-distracting."""
+    raw = _raw_icon(icon_key)
+    if raw.isNull():
+        return QIcon()
+
+    base = QPixmap(size, size)
+    base.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(base)
+    raw.paint(painter, 0, 0, size, size)
+    painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+    painter.fillRect(base.rect(), QColor(color))
+    painter.end()
+    return QIcon(base)
 
 
-def _apply_icon(button, icon_key: str, size: int = 16) -> None:
-    button.setIcon(_icon(icon_key))
+def _icon(icon_key: str) -> QIcon:
+    """Return a bundled toolbar icon tinted to muted grey."""
+    return _tinted_icon(icon_key)
+
+
+def _icon_pixmap(icon_key: str, size: int = _ICON_SIZE) -> QPixmap:
+    return _tinted_icon(icon_key, size).pixmap(QSize(size, size))
+
+
+def _apply_icon(button, icon_key: str, size: int = _ICON_SIZE) -> None:
+    button.setIcon(_tinted_icon(icon_key, size))
     button.setIconSize(QSize(size, size))
 
 
@@ -194,39 +224,39 @@ class ToolMenuItemWidget(QWidget):
         super().__init__(parent)
         self.tool_id = tool_id
         self.setObjectName("menuItem")
-        self.setFixedHeight(30)
+        self.setFixedHeight(_MENU_ROW_H)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(12, 0, 10, 0)
-        lay.setSpacing(10)
+        lay.setContentsMargins(9, 0, 8, 0)
+        lay.setSpacing(7)
 
         icon = QLabel(glyph)
-        icon.setFixedSize(18, 18)
+        icon.setFixedSize(16, 16)
         icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         icon.setStyleSheet(
-            "font-size:14px; color:#7090b0; background:transparent;"
+            "font-size:12px; color:#667386; background:transparent;"
             "font-family:'Segoe UI Symbol','Noto Sans Symbols',sans-serif;"
         )
         if icon_key:
             icon.setText("")
-            icon.setPixmap(_icon_pixmap(icon_key, 16))
+            icon.setPixmap(_icon_pixmap(icon_key, _ICON_SIZE))
 
         text = QLabel(label)
         text.setStyleSheet(
-            "font-size:11px; color:#a8bed4; font-weight:500; background:transparent;"
+            "font-size:10px; color:#a8bcd4; font-weight:500; background:transparent;"
         )
 
         self.star = QPushButton("★" if is_fav else "☆")
         self.star.setCheckable(True)
         self.star.setChecked(is_fav)
-        self.star.setFixedSize(22, 22)
+        self.star.setFixedSize(20, 20)
         self.star.setObjectName("starBtn")
         self.star.setCursor(Qt.CursorShape.PointingHandCursor)
         self.star.setStyleSheet(
-            "QPushButton#starBtn{color:#2a3d55;background:transparent;border:none;font-size:14px;}"
-            "QPushButton#starBtn:hover{color:#5a7a99;}"
-            "QPushButton#starBtn:checked{color:#fbbf24;}"
+            "QPushButton#starBtn{color:#2a3a50;background:transparent;border:none;font-size:12px;}"
+            "QPushButton#starBtn:hover{color:#6b7d92;}"
+            "QPushButton#starBtn:checked{color:#8a7247;}"
         )
         self.star.toggled.connect(
             lambda c: (self.star.setText("★" if c else "☆"),
@@ -253,14 +283,14 @@ class TimeframeMenuItemWidget(QWidget):
         super().__init__(parent)
         self.kite_interval = kite_interval
         self.setObjectName("menuItem")
-        self.setFixedHeight(30)
+        self.setFixedHeight(_MENU_ROW_H)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setToolTip(tooltip)
         self._selected = False
 
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(12, 0, 10, 0)
-        lay.setSpacing(10)
+        lay.setContentsMargins(9, 0, 8, 0)
+        lay.setSpacing(7)
 
         self.tf_label = QLabel(label)
         self.full_label = QLabel(tooltip.split("  [")[0])
@@ -269,13 +299,13 @@ class TimeframeMenuItemWidget(QWidget):
         self.star = QPushButton("★" if is_fav else "☆")
         self.star.setCheckable(True)
         self.star.setChecked(is_fav)
-        self.star.setFixedSize(22, 22)
+        self.star.setFixedSize(20, 20)
         self.star.setObjectName("starBtn")
         self.star.setCursor(Qt.CursorShape.PointingHandCursor)
         self.star.setStyleSheet(
-            "QPushButton#starBtn{color:#2a3d55;background:transparent;border:none;font-size:14px;}"
-            "QPushButton#starBtn:hover{color:#5a7a99;}"
-            "QPushButton#starBtn:checked{color:#fbbf24;}"
+            "QPushButton#starBtn{color:#2a3a50;background:transparent;border:none;font-size:12px;}"
+            "QPushButton#starBtn:hover{color:#6b7d92;}"
+            "QPushButton#starBtn:checked{color:#8a7247;}"
         )
         self.star.toggled.connect(
             lambda c: (self.star.setText("★" if c else "☆"),
@@ -293,11 +323,11 @@ class TimeframeMenuItemWidget(QWidget):
 
     def _refresh_selected_style(self) -> None:
         if self._selected:
-            self.tf_label.setStyleSheet("font-size:12px; color:#d6edff; font-weight:800; background:transparent;")
-            self.full_label.setStyleSheet("font-size:11px; color:#8fc8ff; background:transparent;")
+            self.tf_label.setStyleSheet("font-size:11px; color:#e8f0ff; font-weight:700; background:transparent;")
+            self.full_label.setStyleSheet("font-size:10px; color:#8fa3ba; background:transparent;")
         else:
-            self.tf_label.setStyleSheet("font-size:12px; color:#a8bed4; font-weight:700; background:transparent;")
-            self.full_label.setStyleSheet("font-size:11px; color:#7f9bb8; background:transparent;")
+            self.tf_label.setStyleSheet("font-size:11px; color:#a8bcd4; font-weight:650; background:transparent;")
+            self.full_label.setStyleSheet("font-size:10px; color:#5a7090; background:transparent;")
 
     def mousePressEvent(self, ev):
         if ev.button() == Qt.MouseButton.LeftButton:
@@ -322,7 +352,7 @@ class ChartToolbar(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("chartToolbar")
-        self.setFixedHeight(32)
+        self.setFixedHeight(_TOOLBAR_H)
 
         # ── State ─────────────────────────────────────────────────────────
         self._drawing_color = "#A51D2D"
@@ -382,7 +412,7 @@ class ChartToolbar(QFrame):
 
     def _build(self) -> None:
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(8, 0, 8, 0)
+        lay.setContentsMargins(5, 0, 5, 0)
         lay.setSpacing(0)
 
         # ── 1. SYMBOL BADGE ───────────────────────────────────────────────
@@ -400,7 +430,7 @@ class ChartToolbar(QFrame):
         lay.addWidget(symbol_block)
         lay.addStretch(1)
         lay.addWidget(_vsep())
-        lay.addWidget(_gap(6))
+        lay.addWidget(_gap(4))
 
         # ── 2. TIMEFRAME DROPDOWN PILL ────────────────────────────────────
         self._tf_menu = QMenu(self)
@@ -428,7 +458,7 @@ class ChartToolbar(QFrame):
         self._tf_menu_btn.setText("D")
         self._tf_menu_btn.setToolTip("Select timeframe")
         self._tf_menu_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        self._tf_menu_btn.setFixedSize(36, 22)
+        self._tf_menu_btn.setFixedSize(30, _CONTROL_H)
         self._tf_menu_btn.setMenu(self._tf_menu)
         lay.addWidget(self._tf_menu_btn)
         lay.addWidget(_gap(4))
@@ -438,7 +468,7 @@ class ChartToolbar(QFrame):
         lay.addLayout(self.timeframe_favorites_layout)
         self._tf_fav_buttons: Dict[str, QPushButton] = {}
         self._rebuild_timeframe_favorites_tray()
-        lay.addWidget(_gap(6))
+        lay.addWidget(_gap(4))
 
         # ── 3. CHART TYPE DROPDOWN ────────────────────────────────────────
         self._ct_menu = QMenu(self)
@@ -469,15 +499,15 @@ class ChartToolbar(QFrame):
 
         self._ct_menu_btn = QToolButton()
         self._ct_menu_btn.setObjectName("pillMenuBtn")
-        _apply_icon(self._ct_menu_btn, "chart_candle")
+        _apply_icon(self._ct_menu_btn, "chart_candle", _ICON_SIZE)
         self._ct_menu_btn.setToolTip("Chart type")
         self._ct_menu_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        self._ct_menu_btn.setFixedSize(36, 22)
+        self._ct_menu_btn.setFixedSize(30, _CONTROL_H)
         self._ct_menu_btn.setMenu(self._ct_menu)
         lay.addWidget(self._ct_menu_btn)
-        lay.addWidget(_gap(6))
+        lay.addWidget(_gap(4))
         lay.addWidget(_vsep())
-        lay.addWidget(_gap(6))
+        lay.addWidget(_gap(4))
 
         # ── 4. INDICATOR BUTTON ───────────────────────────────────────────
 
@@ -488,22 +518,22 @@ class ChartToolbar(QFrame):
 
         self.indicator_menu_button = QToolButton()
         self.indicator_menu_button.setObjectName("pillMenuBtn")
-        _apply_icon(self.indicator_menu_button, "indicator")
+        _apply_icon(self.indicator_menu_button, "indicator", _ICON_SIZE)
         self.indicator_menu_button.setToolTip("Manage indicators")
-        self.indicator_menu_button.setFixedSize(32, 22)
+        self.indicator_menu_button.setFixedSize(26, _CONTROL_H)
         self.indicator_menu_button.clicked.connect(self.manage_indicators_requested.emit)
         lay.addWidget(self.indicator_menu_button)
 
-        lay.addWidget(_gap(6))
+        lay.addWidget(_gap(4))
         lay.addWidget(_vsep())
-        lay.addWidget(_gap(6))
+        lay.addWidget(_gap(4))
 
         # ── 5. DRAWING TOOLS TRAY ─────────────────────────────────────────
         self.drawing_tray = QFrame()
         self.drawing_tray.setObjectName("drawingTray")
-        self.drawing_tray.setFixedHeight(26)
+        self.drawing_tray.setFixedHeight(22)
         dt_lay = QHBoxLayout(self.drawing_tray)
-        dt_lay.setContentsMargins(6, 0, 6, 0)
+        dt_lay.setContentsMargins(4, 0, 4, 0)
         dt_lay.setSpacing(2)
 
         self._drawing_action_group = QActionGroup(self)
@@ -536,17 +566,17 @@ class ChartToolbar(QFrame):
 
         self.drawing_menu_btn = QToolButton()
         self.drawing_menu_btn.setObjectName("drawMenuBtn")
-        _apply_icon(self.drawing_menu_btn, "drawing_menu")
+        _apply_icon(self.drawing_menu_btn, "drawing_menu", _ICON_SIZE)
         self.drawing_menu_btn.setToolTip("Drawing tools")
         self.drawing_menu_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        self.drawing_menu_btn.setFixedSize(32, 22)
+        self.drawing_menu_btn.setFixedSize(26, _CONTROL_H)
         self.drawing_menu_btn.setMenu(self._drawing_menu)
         dt_lay.addWidget(self.drawing_menu_btn)
 
         # Divider before favorites
         fav_div = QFrame()
         fav_div.setFrameShape(QFrame.Shape.VLine)
-        fav_div.setFixedSize(1, 12)
+        fav_div.setFixedSize(1, 11)
         fav_div.setStyleSheet(f"background:{P.BORDER_MID}; border:none;")
         dt_lay.addWidget(fav_div)
         dt_lay.addWidget(_gap(2))
@@ -564,7 +594,7 @@ class ChartToolbar(QFrame):
         dt_lay.addWidget(_gap(2))
         div2 = QFrame()
         div2.setFrameShape(QFrame.Shape.VLine)
-        div2.setFixedSize(1, 12)
+        div2.setFixedSize(1, 11)
         div2.setStyleSheet(f"background:{P.BORDER_MID}; border:none;")
         dt_lay.addWidget(div2)
         dt_lay.addWidget(_gap(2))
@@ -572,8 +602,8 @@ class ChartToolbar(QFrame):
         self.measure_btn = QPushButton()
         self.measure_btn.setObjectName("toolBtn")
         self.measure_btn.setProperty("toolRole", "measure")
-        _apply_icon(self.measure_btn, "measure", 16)
-        self.measure_btn.setFixedSize(28, 22)
+        _apply_icon(self.measure_btn, "measure", _ICON_SIZE)
+        self.measure_btn.setFixedSize(22, _CONTROL_H)
         self.measure_btn.setCheckable(True)
         self.measure_btn.setChecked(False)
         self.measure_btn.setToolTip("Measure  [E]")
@@ -581,21 +611,21 @@ class ChartToolbar(QFrame):
 
         div3 = QFrame()
         div3.setFrameShape(QFrame.Shape.VLine)
-        div3.setFixedSize(1, 12)
+        div3.setFixedSize(1, 11)
         div3.setStyleSheet(f"background:{P.BORDER_MID}; border:none;")
         dt_lay.addWidget(div3)
         dt_lay.addWidget(_gap(2))
 
         self.color_btn = QPushButton("●")
         self.color_btn.setObjectName("colorBtn")
-        self.color_btn.setFixedSize(28, 22)
+        self.color_btn.setFixedSize(22, _CONTROL_H)
         self.color_btn.setToolTip("Drawing color")
         dt_lay.addWidget(self.color_btn)
 
         self.clear_drawings_btn = QPushButton()
         self.clear_drawings_btn.setObjectName("clearBtn")
-        _apply_icon(self.clear_drawings_btn, "clear", 16)
-        self.clear_drawings_btn.setFixedSize(28, 22)
+        _apply_icon(self.clear_drawings_btn, "clear", _ICON_SIZE)
+        self.clear_drawings_btn.setFixedSize(22, _CONTROL_H)
         self.clear_drawings_btn.setToolTip("Clear all drawings")
         dt_lay.addWidget(self.clear_drawings_btn)
 
@@ -606,7 +636,7 @@ class ChartToolbar(QFrame):
 
         # ── 6. RIGHT UTILITY CLUSTER ──────────────────────────────────────
         # Snapshot
-        self.snapshot_btn = self._icon_btn("", "Capture high quality PNG snapshot  [Ctrl+S]", 24, "snapshot")
+        self.snapshot_btn = self._icon_btn("", "Capture high quality PNG snapshot  [Ctrl+S]", 22, "snapshot")
         lay.addWidget(self.snapshot_btn)
         lay.addWidget(_gap(2))
 
@@ -614,30 +644,30 @@ class ChartToolbar(QFrame):
         lay.addWidget(_gap(4))
 
         # Autoscale
-        self.autoscale_btn = self._icon_btn("", "Auto-scale  [Ctrl+A]", 24, "auto_scale")
+        self.autoscale_btn = self._icon_btn("", "Auto-scale  [Ctrl+A]", 22, "auto_scale")
         self.autoscale_btn.setCheckable(True)
         self.autoscale_btn.setChecked(False)
         lay.addWidget(self.autoscale_btn)
         lay.addWidget(_gap(2))
 
         # Refresh
-        self.refresh_btn = self._icon_btn("", "Refresh  [F5]", 24, "refresh")
+        self.refresh_btn = self._icon_btn("", "Refresh  [F5]", 22, "refresh")
         lay.addWidget(self.refresh_btn)
         lay.addWidget(_gap(2))
 
         # Settings
-        self.settings_btn = self._icon_btn("⚙", "Chart settings", 24, "settings")
+        self.settings_btn = self._icon_btn("⚙", "Chart settings", 22, "settings")
         lay.addWidget(self.settings_btn)
 
-        lay.addWidget(_gap(8))
+        lay.addWidget(_gap(5))
         lay.addWidget(_vsep())
-        lay.addWidget(_gap(6))
+        lay.addWidget(_gap(4))
 
         # Order button
         self.order_btn = QPushButton()
         self.order_btn.setObjectName("orderBtn")
-        _apply_icon(self.order_btn, "order", 16)
-        self.order_btn.setFixedSize(24, 24)
+        _apply_icon(self.order_btn, "order", _ICON_SIZE)
+        self.order_btn.setFixedSize(22, _CONTROL_H)
         self.order_btn.setToolTip("Place order  [O]")
         lay.addWidget(self.order_btn)
 
@@ -651,9 +681,9 @@ class ChartToolbar(QFrame):
         btn = QPushButton(icon)
         if icon_key:
             btn.setText("")
-            _apply_icon(btn, icon_key, 16)
+            _apply_icon(btn, icon_key, _ICON_SIZE)
         btn.setObjectName("iconBtn")
-        btn.setFixedSize(size, 22)
+        btn.setFixedSize(size, _CONTROL_H)
         btn.setToolTip(tip)
         return btn
 
@@ -681,9 +711,9 @@ class ChartToolbar(QFrame):
             icon_key = tool_id if tool_id in ICON_ASSETS else ""
             if icon_key:
                 btn.setText("")
-                _apply_icon(btn, icon_key, 16)
+                _apply_icon(btn, icon_key, _ICON_SIZE)
             btn.setCheckable(True)
-            btn.setFixedSize(24, 20)
+            btn.setFixedSize(22, 18)
             btn.setToolTip(TOOL_DISPLAY.get(tool_id, tool_id))
             if self._drawing_actions.get(tool_id, QAction()).isChecked():
                 btn.setChecked(True)
@@ -749,7 +779,7 @@ class ChartToolbar(QFrame):
             btn = QPushButton(display_map.get(kite_iv, kite_iv))
             btn.setObjectName("toolBtn")
             btn.setCheckable(True)
-            btn.setFixedSize(28, 20)
+            btn.setFixedSize(26, 18)
             btn.setChecked(kite_iv == self._active_tf)
             btn.clicked.connect(lambda checked, iv=kite_iv: checked and self._on_tf_clicked(iv))
             self._tf_fav_buttons[kite_iv] = btn
@@ -814,11 +844,11 @@ class ChartToolbar(QFrame):
         self.color_btn.setStyleSheet(
             f"QPushButton#colorBtn{{"
             f"color:{c}; background:transparent;"
-            f"border:1px solid transparent; border-radius:3px;"
-            f"font-size:16px; font-weight:900; padding:0;"
+            f"border:1px solid transparent; border-radius:2px;"
+            f"font-size:12px; font-weight:800; padding:0;"
             f"}}"
             f"QPushButton#colorBtn:hover{{"
-            f"background:transparent; border-color:rgba(255,255,255,0.25);"
+            f"background:rgba(90,112,144,0.08); border-color:rgba(90,112,144,0.28);"
             f"}}"
         )
 
@@ -1013,9 +1043,15 @@ class ChartToolbar(QFrame):
             /* ─ TOOLBAR ROOT ─────────────────────────────────────────── */
             QFrame#chartToolbar {{
                 background: {P.BG_BASE};
-                border: 1px solid rgba(255,255,255,0.18);
-                min-height: 32px;
-                max-height: 32px;
+                border: none;
+                border-top: 1px solid {P.BORDER_SOFT};
+                border-bottom: 1px solid {P.BORDER};
+                min-height: {_TOOLBAR_H}px;
+                max-height: {_TOOLBAR_H}px;
+            }}
+
+            QWidget {{
+                font-family: "Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", "Noto Sans", sans-serif;
             }}
 
             /* ─ SYMBOL BLOCK ──────────────────────────────────────────── */
@@ -1023,14 +1059,14 @@ class ChartToolbar(QFrame):
                 background: transparent;
             }}
             QLabel#symbolBadge {{
-                color: #f2ede3;
-                font-family: "SF Pro Text", "Inter", "Segoe UI", "Helvetica Neue", sans-serif;
-                font-size: 13px;
-                font-weight: 400;
-                letter-spacing: 0.1px;
-                padding: 0 6px 0 0;
+                color: {P.SYMBOL};
+                font-family: "Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", "Noto Sans", sans-serif;
+                font-size: 11px;
+                font-weight: 650;
+                letter-spacing: 0.35px;
+                padding: 0 5px 0 0;
                 background: transparent;
-                min-width: 50px;
+                min-width: 44px;
             }}
 
             /* ─ GENERIC PILL MENU BUTTON ──────────────────────────────── */
@@ -1038,12 +1074,12 @@ class ChartToolbar(QFrame):
                 background: {P.BG_RAISED};
                 color: {P.T_MUTED};
                 border: 1px solid {P.BORDER};
-                border-radius: 3px;
-                font-family: "JetBrains Mono", "Consolas", monospace;
-                font-size: 10px;
+                border-radius: 2px;
+                font-family: "Inter", "Aptos", "Segoe UI Variable", "Segoe UI", sans-serif;
+                font-size: 9px;
                 font-weight: 700;
-                letter-spacing: 0.5px;
-                padding: 0 6px;
+                letter-spacing: 0.35px;
+                padding: 0 4px;
             }}
             QToolButton#pillMenuBtn:hover {{
                 background: {P.BG_HOVER};
@@ -1052,8 +1088,8 @@ class ChartToolbar(QFrame):
             }}
             QToolButton#pillMenuBtn:pressed, QToolButton#pillMenuBtn:open {{
                 background: {P.BG_ACTIVE};
-                color: {P.CYAN};
-                border-color: rgba(0,212,255,0.35);
+                color: {P.T_BRIGHT};
+                border-color: rgba(90,112,144,0.55);
             }}
             QToolButton#pillMenuBtn::menu-indicator {{
                 image: none;
@@ -1062,186 +1098,181 @@ class ChartToolbar(QFrame):
 
             /* ─ DRAWING TRAY ──────────────────────────────────────────── */
             QFrame#drawingTray {{
-                background: rgba(255,255,255,0.018);
+                background: {P.BG_RAISED};
                 border: 1px solid {P.BORDER};
-                border-radius: 4px;
+                border-radius: 2px;
             }}
 
-            /* Drawing menu open button */
             QToolButton#drawMenuBtn {{
                 background: transparent;
-                color: {P.T_MUTED};
+                color: {P.ICON_DIM};
                 border: none;
-                font-size: 14px;
-                font-weight: 900;
+                border-radius: 2px;
+                font-size: 12px;
+                font-weight: 700;
                 padding: 0;
             }}
             QToolButton#drawMenuBtn:hover {{
-                color: {P.T_MAIN};
-                background: rgba(255,255,255,0.035);
-                border-radius: 3px;
+                color: {P.ICON_HOVER};
+                background: rgba(90,112,144,0.08);
             }}
             QToolButton#drawMenuBtn:pressed, QToolButton#drawMenuBtn:open {{
-                color: #8fb3cf;
-                background: rgba(100,130,160,0.12);
+                color: {P.ICON_ON};
+                background: rgba(90,112,144,0.14);
             }}
             QToolButton#drawMenuBtn::menu-indicator {{
                 image: none;
                 width: 0;
             }}
 
-            /* Individual tool pin buttons */
             QPushButton#toolBtn {{
                 background: transparent;
-                color: {P.T_DIM};
-                border: none;
-                border-radius: 3px;
-                font-size: 14px;
-                font-weight: 900;
+                color: {P.ICON_DIM};
+                border: 1px solid transparent;
+                border-radius: 2px;
+                font-size: 12px;
+                font-weight: 700;
                 padding: 0;
             }}
             QPushButton#toolBtn:hover {{
-                color: #93abc3;
-                background: rgba(255,255,255,0.04);
+                color: {P.ICON_HOVER};
+                background: rgba(90,112,144,0.07);
+                border-color: rgba(90,112,144,0.16);
             }}
             QPushButton#toolBtn:checked {{
-                color: #a4bfd8;
-                background: rgba(115,148,182,0.16);
-                border-left: 2px solid rgba(140,178,214,0.75);
+                color: {P.ICON_ON};
+                background: rgba(90,112,144,0.15);
+                border: 1px solid rgba(90,112,144,0.32);
+                border-left: 2px solid rgba(154,167,184,0.52);
             }}
 
-            /* Measure button */
             QPushButton#toolBtn[toolRole="measure"]:checked {{
-                color: #b7a06f;
-                background: rgba(196,157,92,0.12);
-                border-left: 2px solid rgba(196,157,92,0.7);
+                color: #a99b7a;
+                background: rgba(154,130,78,0.12);
+                border-left: 2px solid rgba(154,130,78,0.48);
             }}
 
-            /* ─ COLOR BUTTON — inline style drives this, see _refresh_color_btn ─ */
-
-            /* ─ CLEAR BUTTON ──────────────────────────────────────────── */
             QPushButton#clearBtn {{
                 background: transparent;
-                color: {P.T_DIM};
-                border: none;
-                border-radius: 3px;
+                color: {P.ICON_DIM};
+                border: 1px solid transparent;
+                border-radius: 2px;
                 font-size: 10px;
-                font-weight: 900;
+                font-weight: 700;
+                padding: 0;
             }}
             QPushButton#clearBtn:hover {{
-                color: {P.RED};
-                background: rgba(255,77,106,0.10);
+                color: #9b6670;
+                background: rgba(255,77,106,0.07);
+                border-color: rgba(255,77,106,0.16);
             }}
 
-            /* ─ ICON BUTTONS (right cluster) ──────────────────────────── */
             QPushButton#iconBtn {{
                 background: transparent;
-                color: #5f748e;
-                border: none;
-                border-radius: 3px;
-                font-size: 14px;
+                color: {P.ICON_DIM};
+                border: 1px solid transparent;
+                border-radius: 2px;
+                font-size: 12px;
                 font-weight: 600;
                 padding: 0;
             }}
             QPushButton#iconBtn:hover {{
-                color: #8ea6bf;
-                background: rgba(255,255,255,0.035);
+                color: {P.ICON_HOVER};
+                background: rgba(90,112,144,0.07);
+                border-color: rgba(90,112,144,0.16);
             }}
             QPushButton#iconBtn:pressed {{
-                color: #9cb7d0;
-                background: rgba(110,140,172,0.14);
+                color: {P.ICON_ON};
+                background: rgba(90,112,144,0.14);
             }}
             QPushButton#iconBtn:checked {{
-                color: #aac3db;
-                background: rgba(110,140,172,0.17);
-                border: 1px solid rgba(130,162,196,0.45);
+                color: {P.ICON_ON};
+                background: rgba(90,112,144,0.16);
+                border: 1px solid rgba(90,112,144,0.30);
             }}
 
-            /* ─ ORDER BUTTON ──────────────────────────────────────────── */
             QPushButton#orderBtn {{
-                background: rgba(0,212,255,0.08);
-                color: #5ddeff;
-                border: 1px solid rgba(0,212,255,0.16);
-                border-radius: 1px;
+                background: {P.BG_RAISED};
+                color: {P.ICON_DIM};
+                border: 1px solid {P.BORDER};
+                border-radius: 2px;
                 padding: 0;
             }}
             QPushButton#orderBtn:hover {{
-                background: rgba(0,212,255,0.16);
-                border-color: rgba(0,212,255,0.34);
-                color: #9aedff;
+                background: {P.BG_HOVER};
+                border-color: rgba(90,112,144,0.28);
+                color: {P.ICON_HOVER};
             }}
             QPushButton#orderBtn:pressed {{
-                background: rgba(0,212,255,0.22);
-                border-color: rgba(0,212,255,0.42);
+                background: {P.BG_ACTIVE};
+                border-color: rgba(90,112,144,0.40);
             }}
 
             /* ─ ALL DROPDOWN MENUS ────────────────────────────────────── */
             QMenu#dropdownMenu {{
-                background: #0c1220;
-                border: 1px solid {P.BORDER_MID};
-                border-radius: 6px;
-                padding: 5px 0;
+                background: {P.BG_PANEL};
+                border: 1px solid {P.BORDER};
+                border-radius: 2px;
+                padding: 3px 0;
             }}
             QMenu#dropdownMenu::item {{
-                padding: 6px 22px 6px 14px;
+                padding: 4px 18px 4px 10px;
                 color: {P.T_MUTED};
-                font-family: -apple-system, "Segoe UI", sans-serif;
-                font-size: 11px;
+                font-family: "Inter", "Aptos", "Segoe UI", sans-serif;
+                font-size: 10px;
                 font-weight: 500;
             }}
             QMenu#dropdownMenu::item:selected {{
-                background: rgba(0,212,255,0.10);
-                color: {P.CYAN};
-                border-left: 2px solid {P.CYAN};
+                background: {P.BG_ACTIVE};
+                color: {P.T_MAIN};
+                border-left: 2px solid rgba(154,167,184,0.38);
             }}
             QMenu#dropdownMenu::item:checked {{
-                color: {P.CYAN};
+                color: {P.T_BRIGHT};
                 font-weight: 700;
             }}
             QMenu#dropdownMenu::separator {{
                 height: 1px;
                 background: {P.BORDER};
-                margin: 3px 10px;
+                margin: 2px 8px;
             }}
             QMenu#dropdownMenu::indicator {{
-                width: 12px;
-                height: 12px;
+                width: 10px;
+                height: 10px;
                 border: 1px solid {P.BORDER_MID};
                 border-radius: 2px;
-                margin-left: 8px;
+                margin-left: 7px;
                 background: {P.BG_RAISED};
             }}
             QMenu#dropdownMenu::indicator:checked {{
-                background: rgba(0,212,255,0.25);
-                border-color: rgba(0,212,255,0.60);
+                background: rgba(90,112,144,0.34);
+                border-color: rgba(154,167,184,0.52);
             }}
 
-            /* ─ TOOL MENU ROW HOVER ───────────────────────────────────── */
             QWidget#menuItem:hover {{
-                background: rgba(0,212,255,0.06);
+                background: rgba(90,112,144,0.09);
             }}
 
-            /* ─ LIVE / DELAYED BADGE ──────────────────────────────────── */
             QLabel#liveBadge {{
                 color: {P.TEAL};
-                font-family: "JetBrains Mono","Consolas",monospace;
+                font-family: "Inter", "Aptos", "Segoe UI", sans-serif;
                 font-size: 7px;
-                font-weight: 900;
-                letter-spacing: 1.5px;
-                padding: 0 5px;
-                background: rgba(34,211,160,0.07);
-                border: 1px solid rgba(34,211,160,0.22);
+                font-weight: 800;
+                letter-spacing: 1px;
+                padding: 0 4px;
+                background: rgba(0,212,168,0.055);
+                border: 1px solid rgba(0,212,168,0.14);
                 border-radius: 2px;
             }}
             QLabel#delayedBadge {{
                 color: {P.AMBER};
-                font-family: "JetBrains Mono","Consolas",monospace;
+                font-family: "Inter", "Aptos", "Segoe UI", sans-serif;
                 font-size: 7px;
-                font-weight: 900;
-                letter-spacing: 1.5px;
-                padding: 0 5px;
-                background: rgba(251,191,36,0.07);
-                border: 1px solid rgba(251,191,36,0.22);
+                font-weight: 800;
+                letter-spacing: 1px;
+                padding: 0 4px;
+                background: rgba(245,158,11,0.055);
+                border: 1px solid rgba(245,158,11,0.14);
                 border-radius: 2px;
             }}
         """)
