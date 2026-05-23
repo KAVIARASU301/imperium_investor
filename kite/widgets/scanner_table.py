@@ -1,4 +1,4 @@
-# FIXED scanner_table.py with proper row selection and highlighting
+# kite/widgets/scanner_table.py
 import logging
 import json
 import os
