@@ -15,7 +15,7 @@ from typing import List, Dict, Union, Any, Optional
 from PySide6.QtCore import Qt, QByteArray, QTimer, Slot, Signal, QEvent, QProcess
 from PySide6.QtWidgets import QMainWindow, QSplitter, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, \
     QPushButton, QLabel, QApplication, QMessageBox, QMenuBar, QSizePolicy, QDialog, QLineEdit, QGraphicsDropShadowEffect
-from PySide6.QtGui import QMouseEvent, QKeySequence, QShortcut, QKeyEvent, QAction, QColor
+from PySide6.QtGui import QMouseEvent, QKeySequence, QKeyEvent, QAction, QColor
 
 from kite.widgets.scanner_table import ChartinkScannerTable
 from kite.widgets.positions_table import PositionsTable
@@ -24,6 +24,8 @@ from chart_engine import CandlestickChart as ChartWindow
 from kite.widgets.header_toolbar import HeaderToolbar
 from kite.widgets.settings_dialog import ColorSettingsDialog
 from kite.widgets.stock_info_dialog import show_stock_info
+from kite.widgets.help_dialogs import show_shortcuts_reference_dialog, show_about_dialog
+from kite.widgets.keyboard_shortcuts import setup_keyboard_shortcuts
 
 from kite.widgets.order_dialog import OrderDialog
 from kite.widgets.order_history_dialog import OrderHistoryDialog
@@ -467,9 +469,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         tools_menu.addAction("Order Routing Settings", self._show_relay_settings_dialog)
 
         about_menu = menu_bar.addMenu("About")
-        about_menu.addAction("Keyboard Shortcuts", self._show_shortcuts_reference_dialog)
+        about_menu.addAction("Keyboard Shortcuts", lambda: show_shortcuts_reference_dialog(self))
         about_menu.addSeparator()
-        about_menu.addAction("About qullamaggie", self._show_about_dialog)
+        about_menu.addAction("About qullamaggie", lambda: show_about_dialog(self))
 
         return menu_bar
 
@@ -488,72 +490,6 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         is_open_time = (9, 15) <= time_tuple <= (15, 30)
         market_status = "OPEN" if (not is_weekend and is_open_time) else "CLOSED"
         status.set_market_indicator(market_status)
-
-    def _show_shortcuts_reference_dialog(self):
-        """Display all keyboard shortcuts as a built-in reference sheet."""
-        message = QMessageBox(self)
-        message.setWindowTitle("Keyboard Shortcuts")
-        message.setIcon(QMessageBox.Icon.Information)
-        message.setTextFormat(Qt.TextFormat.RichText)
-        message.setStyleSheet("QLabel { background-color: transparent; }")
-        message.setText(
-            """
-            <h3>Keyboard Shortcuts Reference</h3>
-            <table cellspacing="6" cellpadding="2">
-                <tr><td><b>Action</b></td><td><b>Shortcut</b></td></tr>
-                <tr><td>Buy ticket</td><td><code>F1</code> / <code>Shift+B</code></td></tr>
-                <tr><td>Sell ticket</td><td><code>F2</code> / <code>Shift+S</code></td></tr>
-                <tr><td>Open order dialog</td><td><code>F3</code> / <code>Shift+O</code></td></tr>
-                <tr><td>Toggle floating positions</td><td><code>Ctrl+P</code> / <code>Shift+P</code></td></tr>
-                <tr><td>Show stock info</td><td><code>Ctrl+I</code> / <code>Shift+I</code></td></tr>
-                <tr><td>Toggle symbol in active watchlist (add/remove)</td><td><code>Ctrl+Shift+0</code></td></tr>
-                <tr><td>Add symbol to watchlist #1-#9</td><td><code>Ctrl+Shift+1..9</code></td></tr>
-                <tr><td>Open Order History</td><td><code>Ctrl+H</code></td></tr>
-                <tr><td>Open Performance</td><td><code>Ctrl+D</code></td></tr>
-                <tr><td>Next symbol (context-aware)</td><td><code>Space</code></td></tr>
-                <tr><td>Previous symbol (context-aware)</td><td><code>Shift+Space</code></td></tr>
-                <tr><td>Close active modal / clear search focus</td><td><code>Esc</code></td></tr>
-            </table>
-            """
-        )
-        message.setStandardButtons(QMessageBox.StandardButton.Ok)
-        message.exec()
-
-    def _show_about_dialog(self):
-        """Display detailed application summary information."""
-        message = QMessageBox(self)
-        message.setWindowTitle("About qullamaggie")
-        message.setIcon(QMessageBox.Icon.Information)
-        message.setTextFormat(Qt.TextFormat.RichText)
-        message.setText("""
-            <h2>qullamaggie</h2>
-            <p>
-                A desktop swing-trading command center for scanning Indian equity
-                markets, reviewing charts, managing watchlists, and monitoring
-                positions from one focused workspace.
-            </p>
-            <h3>What this workspace includes</h3>
-            <ul>
-                <li><b>Market scanner:</b> Chartink and Finviz workflows for finding setups quickly.</li>
-                <li><b>Interactive charts:</b> candlesticks, indicators, drawings, and persisted chart notes.</li>
-                <li><b>Watchlists:</b> tabbed symbol lists with quick chart access and stock details.</li>
-                <li><b>Trading tools:</b> order entry, pending orders, order history, and P&amp;L views.</li>
-                <li><b>Risk visibility:</b> live positions, floating panels, alerts, and app health indicators.</li>
-            </ul>
-            <h3>Broker and data context</h3>
-            <p>
-                This build is wired for Kite/Zerodha market access with paper-trading
-                support for safer workflow validation before live execution.
-            </p>
-            <h3>Important note</h3>
-            <p>
-                qullamaggie is a decision-support tool, not financial advice. Always
-                verify market data, order details, risk, and broker confirmations before
-                placing or modifying trades.
-            </p>
-        """)
-        message.setStandardButtons(QMessageBox.StandardButton.Ok)
-        message.exec()
 
     def _apply_intelligent_main_splitter_layout(self, preferred_sizes=None):
         """Keep scanner/watchlist compact and protect chart space during resize/drag."""
@@ -2692,29 +2628,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
     def _setup_watchlist_shortcuts(self):
         """Setup keyboard shortcuts"""
-        self._watchlist_shortcuts = []
-
-        # Ctrl+Shift+1..9 -> add to watchlist index 1..9
-        for num in range(1, 10):
-            shortcut = QShortcut(QKeySequence(f"Ctrl+Shift+{num}"), self)
-            shortcut.activated.connect(lambda idx=num - 1: self._add_symbol_to_watchlist_from_chart_index(idx))
-            self._watchlist_shortcuts.append(shortcut)
-
-        # Ctrl+Shift+0 -> toggle symbol in currently active watchlist
-        active_shortcut = QShortcut(QKeySequence("Ctrl+Shift+0"), self)
-        active_shortcut.activated.connect(self._toggle_symbol_in_active_watchlist_from_chart)
-        self._watchlist_shortcuts.append(active_shortcut)
-
-        # Order history shortcut (Ctrl+H)
-        order_history_shortcut = QShortcut(QKeySequence("Ctrl+H"), self)
-        order_history_shortcut.activated.connect(self._show_order_history_dialog)
-
-        # Performance dashboard shortcut (Ctrl+D)
-        performance_shortcut = QShortcut(QKeySequence("Ctrl+D"), self)
-        performance_shortcut.activated.connect(self._show_performance_dialog)
-
-        # Global navigation shortcuts
-        self._setup_global_shortcuts()
+        self._watchlist_shortcuts = setup_keyboard_shortcuts(self)
         logger.info("Keyboard shortcuts initialized")
 
     def _add_symbol_to_watchlist_from_chart_index(self, index: int):
@@ -2768,50 +2682,6 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             status.show_info(f"Added {current_symbol} to {active_name or 'active watchlist'}")
         else:
             status.show_info(f"Could not add {current_symbol} to {active_name or 'active watchlist'}")
-
-    def _setup_global_shortcuts(self):
-        """Setup global trading/navigation shortcuts."""
-        from PySide6.QtGui import QShortcut, QKeySequence
-
-        # --- Execution shortcuts (institutional function-key standard) ---
-        self.buy_shortcut_f1 = QShortcut(QKeySequence("F1"), self)
-        self.buy_shortcut_f1.activated.connect(self._on_buy_shortcut)
-        self.buy_shortcut_shift_b = QShortcut(QKeySequence("Shift+B"), self)
-        self.buy_shortcut_shift_b.activated.connect(self._on_buy_shortcut)
-
-        self.sell_shortcut_f2 = QShortcut(QKeySequence("F2"), self)
-        self.sell_shortcut_f2.activated.connect(self._on_sell_shortcut)
-        self.sell_shortcut_shift_s = QShortcut(QKeySequence("Shift+S"), self)
-        self.sell_shortcut_shift_s.activated.connect(self._on_sell_shortcut)
-
-        self.order_entry_shortcut_f3 = QShortcut(QKeySequence("F3"), self)
-        self.order_entry_shortcut_f3.activated.connect(self._on_order_entry_shortcut)
-        self.order_entry_shortcut_shift_o = QShortcut(QKeySequence("Shift+O"), self)
-        self.order_entry_shortcut_shift_o.activated.connect(self._on_order_entry_shortcut)
-
-        # --- View shortcuts ---
-        self.positions_toggle_shortcut_ctrl_p = QShortcut(QKeySequence("Ctrl+P"), self)
-        self.positions_toggle_shortcut_ctrl_p.activated.connect(self._toggle_floating_positions_shortcut)
-        self.positions_toggle_shortcut_shift_p = QShortcut(QKeySequence("Shift+P"), self)
-        self.positions_toggle_shortcut_shift_p.activated.connect(self._toggle_floating_positions_shortcut)
-
-        self.stock_info_shortcut_ctrl_i = QShortcut(QKeySequence("Ctrl+I"), self)
-        self.stock_info_shortcut_ctrl_i.activated.connect(self._show_stock_info_for_active_symbol)
-        self.stock_info_shortcut_shift_i = QShortcut(QKeySequence("Shift+I"), self)
-        self.stock_info_shortcut_shift_i.activated.connect(self._show_stock_info_for_active_symbol)
-
-        # Global spacebar shortcut for symbol navigation
-        self.spacebar_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Space), self)
-        self.spacebar_shortcut.activated.connect(self._handle_global_spacebar)
-
-        # Global Shift+Spacebar for reverse navigation
-        self.shift_spacebar_shortcut = QShortcut(QKeySequence("Shift+Space"), self)
-        self.shift_spacebar_shortcut.activated.connect(self._handle_global_shift_spacebar)
-
-        self.escape_shortcut = QShortcut(QKeySequence("Esc"), self)
-        self.escape_shortcut.activated.connect(self._handle_escape_shortcut)
-
-        logger.info("Global trading/navigation shortcuts initialized")
 
     def _get_active_symbol_for_shortcuts(self) -> str:
         symbol = (getattr(self.candlestick_chart, "current_symbol", "") or "").strip().upper()
