@@ -24,7 +24,8 @@ from chart_engine import CandlestickChart as ChartWindow
 from kite.widgets.header_toolbar import HeaderToolbar
 from kite.widgets.settings_dialog import ColorSettingsDialog
 from kite.widgets.stock_info_dialog import show_stock_info
-from kite.widgets.help_dialogs import show_shortcuts_reference_dialog, show_about_dialog
+from kite.widgets.about_dialog import show_about_dialog
+from kite.widgets.keyboard_shortcuts import show_keyboard_shortcuts_dialog
 from kite.widgets.keyboard_shortcuts import setup_keyboard_shortcuts
 
 from kite.widgets.order_dialog import OrderDialog
@@ -469,7 +470,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         tools_menu.addAction("Order Routing Settings", self._show_relay_settings_dialog)
 
         about_menu = menu_bar.addMenu("About")
-        about_menu.addAction("Keyboard Shortcuts", lambda: show_shortcuts_reference_dialog(self))
+        about_menu.addAction("Keyboard Shortcuts", lambda: show_keyboard_shortcuts_dialog(self))
         about_menu.addSeparator()
         about_menu.addAction("About qullamaggie", lambda: show_about_dialog(self))
 
