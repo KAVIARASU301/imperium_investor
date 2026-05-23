@@ -1054,6 +1054,7 @@ class DualModeLoginManager(QDialog):
 
             DualModeLoginManager {{
                 background: {UI.BG0};
+                border: 1px solid {UI.BG6};
             }}
 
             #mainContainer {{
