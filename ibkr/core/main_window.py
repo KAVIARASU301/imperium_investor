@@ -275,7 +275,7 @@ class IBKRMainWindow(QMainWindow):
         float_watch_action.triggered.connect(self._show_floating_watchlist_dialog)
         tools_menu.addAction(float_watch_action)
 
-        color_action = QAction("Color Settings", self)
+        color_action = QAction("Settings", self)
         color_action.triggered.connect(self._show_color_settings_dialog)
         tools_menu.addAction(color_action)
 

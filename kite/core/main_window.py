@@ -466,7 +466,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         performance_action.setShortcutVisibleInContextMenu(True)
         tools_menu.addSeparator()
 
-        tools_menu.addAction("Color Settings", self._open_color_settings_dialog)
+        tools_menu.addAction("Settings", self._open_color_settings_dialog)
         tools_menu.addAction("Order Routing Settings", self._show_relay_settings_dialog)
 
         about_menu = menu_bar.addMenu("About")
@@ -3351,8 +3351,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             }
 
             QMenu::item:checked {
-                color: #f59e0b;
-                font-weight: 600;
+                color: #a8bcd4;
+                font-weight: 500;
             }
 
             QMenu::item:disabled {

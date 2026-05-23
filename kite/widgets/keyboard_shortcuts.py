@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from typing import Callable, Iterable
+from typing import Callable
 
 from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QCursor, QFont, QKeySequence, QMouseEvent, QShortcut
+from PySide6.QtGui import QCursor, QKeySequence, QMouseEvent, QShortcut
 from PySide6.QtWidgets import (
     QDialog,
     QFrame,
@@ -11,7 +11,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QScrollArea,
-    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -134,73 +133,35 @@ def setup_keyboard_shortcuts(main_window: QWidget) -> list[QShortcut]:
 #  Optional Keyboard Shortcuts Dialog
 # ─────────────────────────────────────────────────────────────────────────────
 
-class _ShortcutRow(QFrame):
-    """Single compact shortcut row with a key badge and plain-English action text."""
+def _build_shortcuts_html() -> str:
+    """Return a simple paragraph-style shortcuts reference."""
+    groups: list[str] = []
+    for section_title, entries in SHORTCUT_SECTIONS:
+        rows = []
+        for keys, action, _tone in entries:
+            rows.append(
+                f"<p><span class='keys'>{keys}</span> — {action}.</p>"
+            )
+        groups.append(
+            f"<h3>{section_title.title()}</h3>"
+            + "".join(rows)
+        )
 
-    def __init__(self, keys: str, action: str, tone: str = "CYAN", parent: QWidget | None = None):
-        super().__init__(parent)
-        self.setObjectName("shortcutRow")
-        self.setFixedHeight(30)
-
-        row = QHBoxLayout(self)
-        row.setContentsMargins(7, 0, 8, 0)
-        row.setSpacing(8)
-
-        self.key_badge = QLabel(keys)
-        self.key_badge.setObjectName("keyBadge")
-        self.key_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.key_badge.setMinimumWidth(132)
-        self.key_badge.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self.key_badge.setProperty("tone", tone)
-
-        self.action_label = QLabel(action)
-        self.action_label.setObjectName("shortcutAction")
-        self.action_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-
-        row.addWidget(self.key_badge)
-        row.addWidget(self.action_label, 1)
-
-
-class _ShortcutSection(QFrame):
-    """Section card for one shortcut group."""
-
-    def __init__(self, title: str, entries: Iterable[ShortcutEntry], parent: QWidget | None = None):
-        super().__init__(parent)
-        self.setObjectName("shortcutSection")
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-
-        title_bar = QFrame()
-        title_bar.setObjectName("sectionTitleBar")
-        title_bar.setFixedHeight(27)
-        title_layout = QHBoxLayout(title_bar)
-        title_layout.setContentsMargins(8, 0, 8, 0)
-        title_layout.setSpacing(8)
-
-        accent = QFrame()
-        accent.setObjectName("sectionAccent")
-        accent.setFixedSize(3, 13)
-
-        title_label = QLabel(title)
-        title_label.setObjectName("sectionTitle")
-
-        title_layout.addWidget(accent)
-        title_layout.addWidget(title_label)
-        title_layout.addStretch()
-
-        layout.addWidget(title_bar)
-
-        for keys, action, tone in entries:
-            layout.addWidget(_ShortcutRow(keys, action, tone, self))
+    return f"""
+    <div class='doc'>
+        <h2>Keyboard Shortcuts</h2>
+        <p class='intro'>These shortcuts help you move faster inside the terminal without opening extra menus. They follow the active chart, selected symbol, watchlist, scanner, or floating panel depending on current focus.</p>
+        {''.join(groups)}
+        <p class='note'>Use <span class='keys'>Esc</span> to close overlays or cancel the current action when focus is inside the main workspace.</p>
+    </div>
+    """
 
 
 class KeyboardShortcutsDialog(QDialog):
     """
-    Compact AMOLED shortcuts reference panel.
+    Simple AMOLED shortcuts reference dialog.
 
-    This is intentionally UI-only. Shortcut registration remains handled by
+    This is UI-only. Shortcut registration remains handled by
     setup_keyboard_shortcuts(), preserving all existing main-window behavior.
     """
 
@@ -214,8 +175,8 @@ class KeyboardShortcutsDialog(QDialog):
         self.setObjectName("keyboardShortcutsDialog")
         self.setModal(False)
         self.setWindowTitle("Keyboard Shortcuts")
-        self.setMinimumSize(520, 420)
-        self.resize(560, 520)
+        self.setMinimumSize(500, 360)
+        self.resize(560, 440)
 
         self._drag_active = False
         self._drag_offset = QPoint()
@@ -241,8 +202,8 @@ class KeyboardShortcutsDialog(QDialog):
         body = QFrame()
         body.setObjectName("shortcutBody")
         body_layout = QVBoxLayout(body)
-        body_layout.setContentsMargins(8, 8, 8, 8)
-        body_layout.setSpacing(8)
+        body_layout.setContentsMargins(16, 14, 16, 14)
+        body_layout.setSpacing(0)
 
         self.scroll_area = QScrollArea()
         self.scroll_area.setObjectName("shortcutScroll")
@@ -253,11 +214,16 @@ class KeyboardShortcutsDialog(QDialog):
         content.setObjectName("shortcutContent")
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(0, 0, 0, 0)
-        content_layout.setSpacing(8)
+        content_layout.setSpacing(0)
 
-        for title, entries in SHORTCUT_SECTIONS:
-            content_layout.addWidget(_ShortcutSection(title, entries, content))
+        self.shortcut_text = QLabel(_build_shortcuts_html())
+        self.shortcut_text.setObjectName("shortcutText")
+        self.shortcut_text.setTextFormat(Qt.TextFormat.RichText)
+        self.shortcut_text.setWordWrap(True)
+        self.shortcut_text.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        self.shortcut_text.setOpenExternalLinks(False)
 
+        content_layout.addWidget(self.shortcut_text)
         content_layout.addStretch()
         self.scroll_area.setWidget(content)
 
@@ -278,9 +244,6 @@ class KeyboardShortcutsDialog(QDialog):
         title = QLabel("KEYBOARD SHORTCUTS")
         title.setObjectName("dialogTitle")
 
-        subtitle = QLabel("TERMINAL CONTROL MAP")
-        subtitle.setObjectName("dialogSubtitle")
-
         close_btn = QPushButton("✕")
         close_btn.setObjectName("closeButton")
         close_btn.setFixedSize(24, 22)
@@ -288,7 +251,6 @@ class KeyboardShortcutsDialog(QDialog):
         close_btn.clicked.connect(self.close)
 
         layout.addWidget(title)
-        layout.addWidget(subtitle)
         layout.addStretch()
         layout.addWidget(close_btn)
 
@@ -300,18 +262,18 @@ class KeyboardShortcutsDialog(QDialog):
     def _build_footer(self) -> QFrame:
         footer = QFrame()
         footer.setObjectName("shortcutFooter")
-        footer.setFixedHeight(27)
+        footer.setFixedHeight(30)
 
         layout = QHBoxLayout(footer)
         layout.setContentsMargins(10, 0, 10, 0)
         layout.setSpacing(8)
 
-        hint = QLabel("Tip: shortcuts follow the active chart, watchlist, scanner, or floating panel focus.")
+        hint = QLabel("Read-only shortcut reference.")
         hint.setObjectName("footerHint")
 
         close_btn = QPushButton("CLOSE")
         close_btn.setObjectName("footerCloseButton")
-        close_btn.setFixedHeight(21)
+        close_btn.setFixedHeight(22)
         close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         close_btn.clicked.connect(self.close)
 
@@ -343,18 +305,8 @@ class KeyboardShortcutsDialog(QDialog):
                 background: transparent;
                 font-family: {FONT_UI};
                 font-size: 11px;
-                font-weight: 800;
+                font-weight: 750;
                 letter-spacing: 1.0px;
-            }}
-
-            QLabel#dialogSubtitle {{
-                color: {P.TEXT_FAINT};
-                background: transparent;
-                font-family: {FONT_UI};
-                font-size: 9px;
-                font-weight: 700;
-                letter-spacing: 0.8px;
-                padding-left: 4px;
             }}
 
             QPushButton#closeButton {{
@@ -364,7 +316,7 @@ class KeyboardShortcutsDialog(QDialog):
                 border-radius: 2px;
                 font-family: {FONT_UI};
                 font-size: 12px;
-                font-weight: 800;
+                font-weight: 700;
             }}
 
             QPushButton#closeButton:hover {{
@@ -373,101 +325,20 @@ class KeyboardShortcutsDialog(QDialog):
                 border-color: rgba(255,77,106,0.26);
             }}
 
-            QFrame#shortcutBody {{
-                background: {P.BG1};
-            }}
-
-            QWidget#shortcutContent {{
-                background: {P.BG1};
-            }}
-
+            QFrame#shortcutBody,
+            QWidget#shortcutContent,
             QScrollArea#shortcutScroll {{
                 background: {P.BG1};
                 border: none;
             }}
 
-            QFrame#shortcutSection {{
-                background: {P.BG2};
-                border: 1px solid {P.BG4};
-                border-radius: 2px;
-            }}
-
-            QFrame#sectionTitleBar {{
-                background: {P.BG0};
-                border-bottom: 1px solid {P.BG4};
-            }}
-
-            QFrame#sectionAccent {{
-                background: {P.AMBER};
-                border: none;
-            }}
-
-            QLabel#sectionTitle {{
+            QLabel#shortcutText {{
                 color: {P.TEXT_SOFT};
                 background: transparent;
                 font-family: {FONT_UI};
-                font-size: 9px;
-                font-weight: 800;
-                letter-spacing: 1.0px;
-            }}
-
-            QFrame#shortcutRow {{
-                background: transparent;
-                border-bottom: 1px solid rgba(26,32,48,0.72);
-            }}
-
-            QFrame#shortcutRow:hover {{
-                background: {P.BG3};
-            }}
-
-            QLabel#keyBadge {{
-                background: {P.BG0};
-                color: {P.TEXT_SOFT};
-                border: 1px solid {P.BORDER_HI};
-                border-radius: 2px;
-                font-family: {FONT_NUM};
-                font-size: 10px;
-                font-weight: 800;
-                letter-spacing: 0.35px;
-                padding: 2px 7px;
-            }}
-
-            QLabel#keyBadge[tone="GREEN"] {{
-                color: {P.GREEN};
-                border-color: rgba(0,212,168,0.26);
-                background: rgba(0,212,168,0.045);
-            }}
-
-            QLabel#keyBadge[tone="RED"] {{
-                color: {P.RED};
-                border-color: rgba(255,77,106,0.26);
-                background: rgba(255,77,106,0.045);
-            }}
-
-            QLabel#keyBadge[tone="AMBER"] {{
-                color: {P.AMBER};
-                border-color: rgba(245,158,11,0.26);
-                background: rgba(245,158,11,0.045);
-            }}
-
-            QLabel#keyBadge[tone="CYAN"] {{
-                color: {P.CYAN};
-                border-color: rgba(0,212,255,0.22);
-                background: rgba(0,212,255,0.04);
-            }}
-
-            QLabel#keyBadge[tone="BLUE"] {{
-                color: {P.BLUE};
-                border-color: rgba(127,166,216,0.24);
-                background: rgba(127,166,216,0.045);
-            }}
-
-            QLabel#shortcutAction {{
-                color: {P.TEXT_SOFT};
-                background: transparent;
-                font-family: {FONT_UI};
-                font-size: 10px;
-                font-weight: 600;
+                font-size: 11px;
+                font-weight: 500;
+                line-height: 150%;
             }}
 
             QFrame#shortcutFooter {{
@@ -480,17 +351,17 @@ class KeyboardShortcutsDialog(QDialog):
                 background: transparent;
                 font-family: {FONT_UI};
                 font-size: 9px;
-                font-weight: 600;
+                font-weight: 500;
             }}
 
             QPushButton#footerCloseButton {{
-                background: {P.BG2};
+                background: transparent;
                 color: {P.TEXT_SOFT};
                 border: 1px solid {P.BG4};
                 border-radius: 2px;
                 font-family: {FONT_UI};
                 font-size: 9px;
-                font-weight: 800;
+                font-weight: 700;
                 letter-spacing: 0.8px;
                 padding: 0 10px;
             }}
@@ -540,6 +411,19 @@ class KeyboardShortcutsDialog(QDialog):
             }}
         """)
 
+        self.shortcut_text.setText(f"""
+        <style>
+            .doc {{ color: {P.TEXT_SOFT}; font-family: {FONT_UI}; }}
+            h2 {{ color: {P.TEXT}; font-size: 17px; margin: 0 0 8px 0; font-weight: 650; }}
+            h3 {{ color: {P.AMBER}; font-size: 11px; margin: 16px 0 5px 0; font-weight: 750; letter-spacing: .7px; }}
+            p {{ margin: 4px 0; line-height: 1.45; }}
+            .intro {{ color: {P.TEXT_MUTED}; margin-bottom: 12px; }}
+            .note {{ color: {P.TEXT_MUTED}; margin-top: 14px; }}
+            .keys {{ color: {P.TEXT}; font-weight: 650; }}
+        </style>
+        {_build_shortcuts_html()}
+        """)
+
     def _drag_press(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
             self._drag_active = True
@@ -557,7 +441,7 @@ class KeyboardShortcutsDialog(QDialog):
 
 
 def show_keyboard_shortcuts_dialog(parent: QWidget | None = None) -> KeyboardShortcutsDialog:
-    """Show a compact AMOLED shortcuts reference dialog and return it."""
+    """Show a simple AMOLED shortcuts reference dialog and return it."""
     dialog = KeyboardShortcutsDialog(parent)
     dialog.show()
     dialog.raise_()
