@@ -303,7 +303,7 @@ class TickerPill(QFrame):
                 color: {_TEXT_MUTED};
                 background: transparent;
                 font-size: 8px;
-                font-weight: 650;
+                font-weight: 500;
                 letter-spacing: 0.35px;
                 border: none;
             }}
@@ -311,14 +311,14 @@ class TickerPill(QFrame):
                 color: {_TEXT};
                 background: transparent;
                 font-size: 9px;
-                font-weight: 650;
+                font-weight: 500;
                 border: none;
             }}
             QLabel#tickerPillChange {{
                 color: {chg_color};
                 background: transparent;
                 font-size: 9px;
-                font-weight: 750;
+                font-weight: 650;
                 border: none;
                 min-width: 48px;
             }}
@@ -531,17 +531,32 @@ class HeaderToolbar(QToolBar):
         self.search_input.setPlaceholderText("Symbol / company…")
         self.search_input.setObjectName("enhancedSymbolSearch")
         self.search_input.setFixedHeight(_CONTROL_H)
-        self.search_input.setFont(_modern_font(9, QFont.Weight.DemiBold))
+        self.search_input.setFont(_modern_font(9, QFont.Weight.Medium))
         self.search_input.setMinimumWidth(124)
         self.search_input.setMaximumWidth(174)
         self.search_input.symbol_selected.connect(self._on_symbol_committed)
         search_layout.addWidget(self.search_input)
 
         # ── Ticker board inline — right of symbol search ──────────────────
-        search_layout.addWidget(self._create_vertical_divider())
+        # Keep this area permanently reserved. When the ticker board is disabled
+        # from settings, only the board content is hidden; the slot width remains
+        # locked so BUY/SELL/INFO/search never expand into this space.
+        self._ticker_board_divider = self._create_vertical_divider()
+        search_layout.addWidget(self._ticker_board_divider)
 
-        self._ticker_board = TickerBoard(search_group)
-        search_layout.addWidget(self._ticker_board)
+        self._ticker_board_slot = QWidget(search_group)
+        self._ticker_board_slot.setObjectName("tickerBoardSlot")
+        self._ticker_board_slot.setFixedHeight(_CONTROL_H)
+        self._ticker_board_slot.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        ticker_slot_layout = QHBoxLayout(self._ticker_board_slot)
+        ticker_slot_layout.setContentsMargins(0, 0, 0, 0)
+        ticker_slot_layout.setSpacing(0)
+
+        self._ticker_board = TickerBoard(self._ticker_board_slot)
+        ticker_slot_layout.addWidget(self._ticker_board)
+        search_layout.addWidget(self._ticker_board_slot)
+
+        self._ticker_board_reserved_width = 0
 
         # Build initial pills immediately
         self._rebuild_ticker_pills(self._ticker_symbols)
@@ -832,10 +847,30 @@ class HeaderToolbar(QToolBar):
                 price=snap.get("price"),
                 change_pct=snap.get("change_pct"),
             )
+        self._sync_ticker_board_slot_width()
         self._update_ticker_board_visibility()
+
+    def _sync_ticker_board_slot_width(self) -> None:
+        """Reserve ticker-board width even when the board is disabled/hidden."""
+        if not hasattr(self, "_ticker_board") or not hasattr(self, "_ticker_board_slot"):
+            return
+
+        if not self._ticker_board.is_empty():
+            self._ticker_board_reserved_width = max(0, self._ticker_board.width())
+
+        reserved = max(0, getattr(self, "_ticker_board_reserved_width", 0))
+        self._ticker_board_slot.setFixedWidth(reserved)
 
     def _update_ticker_board_visibility(self) -> None:
         visible = self._show_ticker_board and not self._ticker_board.is_empty()
+        self._sync_ticker_board_slot_width()
+
+        reserved = max(0, getattr(self, "_ticker_board_reserved_width", 0))
+        has_reserved_space = reserved > 0
+
+        # Slot remains visible when disabled to stop left controls from shifting.
+        self._ticker_board_slot.setVisible(has_reserved_space)
+        self._ticker_board_divider.setVisible(has_reserved_space)
         self._ticker_board.setVisible(visible)
 
     def ingest_ws_ticks(self, ticks: List[Dict[str, Any]]) -> None:
@@ -1098,7 +1133,7 @@ class HeaderToolbar(QToolBar):
         ):
             widget.setFont(normal_small)
 
-        self.search_input.setFont(_modern_font(9, QFont.Weight.DemiBold))
+        self.search_input.setFont(_modern_font(9, QFont.Weight.Medium))
         self.alerts_badge.setFont(_modern_font(8, QFont.Weight.Bold))
         self.user_id_label.setFont(account_text)
         self.balance_label.setFont(balance_text)
@@ -1122,6 +1157,7 @@ class HeaderToolbar(QToolBar):
         QWidget#centerSpacer,
         QWidget#sectionGap,
         QWidget#tickerBoardWrapper,
+        QWidget#tickerBoardSlot,
         QWidget#symbolSearchGroup,
         QWidget#accountInfoWidget {{
             background: transparent;
@@ -1138,7 +1174,7 @@ class HeaderToolbar(QToolBar):
             selection-color: {_TEXT};
             font-family: {_SANS};
             font-size: 10px;
-            font-weight: 650;
+            font-weight: 500;
         }}
         #enhancedSymbolSearch:hover {{
             border-color: {_BG_BORDER_HI};
@@ -1155,7 +1191,7 @@ class HeaderToolbar(QToolBar):
             border-radius: 0px;
             font-family: {_SANS};
             font-size: 9px;
-            font-weight: 650;
+            font-weight: 500;
             letter-spacing: 0.35px;
         }}
 
@@ -1211,7 +1247,7 @@ class HeaderToolbar(QToolBar):
             border-radius: 2px;
             font-family: {_NUM};
             font-size: 8px;
-            font-weight: 800;
+            font-weight: 650;
             padding: 0px;
             margin-right: 4px;
         }}
@@ -1231,7 +1267,7 @@ class HeaderToolbar(QToolBar):
             padding: 1px 7px;
             font-family: {_SANS};
             font-size: 9px;
-            font-weight: 650;
+            font-weight: 500;
             letter-spacing: 0.35px;
         }}
         QPushButton#tradingActionButton:hover {{
@@ -1258,7 +1294,7 @@ class HeaderToolbar(QToolBar):
             padding: 1px 7px;
             font-family: {_SANS};
             font-size: 9px;
-            font-weight: 650;
+            font-weight: 500;
         }}
         QLabel#balanceLabel {{
             background-color: transparent;
@@ -1268,7 +1304,7 @@ class HeaderToolbar(QToolBar):
             padding: 1px 7px;
             font-family: {_NUM};
             font-size: 10px;
-            font-weight: 700;
+            font-weight: 600;
         }}
         QLabel#separatorDot {{
             background: transparent;
