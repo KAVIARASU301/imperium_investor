@@ -1229,13 +1229,26 @@ class FixedTradingChart {
 
         const paneBottom = this.chartArea.y + this.chartArea.height;
         const volumeTop = (this._volumeScale && Number.isFinite(this._volumeScale.top)) ? this._volumeScale.top : null;
+        const axisSplitY = (volumeTop !== null) ? Math.max(this.chartArea.y, volumeTop) : null;
+        const splitBufferPx = 12;
         // Keep price-axis labels above the integrated volume band so the two scales never overlap.
-        const priceChartBottom = (volumeTop !== null) ? Math.max(this.chartArea.y, volumeTop) : paneBottom;
+        const priceChartBottom = (axisSplitY !== null) ? axisSplitY : paneBottom;
+
+        if (axisSplitY !== null) {
+            // Subtle separator between price and volume regions inside the shared scale gutter.
+            ctx.strokeStyle = 'rgba(88,118,165,0.38)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(axisX + 1, axisSplitY + 0.5);
+            ctx.lineTo(axisX + axisW - 1, axisSplitY + 0.5);
+            ctx.stroke();
+        }
 
         let lastY = -Infinity;
         for (let p = minR; p <= maxR + step * 0.5; p += step) {
             const y = this._priceToY(p);
             if (y < axisTop + 8 || y > priceChartBottom - 8) continue;
+            if (axisSplitY !== null && Math.abs(y - axisSplitY) < splitBufferPx) continue;
             if (Math.abs(y - lastY) < minGapPx) continue;
 
             // Grid line echo — a very faint horizontal rule inside the axis panel
@@ -1268,6 +1281,7 @@ class FixedTradingChart {
         const ctx = this.ctx;
         const { maxVol, top, bottom } = this._volumeScale;
         const mid = top + ((bottom - top) / 2);
+        const splitBufferPx = 12;
         const ticks = [
             { v: maxVol, y: top },
             { v: maxVol * 0.5, y: mid },
@@ -1282,6 +1296,8 @@ class FixedTradingChart {
         ctx.lineWidth = 1;
 
         for (const t of ticks) {
+            // Keep volume labels from hugging the separator line at the top of the volume band.
+            if (Math.abs(t.y - top) < splitBufferPx) continue;
             ctx.beginPath();
             ctx.moveTo(axisX, t.y);
             ctx.lineTo(axisX + 4, t.y);
