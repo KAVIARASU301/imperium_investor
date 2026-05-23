@@ -59,23 +59,23 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 
 class _C:
-    # Matte terminal layers
-    BG0      = "#06080c"   # outer app/window shell
-    BG1      = "#0a0e13"   # dialog body
-    BG2      = "#10151c"   # table base rows
-    BG3      = "#151b24"   # row hover / footer surface
-    BG4      = "#080b10"   # title bar / hard chrome
-    BORDER   = "#222b38"   # primary separator
-    BORDER2  = "#2b3645"   # active separator / grip / scrollbar
+    # AMOLED terminal layers — matched with scanner/watchlist/positions tables
+    BG0      = "#050709"   # outer app/window shell
+    BG1      = "#0a0d12"   # dialog body / table base
+    BG2      = "#0f1318"   # alternate rows / panels
+    BG3      = "#141920"   # row hover / elevated surface
+    BG4      = "#070a0f"   # title/footer hard chrome
+    BORDER   = "#1a2030"   # primary separator / grid
+    BORDER2  = "#2a3a50"   # active separator / grip / scrollbar
     SELECT   = "#1a2840"   # selected row
 
     # Market semantics
-    BULL     = "#72cdb6"
+    BULL     = "#00d4a8"
     BULL_DIM = "#3f917f"
-    BULL_BG  = "#102720"
-    BEAR     = "#e07a84"
+    BULL_BG  = "#0b201b"
+    BEAR     = "#ff4d6a"
     BEAR_DIM = "#94424b"
-    BEAR_BG  = "#291217"
+    BEAR_BG  = "#241016"
     FLAT     = "#7f90a3"
 
     # Text
@@ -91,15 +91,15 @@ class _C:
     BLUE     = "#7fa6d8"
 
     # Flash fills
-    FLASH_UP = "#183f34"
-    FLASH_DN = "#3a151a"
+    FLASH_UP = "#12372f"
+    FLASH_DN = "#35141a"
 
 _FONT_FAMILIES = ["Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", "Noto Sans"]
 _MONO = "\"Consolas\", \"JetBrains Mono\", \"Courier New\", monospace"  # technical/debug only
 _SANS = "\"Inter\", \"Aptos\", \"Segoe UI Variable\", \"Segoe UI\", \"Roboto\", \"Noto Sans\", sans-serif"
 _NUM = "\"Inter\", \"Aptos\", \"Segoe UI Variable\", \"Segoe UI\", \"Roboto\", \"Noto Sans\", sans-serif"
 _UI_FONT = "Inter"
-_NUM_FONT = "Inter"
+_NUM_FONT = "Segoe UI Variable"
 
 
 def _apply_font_families(font: QFont) -> QFont:
@@ -137,9 +137,9 @@ def _number_font(pixel_size: int = 10, weight: QFont.Weight = QFont.Weight.Norma
 _COLS = [
     ("Symbol",  "symbol",   116, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
     ("Qty",     "quantity",  52, Qt.AlignmentFlag.AlignCenter),
-    ("Avg",     "avg_price", 74, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
-    ("LTP",     "ltp",       74, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
-    ("P&L",     "pnl",       88, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
+    ("Avg",     "avg_price", 74, Qt.AlignmentFlag.AlignCenter),
+    ("LTP",     "ltp",       74, Qt.AlignmentFlag.AlignCenter),
+    ("P&L",     "pnl",       88, Qt.AlignmentFlag.AlignCenter),
     ("SL",      "sl",        78, Qt.AlignmentFlag.AlignCenter),
     ("Target",  "target",    78, Qt.AlignmentFlag.AlignCenter),
 ]
@@ -148,11 +148,11 @@ _COL_IDX = {name: i for i, (name, *_) in enumerate(_COLS)}
 
 _FLASH_DURATION = 400   # ms
 _REDRAW_INTERVAL = 200  # ms  (~5 fps — human-readable)
-_ROW_HEIGHT = 21
+_ROW_HEIGHT = 22
 
 
 _FLOATING_POS_STATE_KEY = "floating_positions_dialog"
-_DEFAULT_DIALOG_SIZE = QSize(600, 326)
+_DEFAULT_DIALOG_SIZE = QSize(620, 326)
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  POSITION DATA CLASS  (same shape as positions_table.py)
@@ -348,7 +348,7 @@ class FloatingPositionsDialog(QDialog):
     def _build_title_bar(self) -> QFrame:
         bar = QFrame()
         bar.setObjectName("titleBar")
-        bar.setFixedHeight(28)
+        bar.setFixedHeight(26)
         bar.setCursor(QCursor(Qt.CursorShape.SizeAllCursor))
 
         h = QHBoxLayout(bar)
@@ -396,6 +396,7 @@ class FloatingPositionsDialog(QDialog):
         hdr = t.horizontalHeader()
         hdr.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
         hdr.setHighlightSections(False)
+        hdr.setFixedHeight(20)
         hdr.setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
 
         for i, (_, _, width, _) in enumerate(_COLS):
@@ -411,7 +412,7 @@ class FloatingPositionsDialog(QDialog):
         t.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         t.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         t.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        t.setShowGrid(False)
+        t.setShowGrid(True)
         t.setAlternatingRowColors(True)
         t.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         t.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -432,7 +433,7 @@ class FloatingPositionsDialog(QDialog):
     def _build_footer(self) -> QFrame:
         f = QFrame()
         f.setObjectName("footer")
-        f.setFixedHeight(28)
+        f.setFixedHeight(26)
 
         h = QHBoxLayout(f)
         h.setContentsMargins(8, 0, 8, 0)
@@ -692,7 +693,12 @@ class FloatingPositionsDialog(QDialog):
         pnl_neg  = pos.pnl < 0
         pnl_col  = _C.BULL if pnl_pos else (_C.BEAR if pnl_neg else _C.FLAT)
         qty_col  = _C.BULL if is_long else _C.BEAR
-        if pnl_pos:
+        # Use a very low-contrast P&L tint only when the row is not selected.
+        # This keeps Qt's selected-row style clean and prevents live refreshes
+        # from visually overriding selection.
+        if self.table.selectionModel() and self.table.selectionModel().isRowSelected(row, self.table.rootIndex()):
+            row_bg = QColor(_C.SELECT)
+        elif pnl_pos:
             row_bg = QColor(_C.BULL_BG)
         elif pnl_neg:
             row_bg = QColor(_C.BEAR_BG)
@@ -731,7 +737,7 @@ class FloatingPositionsDialog(QDialog):
             # Match embedded watchlist/scanner/positions typography:
             # symbols get their own compact UI font, numbers use the number font.
             if col == _COL_IDX["Symbol"]:
-                item.setFont(_symbol_font(10, QFont.Weight.Normal))
+                item.setFont(_symbol_font(10, QFont.Weight.Medium))
             elif bold:
                 item.setFont(_number_font(10, QFont.Weight.Medium))
             else:
@@ -787,7 +793,7 @@ class FloatingPositionsDialog(QDialog):
 
         self._total_pnl_lbl.setText(f"{sign}{total_pnl:,.0f}")
         self._total_pnl_lbl.setStyleSheet(
-            f"color: {pnl_col}; font-family: {_NUM}; font-size: 11px;"
+            f"color: {pnl_col}; font-family: {_NUM}; font-size: 10px;"
             f" font-weight: 500; background: transparent;"
         )
         self._exposure_lbl.setText(f"{exposure:,.0f}")
@@ -1021,7 +1027,7 @@ class FloatingPositionsDialog(QDialog):
                 font-family: {_SANS};
                 font-size: 10px;
                 font-weight: 800;
-                letter-spacing: 1.6px;
+                letter-spacing: 1.1px;
                 background: transparent;
             }}
             QToolButton#barBtn {{
@@ -1062,7 +1068,7 @@ class FloatingPositionsDialog(QDialog):
             QTableWidget#posTable {{
                 background: {_C.BG1};
                 alternate-background-color: {_C.BG2};
-                gridline-color: transparent;
+                gridline-color: rgba(26,32,48,0.72);
                 border: none;
                 outline: none;
                 selection-background-color: {_C.SELECT};
@@ -1074,14 +1080,16 @@ class FloatingPositionsDialog(QDialog):
             }}
             QTableWidget#posTable::item {{
                 padding: 0 5px;
-                border-bottom: 1px solid {_C.BG3};
+                border-bottom: 1px solid {_C.BORDER};
                 background: transparent;
                 font-family: {_NUM};
                 font-size: 10px;
                 font-weight: 400;
             }}
-            QTableWidget#posTable::item:selected {{
-                background: {_C.SELECT};
+            QTableWidget#posTable::item:selected,
+            QTableWidget#posTable::item:selected:active,
+            QTableWidget#posTable::item:selected:!active {{
+                background: {_C.SELECT} !important;
                 color: {_C.T0};
             }}
             QTableWidget#posTable::item:hover {{
@@ -1091,14 +1099,16 @@ class FloatingPositionsDialog(QDialog):
                 background: {_C.BG2};
                 color: {_C.T2};
                 font-family: {_SANS};
-                font-size: 8px;
-                font-weight: 500;
+                font-size: 9px;
+                font-weight: 600;
                 letter-spacing: 0.6px;
                 text-transform: uppercase;
                 border: none;
+                border-right: 1px solid {_C.BORDER};
                 border-bottom: 1px solid {_C.BORDER};
                 padding: 0 5px;
-                min-height: 19px;
+                min-height: 20px;
+                max-height: 20px;
             }}
 
             /* Footer */
@@ -1110,14 +1120,14 @@ class FloatingPositionsDialog(QDialog):
                 color: {_C.T2};
                 font-family: {_SANS};
                 font-size: 9px;
-                font-weight: 800;
-                letter-spacing: 0.9px;
+                font-weight: 700;
+                letter-spacing: 0.8px;
                 background: transparent;
             }}
             QLabel[objectName^="footerVal"] {{
                 color: {_C.T1};
                 font-family: {_NUM};
-                font-size: 11px;
+                font-size: 10px;
                 font-weight: 500;
                 background: transparent;
             }}
