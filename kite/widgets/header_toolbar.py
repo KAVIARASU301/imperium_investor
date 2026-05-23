@@ -672,7 +672,7 @@ class HeaderToolbar(QToolBar):
         button.setIconSize(QSize(_ACTION_ICON, _ACTION_ICON))
         button.setToolTip(tooltip)
         button.setCursor(Qt.CursorShape.PointingHandCursor)
-        button.setFont(_modern_font(8, QFont.Weight.DemiBold))
+        button.setFont(_modern_font(8, QFont.Weight.Normal))
         icon_path = get_asset_path("icons", icon_name, required=required)
         if icon_path is not None:
             button.setIcon(QIcon(str(icon_path)))
@@ -712,7 +712,7 @@ class HeaderToolbar(QToolBar):
         button.setObjectName("tradingActionButton")
         button.setFixedHeight(_CONTROL_H)
         button.setCursor(Qt.CursorShape.PointingHandCursor)
-        button.setFont(_modern_font(8, QFont.Weight.DemiBold))
+        button.setFont(_modern_font(8, QFont.Weight.Normal))
         return button
 
     @staticmethod
@@ -1082,7 +1082,7 @@ class HeaderToolbar(QToolBar):
 
     def _apply_explicit_fonts(self) -> None:
         """Force modern UI typography on visible toolbar widgets."""
-        normal_small = _modern_font(8, QFont.Weight.DemiBold)
+        normal_small = _modern_font(8, QFont.Weight.Normal)
         account_text = _modern_font(8, QFont.Weight.Medium)
         balance_text = _modern_font(9, QFont.Weight.DemiBold)
 
