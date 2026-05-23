@@ -1280,17 +1280,23 @@ class FixedTradingChart {
         if (!this._volumeScale || !Number.isFinite(this._volumeScale.maxVol) || this._volumeScale.maxVol <= 0) return;
         const ctx = this.ctx;
         const { maxVol, top, bottom } = this._volumeScale;
-        const mid = top + ((bottom - top) / 2);
         const splitBufferPx = 12;
         const todayVolume = Math.max(0, Number(this.data?.[this.data.length - 1]?.volume) || 0);
+        const volumeRangePx = (bottom - top);
+        const volumeToY = (v) => {
+            if (maxVol <= 0 || volumeRangePx <= 0) return bottom;
+            const ratio = Math.max(0, Math.min(1, (Number(v) || 0) / maxVol));
+            return bottom - (ratio * volumeRangePx);
+        };
+
+        // Default axis markings are top/middle/bottom, then we replace the closest
+        // value marker with today's volume while positioning it at its true scale level.
         const ticks = [
-            { v: maxVol, y: top, isToday: false },
-            { v: maxVol * (2 / 3), y: mid, isToday: false },
-            { v: maxVol * (1 / 3), y: bottom, isToday: false },
+            { v: maxVol, y: volumeToY(maxVol), isToday: false },
+            { v: maxVol * (2 / 3), y: volumeToY(maxVol * (2 / 3)), isToday: false },
+            { v: maxVol * (1 / 3), y: volumeToY(maxVol * (1 / 3)), isToday: false },
         ];
 
-        // Keep exactly three equally-spaced markings while replacing the closest
-        // regular level with today's volume label (highlighted in blue).
         let closestIdx = 0;
         let closestDist = Math.abs(ticks[0].v - todayVolume);
         for (let i = 1; i < ticks.length; i += 1) {
@@ -1301,6 +1307,7 @@ class FixedTradingChart {
             }
         }
         ticks[closestIdx].v = todayVolume;
+        ticks[closestIdx].y = volumeToY(todayVolume);
         ticks[closestIdx].isToday = true;
 
         ctx.font = this._axisFont(9, 600);
@@ -1311,13 +1318,13 @@ class FixedTradingChart {
 
         for (const t of ticks) {
             // Keep volume labels from hugging the separator line at the top of the volume band.
-            if (Math.abs(t.y - top) < splitBufferPx) continue;
+            const drawY = Math.abs(t.y - top) < splitBufferPx ? (top + splitBufferPx) : t.y;
             ctx.beginPath();
-            ctx.moveTo(axisX, t.y);
-            ctx.lineTo(axisX + 4, t.y);
+            ctx.moveTo(axisX, drawY);
+            ctx.lineTo(axisX + 4, drawY);
             ctx.stroke();
             ctx.fillStyle = t.isToday ? 'rgba(88, 166, 255, 1)' : 'rgba(181, 201, 234, 0.9)';
-            ctx.fillText(this._formatVolumeAxisValue(t.v), tickLabelX, t.y, tickLabelMaxW);
+            ctx.fillText(this._formatVolumeAxisValue(t.v), tickLabelX, drawY, tickLabelMaxW);
         }
     }
 
