@@ -55,17 +55,18 @@ DEFAULT_KITE_CALLBACK_PORTS = (8765, 5678)
 # ==============================================================================
 
 class UI:
-    BG0 = "#050709"      # deepest shell
-    BG1 = "#0a0d12"      # window body
-    BG2 = "#0f1318"      # panel/control layer
-    BG3 = "#141920"      # raised/hover layer
-    BG4 = "#1a2030"      # borders
-    BG5 = "#222b3a"      # strong border
+    BG0 = "#000000"      # true AMOLED shell
+    BG1 = "#030506"      # window body
+    BG2 = "#070a0d"      # title/footer layer
+    BG3 = "#0b1015"      # panel/control layer
+    BG4 = "#111923"      # raised/hover layer
+    BG5 = "#1a2634"      # borders
+    BG6 = "#223044"      # strong border
 
-    TEXT0 = "#e8f0ff"    # primary
+    TEXT0 = "#eef5ff"    # primary
     TEXT1 = "#a8bcd4"    # secondary
-    TEXT2 = "#5a7090"    # muted
-    TEXT3 = "#2a3a50"    # disabled
+    TEXT2 = "#5f7390"    # muted
+    TEXT3 = "#2d3a4d"    # disabled
 
     GREEN = "#00d4a8"    # success/buy/confirm
     RED = "#ff4d6a"      # danger/sell/error
@@ -73,10 +74,10 @@ class UI:
     CYAN = "#00d4ff"     # info/utility
     BLUE = "#3b82f6"     # neutral accent
 
-    SELECTION = "#1a2840"
-    SANS = "'Inter', 'Segoe UI Variable', 'Segoe UI', sans-serif"
-    NUM = "'Inter', 'Segoe UI Variable', 'Segoe UI', sans-serif"
-    MONO = "'Consolas', 'JetBrains Mono', monospace"  # only for raw logs, IDs, technical debug text
+    SELECTION = "#10233a"
+    SANS = "'Inter', 'Aptos', 'Segoe UI Variable', 'Segoe UI', 'Roboto', 'Noto Sans', sans-serif"
+    NUM = "'Inter', 'Aptos', 'Segoe UI Variable', 'Segoe UI', sans-serif"
+    MONO = "'JetBrains Mono', 'Consolas', monospace"  # only for raw logs, IDs, technical debug text
 
 
 def _resolve_callback_ports() -> List[int]:
@@ -231,8 +232,8 @@ class DualModeLoginManager(QDialog):
 
     def _setup_window(self):
         self.setWindowTitle("Qullamaggie Swing Trader - Login")
-        self.setMinimumSize(460, 520)
-        # self.resize(540, 620)
+        self.setMinimumSize(480, 520)
+        self.resize(500, 540)
         self.setModal(True)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.setAttribute(Qt.WA_TranslucentBackground, False)
@@ -276,22 +277,26 @@ class DualModeLoginManager(QDialog):
     def _create_header(self) -> QWidget:
         header = QFrame()
         header.setObjectName("titleBar")
-        header.setFixedHeight(42)
+        header.setFixedHeight(38)
 
         layout = QHBoxLayout(header)
         layout.setContentsMargins(14, 0, 10, 0)
-        layout.setSpacing(6)
+        layout.setSpacing(8)
 
-        title = QLabel("Qullamaggie Swing Trader")
+        title = QLabel("QULLAMAGGIE")
         title.setObjectName("dialogTitle")
+
+        title_badge = QLabel("LOGIN")
+        title_badge.setObjectName("titleBadge")
 
         close_btn = QPushButton("✕")
         close_btn.setObjectName("closeButton")
-        close_btn.setFixedSize(26, 26)
+        close_btn.setFixedSize(24, 24)
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         close_btn.clicked.connect(self._on_close)
 
         layout.addWidget(title)
+        layout.addWidget(title_badge)
         layout.addStretch()
         layout.addWidget(close_btn)
         return header
@@ -353,6 +358,8 @@ class DualModeLoginManager(QDialog):
                 self._active_kite_session = session
                 self._active_kite_creds = creds
                 self.auto_login_status.setText("Active Kite session found.")
+                self.session_hint_label.setText("Active Kite session available. Continue with Kite to reuse the saved session.")
+                self.session_hint_label.setVisible(True)
                 self.cancel_active_session_btn.setVisible(True)
 
             self.stacked_widget.setCurrentIndex(1)
@@ -369,30 +376,27 @@ class DualModeLoginManager(QDialog):
         page = QWidget()
         page.setObjectName("loginPage")
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(18, 14, 18, 14)
-        layout.setSpacing(12)
+        layout.setContentsMargins(22, 18, 22, 18)
+        layout.setSpacing(14)
 
         selection_layout = QVBoxLayout()
         selection_layout.setContentsMargins(0, 0, 0, 0)
-        selection_layout.setSpacing(12)
-
-        title = QLabel("Broker and Trading Mode")
-        title.setObjectName("brokerPageTitle")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        selection_layout.setSpacing(14)
 
         self.session_hint_label = QLabel("")
         self.session_hint_label.setObjectName("statusLabel")
         self.session_hint_label.setWordWrap(True)
         self.session_hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.session_hint_label.setVisible(False)
 
-        self.cancel_active_session_btn = QPushButton("Clear active Kite session")
+        self.cancel_active_session_btn = QPushButton("RESET KITE SESSION")
         self.cancel_active_session_btn.setObjectName("subtleActionButton")
         self.cancel_active_session_btn.clicked.connect(self._clear_active_kite_session)
         self.cancel_active_session_btn.setVisible(bool(self._active_kite_session))
 
         broker_layout = QHBoxLayout()
         broker_layout.setContentsMargins(0, 0, 0, 0)
-        broker_layout.setSpacing(8)
+        broker_layout.setSpacing(10)
         self.india_card = self._create_broker_card(BrokerMode.INDIA)
         self.america_card = self._create_broker_card(BrokerMode.AMERICA)
         broker_layout.addWidget(self.india_card)
@@ -411,25 +415,18 @@ class DualModeLoginManager(QDialog):
 
         mode_frame = self._create_trading_mode_selector()
 
-        hold_message = QLabel("Big money comes from holding.\nHold! Hold! Hold!")
-        hold_message.setObjectName("subTitle")
-        hold_message.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        hold_message.setWordWrap(True)
-
-        continue_btn = QPushButton("Continue")
+        continue_btn = QPushButton("CONTINUE")
         continue_btn.setObjectName("primaryButton")
-        continue_btn.setFixedHeight(30)
+        continue_btn.setFixedHeight(32)
         continue_btn.clicked.connect(self._on_broker_selected)
 
-        selection_layout.addWidget(title)
         selection_layout.addWidget(self.session_hint_label)
         selection_layout.addLayout(broker_layout)
         selection_layout.addWidget(mode_frame)
-        selection_layout.addSpacing(14)
-        selection_layout.addWidget(hold_message)
 
+        layout.addStretch(1)
         layout.addLayout(selection_layout)
-        layout.addStretch()
+        layout.addStretch(2)
         layout.addWidget(continue_btn)
         layout.addWidget(self.cancel_active_session_btn, alignment=Qt.AlignmentFlag.AlignCenter)
         return page
@@ -443,13 +440,13 @@ class DualModeLoginManager(QDialog):
         card = QFrame()
         card.setObjectName("brokerCard")
         card.setCursor(Qt.PointingHandCursor)
-        card.setFixedHeight(112)
+        card.setFixedHeight(148)
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(10, 8, 10, 8)
-        layout.setSpacing(5)
+        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setSpacing(7)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        region = "India" if broker_mode == BrokerMode.INDIA else "United States"
+        region = "INDIA" if broker_mode == BrokerMode.INDIA else "UNITED STATES"
         region_badge = QLabel(region)
         region_badge.setObjectName("brokerRegionBadge")
         region_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -457,33 +454,33 @@ class DualModeLoginManager(QDialog):
         icon_label = QLabel()
         icon_label.setObjectName("brokerIcon")
         icon_path = resource_path("assets/icons/india.svg") if broker_mode == BrokerMode.INDIA else resource_path("assets/icons/usa.svg")
-        icon_label.setPixmap(QIcon(icon_path).pixmap(22, 22))
+        icon_label.setPixmap(QIcon(icon_path).pixmap(30, 30))
         icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        radio = QRadioButton(broker_cfg.display_name.upper())
+        radio.setObjectName("brokerRadio")
+        radio.setCursor(Qt.CursorShape.PointingHandCursor)
 
         market_label = QLabel(broker_cfg.market)
         market_label.setObjectName("brokerMarket")
         market_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         market_label.setWordWrap(True)
 
-        radio = QRadioButton(broker_cfg.display_name)
-        radio.setObjectName("brokerRadio")
-        radio.setCursor(Qt.CursorShape.PointingHandCursor)
-
         layout.addWidget(icon_label)
-        layout.addWidget(region_badge)
-        layout.addWidget(market_label)
         layout.addWidget(radio, alignment=Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(region_badge, alignment=Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(market_label)
 
         if broker_mode == BrokerMode.INDIA:
             self.india_radio = radio
             if not KITE_AVAILABLE:
                 radio.setEnabled(False)
-                market_label.setText("kiteconnect not installed")
+                market_label.setText("kiteconnect unavailable")
         else:
             self.america_radio = radio
             if not is_ibkr_available():
                 radio.setEnabled(False)
-                market_label.setText("ib_insync not installed")
+                market_label.setText("ib_insync unavailable")
 
         radio.toggled.connect(lambda checked, c=card: self._set_card_selected(c, checked))
 
@@ -499,19 +496,21 @@ class DualModeLoginManager(QDialog):
     def _create_trading_mode_selector(self) -> QFrame:
         frame = QFrame()
         frame.setObjectName("modeFrame")
+        frame.setFixedHeight(44)
+
         layout = QHBoxLayout(frame)
-        layout.setContentsMargins(10, 6, 10, 6)
-        layout.setSpacing(12)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(6)
 
-        label = QLabel("Trading mode")
-        label.setObjectName("sectionLabel")
+        self.paper_radio = QRadioButton("PAPER")
+        self.paper_radio.setObjectName("modeRadio")
+        self.paper_radio.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        self.paper_radio = QRadioButton("Paper Trading")
-        self.live_radio = QRadioButton("Live Trading")
+        self.live_radio = QRadioButton("LIVE")
+        self.live_radio.setObjectName("modeRadio")
+        self.live_radio.setCursor(Qt.CursorShape.PointingHandCursor)
         self.live_radio.setChecked(True)
 
-        layout.addWidget(label)
-        layout.addStretch()
         layout.addWidget(self.paper_radio)
         layout.addWidget(self.live_radio)
         return frame
@@ -541,7 +540,8 @@ class DualModeLoginManager(QDialog):
             self.token_manager.clear_broker_session(BrokerMode.INDIA)
             self._active_kite_session = None
             self._active_kite_creds = None
-            self.session_hint_label.setText("Previous Kite session cleared. Please sign in again to continue.")
+            self.session_hint_label.setText("Saved Kite session cleared. Sign in again to continue.")
+            self.session_hint_label.setVisible(True)
             self.cancel_active_session_btn.setVisible(False)
             self.auto_login_status.setText("No active Kite session.")
 
@@ -618,7 +618,7 @@ class DualModeLoginManager(QDialog):
         nav = self._create_nav_buttons(
             back_slot=lambda: self.stacked_widget.setCurrentIndex(1),
             continue_slot=self._initiate_kite_login,
-            continue_text="Login with Kite"
+            continue_text="LOGIN WITH KITE"
         )
 
         api_key_label = QLabel("API KEY")
@@ -680,7 +680,7 @@ class DualModeLoginManager(QDialog):
         self.request_token_input.setObjectName("terminalInput")
         self.request_token_input.setPlaceholderText("Paste request_token or full callback URL")
 
-        self.generate_session_btn = QPushButton("Generate Session")
+        self.generate_session_btn = QPushButton("GENERATE SESSION")
         self.generate_session_btn.setObjectName("primaryButton")
         self.generate_session_btn.clicked.connect(self._complete_kite_login)
 
@@ -725,7 +725,7 @@ class DualModeLoginManager(QDialog):
             self.capture_status_label.setText("Waiting for browser authentication...")
             self.request_token_input.clear()
             self.generate_session_btn.setEnabled(True)
-            self.generate_session_btn.setText("Generate Session")
+            self.generate_session_btn.setText("GENERATE SESSION")
 
             # Start the callback server before opening the browser
             self._start_request_token_server()
@@ -843,7 +843,7 @@ class DualModeLoginManager(QDialog):
                 return
             self.request_token_input.setText(token)
             self.generate_session_btn.setEnabled(False)
-            self.generate_session_btn.setText("Generating...")
+            self.generate_session_btn.setText("GENERATING…")
             self._run_session_worker(token)
 
     def _run_session_worker(self, token: str):
@@ -869,7 +869,7 @@ class DualModeLoginManager(QDialog):
     def _on_kite_login_error(self, error_msg: str):
             QMessageBox.critical(self, "Login Failed", f"Failed to generate session:\n{error_msg}")
             self.generate_session_btn.setEnabled(True)
-            self.generate_session_btn.setText("Generate Session")
+            self.generate_session_btn.setText("GENERATE SESSION")
             self.capture_status_label.setText("⚠️ Session generation failed. Try again.")
 
         # --------------------------------------------------------------------------
@@ -932,7 +932,7 @@ class DualModeLoginManager(QDialog):
             "4) Match port to mode: Paper 7497, Live 7496"
         )
 
-        self.connect_ibkr_btn = QPushButton("Connect")
+        self.connect_ibkr_btn = QPushButton("CONNECT")
         self.connect_ibkr_btn.setObjectName("primaryButton")
         self.connect_ibkr_btn.clicked.connect(self._connect_to_ibkr)
 
@@ -955,7 +955,7 @@ class DualModeLoginManager(QDialog):
         host = "127.0.0.1" if self.ibkr_host_combo.currentIndex() == 0 else "::1"
         client_id = self.ibkr_client_id_input.value()
         self.connect_ibkr_btn.setEnabled(False)
-        self.connect_ibkr_btn.setText("Connecting...")
+        self.connect_ibkr_btn.setText("CONNECTING…")
         self.ibkr_status_display.clear()
         self.ibkr_status_display.setPlainText("Initiating connection...")
         self.ibkr_auth.connect_to_tws(
@@ -970,7 +970,7 @@ class DualModeLoginManager(QDialog):
         self.ibkr_status_display.setPlainText(clean)
         if "✅ Connected" not in clean:
             self.connect_ibkr_btn.setEnabled(True)
-            self.connect_ibkr_btn.setText("Connect")
+            self.connect_ibkr_btn.setText("CONNECT")
 
     def _on_ibkr_connection_success(self, ib_client):
         host = "127.0.0.1" if self.ibkr_host_combo.currentIndex() == 0 else "::1"
@@ -1002,7 +1002,7 @@ class DualModeLoginManager(QDialog):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
         if back_slot:
-            back_btn = QPushButton("Back")
+            back_btn = QPushButton("BACK")
             back_btn.setObjectName("secondaryButton")
             back_btn.setFixedHeight(30)
             back_btn.clicked.connect(back_slot)
@@ -1048,7 +1048,7 @@ class DualModeLoginManager(QDialog):
     def _apply_styles(self):
         stylesheet = f"""
             * {{
-                font-family: "Inter", "Segoe UI", "SF Pro Text", {UI.SANS};
+                font-family: {UI.SANS};
             }}
 
             DualModeLoginManager {{
@@ -1057,12 +1057,13 @@ class DualModeLoginManager(QDialog):
 
             #mainContainer {{
                 background-color: {UI.BG1};
-                border: none;
+                border: 1px solid {UI.BG5};
+                border-radius: 2px;
             }}
 
             #titleBar {{
                 background: {UI.BG2};
-                border-bottom: 1px solid rgba(0, 212, 255, 0.20);
+                border-bottom: 1px solid {UI.BG5};
             }}
 
             #dialogTitle {{
@@ -1070,8 +1071,20 @@ class DualModeLoginManager(QDialog):
                 font-family: {UI.SANS};
                 font-size: 12px;
                 font-weight: 800;
-                letter-spacing: 1px;
+                letter-spacing: 1.4px;
                 background: transparent;
+            }}
+
+            #titleBadge {{
+                color: {UI.CYAN};
+                background: rgba(0, 212, 255, 0.08);
+                border: 1px solid rgba(0, 212, 255, 0.24);
+                border-radius: 2px;
+                padding: 2px 7px;
+                font-family: {UI.SANS};
+                font-size: 9px;
+                font-weight: 800;
+                letter-spacing: 1px;
             }}
 
             #closeButton {{
@@ -1079,13 +1092,14 @@ class DualModeLoginManager(QDialog):
                 color: {UI.TEXT2};
                 border: 1px solid transparent;
                 font-size: 12px;
+                font-weight: 700;
                 border-radius: 2px;
             }}
 
             #closeButton:hover {{
                 color: {UI.RED};
-                border-color: rgba(255, 77, 106, 0.35);
-                background: rgba(255, 77, 106, 0.12);
+                border-color: rgba(255, 77, 106, 0.38);
+                background: rgba(255, 77, 106, 0.10);
             }}
 
             #loginStack,
@@ -1098,7 +1112,7 @@ class DualModeLoginManager(QDialog):
             #brokerPageTitle {{
                 color: {UI.TEXT0};
                 font-family: {UI.SANS};
-                font-size: 13px;
+                font-size: 14px;
                 font-weight: 800;
                 letter-spacing: 0.8px;
                 background: transparent;
@@ -1106,13 +1120,13 @@ class DualModeLoginManager(QDialog):
 
             #eyebrowLabel {{
                 color: {UI.CYAN};
-                background: rgba(0, 212, 255, 0.14);
-                border: 1px solid rgba(0, 212, 255, 0.42);
+                background: rgba(0, 212, 255, 0.08);
+                border: 1px solid rgba(0, 212, 255, 0.28);
                 border-radius: 2px;
                 padding: 3px 10px;
-                font-size: 10px;
+                font-size: 9px;
                 font-weight: 800;
-                letter-spacing: 1.1px;
+                letter-spacing: 1.4px;
             }}
 
             #subTitle,
@@ -1122,15 +1136,15 @@ class DualModeLoginManager(QDialog):
                 color: {UI.TEXT2};
                 font-family: {UI.SANS};
                 font-size: 10px;
-                font-weight: 800;
+                font-weight: 700;
                 letter-spacing: 0.9px;
                 background: transparent;
             }}
 
             #statusLabel {{
                 color: {UI.TEXT1};
-                background: rgba(255, 255, 255, 0.02);
-                border: 1px solid rgba(0, 212, 255, 0.24);
+                background: rgba(0, 212, 255, 0.035);
+                border: 1px solid rgba(0, 212, 255, 0.18);
                 border-radius: 2px;
                 font-size: 11px;
                 font-weight: 600;
@@ -1145,7 +1159,12 @@ class DualModeLoginManager(QDialog):
                 padding-left: 2px;
             }}
 
-            #inputPanel,
+            #inputPanel {{
+                background: {UI.BG3};
+                border: 1px solid {UI.BG5};
+                border-radius: 2px;
+            }}
+
             #modeFrame {{
                 background: {UI.BG2};
                 border: 1px solid {UI.BG5};
@@ -1153,54 +1172,102 @@ class DualModeLoginManager(QDialog):
             }}
 
             #brokerCard {{
-                background: {UI.BG2};
+                background: {UI.BG3};
                 border: 1px solid {UI.BG5};
                 border-radius: 2px;
             }}
 
             #brokerCard:hover {{
-                background: {UI.BG3};
-                border-color: rgba(0, 212, 255, 0.38);
+                background: {UI.BG4};
+                border-color: rgba(0, 212, 255, 0.34);
             }}
 
             #brokerCard[selected="true"] {{
-                background: {UI.BG3};
-                border: 1px solid rgba(245, 158, 11, 0.9);
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #101722, stop:1 #080c10);
+                border: 1px solid rgba(245, 158, 11, 0.92);
+            }}
+
+            #brokerIcon {{
+                background: transparent;
             }}
 
             #brokerRegionBadge {{
                 color: {UI.AMBER};
-                background: rgba(245, 158, 11, 0.08);
-                border: 1px solid rgba(245, 158, 11, 0.22);
+                background: rgba(245, 158, 11, 0.07);
+                border: 1px solid rgba(245, 158, 11, 0.24);
                 border-radius: 2px;
-                padding: 3px 8px;
+                padding: 3px 9px;
                 font-family: {UI.SANS};
-                font-size: 10px;
+                font-size: 9px;
                 font-weight: 800;
-                letter-spacing: 0.9px;
-                min-width: 70px;
+                letter-spacing: 1.1px;
+                min-width: 78px;
             }}
 
             #brokerMarket {{
                 color: {UI.TEXT2};
-                font-size: 11px;
-                font-weight: 700;
-                letter-spacing: 0.5px;
+                font-size: 10px;
+                font-weight: 650;
+                letter-spacing: 0.4px;
                 background: transparent;
             }}
 
-            #brokerRadio {{
-                color: {UI.TEXT1};
-                font-size: 12px;
-                font-weight: 700;
+            QRadioButton#brokerRadio {{
+                color: {UI.TEXT0};
+                font-size: 13px;
+                font-weight: 800;
+                letter-spacing: 0.9px;
                 background: transparent;
+                spacing: 0px;
+            }}
+
+            QRadioButton#brokerRadio::indicator {{
+                width: 0px;
+                height: 0px;
+                border: none;
+                image: none;
+            }}
+
+            QRadioButton#brokerRadio:disabled {{
+                color: {UI.TEXT3};
+            }}
+
+            QRadioButton#modeRadio {{
+                color: {UI.TEXT1};
+                background: {UI.BG3};
+                border: 1px solid transparent;
+                border-radius: 2px;
+                padding: 7px 14px;
+                font-size: 10px;
+                font-weight: 800;
+                letter-spacing: 1.0px;
+                spacing: 0px;
+            }}
+
+            QRadioButton#modeRadio:hover {{
+                color: {UI.TEXT0};
+                background: {UI.BG4};
+                border-color: rgba(0, 212, 255, 0.24);
+            }}
+
+            QRadioButton#modeRadio:checked {{
+                color: #1a1200;
+                background: {UI.AMBER};
+                border: 1px solid {UI.AMBER};
+            }}
+
+            QRadioButton#modeRadio::indicator {{
+                width: 0px;
+                height: 0px;
+                border: none;
+                image: none;
             }}
 
             QLineEdit,
             QComboBox,
             QSpinBox {{
-                background: {UI.BG3};
-                border: 1px solid {UI.BG5};
+                background: {UI.BG4};
+                border: 1px solid {UI.BG6};
                 border-radius: 2px;
                 padding: 7px 9px;
                 color: {UI.TEXT0};
@@ -1208,15 +1275,21 @@ class DualModeLoginManager(QDialog):
                 selection-color: {UI.TEXT0};
                 font-family: {UI.NUM};
                 font-size: 11px;
-                font-weight: 650;
+                font-weight: 600;
                 min-height: 20px;
+            }}
+
+            QLineEdit:hover,
+            QComboBox:hover,
+            QSpinBox:hover {{
+                border-color: rgba(0, 212, 255, 0.22);
             }}
 
             QLineEdit:focus,
             QComboBox:focus,
             QSpinBox:focus {{
                 border: 1px solid {UI.CYAN};
-                background: rgba(0, 212, 255, 0.06);
+                background: rgba(0, 212, 255, 0.055);
             }}
 
             QLineEdit::placeholder {{
@@ -1240,9 +1313,9 @@ class DualModeLoginManager(QDialog):
             }}
 
             QComboBox QAbstractItemView {{
-                background: {UI.BG2};
+                background: {UI.BG3};
                 color: {UI.TEXT0};
-                border: 1px solid {UI.BG5};
+                border: 1px solid {UI.BG6};
                 selection-background-color: {UI.SELECTION};
                 selection-color: {UI.TEXT0};
                 outline: none;
@@ -1257,21 +1330,21 @@ class DualModeLoginManager(QDialog):
 
             #primaryButton {{
                 background: {UI.GREEN};
-                color: #03281f;
+                color: #001d17;
                 border: 1px solid {UI.GREEN};
                 border-radius: 2px;
-                padding: 7px 14px;
+                padding: 7px 15px;
                 font-family: {UI.SANS};
                 font-size: 10px;
-                font-weight: 800;
-                letter-spacing: 0.7px;
-                min-width: 112px;
+                font-weight: 850;
+                letter-spacing: 0.9px;
+                min-width: 118px;
             }}
 
             #primaryButton:hover {{
-                background: #17d8b0;
-                border-color: #17d8b0;
-                color: #03281f;
+                background: #21dfb8;
+                border-color: #21dfb8;
+                color: #001d17;
             }}
 
             #primaryButton:pressed {{
@@ -1279,43 +1352,44 @@ class DualModeLoginManager(QDialog):
             }}
 
             #primaryButton:disabled {{
-                background: {UI.BG3};
+                background: {UI.BG4};
                 color: {UI.TEXT3};
-                border-color: {UI.BG4};
+                border-color: {UI.BG5};
             }}
 
             #secondaryButton {{
                 background: {UI.BG3};
-                color: {UI.TEXT0};
-                border: 1px solid {UI.BG5};
+                color: {UI.TEXT1};
+                border: 1px solid {UI.BG6};
                 border-radius: 2px;
                 padding: 7px 14px;
                 font-family: {UI.SANS};
                 font-size: 10px;
                 font-weight: 800;
-                letter-spacing: 0.7px;
+                letter-spacing: 0.8px;
                 min-width: 80px;
             }}
 
             #secondaryButton:hover {{
                 color: {UI.TEXT0};
                 background: {UI.BG4};
-                border-color: {UI.TEXT2};
+                border-color: rgba(168, 188, 212, 0.36);
             }}
 
             #subtleActionButton {{
-                background: {UI.BG3};
+                background: transparent;
                 border: 1px solid {UI.BG5};
                 color: {UI.CYAN};
                 border-radius: 2px;
                 font-size: 10px;
-                font-weight: 700;
-                padding: 3px 6px;
+                font-weight: 800;
+                letter-spacing: 0.6px;
+                padding: 4px 8px;
             }}
 
             #subtleActionButton:hover {{
-                background: {UI.BG4};
-                border-color: rgba(0, 212, 255, 0.28);
+                background: rgba(0, 212, 255, 0.065);
+                border-color: rgba(0, 212, 255, 0.30);
                 color: #b7f4ff;
             }}
 
@@ -1323,7 +1397,7 @@ class DualModeLoginManager(QDialog):
             QCheckBox {{
                 color: {UI.TEXT1};
                 font-size: 11px;
-                font-weight: 700;
+                font-weight: 650;
                 spacing: 6px;
                 background: transparent;
             }}
@@ -1335,8 +1409,8 @@ class DualModeLoginManager(QDialog):
             }}
 
             QRadioButton::indicator:unchecked {{
-                border: 1px solid {UI.BG5};
-                background: {UI.BG1};
+                border: 1px solid {UI.BG6};
+                background: {UI.BG2};
             }}
 
             QRadioButton::indicator:checked {{
@@ -1346,15 +1420,19 @@ class DualModeLoginManager(QDialog):
 
             QRadioButton::indicator:disabled {{
                 border-color: {UI.TEXT3};
-                background: {UI.BG2};
+                background: {UI.BG3};
             }}
 
             QCheckBox::indicator {{
                 width: 13px;
                 height: 13px;
-                border-radius: 3px;
-                border: 1px solid {UI.BG5};
-                background: {UI.BG1};
+                border-radius: 2px;
+                border: 1px solid {UI.BG6};
+                background: {UI.BG2};
+            }}
+
+            QCheckBox::indicator:hover {{
+                border-color: rgba(0, 212, 255, 0.28);
             }}
 
             QCheckBox::indicator:checked {{
@@ -1364,7 +1442,7 @@ class DualModeLoginManager(QDialog):
 
             #ibkrStatusDisplay {{
                 background: {UI.BG0};
-                border: 1px solid {UI.BG4};
+                border: 1px solid {UI.BG5};
                 border-radius: 2px;
                 color: {UI.TEXT1};
                 selection-background-color: {UI.SELECTION};
@@ -1376,7 +1454,7 @@ class DualModeLoginManager(QDialog):
 
             QTextEdit {{
                 background: {UI.BG0};
-                border: 1px solid {UI.BG4};
+                border: 1px solid {UI.BG5};
                 color: {UI.TEXT1};
             }}
 
@@ -1387,7 +1465,7 @@ class DualModeLoginManager(QDialog):
             }}
 
             QScrollBar::handle:vertical {{
-                background: {UI.BG5};
+                background: {UI.BG6};
                 border-radius: 2px;
                 min-height: 20px;
             }}

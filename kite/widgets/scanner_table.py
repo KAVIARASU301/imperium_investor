@@ -30,7 +30,7 @@ def _prefer_text_antialias(font: QFont) -> QFont:
 SCAN_URL_FILE = os.path.join(os.path.expanduser("~/.qullamaggie"), "chartink_scans.json")
 SETTINGS_FILE = os.path.join(os.path.expanduser("~/.qullamaggie"), "scanner_settings.json")
 SCAN_GROUP_ORDER = ["Momentum Breakouts", "Episodic Pivot", "Parabolic", "Intraday", "Others"]
-CHART_TOOLBAR_HEIGHT = 28
+CHART_TOOLBAR_HEIGHT = 26
 CHART_TOOLBAR_CONTROL_HEIGHT = 22
 
 VOLUME_STRENGTH_ENABLED_ROLE = Qt.ItemDataRole.UserRole + 101
@@ -38,36 +38,37 @@ VOLUME_STRENGTH_LEVEL_ROLE = Qt.ItemDataRole.UserRole + 102
 VOLUME_STRENGTH_COLOR_ROLE = Qt.ItemDataRole.UserRole + 103
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  INSTITUTIONAL DARK TRADING TERMINAL UI TOKENS
+#  AMOLED INSTITUTIONAL DARK TRADING TERMINAL UI TOKENS
 # ─────────────────────────────────────────────────────────────────────────────
-_BG0 = "#06080c"
-_BG1 = "#0a0e13"
-_BG2 = "#10151c"
-_BG3 = "#151b24"
-_BG4 = "#222b38"
-_BGTB = "#080b10"
-_BULL = "#72cdb6"
-_BEAR = "#e07a84"
-_AMBER = "#d7a45d"
-_CYAN = "#78cfe1"
-_BLUE = "#7fa6d8"
-_T0 = "#d8e2ef"
-_T1 = "#9eacbc"
-_T2 = "#748396"
-_T3 = "#475466"
-_SYMBOL_TEXT = "#c2ccd9"  # clear symbol text without glowing white
-_SEL = "#1f1f1f"
-_MONO = "'Consolas', 'JetBrains Mono', monospace"  # code, raw scan clauses, debug text only
-_SANS = "'Inter', 'Segoe UI Variable', 'Segoe UI', 'Noto Sans', Roboto, Arial, sans-serif"
-_NUM = "'Segoe UI Variable', 'Inter', 'Segoe UI', 'Noto Sans', sans-serif"
+_BG0 = "#050709"      # deepest app / AMOLED shell
+_BG1 = "#0a0d12"      # main table body
+_BG2 = "#0f1318"      # alternate row / panel layer
+_BG3 = "#141920"      # hover / raised layer
+_BG4 = "#1a2030"      # thin border
+_BG5 = "#26354a"      # active border
+_BGTB = "#070a0f"     # toolbar / dialog header
+_BULL = "#00d4a8"
+_BEAR = "#ff4d6a"
+_AMBER = "#f59e0b"
+_CYAN = "#00d4ff"
+_BLUE = "#3b82f6"
+_T0 = "#e8f0ff"
+_T1 = "#a8bcd4"
+_T2 = "#5a7090"
+_T3 = "#2a3a50"
+_SYMBOL_TEXT = "#d6e2f2"
+_SEL = "#1a2840"
+_MONO = "'JetBrains Mono', 'Consolas', monospace"  # code, raw scan clauses, debug text only
+_SANS = "'Inter', 'Aptos', 'Segoe UI Variable', 'Segoe UI', 'Roboto', 'Noto Sans', Arial, sans-serif"
+_NUM = "'Inter', 'Aptos', 'Segoe UI Variable', 'Segoe UI', 'Roboto', 'Noto Sans', sans-serif"
 _SYMBOL_FONT = "Inter"
 _UI_FONT = "Inter"
-_NUM_FONT = "Segoe UI Variable"
+_NUM_FONT = "Inter"
 _SYMBOL_FONT_FAMILIES = ["Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", "Noto Sans"]
 _UI_FONT_FAMILIES = ["Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", "Noto Sans"]
-_NUM_FONT_FAMILIES = ["Segoe UI Variable", "Inter", "Aptos", "Segoe UI", "Roboto", "Noto Sans"]
-_ROW_H = 21
-_DIALOG_ROW_H = 25
+_NUM_FONT_FAMILIES = ["Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", "Noto Sans"]
+_ROW_H = 22
+_DIALOG_ROW_H = 24
 
 
 def _set_font_families(font: QFont, families: List[str]) -> QFont:
@@ -140,7 +141,7 @@ class VolumeStrengthDelegate(QStyledItemDelegate):
         QApplication.style().drawControl(QStyle.ControlElement.CE_ItemViewItem, opt, painter, opt.widget)
 
         level = max(0, min(3, int(index.data(VOLUME_STRENGTH_LEVEL_ROLE) or 0)))
-        fill_color = QColor(index.data(VOLUME_STRENGTH_COLOR_ROLE) or "#78cfe1")
+        fill_color = QColor(index.data(VOLUME_STRENGTH_COLOR_ROLE) or "#00d4ff")
         track_color = QColor(fill_color)
         track_color.setAlpha(45)
         empty_color = QColor(70, 82, 98, 120)
@@ -394,7 +395,7 @@ class ModernAddScanDialog(QDialog):
                 font-weight: 500;
             }}
             QPushButton#closeButton:hover {{
-                background-color: rgba(224,122,132,0.10);
+                background-color: rgba(255,77,106,0.10);
                 color: {_BEAR};
             }}
 
@@ -494,12 +495,12 @@ class ModernAddScanDialog(QDialog):
                 min-height: 22px;
             }}
             QPushButton#primaryMinimalButton {{
-                background-color: rgba(114,205,182,0.08);
+                background-color: rgba(0,212,168,0.08);
                 color: {_BULL};
-                border: 1px solid rgba(114,205,182,0.22);
+                border: 1px solid rgba(0,212,168,0.22);
             }}
             QPushButton#primaryMinimalButton:hover {{
-                background-color: rgba(114,205,182,0.12);
+                background-color: rgba(0,212,168,0.12);
                 border-color: {_BULL};
             }}
             QPushButton#primaryMinimalButton:disabled {{
@@ -664,12 +665,12 @@ class ModernManageScansDialog(QDialog):
             # Name
             name_item = QTableWidgetItem(scan.get("name", "Unnamed"))
             name_item.setFont(_ui_font(9, QFont.Weight.Medium))
-            name_item.setForeground(QBrush(QColor("#d8e2ef")))
+            name_item.setForeground(QBrush(QColor(_T0)))
             self.scans_table.setItem(row, 0, name_item)
 
             # Tag
             tag_item = QTableWidgetItem(scan.get("tag", "Others"))
-            tag_item.setForeground(QBrush(QColor("#9eacbc")))
+            tag_item.setForeground(QBrush(QColor("#a8bcd4")))
             self.scans_table.setItem(row, 1, tag_item)
 
             # Clause preview (truncated)
@@ -677,7 +678,7 @@ class ModernManageScansDialog(QDialog):
             preview = clause[:72] + "..." if len(clause) > 72 else clause
             preview_item = QTableWidgetItem(preview)
             preview_item.setFont(_mono_font(8))
-            preview_item.setForeground(QBrush(QColor("#7f90a3")))
+            preview_item.setForeground(QBrush(QColor(_T2)))
             self.scans_table.setItem(row, 2, preview_item)
 
             # Actions buttons
@@ -791,9 +792,9 @@ class ModernManageScansDialog(QDialog):
             }}
 
             QPushButton#addMinimalButton {{
-                background-color: rgba(114,205,182,0.08);
+                background-color: rgba(0,212,168,0.08);
                 color: {_BULL};
-                border: 1px solid rgba(114,205,182,0.22);
+                border: 1px solid rgba(0,212,168,0.22);
                 border-radius: 2px;
                 font-family: {_SANS};
                 font-size: 10px;
@@ -802,20 +803,20 @@ class ModernManageScansDialog(QDialog):
                 padding: 2px 10px;
             }}
             QPushButton#addMinimalButton:hover {{
-                background-color: rgba(114,205,182,0.12);
+                background-color: rgba(0,212,168,0.12);
                 border-color: {_BULL};
             }}
 
             QPushButton#editMinimalButton {{
                 background-color: {_BG2};
                 color: {_CYAN};
-                border: 1px solid rgba(120,207,225,0.20);
+                border: 1px solid rgba(0,212,255,0.20);
                 border-radius: 2px;
                 font-size: 10px;
                 font-weight: 600;
             }}
             QPushButton#editMinimalButton:hover {{
-                background-color: rgba(120,207,225,0.08);
+                background-color: rgba(0,212,255,0.08);
                 border-color: {_CYAN};
                 color: {_T0};
             }}
@@ -829,7 +830,7 @@ class ModernManageScansDialog(QDialog):
                 font-weight: 500;
             }}
             QPushButton#closeButton:hover {{
-                background-color: rgba(224,122,132,0.10);
+                background-color: rgba(255,77,106,0.10);
                 color: {_BEAR};
             }}
 
@@ -880,7 +881,7 @@ class ModernManageScansDialog(QDialog):
             QPushButton#deleteMinimalButton {{
                 background-color: {_BG2};
                 color: {_BEAR};
-                border: 1px solid rgba(224,122,132,0.20);
+                border: 1px solid rgba(255,77,106,0.20);
                 border-radius: 2px;
                 font-size: 11px;
                 font-weight: 600;
@@ -888,11 +889,11 @@ class ModernManageScansDialog(QDialog):
                 margin: 0px;
             }}
             QPushButton#deleteMinimalButton:hover {{
-                background-color: rgba(224,122,132,0.08);
+                background-color: rgba(255,77,106,0.08);
                 border-color: {_BEAR};
             }}
             QPushButton#deleteMinimalButton:pressed {{
-                background-color: #2a1519;
+                background-color: rgba(255,77,106,0.14);
                 border-color: {_BEAR};
             }}
 
@@ -916,12 +917,12 @@ class ModernManageScansDialog(QDialog):
                 min-height: 22px;
             }}
             QPushButton#primaryMinimalButton {{
-                background-color: rgba(114,205,182,0.08);
+                background-color: rgba(0,212,168,0.08);
                 color: {_BULL};
-                border: 1px solid rgba(114,205,182,0.22);
+                border: 1px solid rgba(0,212,168,0.22);
             }}
             QPushButton#primaryMinimalButton:hover {{
-                background-color: rgba(114,205,182,0.12);
+                background-color: rgba(0,212,168,0.12);
                 border-color: {_BULL};
             }}
             QPushButton#secondaryMinimalButton {{
@@ -1089,8 +1090,8 @@ class ChartinkScannerTable(QWidget):
         self._change_sort_state: Optional[str] = None  # None -> asc -> desc -> None
         self._color_theme = {
             "enable_volume_strength_indicator": False,
-            "show_table_vertical_lines": True,
-            "tables": {"positive": "#72cdb6", "negative": "#e07a84", "neutral": "#7f90a3", "volume": "#78cfe1"}
+            "show_table_vertical_lines": False,
+            "tables": {"positive": "#00d4a8", "negative": "#ff4d6a", "neutral": "#5a7090", "volume": "#00d4ff"}
         }
 
         self._setup_ui()
@@ -1143,7 +1144,8 @@ class ChartinkScannerTable(QWidget):
 
     def apply_color_theme(self, theme: Dict):
         self._color_theme = theme or self._color_theme
-        self.table.setShowGrid(True)
+        self._apply_enhanced_styles()
+        self.table.setShowGrid(bool(self._color_theme.get("show_table_vertical_lines", False)))
         self.table.setColumnHidden(2, not bool(self._color_theme.get("show_scanner_volume_column", True)))
         for symbol, row in self._symbol_to_row.items():
             data = self._symbol_data.get(symbol)
@@ -1206,15 +1208,15 @@ class ChartinkScannerTable(QWidget):
         header_container.setFixedHeight(CHART_TOOLBAR_HEIGHT)
 
         header_layout = QHBoxLayout(header_container)
-        header_layout.setContentsMargins(6, 0, 6, 0)
-        header_layout.setSpacing(6)
+        header_layout.setContentsMargins(4, 0, 4, 0)
+        header_layout.setSpacing(4)
 
         # Subtle refresh button replacing static scan label
         self.scan_refresh_btn = QPushButton("RUN")
         self.scan_refresh_btn.setObjectName("scanRefreshButton")
         self.scan_refresh_btn.setToolTip("Refresh current scan")
         self.scan_refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.scan_refresh_btn.setFixedHeight(CHART_TOOLBAR_CONTROL_HEIGHT)
+        self.scan_refresh_btn.setFixedSize(44, CHART_TOOLBAR_CONTROL_HEIGHT)
         self.scan_refresh_btn.clicked.connect(self._run_current_scan)
         header_layout.addWidget(self.scan_refresh_btn)
 
@@ -1229,7 +1231,7 @@ class ChartinkScannerTable(QWidget):
         self.manage_btn = QPushButton()
         self.manage_btn.setObjectName("settingsMinimalButton")
         self.manage_btn.setToolTip("Manage Scans")
-        self.manage_btn.setFixedSize(32, CHART_TOOLBAR_CONTROL_HEIGHT)
+        self.manage_btn.setFixedSize(24, CHART_TOOLBAR_CONTROL_HEIGHT)
         gear_icon_path = get_asset_path("icons", "gear_setting.svg", required=True)
         if gear_icon_path is not None:
             self.manage_btn.setIcon(QIcon(str(gear_icon_path)))
@@ -1332,7 +1334,7 @@ class ChartinkScannerTable(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setShowGrid(True)
+        self.table.setShowGrid(bool(self._color_theme.get("show_table_vertical_lines", False)))
         self.table.setAlternatingRowColors(True)
         self.table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
@@ -1434,7 +1436,7 @@ class ChartinkScannerTable(QWidget):
         volume_item.setData(VOLUME_STRENGTH_LEVEL_ROLE, volume_strength_level)
         volume_item.setData(
             VOLUME_STRENGTH_COLOR_ROLE,
-            self._color_theme.get("tables", {}).get("volume", "#78cfe1")
+            self._color_theme.get("tables", {}).get("volume", _CYAN)
         )
         strength_label = f" | Strength: {volume_strength_level}/3" if show_volume_strength else ""
         volume_item.setToolTip(f"Reported volume: {volume:,.0f}{strength_label}")
@@ -1449,25 +1451,25 @@ class ChartinkScannerTable(QWidget):
 
         # Watchlist-matched color coding
         if change_pct >= 3.0:
-            chg_fg = QColor("#7bd8c3")
-            chg_bg = QBrush(QColor(123, 216, 195, 24))
+            chg_fg = QColor(_BULL)
+            chg_bg = QBrush(QColor(0, 212, 168, 26))
         elif change_pct >= 1.0:
-            chg_fg = QColor("#68c9b2")
-            chg_bg = QBrush(QColor(104, 201, 178, 15))
+            chg_fg = QColor("#35e0bd")
+            chg_bg = QBrush(QColor(0, 212, 168, 16))
         elif change_pct >= -0.5:
-            chg_fg = QColor("#7f90a3")
+            chg_fg = QColor(_T2)
             chg_bg = QBrush(QColor(_BG2))
         elif change_pct >= -1.0:
-            chg_fg = QColor("#d78b7f")
-            chg_bg = QBrush(QColor(215, 139, 127, 15))
+            chg_fg = QColor("#ff8a9a")
+            chg_bg = QBrush(QColor(255, 77, 106, 16))
         else:
-            chg_fg = QColor("#e07a84")
-            chg_bg = QBrush(QColor(224, 122, 132, 24))
+            chg_fg = QColor(_BEAR)
+            chg_bg = QBrush(QColor(255, 77, 106, 26))
 
         # Match embedded watchlist column palette
         symbol_item.setForeground(QColor(_SYMBOL_TEXT))
-        price_item.setForeground(chg_fg if abs(change_pct) > 0.005 else QColor("#d8e2ef"))
-        volume_item.setForeground(QColor("#748396"))
+        price_item.setForeground(chg_fg if abs(change_pct) > 0.005 else QColor(_T0))
+        volume_item.setForeground(QColor(_T2))
         change_pct_item.setForeground(chg_fg)
         change_pct_item.setBackground(chg_bg)
 
@@ -1647,7 +1649,7 @@ class ChartinkScannerTable(QWidget):
             if not self.scans:
                 self.table.setRowCount(0)
                 self.table.insertRow(0)
-                item = QTableWidgetItem("No scans configured. Open settings to add a scan.")
+                item = QTableWidgetItem("No scans configured. Open settings to add one.")
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
                 self.table.setItem(0, 0, item)
                 for col in range(1, 4):
@@ -1657,7 +1659,7 @@ class ChartinkScannerTable(QWidget):
                 # Just clear the table and show a message to manually select/run
                 self.table.setRowCount(0)
                 self.table.insertRow(0)
-                item = QTableWidgetItem("Scans saved. Select a scan from dropdown to run.")
+                item = QTableWidgetItem("Scans saved. Select a scan to run.")
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
                 self.table.setItem(0, 0, item)
                 for col in range(1, 4):
@@ -1684,7 +1686,7 @@ class ChartinkScannerTable(QWidget):
         if not selected_scan_url:
             self.table.setRowCount(0)
             self.table.insertRow(0)
-            item = QTableWidgetItem("Invalid Scan URL.")
+            item = QTableWidgetItem("Invalid scan configuration.")
             item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
             self.table.setItem(0, 0, item)
             for col in range(1, 4):
@@ -1699,7 +1701,7 @@ class ChartinkScannerTable(QWidget):
         # Show loading state
         self.table.setRowCount(0)
         self.table.insertRow(0)
-        item = QTableWidgetItem("Loading scan results...")
+        item = QTableWidgetItem("Running scan...")
         item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
         self.table.setItem(0, 0, item)
         for col in range(1, 4):
@@ -2001,8 +2003,8 @@ class ChartinkScannerTable(QWidget):
             QMessageBox.critical(self, "Save Error", f"Failed to save scans: {e}")
 
     def _apply_enhanced_styles(self):
-        """Institutional Dark Trading Terminal UI styling."""
-        gridline_color = "rgba(116,131,150,0.26)"
+        """AMOLED Institutional Dark Trading Terminal UI styling."""
+        gridline_color = "rgba(26,32,48,0.42)" if self._color_theme.get("show_table_vertical_lines", False) else "transparent"
 
         self.setStyleSheet(f"""
             QWidget {{
@@ -2021,29 +2023,32 @@ class ChartinkScannerTable(QWidget):
             }}
 
             QPushButton#scanRefreshButton {{
-                background-color: rgba(120,207,225,0.07);
+                background-color: rgba(0, 212, 255, 0.055);
                 color: {_CYAN};
-                border: 1px solid rgba(120,207,225,0.20);
+                border: 1px solid rgba(0, 212, 255, 0.18);
                 border-radius: 2px;
                 font-family: {_SANS};
                 font-size: 9px;
-                font-weight: 600;
-                letter-spacing: 0.5px;
-                padding: 0 9px;
+                font-weight: 800;
+                letter-spacing: 0.7px;
+                padding: 0px;
                 text-align: center;
+                min-width: 44px;
+                max-width: 44px;
                 min-height: {CHART_TOOLBAR_CONTROL_HEIGHT}px;
                 max-height: {CHART_TOOLBAR_CONTROL_HEIGHT}px;
             }}
             QPushButton#scanRefreshButton:hover {{
-                background-color: rgba(120,207,225,0.10);
-                border-color: {_CYAN};
-                color: {_CYAN};
+                background-color: rgba(0, 212, 255, 0.10);
+                border-color: rgba(0, 212, 255, 0.42);
+                color: {_T0};
             }}
             QPushButton#scanRefreshButton:pressed {{
-                background-color: rgba(120,207,225,0.14);
+                background-color: rgba(0, 212, 255, 0.16);
+                border-color: {_CYAN};
             }}
             QPushButton#scanRefreshButton:disabled {{
-                background-color: {_BG2};
+                background-color: {_BG1};
                 color: {_T3};
                 border-color: {_BG4};
             }}
@@ -2055,14 +2060,15 @@ class ChartinkScannerTable(QWidget):
                 border-radius: 2px;
                 font-family: {_SANS};
                 font-size: 10px;
-                font-weight: 500;
+                font-weight: 650;
                 min-height: {CHART_TOOLBAR_CONTROL_HEIGHT}px;
                 max-height: {CHART_TOOLBAR_CONTROL_HEIGHT}px;
-                padding: 0 22px 0 7px;
+                padding: 0px 20px 0px 7px;
                 selection-background-color: {_SEL};
+                selection-color: {_T0};
             }}
             QComboBox#minimalDropdown:hover {{
-                border-color: {_T2};
+                border-color: {_BG5};
                 background-color: {_BG2};
             }}
             QComboBox#minimalDropdown:focus {{
@@ -2071,7 +2077,7 @@ class ChartinkScannerTable(QWidget):
                 outline: none;
             }}
             QComboBox#minimalDropdown:disabled {{
-                background-color: {_BG2};
+                background-color: {_BG1};
                 color: {_T3};
                 border-color: {_BG4};
             }}
@@ -2103,26 +2109,32 @@ class ChartinkScannerTable(QWidget):
                 padding: 2px 7px;
                 border: none;
             }}
+            QComboBox#minimalDropdown QAbstractItemView::item:hover {{
+                background-color: {_BG3};
+            }}
 
             QPushButton#settingsMinimalButton {{
                 background-color: {_BG1};
                 color: {_T2};
                 border: 1px solid {_BG4};
                 border-radius: 2px;
+                min-width: 24px;
+                max-width: 24px;
                 min-height: {CHART_TOOLBAR_CONTROL_HEIGHT}px;
                 max-height: {CHART_TOOLBAR_CONTROL_HEIGHT}px;
-                padding: 0 6px;
+                padding: 0px;
             }}
             QPushButton#settingsMinimalButton:hover {{
-                background-color: rgba(120,207,225,0.07);
+                background-color: rgba(0, 212, 255, 0.08);
                 color: {_CYAN};
-                border-color: rgba(120,207,225,0.24);
+                border-color: rgba(0, 212, 255, 0.34);
             }}
             QPushButton#settingsMinimalButton:pressed {{
                 background-color: {_BG3};
+                border-color: {_CYAN};
             }}
             QPushButton#settingsMinimalButton:disabled {{
-                background-color: {_BG2};
+                background-color: {_BG1};
                 color: {_T3};
                 border-color: {_BG4};
             }}
@@ -2142,8 +2154,8 @@ class ChartinkScannerTable(QWidget):
                 border-radius: 0px;
             }}
             QTableWidget::item {{
-                padding: 0 5px;
-                border-bottom: 1px solid {_BG3};
+                padding: 0px 5px;
+                border-bottom: 1px solid rgba(26, 32, 48, 0.38);
                 background-color: transparent;
                 font-family: {_NUM};
                 font-size: 10px;
@@ -2151,7 +2163,7 @@ class ChartinkScannerTable(QWidget):
             QTableWidget::item:selected {{
                 background-color: {_SEL} !important;
                 color: {_T0};
-                font-weight: 400;
+                font-weight: 500;
                 outline: none;
             }}
             QTableWidget::item:focus {{
@@ -2173,19 +2185,25 @@ class ChartinkScannerTable(QWidget):
             QHeaderView::section {{
                 background-color: {_BG2};
                 color: {_T2};
-                padding: 0 5px;
+                padding: 0px 5px;
                 border: none;
                 border-bottom: 1px solid {_BG4};
                 font-family: {_SANS};
-                font-weight: 500;
+                font-weight: 800;
                 font-size: 9px;
-                letter-spacing: 0.6px;
+                letter-spacing: 0.8px;
                 text-transform: uppercase;
-                min-height: 20px;
+                min-height: 19px;
             }}
             QHeaderView::section:hover {{
                 background-color: {_BG3};
                 color: {_T1};
+            }}
+
+            QTableCornerButton::section {{
+                background-color: {_BG2};
+                border: none;
+                border-bottom: 1px solid {_BG4};
             }}
 
             QScrollBar:vertical {{
@@ -2223,5 +2241,15 @@ class ChartinkScannerTable(QWidget):
                 width: 0px;
                 height: 0px;
                 margin: 0px;
+            }}
+
+            QToolTip {{
+                background-color: {_BG2};
+                color: {_T1};
+                border: 1px solid {_BG5};
+                border-radius: 2px;
+                padding: 4px 6px;
+                font-family: {_SANS};
+                font-size: 10px;
             }}
         """)
