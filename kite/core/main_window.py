@@ -698,18 +698,22 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         """Create a top bar with centered app title/mode and anchored menu/window controls."""
         top_bar = QWidget()
         top_bar.setObjectName("customTitleBar")
-        top_bar.setFixedHeight(30)
+        top_bar.setFixedHeight(28)
 
         root_layout = QGridLayout(top_bar)
-        root_layout.setContentsMargins(8, 0, 4, 0)
-        root_layout.setHorizontalSpacing(8)
+        root_layout.setContentsMargins(7, 0, 4, 0)
+        root_layout.setHorizontalSpacing(6)
         root_layout.setVerticalSpacing(0)
 
         self.menu_container = QWidget()
+        self.menu_container.setObjectName("menuContainer")
+        self.menu_container.setMinimumWidth(210)
+        self.menu_container.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Fixed)
         menu_layout = QHBoxLayout(self.menu_container)
         menu_layout.setContentsMargins(0, 0, 0, 0)
         menu_layout.setSpacing(0)
         self.menu_bar.setFixedHeight(24)
+        self.menu_bar.setMinimumWidth(200)
         self.menu_bar.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Fixed)
         if hasattr(self.menu_bar, "setSizeAdjustPolicy"):
             self.menu_bar.setSizeAdjustPolicy(QMenuBar.SizeAdjustPolicy.AdjustToContents)
@@ -735,25 +739,27 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         min_btn = QPushButton("−")
         min_btn.setObjectName("titleBarButton")
-        min_btn.setFixedSize(24, 24)
+        min_btn.setFixedSize(24, 22)
         min_btn.clicked.connect(self.showMinimized)
         controls_layout.addWidget(min_btn)
 
         self.max_btn = QPushButton("□")
         self.max_btn.setObjectName("titleBarButton")
-        self.max_btn.setFixedSize(24, 24)
+        self.max_btn.setFixedSize(24, 22)
         self.max_btn.clicked.connect(self._toggle_maximize)
         controls_layout.addWidget(self.max_btn)
 
         close_btn = QPushButton("✕")
         close_btn.setObjectName("closeTitleBarButton")
-        close_btn.setFixedSize(24, 24)
+        close_btn.setFixedSize(24, 22)
         close_btn.clicked.connect(self.close)
         controls_layout.addWidget(close_btn)
 
         root_layout.addWidget(self.menu_container, 0, 0, alignment=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         root_layout.addWidget(self.title_container, 0, 1, alignment=Qt.AlignmentFlag.AlignCenter)
         root_layout.addWidget(self.window_controls, 0, 2, alignment=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        root_layout.setColumnMinimumWidth(0, 210)
+        root_layout.setColumnMinimumWidth(2, 92)
         root_layout.setColumnStretch(0, 1)
         root_layout.setColumnStretch(1, 0)
         root_layout.setColumnStretch(2, 1)
@@ -3261,82 +3267,185 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     def _apply_dark_theme(self):
         """Apply dark theme with splitter styling"""
         self.setStyleSheet("""
-            #mainContainer { 
-                background-color: #0a0a0a; 
-                border: 1px solid #1a1a1a; 
+            #mainContainer {
+                background-color: #050709;
+                border: 1px solid #151d2b;
             }
 
-            #customTitleBar { 
-                background-color: #0a0a0a; 
-                border-bottom: 1px solid #202020; 
+            #customTitleBar {
+                background-color: #050709;
+                border-bottom: 1px solid #151d2b;
             }
 
-            #mainMenuBar {
+            #menuContainer {
+                background: transparent;
+                border: none;
+            }
+
+            QMenuBar#mainMenuBar {
                 background-color: transparent;
-                color: #d6d6d6;
+                color: #a8bcd4;
                 border: none;
                 padding: 0px;
+                spacing: 1px;
+                font-family: "Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", "Noto Sans", sans-serif;
+                font-size: 10px;
+                font-weight: 500;
             }
 
-            #mainMenuBar::item {
+            QMenuBar#mainMenuBar::item {
+                color: #a8bcd4;
                 background: transparent;
-                padding: 3px 6px;
+                padding: 3px 8px;
                 margin: 0px 1px;
-            }
-
-            #mainMenuBar::item:selected {
-                background: #2a2a2a;
+                border: 1px solid transparent;
                 border-radius: 2px;
             }
 
-            #mainMenuBar::item:pressed {
-                background: #1f1f1f;
+            QMenuBar#mainMenuBar::item:selected {
+                color: #e8f0ff;
+                background: #0f1318;
+                border: 1px solid #25344a;
             }
 
-            #appTitle { 
-                color: #a0c0ff; 
-                font-size: 12px; 
-                font-weight: 600; 
+            QMenuBar#mainMenuBar::item:pressed {
+                color: #e8f0ff;
+                background: #1a2840;
+                border: 1px solid #2a3a50;
             }
 
-            #tradingModeLabel { 
-                color: #64ffda; 
-                font-size: 10px; 
-                font-weight: 500; 
+            QMenuBar#mainMenuBar::item:disabled {
+                color: #2a3a50;
             }
 
-            #titleBarButton { 
-                background-color: transparent; 
-                color: #b0b0b0; 
-                border: none; 
-                font-size: 14px; 
-                font-weight: bold; 
-                border-radius: 2px; 
+            QMenu {
+                background-color: #0a0d12;
+                color: #a8bcd4;
+                border: 1px solid #1a2030;
+                border-radius: 2px;
+                padding: 4px 0px;
+                font-family: "Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", "Noto Sans", sans-serif;
+                font-size: 10px;
+                font-weight: 500;
             }
 
-            #titleBarButton:hover { 
-                background-color: #2a2a2a; 
-                color: #ffffff; 
+            QMenu::item {
+                color: #a8bcd4;
+                background: transparent;
+                padding: 5px 28px 5px 22px;
+                margin: 1px 4px;
+                min-height: 18px;
+                border: 1px solid transparent;
+                border-radius: 2px;
             }
 
-            #closeTitleBarButton { 
-                background-color: transparent; 
-                color: #b0b0b0; 
-                border: none; 
-                font-size: 12px; 
-                font-weight: bold; 
-                border-radius: 2px; 
+            QMenu::item:selected {
+                color: #e8f0ff;
+                background-color: #1a2840;
+                border: 1px solid #25344a;
             }
 
-            #closeTitleBarButton:hover { 
-                background-color: #e81123; 
-                color: #ffffff; 
+            QMenu::item:pressed {
+                color: #e8f0ff;
+                background-color: #111722;
             }
 
-            QMainWindow, QWidget { 
-                background-color: #0a0a0a; 
-                color: #e0e0e0; 
-                font-family: "Segoe UI", Arial, sans-serif; 
+            QMenu::item:checked {
+                color: #f59e0b;
+                font-weight: 600;
+            }
+
+            QMenu::item:disabled {
+                color: #2a3a50;
+                background: transparent;
+            }
+
+            QMenu::separator {
+                height: 1px;
+                background: #1a2030;
+                margin: 4px 8px;
+            }
+
+            QMenu::indicator {
+                width: 11px;
+                height: 11px;
+                left: 7px;
+                border: 1px solid #263247;
+                border-radius: 2px;
+                background: #050709;
+            }
+
+            QMenu::indicator:checked {
+                background: #f59e0b;
+                border: 1px solid #f59e0b;
+            }
+
+            #appTitle {
+                color: #cbd5e1;
+                font-family: "Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", "Noto Sans", sans-serif;
+                font-size: 11px;
+                font-weight: 600;
+                letter-spacing: 0.25px;
+                background: transparent;
+            }
+
+            #tradingModeLabel {
+                color: #8292a8;
+                font-family: "Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", "Noto Sans", sans-serif;
+                font-size: 9px;
+                font-weight: 500;
+                letter-spacing: 0.4px;
+                background: transparent;
+            }
+
+            #titleBarButton {
+                background-color: transparent;
+                color: #8292a8;
+                border: 1px solid transparent;
+                font-family: "Inter", "Aptos", "Segoe UI Variable", "Segoe UI", sans-serif;
+                font-size: 13px;
+                font-weight: 500;
+                border-radius: 2px;
+                padding: 0px;
+            }
+
+            #titleBarButton:hover {
+                background-color: #0f1318;
+                color: #e8f0ff;
+                border: 1px solid #25344a;
+            }
+
+            #titleBarButton:pressed {
+                background-color: #1a2840;
+                color: #e8f0ff;
+            }
+
+            #closeTitleBarButton {
+                background-color: transparent;
+                color: #8292a8;
+                border: 1px solid transparent;
+                font-family: "Inter", "Aptos", "Segoe UI Variable", "Segoe UI", sans-serif;
+                font-size: 12px;
+                font-weight: 600;
+                border-radius: 2px;
+                padding: 0px;
+            }
+
+            #closeTitleBarButton:hover {
+                background-color: rgba(255,77,106,0.16);
+                color: #ff4d6a;
+                border: 1px solid rgba(255,77,106,0.36);
+            }
+
+            #closeTitleBarButton:pressed {
+                background-color: rgba(255,77,106,0.26);
+                color: #ffffff;
+            }
+
+            QMainWindow, QWidget {
+                background-color: #050709;
+                color: #e8f0ff;
+                font-family: "Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", "Noto Sans", sans-serif;
             }
 
             #scannerPanel, #watchlistPanel, #positionsPanel {
