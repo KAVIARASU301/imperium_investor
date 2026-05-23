@@ -7,7 +7,7 @@ Ticker board redesign:
   - Individual TickerPill widgets with FIXED width — no layout reflow on ticks
   - Only QLabel.setText() is called on price updates → zero jitter
   - Width is computed once at pill construction and on symbol-set changes
-  - Beautiful institutional design: symbol / price / change % with color bar
+  - TC2000-style inline tape: muted symbol / soft price / dominant colored %Chg
 """
 
 import logging
@@ -149,70 +149,67 @@ class NotificationBadge(QLabel):
 
 class TickerPill(QFrame):
     """
-    Compact, fixed-width ticker card for a single symbol.
+    TC2000-style inline ticker item for a single symbol.
 
-    % change is intentionally the dominant element because the ticker board is
-    used for fast market-breadth reading. Price and symbol stay secondary.
-    Width remains fixed after construction, so live ticks do not create jitter.
+    Design rules:
+      • no %Chg pill/badge/background
+      • symbol muted, price secondary, %Chg dominant through color + size
+      • thin vertical divider between ticker items
+      • fixed width after construction so live ticks never shift the toolbar
     """
 
-    # Fixed per-pill dimensions
     _PILL_H = 22
-    _BAR_W = 2
-    _PAD_L = 6
-    _PAD_R = 6
-    _GAP = 5
-    _CHG_W = 64
+    _PAD_L = 9
+    _PAD_R = 9
+    _GAP = 8
+    _SYM_MIN_W = 48
+    _PRICE_W = 72
+    _CHG_W = 56
 
     def __init__(self, symbol: str, parent=None):
         super().__init__(parent)
         self._symbol = symbol.upper()
         self._bull_color = _BULL
         self._bear_color = _BEAR
-        self._neutral_color = _TEXT_MUTED
+        self._neutral_color = _TEXT_BUTTON
 
         self.setObjectName("tickerPill")
         self.setFixedHeight(self._PILL_H)
         self.setFrameShape(QFrame.Shape.NoFrame)
 
-        # ── inner layout ──
         inner = QHBoxLayout(self)
         inner.setContentsMargins(self._PAD_L, 0, self._PAD_R, 0)
         inner.setSpacing(self._GAP)
 
         self._sym_label = QLabel(self._symbol)
         self._sym_label.setObjectName("tickerPillSymbol")
-        self._sym_label.setFont(_modern_font(7, QFont.Weight.Medium))
+        self._sym_label.setFont(_modern_font(7, QFont.Weight.Normal))
         self._sym_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self._sym_label.setMinimumWidth(self._SYM_MIN_W)
         self._sym_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 
         self._price_label = QLabel("--")
         self._price_label.setObjectName("tickerPillPrice")
         self._price_label.setFont(_modern_font(8, QFont.Weight.Normal))
+        self._price_label.setFixedWidth(self._PRICE_W)
         self._price_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self._price_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 
         self._chg_label = QLabel("--%")
         self._chg_label.setObjectName("tickerPillChange")
+        self._chg_label.setFont(_modern_font(9, QFont.Weight.Medium))
         self._chg_label.setFixedWidth(self._CHG_W)
-        self._chg_label.setFixedHeight(18)
-        self._chg_label.setFont(_modern_font(9, QFont.Weight.DemiBold))
-        self._chg_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._chg_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self._chg_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 
         inner.addWidget(self._sym_label)
-        inner.addStretch(1)
         inner.addWidget(self._price_label)
         inner.addWidget(self._chg_label)
 
-        # Compute and LOCK width now — never changes on tick updates
         self._compute_fixed_width()
 
-        # State tracking: only repaint color bar when state actually changes
-        self._last_state: Optional[str] = None  # "bull" | "bear" | "flat" | None
+        self._last_state: Optional[str] = None
         self._apply_style(state=None)
-
-    # ── Public update API ─────────────────────────────────────────────────────
 
     def update_data(self, price: Optional[float], change_pct: Optional[float]) -> None:
         """Update displayed values. Only setText() is called — zero layout impact."""
@@ -223,119 +220,78 @@ class TickerPill(QFrame):
 
         if isinstance(change_pct, (int, float)):
             chg = float(change_pct)
-            if chg > 0:
-                self._chg_label.setText(f"▲ +{chg:.2f}%")
-                new_state = "bull"
-            elif chg < 0:
-                self._chg_label.setText(f"▼ {chg:.2f}%")
-                new_state = "bear"
-            else:
-                self._chg_label.setText("0.00%")
-                new_state = "flat"
+            sign = "+" if chg > 0 else ""
+            self._chg_label.setText(f"{sign}{chg:.2f}%")
+            new_state = "bull" if chg > 0 else ("bear" if chg < 0 else "flat")
         else:
             self._chg_label.setText("--%")
             new_state = None
 
-        # Only repaint when state actually changes — avoids unnecessary redraws
         if new_state != self._last_state:
             self._last_state = new_state
             self._apply_style(state=new_state)
 
-    # ── Private helpers ───────────────────────────────────────────────────────
-
     def _compute_fixed_width(self) -> None:
-        """
-        Calculate the pill width that comfortably holds the widest realistic
-        values, then fix it permanently. This keeps the header stable while
-        live prices and % change update.
-        """
+        """Lock item width once, using rendered font metrics to prevent jitter."""
         sym_fm = QFontMetrics(self._sym_label.font())
-        price_fm = QFontMetrics(self._price_label.font())
-
-        # Reserve for the actual symbol, the widest normal index price, and the
-        # fixed % change badge.  The % badge width is fixed because it is the
-        # most important visual field and must not compress.
-        sym_w = sym_fm.horizontalAdvance(self._symbol)
-        price_w = price_fm.horizontalAdvance("88,888.88")
-        chg_w = self._CHG_W
+        sym_w = max(self._SYM_MIN_W, sym_fm.horizontalAdvance(self._symbol))
+        self._sym_label.setFixedWidth(sym_w)
 
         total = (
             self._PAD_L
             + sym_w
             + self._GAP
-            + price_w
+            + self._PRICE_W
             + self._GAP
-            + chg_w
+            + self._CHG_W
             + self._PAD_R
-            + self._BAR_W
-            + 6
         )
-        self.setFixedWidth(max(total, 126))
+        self.setFixedWidth(total)
 
     def _apply_style(self, state: Optional[str]) -> None:
-        """Paint the pill background, border, and labels for bull/bear/flat."""
+        """Apply inline market-tape styling. %Chg is text-only, never a badge."""
         if state == "bull":
-            bar_color = self._bull_color
             chg_color = self._bull_color
-            chg_bg = "rgba(0,212,168,0.105)"
-            chg_border = "rgba(0,212,168,0.34)"
-            bg = "rgba(0,212,168,0.035)"
-            border = "rgba(0,212,168,0.16)"
         elif state == "bear":
-            bar_color = self._bear_color
             chg_color = self._bear_color
-            chg_bg = "rgba(255,77,106,0.105)"
-            chg_border = "rgba(255,77,106,0.34)"
-            bg = "rgba(255,77,106,0.035)"
-            border = "rgba(255,77,106,0.16)"
         elif state == "flat":
-            bar_color = _TEXT_FAINT
-            chg_color = _TEXT_SOFT
-            chg_bg = "rgba(143,156,175,0.055)"
-            chg_border = "rgba(143,156,175,0.16)"
-            bg = _BG_WINDOW
-            border = _BG_BORDER
+            chg_color = self._neutral_color
         else:
-            bar_color = _TEXT_FAINT
             chg_color = _TEXT_MUTED
-            chg_bg = "rgba(143,156,175,0.035)"
-            chg_border = "rgba(143,156,175,0.10)"
-            bg = _BG_WINDOW
-            border = _BG_BORDER
 
         self.setStyleSheet(f"""
             QFrame#tickerPill {{
-                background: {bg};
-                border: 1px solid {border};
-                border-left: {self._BAR_W}px solid {bar_color};
-                border-radius: 2px;
+                background: transparent;
+                border: none;
+                border-left: 1px solid {_BG_BORDER_HI};
+                border-radius: 0px;
             }}
             QLabel#tickerPillSymbol {{
                 color: {_TEXT_MUTED};
                 background: transparent;
                 font-size: 8px;
                 font-weight: 500;
-                letter-spacing: 0.35px;
+                letter-spacing: 0.45px;
                 border: none;
+                padding: 0px;
             }}
             QLabel#tickerPillPrice {{
                 color: {_TEXT_SOFT};
                 background: transparent;
-                font-size: 8px;
+                font-size: 9px;
                 font-weight: 450;
                 border: none;
+                padding: 0px;
             }}
             QLabel#tickerPillChange {{
                 color: {chg_color};
-                background: {chg_bg};
-                border: 1px solid {chg_border};
-                border-radius: 2px;
+                background: transparent;
+                border: none;
+                border-radius: 0px;
                 font-size: 10px;
-                font-weight: 750;
-                letter-spacing: 0.15px;
-                padding: 0px 4px;
-                min-width: {self._CHG_W}px;
-                max-width: {self._CHG_W}px;
+                font-weight: 650;
+                letter-spacing: 0.12px;
+                padding: 0px;
             }}
         """)
 
@@ -352,7 +308,7 @@ class TickerBoard(QFrame):
     symbol list changes and never touched on tick updates.
     """
 
-    _PILL_GAP = 3        # px between adjacent pills
+    _PILL_GAP = 0        # TC2000-style inline items separated by item borders
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -369,9 +325,9 @@ class TickerBoard(QFrame):
 
         self.setStyleSheet(f"""
             QFrame#tickerBoard {{
-                background: {_BG_APP};
-                border: 1px solid {_BG_BORDER};
-                border-radius: 2px;
+                background: transparent;
+                border: none;
+                border-radius: 0px;
             }}
         """)
 
