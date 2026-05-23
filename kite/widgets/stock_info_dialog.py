@@ -28,7 +28,7 @@ import logging
 from typing import Any, Dict, Optional
 
 from PySide6.QtCore import Qt, QPoint, QObject, Signal, QThread, QEvent
-from PySide6.QtGui import QMouseEvent, QCursor, QGuiApplication
+from PySide6.QtGui import QMouseEvent, QCursor, QGuiApplication, QColor
 from PySide6.QtWidgets import (
     QAbstractButton, QAbstractSpinBox, QComboBox, QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QTableWidget, QVBoxLayout, QApplication,
@@ -289,24 +289,24 @@ class _FetchThread(QThread):
 # HTML RENDERER  (Institutional Dark Trading Terminal UI + modern UI number typography)
 # ─────────────────────────────────────────────────────────────────────────────
 
-_BG0 = "#050709"
-_BG1 = "#0a0d12"
-_BG2 = "#0f1318"
-_BG3 = "#141920"
-_BG4 = "#1a2030"
-_BGTB = "#070a0f"
+_BG0 = "#050709"   # AMOLED shell
+_BG1 = "#070a0f"   # dialog/content background
+_BG2 = "#0a0d12"   # primary card surface
+_BG3 = "#0f1318"   # alternate row / hover surface
+_BG4 = "#1a2030"   # thin borders
+_BGTB = "#050709"  # title/footer bars
 _BULL = "#00d4a8"
 _BEAR = "#ff4d6a"
-_AMBER = "#f59e0b"
-_CYAN = "#00d4ff"
-_BLUE = "#00d4ff"
-_T0 = "#e8f0ff"
-_T1 = "#a8bcd4"
-_T2 = "#5a7090"
-_T3 = "#2a3a50"
+_AMBER = "#d7a45d"
+_CYAN = "#78cfe1"
+_BLUE = "#7fa6d8"
+_T0 = "#d8e2ef"
+_T1 = "#a8b4c2"
+_T2 = "#748396"
+_T3 = "#3b4758"
 _SEL = "#1a2840"
-_SANS = "'Inter', 'Segoe UI Variable', 'Segoe UI', Arial, sans-serif"
-_NUM = "'Inter', 'Segoe UI Variable', 'Segoe UI', Arial, sans-serif"
+_SANS = "'Inter', 'Aptos', 'Segoe UI Variable', 'Segoe UI', 'Roboto', 'Noto Sans', Arial, sans-serif"
+_NUM = "'Inter', 'Aptos', 'Segoe UI Variable', 'Segoe UI', 'Roboto', 'Noto Sans', Arial, sans-serif"
 _MONO = "'Consolas', 'JetBrains Mono', monospace"  # only for code/raw technical text
 
 
@@ -323,18 +323,21 @@ _LOADING_HTML = f"""<!DOCTYPE html>
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
   html, body {{ height: 100%; }}
   body {{
-    background: {_BG1};
+    background: {_BG0};
     color: {_T2};
     font-family: {_SANS};
     display: flex;
     align-items: center;
     justify-content: center;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: geometricPrecision;
   }}
   .terminal-loader {{
     width: 360px;
     border: 1px solid {_BG4};
     border-radius: 2px;
     background: {_BG2};
+    box-shadow: 0 16px 40px rgba(0,0,0,.38);
   }}
   .loader-head {{
     height: 26px;
@@ -344,8 +347,8 @@ _LOADING_HTML = f"""<!DOCTYPE html>
     background: {_BGTB};
     border-bottom: 1px solid {_BG4};
     color: {_AMBER};
-    font: 800 10px {_SANS};
-    letter-spacing: 1.4px;
+    font: 700 10px {_SANS};
+    letter-spacing: 1.1px;
   }}
   .loader-body {{ padding: 14px 12px 12px; }}
   .line {{
@@ -361,7 +364,7 @@ _LOADING_HTML = f"""<!DOCTYPE html>
     height: 100%;
     width: 42%;
     background: {_CYAN};
-    opacity: .7;
+    opacity: .55;
     animation: scan 1.05s linear infinite;
   }}
   .small {{
@@ -393,9 +396,10 @@ _ERROR_HTML_TPL = f"""<!DOCTYPE html>
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
   html, body {{ height: 100%; }}
   body {{
-    background: {_BG1};
+    background: {_BG0};
     color: {_BEAR};
     font-family: {_SANS};
+    -webkit-font-smoothing: antialiased;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -406,6 +410,7 @@ _ERROR_HTML_TPL = f"""<!DOCTYPE html>
     border: 1px solid rgba(255,77,106,.34);
     border-radius: 2px;
     background: {_BG2};
+    box-shadow: 0 16px 40px rgba(0,0,0,.38);
   }}
   .error-head {{
     height: 28px;
@@ -566,18 +571,20 @@ def _build_info_html(data: dict) -> str:
 }}
 html, body {{ height: 100%; }}
 body {{
-  background: var(--bg1);
+  background: var(--bg0);
   color: var(--t0);
   font-family: var(--font-ui);
-  font-size: 11px;
-  line-height: 1.35;
+  font-size: 12px;
+  line-height: 1.45;
   overflow-y: auto;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
 }}
 .shell {{ min-height: 100%; background: var(--bg1); }}
 .instrument-head {{
-  min-height: 74px;
+  min-height: 72px;
   padding: 10px 12px 9px;
-  background: var(--bg0);
+  background: linear-gradient(180deg, var(--bg0) 0%, #070b10 100%);
   border-bottom: 1px solid var(--bg4);
 }}
 .top-line {{
@@ -586,22 +593,23 @@ body {{
   gap: 10px;
 }}
 .symbol-chip {{
-  min-width: 86px;
+  min-width: 84px;
   padding: 6px 10px;
-  border: 1px solid rgba(0,212,255,.34);
+  border: 1px solid rgba(120,207,225,.22);
+  border-left: 3px solid var(--cyan);
   border-radius: 2px;
-  background: rgba(0,212,255,.07);
-  color: var(--cyan);
-  font: 800 13px var(--font-ui);
-  letter-spacing: .6px;
+  background: rgba(120,207,225,.045);
+  color: #b8ccd9;
+  font: 700 13px var(--font-ui);
+  letter-spacing: .8px;
   text-align: center;
 }}
 .company-block {{ flex: 1; min-width: 0; }}
 .company-name {{
   color: var(--t0);
   font-size: 17px;
-  font-weight: 800;
-  letter-spacing: .2px;
+  font-weight: 650;
+  letter-spacing: .1px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -611,7 +619,7 @@ body {{
   gap: 6px;
   align-items: center;
   flex-wrap: wrap;
-  margin-top: 6px;
+  margin-top: 7px;
 }}
 .meta-tag {{
   height: 20px;
@@ -623,52 +631,57 @@ body {{
   background: var(--bg2);
   color: var(--t2);
   font-size: 9px;
-  font-weight: 800;
-  letter-spacing: .8px;
+  font-weight: 650;
+  letter-spacing: .65px;
   text-transform: uppercase;
 }}
-.meta-tag.active {{ color: var(--amber); border-color: rgba(245,158,11,.35); background: rgba(245,158,11,.06); }}
+.meta-tag.active {{
+  color: var(--amber);
+  border-color: rgba(215,164,93,.32);
+  background: rgba(215,164,93,.055);
+}}
 .terminal-link {{
   height: 20px;
   display: inline-flex;
   align-items: center;
   padding: 0 7px;
   color: var(--cyan);
-  border: 1px solid rgba(0,212,255,.28);
+  border: 1px solid rgba(120,207,225,.22);
   border-radius: 2px;
-  background: rgba(0,212,255,.05);
+  background: rgba(120,207,225,.045);
   text-decoration: none;
   font-size: 9px;
-  font-weight: 800;
-  letter-spacing: .8px;
+  font-weight: 700;
+  letter-spacing: .65px;
 }}
+.terminal-link:hover {{ background: rgba(120,207,225,.08); color: #c8edf4; }}
 .quick-strip {{
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px;
+  gap: 7px;
   padding: 8px 10px;
   background: var(--bg1);
   border-bottom: 1px solid var(--bg4);
 }}
 .stat {{
-  min-height: 38px;
+  min-height: 42px;
   border: 1px solid var(--bg4);
   border-radius: 2px;
   background: var(--bg2);
-  padding: 5px 7px;
+  padding: 6px 8px;
 }}
 .stat span {{
   display: block;
   color: var(--t2);
-  font-size: 8px;
-  font-weight: 800;
-  letter-spacing: 1px;
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: .95px;
 }}
 .stat strong {{
   display: block;
-  margin-top: 3px;
+  margin-top: 4px;
   color: var(--t0);
-  font: 800 12px var(--font-num);
+  font: 700 12.5px var(--font-num);
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum' 1;
   white-space: nowrap;
@@ -679,20 +692,21 @@ body {{
 .amber {{ color: var(--amber) !important; }}
 .description {{
   margin: 8px 10px 0;
-  padding: 8px 9px;
+  padding: 9px 10px;
   border: 1px solid var(--bg4);
   border-radius: 2px;
   background: var(--bg2);
   color: var(--t1);
-  line-height: 1.48;
-  max-height: 96px;
+  font-size: 11.5px;
+  line-height: 1.56;
+  max-height: 112px;
   overflow: auto;
 }}
 .section-kicker {{
   color: var(--amber);
-  font: 800 9px var(--font-ui);
-  letter-spacing: 1.2px;
-  margin-bottom: 4px;
+  font: 700 9px var(--font-ui);
+  letter-spacing: 1.1px;
+  margin-bottom: 5px;
 }}
 .panels {{
   display: grid;
@@ -707,17 +721,18 @@ body {{
   min-width: 0;
 }}
 .panel-title {{
-  height: 25px;
+  height: 27px;
   display: flex;
   align-items: center;
   padding: 0 8px;
   border-bottom: 1px solid var(--bg4);
   color: var(--t1);
   font-size: 9px;
-  font-weight: 900;
-  letter-spacing: 1.2px;
+  font-weight: 750;
+  letter-spacing: 1px;
   text-transform: uppercase;
   position: relative;
+  background: rgba(255,255,255,.012);
 }}
 .panel-title::before {{
   content: '';
@@ -725,26 +740,28 @@ body {{
   height: 13px;
   margin-right: 7px;
   background: var(--accent);
+  opacity: .9;
 }}
 .metric-table {{ width: 100%; border-collapse: collapse; table-layout: fixed; }}
-.metric-table tr {{ height: 24px; border-bottom: 1px solid var(--bg3); }}
-.metric-table tr:nth-child(even) {{ background: rgba(255,255,255,.015); }}
+.metric-table tr {{ height: 26px; border-bottom: 1px solid var(--bg3); }}
+.metric-table tr:nth-child(even) {{ background: rgba(255,255,255,.012); }}
+.metric-table tr:hover {{ background: rgba(120,207,225,.035); }}
 .metric-table tr:last-child {{ border-bottom: none; }}
 .metric-label {{
   width: 53%;
-  padding: 0 7px;
+  padding: 0 8px;
   color: var(--t2);
-  font-size: 10px;
-  font-weight: 700;
+  font-size: 10.5px;
+  font-weight: 550;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }}
 .metric-value {{
   width: 47%;
-  padding: 0 7px;
+  padding: 0 8px;
   color: var(--t0);
-  font: 800 10.5px var(--font-num);
+  font: 650 11px var(--font-num);
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum' 1;
   text-align: right;
@@ -816,7 +833,7 @@ class StockInfoDialog(QDialog):
         super().__init__(parent, flags)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
         self.setMinimumSize(880, 560)
-        self.resize(1060, 660)
+        self.resize(1080, 680)
 
         self._symbol = symbol.strip().upper()
         self._drag_active = False
@@ -831,14 +848,14 @@ class StockInfoDialog(QDialog):
 
     def _build_ui(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(1, 1, 1, 1)
+        root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
         root.addWidget(self._build_title_bar())
 
         self._web = QWebEngineView()
         self._web.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
-        self._web.page().setBackgroundColor(Qt.GlobalColor.black)
+        self._web.page().setBackgroundColor(QColor("#050709"))
         self._apply_webengine_zoom()
         root.addWidget(self._web, 1)
 
@@ -847,27 +864,27 @@ class StockInfoDialog(QDialog):
     def _build_title_bar(self) -> QFrame:
         bar = QFrame()
         bar.setObjectName("siTitleBar")
-        bar.setFixedHeight(30)
+        bar.setFixedHeight(28)
 
         h = QHBoxLayout(bar)
         h.setContentsMargins(10, 0, 6, 0)
         h.setSpacing(6)
 
         # Icon + label
-        self._title_lbl = QLabel(f"STOCK INFO  ·  {self._symbol}")
+        self._title_lbl = QLabel(f"STOCK FUNDAMENTALS  ·  {self._symbol}")
         self._title_lbl.setObjectName("siTitle")
 
         # Refresh button
         self._refresh_btn = QPushButton("↻")
         self._refresh_btn.setObjectName("siBarBtn")
-        self._refresh_btn.setFixedSize(22, 22)
+        self._refresh_btn.setFixedSize(24, 20)
         self._refresh_btn.setToolTip("Refresh data from yfinance")
         self._refresh_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._refresh_btn.clicked.connect(self._start_fetch)
 
         close_btn = QPushButton("✕")
         close_btn.setObjectName("siCloseBtn")
-        close_btn.setFixedSize(22, 22)
+        close_btn.setFixedSize(24, 20)
         close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         close_btn.clicked.connect(self.close)
 
@@ -881,7 +898,7 @@ class StockInfoDialog(QDialog):
     def _build_footer(self) -> QFrame:
         f = QFrame()
         f.setObjectName("siFooter")
-        f.setFixedHeight(28)
+        f.setFixedHeight(24)
 
         h = QHBoxLayout(f)
         h.setContentsMargins(10, 0, 10, 0)
@@ -940,7 +957,7 @@ class StockInfoDialog(QDialog):
         dpr = float(screen.devicePixelRatio() if screen else 1.0)
         logical_dpi = float(screen.logicalDotsPerInch() if screen else 96.0)
         dpi_scale = logical_dpi / 96.0 if logical_dpi > 0 else 1.0
-        self._web.setZoomFactor(max(0.9, min(1.5, round(dpr * dpi_scale, 2))))
+        self._web.setZoomFactor(max(0.95, min(1.35, round(dpr * dpi_scale, 2))))
 
     def changeEvent(self, event):
         super().changeEvent(event)
@@ -983,64 +1000,70 @@ class StockInfoDialog(QDialog):
     def _apply_styles(self):
         self.setStyleSheet("""
             StockInfoDialog {
-                background: #0a0d12;
+                background: #050709;
                 border: 1px solid #1a2030;
                 border-radius: 2px;
+                font-family: 'Inter', 'Aptos', 'Segoe UI Variable', 'Segoe UI', 'Roboto', 'Noto Sans', Arial, sans-serif;
             }
             QFrame#siTitleBar {
-                background: #070a0f;
+                background: #050709;
                 border-bottom: 1px solid #1a2030;
             }
             QLabel#siTitle {
-                color: #f59e0b;
-                font-family: 'Inter', 'Segoe UI Variable', 'Segoe UI', Arial, sans-serif;
+                color: #d7a45d;
+                font-family: 'Inter', 'Aptos', 'Segoe UI Variable', 'Segoe UI', 'Roboto', 'Noto Sans', Arial, sans-serif;
                 font-size: 10px;
-                font-weight: 800;
-                letter-spacing: 1.2px;
+                font-weight: 700;
+                letter-spacing: 1.0px;
                 background: transparent;
             }
             QPushButton#siBarBtn {
                 background: transparent;
-                color: #5a7090;
-                border: none;
-                font-size: 13px;
+                color: #748396;
+                border: 1px solid transparent;
+                font-size: 12px;
                 border-radius: 2px;
-                font-weight: 800;
+                font-weight: 700;
+                padding: 0px;
             }
             QPushButton#siBarBtn:hover {
-                background: rgba(0,212,255,0.10);
-                color: #00d4ff;
+                background: rgba(120,207,225,0.08);
+                color: #a8b4c2;
+                border-color: rgba(120,207,225,0.18);
             }
             QPushButton#siBarBtn:disabled {
-                color: #2a3a50;
+                color: #3b4758;
                 background: transparent;
+                border-color: transparent;
             }
             QPushButton#siCloseBtn {
                 background: transparent;
-                color: #5a7090;
-                border: none;
-                font-size: 12px;
+                color: #748396;
+                border: 1px solid transparent;
+                font-size: 11px;
                 border-radius: 2px;
-                font-weight: 800;
+                font-weight: 700;
+                padding: 0px;
             }
             QPushButton#siCloseBtn:hover {
-                background: rgba(255,77,106,0.15);
+                background: rgba(255,77,106,0.12);
                 color: #ff4d6a;
+                border-color: rgba(255,77,106,0.24);
             }
             QFrame#siFooter {
-                background: #070a0f;
+                background: #050709;
                 border-top: 1px solid #1a2030;
             }
             QLabel#siStatus {
-                color: #5a7090;
-                font-family: 'Inter', 'Segoe UI Variable', 'Segoe UI', sans-serif;
+                color: #748396;
+                font-family: 'Inter', 'Aptos', 'Segoe UI Variable', 'Segoe UI', 'Roboto', 'Noto Sans', Arial, sans-serif;
                 font-size: 9px;
-                font-weight: 700;
-                letter-spacing: 0.4px;
+                font-weight: 600;
+                letter-spacing: 0.35px;
                 background: transparent;
             }
             QWebEngineView {
-                background: #0a0d12;
+                background: #050709;
                 border: none;
             }
         """)

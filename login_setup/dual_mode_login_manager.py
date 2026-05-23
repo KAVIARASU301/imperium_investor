@@ -286,8 +286,8 @@ class DualModeLoginManager(QDialog):
         title = QLabel("QULLAMAGGIE")
         title.setObjectName("dialogTitle")
 
-        title_badge = QLabel("LOGIN")
-        title_badge.setObjectName("titleBadge")
+        left_spacer = QWidget()
+        left_spacer.setFixedSize(24, 24)
 
         close_btn = QPushButton("✕")
         close_btn.setObjectName("closeButton")
@@ -295,8 +295,9 @@ class DualModeLoginManager(QDialog):
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         close_btn.clicked.connect(self._on_close)
 
-        layout.addWidget(title)
-        layout.addWidget(title_badge)
+        layout.addWidget(left_spacer)
+        layout.addStretch()
+        layout.addWidget(title, 0, Qt.AlignmentFlag.AlignCenter)
         layout.addStretch()
         layout.addWidget(close_btn)
         return header
