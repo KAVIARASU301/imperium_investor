@@ -151,22 +151,18 @@ class TickerPill(QFrame):
     """
     Compact, fixed-width ticker card for a single symbol.
 
-    Layout (28 px tall, fixed width):
-    ┌──────────────────────────────┐
-    │ ▌ NIFTY   24,850.20  +0.42% │
-    └──────────────────────────────┘
-      ^color bar  ^name  ^price  ^chg
-
-    The widget width is computed ONCE on construction and never changes again,
-    eliminating all horizontal jitter from the toolbar layout.
+    % change is intentionally the dominant element because the ticker board is
+    used for fast market-breadth reading. Price and symbol stay secondary.
+    Width remains fixed after construction, so live ticks do not create jitter.
     """
 
     # Fixed per-pill dimensions
-    _PILL_H = 22          # height matches _CONTROL_H
-    _BAR_W = 2            # colored left accent bar width
-    _PAD_L = 6            # padding after bar
-    _PAD_R = 8            # right padding
-    _GAP = 4              # gap between sub-labels
+    _PILL_H = 22
+    _BAR_W = 2
+    _PAD_L = 6
+    _PAD_R = 6
+    _GAP = 5
+    _CHG_W = 64
 
     def __init__(self, symbol: str, parent=None):
         super().__init__(parent)
@@ -186,19 +182,22 @@ class TickerPill(QFrame):
 
         self._sym_label = QLabel(self._symbol)
         self._sym_label.setObjectName("tickerPillSymbol")
-        self._sym_label.setFont(_modern_font(7, QFont.Weight.DemiBold))
+        self._sym_label.setFont(_modern_font(7, QFont.Weight.Medium))
+        self._sym_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self._sym_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 
         self._price_label = QLabel("--")
         self._price_label.setObjectName("tickerPillPrice")
-        self._price_label.setFont(_modern_font(8, QFont.Weight.DemiBold))
+        self._price_label.setFont(_modern_font(8, QFont.Weight.Normal))
         self._price_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self._price_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 
         self._chg_label = QLabel("--%")
         self._chg_label.setObjectName("tickerPillChange")
-        self._chg_label.setFont(_modern_font(8, QFont.Weight.Bold))
-        self._chg_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self._chg_label.setFixedWidth(self._CHG_W)
+        self._chg_label.setFixedHeight(18)
+        self._chg_label.setFont(_modern_font(9, QFont.Weight.DemiBold))
+        self._chg_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._chg_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 
         inner.addWidget(self._sym_label)
@@ -224,9 +223,15 @@ class TickerPill(QFrame):
 
         if isinstance(change_pct, (int, float)):
             chg = float(change_pct)
-            sign = "+" if chg > 0 else ""
-            self._chg_label.setText(f"{sign}{chg:.2f}%")
-            new_state = "bull" if chg > 0 else ("bear" if chg < 0 else "flat")
+            if chg > 0:
+                self._chg_label.setText(f"▲ +{chg:.2f}%")
+                new_state = "bull"
+            elif chg < 0:
+                self._chg_label.setText(f"▼ {chg:.2f}%")
+                new_state = "bear"
+            else:
+                self._chg_label.setText("0.00%")
+                new_state = "flat"
         else:
             self._chg_label.setText("--%")
             new_state = None
@@ -240,55 +245,61 @@ class TickerPill(QFrame):
 
     def _compute_fixed_width(self) -> None:
         """
-        Calculate the pill width that will comfortably hold the widest
-        realistic values for this symbol, then fix it permanently.
-
-        Uses the actual rendered font metrics so the calculation matches
-        what Qt will paint, regardless of DPI or font substitution.
+        Calculate the pill width that comfortably holds the widest realistic
+        values, then fix it permanently. This keeps the header stable while
+        live prices and % change update.
         """
         sym_fm = QFontMetrics(self._sym_label.font())
         price_fm = QFontMetrics(self._price_label.font())
-        chg_fm = QFontMetrics(self._chg_label.font())
 
-        # Reserve for the widest realistic symbol display text
+        # Reserve for the actual symbol, the widest normal index price, and the
+        # fixed % change badge.  The % badge width is fixed because it is the
+        # most important visual field and must not compress.
         sym_w = sym_fm.horizontalAdvance(self._symbol)
-
-        # Reserve for price: 6 digits before decimal + 2 after + comma separators
-        # e.g. "99,999.99" — plenty for NSE indices up to 6 figures
         price_w = price_fm.horizontalAdvance("88,888.88")
-
-        # Reserve for change: sign + 3 digits + dot + 2 decimals + %
-        # e.g. "+12.88%"
-        chg_w = chg_fm.horizontalAdvance("+12.88%")
+        chg_w = self._CHG_W
 
         total = (
             self._PAD_L
             + sym_w
-            + self._GAP * 2
+            + self._GAP
             + price_w
             + self._GAP
             + chg_w
             + self._PAD_R
-            + self._BAR_W   # color bar on left (painted in stylesheet via border-left)
-            + 6             # headroom for anti-aliasing / subpixel rounding
+            + self._BAR_W
+            + 6
         )
-        self.setFixedWidth(max(total, 96))
+        self.setFixedWidth(max(total, 126))
 
     def _apply_style(self, state: Optional[str]) -> None:
-        """Paint the pill background, border, and label colors for bull/bear/flat."""
+        """Paint the pill background, border, and labels for bull/bear/flat."""
         if state == "bull":
             bar_color = self._bull_color
             chg_color = self._bull_color
-            bg = "rgba(0,212,168,0.045)"
-            border = "rgba(0,212,168,0.18)"
+            chg_bg = "rgba(0,212,168,0.105)"
+            chg_border = "rgba(0,212,168,0.34)"
+            bg = "rgba(0,212,168,0.035)"
+            border = "rgba(0,212,168,0.16)"
         elif state == "bear":
             bar_color = self._bear_color
             chg_color = self._bear_color
-            bg = "rgba(255,77,106,0.045)"
-            border = "rgba(255,77,106,0.18)"
+            chg_bg = "rgba(255,77,106,0.105)"
+            chg_border = "rgba(255,77,106,0.34)"
+            bg = "rgba(255,77,106,0.035)"
+            border = "rgba(255,77,106,0.16)"
+        elif state == "flat":
+            bar_color = _TEXT_FAINT
+            chg_color = _TEXT_SOFT
+            chg_bg = "rgba(143,156,175,0.055)"
+            chg_border = "rgba(143,156,175,0.16)"
+            bg = _BG_WINDOW
+            border = _BG_BORDER
         else:
             bar_color = _TEXT_FAINT
             chg_color = _TEXT_MUTED
+            chg_bg = "rgba(143,156,175,0.035)"
+            chg_border = "rgba(143,156,175,0.10)"
             bg = _BG_WINDOW
             border = _BG_BORDER
 
@@ -308,19 +319,23 @@ class TickerPill(QFrame):
                 border: none;
             }}
             QLabel#tickerPillPrice {{
-                color: {_TEXT};
+                color: {_TEXT_SOFT};
                 background: transparent;
-                font-size: 9px;
-                font-weight: 500;
+                font-size: 8px;
+                font-weight: 450;
                 border: none;
             }}
             QLabel#tickerPillChange {{
                 color: {chg_color};
-                background: transparent;
-                font-size: 9px;
-                font-weight: 650;
-                border: none;
-                min-width: 48px;
+                background: {chg_bg};
+                border: 1px solid {chg_border};
+                border-radius: 2px;
+                font-size: 10px;
+                font-weight: 750;
+                letter-spacing: 0.15px;
+                padding: 0px 4px;
+                min-width: {self._CHG_W}px;
+                max-width: {self._CHG_W}px;
             }}
         """)
 

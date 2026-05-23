@@ -113,6 +113,8 @@ class P:
     BG_PANEL  = "#0f1318"   # grouped trays / menus
     BG_HOVER  = "#141920"   # hover state
     BG_ACTIVE = "#1a2840"   # selected / checked
+    BG_SELECTED = "#111a27" # calm selected fill for toolbar/menu controls
+    BG_SELECTED_2 = "#162236" # checked/active fill, no bright side stripe
 
     BORDER      = "#1a2030"
     BORDER_MID  = "#263247"
@@ -223,29 +225,27 @@ class ToolMenuItemWidget(QWidget):
                  is_fav: bool, icon_key: Optional[str] = None, parent=None):
         super().__init__(parent)
         self.tool_id = tool_id
+        self._selected = False
         self.setObjectName("menuItem")
         self.setFixedHeight(_MENU_ROW_H)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(9, 0, 8, 0)
-        lay.setSpacing(7)
+        lay.setContentsMargins(7, 0, 8, 0)
+        lay.setSpacing(6)
 
-        icon = QLabel(glyph)
-        icon.setFixedSize(16, 16)
-        icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        icon.setStyleSheet(
-            "font-size:12px; color:#667386; background:transparent;"
-            "font-family:'Segoe UI Symbol','Noto Sans Symbols',sans-serif;"
-        )
+        self.selected_mark = QLabel("✓")
+        self.selected_mark.setFixedSize(12, 16)
+        self.selected_mark.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.icon_label = QLabel(glyph)
+        self.icon_label.setFixedSize(16, 16)
+        self.icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         if icon_key:
-            icon.setText("")
-            icon.setPixmap(_icon_pixmap(icon_key, _ICON_SIZE))
+            self.icon_label.setText("")
+            self.icon_label.setPixmap(_icon_pixmap(icon_key, _ICON_SIZE))
 
-        text = QLabel(label)
-        text.setStyleSheet(
-            "font-size:10px; color:#a8bcd4; font-weight:500; background:transparent;"
-        )
+        self.text_label = QLabel(label)
 
         self.star = QPushButton("★" if is_fav else "☆")
         self.star.setCheckable(True)
@@ -263,10 +263,34 @@ class ToolMenuItemWidget(QWidget):
                        self.favorite_toggled.emit(self.tool_id, c))
         )
 
-        lay.addWidget(icon)
-        lay.addWidget(text)
+        lay.addWidget(self.selected_mark)
+        lay.addWidget(self.icon_label)
+        lay.addWidget(self.text_label)
         lay.addStretch()
         lay.addWidget(self.star)
+        self._refresh_selected_style()
+
+    def set_selected(self, selected: bool) -> None:
+        self._selected = bool(selected)
+        self._refresh_selected_style()
+
+    def _refresh_selected_style(self) -> None:
+        if self._selected:
+            self.setStyleSheet(f"QWidget#menuItem{{background:{P.BG_SELECTED_2}; border:1px solid rgba(154,167,184,0.22); border-radius:2px;}} QWidget#menuItem:hover{{background:{P.BG_SELECTED_2}; border-color:rgba(154,167,184,0.34);}}")
+            self.selected_mark.setStyleSheet(f"color:{P.ICON_ON}; background:transparent; font-size:10px; font-weight:700;")
+            self.icon_label.setStyleSheet(
+                f"font-size:12px; color:{P.ICON_ON}; background:transparent;"
+                "font-family:'Segoe UI Symbol','Noto Sans Symbols',sans-serif;"
+            )
+            self.text_label.setStyleSheet(f"font-size:10px; color:{P.T_BRIGHT}; font-weight:650; background:transparent;")
+        else:
+            self.setStyleSheet(f"QWidget#menuItem{{background:transparent; border:1px solid transparent; border-radius:2px;}} QWidget#menuItem:hover{{background:{P.BG_SELECTED}; border-color:rgba(90,112,144,0.16);}}")
+            self.selected_mark.setStyleSheet("color:transparent; background:transparent; font-size:10px; font-weight:700;")
+            self.icon_label.setStyleSheet(
+                "font-size:12px; color:#667386; background:transparent;"
+                "font-family:'Segoe UI Symbol','Noto Sans Symbols',sans-serif;"
+            )
+            self.text_label.setStyleSheet("font-size:10px; color:#a8bcd4; font-weight:500; background:transparent;")
 
     def mousePressEvent(self, ev):
         if ev.button() == Qt.MouseButton.LeftButton:
@@ -289,10 +313,14 @@ class TimeframeMenuItemWidget(QWidget):
         self._selected = False
 
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(9, 0, 8, 0)
-        lay.setSpacing(7)
+        lay.setContentsMargins(7, 0, 8, 0)
+        lay.setSpacing(6)
 
+        self.selected_mark = QLabel("✓")
+        self.selected_mark.setFixedSize(12, 16)
+        self.selected_mark.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.tf_label = QLabel(label)
+        self.tf_label.setFixedWidth(28)
         self.full_label = QLabel(tooltip.split("  [")[0])
         self._refresh_selected_style()
 
@@ -312,6 +340,7 @@ class TimeframeMenuItemWidget(QWidget):
                        self.favorite_toggled.emit(self.kite_interval, c))
         )
 
+        lay.addWidget(self.selected_mark)
         lay.addWidget(self.tf_label)
         lay.addWidget(self.full_label)
         lay.addStretch()
@@ -323,11 +352,15 @@ class TimeframeMenuItemWidget(QWidget):
 
     def _refresh_selected_style(self) -> None:
         if self._selected:
+            self.setStyleSheet(f"QWidget#menuItem{{background:{P.BG_SELECTED_2}; border:1px solid rgba(154,167,184,0.22); border-radius:2px;}} QWidget#menuItem:hover{{background:{P.BG_SELECTED_2}; border-color:rgba(154,167,184,0.34);}}")
+            self.selected_mark.setStyleSheet(f"color:{P.ICON_ON}; background:transparent; font-size:10px; font-weight:700;")
             self.tf_label.setStyleSheet("font-size:11px; color:#e8f0ff; font-weight:700; background:transparent;")
-            self.full_label.setStyleSheet("font-size:10px; color:#8fa3ba; background:transparent;")
+            self.full_label.setStyleSheet("font-size:10px; color:#9aa7b8; background:transparent; font-weight:500;")
         else:
-            self.tf_label.setStyleSheet("font-size:11px; color:#a8bcd4; font-weight:650; background:transparent;")
-            self.full_label.setStyleSheet("font-size:10px; color:#5a7090; background:transparent;")
+            self.setStyleSheet(f"QWidget#menuItem{{background:transparent; border:1px solid transparent; border-radius:2px;}} QWidget#menuItem:hover{{background:{P.BG_SELECTED}; border-color:rgba(90,112,144,0.16);}}")
+            self.selected_mark.setStyleSheet("color:transparent; background:transparent; font-size:10px; font-weight:700;")
+            self.tf_label.setStyleSheet("font-size:11px; color:#a8bcd4; font-weight:600; background:transparent;")
+            self.full_label.setStyleSheet("font-size:10px; color:#5a7090; background:transparent; font-weight:500;")
 
     def mousePressEvent(self, ev):
         if ev.button() == Qt.MouseButton.LeftButton:
@@ -460,6 +493,7 @@ class ChartToolbar(QFrame):
         self._tf_menu_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self._tf_menu_btn.setFixedSize(30, _CONTROL_H)
         self._tf_menu_btn.setMenu(self._tf_menu)
+        self._tf_menu_btn.setProperty("selectionRole", "primary")
         lay.addWidget(self._tf_menu_btn)
         lay.addWidget(_gap(4))
         self.timeframe_favorites_layout = QHBoxLayout()
@@ -504,6 +538,7 @@ class ChartToolbar(QFrame):
         self._ct_menu_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self._ct_menu_btn.setFixedSize(30, _CONTROL_H)
         self._ct_menu_btn.setMenu(self._ct_menu)
+        self._ct_menu_btn.setProperty("selectionRole", "primary")
         lay.addWidget(self._ct_menu_btn)
         lay.addWidget(_gap(4))
         lay.addWidget(_vsep())
@@ -725,11 +760,37 @@ class ChartToolbar(QFrame):
                 self._tool_btn_group.addButton(btn)
             self.favorites_layout.addWidget(btn)
 
+    def _sync_timeframe_menu_button_text(self) -> None:
+        """Keep the timeframe menu from duplicating favorite interval buttons."""
+        if not getattr(self, "_tf_menu_btn", None):
+            return
+
+        action = self._tf_actions.get(self._active_tf)
+        active_label = action.text() if action else str(self._active_tf or "D")
+        has_favorites = bool(self._favorite_timeframes)
+
+        if has_favorites:
+            # Favorite timeframe buttons already show the selected interval.
+            # Keep the menu as a compact dropdown-only control to avoid duplication.
+            self._tf_menu_btn.setText("▾")
+            self._tf_menu_btn.setFixedSize(22, _CONTROL_H)
+            self._tf_menu_btn.setToolTip(f"Select timeframe · current {active_label}")
+            self._tf_menu_btn.setProperty("favoritesActive", True)
+        else:
+            # No favorites: the menu button itself must show the selected interval.
+            self._tf_menu_btn.setText(active_label)
+            self._tf_menu_btn.setFixedSize(30, _CONTROL_H)
+            self._tf_menu_btn.setToolTip("Select timeframe")
+            self._tf_menu_btn.setProperty("favoritesActive", False)
+
+        self._tf_menu_btn.style().unpolish(self._tf_menu_btn)
+        self._tf_menu_btn.style().polish(self._tf_menu_btn)
+        self._tf_menu_btn.update()
+
     def _on_tf_clicked(self, kite_iv: str) -> None:
         self._active_tf = kite_iv
         action = self._tf_actions.get(kite_iv)
-        if action and self._tf_menu_btn:
-            self._tf_menu_btn.setText(action.text())
+        self._sync_timeframe_menu_button_text()
         # Sync hidden shim combo
         for i in range(self.timeframe_dropdown.count()):
             if self.timeframe_dropdown.itemData(i) == kite_iv:
@@ -750,6 +811,7 @@ class ChartToolbar(QFrame):
             self._favorite_timeframes.remove(kite_iv)
         self._rebuild_timeframe_favorites_tray()
         self._sync_timeframe_menu_favorites_state()
+        self._sync_timeframe_menu_button_text()
         if not self._suppress_pref_events:
             self.toolbar_preferences_changed.emit(self.get_toolbar_preferences())
 
@@ -784,6 +846,8 @@ class ChartToolbar(QFrame):
             btn.clicked.connect(lambda checked, iv=kite_iv: checked and self._on_tf_clicked(iv))
             self._tf_fav_buttons[kite_iv] = btn
             self.timeframe_favorites_layout.addWidget(btn)
+
+        self._sync_timeframe_menu_button_text()
 
     def _on_chart_type(self, data: str) -> None:
         self._active_chart_type = data
@@ -831,11 +895,17 @@ class ChartToolbar(QFrame):
             item.star.setText("★" if should_be_checked else "☆")
             item.star.blockSignals(False)
 
+    def _sync_drawing_menu_selected_state(self) -> None:
+        for tool_id, item in self._drawing_menu_items.items():
+            action = self._drawing_actions.get(tool_id)
+            item.set_selected(bool(action and action.isChecked()))
+
     def _on_tray_btn_clicked(self, tool_id: str, checked: bool) -> None:
         if checked:
             action = self._drawing_actions.get(tool_id)
             if action:
                 action.trigger()
+            self._sync_drawing_menu_selected_state()
         else:
             self.reset_draw_btn()
 
@@ -900,8 +970,7 @@ class ChartToolbar(QFrame):
         if action:
             action.setChecked(True)
             self._active_tf = kite_interval
-            if self._tf_menu_btn:
-                self._tf_menu_btn.setText(action.text())
+            self._sync_timeframe_menu_button_text()
         for i in range(self.timeframe_dropdown.count()):
             if self.timeframe_dropdown.itemData(i) == kite_interval:
                 self.timeframe_dropdown.blockSignals(True)
@@ -952,6 +1021,7 @@ class ChartToolbar(QFrame):
         action = self._drawing_actions.get(tool_id)
         if action:
             action.setChecked(True)
+        self._sync_drawing_menu_selected_state()
 
     def reset_draw_btn(self, clear_measure: bool = True) -> None:
         for btn in self._tool_buttons.values():
@@ -964,6 +1034,7 @@ class ChartToolbar(QFrame):
             for a in grp.actions():
                 a.setChecked(False)
             grp.setExclusive(True)
+        self._sync_drawing_menu_selected_state()
 
     def set_drawing_color(self, color: str) -> None:
         self._drawing_color = color
@@ -1007,6 +1078,7 @@ class ChartToolbar(QFrame):
                 self._favorite_timeframes = filtered_tfs
                 self._rebuild_timeframe_favorites_tray()
                 self._sync_timeframe_menu_favorites_state()
+                self._sync_timeframe_menu_button_text()
 
             chart_type = prefs.get("chart_type")
             if isinstance(chart_type, str) and chart_type in self._ct_actions:
@@ -1086,10 +1158,26 @@ class ChartToolbar(QFrame):
                 color: {P.T_MAIN};
                 border-color: {P.BORDER_MID};
             }}
+            QToolButton#pillMenuBtn[selectionRole="primary"] {{
+                background: {P.BG_SELECTED};
+                color: {P.T_MAIN};
+                border-color: rgba(90,112,144,0.30);
+            }}
+            QToolButton#pillMenuBtn[favoritesActive="true"] {{
+                min-width: 22px;
+                max-width: 22px;
+                color: {P.T_MUTED};
+                font-size: 11px;
+                font-weight: 650;
+                padding: 0px;
+            }}
+            QToolButton#pillMenuBtn[favoritesActive="true"]:hover {{
+                color: {P.T_MAIN};
+            }}
             QToolButton#pillMenuBtn:pressed, QToolButton#pillMenuBtn:open {{
-                background: {P.BG_ACTIVE};
+                background: {P.BG_SELECTED_2};
                 color: {P.T_BRIGHT};
-                border-color: rgba(90,112,144,0.55);
+                border-color: rgba(154,167,184,0.42);
             }}
             QToolButton#pillMenuBtn::menu-indicator {{
                 image: none;
@@ -1141,15 +1229,14 @@ class ChartToolbar(QFrame):
             }}
             QPushButton#toolBtn:checked {{
                 color: {P.ICON_ON};
-                background: rgba(90,112,144,0.15);
-                border: 1px solid rgba(90,112,144,0.32);
-                border-left: 2px solid rgba(154,167,184,0.52);
+                background: {P.BG_SELECTED_2};
+                border: 1px solid rgba(154,167,184,0.34);
             }}
 
             QPushButton#toolBtn[toolRole="measure"]:checked {{
-                color: #a99b7a;
-                background: rgba(154,130,78,0.12);
-                border-left: 2px solid rgba(154,130,78,0.48);
+                color: #b7aa87;
+                background: rgba(154,130,78,0.14);
+                border: 1px solid rgba(154,130,78,0.36);
             }}
 
             QPushButton#clearBtn {{
@@ -1187,8 +1274,8 @@ class ChartToolbar(QFrame):
             }}
             QPushButton#iconBtn:checked {{
                 color: {P.ICON_ON};
-                background: rgba(90,112,144,0.16);
-                border: 1px solid rgba(90,112,144,0.30);
+                background: {P.BG_SELECTED_2};
+                border: 1px solid rgba(154,167,184,0.34);
             }}
 
             QPushButton#orderBtn {{
@@ -1223,13 +1310,13 @@ class ChartToolbar(QFrame):
                 font-weight: 500;
             }}
             QMenu#dropdownMenu::item:selected {{
-                background: {P.BG_ACTIVE};
+                background: {P.BG_SELECTED};
                 color: {P.T_MAIN};
-                border-left: 2px solid rgba(154,167,184,0.38);
             }}
             QMenu#dropdownMenu::item:checked {{
+                background: {P.BG_SELECTED_2};
                 color: {P.T_BRIGHT};
-                font-weight: 700;
+                font-weight: 650;
             }}
             QMenu#dropdownMenu::separator {{
                 height: 1px;
@@ -1245,12 +1332,12 @@ class ChartToolbar(QFrame):
                 background: {P.BG_RAISED};
             }}
             QMenu#dropdownMenu::indicator:checked {{
-                background: rgba(90,112,144,0.34);
-                border-color: rgba(154,167,184,0.52);
+                background: rgba(154,167,184,0.28);
+                border-color: rgba(154,167,184,0.50);
             }}
 
             QWidget#menuItem:hover {{
-                background: rgba(90,112,144,0.09);
+                background: {P.BG_SELECTED};
             }}
 
             QLabel#liveBadge {{
