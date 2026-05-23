@@ -1227,7 +1227,10 @@ class FixedTradingChart {
         ctx.textAlign    = 'left';
         ctx.textBaseline = 'middle';
 
-        const priceChartBottom = this.chartArea.y + this.chartArea.height;
+        const paneBottom = this.chartArea.y + this.chartArea.height;
+        const volumeTop = (this._volumeScale && Number.isFinite(this._volumeScale.top)) ? this._volumeScale.top : null;
+        // Keep price-axis labels above the integrated volume band so the two scales never overlap.
+        const priceChartBottom = (volumeTop !== null) ? Math.max(this.chartArea.y, volumeTop) : paneBottom;
 
         let lastY = -Infinity;
         for (let p = minR; p <= maxR + step * 0.5; p += step) {
