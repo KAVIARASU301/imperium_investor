@@ -462,6 +462,7 @@ class HeaderToolbar(QToolBar):
         self._symbol_index = SymbolIndex()
         self.threadpool = QThreadPool()
         self._enable_account_polling = bool(enable_account_polling)
+        self._last_info_pnl_state: str | None = None
 
         self._init_ui()
         self._apply_styles()
@@ -933,6 +934,13 @@ class HeaderToolbar(QToolBar):
             state = "loss"
         else:
             state = "flat"
+
+        # Avoid forcing full style repolish on every metrics tick.
+        # Repainting only on state transitions prevents right-side toolbar flicker.
+        if state == self._last_info_pnl_state:
+            return
+
+        self._last_info_pnl_state = state
         self.info_button.setProperty("pnlState", state)
         self.info_button.style().unpolish(self.info_button)
         self.info_button.style().polish(self.info_button)
