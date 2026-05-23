@@ -1289,26 +1289,49 @@ class FixedTradingChart {
             return bottom - (ratio * volumeRangePx);
         };
 
-        // Default axis markings are top/middle/bottom, then we replace the closest
-        // value marker with today's volume while positioning it at its true scale level.
-        const ticks = [
-            { v: maxVol, y: volumeToY(maxVol), isToday: false },
-            { v: maxVol * (2 / 3), y: volumeToY(maxVol * (2 / 3)), isToday: false },
-            { v: maxVol * (1 / 3), y: volumeToY(maxVol * (1 / 3)), isToday: false },
-        ];
+        // Keep today's volume label exactly on its true level, then place two
+        // additional labels at equal spacing for a cleaner visual rhythm.
+        const todayY = volumeToY(todayVolume);
+        const stepPx = Math.max(12, volumeRangePx / 3);
+        const clampY = (y) => Math.max(top, Math.min(bottom, y));
+        const yToVolume = (y) => {
+            if (volumeRangePx <= 0) return 0;
+            const ratio = Math.max(0, Math.min(1, (bottom - y) / volumeRangePx));
+            return ratio * maxVol;
+        };
 
-        let closestIdx = 0;
-        let closestDist = Math.abs(ticks[0].v - todayVolume);
-        for (let i = 1; i < ticks.length; i += 1) {
-            const d = Math.abs(ticks[i].v - todayVolume);
-            if (d < closestDist) {
-                closestDist = d;
-                closestIdx = i;
-            }
+        let tickYs = [];
+        const hasAbove = (todayY - stepPx) >= top;
+        const hasBelow = (todayY + stepPx) <= bottom;
+
+        if (hasAbove && hasBelow) {
+            tickYs = [todayY - stepPx, todayY, todayY + stepPx];
+        } else if (hasBelow) {
+            tickYs = [todayY, todayY + stepPx, todayY + (2 * stepPx)];
+        } else if (hasAbove) {
+            tickYs = [todayY - (2 * stepPx), todayY - stepPx, todayY];
+        } else {
+            tickYs = [todayY, todayY, todayY];
         }
-        ticks[closestIdx].v = todayVolume;
-        ticks[closestIdx].y = volumeToY(todayVolume);
-        ticks[closestIdx].isToday = true;
+
+        const ticks = tickYs.map((y, idx) => {
+            const clampedY = clampY(y);
+            return {
+                y: clampedY,
+                v: idx === 1 && hasAbove && hasBelow
+                    ? todayVolume
+                    : (idx === 0 && !hasAbove ? todayVolume : (idx === 2 && !hasBelow ? todayVolume : yToVolume(clampedY))),
+                isToday: false,
+            };
+        });
+
+        // Ensure exactly one marker is today's true volume.
+        let todayIdx = 1;
+        if (!hasAbove && hasBelow) todayIdx = 0;
+        else if (hasAbove && !hasBelow) todayIdx = 2;
+        ticks[todayIdx].y = todayY;
+        ticks[todayIdx].v = todayVolume;
+        ticks[todayIdx].isToday = true;
 
         ctx.font = this._axisFont(9, 600);
         ctx.textAlign = 'left';
