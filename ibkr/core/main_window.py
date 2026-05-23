@@ -39,6 +39,7 @@ from ibkr.widgets.settings_dialog import ColorSettingsDialog
 from ibkr.widgets.stock_info_dialog import show_stock_info
 from ibkr.widgets.stop_loss_dialog import StopLossDialog
 from ibkr.widgets.alert_management_dialog import AlertManagementDialog
+from ibkr.widgets.sectors_industries_dialog import show_sectors_industries_dialog
 try:
     from ibkr.widgets.order_routing_settings import RelaySettingsDialog
 except Exception:
@@ -291,6 +292,12 @@ class IBKRMainWindow(QMainWindow):
         refresh_action = QAction("Refresh All Data", self)
         refresh_action.triggered.connect(self._refresh_all_data)
         tools_menu.addAction(refresh_action)
+
+        # About menu
+        about_menu = menubar.addMenu("About")
+        sectors_action = QAction("Sectors & Industries", self)
+        sectors_action.triggered.connect(lambda: show_sectors_industries_dialog(self))
+        about_menu.addAction(sectors_action)
 
     def _create_trading_tab(self) -> QWidget:
         """Create the main trading tab"""

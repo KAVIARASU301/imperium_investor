@@ -8,11 +8,15 @@ import os
 import sys
 import json
 import re
+import threading
+import time
+import urllib.request
+import ipaddress
 from collections import deque
 from datetime import datetime, timedelta
 from typing import List, Dict, Union, Any, Optional
 
-from PySide6.QtCore import Qt, QByteArray, QTimer, Slot, Signal, QEvent, QProcess
+from PySide6.QtCore import Qt, QByteArray, QTimer, Slot, Signal, QEvent, QProcess, QObject
 from PySide6.QtWidgets import QMainWindow, QSplitter, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, \
     QPushButton, QLabel, QApplication, QMessageBox, QMenuBar, QSizePolicy, QDialog, QLineEdit, QGraphicsDropShadowEffect
 from PySide6.QtGui import QMouseEvent, QKeySequence, QKeyEvent, QAction, QColor
@@ -36,6 +40,7 @@ from kite.widgets.pnl_history_dialog import PnlHistoryDialog
 from kite.widgets.floating_positions_dialog import FloatingPositionsDialog
 from kite.widgets.floating_watchlist_dialog import attach_floating_watchlist
 from kite.widgets.reconnecting_overlay import ReconnectingOverlay
+from kite.widgets.sectors_industries_dialog import show_sectors_industries_dialog
 from kite.core.alert_management_system import AlertSystemManager
 from kite.core.chart_lines_manager import ChartLinesManager
 from kite.core.data_cache import MarketAwareDataCache
@@ -68,6 +73,57 @@ from kite.utils.color_system import get_color_theme_manager
 
 logger = logging.getLogger(__name__)
 
+
+
+
+class _IspIpMonitor(QObject):
+    ip_status_checked = Signal(bool)
+
+    def __init__(self, interval_seconds: int = 180):
+        super().__init__()
+        self._interval_seconds = max(30, int(interval_seconds))
+        self._running = False
+        self._thread = None
+        self._last_ips: set[str] | None = None
+
+    def start(self) -> None:
+        if self._running:
+            return
+        self._running = True
+        self._thread = threading.Thread(target=self._run, name="isp-ip-monitor", daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._running = False
+
+    def _run(self) -> None:
+        while self._running:
+            ips = self._fetch_public_ips()
+            if ips:
+                changed = self._last_ips is not None and ips != self._last_ips
+                self._last_ips = ips
+                self.ip_status_checked.emit(changed)
+            for _ in range(self._interval_seconds):
+                if not self._running:
+                    return
+                time.sleep(1)
+
+    def _fetch_public_ips(self) -> set[str]:
+        urls = (
+            "https://api.ipify.org",
+            "https://ifconfig.me/ip",
+            "https://ipv4.icanhazip.com",
+        )
+        found: set[str] = set()
+        for url in urls:
+            try:
+                with urllib.request.urlopen(url, timeout=5) as r:
+                    text = r.read().decode("utf-8", errors="ignore").strip()
+                ip = str(ipaddress.ip_address(text))
+                found.add(ip)
+            except Exception:
+                continue
+        return found
 
 class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     """
@@ -481,6 +537,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         about_menu = menu_bar.addMenu("About")
         about_menu.addAction("Keyboard Shortcuts", lambda: show_keyboard_shortcuts_dialog(self))
+        about_menu.addAction("Sectors & Industries", lambda: show_sectors_industries_dialog(self))
         about_menu.addSeparator()
         about_menu.addAction("About qullamaggie", lambda: show_about_dialog(self))
 
@@ -492,6 +549,18 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self._market_status_timer.timeout.connect(self._refresh_market_status)
         self._market_status_timer.start(60_000)
         self._refresh_market_status()
+        self._setup_isp_ip_monitor()
+
+
+    def _setup_isp_ip_monitor(self) -> None:
+        self._isp_ip_monitor = _IspIpMonitor(interval_seconds=180)
+        self._isp_ip_monitor.ip_status_checked.connect(self._on_isp_ip_status_checked)
+        self._isp_ip_monitor.start()
+
+    @Slot(bool)
+    def _on_isp_ip_status_checked(self, changed: bool) -> None:
+        if hasattr(self, "app_status_bar"):
+            self.app_status_bar.set_isp_ip_status(changed)
 
     def _refresh_market_status(self) -> None:
         """Update bottom status bar with NSE session status based on IST."""
