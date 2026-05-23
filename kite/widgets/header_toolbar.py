@@ -63,6 +63,7 @@ _TEXT = "#e8f0ff"
 _TEXT_SYMBOL = "#d7e2f2"
 _TEXT_SOFT = "#a8bcd4"
 _TEXT_MUTED = "#5a7090"
+_TEXT_BUTTON = "#8f9caf"
 _TEXT_FAINT = "#2a3a50"
 _SELECTION = "#1a2840"
 
@@ -84,10 +85,11 @@ def _modern_font(point_size: int = 9, weight: QFont.Weight = QFont.Weight.Medium
     return _prefer_text_antialias(font)
 
 
-_TOOLBAR_H = 30
-_CONTROL_H = 22
-_ICON_BTN_W = 24
-_ACTION_BTN_H = 22
+_TOOLBAR_H = 32
+_CONTROL_H = 24
+_ICON_BTN_W = 28
+_ACTION_BTN_H = 24
+_ACTION_ICON = 16
 
 
 # ── Data helpers ─────────────────────────────────────────────────────────────
@@ -440,7 +442,7 @@ class HeaderToolbar(QToolBar):
         super().__init__(parent)
         self.setMovable(False)
         self.setFloatable(False)
-        self.setIconSize(QSize(14, 14))
+        self.setIconSize(QSize(_ACTION_ICON, _ACTION_ICON))
         self.setObjectName("enhancedHeaderToolbar")
 
         self.trader = trader
@@ -489,8 +491,8 @@ class HeaderToolbar(QToolBar):
         search_group = QWidget()
         search_group.setObjectName("symbolSearchGroup")
         search_layout = QHBoxLayout(search_group)
-        search_layout.setContentsMargins(2, 1, 2, 1)
-        search_layout.setSpacing(2)
+        search_layout.setContentsMargins(0, 0, 0, 0)
+        search_layout.setSpacing(0)
 
         self.buy_button = self._make_action_button(
             object_name="buyButton",
@@ -501,6 +503,7 @@ class HeaderToolbar(QToolBar):
         )
         self.buy_button.clicked.connect(self._on_buy_clicked)
         search_layout.addWidget(self.buy_button)
+        search_layout.addWidget(self._create_vertical_divider())
 
         self.sell_button = self._make_action_button(
             object_name="sellButton",
@@ -511,6 +514,7 @@ class HeaderToolbar(QToolBar):
         )
         self.sell_button.clicked.connect(self._on_sell_clicked)
         search_layout.addWidget(self.sell_button)
+        search_layout.addWidget(self._create_vertical_divider())
 
         self.info_button = self._make_action_button(
             object_name="infoActionButton",
@@ -528,8 +532,8 @@ class HeaderToolbar(QToolBar):
         self.search_input.setObjectName("enhancedSymbolSearch")
         self.search_input.setFixedHeight(_CONTROL_H)
         self.search_input.setFont(_modern_font(9, QFont.Weight.DemiBold))
-        self.search_input.setMinimumWidth(120)
-        self.search_input.setMaximumWidth(166)
+        self.search_input.setMinimumWidth(124)
+        self.search_input.setMaximumWidth(174)
         self.search_input.symbol_selected.connect(self._on_symbol_committed)
         search_layout.addWidget(self.search_input)
 
@@ -567,22 +571,13 @@ class HeaderToolbar(QToolBar):
         return
 
     def _create_account_section(self):
-        self._add_section_gap(3)
+        self._add_section_gap(5)
 
         self.account_info_widget = QWidget()
         self.account_info_widget.setObjectName("accountInfoWidget")
         account_layout = QHBoxLayout(self.account_info_widget)
-        account_layout.setContentsMargins(2, 1, 2, 1)
-        account_layout.setSpacing(2)
-
-        self.order_history_button = self._make_action_button(
-            object_name="orderHistoryActionButton",
-            icon_name="order_history.svg",
-            required=True,
-            tooltip="Open order history",
-            label="ORDERS",
-        )
-        self.order_history_button.clicked.connect(self.order_history_requested.emit)
+        account_layout.setContentsMargins(0, 0, 0, 0)
+        account_layout.setSpacing(0)
 
         self.alerts_button = self._make_action_button(
             object_name="alertActionButton",
@@ -593,6 +588,7 @@ class HeaderToolbar(QToolBar):
         )
         self.alerts_button.clicked.connect(self.alert_manager_requested.emit)
         account_layout.addWidget(self.alerts_button)
+
         self.alerts_badge = NotificationBadge()
         account_layout.addWidget(self.alerts_badge)
         account_layout.addWidget(self._create_vertical_divider())
@@ -608,9 +604,22 @@ class HeaderToolbar(QToolBar):
         account_layout.addWidget(self.positions_button)
         account_layout.addWidget(self._create_vertical_divider())
 
+        self.order_history_button = self._make_action_button(
+            object_name="orderHistoryActionButton",
+            icon_name="order_history.svg",
+            required=True,
+            tooltip="Open order history",
+            label="ORDERS",
+        )
+        self.order_history_button.clicked.connect(self.order_history_requested.emit)
         account_layout.addWidget(self.order_history_button)
-        account_layout.addWidget(self._create_vertical_divider())
 
+        self.account_label_divider = self._create_vertical_divider()
+        account_layout.addWidget(self.account_label_divider)
+
+        # Kept as hidden compatibility actions so existing external code can
+        # still reference/connect these buttons, but the visible header remains
+        # focused on only the high-frequency controls.
         self.pending_orders_button = self._make_action_button(
             object_name="pendingOrdersActionButton",
             icon_name="pending.svg",
@@ -619,8 +628,8 @@ class HeaderToolbar(QToolBar):
             label="PENDING",
         )
         self.pending_orders_button.clicked.connect(self.pending_orders_requested.emit)
-        account_layout.addWidget(self.pending_orders_button)
-        account_layout.addWidget(self._create_vertical_divider())
+        self.pending_orders_button.setParent(self)
+        self.pending_orders_button.hide()
 
         self.settings_button = self._make_action_button(
             object_name="settingsActionButton",
@@ -630,7 +639,8 @@ class HeaderToolbar(QToolBar):
             label="SETTINGS",
         )
         self.settings_button.clicked.connect(self.color_settings_requested.emit)
-        account_layout.addWidget(self.settings_button)
+        self.settings_button.setParent(self)
+        self.settings_button.hide()
 
         self.user_id_label = QLabel(self._account_info.get("user_id", "N/A"))
         self.user_id_label.setObjectName("userIdLabel")
@@ -659,7 +669,7 @@ class HeaderToolbar(QToolBar):
         button = QPushButton()
         button.setObjectName(object_name)
         button.setFixedSize(_ICON_BTN_W, _CONTROL_H)
-        button.setIconSize(QSize(13, 13))
+        button.setIconSize(QSize(_ACTION_ICON, _ACTION_ICON))
         button.setToolTip(tooltip)
         button.setCursor(Qt.CursorShape.PointingHandCursor)
         button.setFont(_modern_font(8, QFont.Weight.DemiBold))
@@ -679,13 +689,13 @@ class HeaderToolbar(QToolBar):
         button = self._make_icon_button(object_name, icon_name, required, tooltip)
         button.setText(label)
         button.setFixedHeight(_ACTION_BTN_H)
-        button.setIconSize(QSize(13, 13))
+        button.setIconSize(QSize(_ACTION_ICON, _ACTION_ICON))
         button.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
 
         # Lock compact button widths so the header does not breathe/reflow as
         # fonts are substituted on different systems.
         text_width = QFontMetrics(button.font()).horizontalAdvance(label)
-        button.setFixedWidth(max(44, min(96, text_width + 31)))
+        button.setFixedWidth(max(48, min(104, text_width + 38)))
         return button
 
     @staticmethod
@@ -693,7 +703,7 @@ class HeaderToolbar(QToolBar):
         divider = QFrame()
         divider.setObjectName("toolbarDivider")
         divider.setFrameShape(QFrame.Shape.VLine)
-        divider.setFixedSize(1, 14)
+        divider.setFixedSize(1, 17)
         return divider
 
     @staticmethod
@@ -1034,10 +1044,16 @@ class HeaderToolbar(QToolBar):
     def _update_account_display_visibility(self) -> None:
         show_name = bool(self._show_account_name)
         show_balance = bool(self._show_account_balance)
+        show_account_text = show_name or show_balance
         self.user_id_label.setVisible(show_name)
         self.balance_label.setVisible(show_balance)
         self.account_separator.setVisible(show_name and show_balance)
-        self.account_info_widget.setVisible(show_name or show_balance)
+        if hasattr(self, "account_label_divider"):
+            self.account_label_divider.setVisible(show_account_text)
+        # Keep the action area visible even when account name/balance chips are
+        # disabled by theme settings, because this widget also hosts the core
+        # toolbar actions: alerts, positions, and orders.
+        self.account_info_widget.setVisible(True)
 
     @staticmethod
     def _format_account_balance(amount: float) -> str:
@@ -1096,7 +1112,7 @@ class HeaderToolbar(QToolBar):
             background-color: {_BG_APP};
             border: none;
             border-bottom: 1px solid {_BG_BORDER};
-            padding: 1px 5px;
+            padding: 1px 6px;
             spacing: 0px;
             min-height: {_TOOLBAR_H}px;
             max-height: {_TOOLBAR_H}px;
@@ -1105,29 +1121,19 @@ class HeaderToolbar(QToolBar):
 
         QWidget#centerSpacer,
         QWidget#sectionGap,
-        QWidget#tickerBoardWrapper {{
+        QWidget#tickerBoardWrapper,
+        QWidget#symbolSearchGroup,
+        QWidget#accountInfoWidget {{
             background: transparent;
             border: none;
         }}
 
-        QWidget#symbolSearchGroup,
-        QWidget#accountInfoWidget {{
-            background-color: {_BG_WINDOW};
-            border: 1px solid {_BG_BORDER};
-            border-radius: 2px;
-        }}
-        QWidget#symbolSearchGroup:hover,
-        QWidget#accountInfoWidget:hover {{
-            border-color: {_BG_BORDER_HI};
-            background-color: {_BG_PANEL};
-        }}
-
         #enhancedSymbolSearch {{
-            background-color: {_BG_APP};
+            background-color: {_BG_WINDOW};
             color: {_TEXT_SYMBOL};
             border: 1px solid {_BG_BORDER};
             border-radius: 2px;
-            padding: 1px 7px;
+            padding: 1px 8px;
             selection-background-color: {_SELECTION};
             selection-color: {_TEXT};
             font-family: {_SANS};
@@ -1136,7 +1142,7 @@ class HeaderToolbar(QToolBar):
         }}
         #enhancedSymbolSearch:hover {{
             border-color: {_BG_BORDER_HI};
-            background-color: {_BG_WINDOW};
+            background-color: {_BG_PANEL};
         }}
         #enhancedSymbolSearch:focus {{
             border: 1px solid {_CYAN};
@@ -1146,7 +1152,7 @@ class HeaderToolbar(QToolBar):
 
         QPushButton {{
             outline: none;
-            border-radius: 2px;
+            border-radius: 0px;
             font-family: {_SANS};
             font-size: 9px;
             font-weight: 650;
@@ -1162,48 +1168,22 @@ class HeaderToolbar(QToolBar):
         QPushButton#pendingOrdersActionButton,
         QPushButton#settingsActionButton {{
             background-color: transparent;
-            border: 1px solid transparent;
-            border-radius: 2px;
-            padding: 1px 5px;
+            border: none;
+            border-radius: 0px;
+            padding: 1px 7px;
             text-align: left;
-            color: {_TEXT_SOFT};
+            color: {_TEXT_BUTTON};
         }}
 
-        QPushButton#buyButton {{ color: {_BULL}; }}
-        QPushButton#sellButton {{ color: {_BEAR}; }}
-        QPushButton#infoActionButton {{ color: {_CYAN}; }}
-        QPushButton#alertActionButton {{ color: {_AMBER}; }}
-        QPushButton#positionsActionButton,
-        QPushButton#orderHistoryActionButton,
-        QPushButton#pendingOrdersActionButton,
-        QPushButton#settingsActionButton {{ color: {_TEXT_SOFT}; }}
-
-        QPushButton#buyButton:hover {{
-            background-color: rgba(0, 212, 168, 0.085);
-            border-color: rgba(0, 212, 168, 0.28);
-            color: #8fffe6;
-        }}
-        QPushButton#sellButton:hover {{
-            background-color: rgba(255, 77, 106, 0.085);
-            border-color: rgba(255, 77, 106, 0.28);
-            color: #ffc1cb;
-        }}
+        QPushButton#buyButton:hover,
+        QPushButton#sellButton:hover,
         QPushButton#infoActionButton:hover,
-        QPushButton#settingsActionButton:hover {{
-            background-color: rgba(0, 212, 255, 0.075);
-            border-color: rgba(0, 212, 255, 0.24);
-            color: #b7f4ff;
-        }}
-        QPushButton#alertActionButton:hover {{
-            background-color: rgba(245, 158, 11, 0.085);
-            border-color: rgba(245, 158, 11, 0.26);
-            color: #ffd58a;
-        }}
+        QPushButton#alertActionButton:hover,
         QPushButton#positionsActionButton:hover,
         QPushButton#orderHistoryActionButton:hover,
-        QPushButton#pendingOrdersActionButton:hover {{
-            background-color: rgba(168, 188, 212, 0.07);
-            border-color: rgba(168, 188, 212, 0.18);
+        QPushButton#pendingOrdersActionButton:hover,
+        QPushButton#settingsActionButton:hover {{
+            background-color: rgba(143, 156, 175, 0.075);
             color: {_TEXT};
         }}
 
@@ -1215,13 +1195,12 @@ class HeaderToolbar(QToolBar):
         QPushButton#orderHistoryActionButton:pressed,
         QPushButton#pendingOrdersActionButton:pressed,
         QPushButton#settingsActionButton:pressed {{
-            background-color: {_SELECTION};
-            border-color: {_BG_BORDER_HI};
+            background-color: rgba(26, 40, 64, 0.92);
             color: {_TEXT};
         }}
         QPushButton:disabled {{
             color: {_TEXT_FAINT};
-            border-color: transparent;
+            border: none;
             background-color: transparent;
         }}
 
@@ -1234,10 +1213,11 @@ class HeaderToolbar(QToolBar):
             font-size: 8px;
             font-weight: 800;
             padding: 0px;
+            margin-right: 4px;
         }}
 
         QFrame#toolbarDivider {{
-            background-color: {_BG_BORDER};
+            background-color: {_BG_BORDER_HI};
             border: none;
             margin-top: 4px;
             margin-bottom: 4px;
@@ -1245,55 +1225,46 @@ class HeaderToolbar(QToolBar):
 
         QPushButton#tradingActionButton {{
             background-color: transparent;
-            color: {_TEXT_MUTED};
-            border: 1px solid transparent;
-            border-radius: 2px;
-            padding: 1px 6px;
+            color: {_TEXT_BUTTON};
+            border: none;
+            border-radius: 0px;
+            padding: 1px 7px;
             font-family: {_SANS};
             font-size: 9px;
             font-weight: 650;
             letter-spacing: 0.35px;
         }}
         QPushButton#tradingActionButton:hover {{
-            background-color: rgba(0, 212, 255, 0.075);
-            border-color: rgba(0, 212, 255, 0.24);
-            color: {_TEXT_SOFT};
+            background-color: rgba(143, 156, 175, 0.075);
+            color: {_TEXT};
         }}
         QPushButton#tradingActionButton:pressed {{
             background-color: {_SELECTION};
             color: {_TEXT};
         }}
-        QPushButton#tradingActionButton[pnlState="profit"] {{
-            color: {_BULL};
-            border-left: 2px solid {_BULL};
-            padding-left: 6px;
-        }}
-        QPushButton#tradingActionButton[pnlState="loss"] {{
-            color: {_BEAR};
-            border-left: 2px solid {_BEAR};
-            padding-left: 6px;
-        }}
+        QPushButton#tradingActionButton[pnlState="profit"],
+        QPushButton#tradingActionButton[pnlState="loss"],
         QPushButton#tradingActionButton[pnlState="flat"] {{
-            color: {_TEXT_MUTED};
-            border-left: 2px solid transparent;
-            padding-left: 6px;
+            color: {_TEXT_BUTTON};
+            border: none;
+            padding-left: 7px;
         }}
 
         QLabel#userIdLabel {{
-            background-color: rgba(0, 212, 255, 0.055);
-            color: {_CYAN};
-            border: 1px solid rgba(0, 212, 255, 0.18);
-            border-radius: 2px;
-            padding: 1px 6px;
+            background-color: transparent;
+            color: {_TEXT_SOFT};
+            border: none;
+            border-radius: 0px;
+            padding: 1px 7px;
             font-family: {_SANS};
             font-size: 9px;
             font-weight: 650;
         }}
         QLabel#balanceLabel {{
-            background-color: rgba(0, 212, 168, 0.055);
+            background-color: transparent;
             color: {_BULL};
-            border: 1px solid rgba(0, 212, 168, 0.18);
-            border-radius: 2px;
+            border: none;
+            border-radius: 0px;
             padding: 1px 7px;
             font-family: {_NUM};
             font-size: 10px;
