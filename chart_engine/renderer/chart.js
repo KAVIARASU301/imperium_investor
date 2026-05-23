@@ -33,7 +33,7 @@
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 const CHART_FIB_LEVELS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0];
-const FIB_COLORS = ['#FFD700', '#FF9800', '#4CAF50', '#2196F3', '#9C27B0', '#F44336', '#FFD700'];
+const FIB_COLORS = ['#B88732', '#A8792A', '#00D4A8', '#3B82F6', '#7C6AA8', '#FF4D6A', '#B88732'];
 const FIB_LABELS = ['0%', '23.6%', '38.2%', '50%', '61.8%', '78.6%', '100%'];
 const IST_OFFSET_MS = 330 * 60 * 1000;
 const NSE_OPEN_MINUTES = 9 * 60 + 15;
@@ -74,7 +74,7 @@ class FixedTradingChart {
         this.renderQualityMultiplier = Number.isFinite(cfg.renderQualityMultiplier)
             ? Math.min(Math.max(cfg.renderQualityMultiplier, 1), 2)
             : 1.5;
-        this.fontStack = '"Inter", "Segoe UI", "SF Pro Text", "Helvetica Neue", Arial, sans-serif';
+        this.fontStack = '"Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", "Noto Sans", Arial, sans-serif';
 
         // ── Data ──
         this.data = cfg.candlestickData || [];
@@ -98,22 +98,22 @@ class FixedTradingChart {
 
         // ── Settings ──
         this.colors = {
-            bg:          '#070707',
-            bgGradTop:   '#0a0a0a',
-            bgGradBot:   '#050505',
-            grid:        'rgba(255,255,255,0.06)',
-            gridMinor:   'rgba(255,255,255,0.03)',
-            text:        '#8f8f8f',
-            textBright:  '#d3d3d3',
-            crosshair:   'rgba(190,190,190,0.35)',
-            livePrice:   '#e5e5e5',
-            upCandle:    cfg.upCandleColor   || '#00c896',
-            downCandle:  cfg.downCandleColor || '#e84060',
-            dojiCandle:  '#6a6a6a',
-            upWick:      '#009e78',
-            downWick:    '#b83050',
-            upOhlc:      '#6bc77f',
-            downOhlc:    '#c76b88',
+            bg:          '#050709',
+            bgGradTop:   '#050709',
+            bgGradBot:   '#050709',
+            grid:        'rgba(26,32,48,0.72)',
+            gridMinor:   'rgba(26,32,48,0.42)',
+            text:        '#5A7090',
+            textBright:  '#A8BCD4',
+            crosshair:   'rgba(168,188,212,0.30)',
+            livePrice:   '#E8F0FF',
+            upCandle:    cfg.upCandleColor   || '#00D4A8',
+            downCandle:  cfg.downCandleColor || '#FF4D6A',
+            dojiCandle:  '#5A7090',
+            upWick:      '#00A987',
+            downWick:    '#CC3D56',
+            upOhlc:      '#00D4A8',
+            downOhlc:    '#FF4D6A',
         };
 
         // ── Viewport ──
@@ -164,7 +164,7 @@ class FixedTradingChart {
         // ── Watermark ──
         this.watermark = {
             enabled:  cfg.watermarkEnabled !== false,
-            color:    cfg.watermarkColor    || '#ffffff',
+            color:    cfg.watermarkColor    || '#1A2030',
             opacity:  typeof cfg.watermarkOpacity  === 'number' ? cfg.watermarkOpacity  : 0.06,
             position: cfg.watermarkPosition || 'mid_center',
             fontSize: cfg.watermarkFontSize || 0,
@@ -570,7 +570,7 @@ class FixedTradingChart {
 
             if (this.data.length === 0) {
                 ctx.fillStyle = this.colors.text;
-                ctx.font = '14px "Segoe UI", sans-serif';
+                ctx.font = '14px "Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", sans-serif';
                 ctx.textAlign = 'center';
                 ctx.fillText('No data available', this.width / 2, this.height / 2);
                 return;
@@ -645,7 +645,7 @@ class FixedTradingChart {
         const ctx = this.ctx;
         const MARKET_OPEN_HOUR = 9, MARKET_OPEN_MIN = 15;
 
-        ctx.strokeStyle = 'rgba(80,100,140,0.4)';
+        ctx.strokeStyle = 'rgba(90,112,144,0.34)';
         ctx.lineWidth = 1;
         ctx.setLineDash([3, 5]);
 
@@ -683,8 +683,8 @@ class FixedTradingChart {
             const bottomY = this._priceToY(gapUp  ? cur.open  : prev.low);
 
             ctx.fillStyle = gapUp
-                ? 'rgba(38,166,154,0.09)'
-                : 'rgba(239,83,80,0.09)';
+                ? 'rgba(0,212,168,0.055)'
+                : 'rgba(255,77,106,0.055)';
             ctx.fillRect(x1, topY, x2 - x1, bottomY - topY);
         }
     }
@@ -798,7 +798,7 @@ class FixedTradingChart {
 
             const isDoji = Math.abs(c.close - c.open) < 1e-10;
             const isUp = c.close > c.open;
-            const col = isDoji ? '#a88a57' : (isUp ? this.colors.upOhlc : this.colors.downOhlc);
+            const col = isDoji ? '#7B6A45' : (isUp ? this.colors.upOhlc : this.colors.downOhlc);
 
             ctx.strokeStyle = col;
             ctx.lineWidth = stemW;
@@ -828,7 +828,7 @@ class FixedTradingChart {
         const ctx = this.ctx;
         let first = true;
 
-        ctx.strokeStyle = '#4fc3f7';
+        ctx.strokeStyle = '#00D4FF';
         ctx.lineWidth = this._snapStrokeWidth(Math.max(1.2, Math.min(2.2, this.candleWidth * 0.25)));
         ctx.setLineDash([]);
         ctx.beginPath();
@@ -899,7 +899,7 @@ class FixedTradingChart {
             const dash = style === 'dashed' ? [8, 4] : (style === 'dotted' ? [2, 4] : []);
 
             ctx.save();
-            ctx.strokeStyle = cfg?.color || '#00d4ff';
+            ctx.strokeStyle = cfg?.color || '#00D4FF';
             ctx.lineWidth = thickness;
             ctx.setLineDash(dash);
             ctx.beginPath();
@@ -938,11 +938,11 @@ class FixedTradingChart {
         const area = this.chartArea;
 
         // ── Visual constants (TC2000 style) ───────────────────────────────
-        const YANG_COLOR  = '#00c896';   // Teal — bullish thickness
-        const YIN_COLOR   = '#e84060';   // Crimson — bearish thickness
+        const YANG_COLOR  = '#00D4A8';   // Teal — bullish thickness
+        const YIN_COLOR   = '#FF4D6A';   // Crimson — bearish thickness
         const YANG_WIDTH  = 2.5;
         const YIN_WIDTH   = 0.9;
-        const HORIZ_COLOR = '#8090a8';   // neutral grey for horizontal connectors
+        const HORIZ_COLOR = '#5A7090';   // neutral grey for horizontal connectors
 
         // Map kagi index → canvas X position
         // Kagi segments are spaced evenly regardless of time
@@ -993,7 +993,7 @@ class FixedTradingChart {
             // A small circle at the transition point (where state changed)
             if (i > 0 && this.renkoBricks[i - 1].yang !== seg.yang) {
                 ctx.fillStyle   = color;
-                ctx.strokeStyle = '#0b0f18';
+                ctx.strokeStyle = '#0A0D12';
                 ctx.lineWidth   = 1.2;
                 ctx.beginPath();
                 ctx.arc(x, y1, 3.5, 0, Math.PI * 2);
@@ -1024,8 +1024,8 @@ class FixedTradingChart {
 
     _getIntegratedVolumeColors() {
         return {
-            upColor: this.colors.upCandle || "#00c896",
-            downColor: this.colors.downCandle || "#e84060",
+            upColor: this.colors.upCandle || "#00D4A8",
+            downColor: this.colors.downCandle || "#FF4D6A",
         };
     }
 
@@ -1100,8 +1100,8 @@ class FixedTradingChart {
             let maxAbs = 0;
             for (const p of visible) maxAbs = Math.max(maxAbs, Math.abs(Number(p?.value) || 0));
             if (maxAbs <= 0) continue;
-            const upColor = String(cfg?.ao_green_color || '#009688');
-            const downColor = String(cfg?.ao_red_color || '#F44336');
+            const upColor = String(cfg?.ao_green_color || '#00D4A8');
+            const downColor = String(cfg?.ao_red_color || '#FF4D6A');
             const zeroY = paneTop + paneHeight / 2;
 
             for (const p of visible) {
@@ -1149,24 +1149,24 @@ class FixedTradingChart {
 
     _drawPaneWaiting(area, label, rgb) {
         const ctx = this.ctx;
-        ctx.fillStyle = 'rgba(8,10,20,0.93)';
+        ctx.fillStyle = 'rgba(5,7,9,0.96)';
         ctx.fillRect(area.x, area.y, area.width, area.height);
-        ctx.strokeStyle = 'rgba(38,52,85,0.8)';
+        ctx.strokeStyle = 'rgba(26,32,48,0.85)';
         ctx.lineWidth = 0.8;
         ctx.setLineDash([]);
         ctx.beginPath();
         ctx.moveTo(area.x, area.y - 2);
         ctx.lineTo(area.x + area.width, area.y - 2);
         ctx.stroke();
-        ctx.font = '700 9px "Segoe UI", sans-serif';
+        ctx.font = '700 9px "Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", sans-serif';
         ctx.textAlign = 'left';
         ctx.textBaseline = 'top';
         ctx.fillStyle = `rgba(${rgb},0.45)`;
         ctx.fillText(label, area.x + 4, area.y + 3);
-        ctx.font = '10px "Segoe UI", sans-serif';
+        ctx.font = '10px "Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillStyle = 'rgba(80,100,140,0.45)';
+        ctx.fillStyle = 'rgba(90,112,144,0.45)';
         ctx.fillText('No data', area.x + area.width / 2, area.y + area.height / 2);
     }
 
@@ -1193,11 +1193,11 @@ class FixedTradingChart {
         const axisBot  = this.height;
 
         // ── Axis panel background ──────────────────────────────────────────
-        ctx.fillStyle = '#0f1420';
+        ctx.fillStyle = '#070A0F';
         ctx.fillRect(axisX, axisTop, axisW, axisBot - axisTop);
 
         // ── Border lines of axis panel (left divider + right edge) ───────
-        ctx.strokeStyle = 'rgba(40,60,100,0.7)';
+        ctx.strokeStyle = 'rgba(26,32,48,0.92)';
         ctx.lineWidth   = 1;
         ctx.setLineDash([]);
         ctx.beginPath();
@@ -1236,7 +1236,7 @@ class FixedTradingChart {
 
         if (axisSplitY !== null) {
             // Subtle separator between price and volume regions inside the shared scale gutter.
-            ctx.strokeStyle = 'rgba(88,118,165,0.38)';
+            ctx.strokeStyle = 'rgba(26,32,48,0.68)';
             ctx.lineWidth = 1;
             ctx.beginPath();
             ctx.moveTo(axisX + 1, axisSplitY + 0.5);
@@ -1252,7 +1252,7 @@ class FixedTradingChart {
             if (Math.abs(y - lastY) < minGapPx) continue;
 
             // Grid line echo — a very faint horizontal rule inside the axis panel
-            ctx.strokeStyle = 'rgba(40,60,100,0.25)';
+            ctx.strokeStyle = 'rgba(26,32,48,0.42)';
             ctx.lineWidth   = 0.5;
             ctx.beginPath();
             ctx.moveTo(axisX, y);
@@ -1260,7 +1260,7 @@ class FixedTradingChart {
             ctx.stroke();
 
             // Tick mark — clean 5px inward from axis border
-            ctx.strokeStyle = 'rgba(80,110,160,0.8)';
+            ctx.strokeStyle = 'rgba(90,112,144,0.58)';
             ctx.lineWidth   = 1;
             ctx.beginPath();
             ctx.moveTo(axisX,     y);
@@ -1336,7 +1336,7 @@ class FixedTradingChart {
         ctx.font = this._axisFont(9, 600);
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
-        ctx.strokeStyle = 'rgba(88,118,165,0.45)';
+        ctx.strokeStyle = 'rgba(90,112,144,0.42)';
         ctx.lineWidth = 1;
 
         for (const t of ticks) {
@@ -1346,7 +1346,7 @@ class FixedTradingChart {
             ctx.moveTo(axisX, drawY);
             ctx.lineTo(axisX + 4, drawY);
             ctx.stroke();
-            ctx.fillStyle = t.isToday ? 'rgba(88, 166, 255, 1)' : 'rgba(181, 201, 234, 0.9)';
+            ctx.fillStyle = t.isToday ? '#00D4FF' : 'rgba(168,188,212,0.78)';
             ctx.fillText(this._formatVolumeAxisValue(t.v), tickLabelX, drawY, tickLabelMaxW);
         }
     }
@@ -1374,7 +1374,7 @@ class FixedTradingChart {
         const timeAxisMidY = axisTopY + ((frameBottom - axisTopY) / 2);
 
         // Production-grade frame: unify chart + time axis + right scale into one clean border.
-        ctx.strokeStyle = 'rgba(88, 107, 138, 0.52)';
+        ctx.strokeStyle = 'rgba(26,32,48,0.90)';
         ctx.lineWidth   = 1;
         ctx.beginPath();
         // Outer rectangle (left, right and bottom edges).
@@ -1406,7 +1406,7 @@ class FixedTradingChart {
             ctx.font = this._axisFont(10, 700);
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillStyle = 'rgba(228,237,255,0.58)';
+            ctx.fillStyle = 'rgba(168,188,212,0.58)';
             ctx.fillText(currencyLabel, cornerCenterX, cornerCenterY + 0.5);
         }
 
@@ -1424,7 +1424,7 @@ class FixedTradingChart {
             }
             if (x - w / 2 < lastRight + 6) continue;
 
-            ctx.strokeStyle = 'rgba(40,60,90,0.5)';
+            ctx.strokeStyle = 'rgba(26,32,48,0.48)';
             ctx.lineWidth   = 0.5;
             ctx.beginPath();
             ctx.moveTo(x, this.chartArea.y);
@@ -1437,7 +1437,7 @@ class FixedTradingChart {
 
         if (todayMarker) {
             const x = Math.max(this.chartArea.x + 20, Math.min(todayMarker.x, this.chartArea.x + this.chartArea.width - 20));
-            ctx.fillStyle = 'rgba(255, 224, 138, 0.96)';
+            ctx.fillStyle = '#F59E0B';
             ctx.font = this._axisFont(10, 700);
             ctx.fillText(todayMarker.label, x, timeAxisMidY);
             ctx.fillStyle = this.colors.text;
@@ -1486,10 +1486,10 @@ class FixedTradingChart {
         ctx.fillRect(lx, ly, lw, lh);
 
         // Label text — centered inside label
-        ctx.font         = 'bold 10px "Segoe UI Mono", monospace';
+        ctx.font         = 'bold 10px "Inter", "Aptos", "Segoe UI Variable", "Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", sans-serif';
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillStyle    = '#000000';
+        ctx.fillStyle    = '#050709';
         ctx.fillText(label, lx + lw / 2, y);
     }
 
@@ -1531,26 +1531,26 @@ class FixedTradingChart {
         const ly     = Math.round(y - lh / 2);
 
         // Rectangular crosshair label
-        ctx.fillStyle = '#171717';
+        ctx.fillStyle = '#0A0D12';
         ctx.fillRect(lx, ly, lw, lh);
 
         // Border
-        ctx.strokeStyle = 'rgba(185,185,185,0.55)';
+        ctx.strokeStyle = 'rgba(168,188,212,0.42)';
         ctx.lineWidth   = 0.8;
         ctx.strokeRect(lx + 0.5, ly + 0.5, lw - 1, lh - 1);
 
         // Label text — centered
-        ctx.font         = 'bold 10px "Segoe UI Mono", monospace';
+        ctx.font         = 'bold 10px "Inter", "Aptos", "Segoe UI Variable", "Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", sans-serif';
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillStyle    = '#ededed';
+        ctx.fillStyle    = '#E8F0FF';
         ctx.fillText(plabel, lx + lw / 2, y);
 
         // ── Time label at bottom ────────────────────────────────────────────
         const ci = this._xToCandle(x);
         if (ci >= 0 && ci < this.data.length) {
             const tlabel = this._fmtTimeLabel(this.data[ci].time);
-            ctx.font      = 'bold 10px "Segoe UI", sans-serif';
+            ctx.font      = 'bold 10px "Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", sans-serif';
             ctx.textAlign = 'center';
             const ttw = ctx.measureText(tlabel).width;
             const tlw = ttw + 14, tlh = 15;
@@ -1558,7 +1558,7 @@ class FixedTradingChart {
             const tly = this._paneBottom() + 1;
 
             // Rounded rect for time label
-            ctx.fillStyle = '#171717';
+            ctx.fillStyle = '#0A0D12';
             ctx.beginPath();
             const r = 3;
             ctx.moveTo(tlx + r, tly);
@@ -1573,11 +1573,11 @@ class FixedTradingChart {
             ctx.closePath();
             ctx.fill();
 
-            ctx.strokeStyle = 'rgba(185,185,185,0.4)';
+            ctx.strokeStyle = 'rgba(168,188,212,0.30)';
             ctx.lineWidth   = 0.7;
             ctx.stroke();
 
-            ctx.fillStyle    = '#d6d6d6';
+            ctx.fillStyle    = '#A8BCD4';
             ctx.textBaseline = 'middle';
             ctx.fillText(tlabel, x, tly + tlh / 2);
         }
@@ -1632,7 +1632,7 @@ class FixedTradingChart {
         const symbolYOffset = hasDescription ? 28 : 0;
         ctx.globalAlpha  = this.watermark.opacity;
         ctx.fillStyle    = this.watermark.color;
-        ctx.font         = `700 ${fontSize}px "Segoe UI", sans-serif`;
+        ctx.font         = `700 ${fontSize}px "Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", sans-serif`;
         ctx.fillText(this.currentSymbol, centerX, centerY - symbolYOffset);
 
         if (hasDescription) {
@@ -1640,7 +1640,7 @@ class FixedTradingChart {
                 ? this.watermark.descriptionFontSize
                 : Math.max(14, Math.round(fontSize * 0.32));
             ctx.globalAlpha = Math.max(0.0, Math.min(1.0, this.watermark.descriptionOpacity));
-            ctx.font        = `600 ${descriptionFontSize}px "Segoe UI", sans-serif`;
+            ctx.font        = `600 ${descriptionFontSize}px "Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", sans-serif`;
             ctx.fillText(this.currentSymbolDescription, centerX, centerY + Math.round(fontSize * 0.48));
         }
         ctx.restore();
@@ -1666,7 +1666,7 @@ class FixedTradingChart {
         for (const line of this.drawings.horizontal_lines) {
             const y   = this._priceToY(line.price);
             const sel = line.id === this.selectedDrawingId;
-            ctx.strokeStyle = line.color || '#FFD700';
+            ctx.strokeStyle = line.color || '#B88732';
             ctx.lineWidth   = sel ? (line.lineWidth || 1.5) + 1 : (line.lineWidth || 1.5);
             ctx.setLineDash(line.style === 'dashed' ? [6, 4] : []);
             ctx.beginPath();
@@ -1676,9 +1676,9 @@ class FixedTradingChart {
             ctx.setLineDash([]);
 
             if (line.label) {
-                ctx.font      = '10px "Segoe UI", sans-serif';
+                ctx.font      = '10px "Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", sans-serif';
                 ctx.textAlign = 'right';
-                ctx.fillStyle = line.color || '#FFD700';
+                ctx.fillStyle = line.color || '#B88732';
                 ctx.fillText(line.label, this.chartArea.x + this.chartArea.width - 4, y - 3);
             }
         }
@@ -1690,7 +1690,7 @@ class FixedTradingChart {
             const startX = this._timeToX(ray.startTime);
             const y = this._priceToY(ray.startPrice);
             const sel = ray.id === this.selectedDrawingId;
-            ctx.strokeStyle = ray.color || '#FFD700';
+            ctx.strokeStyle = ray.color || '#B88732';
             ctx.lineWidth   = sel ? 2.5 : 1.5;
             ctx.setLineDash([]);
             ctx.beginPath();
@@ -1708,14 +1708,14 @@ class FixedTradingChart {
             const ex = this._timeToX(line.endTime),   ey = this._priceToY(line.endPrice);
             if (!this._lineVisible(sx, sy, ex, ey)) continue;
             const sel = line.id === this.selectedDrawingId;
-            ctx.strokeStyle = line.color || '#FFD700';
+            ctx.strokeStyle = line.color || '#B88732';
             ctx.lineWidth   = sel ? (line.lineWidth || 1.5) + 1 : (line.lineWidth || 1.5);
             ctx.setLineDash([]);
             ctx.beginPath();
             ctx.moveTo(sx, sy);
             ctx.lineTo(ex, ey);
             ctx.stroke();
-            this._drawHandles(sx, sy, ex, ey, sel, line.color || '#FFD700');
+            this._drawHandles(sx, sy, ex, ey, sel, line.color || '#B88732');
         }
     }
 
@@ -1725,15 +1725,15 @@ class FixedTradingChart {
             const sx = this._timeToX(arrow.startTime), sy = this._priceToY(arrow.startPrice);
             const ex = this._timeToX(arrow.endTime),   ey = this._priceToY(arrow.endPrice);
             if (!this._lineVisible(sx, sy, ex, ey)) continue;
-            ctx.strokeStyle = arrow.color || '#FFD700';
-            ctx.fillStyle   = arrow.color || '#FFD700';
+            ctx.strokeStyle = arrow.color || '#B88732';
+            ctx.fillStyle   = arrow.color || '#B88732';
             ctx.lineWidth   = arrow.lineWidth || 1.5;
             ctx.setLineDash([]);
             ctx.beginPath();
             ctx.moveTo(sx, sy);
             ctx.lineTo(ex, ey);
             ctx.stroke();
-            this._drawArrowhead(sx, sy, ex, ey, arrow.color || '#FFD700');
+            this._drawArrowhead(sx, sy, ex, ey, arrow.color || '#B88732');
         }
     }
 
@@ -1759,9 +1759,9 @@ class FixedTradingChart {
             const w  = Math.abs(ex - sx), h = Math.abs(ey - sy);
             if (!this._rectVisible(x, y, w, h)) continue;
             const sel = rect.id === this.selectedDrawingId;
-            ctx.fillStyle   = this._hexToRgba(rect.color || '#FFD700', 0.08);
+            ctx.fillStyle   = this._hexToRgba(rect.color || '#B88732', 0.08);
             ctx.fillRect(x, y, w, h);
-            ctx.strokeStyle = rect.color || '#FFD700';
+            ctx.strokeStyle = rect.color || '#B88732';
             ctx.lineWidth   = sel ? 2 : 1;
             ctx.setLineDash([]);
             ctx.strokeRect(x, y, w, h);
@@ -1798,7 +1798,7 @@ class FixedTradingChart {
                 }
 
                 // Label
-                ctx.font      = '9px "Segoe UI Mono", monospace';
+                ctx.font      = '9px "Inter", "Aptos", "Segoe UI Variable", "Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", sans-serif';
                 ctx.textAlign = 'right';
                 ctx.fillStyle = col;
                 ctx.fillText(`${FIB_LABELS[idx]}  ₹${price.toFixed(2)}`, Math.max(sx, ex) - 2, y - 2);
@@ -1813,8 +1813,8 @@ class FixedTradingChart {
             const x = this._timeToX(note.time), y = this._priceToY(note.price);
             if (!this._ptVisible(x, y)) continue;
 
-            ctx.font      = `${note.size || 12}px "Segoe UI", sans-serif`;
-            ctx.fillStyle = note.color || '#FFD700';
+            ctx.font      = `${note.size || 12}px "Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", sans-serif`;
+            ctx.fillStyle = note.color || '#B88732';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
 
@@ -1832,7 +1832,7 @@ class FixedTradingChart {
         if (!selected) return;
         const ctx = this.ctx;
         ctx.fillStyle   = color;
-        ctx.strokeStyle = '#fff';
+        ctx.strokeStyle = '#A8BCD4';
         ctx.lineWidth   = 1;
         for (const [hx, hy] of [[sx, sy], [ex, ey]]) {
             ctx.beginPath();
@@ -1911,7 +1911,7 @@ class FixedTradingChart {
         if (boxY + boxH > bottomEdge) boxY = bottomEdge - boxH;
         if (boxY < this.chartArea.y) boxY = this.chartArea.y;
 
-        ctx.fillStyle = 'rgba(233, 241, 252, 0.86)';
+        ctx.fillStyle = 'rgba(232,240,255,0.78)';
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
         ctx.fillText(infoText[0], boxX + rowPaddingX, boxY + (rowHeight / 2) + 0.5);
@@ -1938,17 +1938,17 @@ class FixedTradingChart {
 
         ctx.save();
 
-        ctx.fillStyle = 'rgba(100, 160, 255, 0.07)';
+        ctx.fillStyle = 'rgba(0,212,255,0.055)';
         ctx.fillRect(rectX, rectY, rectW, rectH);
 
-        ctx.strokeStyle = 'rgba(100, 160, 255, 0.45)';
+        ctx.strokeStyle = 'rgba(0,212,255,0.28)';
         ctx.lineWidth   = 1;
         ctx.setLineDash([]);
         ctx.strokeRect(rectX, rectY, rectW, rectH);
         ctx.setLineDash([]);
 
         // ── Diagonal line start → end ────────────────────────────────────
-        ctx.strokeStyle = 'rgba(130, 185, 255, 0.70)';
+        ctx.strokeStyle = 'rgba(0,212,255,0.52)';
         ctx.lineWidth   = 1.2;
         ctx.beginPath();
         ctx.moveTo(sx, sy);
@@ -1957,8 +1957,8 @@ class FixedTradingChart {
 
         // ── Corner anchor dots ───────────────────────────────────────────
         for (const [px, py] of [[sx, sy], [ex, ey]]) {
-            ctx.fillStyle   = '#6ea8fe';
-            ctx.strokeStyle = 'rgba(10, 14, 26, 0.70)';
+            ctx.fillStyle   = '#00D4FF';
+            ctx.strokeStyle = 'rgba(5,7,9,0.86)';
             ctx.lineWidth   = 1;
             ctx.beginPath();
             ctx.arc(px, py, 3.5, 0, Math.PI * 2);
@@ -1981,13 +1981,13 @@ class FixedTradingChart {
         }
 
         const sign   = priceDiff >= 0 ? '+' : '';
-        const valCol = priceDiff >= 0 ? '#4ade80' : '#f87171';
+        const valCol = priceDiff >= 0 ? '#00D4A8' : '#FF4D6A';
 
         const lines = [
             { label: 'Δ Price', value: `${sign}₹${Math.abs(priceDiff).toFixed(2)}`, color: valCol },
             { label: '% Move',  value: `${sign}${pctChange.toFixed(2)}%`,            color: valCol },
-            { label: 'Bars',    value: `${bars}`,                                     color: '#c8d4e8' },
-            { label: 'Days',    value: `${dayCount}`,                                 color: '#c8d4e8' },
+            { label: 'Bars',    value: `${bars}`,                                     color: '#A8BCD4' },
+            { label: 'Days',    value: `${dayCount}`,                                 color: '#A8BCD4' },
         ];
 
         // ── Callout box ──────────────────────────────────────────────────
@@ -2006,18 +2006,18 @@ class FixedTradingChart {
         if (by + boxH > a.y + a.height - 6) by = a.y + a.height - boxH - 6;
 
         // Background
-        ctx.fillStyle = 'rgba(8, 12, 24, 0.90)';
+        ctx.fillStyle = 'rgba(7,10,15,0.94)';
         ctx.beginPath();
         ctx.roundRect(bx, by, boxW, boxH, 5);
         ctx.fill();
 
         // Border
-        ctx.strokeStyle = 'rgba(100, 160, 255, 0.38)';
+        ctx.strokeStyle = 'rgba(26,32,48,0.92)';
         ctx.lineWidth   = 0.8;
         ctx.stroke();
 
         // Top accent line
-        ctx.fillStyle = priceDiff >= 0 ? '#4ade80' : '#f87171';
+        ctx.fillStyle = priceDiff >= 0 ? '#00D4A8' : '#FF4D6A';
         ctx.fillRect(bx + 1, by + 1, boxW - 2, 2);
 
         // Text rows
@@ -2025,14 +2025,14 @@ class FixedTradingChart {
             const rowY = by + padY + i * lineH + lineH / 2;
 
             // Label
-            ctx.font         = '500 10px "Segoe UI", sans-serif';
+            ctx.font         = '500 10px "Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", sans-serif';
             ctx.textAlign    = 'left';
             ctx.textBaseline = 'middle';
-            ctx.fillStyle    = 'rgba(130, 155, 190, 0.70)';
+            ctx.fillStyle    = 'rgba(168,188,212,0.68)';
             ctx.fillText(line.label, bx + padX, rowY);
 
             // Value
-            ctx.font      = '700 11px "Segoe UI Mono", "JetBrains Mono", Consolas, monospace';
+            ctx.font      = '700 11px "Inter", "Aptos", "Segoe UI Variable", "Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", sans-serif';
             ctx.textAlign = 'right';
             ctx.fillStyle = line.color;
             ctx.fillText(line.value, bx + boxW - padX, rowY);
@@ -2046,7 +2046,7 @@ class FixedTradingChart {
             if (py < a.y - 1 || py > a.y + a.height + 1) continue;
 
             // Dashed ray to axis
-            ctx.strokeStyle = 'rgba(100, 160, 255, 0.25)';
+            ctx.strokeStyle = 'rgba(0,212,255,0.18)';
             ctx.lineWidth   = 0.6;
             ctx.setLineDash([2, 3]);
             ctx.beginPath();
@@ -2058,7 +2058,7 @@ class FixedTradingChart {
             // Axis pill
             const lh   = 14;
             const lTop = Math.round(py - lh / 2);
-            ctx.fillStyle = 'rgba(22, 36, 64, 0.92)';
+            ctx.fillStyle = 'rgba(10,13,18,0.96)';
             ctx.beginPath();
             ctx.moveTo(axisX,         py);
             ctx.lineTo(axisX + 4,     lTop);
@@ -2067,12 +2067,12 @@ class FixedTradingChart {
             ctx.lineTo(axisX + 4,     lTop + lh);
             ctx.closePath();
             ctx.fill();
-            ctx.strokeStyle = 'rgba(100, 160, 255, 0.35)';
+            ctx.strokeStyle = 'rgba(0,212,255,0.25)';
             ctx.lineWidth   = 0.7;
             ctx.stroke();
 
-            ctx.fillStyle    = '#a8c8ff';
-            ctx.font         = 'bold 9px "Segoe UI Mono", monospace';
+            ctx.fillStyle    = '#A8BCD4';
+            ctx.font         = 'bold 9px "Inter", "Aptos", "Segoe UI Variable", "Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", sans-serif';
             ctx.textAlign    = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText(price.toFixed(2), axisX + 4 + (axisW - 4) / 2, py);
@@ -2505,30 +2505,30 @@ class FixedTradingChart {
         const menu = document.createElement('div');
         menu.style.cssText = `
             position: fixed; left: ${clientX}px; top: ${clientY}px;
-            background: #101010; border: 1px solid #252525;
-            border-radius: 6px; padding: 6px 0; z-index: 99999;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.6);
-            font-family: "Segoe UI", sans-serif; font-size: 12px;
-            color: #d8d8d8; min-width: 200px; user-select: none;`;
+            background: #0A0D12; border: 1px solid #1A2030;
+            border-radius: 2px; padding: 4px 0; z-index: 99999;
+            box-shadow: none;
+            font-family: "Inter", "Aptos", "Segoe UI", "Roboto", sans-serif; font-size: 11px;
+            color: #A8BCD4; min-width: 190px; user-select: none;`;
 
         items.forEach(item => {
             if (item.divider) {
                 const d = document.createElement('div');
-                d.style.cssText = 'height:1px; background:#252525; margin:4px 0;';
+                d.style.cssText = 'height:1px; background:#1A2030; margin:3px 8px;';
                 menu.appendChild(d); return;
             }
             const mi = document.createElement('div');
             mi.style.cssText = `
                 padding: 7px 16px; cursor: pointer;
-                ${item.highlight ? 'background:rgba(255,255,255,0.08);' : ''}`;
+                ${item.highlight ? 'background:rgba(26,40,64,0.62);' : ''}`;
 
             mi.innerHTML = `
                 <div style="font-weight:${item.highlight ? '600' : '500'};
-                     color:${item.highlight ? '#f2f2f2' : '#d8d8d8'};">${item.text}</div>
-                ${item.sub ? `<div style="font-size:10px;color:#9a9a9a;margin-top:2px;">${item.sub}</div>` : ''}`;
+                     color:${item.highlight ? '#E8F0FF' : '#A8BCD4'};">${item.text}</div>
+                ${item.sub ? `<div style="font-size:10px;color:#5A7090;margin-top:2px;">${item.sub}</div>` : ''}`;
 
-            mi.addEventListener('mouseenter', () => mi.style.background = item.highlight ? 'rgba(255,255,255,0.14)' : '#1a1a1a');
-            mi.addEventListener('mouseleave', () => mi.style.background = item.highlight ? 'rgba(255,255,255,0.08)' : 'transparent');
+            mi.addEventListener('mouseenter', () => mi.style.background = item.highlight ? 'rgba(26,40,64,0.75)' : '#141920');
+            mi.addEventListener('mouseleave', () => mi.style.background = item.highlight ? 'rgba(26,40,64,0.62)' : 'transparent');
             mi.addEventListener('click', e => { e.stopPropagation(); item.action(); this._removeContextMenu(); });
             menu.appendChild(mi);
         });
@@ -2558,7 +2558,7 @@ class FixedTradingChart {
     _addHLine(price) {
         this.drawings.horizontal_lines.push({
             id: Date.now() + Math.random(), type: 'horizontal_line',
-            price, color: '#FFD700', lineWidth: 1.5, style: 'solid',
+            price, color: '#B88732', lineWidth: 1.5, style: 'solid',
             label: `₹${price.toFixed(2)}`
         });
         this.requestDraw(); this._notifyDrawingsChange();
@@ -2993,25 +2993,25 @@ class FixedTradingChart {
         const prevClose = Number(c.prevClose || c.previousClose || c.open || 0);
         const dayChange = c.close - prevClose;
         const dayPct = prevClose !== 0 ? ((dayChange / prevClose) * 100) : 0;
-        const dayColor = dayChange >= 0 ? '#2dd4a7' : '#ff6b7f';
+        const dayColor = dayChange >= 0 ? '#00D4A8' : '#FF4D6A';
         const daySign = dayChange >= 0 ? '+' : '';
         const volume = Number(c?.volume) || 0;
 
-        const sep = '<span style="color:#6f86ab;margin:0 5px;">•</span>';
-        const dot = '<span style="color:#60779d;margin:0 5px;">•</span>';
+        const sep = '<span style="color:#2A3A50;margin:0 5px;">•</span>';
+        const dot = '<span style="color:#2A3A50;margin:0 5px;">•</span>';
         const adrPercent = Number(this.currentADR?.percent ?? 0);
-        const adrPctColor = adrPercent > 4 ? '#22c55e' : (adrPercent >= 2 ? '#e2e8f0' : '#f87171');
+        const adrPctColor = adrPercent > 4 ? '#00D4A8' : (adrPercent >= 2 ? '#E8F0FF' : '#FF4D6A');
         const adrStr = this.currentADR?.value > 0
-            ? `<span style="color:#bfdbfe;">ADR</span><span style="color:#e0ecff;margin-left:2px;">₹${this.currentADR.value.toFixed(2)}</span><span style="color:${adrPctColor};margin-left:3px;font-weight:700;">(${adrPercent.toFixed(2)}%)</span>`
-            : '<span style="color:#8da2c3;">ADR N/A</span>';
+            ? `<span style="color:#A8BCD4;">ADR</span><span style="color:#E8F0FF;margin-left:2px;">₹${this.currentADR.value.toFixed(2)}</span><span style="color:${adrPctColor};margin-left:3px;font-weight:700;">(${adrPercent.toFixed(2)}%)</span>`
+            : '<span style="color:#5A7090;">ADR N/A</span>';
         const perfLabels = ['Monthly','3M','6M','1Y'];
         const perfToggles = ['show_perf_monthly','show_perf_3m','show_perf_6m','show_perf_1y'];
         const perf = perfLabels.map((p, i) => {
             if (!this.infoVisibility?.[perfToggles[i]]) return null;
             const v = this.percentageChanges?.[p];
-            if (v == null) return `<span style="color:#8ea3c3;">${p} N/A</span>`;
-            const valCol = v >= 0 ? '#34d399' : '#fb7185';
-            return `<span style="color:#b2c2dc;">${p}</span><span style="color:${valCol};margin-left:3px;font-weight:600;">${v >= 0 ? '+' : ''}${v.toFixed(2)}%</span>`;
+            if (v == null) return `<span style="color:#5A7090;">${p} N/A</span>`;
+            const valCol = v >= 0 ? '#00D4A8' : '#FF4D6A';
+            return `<span style="color:#A8BCD4;">${p}</span><span style="color:${valCol};margin-left:3px;font-weight:600;">${v >= 0 ? '+' : ''}${v.toFixed(2)}%</span>`;
         }).filter(Boolean).join(dot);
 
         const metricsItems = [];
@@ -3020,13 +3020,13 @@ class FixedTradingChart {
         const metricsRow = metricsItems.join(sep);
 
         const priceItems = [];
-        if (this.infoVisibility?.show_info_date) priceItems.push(`<span style="color:#9fb2d3;">${dateStr}</span>`);
-        if (this.infoVisibility?.show_info_open) priceItems.push(`<span style="color:#b8c7e1;">O</span><span style="color:#e2e8f0;margin-left:3px;">₹${c.open.toFixed(2)}</span>`);
-        if (this.infoVisibility?.show_info_high) priceItems.push(`<span style="color:#b8c7e1;">H</span><span style="color:#e2e8f0;margin-left:3px;">₹${c.high.toFixed(2)}</span>`);
-        if (this.infoVisibility?.show_info_low) priceItems.push(`<span style="color:#b8c7e1;">L</span><span style="color:#e2e8f0;margin-left:3px;">₹${c.low.toFixed(2)}</span>`);
-        if (this.infoVisibility?.show_info_close) priceItems.push(`<span style="color:#b8c7e1;">C</span><span style="color:#e2e8f0;margin-left:3px;">₹${c.close.toFixed(2)}</span>`);
+        if (this.infoVisibility?.show_info_date) priceItems.push(`<span style="color:#5A7090;">${dateStr}</span>`);
+        if (this.infoVisibility?.show_info_open) priceItems.push(`<span style="color:#A8BCD4;">O</span><span style="color:#E8F0FF;margin-left:3px;">₹${c.open.toFixed(2)}</span>`);
+        if (this.infoVisibility?.show_info_high) priceItems.push(`<span style="color:#A8BCD4;">H</span><span style="color:#E8F0FF;margin-left:3px;">₹${c.high.toFixed(2)}</span>`);
+        if (this.infoVisibility?.show_info_low) priceItems.push(`<span style="color:#A8BCD4;">L</span><span style="color:#E8F0FF;margin-left:3px;">₹${c.low.toFixed(2)}</span>`);
+        if (this.infoVisibility?.show_info_close) priceItems.push(`<span style="color:#A8BCD4;">C</span><span style="color:#E8F0FF;margin-left:3px;">₹${c.close.toFixed(2)}</span>`);
         if (this.infoVisibility?.show_info_pct_change) priceItems.push(`<span style="color:${dayColor};font-weight:700;">Chg ${daySign}₹${dayChange.toFixed(2)} (${daySign}${dayPct.toFixed(2)}%)</span>`);
-        if (this.infoVisibility?.show_info_volume) priceItems.push(`<span style="color:#b8c7e1;">Vol</span><span style="color:#dbe6fb;margin-left:3px;">${Math.round(volume).toLocaleString('en-IN')}</span>`);
+        if (this.infoVisibility?.show_info_volume) priceItems.push(`<span style="color:#A8BCD4;">Vol</span><span style="color:#E8F0FF;margin-left:3px;">${Math.round(volume).toLocaleString('en-IN')}</span>`);
         const priceRow = priceItems.join(sep);
 
         el.innerHTML = `<div class="info-row metrics-row">${metricsRow}</div><div class="info-row price-row">${priceRow}</div>`;
