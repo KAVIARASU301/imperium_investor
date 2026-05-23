@@ -70,54 +70,54 @@ logger = logging.getLogger(__name__)
 
 class _C:
     # Matte dark terminal layers
-    BG0    = "#06080c"    # deepest app shell
-    BG1    = "#0a0e13"    # dialog/window body
-    BG2    = "#10151c"    # table alternate rows / panels
-    BG3    = "#151b24"    # hover / inner section
-    BGTB   = "#080b10"    # title bar / footer
+    BG0    = "#050709"    # AMOLED outer shell
+    BG1    = "#0a0d12"    # dialog/window body
+    BG2    = "#0f1318"    # table alternate rows / panels
+    BG3    = "#141920"    # hover / inner section
+    BGTB   = "#070a0f"    # title bar / footer
 
-    BORDER  = "#222b38"
-    BORDER2 = "#2b3645"
+    BORDER  = "#1a2030"
+    BORDER2 = "#2a3a50"
 
     # Market semantics
-    BULL     = "#72cdb6"
+    BULL     = "#00d4a8"
     BULL_DIM = "#3f917f"
-    BULL_BG  = "#102720"
-    BEAR     = "#e07a84"
+    BULL_BG  = "#08211b"
+    BEAR     = "#ff4d6a"
     BEAR_DIM = "#94424b"
-    BEAR_BG  = "#291217"
+    BEAR_BG  = "#250d13"
     FLAT     = "#7f90a3"
 
     # Text hierarchy
-    T0 = "#d8e2ef"
-    T1 = "#9eacbc"
-    T2 = "#748396"
-    T3 = "#475466"
+    T0 = "#e8f0ff"
+    T1 = "#a8bcd4"
+    T2 = "#5a7090"
+    T3 = "#2a3a50"
     TSYM = "#c2ccd9"   # softened symbol text; avoids distracting bright white
 
     # Accents
-    CYAN  = "#78cfe1"
-    AMBER = "#d7a45d"
-    BLUE  = "#7fa6d8"
-    SEL   = "#1f1f1f"
+    CYAN  = "#00d4ff"
+    AMBER = "#f59e0b"
+    BLUE  = "#6f8fc8"
+    SEL   = "#1a2840"
 
     # Flag palette (4-state cycle)
-    FLAG_GREEN = "#72cdb6"
-    FLAG_AMBER = "#d7a45d"
-    FLAG_RED   = "#e07a84"
+    FLAG_GREEN = "#00d4a8"
+    FLAG_AMBER = "#f59e0b"
+    FLAG_RED   = "#ff4d6a"
 
     @staticmethod
     def change_color(pct: float) -> Tuple[str, str]:
         """Return (fg_color, bg_hex_or_empty) for a % change value."""
         if pct >= 3.0:
-            return "#7bd8c3", "#102720"
+            return "#00d4a8", "#08251e"
         if pct >= 1.0:
-            return "#68c9b2", "#0f211c"
+            return "#2ad9b4", "#071c18"
         if pct >= -0.5:
             return "#7f90a3", ""
         if pct >= -1.0:
-            return "#d78b7f", "#211512"
-        return "#e07a84", _C.BEAR_BG
+            return "#f0838f", "#201015"
+        return "#ff4d6a", _C.BEAR_BG
 
 
 _FONT_FAMILIES = ["Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", "Noto Sans"]
@@ -275,6 +275,7 @@ class FloatingWatchlistDialog(QDialog):
         self._nav_idx  = 0
         self._sort_col = _COL_SYMBOL
         self._sort_asc = True
+        self._selected_rows: set[int] = set()
 
         # ── Build ────────────────────────────────────────────────────────────
         self._build_ui()
@@ -309,7 +310,7 @@ class FloatingWatchlistDialog(QDialog):
     def _build_title_bar(self) -> QFrame:
         bar = QFrame()
         bar.setObjectName("floatWlTitleBar")
-        bar.setFixedHeight(28)
+        bar.setFixedHeight(26)
         bar.setCursor(QCursor(Qt.CursorShape.SizeAllCursor))
 
         h = QHBoxLayout(bar)
@@ -336,14 +337,14 @@ class FloatingWatchlistDialog(QDialog):
         min_btn = QToolButton()
         min_btn.setObjectName("floatWlBarBtn")
         min_btn.setText("—")
-        min_btn.setFixedSize(20, 20)
+        min_btn.setFixedSize(20, 18)
         min_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         min_btn.clicked.connect(self.showMinimized)
 
         close_btn = QToolButton()
         close_btn.setObjectName("floatWlCloseBtn")
         close_btn.setText("✕")
-        close_btn.setFixedSize(20, 20)
+        close_btn.setFixedSize(20, 18)
         close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         close_btn.clicked.connect(self.hide)
 
@@ -359,7 +360,7 @@ class FloatingWatchlistDialog(QDialog):
         """Compact bar with watchlist dropdown."""
         bar = QFrame()
         bar.setObjectName("floatWlSelectorBar")
-        bar.setFixedHeight(26)
+        bar.setFixedHeight(24)
 
         h = QHBoxLayout(bar)
         h.setContentsMargins(7, 0, 7, 0)
@@ -372,8 +373,8 @@ class FloatingWatchlistDialog(QDialog):
 
         self._wl_dropdown = QComboBox()
         self._wl_dropdown.setObjectName("floatWlDropdown")
-        self._wl_dropdown.setMinimumHeight(20)
-        self._wl_dropdown.setMaximumHeight(20)
+        self._wl_dropdown.setMinimumHeight(18)
+        self._wl_dropdown.setMaximumHeight(18)
         self._wl_dropdown.currentIndexChanged.connect(self._on_dropdown_change)
         h.addWidget(self._wl_dropdown, 1)
 
@@ -388,25 +389,28 @@ class FloatingWatchlistDialog(QDialog):
         hdr.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
         hdr.setMinimumSectionSize(18)
         hdr.setHighlightSections(False)
-        hdr.setFixedHeight(21)
+        hdr.setFixedHeight(20)
 
         # Flag: fixed narrow
         hdr.setSectionResizeMode(_COL_FLAG,   QHeaderView.ResizeMode.Fixed)
         t.setColumnWidth(_COL_FLAG, 18)
         # Symbol: stretches
         hdr.setSectionResizeMode(_COL_SYMBOL, QHeaderView.ResizeMode.Stretch)
-        # Data: fit content
+        # Data: fixed compact columns, visually aligned with embedded watchlist/positions.
         for col in (_COL_LTP, _COL_VOL, _COL_CHG):
-            hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+            hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.Fixed)
+        t.setColumnWidth(_COL_LTP, 70)
+        t.setColumnWidth(_COL_VOL, 58)
+        t.setColumnWidth(_COL_CHG, 64)
 
         t.verticalHeader().setVisible(False)
         t.verticalHeader().setDefaultSectionSize(21)
-        t.verticalHeader().setMinimumSectionSize(20)
+        t.verticalHeader().setMinimumSectionSize(21)
 
         t.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         t.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         t.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        t.setShowGrid(False)
+        t.setShowGrid(True)
         t.setAlternatingRowColors(True)
         t.setCornerButtonEnabled(False)
         t.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -417,6 +421,7 @@ class FloatingWatchlistDialog(QDialog):
 
         t.cellClicked.connect(self._on_cell_click)
         t.cellDoubleClicked.connect(self._on_cell_double_click)
+        t.itemSelectionChanged.connect(self._on_selection_changed)
         t.customContextMenuRequested.connect(self._show_ctx_menu)
         t.horizontalHeader().sectionClicked.connect(self._on_header_click)
 
@@ -425,7 +430,7 @@ class FloatingWatchlistDialog(QDialog):
     def _build_footer(self) -> QFrame:
         f = QFrame()
         f.setObjectName("floatWlFooter")
-        f.setFixedHeight(24)
+        f.setFixedHeight(23)
 
         h = QHBoxLayout(f)
         h.setContentsMargins(8, 0, 8, 0)
@@ -702,6 +707,24 @@ class FloatingWatchlistDialog(QDialog):
         f.setKerning(True)
         return f
 
+    def _is_row_selected(self, row: int) -> bool:
+        selection_model = self.table.selectionModel() if hasattr(self, "table") else None
+        if not selection_model:
+            return False
+        return any(idx.row() == row for idx in selection_model.selectedRows())
+
+    def _on_selection_changed(self) -> None:
+        current_rows = {idx.row() for idx in self.table.selectionModel().selectedRows()}
+        affected_rows = self._selected_rows | current_rows
+        self._selected_rows = current_rows
+
+        wl_id = self._active_wl_id
+        data = self._watchlist_data.get(wl_id, {}) if wl_id else {}
+        for row in affected_rows:
+            sym = self._sym_at_row(row)
+            if sym:
+                self._write_row(row, sym, data.get(sym, {}))
+
     def _write_row(self, row: int, sym: str, rec: Dict):
         if row >= self.table.rowCount():
             return
@@ -712,12 +735,14 @@ class FloatingWatchlistDialog(QDialog):
 
         fg_chg, bg_chg = _C.change_color(chg_pct)
         row_bg = QColor(_C.BG1 if row % 2 == 0 else _C.BG2)
+        selected = self._is_row_selected(row)
+        cell_bg = QBrush() if selected else QBrush(row_bg)
 
         # Ensure items exist and keep all cells aligned to the compact row base.
         for col in range(_NUM_COLS):
             if not self.table.item(row, col):
                 self.table.setItem(row, col, QTableWidgetItem())
-            self.table.item(row, col).setBackground(QBrush(row_bg))
+            self.table.item(row, col).setBackground(cell_bg)
 
         # ── Flag ──
         self._paint_flag_cell(row, sym)
@@ -737,9 +762,7 @@ class FloatingWatchlistDialog(QDialog):
         if ltp_item:
             ltp_item.setText(f"{ltp:,.2f}" if ltp > 0 else "—")
             ltp_item.setForeground(QColor(fg_chg if abs(chg_pct) > 0.01 else _C.T0))
-            ltp_item.setTextAlignment(
-                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-            )
+            ltp_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             ltp_item.setFont(self._number_font(10, QFont.Weight.Normal))
 
         # ── Volume ──
@@ -747,9 +770,7 @@ class FloatingWatchlistDialog(QDialog):
         if vol_item:
             vol_item.setText(self._fmt_vol(volume))
             vol_item.setForeground(QColor(_C.T2))
-            vol_item.setTextAlignment(
-                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-            )
+            vol_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             vol_item.setToolTip(f"Volume: {volume:,}")
             vol_item.setFont(self._number_font(10, QFont.Weight.Normal))
 
@@ -763,7 +784,9 @@ class FloatingWatchlistDialog(QDialog):
             chg_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             chg_weight = QFont.Weight.DemiBold if abs(chg_pct) >= 1.0 else QFont.Weight.Medium
             chg_item.setFont(self._number_font(10, chg_weight))
-            if bg_chg:
+            if selected:
+                chg_item.setBackground(QBrush())
+            elif bg_chg:
                 chg_item.setBackground(QBrush(QColor(bg_chg)))
             else:
                 chg_item.setBackground(QBrush(row_bg))
@@ -973,11 +996,11 @@ class FloatingWatchlistDialog(QDialog):
                 font-size: 7px;
             }}
             QLabel#floatWlTitle {{
-                color: {_C.T1};
+                color: {_C.AMBER};
                 font-family: {_SANS};
                 font-size: 9px;
                 font-weight: 800;
-                letter-spacing: 2px;
+                letter-spacing: 1.2px;
                 background: transparent;
             }}
             QLabel#floatWlBadge {{
@@ -1039,7 +1062,7 @@ class FloatingWatchlistDialog(QDialog):
                 border-radius: 2px;
                 font-family: {_SANS};
                 font-size: 10px;
-                font-weight: 700;
+                font-weight: 600;
                 padding: 1px 22px 1px 7px;
                 min-height: 18px;
                 max-height: 20px;
@@ -1077,7 +1100,7 @@ class FloatingWatchlistDialog(QDialog):
             QTableWidget#floatWlTable {{
                 background: {_C.BG1};
                 alternate-background-color: {_C.BG2};
-                gridline-color: transparent;
+                gridline-color: rgba(26,32,48,0.65);
                 border: none;
                 outline: none;
                 selection-background-color: {_C.SEL};
@@ -1088,7 +1111,7 @@ class FloatingWatchlistDialog(QDialog):
             }}
             QTableWidget#floatWlTable::item {{
                 padding: 0 5px;
-                border-bottom: 1px solid {_C.BG3};
+                border-bottom: 1px solid rgba(26,32,48,0.55);
                 background: transparent;
                 font-family: {_NUM};
                 font-size: 10px;
@@ -1110,6 +1133,7 @@ class FloatingWatchlistDialog(QDialog):
                 letter-spacing: 0.6px;
                 text-transform: uppercase;
                 border: none;
+                border-right: 1px solid rgba(26,32,48,0.55);
                 border-bottom: 1px solid {_C.BORDER};
                 padding: 0 5px;
             }}
