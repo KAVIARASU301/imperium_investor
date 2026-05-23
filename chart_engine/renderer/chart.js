@@ -369,6 +369,7 @@ class FixedTradingChart {
         const chartH = this.height - pad.top - pad.bottom;
         this.chartArea = { x: pad.left, y: pad.top, width: paneW, height: chartH };
         this.volumeArea = null;
+        this._volumeScale = null;
         this.cvdArea = null;
         this.rsiArea = null;
         this.rightAxisWidth = pad.right;
@@ -1021,37 +1022,14 @@ class FixedTradingChart {
     // VOLUME
     // ═══════════════════════════════════════════════════════════════════════
 
-    _isVolumeIndicatorVisible() {
-        if (!Array.isArray(this.movingAverageConfigs) || this.movingAverageConfigs.length === 0) return false;
-        for (const cfg of this.movingAverageConfigs) {
-            if (!cfg || String(cfg.type || '').toLowerCase() !== 'volume') continue;
-            const key = String(cfg.id || '').trim();
-            if (key && this.indicatorVisibility?.[key] === true) return true;
-        }
-        return false;
-    }
-
-    _getActiveVolumeIndicatorConfig() {
-        if (!Array.isArray(this.movingAverageConfigs) || this.movingAverageConfigs.length === 0) return null;
-        for (const cfg of this.movingAverageConfigs) {
-            if (!cfg || String(cfg.type || "").toLowerCase() !== "volume") continue;
-            const key = String(cfg.id || "").trim();
-            if (key && this.indicatorVisibility?.[key] !== true) continue;
-            return cfg;
-        }
-        return null;
-    }
-
-    _getVolumeOpacity() {
-        const cfg = this._getActiveVolumeIndicatorConfig();
-        if (!cfg) return 0.75;
-        const raw = Number(cfg.volume_opacity);
-        if (Number.isFinite(raw)) return Math.max(0, Math.min(1, raw));
-        return 0.75;
+    _getIntegratedVolumeColors() {
+        return {
+            upColor: this.colors.upCandle || "#00c896",
+            downColor: this.colors.downCandle || "#e84060",
+        };
     }
 
     _drawVolumeBars() {
-        if (!this._isVolumeIndicatorVisible()) return;
         if (!Array.isArray(this.data) || this.data.length === 0) return;
 
         const start = Math.max(0, this.viewPortStart);
@@ -1059,37 +1037,24 @@ class FixedTradingChart {
         if (end < start) return;
 
         let maxVol = 0;
-        const visibleVolumes = [];
         for (let i = start; i <= end; i++) {
             const v = Number(this.data[i]?.volume) || 0;
             if (v > maxVol) maxVol = v;
-            if (v > 0) visibleVolumes.push(v);
         }
         if (maxVol <= 0) return;
-        if (visibleVolumes.length === 0) return;
-
-        // Creative visibility tuning:
-        // 1) Winsorize only very extreme spikes (98th percentile) so regular
-        //    high-volume bars still keep meaningful separation.
-        // 2) Use a gentle power curve (not full sqrt) to avoid both flattened
-        //    and overly exaggerated bars.
-        // 3) Keep a very small minimum pixel height so quiet bars remain visible.
-        const sortedVolumes = visibleVolumes.slice().sort((a, b) => a - b);
-        const p98Index = Math.max(0, Math.min(sortedVolumes.length - 1, Math.floor((sortedVolumes.length - 1) * 0.98)));
-        const p98Vol = sortedVolumes[p98Index] || maxVol;
-        const scaleCap = Math.max(1, Math.min(maxVol, p98Vol));
 
         const ctx = this.ctx;
         const area = this.chartArea;
-        const volumeCfg = this._getActiveVolumeIndicatorConfig();
-        const barOpacity = this._getVolumeOpacity();
-        const upColor = String(volumeCfg?.volume_bull_color || "#00c896");
-        const downColor = String(volumeCfg?.volume_bear_color || "#e84060");
-        // Keep a small buffer above the time axis so labels stay visually below volume.
-        const timeAxisGap = 4;
-        const baseY = area.y + area.height - timeAxisGap;
-        const volHeight = Math.max(24, Math.min(64, Math.floor(area.height * 0.10)));
-        const minReadableHeight = Math.max(1, Math.floor(volHeight * 0.05));
+        const { upColor, downColor } = this._getIntegratedVolumeColors();
+        const barOpacity = 0.72;
+
+        const volumeBandRatio = 0.125;
+        const volumeBandBottomPadding = 4;
+        const volumeBandHeight = Math.max(22, Math.floor(area.height * volumeBandRatio));
+        const volumeBandBottom = area.y + area.height - volumeBandBottomPadding;
+        const volumeBandTop = volumeBandBottom - volumeBandHeight;
+
+        this._volumeScale = { maxVol, top: volumeBandTop, bottom: volumeBandBottom };
 
         ctx.save();
         for (let i = start; i <= end; i++) {
@@ -1099,10 +1064,8 @@ class FixedTradingChart {
             if (vol <= 0) continue;
 
             const x = Math.round(this._candleToX(i));
-            const normalized = Math.min(1, vol / scaleCap);
-            const eased = Math.pow(normalized, 0.70);
-            const h = Math.max(minReadableHeight, Math.round(eased * volHeight));
-            const y = baseY - h;
+            const h = Math.max(1, Math.round((vol / maxVol) * volumeBandHeight));
+            const y = volumeBandBottom - h;
             const isUp = (Number(c.close) || 0) >= (Number(c.open) || 0);
             const baseColor = isUp ? upColor : downColor;
             ctx.fillStyle = this._hexToRgba(baseColor, barOpacity);
@@ -1293,6 +1256,43 @@ class FixedTradingChart {
             ctx.fillText(p.toFixed(decimals), tickLabelX, y, tickLabelMaxW);
             lastY = y;
         }
+
+        this._drawVolumeScaleOnPriceAxis(axisX, axisW, tickLabelX, tickLabelMaxW);
+    }
+
+    _drawVolumeScaleOnPriceAxis(axisX, axisW, tickLabelX, tickLabelMaxW) {
+        if (!this._volumeScale || !Number.isFinite(this._volumeScale.maxVol) || this._volumeScale.maxVol <= 0) return;
+        const ctx = this.ctx;
+        const { maxVol, top, bottom } = this._volumeScale;
+        const mid = top + ((bottom - top) / 2);
+        const ticks = [
+            { v: maxVol, y: top },
+            { v: maxVol * 0.5, y: mid },
+            { v: 0, y: bottom },
+        ];
+
+        ctx.font = this._axisFont(9, 600);
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = 'rgba(181, 201, 234, 0.9)';
+        ctx.strokeStyle = 'rgba(88,118,165,0.45)';
+        ctx.lineWidth = 1;
+
+        for (const t of ticks) {
+            ctx.beginPath();
+            ctx.moveTo(axisX, t.y);
+            ctx.lineTo(axisX + 4, t.y);
+            ctx.stroke();
+            ctx.fillText(this._formatVolumeAxisValue(t.v), tickLabelX, t.y, tickLabelMaxW);
+        }
+    }
+
+    _formatVolumeAxisValue(v) {
+        const n = Number(v) || 0;
+        if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`;
+        if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+        if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
+        return `${Math.round(n)}`;
     }
 
     _drawTimeAxis() {
