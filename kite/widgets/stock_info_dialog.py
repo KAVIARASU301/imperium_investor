@@ -27,7 +27,7 @@ import html
 import logging
 from typing import Any, Dict, Optional
 
-from PySide6.QtCore import Qt, QPoint, QObject, Signal, QThread
+from PySide6.QtCore import Qt, QPoint, QObject, Signal, QThread, QEvent
 from PySide6.QtGui import QMouseEvent, QCursor, QGuiApplication
 from PySide6.QtWidgets import (
     QAbstractButton, QAbstractSpinBox, QComboBox, QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton,

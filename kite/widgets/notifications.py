@@ -1,5 +1,7 @@
 # kite/widgets/notifications.py
 import logging
+from collections import deque
+
 from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QPoint, QAbstractAnimation
 from PySide6.QtWidgets import (
     QWidget,
@@ -21,6 +23,7 @@ class ToastNotification(QWidget):
 
     # Track active toasts to stack them
     _active_toasts = []
+    _queued_toasts = deque()
 
     # Institutional Dark Trading Terminal tokens
     BG_WINDOW = "#0A0D12"
@@ -71,6 +74,8 @@ class ToastNotification(QWidget):
     STACK_SPACING = 8
     MARGIN = 18
     BOTTOM_SAFE_GAP = 18
+    MAX_VISIBLE_TOASTS = 4
+    HOVER_GRACE_MS = 3000
 
     def __init__(
         self,
@@ -86,6 +91,8 @@ class ToastNotification(QWidget):
         self.kind = self._normalize_kind(kind)
         self.theme = self._build_theme(self.kind, border_color)
         self._closing = False
+        self._is_queued = False
+        self._remaining_duration = max(0, int(duration))
 
         self.setWindowFlags(
             Qt.WindowType.Tool |
@@ -117,12 +124,10 @@ class ToastNotification(QWidget):
         self.animation.setDuration(120)
         self.animation.finished.connect(self._on_animation_finished)
 
-        # Auto-close timer
-        if duration > 0:
-            self.timer = QTimer(self)
-            self.timer.setSingleShot(True)
-            self.timer.timeout.connect(self.fade_out)
-            self.timer.start(duration)
+        # Auto-close timer (starts when toast is actually shown)
+        self.timer = QTimer(self)
+        self.timer.setSingleShot(True)
+        self.timer.timeout.connect(self.fade_out)
 
     @classmethod
     def _normalize_kind(cls, kind: str) -> str:
@@ -354,9 +359,9 @@ class ToastNotification(QWidget):
 
     @classmethod
     def _restack_visible_toasts(cls):
-        """Reflow active toasts upward so no gaps remain after dismissals."""
+        """Reflow active toasts from bottom->top without overlap."""
         screen = QApplication.primaryScreen().availableGeometry()
-        cls._active_toasts = [t for t in cls._active_toasts if t.isVisible()]
+        cls._active_toasts = [t for t in cls._active_toasts if t.isVisible() and not t._closing]
 
         y_offset = cls.MARGIN
         for toast in cls._active_toasts:
@@ -370,53 +375,81 @@ class ToastNotification(QWidget):
                 toast.animation.start()
             y_offset += toast.height() + cls.STACK_SPACING
 
+    @classmethod
+    def _drain_queue(cls):
+        cls._active_toasts = [t for t in cls._active_toasts if t.isVisible() and not t._closing]
+        while cls._queued_toasts and len(cls._active_toasts) < cls.MAX_VISIBLE_TOASTS:
+            queued = cls._queued_toasts.popleft()
+            if queued._closing:
+                continue
+            queued._is_queued = False
+            queued._show_now()
+
     def show_toast(self):
-        """Calculates position, handles stacking, and animates in."""
+        """Queue toast when cap is reached, otherwise show immediately."""
+        self.adjustSize()
+        ToastNotification._active_toasts = [t for t in ToastNotification._active_toasts if t.isVisible() and not t._closing]
+
+        if len(ToastNotification._active_toasts) >= self.MAX_VISIBLE_TOASTS:
+            if not self._is_queued:
+                self._is_queued = True
+                ToastNotification._queued_toasts.append(self)
+            return
+
+        self._show_now()
+
+    def _show_now(self):
         screen = QApplication.primaryScreen().availableGeometry()
 
-        # Ensure layout-derived size/height is finalized before stacking math.
-        self.adjustSize()
-
-        # Clean up dead toasts from the stack tracking
-        ToastNotification._active_toasts = [t for t in ToastNotification._active_toasts if t.isVisible()]
-
-        # Calculate Y position based on total stack height of visible toasts
         stack_height = sum(t.height() + self.STACK_SPACING for t in ToastNotification._active_toasts)
         y_offset = self.MARGIN + stack_height
 
-        start_x = screen.width()
         end_x = screen.width() - self.width() - self.MARGIN
         target_y = screen.height() - self.height() - self.BOTTOM_SAFE_GAP - y_offset
 
-        self.setGeometry(start_x, target_y, self.width(), self.height())
+        # New motion: enter from below and move upward into place.
+        start_y = screen.height() + self.height()
+
+        self.setGeometry(end_x, start_y, self.width(), self.height())
         self.show()
 
-        self.animation.setDuration(120)
-        self.animation.setStartValue(QPoint(start_x, target_y))
+        self.animation.setDuration(180)
+        self.animation.setStartValue(QPoint(end_x, start_y))
         self.animation.setEndValue(QPoint(end_x, target_y))
         self.animation.start()
 
-        ToastNotification._active_toasts.append(self)
+        if self not in ToastNotification._active_toasts:
+            ToastNotification._active_toasts.append(self)
+
+        if self._remaining_duration > 0:
+            self.timer.start(self._remaining_duration)
 
     def fade_out(self):
         """Animates out and cleans up."""
         if self._closing:
             return
 
-        if hasattr(self, "timer") and self.timer.isActive():
+        if self.timer.isActive():
             self.timer.stop()
 
         if self.animation.state() == QAbstractAnimation.State.Running:
             self.animation.stop()
 
         self._closing = True
-        self.animation.setDuration(140)
+        self.animation.setDuration(160)
         self.animation.setStartValue(self.pos())
-        self.animation.setEndValue(QPoint(self.pos().x() + self.width() + self.MARGIN, self.pos().y()))
+        self.animation.setEndValue(QPoint(self.pos().x(), QApplication.primaryScreen().availableGeometry().height() + self.height()))
         self.animation.start()
 
         if self in ToastNotification._active_toasts:
             ToastNotification._active_toasts.remove(self)
+
+        if self._is_queued:
+            self._is_queued = False
+            try:
+                ToastNotification._queued_toasts.remove(self)
+            except ValueError:
+                pass
 
     def _on_animation_finished(self):
         if self._closing:
