@@ -19,6 +19,7 @@ Architecture:
 """
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import Dict, Optional, Set, List
 from datetime import datetime, timedelta
@@ -93,6 +94,8 @@ class PositionManager(QObject):
         self._thread_pool = QThreadPool.globalInstance()
         self._positions_fetch_inflight = False
         self._orders_fetch_inflight = False
+        self._broker_api_degraded_until: Optional[datetime] = None
+        self._last_broker_api_notice_at: Optional[datetime] = None
 
         # Safety fallback timer — only polls when needed
         self._safety_timer = QTimer(self)
@@ -544,8 +547,35 @@ class PositionManager(QObject):
             self.main_window.chart_lines_manager.sync_position_lines(positions)
 
     def _handle_positions_error(self, error):
+        if self._is_transient_broker_gateway_error(error):
+            now = datetime.utcnow()
+            self._broker_api_degraded_until = now + timedelta(minutes=10)
+            logger.warning("Broker API temporarily unavailable while fetching positions: %s", error)
+            if (
+                self._last_broker_api_notice_at is None
+                or (now - self._last_broker_api_notice_at) >= timedelta(minutes=3)
+            ):
+                self._last_broker_api_notice_at = now
+                self.show_notification.emit(
+                    "Broker maintenance window detected. Positions/margins will auto-retry.",
+                    "info",
+                )
+            return
+
         logger.error(f"Failed to fetch positions: {error}")
-        self.show_notification.emit(f"Position fetch failed: {error}", "error")
+        self.show_notification.emit("Position fetch failed. Please retry.", "error")
+
+    @staticmethod
+    def _is_transient_broker_gateway_error(error: object) -> bool:
+        text = str(error or "")
+        normalized = text.lower()
+        if "unknown content-type" in normalized and "text/html" in normalized:
+            return True
+        if "bad gateway" in normalized or "gateway timeout" in normalized:
+            return True
+        if re.search(r"\b50[234]\b", normalized):
+            return True
+        return False
 
     @Slot()
     def _on_positions_fetch_finished(self):
