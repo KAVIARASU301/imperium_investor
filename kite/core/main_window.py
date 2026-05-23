@@ -3572,7 +3572,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
             QDialog { 
                 background-color: #121212; 
-                border: 1px solid #282828; 
+                border: 1px solid #3f4e66; 
+                outline: 1px solid #0a0f18;
             }
 
             QMessageBox { 
