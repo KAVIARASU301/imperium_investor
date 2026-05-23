@@ -1897,19 +1897,21 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 all_tokens.add(chart.current_instrument_token)
                 logger.info(f"Added chart token: {chart.current_instrument_token}")
 
-        # Priority 3: Watchlist tokens (only when a watchlist UI is visible)
+        # Priority 3: Watchlist tokens (always include)
+        # NOTE:
+        # Keep watchlist symbols subscribed even when the watchlist pane is hidden.
+        # Multiple consumers (watchlist/floating watchlist, order dialog LTP,
+        # alerts, scanner interactions, etc.) read from shared live ticks; tying
+        # subscriptions to widget visibility can cause intermittent "one panel
+        # updates, another stalls" behavior for overlapping symbols.
         watchlist_tokens = []
-        watchlist_ui_visible = self.watchlist.isVisible()
-        floating_watchlist_visible = bool(
-            self.floating_watchlist_dialog and self.floating_watchlist_dialog.isVisible()
-        )
-
-        if watchlist_ui_visible or floating_watchlist_visible:
-            watchlist_tokens = self.watchlist.get_all_tokens()
-            all_tokens.update(watchlist_tokens)
-            logger.info(f"Added {len(watchlist_tokens)} watchlist tokens")
+        if hasattr(self.watchlist, "get_all_watchlist_tokens"):
+            watchlist_tokens = self.watchlist.get_all_watchlist_tokens()
         else:
-            logger.info("Watchlist hidden - skipped watchlist token subscriptions")
+            watchlist_tokens = self.watchlist.get_all_tokens()
+
+        all_tokens.update(watchlist_tokens)
+        logger.info(f"Added {len(watchlist_tokens)} watchlist tokens")
 
         # Priority 4: Scanner-visible symbols
         theme = self.color_theme_manager.get_theme()
