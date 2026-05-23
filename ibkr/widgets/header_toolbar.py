@@ -1119,8 +1119,8 @@ class HeaderToolbar(QToolBar):
             background-color: {_BG_SECTION};
         }}
         #enhancedSymbolSearch:focus {{
-            border: 1px solid {_CYAN};
-            background-color: {_BG_APP};
+            border: 1px solid {_BG_BORDER_HI};
+            background-color: {_BG_SECTION};
             color: {_TEXT_SYMBOL};
         }}
 
