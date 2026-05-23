@@ -2,7 +2,16 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QCursor, QMouseEvent
-from PySide6.QtWidgets import QDialog, QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QDialog,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
 
 
 class SectorsIndustriesDialog(QDialog):
@@ -205,6 +214,14 @@ INDIAN MARKET
         content.setWordWrap(False)
         content.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
+        content_scroll = QScrollArea()
+        content_scroll.setObjectName("aboutContentScroll")
+        content_scroll.setWidgetResizable(True)
+        content_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        content_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        content_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        content_scroll.setWidget(content)
+
         footer = QFrame()
         footer.setObjectName("aboutFooter")
         footer.setFixedHeight(32)
@@ -223,7 +240,7 @@ INDIAN MARKET
         footer_layout.addStretch()
         footer_layout.addWidget(close_footer_btn)
 
-        body_layout.addWidget(content)
+        body_layout.addWidget(content_scroll)
         shell_layout.addWidget(header)
         shell_layout.addWidget(body, 1)
         shell_layout.addWidget(footer)
@@ -238,6 +255,7 @@ INDIAN MARKET
             QPushButton#aboutClose { background: transparent; color: #5A7090; border: 1px solid transparent; border-radius: 2px; }
             QPushButton#aboutClose:hover { color: #FF4D6A; background: rgba(255,77,106,0.11); border-color: rgba(255,77,106,0.26); }
             QFrame#aboutBody { background: #0F1318; }
+            QScrollArea#aboutContentScroll { background: transparent; border: none; }
             QLabel#aboutContent { color: #A8BCD4; font-size: 11px; background: transparent; }
             QLabel#aboutContent h3 { color: #00D4FF; }
             QLabel#aboutContent pre { color: #A8BCD4; font-size: 11px; font-family: 'Consolas', 'Courier New', monospace; }
