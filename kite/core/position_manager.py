@@ -43,6 +43,8 @@ class Position:
     product: str = "MIS"
     prev_close: float = 0.0
     is_partial_building: bool = False
+    day_unrealized: float = 0.0
+    day_realized: float = 0.0
 
 
 @dataclass
@@ -74,6 +76,7 @@ class PositionManager(QObject):
     """
 
     positions_updated  = Signal(list)   # emits List[Position]
+    day_pnl_updated = Signal(dict)
     partial_fill_symbols_updated = Signal(object)  # emits Set[str] with open partial fills
     show_notification  = Signal(str, str)
 
@@ -487,6 +490,8 @@ class PositionManager(QObject):
     @Slot(object)
     def _handle_positions_result(self, payload):
         positions: List[Position] = []
+        total_day_unrealized = 0.0
+        total_day_realized = 0.0
         kite_positions = payload.get("positions", {}) if isinstance(payload, dict) else (payload or {})
         holdings = payload.get("holdings", []) if isinstance(payload, dict) else []
 
@@ -501,6 +506,9 @@ class PositionManager(QObject):
             if product == "CNC" and quantity < 0:
                 continue
 
+            day_unrealized = float(pos_data.get("unrealised") or pos_data.get("unrealized") or 0.0)
+            day_realized = float(pos_data.get("realised") or pos_data.get("realized") or 0.0)
+
             pos = Position(
                 symbol   = pos_data.get("tradingsymbol", ""),
                 quantity = quantity,
@@ -508,6 +516,8 @@ class PositionManager(QObject):
                 token    = int(pos_data.get("instrument_token") or 0),
                 ltp      = float(pos_data.get("last_price") or 0.0),
                 product  = product,
+                day_unrealized=day_unrealized,
+                day_realized=day_realized,
             )
             for tracked in self._tracked.values():
                 t_sym = tracked.order_data.get("tradingsymbol", "")
@@ -515,6 +525,8 @@ class PositionManager(QObject):
                     pos.is_partial_building = True
                     break
             pos.pnl = (pos.ltp - pos.avg_price) * pos.quantity
+            total_day_unrealized += day_unrealized
+            total_day_realized += day_realized
             positions.append(pos)
 
         existing_symbols = {p.symbol for p in positions}
@@ -540,6 +552,11 @@ class PositionManager(QObject):
             positions.append(pos)
 
         self.positions_updated.emit(positions)
+        self.day_pnl_updated.emit({
+            "unrealized": round(total_day_unrealized, 2),
+            "realized": round(total_day_realized, 2),
+            "total": round(total_day_unrealized + total_day_realized, 2),
+        })
         self._emit_partial_fill_symbols()
         logger.debug(f"Emitted {len(positions)} positions")
 

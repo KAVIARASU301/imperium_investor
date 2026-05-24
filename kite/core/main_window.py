@@ -944,6 +944,20 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             has_data=has_data,
             open_pnl=float(payload.get("open_pnl", 0.0) or 0.0),
             exposure=float(payload.get("exposure", 0.0) or 0.0),
+            day_unrealized=float(payload.get("day_unrealized", 0.0) or 0.0),
+            day_realized=float(payload.get("day_realized", 0.0) or 0.0),
+        )
+
+    @Slot(dict)
+    def _on_day_pnl_updated(self, pnl_data: Dict[str, Any]):
+        """Fast-path status metrics update using broker-reported day P&L aggregates."""
+        if not self.positions_action.isChecked():
+            return
+        self.app_status_bar.set_positions_metrics(
+            has_data=True,
+            day_unrealized=float(pnl_data.get("unrealized", 0.0) or 0.0),
+            day_realized=float(pnl_data.get("realized", 0.0) or 0.0),
+            exposure=getattr(self.app_status_bar, "_last_exposure", 0.0) or 0.0,
         )
 
     def _open_color_settings_dialog(self):
@@ -1438,6 +1452,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         )
         self.position_manager.positions_updated.connect(self._schedule_subscription_rebuild)
         self.position_manager.positions_updated.connect(self._update_floating_positions_dialog)
+        self.position_manager.day_pnl_updated.connect(self._on_day_pnl_updated)
         self.position_manager.show_notification.connect(self._show_position_manager_notification)
         if hasattr(self, 'market_data_worker') and self.market_data_worker:
             self.market_data_worker.order_update.connect(self.position_manager.on_ws_order_update)

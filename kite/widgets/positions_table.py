@@ -660,12 +660,14 @@ class PositionsTable(QWidget):
             self._footer_open_pnl.setText("–")
             self._footer_exposure.setText("–")
             self.footer_metrics_changed.emit(
-                {"has_data": False, "open_pnl": 0.0, "exposure": 0.0}
+                {"has_data": False, "open_pnl": 0.0, "exposure": 0.0, "day_unrealized": 0.0, "day_realized": 0.0}
             )
             return
 
         total_pnl = sum(p.pnl for p in self.positions_data.values())
         exposure = sum(abs(p.quantity) * p.avg_price for p in self.positions_data.values())
+        day_unrealized = sum(getattr(p, "day_unrealized", p.pnl) for p in self.positions_data.values())
+        day_realized = sum(getattr(p, "day_realized", 0.0) for p in self.positions_data.values())
 
         pnl_color = _GREEN if total_pnl >= 0 else _RED
         self._footer_open_pnl.setText(f"{'+' if total_pnl >= 0 else ''}{total_pnl:,.0f}")
@@ -677,7 +679,7 @@ class PositionsTable(QWidget):
             f"color:{_T1}; font-family:{_NUM}; font-size:11px; font-weight:500; background:transparent;"
         )
         self.footer_metrics_changed.emit(
-            {"has_data": True, "open_pnl": total_pnl, "exposure": exposure}
+            {"has_data": True, "open_pnl": total_pnl, "exposure": exposure, "day_unrealized": day_unrealized, "day_realized": day_realized}
         )
 
     def set_footer_metrics_visible(self, visible: bool) -> None:

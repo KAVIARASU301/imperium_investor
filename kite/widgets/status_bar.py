@@ -53,6 +53,7 @@ class StatusBar(QWidget):
         self._layout: Optional[QHBoxLayout] = None
         self._status_alignment = "left"
         self._metrics_on_right = True
+        self._last_exposure = 0.0
 
         self._build_ui()
         self._apply_styles()
@@ -85,7 +86,8 @@ class StatusBar(QWidget):
         self.market_label = QLabel("MARKET: --", self.content)
         self.api_label = QLabel('API <span style="color:#6f7a8c;">●</span>', self.content)
         self.isp_ip_label = QLabel('ISP IP <span style="color:#6f7a8c;">●</span>', self.content)
-        self.open_pnl_label = QLabel("OPEN P&L: --", self.content)
+        self.day_mtm_label = QLabel("DAY MTM: --", self.content)
+        self.day_realized_label = QLabel("REALIZED: --", self.content)
         self.exposure_label = QLabel("EXPOSURE: --", self.content)
 
         self.group_separator = QFrame(self.content)
@@ -98,7 +100,8 @@ class StatusBar(QWidget):
             self.market_label: 82,
             self.api_label: 44,
             self.isp_ip_label: 66,
-            self.open_pnl_label: 116,
+            self.day_mtm_label: 120,
+            self.day_realized_label: 110,
             self.exposure_label: 112,
         }
 
@@ -177,7 +180,7 @@ class StatusBar(QWidget):
             self._clear_layout()
 
             base_labels = (self.market_label, self.api_label, self.isp_ip_label)
-            metric_labels = (self.open_pnl_label, self.exposure_label)
+            metric_labels = (self.day_mtm_label, self.day_realized_label, self.exposure_label)
 
             if self._metrics_on_right:
                 left_group = base_labels
@@ -198,26 +201,51 @@ class StatusBar(QWidget):
         finally:
             self.content.setUpdatesEnabled(True)
 
-    def set_positions_metrics(self, has_data: bool, open_pnl: float = 0.0, exposure: float = 0.0) -> None:
+    def set_positions_metrics(
+        self,
+        has_data: bool,
+        open_pnl: float = 0.0,
+        exposure: float = 0.0,
+        day_unrealized: float = 0.0,
+        day_realized: float = 0.0,
+    ) -> None:
+        self._last_exposure = float(exposure or 0.0)
+
         if not has_data:
-            self._set_label_text(self.open_pnl_label, "OPEN P&L: --")
+            self._set_label_text(self.day_mtm_label, "DAY MTM: --")
+            self._set_label_text(self.day_realized_label, "REALIZED: --")
             self._set_label_text(self.exposure_label, "EXPOSURE: --")
             return
 
-        pnl_value = self._format_number(open_pnl)
-        exposure_value = self._format_number(exposure)
-        pnl_positive = self._is_non_negative(open_pnl)
-        pnl_color = self.COLOR_GREEN if pnl_positive else self.COLOR_RED
-        sign = "+" if pnl_positive else ""
-
+        mtm_value = self._format_number(day_unrealized)
+        mtm_positive = self._is_non_negative(day_unrealized)
+        mtm_color = self.COLOR_GREEN if mtm_positive else self.COLOR_RED
+        mtm_sign = "+" if mtm_positive else ""
         self._set_label_text(
-            self.open_pnl_label,
-            f'OPEN P&L: <span style="color:{pnl_color}; font-weight:700;">{sign}{pnl_value}</span>',
+            self.day_mtm_label,
+            f'DAY MTM: <span style="color:{mtm_color}; font-weight:700;">{mtm_sign}{mtm_value}</span>',
         )
+
+        realized_value = self._format_number(day_realized)
+        realized_positive = self._is_non_negative(day_realized)
+        realized_color = self.COLOR_GREEN if realized_positive else self.COLOR_RED
+        realized_sign = "+" if realized_positive else ""
+        self._set_label_text(
+            self.day_realized_label,
+            f'REALIZED: <span style="color:{realized_color}; font-weight:700;">{realized_sign}{realized_value}</span>',
+        )
+
+        exposure_value = self._format_number(exposure)
         self._set_label_text(
             self.exposure_label,
             f'EXPOSURE: <span style="color:{self.COLOR_TEXT_STRONG}; font-weight:650;">{exposure_value}</span>',
         )
+
+
+    @property
+    def open_pnl_label(self):
+        """Backward compat shim: OPEN P&L now maps to DAY MTM label."""
+        return self.day_mtm_label
 
     def _apply_styles(self) -> None:
         self.setStyleSheet(
