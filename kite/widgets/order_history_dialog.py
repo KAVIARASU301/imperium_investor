@@ -217,7 +217,7 @@ class OrderHistoryTable(QTableWidget):
         self.setObjectName("ordersTable")
         self.setColumnCount(8)
         self.setHorizontalHeaderLabels([
-            "Time", "Symbol", "Type", "Qty", "Price", "Avg Price", "Status", "Order ID"
+            "Time", "Symbol", "Type", "Qty", "Price", "Avg Price", "Status", "ID"
         ])
         self._orders_data: List[Dict[str, Any]] = []
         self._visible_orders: List[Dict[str, Any]] = []
@@ -245,11 +245,11 @@ class OrderHistoryTable(QTableWidget):
         header.setHighlightSections(False)
         header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         header.setStretchLastSection(False)
-        header.setMinimumSectionSize(42)
+        header.setMinimumSectionSize(50)
         header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)  # Symbol
-        header.setSectionResizeMode(7, QHeaderView.ResizeMode.Fixed)    # Copy ID
-        self.setColumnWidth(7, 48)
+        header.setSectionResizeMode(7, QHeaderView.ResizeMode.Fixed)    # Copy Order ID
+        self.setColumnWidth(7, 50)
 
         self.itemSelectionChanged.connect(self._on_selection_changed)
 
