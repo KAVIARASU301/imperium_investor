@@ -242,7 +242,6 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self._init_alert_system()
         self._init_background_workers()
         self._connect_signals()
-        self._init_network_resilience()
         self.color_theme_manager.theme_changed.connect(self._on_color_theme_changed)
         self._connect_chart_signals()
         self._setup_watchlist_shortcuts()
@@ -250,6 +249,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self._apply_dark_theme()
         self.restore_window_state()
         QTimer.singleShot(350, self._apply_startup_dual_chart_timeframes)
+
+        # DEFER network monitoring — don't start probing during UI construction
+        QTimer.singleShot(3000, self._init_network_resilience)
 
         logger.info("Simplified qullamaggie Window with Status Bar Initialized Successfully.")
 
@@ -555,7 +557,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     def _setup_isp_ip_monitor(self) -> None:
         self._isp_ip_monitor = _IspIpMonitor(interval_seconds=180)
         self._isp_ip_monitor.ip_status_checked.connect(self._on_isp_ip_status_checked)
-        self._isp_ip_monitor.start()
+        # Delay startup so this monitor does not compete with initial instrument loading.
+        QTimer.singleShot(10_000, self._isp_ip_monitor.start)
 
     @Slot(bool)
     def _on_isp_ip_status_checked(self, changed: bool) -> None:
@@ -983,8 +986,10 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         self.instrument_loader = InstrumentLoader(self.real_kite_client)
         self.instrument_loader.instruments_loaded.connect(self._on_instruments_loaded)
-        self.instrument_loader.error_occurred.connect(
-            lambda e: logger.error(f"Critical error loading instruments: {e}"))
+        self.instrument_loader.error_occurred.connect(self._on_instruments_load_failed)
+        self.instrument_loader.progress_update.connect(
+            lambda msg: logger.info(f"Instruments: {msg}")
+        )
         self.instrument_loader.start()
 
         self.market_data_worker = MarketDataWorker(self.api_key, self.access_token)
@@ -1573,6 +1578,13 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self._refresh_header_ticker_ws_subscriptions()
         self.chart_init_timer.start(1000)
         logger.info("Instruments loaded successfully.")
+
+    @Slot(str)
+    def _on_instruments_load_failed(self, error: str):
+        """Handle instrument load errors without crashing the app."""
+        logger.error(f"Instrument load failed: {error}")
+        show_error(f"Instrument load failed: {error[:80]}")
+        status.set_api_indicator("DEGRADED")
 
     def _show_stock_info_dialog(self, symbol: str) -> None:
         selected_symbol = (symbol or "").strip().upper()

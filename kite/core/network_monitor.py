@@ -9,12 +9,10 @@ Strategy (same as Bloomberg Terminal):
 """
 
 import logging
-import socket
-import time
 from typing import Optional
 
 import requests
-from PySide6.QtCore import QObject, Signal, QTimer, Slot
+from PySide6.QtCore import QObject, Signal, QTimer, Slot, QRunnable, QThreadPool
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +22,26 @@ PROBE_INTERVAL = 5_000  # ms — how often to probe when online
 OFFLINE_PROBE_INTERVAL = 3_000  # ms — probe faster when offline
 FAILURE_THRESHOLD = 2   # consecutive failures before declaring offline
 SUCCESS_THRESHOLD = 1   # consecutive successes before declaring online
+
+
+class _ProbeWorker(QRunnable):
+    """Run a single HTTP probe off the UI thread."""
+
+    class Signals(QObject):
+        success = Signal()
+        failure = Signal()
+
+    def __init__(self):
+        super().__init__()
+        self.signals = _ProbeWorker.Signals()
+        self.setAutoDelete(True)
+
+    def run(self):
+        try:
+            requests.head(PROBE_URL, timeout=PROBE_TIMEOUT)
+            self.signals.success.emit()
+        except Exception:
+            self.signals.failure.emit()
 
 
 class NetworkMonitor(QObject):
@@ -42,13 +60,16 @@ class NetworkMonitor(QObject):
         self._consecutive_failures = 0
         self._consecutive_successes = 0
 
+        self._probe_inflight = False
+        self._threadpool = QThreadPool.globalInstance()
+
         self._timer = QTimer(self)
-        self._timer.timeout.connect(self._probe)
+        self._timer.timeout.connect(self._schedule_probe)
 
     def start(self):
         self._timer.start(PROBE_INTERVAL)
-        # Probe immediately on start
-        QTimer.singleShot(0, self._probe)
+        # Delay startup probe slightly to reduce first-frame startup contention.
+        QTimer.singleShot(500, self._schedule_probe)
         logger.info("NetworkMonitor started")
 
     def stop(self):
@@ -58,16 +79,18 @@ class NetworkMonitor(QObject):
         return bool(self._is_online)
 
     @Slot()
-    def _probe(self):
-        """Non-blocking probe via requests with a short timeout."""
-        try:
-            # Use a HEAD request — zero body, ~10ms on good network
-            requests.head(PROBE_URL, timeout=PROBE_TIMEOUT)
-            self._on_probe_success()
-        except Exception:
-            self._on_probe_failure()
+    def _schedule_probe(self):
+        if self._probe_inflight:
+            return
+        self._probe_inflight = True
+        worker = _ProbeWorker()
+        worker.signals.success.connect(self._on_probe_success)
+        worker.signals.failure.connect(self._on_probe_failure)
+        self._threadpool.start(worker)
 
+    @Slot()
     def _on_probe_success(self):
+        self._probe_inflight = False
         self._consecutive_failures = 0
         self._consecutive_successes += 1
 
@@ -84,7 +107,9 @@ class NetworkMonitor(QObject):
                 else:
                     logger.info("Network confirmed online at startup")
 
+    @Slot()
     def _on_probe_failure(self):
+        self._probe_inflight = False
         self._consecutive_successes = 0
         self._consecutive_failures += 1
 
