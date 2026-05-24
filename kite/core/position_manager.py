@@ -555,8 +555,9 @@ class PositionManager(QObject):
         # In that mode, per-position "realised" fields are 0 and would otherwise overwrite
         # the status bar with 0 after each positions refresh.
         try:
-            if hasattr(self.trader, "broker_type") and str(getattr(self.trader, "broker_type", "")).lower() == "kite":
-                if hasattr(self.trader, "get_daily_pnl"):
+            if hasattr(self.trader, "get_daily_pnl"):
+                broker_hint = str(getattr(self.trader, "broker", getattr(self.trader, "broker_type", ""))).lower()
+                if broker_hint in {"kite", "india"}:
                     session_total = float(self.trader.get_daily_pnl() or 0.0)
                     total_day_realized = round(session_total - total_day_unrealized, 2)
         except Exception:

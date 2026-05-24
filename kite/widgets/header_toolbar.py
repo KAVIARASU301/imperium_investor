@@ -162,7 +162,8 @@ class TickerPill(QFrame):
     _PILL_H = 22
     _PAD_L = 9
     _PAD_R = 9
-    _GAP = 8
+    _GAP_SYM_PRICE = 4
+    _GAP_PRICE_CHG = 8
     _SYM_MIN_W = 48
     _PRICE_W = 72
     _CHG_W = 56
@@ -180,7 +181,7 @@ class TickerPill(QFrame):
 
         inner = QHBoxLayout(self)
         inner.setContentsMargins(self._PAD_L, 0, self._PAD_R, 0)
-        inner.setSpacing(self._GAP)
+        inner.setSpacing(0)
 
         self._sym_label = QLabel(self._symbol)
         self._sym_label.setObjectName("tickerPillSymbol")
@@ -204,7 +205,9 @@ class TickerPill(QFrame):
         self._chg_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 
         inner.addWidget(self._sym_label)
+        inner.addSpacing(self._GAP_SYM_PRICE)
         inner.addWidget(self._price_label)
+        inner.addSpacing(self._GAP_PRICE_CHG)
         inner.addWidget(self._chg_label)
 
         self._compute_fixed_width()
@@ -241,9 +244,9 @@ class TickerPill(QFrame):
         total = (
             self._PAD_L
             + sym_w
-            + self._GAP
+            + self._GAP_SYM_PRICE
             + self._PRICE_W
-            + self._GAP
+            + self._GAP_PRICE_CHG
             + self._CHG_W
             + self._PAD_R
         )
