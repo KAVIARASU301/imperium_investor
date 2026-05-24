@@ -370,7 +370,7 @@ class ModernAddScanDialog(QDialog):
         self.name_input.selectAll()
 
     def _apply_styles(self):
-        self.setStyleSheet(f"""
+        stylesheet = f"""
             QWidget#dialogContainer {{
                 background-color: {_BG1};
                 border: 1px solid {_BG4};
@@ -534,7 +534,8 @@ class ModernAddScanDialog(QDialog):
                 height: 0;
                 border: none;
             }}
-        """)
+        """
+        self.setStyleSheet(stylesheet)
 
 
 class ModernManageScansDialog(QDialog):
@@ -2008,8 +2009,10 @@ class ChartinkScannerTable(QWidget):
     def _apply_enhanced_styles(self):
         """AMOLED Institutional Dark Trading Terminal UI styling."""
         gridline_color = "rgba(26,32,48,0.42)" if self._color_theme.get("show_table_vertical_lines", False) else "transparent"
+        dropdown_icon_path = get_asset_path("icons", "dropdown-arrow.svg", required=False)
+        dropdown_icon_url = dropdown_icon_path.as_posix() if dropdown_icon_path is not None else ""
 
-        self.setStyleSheet(f"""
+        stylesheet = f"""
             QWidget {{
                 background-color: {_BG0};
                 color: {_T0};
@@ -2090,11 +2093,10 @@ class ChartinkScannerTable(QWidget):
                 background: transparent;
             }}
             QComboBox#minimalDropdown::down-arrow {{
-                image: none;
-                border-left: 4px solid transparent;
-                border-right: 4px solid transparent;
-                border-top: 5px solid {_T2};
-                margin-right: 5px;
+                image: url("__DROPDOWN_ICON_URL__");
+                width: 10px;
+                height: 10px;
+                margin-right: 4px;
             }}
             QComboBox#minimalDropdown QAbstractItemView {{
                 background-color: {_BG1};
@@ -2255,4 +2257,5 @@ class ChartinkScannerTable(QWidget):
                 font-family: {_SANS};
                 font-size: 10px;
             }}
-        """)
+        """
+        self.setStyleSheet(stylesheet.replace("__DROPDOWN_ICON_URL__", dropdown_icon_url))
