@@ -261,8 +261,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
     def show_initial_window_state(self):
         """Show window once using restored/default startup mode to reduce startup flicker."""
-        # Keep chart panes hidden until first real symbol render to avoid QtWebEngine white flash.
-        self._set_chart_panes_visible(False)
+        # Keep chart panes visible so the center lane stays stable during startup.
+        # The prewarmed black HTML avoids white flash while preserving layout.
+        self._set_chart_panes_visible(True)
 
         if self._start_maximized:
             self.showMaximized()
