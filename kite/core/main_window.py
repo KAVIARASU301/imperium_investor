@@ -2425,13 +2425,15 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     def _show_order_history_dialog(self):
         """Show order history dialog"""
         try:
-            if self.order_history_dialog is None or not self.order_history_dialog.isVisible():
+            if self.order_history_dialog is None:
                 self.order_history_dialog = OrderHistoryDialog(
                     trade_logger=self.trade_logger,
                     parent=self
                 )
                 self.order_history_dialog.refresh_requested.connect(self._refresh_order_history)
                 self.order_history_dialog.export_requested.connect(self._export_order_history)
+            else:
+                self.order_history_dialog.refresh_orders()
 
             self.order_history_dialog.show()
             self.order_history_dialog.raise_()
