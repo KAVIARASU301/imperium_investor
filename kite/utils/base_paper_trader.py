@@ -544,10 +544,10 @@ class BasePaperTrader(QObject, ABC, metaclass=QObjectABCMeta):
             new_qty = old_qty + signed_qty
 
             if new_qty == 0:
-                # Position closed
+                # Position fully closed.
+                closed_qty = abs(old_qty)
+                realised = (price - pos.avg_price) * closed_qty * (1 if old_qty > 0 else -1)
                 del self._positions[symbol]
-                # Calculate realised P&L
-                realised = (price - pos.avg_price) * abs(old_qty) * (1 if old_qty > 0 else -1)
                 self._daily_pnl += realised
                 self.daily_pnl_update.emit(self._daily_pnl)
                 logger.info(f"Position closed: {symbol} | Realised P&L: ₹{realised:,.2f}")
@@ -557,7 +557,22 @@ class BasePaperTrader(QObject, ABC, metaclass=QObjectABCMeta):
                 # Adding to position — recalculate weighted average
                 total_cost = (abs(old_qty) * pos.avg_price) + (abs(signed_qty) * price)
                 pos.avg_price = total_cost / abs(new_qty)
-            # else: partial close — keep avg price
+            else:
+                # Opposite-side trade: this closes part (or all) of old position.
+                # Realise P&L for the closed quantity immediately.
+                closed_qty = min(abs(old_qty), abs(signed_qty))
+                if closed_qty > 0:
+                    realised = (price - pos.avg_price) * closed_qty * (1 if old_qty > 0 else -1)
+                    self._daily_pnl += realised
+                    self.daily_pnl_update.emit(self._daily_pnl)
+                    logger.info(
+                        f"Position reduced: {symbol} | Closed Qty: {closed_qty} | "
+                        f"Realised P&L: ₹{realised:,.2f}"
+                    )
+                # If side flipped (e.g. +10 then sell 15 => -5), remaining qty is a
+                # brand-new position opened at execution price.
+                if old_qty * new_qty < 0:
+                    pos.avg_price = price
 
             pos.quantity = new_qty
             if product:

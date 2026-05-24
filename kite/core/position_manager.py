@@ -551,6 +551,18 @@ class PositionManager(QObject):
             pos.pnl = (pos.ltp - pos.avg_price) * pos.quantity
             positions.append(pos)
 
+        # Paper traders track realized P&L at account/session level, not per-open-position.
+        # In that mode, per-position "realised" fields are 0 and would otherwise overwrite
+        # the status bar with 0 after each positions refresh.
+        try:
+            if hasattr(self.trader, "broker_type") and str(getattr(self.trader, "broker_type", "")).lower() == "kite":
+                if hasattr(self.trader, "get_daily_pnl"):
+                    session_total = float(self.trader.get_daily_pnl() or 0.0)
+                    total_day_realized = round(session_total - total_day_unrealized, 2)
+        except Exception:
+            # Keep broker-supplied totals if trader-specific computation fails.
+            pass
+
         self.positions_updated.emit(positions)
         self.day_pnl_updated.emit({
             "unrealized": round(total_day_unrealized, 2),
