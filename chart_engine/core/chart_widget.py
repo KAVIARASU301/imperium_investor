@@ -193,9 +193,7 @@ class CandlestickChart(QWidget):
         # ── Restore last symbol ──
         last = self.drawing_storage.load_last_viewed_symbol()
         if last.get("symbol"):
-            QTimer.singleShot(200, lambda: self.load_symbol(
-                last["symbol"], None, 0, last.get("interval", "day")
-            ))
+            self.load_symbol(last["symbol"], None, 0, last.get("interval", "day"))
 
     def _is_intraday_interval(self, interval: Optional[str] = None) -> bool:
         return str(interval or self.current_interval or "").strip().lower() in INTRADAY_INTERVALS
@@ -883,6 +881,7 @@ class CandlestickChart(QWidget):
         self.channel      = QWebChannel(self.chart_view.page())
         self.channel.registerObject("chartBridge", self.chart_bridge)
         self.chart_view.page().setWebChannel(self.channel)
+        self.chart_view.page().setBackgroundColor(QColor("#050709"))
 
         # Wire bridge signals
         self.chart_bridge.chart_ready.connect(self._on_chart_ready)

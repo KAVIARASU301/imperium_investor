@@ -234,6 +234,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self._subscription_rebuild_timer.setInterval(300)
         self._subscription_rebuild_timer.timeout.connect(self._rebuild_subscription_universe)
         self._pending_fresh_restart = False
+        self._charts_revealed = False
         self._reconnect_overlay = ReconnectingOverlay(self)
 
         # --- Setup Sequence ---
@@ -248,7 +249,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         self._apply_dark_theme()
         self.restore_window_state()
-        QTimer.singleShot(350, self._apply_startup_dual_chart_timeframes)
+        self._apply_startup_dual_chart_timeframes()
 
         # DEFER network monitoring — don't start probing during UI construction
         QTimer.singleShot(3000, self._init_network_resilience)
@@ -260,6 +261,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
     def show_initial_window_state(self):
         """Show window once using restored/default startup mode to reduce startup flicker."""
+        # Keep chart panes hidden until first real symbol render to avoid QtWebEngine white flash.
+        self._set_chart_panes_visible(False)
+
         if self._start_maximized:
             self.showMaximized()
             self.max_btn.setText("❐")
@@ -269,12 +273,34 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             self.max_btn.setText("□")
             self._is_maximized = False
 
+    def _set_chart_panes_visible(self, visible: bool):
+        """Toggle chart pane visibility while preserving dual/single chart layout intent."""
+        if hasattr(self, 'candlestick_chart') and self.candlestick_chart is not None:
+            self.candlestick_chart.setVisible(visible)
+        if hasattr(self, 'candlestick_chart_secondary') and self.candlestick_chart_secondary is not None:
+            self.candlestick_chart_secondary.setVisible(visible and self.dual_chart_mode_enabled)
+
+    @Slot(str)
+    def _reveal_chart_panes_on_first_symbol(self, symbol: str):
+        """Reveal chart panes once the first symbol is fully loaded into the chart."""
+        if self._charts_revealed:
+            return
+        if not (symbol or '').strip():
+            return
+
+        self._charts_revealed = True
+        self._set_chart_panes_visible(True)
+        logger.info("Chart panes revealed after initial symbol render: %s", symbol)
+
     def _apply_startup_dual_chart_timeframes(self):
-        """On startup, apply default timeframe(s) based on current chart mode."""
+        """Set default timeframe intervals without triggering loads (no symbol yet)."""
         try:
-            self.candlestick_chart._change_timeframe("day")
+            # Just set the toolbar state — don't trigger a load
+            self.candlestick_chart.toolbar.set_timeframe("day")
+            self.candlestick_chart.current_interval = "day"
             if self.dual_chart_mode_enabled:
-                self.candlestick_chart_secondary._change_timeframe("60minute")
+                self.candlestick_chart_secondary.toolbar.set_timeframe("60minute")
+                self.candlestick_chart_secondary.current_interval = "60minute"
                 logger.info("Applied startup dual-chart timeframes: left=day, right=60minute")
             else:
                 logger.info("Applied startup single-chart timeframe: primary=day")
@@ -442,6 +468,16 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self._saved_scanner_panel_width = None
         self._apply_intelligent_main_splitter_layout()
         self._apply_panel_elevation()
+        QTimer.singleShot(0, self._prewarm_webengine)
+
+
+    def _prewarm_webengine(self):
+        """Load a blank page to initialize Chromium before real chart data arrives."""
+        if self.candlestick_chart.chart_view is None:
+            self.candlestick_chart._create_chart_view()
+            self.candlestick_chart.chart_view.setHtml(
+                "<html><body style='background:#050709;margin:0'></body></html>"
+            )
 
     def _apply_subtle_shadow(self, widget: QWidget, blur_radius: float = 14.0, y_offset: float = 1.0) -> None:
         """Apply subtle edge elevation so panels feel grouped without harsh framing."""
@@ -1016,6 +1052,18 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     def _connect_chart_signals(self):
         """Connect chart signals"""
         if self.candlestick_chart:
+            # One-shot: reveal chart panes after first successful load
+            def _reveal_charts(symbol):
+                self.candlestick_chart.setVisible(True)
+                if self.dual_chart_mode_enabled:
+                    self.candlestick_chart_secondary.setVisible(True)
+                # Disconnect so it only fires once
+                try:
+                    self.candlestick_chart.symbol_loaded.disconnect(_reveal_charts)
+                except RuntimeError:
+                    pass
+
+            self.candlestick_chart.symbol_loaded.connect(_reveal_charts)
             self.candlestick_chart.symbol_loaded.connect(self._on_chart_symbol_changed)
             self.candlestick_chart.data_request_for_symbol.connect(self._ensure_chart_subscription)
             # FIX #9: redraw alert lines whenever the chart switches symbol
@@ -1409,6 +1457,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.candlestick_chart.order_dialog_requested.connect(self._show_order_dialog_from_chart_context)
         self.candlestick_chart_secondary.order_dialog_requested.connect(self._show_order_dialog_from_chart_context)
         self.candlestick_chart.symbol_loaded.connect(self.header_toolbar.set_current_symbol)
+        self.candlestick_chart.symbol_loaded.connect(self._reveal_chart_panes_on_first_symbol)
+        self.candlestick_chart_secondary.symbol_loaded.connect(self._reveal_chart_panes_on_first_symbol)
         self.candlestick_chart.drawings_updated.connect(self._sync_drawings_to_secondary_chart)
         self.candlestick_chart_secondary.drawings_updated.connect(self._sync_drawings_to_primary_chart)
         self.candlestick_chart.indicator_configs_updated.connect(
@@ -1577,6 +1627,17 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self._schedule_subscription_rebuild()
         self._refresh_header_ticker_ws_subscriptions()
         self.chart_init_timer.start(1000)
+
+        # Trigger chart restore now that tokens are resolvable
+        # (chart_widget deferred its own restore if token was missing)
+        for chart in [self.candlestick_chart, self.candlestick_chart_secondary]:
+            if chart.current_symbol and not chart.current_instrument_token:
+                inst = self.instrument_map.get(chart.current_symbol, {})
+                token = int(inst.get("instrument_token") or 0)
+                if token:
+                    chart.current_instrument_token = token
+                    chart._load_chart_data()
+
         logger.info("Instruments loaded successfully.")
 
     @Slot(str)
