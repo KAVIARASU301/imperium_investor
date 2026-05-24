@@ -215,9 +215,9 @@ class OrderHistoryTable(QTableWidget):
     def __init__(self):
         super().__init__()
         self.setObjectName("ordersTable")
-        self.setColumnCount(8)
+        self.setColumnCount(9)
         self.setHorizontalHeaderLabels([
-            "Time", "Symbol", "Type", "Qty", "Price", "Avg Price", "Status", "ID"
+            "Date", "Time", "Symbol", "Type", "Qty", "Price", "Avg Price", "Status", "ID"
         ])
         self._orders_data: List[Dict[str, Any]] = []
         self._visible_orders: List[Dict[str, Any]] = []
@@ -247,9 +247,9 @@ class OrderHistoryTable(QTableWidget):
         header.setStretchLastSection(False)
         header.setMinimumSectionSize(50)
         header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)  # Symbol
-        header.setSectionResizeMode(7, QHeaderView.ResizeMode.Fixed)    # Copy Order ID
-        self.setColumnWidth(7, 50)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)  # Symbol
+        header.setSectionResizeMode(8, QHeaderView.ResizeMode.Fixed)    # Copy Order ID
+        self.setColumnWidth(8, 50)
 
         self.itemSelectionChanged.connect(self._on_selection_changed)
 
@@ -274,9 +274,9 @@ class OrderHistoryTable(QTableWidget):
 
         self.setSortingEnabled(True)
         self.resizeColumnsToContents()
-        self.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        self.horizontalHeader().setSectionResizeMode(7, QHeaderView.ResizeMode.Fixed)
-        self.setColumnWidth(7, 48)
+        self.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self.horizontalHeader().setSectionResizeMode(8, QHeaderView.ResizeMode.Fixed)
+        self.setColumnWidth(8, 48)
 
     def _apply_filters(self, orders: List[Dict], filters: Dict[str, Any]) -> List[Dict]:
         """Apply filters to orders list."""
@@ -316,50 +316,59 @@ class OrderHistoryTable(QTableWidget):
     def _populate_row(self, row: int, order: Dict[str, Any]):
         """Populate a single row with order data."""
         timestamp = order.get("order_timestamp", "")
+        formatted_date = "—"
+        formatted_time = "—"
         if timestamp:
             try:
                 dt = datetime.strptime(str(timestamp), '%Y-%m-%d %H:%M:%S')
+                formatted_date = dt.strftime('%Y-%m-%d')
                 formatted_time = dt.strftime('%H:%M:%S')
             except Exception:
-                formatted_time = str(timestamp)
-        else:
-            formatted_time = "—"
+                timestamp_text = str(timestamp)
+                if ' ' in timestamp_text:
+                    formatted_date, formatted_time = timestamp_text.split(' ', 1)
+                else:
+                    formatted_time = timestamp_text
+
+        date_item = self._item(formatted_date, _T2, Qt.AlignmentFlag.AlignCenter, mono=True)
+        date_item.setToolTip(str(timestamp))
+        self.setItem(row, 0, date_item)
 
         time_item = self._item(formatted_time, _T2, Qt.AlignmentFlag.AlignCenter, mono=True)
         time_item.setToolTip(str(timestamp))
         time_item.setData(Qt.ItemDataRole.UserRole, order)
-        self.setItem(row, 0, time_item)
+        self.setItem(row, 1, time_item)
 
         symbol_item = self._item(str(order.get("tradingsymbol", "") or "—").upper(), _SYMBOL_SOFT, bold=True)
-        self.setItem(row, 1, symbol_item)
+        self.setItem(row, 2, symbol_item)
 
         trans_type = str(order.get("transaction_type", "N/A") or "N/A").upper()
         type_color = _BULL if trans_type == "BUY" else _BEAR if trans_type == "SELL" else _T2
         type_item = self._item(trans_type, type_color, Qt.AlignmentFlag.AlignCenter, bold=True)
-        self.setItem(row, 2, type_item)
+        self.setItem(row, 3, type_item)
 
         qty_item = self._item(str(order.get("quantity", 0)), _T1, Qt.AlignmentFlag.AlignCenter, mono=True)
-        self.setItem(row, 3, qty_item)
+        self.setItem(row, 4, qty_item)
 
         price = order.get('price', 0.0) or 0.0
         price_text = f"₹{float(price):,.2f}" if price > 0 else "MKT"
         price_item = self._item(price_text, _T1, Qt.AlignmentFlag.AlignRight, mono=True)
-        self.setItem(row, 4, price_item)
+        self.setItem(row, 5, price_item)
 
         avg_price = order.get('average_price', 0.0) or 0.0
         avg_text = f"₹{float(avg_price):,.2f}" if avg_price > 0 else "—"
         avg_item = self._item(avg_text, _T1, Qt.AlignmentFlag.AlignRight, mono=True)
-        self.setItem(row, 5, avg_item)
+        self.setItem(row, 6, avg_item)
 
         status = str(order.get("status", "") or "—").upper()
         status_item = self._item(status, _status_color(status), Qt.AlignmentFlag.AlignCenter, bold=True)
-        self.setItem(row, 6, status_item)
+        self.setItem(row, 7, status_item)
 
         order_id = str(order.get("order_id", "") or "").strip()
         id_item = self._item("", _T3, Qt.AlignmentFlag.AlignCenter)
         id_item.setToolTip("Copy order ID" if order_id else "No order ID available")
-        self.setItem(row, 7, id_item)
-        self.setCellWidget(row, 7, self._make_copy_id_cell(order_id))
+        self.setItem(row, 8, id_item)
+        self.setCellWidget(row, 8, self._make_copy_id_cell(order_id))
 
     def _make_copy_id_cell(self, order_id: str) -> QWidget:
         """Return a centered copy-icon cell without exposing the order id text."""

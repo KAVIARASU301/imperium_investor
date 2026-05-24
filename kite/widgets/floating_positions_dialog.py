@@ -60,35 +60,35 @@ logger = logging.getLogger(__name__)
 
 class _C:
     # AMOLED terminal layers — matched with scanner/watchlist/positions tables
-    BG0      = "#050709"   # outer app/window shell
-    BG1      = "#0a0d12"   # dialog body / table base
-    BG2      = "#0f1318"   # alternate rows / panels
-    BG3      = "#141920"   # row hover / elevated surface
+    BG0      = "#000000"   # true AMOLED outer shell
+    BG1      = "#050709"   # dialog/table base
+    BG2      = "#0a0d12"   # alternate rows / low panels
+    BG3      = "#0f1318"   # hover / elevated surface
     BG4      = "#070a0f"   # title/footer hard chrome
     BORDER   = "#1a2030"   # primary separator / grid
-    BORDER2  = "#2a3a50"   # active separator / grip / scrollbar
+    BORDER2  = "#25344a"   # active separator / grip / scrollbar
     SELECT   = "#1a2840"   # selected row
 
     # Market semantics
     BULL     = "#00d4a8"
     BULL_DIM = "#3f917f"
-    BULL_BG  = "#0b201b"
+    BULL_BG  = "#071512"
     BEAR     = "#ff4d6a"
     BEAR_DIM = "#94424b"
-    BEAR_BG  = "#241016"
-    FLAT     = "#7f90a3"
+    BEAR_BG  = "#19090d"
+    FLAT     = "#8f9caf"
 
     # Text
-    T0       = "#d8e2ef"
-    SYMBOL   = "#c2ccd9"   # softened symbol column text
-    T1       = "#9eacbc"
-    T2       = "#748396"
-    T3       = "#475466"
+    T0       = "#e8f0ff"
+    SYMBOL   = "#d7e2f2"   # symbol column text
+    T1       = "#a8bcd4"
+    T2       = "#5a7090"
+    T3       = "#2a3a50"
 
     # Accents
-    CYAN     = "#78cfe1"
-    AMBER    = "#d7a45d"
-    BLUE     = "#7fa6d8"
+    CYAN     = "#00d4ff"
+    AMBER    = "#f59e0b"
+    BLUE     = "#3b82f6"
 
     # Flash fills
     FLASH_UP = "#12372f"
@@ -135,24 +135,24 @@ def _number_font(pixel_size: int = 10, weight: QFont.Weight = QFont.Weight.Norma
 # ─────────────────────────────────────────────────────────────────────────────
 
 _COLS = [
-    ("Symbol",  "symbol",   116, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
-    ("Qty",     "quantity",  52, Qt.AlignmentFlag.AlignCenter),
-    ("Avg",     "avg_price", 74, Qt.AlignmentFlag.AlignCenter),
-    ("LTP",     "ltp",       74, Qt.AlignmentFlag.AlignCenter),
-    ("P&L",     "pnl",       88, Qt.AlignmentFlag.AlignCenter),
-    ("SL",      "sl",        78, Qt.AlignmentFlag.AlignCenter),
-    ("Target",  "target",    78, Qt.AlignmentFlag.AlignCenter),
+    ("Symbol",  "symbol",   120, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
+    ("Qty",     "quantity",  54, Qt.AlignmentFlag.AlignCenter),
+    ("Avg",     "avg_price", 78, Qt.AlignmentFlag.AlignCenter),
+    ("LTP",     "ltp",       78, Qt.AlignmentFlag.AlignCenter),
+    ("P&L",     "pnl",       92, Qt.AlignmentFlag.AlignCenter),
+    ("SL",      "sl",        82, Qt.AlignmentFlag.AlignCenter),
+    ("Target",  "target",    82, Qt.AlignmentFlag.AlignCenter),
 ]
 
 _COL_IDX = {name: i for i, (name, *_) in enumerate(_COLS)}
 
 _FLASH_DURATION = 400   # ms
 _REDRAW_INTERVAL = 200  # ms  (~5 fps — human-readable)
-_ROW_HEIGHT = 22
+_ROW_HEIGHT = 23
 
 
 _FLOATING_POS_STATE_KEY = "floating_positions_dialog"
-_DEFAULT_DIALOG_SIZE = QSize(620, 326)
+_DEFAULT_DIALOG_SIZE = QSize(640, 330)
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  POSITION DATA CLASS  (same shape as positions_table.py)
@@ -348,14 +348,14 @@ class FloatingPositionsDialog(QDialog):
     def _build_title_bar(self) -> QFrame:
         bar = QFrame()
         bar.setObjectName("titleBar")
-        bar.setFixedHeight(26)
+        bar.setFixedHeight(24)
         bar.setCursor(QCursor(Qt.CursorShape.SizeAllCursor))
 
         h = QHBoxLayout(bar)
         h.setContentsMargins(8, 0, 5, 0)
         h.setSpacing(6)
 
-        self._title_label = QLabel("POSITIONS MONITOR")
+        self._title_label = QLabel("POSITIONS")
         self._title_label.setObjectName("barTitle")
         # Keep the title hierarchy consistent with other dialogs (amber title)
         # even when parent-level/global styles are active.
@@ -367,14 +367,14 @@ class FloatingPositionsDialog(QDialog):
         min_btn = QToolButton()
         min_btn.setObjectName("barBtn")
         min_btn.setText("—")
-        min_btn.setFixedSize(22, 20)
+        min_btn.setFixedSize(22, 19)
         min_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         min_btn.clicked.connect(self.showMinimized)
 
         close_btn = QToolButton()
         close_btn.setObjectName("closeBtn")
         close_btn.setText("✕")
-        close_btn.setFixedSize(22, 20)
+        close_btn.setFixedSize(22, 19)
         close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         close_btn.clicked.connect(self.hide)
 
@@ -396,7 +396,7 @@ class FloatingPositionsDialog(QDialog):
         hdr = t.horizontalHeader()
         hdr.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
         hdr.setHighlightSections(False)
-        hdr.setFixedHeight(20)
+        hdr.setFixedHeight(21)
         hdr.setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
 
         for i, (_, _, width, _) in enumerate(_COLS):
@@ -433,7 +433,7 @@ class FloatingPositionsDialog(QDialog):
     def _build_footer(self) -> QFrame:
         f = QFrame()
         f.setObjectName("footer")
-        f.setFixedHeight(26)
+        f.setFixedHeight(24)
 
         h = QHBoxLayout(f)
         h.setContentsMargins(8, 0, 8, 0)
@@ -693,15 +693,10 @@ class FloatingPositionsDialog(QDialog):
         pnl_neg  = pos.pnl < 0
         pnl_col  = _C.BULL if pnl_pos else (_C.BEAR if pnl_neg else _C.FLAT)
         qty_col  = _C.BULL if is_long else _C.BEAR
-        # Use a very low-contrast P&L tint only when the row is not selected.
-        # This keeps Qt's selected-row style clean and prevents live refreshes
-        # from visually overriding selection.
+        # Keep row backgrounds neutral and let value text/flash carry market state.
+        # This prevents live P&L updates from fighting the selected-row style.
         if self.table.selectionModel() and self.table.selectionModel().isRowSelected(row, self.table.rootIndex()):
             row_bg = QColor(_C.SELECT)
-        elif pnl_pos:
-            row_bg = QColor(_C.BULL_BG)
-        elif pnl_neg:
-            row_bg = QColor(_C.BEAR_BG)
         else:
             row_bg = QColor(_C.BG2 if row % 2 == 0 else _C.BG1)
 
@@ -794,7 +789,7 @@ class FloatingPositionsDialog(QDialog):
         self._total_pnl_lbl.setText(f"{sign}{total_pnl:,.0f}")
         self._total_pnl_lbl.setStyleSheet(
             f"color: {pnl_col}; font-family: {_NUM}; font-size: 10px;"
-            f" font-weight: 500; background: transparent;"
+            f" font-weight: 600; background: transparent;"
         )
         self._exposure_lbl.setText(f"{exposure:,.0f}")
         self._pos_count_lbl.setText(str(count))
@@ -850,17 +845,17 @@ class FloatingPositionsDialog(QDialog):
         menu = QMenu(self)
         menu.setObjectName("posCtxMenu")
 
-        chart_act = menu.addAction("📈  Open Chart")
+        chart_act = menu.addAction("Open Chart")
         chart_act.triggered.connect(lambda: self.symbol_chart_requested.emit(sym))
         menu.addSeparator()
         target_price = self._targets.get(sym)
         if target_price and target_price > 0:
-            mod_target_act = menu.addAction(f"🎯  Modify Target @ ₹{target_price:.2f}")
+            mod_target_act = menu.addAction(f"Modify Target @ ₹{target_price:.2f}")
             mod_target_act.triggered.connect(lambda: self._set_target_for_symbol(sym, position, target_price))
-            clear_target_act = menu.addAction("✕  Remove Target")
+            clear_target_act = menu.addAction("Remove Target")
             clear_target_act.triggered.connect(lambda: self._clear_target_for_symbol(sym))
         else:
-            set_target_act = menu.addAction("🎯  Set Target…")
+            set_target_act = menu.addAction("Set Target…")
             set_target_act.triggered.connect(lambda: self._set_target_for_symbol(sym, position, None))
 
         menu.addSeparator()
@@ -873,31 +868,31 @@ class FloatingPositionsDialog(QDialog):
             sl_price = existing_sl.sl_price
             dist_pct = existing_sl.distance_pct
             sl_lbl = (
-                f"⚙  Modify SL @ ₹{sl_price:.2f} "
+                f"Modify SL @ ₹{sl_price:.2f} "
                 f"({existing_sl.sl_quantity.lower()}, {dist_pct:.1f}% away)"
             )
             sl_act = menu.addAction(sl_lbl)
             sl_act.triggered.connect(
                 lambda: self._open_sl_dialog(sym, position, existing_sl.sl_price)
             )
-            remove_sl_act = menu.addAction("✕  Remove Stop-Loss")
+            remove_sl_act = menu.addAction("Remove Stop-Loss")
             remove_sl_act.triggered.connect(
                 lambda: sl_mgr.cancel_stop_loss(sym, position.product)
             )
         else:
-            set_sl_act = menu.addAction("🛡  Set Stop-Loss…")
+            set_sl_act = menu.addAction("Set Stop-Loss…")
             set_sl_act.triggered.connect(
                 lambda: self._open_sl_dialog(sym, position, None)
             )
 
         menu.addSeparator()
 
-        exit_act = menu.addAction("✕  Exit Full Position")
+        exit_act = menu.addAction("Exit Full Position")
         exit_act.triggered.connect(lambda: self.exit_position_requested.emit(sym))
 
         # Show count dynamically
         half_qty = max(1, abs(position.quantity) // 2)
-        half_act = menu.addAction(f"½  Exit Half ({half_qty} shares)")
+        half_act = menu.addAction(f"Exit Half ({half_qty} shares)")
         half_act.triggered.connect(lambda: self.exit_half_position_requested.emit(sym))
 
         menu.exec(self.table.viewport().mapToGlobal(pos))
@@ -1016,6 +1011,11 @@ class FloatingPositionsDialog(QDialog):
                 border-radius: 2px;
             }}
 
+            QWidget {{
+                font-family: {_SANS};
+                color: {_C.T1};
+            }}
+
             /* Title bar */
             QFrame#titleBar {{
                 background: {_C.BG4};
@@ -1026,8 +1026,8 @@ class FloatingPositionsDialog(QDialog):
                 color: {_C.AMBER};
                 font-family: {_SANS};
                 font-size: 10px;
-                font-weight: 800;
-                letter-spacing: 1.1px;
+                font-weight: 600;
+                letter-spacing: 0.9px;
                 background: transparent;
             }}
             QToolButton#barBtn {{
@@ -1037,8 +1037,8 @@ class FloatingPositionsDialog(QDialog):
                 border-radius: 2px;
                 font-family: {_SANS};
                 font-size: 9px;
-                font-weight: 800;
-                letter-spacing: 0.4px;
+                font-weight: 500;
+                letter-spacing: 0.3px;
             }}
             QToolButton#barBtn:hover {{
                 background: rgba(255,255,255,0.06);
@@ -1056,7 +1056,7 @@ class FloatingPositionsDialog(QDialog):
                 border: 1px solid transparent;
                 border-radius: 2px;
                 font-size: 11px;
-                font-weight: 800;
+                font-weight: 600;
             }}
             QToolButton#closeBtn:hover {{
                 background: rgba(255,77,106,0.14);
@@ -1076,11 +1076,11 @@ class FloatingPositionsDialog(QDialog):
                 font-family: {_SANS};
                 font-size: 10px;
                 font-weight: 400;
-                color: {_C.T0};
+                color: {_C.T1};
             }}
             QTableWidget#posTable::item {{
-                padding: 0 5px;
-                border-bottom: 1px solid {_C.BORDER};
+                padding: 0 6px;
+                border-bottom: 1px solid rgba(26,32,48,0.66);
                 background: transparent;
                 font-family: {_NUM};
                 font-size: 10px;
@@ -1101,14 +1101,14 @@ class FloatingPositionsDialog(QDialog):
                 font-family: {_SANS};
                 font-size: 9px;
                 font-weight: 600;
-                letter-spacing: 0.6px;
+                letter-spacing: 0.7px;
                 text-transform: uppercase;
                 border: none;
-                border-right: 1px solid {_C.BORDER};
+                border-right: 1px solid rgba(26,32,48,0.78);
                 border-bottom: 1px solid {_C.BORDER};
                 padding: 0 5px;
-                min-height: 20px;
-                max-height: 20px;
+                min-height: 21px;
+                max-height: 21px;
             }}
 
             /* Footer */
@@ -1120,11 +1120,13 @@ class FloatingPositionsDialog(QDialog):
                 color: {_C.T2};
                 font-family: {_SANS};
                 font-size: 9px;
-                font-weight: 700;
-                letter-spacing: 0.8px;
+                font-weight: 600;
+                letter-spacing: 0.7px;
                 background: transparent;
             }}
-            QLabel[objectName^="footerVal"] {{
+            QLabel#footerVal_pnl,
+            QLabel#footerVal_exp,
+            QLabel#footerVal_cnt {{
                 color: {_C.T1};
                 font-family: {_NUM};
                 font-size: 10px;
