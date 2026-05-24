@@ -653,7 +653,7 @@ class HeaderToolbar(QToolBar):
         button.setObjectName(object_name)
         button.setFixedSize(_ICON_BTN_W, _CONTROL_H)
         button.setIconSize(QSize(12, 12))
-        button.setToolTip(tooltip)
+        button.setToolTip("")
         button.setCursor(Qt.CursorShape.PointingHandCursor)
         button.setFont(_modern_font(9, QFont.Weight.Normal))
         icon_path = get_asset_path("icons", icon_name, required=required)

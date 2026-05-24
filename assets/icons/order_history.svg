@@ -1,7 +1,12 @@
-<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
-<!-- Uploaded to: SVG Repo, www.svgrepo.com, Transformed by: SVG Repo Mixer Tools -->
-<svg fill="#77767b" version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 512 512" xml:space="preserve" width="800px" height="800px">
-<g id="SVGRepo_bgCarrier" stroke-width="0"/>
-<g id="SVGRepo_tracerCarrier" stroke-linecap="round" stroke-linejoin="round"/>
-<g id="SVGRepo_iconCarrier"> <rect y="15.852" width="512" height="56"/> <rect y="157.276" width="512" height="56"/> <rect y="298.708" width="512" height="56"/> <rect y="440.148" width="512" height="56"/> </g>
-</svg>
+<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Order History</title>
+  <desc id="desc">Order book document with compact history clock.</desc>
+  <path d="M5.25 3.75H14.4L18.75 8.1V19.25C18.75 20.08 18.08 20.75 17.25 20.75H5.25C4.42 20.75 3.75 20.08 3.75 19.25V5.25C3.75 4.42 4.42 3.75 5.25 3.75Z" stroke="#5A7090" stroke-width="1.45" stroke-linejoin="round"/>
+  <path d="M14.25 3.95V8.25H18.55" stroke="#2A3A50" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M6.9 9.55H12.1" stroke="#A8BCD4" stroke-width="1.35" stroke-linecap="round"/>
+  <path d="M6.9 12.65H10.8" stroke="#A8BCD4" stroke-width="1.35" stroke-linecap="round"/>
+  <path d="M6.9 15.75H10.05" stroke="#A8BCD4" stroke-width="1.35" stroke-linecap="round"/>
+  <circle cx="16.25" cy="15.45" r="4.05" fill="#0A0D12" stroke="#00D4FF" stroke-width="1.45"/>
+  <path d="M16.25 13.15V15.55L18.05 16.55" stroke="#00D4FF" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M13.7 18.55C14.35 19.1 15.18 19.45 16.1 19.5" stroke="#00D4FF" stroke-width="1.15" stroke-linecap="round"/>
+</svg>
