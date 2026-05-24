@@ -568,15 +568,6 @@ class HeaderToolbar(QToolBar):
         account_layout.setContentsMargins(4, 2, 4, 2)
         account_layout.setSpacing(4)
 
-        self.order_history_button = self._make_action_button(
-            object_name="orderHistoryActionButton",
-            icon_name="order_history.svg",
-            required=True,
-            tooltip="Open order history",
-            label="Order History",
-        )
-        self.order_history_button.clicked.connect(self.order_history_requested.emit)
-        
         self.alerts_button = self._make_action_button(
             object_name="alertActionButton",
             icon_name="alert.svg",
@@ -599,9 +590,6 @@ class HeaderToolbar(QToolBar):
         )
         self.positions_button.clicked.connect(self.positions_requested.emit)
         account_layout.addWidget(self.positions_button)
-        account_layout.addWidget(self._create_vertical_divider())
-
-        account_layout.addWidget(self.order_history_button)
         account_layout.addWidget(self._create_vertical_divider())
 
         self.pending_orders_button = self._make_action_button(
