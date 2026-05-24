@@ -6,7 +6,7 @@ import requests
 from bs4 import BeautifulSoup as bs
 from typing import List, Dict, Optional
 
-from PySide6.QtCore import Signal, Slot, Qt, QThread, QTimer
+from PySide6.QtCore import Signal, Slot, Qt, QThread, QTimer, QSize
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem, QHeaderView,
     QAbstractItemView, QPushButton, QHBoxLayout, QLabel, QComboBox, QMessageBox,
@@ -1244,6 +1244,7 @@ class ChartinkScannerTable(QWidget):
         gear_icon_path = get_asset_path("icons", "gear_setting.svg", required=True)
         if gear_icon_path is not None:
             self.manage_btn.setIcon(QIcon(str(gear_icon_path)))
+            self.manage_btn.setIconSize(QSize(14, 14))
         self.manage_btn.clicked.connect(self._manage_scans)
         header_layout.addWidget(self.manage_btn)
 

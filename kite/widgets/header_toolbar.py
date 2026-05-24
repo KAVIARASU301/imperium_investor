@@ -675,7 +675,7 @@ class HeaderToolbar(QToolBar):
         button = self._make_icon_button(object_name, icon_name, required, tooltip)
         button.setText(label)
         button.setFixedHeight(_ACTION_BTN_H)
-        button.setIconSize(QSize(_ACTION_ICON, _ACTION_ICON))
+        button.setIconSize(QSize(max(12, _ACTION_ICON - 2), max(12, _ACTION_ICON - 2)))
         button.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
 
         # Lock compact button widths so the header does not breathe/reflow as

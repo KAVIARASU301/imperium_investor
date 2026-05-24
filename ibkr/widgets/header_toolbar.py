@@ -674,7 +674,7 @@ class HeaderToolbar(QToolBar):
         button.setFixedHeight(_ACTION_BTN_H)
         button.setMinimumWidth(56)
         button.setMaximumWidth(130)
-        button.setIconSize(QSize(14, 14))
+        button.setIconSize(QSize(12, 12))
         button.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
         return button
 

@@ -1,10 +1,2 @@
-<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
-  <title id="title">Alerts</title>
-  <desc id="desc">Market alert message icon with amber warning mark.</desc>
-  <path d="M5.15 5.25H18.85C19.9 5.25 20.75 6.1 20.75 7.15V15.15C20.75 16.2 19.9 17.05 18.85 17.05H10.25L6.35 20.05V17.05H5.15C4.1 17.05 3.25 16.2 3.25 15.15V7.15C3.25 6.1 4.1 5.25 5.15 5.25Z" stroke="#5A7090" stroke-width="1.45" stroke-linejoin="round"/>
-  <path d="M8.05 8.65H13.1" stroke="#A8BCD4" stroke-width="1.25" stroke-linecap="round"/>
-  <path d="M8.05 11.25H11.15" stroke="#A8BCD4" stroke-width="1.25" stroke-linecap="round"/>
-  <path d="M16.25 8.35V12.35" stroke="#F59E0B" stroke-width="1.75" stroke-linecap="round"/>
-  <circle cx="16.25" cy="15.05" r="0.95" fill="#F59E0B"/>
-  <path d="M15.15 3.35H17.35" stroke="#F59E0B" stroke-width="1.25" stroke-linecap="round"/>
-</svg>
+<?xml version="1.0" encoding="utf-8"?><!-- Uploaded to: SVG Repo, www.svgrepo.com, Generator: SVG Repo Mixer Tools -->
+<svg fill="#000000" width="800px" height="800px" viewBox="0 0 24 24" id="chat-alert-2" data-name="Flat Line" xmlns="http://www.w3.org/2000/svg" class="icon flat-line"><path id="secondary" d="M20,3H4A1,1,0,0,0,3,4V17a1,1,0,0,0,1,1H9l3,3,3-3h5a1,1,0,0,0,1-1V4A1,1,0,0,0,20,3Z" style="fill: rgb(44, 169, 188); stroke-width: 2;"></path><path id="primary" d="M12,9V7m8-4H4A1,1,0,0,0,3,4V17a1,1,0,0,0,1,1H9l3,3,3-3h5a1,1,0,0,0,1-1V4A1,1,0,0,0,20,3Z" style="fill: none; stroke: rgb(0, 0, 0); stroke-linecap: round; stroke-linejoin: round; stroke-width: 2;"></path><line id="primary-upstroke" x1="12.05" y1="13.5" x2="11.95" y2="13.5" style="fill: none; stroke: rgb(0, 0, 0); stroke-linecap: round; stroke-linejoin: round; stroke-width: 2.5;"></line></svg>
