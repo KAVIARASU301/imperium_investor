@@ -90,6 +90,7 @@ _CONTROL_H = 24
 _ICON_BTN_W = 28
 _ACTION_BTN_H = 24
 _ACTION_ICON = 16
+_PRIMARY_ACTION_ICON = 12  # BUY / SELL / INFO use visually smaller normal icons
 
 
 # ── Data helpers ─────────────────────────────────────────────────────────────
@@ -665,7 +666,16 @@ class HeaderToolbar(QToolBar):
         button = self._make_icon_button(object_name, icon_name, required, tooltip)
         button.setText(label)
         button.setFixedHeight(_ACTION_BTN_H)
-        button.setIconSize(QSize(max(12, _ACTION_ICON - 2), max(12, _ACTION_ICON - 2)))
+
+        # BUY / SELL / INFO icons are visually heavier than the rest of the
+        # toolbar assets, so render them smaller to keep a normal, balanced
+        # TC2000-style header rhythm.
+        icon_size = _PRIMARY_ACTION_ICON if object_name in {
+            "buyButton",
+            "sellButton",
+            "infoActionButton",
+        } else max(12, _ACTION_ICON - 2)
+        button.setIconSize(QSize(icon_size, icon_size))
         button.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
 
         # Lock compact button widths so the header does not breathe/reflow as
