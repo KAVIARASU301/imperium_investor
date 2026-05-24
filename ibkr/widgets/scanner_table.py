@@ -609,7 +609,8 @@ class ModernManageScansDialog(QDialog):
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        self.scans_table.setColumnWidth(3, 64)
 
         self.scans_table.verticalHeader().setVisible(False)
         self.scans_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -683,8 +684,9 @@ class ModernManageScansDialog(QDialog):
             # Actions buttons
             actions_widget = QWidget()
             actions_layout = QHBoxLayout(actions_widget)
-            actions_layout.setContentsMargins(0, 0, 0, 0)
+            actions_layout.setContentsMargins(2, 0, 2, 0)
             actions_layout.setSpacing(6)
+            actions_layout.setAlignment(Qt.AlignCenter)
 
             edit_btn = QPushButton("✎")
             edit_btn.setObjectName("editMinimalButton")
@@ -1330,7 +1332,8 @@ class ChartinkScannerTable(QWidget):
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(3, 64)
 
         # Prevent columns from disappearing entirely if crushed
         header.setMinimumSectionSize(35)
