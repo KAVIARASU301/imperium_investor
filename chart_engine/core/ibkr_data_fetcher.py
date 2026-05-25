@@ -1,14 +1,21 @@
 from __future__ import annotations
 
 import asyncio
+import itertools
 import logging
-from datetime import datetime, timezone
-from typing import Any, Dict, List
+import os
+import threading
+from datetime import date as date_cls
+from datetime import datetime, time as dt_time, timezone
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from chart_engine.core.broker_protocol import BarData, BrokerCapabilities, BrokerDataFetcher
 
 logger = logging.getLogger(__name__)
 
+
+_CLIENT_ID_LOCK = threading.Lock()
+_CLIENT_ID_COUNTER = itertools.count(1)
 
 
 def _ensure_event_loop() -> None:
@@ -19,6 +26,14 @@ def _ensure_event_loop() -> None:
             raise RuntimeError("Current event loop is closed")
     except RuntimeError:
         asyncio.set_event_loop(asyncio.new_event_loop())
+
+
+def _next_history_client_id(base: int) -> int:
+    """Return a unique TWS clientId for short-lived chart history sessions."""
+    with _CLIENT_ID_LOCK:
+        n = next(_CLIENT_ID_COUNTER)
+    # Keep it deterministic but away from the main app clientId, usually 1.
+    return int(base) + (os.getpid() % 1000) + (n % 500)
 
 
 IBKR_INTERVAL_MAP: Dict[str, str] = {
@@ -36,11 +51,32 @@ IBKR_INTERVAL_MAP: Dict[str, str] = {
 
 
 class IBKRDataFetcher(BrokerDataFetcher):
+    """
+    IBKR historical data adapter for the chart engine.
 
-    def __init__(self, ib_client, what_to_show: str = "TRADES", use_rth: bool = True):
+    Important: the chart loader runs in a QThread. Reusing the already-connected
+    app-wide IB instance inside that worker thread can stall ib_insync requests
+    because the socket/asyncio ownership belongs to another thread. Therefore,
+    by default, historical chart requests use a short-lived dedicated IB
+    connection created and destroyed inside the loader thread itself. This is
+    the same threading pattern as the standalone check_connection.py script.
+    """
+
+    def __init__(
+        self,
+        ib_client,
+        what_to_show: str = "TRADES",
+        use_rth: bool = True,
+        dedicated_history_connection: bool = True,
+        history_client_id_base: int = 9000,
+        connect_timeout: float = 4.0,
+    ):
         self._ib = ib_client
         self._what_to_show = what_to_show
         self._use_rth = use_rth
+        self._dedicated_history_connection = bool(dedicated_history_connection)
+        self._history_client_id_base = int(history_client_id_base)
+        self._connect_timeout = float(connect_timeout)
 
     @property
     def capabilities(self) -> BrokerCapabilities:
@@ -61,15 +97,47 @@ class IBKRDataFetcher(BrokerDataFetcher):
         to_date: datetime,
         interval: str,
     ) -> List[BarData]:
-        from ib_insync import Contract, Stock
-
         _ensure_event_loop()
+
+        ib = self._ib
+        owns_connection = False
+        if self._dedicated_history_connection:
+            ib = self._connect_dedicated_ib()
+            owns_connection = True
+
+        try:
+            return self._fetch_with_ib(
+                ib=ib,
+                symbol=symbol,
+                instrument_token=instrument_token,
+                from_date=from_date,
+                to_date=to_date,
+                interval=interval,
+            )
+        finally:
+            if owns_connection:
+                try:
+                    ib.disconnect()
+                except Exception:
+                    pass
+
+    def _fetch_with_ib(
+        self,
+        ib,
+        symbol: str,
+        instrument_token: Any,
+        from_date: datetime,
+        to_date: datetime,
+        interval: str,
+    ) -> List[BarData]:
+        from ib_insync import Contract, Stock
 
         bar_size = IBKR_INTERVAL_MAP.get(interval, "1 day")
         duration_str = self._compute_duration(from_date, to_date, bar_size)
-        end_dt_str = to_date.strftime("%Y%m%d %H:%M:%S UTC")
+        end_dt_str = self._format_end_datetime(to_date)
 
-        # Resolve contract — prefer conId, fall back to symbol lookup.
+        # Resolve contract — prefer conId from the IBKR instrument map, fall back
+        # to symbol lookup for ad-hoc typed symbols.
         contract = None
         con_id = None
         try:
@@ -80,22 +148,24 @@ class IBKRDataFetcher(BrokerDataFetcher):
         if con_id and con_id > 0:
             contract = Contract()
             contract.conId = con_id
+            contract.symbol = symbol
+            contract.secType = "STK"
             contract.exchange = "SMART"
-            # Qualify so TWS fills in remaining fields
+            contract.currency = "USD"
             try:
-                qualified = self._ib.qualifyContracts(contract)
+                qualified = ib.qualifyContracts(contract)
                 if qualified:
                     contract = qualified[0]
                 else:
                     contract = None
             except Exception as e:
-                logger.warning("qualify by conId failed for %s: %s", symbol, e)
+                logger.warning("qualify by conId failed for %s/%s: %s", symbol, con_id, e)
                 contract = None
 
         if contract is None:
             stock = Stock(symbol, "SMART", "USD")
             try:
-                qualified = self._ib.qualifyContracts(stock)
+                qualified = ib.qualifyContracts(stock)
                 if not qualified:
                     raise ValueError(f"Could not qualify contract for {symbol}")
                 contract = qualified[0]
@@ -103,11 +173,15 @@ class IBKRDataFetcher(BrokerDataFetcher):
                 raise ValueError(f"Could not qualify contract for {symbol}: {e}") from e
 
         logger.info(
-            "Requesting historical data: %s bar=%s duration=%s end=%s",
-            symbol, bar_size, duration_str, end_dt_str,
+            "Requesting IBKR historical data: %s conId=%s bar=%s duration=%s end=%s",
+            symbol,
+            getattr(contract, "conId", con_id) or con_id or "symbol-lookup",
+            bar_size,
+            duration_str,
+            end_dt_str or "latest",
         )
 
-        bars = self._ib.reqHistoricalData(
+        bars = ib.reqHistoricalData(
             contract,
             endDateTime=end_dt_str,
             durationStr=duration_str,
@@ -121,8 +195,64 @@ class IBKRDataFetcher(BrokerDataFetcher):
         if not bars:
             raise ValueError(f"No data returned for {symbol} [{bar_size}]")
 
-        logger.info("Received %d bars for %s", len(bars), symbol)
+        logger.info("Received %d IBKR bars for %s", len(bars), symbol)
         return [self._bar_to_bardata(b) for b in bars]
+
+    def _connect_dedicated_ib(self):
+        """Create a new IB connection owned by the current loader thread."""
+        from ib_insync import IB
+
+        last_error: Optional[Exception] = None
+        for host, port in self._connection_candidates():
+            ib = IB()
+            client_id = _next_history_client_id(self._history_client_id_base)
+            try:
+                ib.connect(host=host, port=int(port), clientId=client_id, timeout=self._connect_timeout)
+                if ib.isConnected():
+                    logger.info("IBKR chart history connected on %s:%s clientId=%s", host, port, client_id)
+                    return ib
+            except Exception as exc:
+                last_error = exc
+                try:
+                    ib.disconnect()
+                except Exception:
+                    pass
+
+        raise ConnectionError(f"Could not open dedicated IBKR history connection: {last_error}")
+
+    def _connection_candidates(self) -> List[Tuple[str, int]]:
+        """Prefer the already-connected client's host/port, then common TWS/Gateway ports."""
+        candidates: List[Tuple[str, int]] = []
+
+        def add(host: Any, port: Any) -> None:
+            try:
+                host_s = str(host or "").strip()
+                port_i = int(port)
+            except Exception:
+                return
+            if host_s and port_i and (host_s, port_i) not in candidates:
+                candidates.append((host_s, port_i))
+
+        client = getattr(self._ib, "client", None)
+        possible_hosts: List[Any] = []
+        possible_ports: List[Any] = []
+        for obj in (client, getattr(client, "conn", None), self._ib):
+            if obj is None:
+                continue
+            for name in ("host", "_host"):
+                possible_hosts.append(getattr(obj, name, None))
+            for name in ("port", "_port"):
+                possible_ports.append(getattr(obj, name, None))
+
+        for h in possible_hosts:
+            for p in possible_ports:
+                add(h, p)
+
+        # Fallbacks: TWS paper, TWS live, Gateway paper, Gateway live.
+        for host in ("127.0.0.1", "localhost", "::1"):
+            for port in (7497, 7496, 4002, 4001):
+                add(host, port)
+        return candidates
 
     def resolve_instrument(self, symbol: str):
         from ib_insync import Stock
@@ -141,10 +271,13 @@ class IBKRDataFetcher(BrokerDataFetcher):
             # "YYYYMMDD" or "YYYYMMDD HH:MM:SS"
             fmt = "%Y%m%d %H:%M:%S" if " " in raw_date else "%Y%m%d"
             dt = datetime.strptime(raw_date, fmt).replace(tzinfo=timezone.utc)
-        elif hasattr(raw_date, "tzinfo") and raw_date.tzinfo is None:
-            dt = raw_date.replace(tzinfo=timezone.utc)
+        elif isinstance(raw_date, datetime):
+            dt = raw_date.replace(tzinfo=timezone.utc) if raw_date.tzinfo is None else raw_date
+        elif isinstance(raw_date, date_cls):
+            dt = datetime.combine(raw_date, dt_time.min, tzinfo=timezone.utc)
         else:
             dt = raw_date
+
         return BarData(
             time=dt,
             open=float(bar.open),
@@ -155,6 +288,24 @@ class IBKRDataFetcher(BrokerDataFetcher):
         )
 
     @staticmethod
+    def _format_end_datetime(to_date: datetime) -> str:
+        """
+        Return a TWS-compatible endDateTime.
+
+        If the requested end is now/future, use an empty string. This matches the
+        working check_connection.py behavior and avoids accidentally formatting a
+        New York local timestamp as literal UTC.
+        """
+        if to_date.tzinfo is None:
+            end_utc = to_date.replace(tzinfo=timezone.utc)
+        else:
+            end_utc = to_date.astimezone(timezone.utc)
+
+        if end_utc >= datetime.now(timezone.utc):
+            return ""
+        return end_utc.strftime("%Y%m%d %H:%M:%S UTC")
+
+    @staticmethod
     def _compute_duration(from_date: datetime, to_date: datetime, bar_size: str) -> str:
         """Return a TWS-compatible durationStr."""
         days = max(1, (to_date - from_date).days + 1)
@@ -163,5 +314,5 @@ class IBKRDataFetcher(BrokerDataFetcher):
             return f"{years} Y"
         if bar_size == "1 day":
             return f"{min(days, 365)} D"
-        # Intraday: cap at 30 days
+        # Intraday: cap at 30 days.
         return f"{min(days, 30)} D"

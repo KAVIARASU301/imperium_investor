@@ -663,7 +663,7 @@ class CandlestickChart(QWidget):
             data_fetcher=self.data_fetcher,
             cache=self.data_cache,
             symbol=self.current_symbol,
-            instrument_token=(token if requires_token else None),
+            instrument_token=(token or None),
             interval=self.current_interval,
             force_refresh=force_refresh,
             days_back_overrides=self._history_days_by_interval,

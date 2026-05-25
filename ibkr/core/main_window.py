@@ -1755,12 +1755,42 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             show_error("Failed to open stock info dialog")
 
     def _initialize_chart_after_instruments(self):
-        """Initialize chart after instruments are ready"""
+        """Initialize chart after instruments are ready.
+
+        IBKR can restore the last symbol before the seed instrument list and
+        contract IDs are available. In that case the chart has a symbol, but no
+        rendered candles yet. Do not treat that as success; resolve the conId
+        when possible and force one clean reload.
+        """
         try:
             logger.info("Chart auto-loading initiated")
             active_symbol = (getattr(self.candlestick_chart, "current_symbol", "") or "").strip().upper()
             if active_symbol:
-                logger.info("Chart already has active symbol: %s", active_symbol)
+                state_value = str(getattr(getattr(self.candlestick_chart, "current_state", None), "value", ""))
+                last_df = getattr(self.candlestick_chart, "last_df", None)
+                has_rendered_data = (state_value == "loaded" and last_df is not None and not last_df.empty)
+
+                if has_rendered_data:
+                    logger.info("Chart already has active rendered symbol: %s", active_symbol)
+                    return
+
+                instrument = self.instrument_map.get(active_symbol, {}) if getattr(self, "instrument_map", None) else {}
+                token = int(instrument.get("instrument_token") or 0) if isinstance(instrument, dict) else 0
+                exchange = instrument.get("exchange") if isinstance(instrument, dict) else None
+                if token:
+                    self.candlestick_chart.current_instrument_token = token
+
+                logger.info(
+                    "Chart has active symbol %s but no rendered data; retrying historical load (conId=%s)",
+                    active_symbol, token or "symbol-lookup",
+                )
+                self.candlestick_chart.load_symbol(
+                    active_symbol,
+                    exchange,
+                    token,
+                    getattr(self.candlestick_chart, "current_interval", "day"),
+                    force_refresh=True,
+                )
                 return
 
             symbol_to_load = ""
