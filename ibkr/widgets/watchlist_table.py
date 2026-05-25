@@ -864,12 +864,17 @@ class TradingTable(QTableWidget):
         return None
 
     def add_symbol(self, symbol: str) -> bool:
-        resolved_symbol = self._resolve_symbol_for_instrument_map(symbol)
-        if not resolved_symbol or resolved_symbol in self._symbols:
+        raw_symbol = str(symbol).strip().upper() if symbol else ""
+        if not raw_symbol:
             return False
 
-        self._symbols.append(resolved_symbol)
-        self._init_symbol_data(resolved_symbol)
+        resolved_symbol = self._resolve_symbol_for_instrument_map(raw_symbol)
+        symbol_key = resolved_symbol or raw_symbol
+        if symbol_key in self._symbols:
+            return False
+
+        self._symbols.append(symbol_key)
+        self._init_symbol_data(symbol_key)
         self._repopulate()
         self.watchlist_symbols_changed.emit()
         return True
@@ -998,7 +1003,7 @@ class TradingTable(QTableWidget):
 
     def _init_data_for_existing(self):
         for sym in self._symbols:
-            if sym in self._instrument_map:
+            if sym not in self._watchlist_data:
                 self._init_symbol_data(sym)
         self._rebuild_token_map()
 
