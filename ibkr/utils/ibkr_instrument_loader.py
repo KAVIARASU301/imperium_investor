@@ -7,6 +7,7 @@ IBKR doesn't provide one. Additional symbols are resolved on-demand
 via IBKRSymbolResolver when the user types in the search bar.
 """
 
+import asyncio
 import logging
 from typing import Any, Dict, List
 
@@ -83,27 +84,35 @@ class IBKRInstrumentLoader(QThread):
         self._stop_requested = True
 
     def run(self):
-        # ── Phase 1: Emit seed list immediately (no API calls) ──────────
-        self.progress_update.emit("Building initial instrument list...")
+        thread_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(thread_loop)
+        try:
+            # ── Phase 1: Emit seed list immediately (no API calls) ──────────
+            self.progress_update.emit("Building initial instrument list...")
 
-        seed_instruments = self._build_seed_instruments()
-        instrument_map = {inst["tradingsymbol"]: inst for inst in seed_instruments}
-        token_to_symbol = {}  # Will be populated in phase 2
+            seed_instruments = self._build_seed_instruments()
+            instrument_map = {inst["tradingsymbol"]: inst for inst in seed_instruments}
+            token_to_symbol = {}  # Will be populated in phase 2
 
-        payload = {
-            "instruments": seed_instruments,
-            "instrument_map": instrument_map,
-            "token_to_symbol": token_to_symbol,
-            "symbol_index": None,
-        }
-        self.instruments_loaded.emit(payload)
-        self.progress_update.emit(
-            f"Loaded {len(seed_instruments)} symbols (qualifying in background...)"
-        )
+            payload = {
+                "instruments": seed_instruments,
+                "instrument_map": instrument_map,
+                "token_to_symbol": token_to_symbol,
+                "symbol_index": None,
+            }
+            self.instruments_loaded.emit(payload)
+            self.progress_update.emit(
+                f"Loaded {len(seed_instruments)} symbols (qualifying in background...)"
+            )
 
-        # ── Phase 2: Qualify in batches to get conId ─────────────────────
-        # This updates instrument_token for each symbol so market data works.
-        self._qualify_in_background(instrument_map, token_to_symbol)
+            # ── Phase 2: Qualify in batches to get conId ─────────────────────
+            # This updates instrument_token for each symbol so market data works.
+            self._qualify_in_background(instrument_map, token_to_symbol)
+        finally:
+            try:
+                thread_loop.close()
+            except Exception:
+                pass
 
     def _build_seed_instruments(self) -> List[Dict[str, Any]]:
         """Build instrument list from seed without any API calls."""

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import threading
 from typing import List, Dict, Set, Any, Iterable
@@ -35,7 +36,7 @@ class MarketDataWorker(QThread):
         # util.run() drives the asyncio loop that ib_insync requires.
         try:
             while self._is_running and self.ib.isConnected():
-                self.ib.sleep(0.05)   # yields to ib_insync's loop
+                self.ib.waitOnUpdate(timeout=0.05)
         except Exception as e:
             logger.error(f"MarketDataWorker loop error: {e}")
         finally:

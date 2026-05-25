@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Callable, Dict, Optional
 
@@ -22,6 +23,8 @@ class IBKRSymbolSearchWorker(QThread):
         self.query = query.strip().upper()
 
     def run(self) -> None:
+        thread_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(thread_loop)
         try:
             from ib_insync import Stock
 
@@ -48,6 +51,11 @@ class IBKRSymbolSearchWorker(QThread):
         except Exception as exc:
             logger.error("IBKR symbol search failed for '%s': %s", self.query, exc)
             self.search_failed.emit(str(exc))
+        finally:
+            try:
+                thread_loop.close()
+            except Exception:
+                pass
 
 
 class IBKRSymbolResolver(QObject):
