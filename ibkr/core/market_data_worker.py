@@ -1,10 +1,9 @@
 import asyncio
 import logging
-import threading
 from typing import List, Dict, Set, Any, Iterable
 
 from PySide6.QtCore import QObject, Signal, QThread
-from ib_insync import IB, Contract, Ticker, util
+from ib_insync import IB, Contract, Ticker
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +22,13 @@ class MarketDataWorker(QThread):
         self._is_running = True
 
     def run(self):
+        # Ensure this worker thread has an asyncio event loop.
+        # ib_insync relies on asyncio.wait_for under the hood; without a loop in
+        # the current thread, RuntimeWarning("coroutine ... was never awaited")
+        # can be raised while polling waitOnUpdate.
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
         if not self.ib or not self.ib.isConnected():
             logger.error("IB client not connected.")
             self.connection_error.emit("IB client is not connected.")
@@ -32,8 +38,6 @@ class MarketDataWorker(QThread):
         self.connection_established.emit()
         self.ib.pendingTickersEvent += self._on_pending_tickers
 
-        # Pump ib_insync's event loop — this is the critical fix.
-        # util.run() drives the asyncio loop that ib_insync requires.
         try:
             while self._is_running and self.ib.isConnected():
                 self.ib.waitOnUpdate(timeout=0.05)
@@ -44,6 +48,8 @@ class MarketDataWorker(QThread):
                 self.ib.pendingTickersEvent -= self._on_pending_tickers
             except Exception:
                 pass
+            asyncio.set_event_loop(None)
+            loop.close()
             logger.info("MarketDataWorker stopped.")
             self.connection_closed.emit()
 

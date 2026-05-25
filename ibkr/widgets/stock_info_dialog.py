@@ -2,7 +2,7 @@
 """
 StockInfoDialog — Bloomberg-style stock fundamentals panel for the IBKR terminal.
 
-Fetches data from yfinance using NSE symbol format (symbol.NS) and displays:
+Fetches data from yfinance with US-first symbol resolution and displays:
   • Company name, sector, industry, description
   • Key valuation metrics: PE, PB, EV/EBITDA, Market Cap
   • Profitability: EPS, ROE, ROA, Profit Margin
@@ -14,11 +14,11 @@ Fetches data from yfinance using NSE symbol format (symbol.NS) and displays:
 Usage:
     from ibkr.widgets.stock_info_dialog import StockInfoDialog
 
-    dialog = StockInfoDialog("RELIANCE", parent=self)
+    dialog = StockInfoDialog("AAPL", parent=self)
     dialog.show()
 
     # Or use the convenience function:
-    show_stock_info("RELIANCE", parent=main_window)
+    show_stock_info("AAPL", parent=main_window)
 """
 
 from __future__ import annotations
@@ -56,15 +56,23 @@ class _FetchWorker(QObject):
         try:
             import yfinance as yf
 
-            # Try NSE first, fall back to BSE
-            ticker_sym = f"{self._symbol}.NS"
-            ticker = yf.Ticker(ticker_sym)
-            info = ticker.info or {}
+            # US-first resolution: plain symbol (works for NASDAQ/NYSE), then Indian fallbacks.
+            candidate_symbols = [self._symbol, f"{self._symbol}.NS", f"{self._symbol}.BO"]
+            ticker_sym = self._symbol
+            info = {}
+            ticker = None
 
-            # If NSE returns minimal data, try BSE
-            if not info.get("longName") and not info.get("shortName"):
-                ticker_sym = f"{self._symbol}.BO"
-                ticker = yf.Ticker(ticker_sym)
+            for cand in candidate_symbols:
+                t = yf.Ticker(cand)
+                data = t.info or {}
+                if data.get("longName") or data.get("shortName"):
+                    ticker_sym = cand
+                    ticker = t
+                    info = data
+                    break
+
+            if ticker is None:
+                ticker = yf.Ticker(self._symbol)
                 info = ticker.info or {}
 
             # Pull calendar for earnings
@@ -104,31 +112,6 @@ class _FetchWorker(QObject):
             return f"${v/1e12:.2f}T"
         if v >= 1e9:
             return f"${v/1e9:.2f}B"
-        if v >= 1e7:
-            return f"${v/1e7:.2f} Cr"
-        if v >= 1e5:
-            return f"${v/1e5:.2f} L"
-        return f"${v:,.0f}"
-
-    @staticmethod
-    def _fmt_crore_readable(val) -> str:
-        """Format INR values into crore-based wording for easier reading."""
-        try:
-            v = float(val)
-        except (TypeError, ValueError):
-            return "—"
-
-        crore = v / 1e7
-        if crore >= 1e5:
-            lakh_crore = crore / 1e5
-            return f"${lakh_crore:.2f} lakh crore"
-        if crore >= 1e3:
-            return f"${crore:,.0f} crore"
-        if crore >= 1e2:
-            return f"${crore:,.0f} crore"
-        if crore >= 1:
-            return f"${crore:,.2f} crore"
-
         return f"${v:,.0f}"
 
     @staticmethod
@@ -213,15 +196,15 @@ class _FetchWorker(QObject):
             "name":            g("longName") or g("shortName") or self._symbol,
             "sector":          g("sector") or "—",
             "industry":        g("industry") or "—",
-            "exchange":        g("exchange") or "NSE",
-            "currency":        g("currency") or "INR",
-            "country":         g("country") or "India",
+            "exchange":        g("exchange") or "US",
+            "currency":        g("currency") or "USD",
+            "country":         g("country") or "United States",
             "website":         g("website") or "",
             "employees":       f"{int(g('fullTimeEmployees')):,}" if g("fullTimeEmployees") else "—",
             "description":     description,
 
             # Valuation
-            "market_cap":      self._fmt_crore_readable(g("marketCap")),
+            "market_cap":      fl(g("marketCap")),
             "pe_ratio":        fn(g("trailingPE"), 2),
             "forward_pe":      fn(g("forwardPE"), 2),
             "pb_ratio":        fn(g("priceToBook"), 2),
@@ -384,7 +367,7 @@ _LOADING_HTML = f"""<!DOCTYPE html>
   <div class="loader-head">FETCHING FUNDAMENTALS</div>
   <div class="loader-body">
     <div class="line"></div><div class="line"></div><div class="line"></div>
-    <div class="small">yfinance NSE/BSE lookup in progress…</div>
+    <div class="small">yfinance US-first symbol lookup in progress…</div>
   </div>
 </div>
 </body></html>"""
@@ -903,7 +886,7 @@ class StockInfoDialog(QDialog):
         h = QHBoxLayout(f)
         h.setContentsMargins(10, 0, 10, 0)
 
-        self._status_lbl = QLabel(f"Data source: yfinance  ·  {self._symbol}.NS / {self._symbol}.BO")
+        self._status_lbl = QLabel(f"Data source: yfinance  ·  {self._symbol} (US-first)")
         self._status_lbl.setObjectName("siStatus")
         h.addWidget(self._status_lbl)
         h.addStretch()
