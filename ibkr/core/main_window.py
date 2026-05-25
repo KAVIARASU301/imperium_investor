@@ -1962,9 +1962,11 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             self.candlestick_chart.on_search(symbol)
             self.candlestick_chart_secondary.on_search(symbol)
 
-        # Run qualification in background
-        from ibkr.utils.ibkr_symbol_resolver import IBKRSymbolSearchWorker
-        worker = IBKRSymbolSearchWorker(self.real_kite_client, symbol)
+        # Run qualification in background via resolver to avoid direct worker imports.
+        resolver = getattr(self, "_ibkr_symbol_resolver", None)
+        if resolver is None:
+            resolver = IBKRSymbolResolver(self.real_kite_client, parent=self)
+            self._ibkr_symbol_resolver = resolver
 
         def _handle_results(results):
             contract_obj = None
@@ -1980,12 +1982,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                         break
             _on_qualified(contract_obj)
 
-        worker.results_ready.connect(_handle_results)
-        worker.search_failed.connect(lambda _: _on_qualified(None))
-        worker.start()
-        # Keep reference so it's not GC'd
-        self._pending_workers = getattr(self, "_pending_workers", [])
-        self._pending_workers.append(worker)
+        resolver.search(symbol, _handle_results)
 
     def _filter_ticks_by_exchange_preference(self, ticks: List[Dict]) -> List[Dict]:
         """Filter ticks to prefer NSE over BSE for same symbols"""

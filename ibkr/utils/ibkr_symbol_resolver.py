@@ -2,34 +2,49 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any, Callable, Dict, Optional
 
-from PySide6.QtCore import QObject, QThread, Signal
+from PySide6.QtCore import QObject, QTimer
 
 logger = logging.getLogger(__name__)
 
 
-class IBKRSymbolSearchWorker(QThread):
-    """Background thread for IBKR symbol search."""
+class IBKRSymbolResolver(QObject):
+    """Resolves IBKR symbols on demand."""
 
-    results_ready = Signal(list)
-    search_failed = Signal(str)
-
-    def __init__(self, ib_client: Any, query: str, parent: Optional[QObject] = None):
+    def __init__(self, ib_client: Any, parent: Optional[QObject] = None):
         super().__init__(parent)
         self.ib_client = ib_client
-        self.query = query.strip().upper()
+        self._cache: Dict[str, Dict[str, Any]] = {}
+        self._pending_query: Optional[str] = None
 
-    def run(self) -> None:
-        thread_loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(thread_loop)
+    def search(self, query: str, callback: Callable[[list], None]) -> None:
+        if not query or not query.strip():
+            callback([])
+            return
+
+        cache_key = query.strip().upper()
+        if cache_key in self._cache:
+            callback([self._cache[cache_key]])
+            return
+
+        self._pending_query = cache_key
+        QTimer.singleShot(0, lambda: self._execute_search(callback))
+
+    def stop(self) -> None:
+        """Stop any in-flight search request."""
+        self._pending_query = None
+
+    def _execute_search(self, callback: Callable[[list], None]) -> None:
+        query = self._pending_query
+        self._pending_query = None
+        if not query:
+            callback([])
+            return
+
         try:
-            from ib_insync import Stock
-
-            # Use synchronous reqMatchingSymbols — avoids asyncio.run conflict
-            contracts = self.ib_client.reqMatchingSymbols(self.query)
+            contracts = self.ib_client.reqMatchingSymbols(query)
             results = []
             for cd in (contracts or []):
                 contract = getattr(cd, "contract", None)
@@ -47,54 +62,10 @@ class IBKRSymbolSearchWorker(QThread):
                         "instrument_type": "EQ",
                     }
                 )
-            self.results_ready.emit(results)
+            self._on_results(results, callback)
         except Exception as exc:
-            logger.error("IBKR symbol search failed for '%s': %s", self.query, exc)
-            self.search_failed.emit(str(exc))
-        finally:
-            try:
-                thread_loop.close()
-            except Exception:
-                pass
-
-
-class IBKRSymbolResolver(QObject):
-    """Resolves IBKR symbols on demand."""
-
-    def __init__(self, ib_client: Any, parent: Optional[QObject] = None):
-        super().__init__(parent)
-        self.ib_client = ib_client
-        self._cache: Dict[str, Dict[str, Any]] = {}
-        self._search_worker: Optional[IBKRSymbolSearchWorker] = None
-
-    def search(self, query: str, callback: Callable[[list], None]) -> None:
-        if not query or not query.strip():
+            logger.error("IBKR symbol search failed for '%s': %s", query, exc)
             callback([])
-            return
-
-        cache_key = query.strip().upper()
-        if cache_key in self._cache:
-            callback([self._cache[cache_key]])
-            return
-
-        if self._search_worker and self._search_worker.isRunning():
-            self._search_worker.requestInterruption()
-            self._search_worker.quit()
-            self._search_worker.wait(200)
-
-        worker = IBKRSymbolSearchWorker(self.ib_client, query, parent=self)
-        worker.results_ready.connect(lambda results: self._on_results(results, callback))
-        worker.search_failed.connect(lambda _err: callback([]))
-        self._search_worker = worker
-        worker.start()
-
-
-    def stop(self) -> None:
-        """Stop any in-flight search worker thread."""
-        if self._search_worker and self._search_worker.isRunning():
-            self._search_worker.requestInterruption()
-            self._search_worker.quit()
-            self._search_worker.wait(500)
 
     def _on_results(self, results: list, callback: Callable[[list], None]) -> None:
         for inst in results:

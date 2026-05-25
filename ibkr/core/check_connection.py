@@ -40,7 +40,7 @@ def print_ohlc_bars(symbol: str, bars) -> None:
 def check():
     ib = IB()
     hosts = ["127.0.0.1", "::1"]
-    ports = [7497, 7496, 4002, 4001]  # 7497=TWS paper, 7496=TWS live, 4002=Gateway paper
+    ports = [4002,4001,7497,7496 ]  # 7497=TWS paper, 7496=TWS live, 4002=Gateway paper
 
     for host in hosts:
         for port in ports:
@@ -59,7 +59,7 @@ def check():
                     bars = ib.reqHistoricalData(
                         contract,
                         endDateTime="",
-                        durationStr="10 D",
+                        durationStr="365 D",
                         barSizeSetting="1 day",
                         whatToShow="TRADES",
                         useRTH=True,

@@ -212,8 +212,8 @@ class IBKRDataFetcher(BrokerDataFetcher):
         return [self._bar_to_bardata(b) for b in bars]
 
     def _request_historical_bars(self, ib, contract, end_dt_str: str, duration_str: str, bar_size: str):
-        return ib.reqHistoricalData(
-            contract,
+        """Request historical bars with a bounded wait to avoid frozen loaders."""
+        request_kwargs = dict(
             endDateTime=end_dt_str,
             durationStr=duration_str,
             barSizeSetting=bar_size,
@@ -222,6 +222,14 @@ class IBKRDataFetcher(BrokerDataFetcher):
             formatDate=1,
             keepUpToDate=False,
         )
+
+        # Newer ib_insync versions support a ``timeout`` keyword; use it when
+        # available so a stalled TWS/HMDS response cannot block the chart thread
+        # indefinitely (black chart + stuck progress bar).
+        try:
+            return ib.reqHistoricalData(contract, timeout=20, **request_kwargs)
+        except TypeError:
+            return ib.reqHistoricalData(contract, **request_kwargs)
 
     @staticmethod
     def _coerce_con_id(instrument_token: Any) -> int:
