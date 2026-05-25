@@ -1065,25 +1065,50 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
 
     def _initialize_ibkr_instruments(self):
-        """Initialize the IBKR symbol universe without Kite instrument preloading."""
-        try:
-            instruments = self.real_kite_client.get_instruments() if self.real_kite_client else []
-        except Exception as exc:
-            logger.warning(f"IBKR instrument bootstrap failed, continuing with empty set: {exc}")
-            instruments = []
+        from ibkr.utils.ibkr_instrument_loader import IBKRInstrumentLoader
+        from ibkr.utils.ibkr_symbol_resolver import IBKRSymbolResolver
 
-        instrument_map = {
-            str(inst.get("tradingsymbol", "")).upper(): inst
-            for inst in instruments
-            if inst.get("tradingsymbol")
-        }
-        payload = {
-            "instruments": instruments,
-            "instrument_map": instrument_map,
-            "token_to_symbol": {},
-            "symbol_index": None,
-        }
-        self._on_instruments_loaded(payload)
+        # Create live search resolver
+        self.ibkr_symbol_resolver = IBKRSymbolResolver(self.real_kite_client)
+
+        # Wire search bar to use live IBKR search
+        self.header_toolbar.set_live_search_callback(self._ibkr_live_search)
+
+        # Load seed instruments
+        self.ibkr_instrument_loader = IBKRInstrumentLoader(self.real_kite_client)
+        self.ibkr_instrument_loader.instruments_loaded.connect(self._on_instruments_loaded)
+        self.ibkr_instrument_loader.progress_update.connect(
+            lambda msg: logger.info("IBKR loader: %s", msg)
+        )
+        self.ibkr_instrument_loader.start()
+
+    def _ibkr_live_search(self, query: str, callback) -> None:
+        """Called by search bar for every keystroke — hits IBKR API live."""
+        if not query or len(query) < 1:
+            callback([])
+            return
+
+        # Check local instrument map first (instant)
+        local_matches = [
+            inst for sym, inst in self.instrument_map.items()
+            if sym.startswith(query.upper())
+        ]
+        if local_matches:
+            callback(local_matches[:20])
+
+        # Also search IBKR for anything not in local map
+        self.ibkr_symbol_resolver.search(
+            query,
+            lambda results: self._on_ibkr_search_results(results, query, callback)
+        )
+
+    def _on_ibkr_search_results(self, results: list, query: str, callback) -> None:
+        """Merge live IBKR search results into instrument map and call back."""
+        for inst in results:
+            sym = inst.get("tradingsymbol", "")
+            if sym and sym not in self.instrument_map:
+                self.instrument_map[sym] = inst
+        callback(results[:20])
 
     @Slot()
     def _on_websocket_connect(self):
@@ -1833,10 +1858,59 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
     @Slot(str)
     def _on_scanner_symbol_selected(self, symbol: str):
-        """Ensure scanner-selected symbols are subscribed immediately."""
-        token = self.instrument_map.get(symbol, {}).get('instrument_token')
-        if token:
+        """Ensure scanner-selected symbols are resolved and subscribed."""
+        symbol = symbol.strip().upper()
+        instrument = self.instrument_map.get(symbol)
+
+        if instrument and instrument.get("instrument_token"):
+            # Already known — subscribe and load
+            token = instrument["instrument_token"]
             self._subscribe_to_tokens([token])
+            self.candlestick_chart.on_search(symbol)
+            self.candlestick_chart_secondary.on_search(symbol)
+            return
+
+        # Unknown symbol — qualify it first
+        def _on_qualified(contract):
+            if contract:
+                self.instrument_map[symbol] = {
+                    "tradingsymbol": symbol,
+                    "name": symbol,
+                    "exchange": contract.exchange or "SMART",
+                    "instrument_token": contract.conId,
+                    "currency": "USD",
+                    "instrument_type": "EQ",
+                }
+                self._token_to_symbol[contract.conId] = symbol
+                self._subscribe_to_tokens([contract.conId])
+            # Load chart regardless — IBKRDataFetcher can resolve without conId
+            self.candlestick_chart.on_search(symbol)
+            self.candlestick_chart_secondary.on_search(symbol)
+
+        # Run qualification in background
+        from ibkr.utils.ibkr_symbol_resolver import IBKRSymbolSearchWorker
+        worker = IBKRSymbolSearchWorker(self.real_kite_client, symbol)
+
+        def _handle_results(results):
+            contract_obj = None
+            if results:
+                # Use first exact match
+                for r in results:
+                    if r.get("tradingsymbol") == symbol:
+                        from ib_insync import Stock
+                        c = Stock(symbol, "SMART", "USD")
+                        c.conId = r.get("instrument_token", 0)
+                        c.exchange = r.get("exchange", "SMART")
+                        contract_obj = c
+                        break
+            _on_qualified(contract_obj)
+
+        worker.results_ready.connect(_handle_results)
+        worker.search_failed.connect(lambda _: _on_qualified(None))
+        worker.start()
+        # Keep reference so it's not GC'd
+        self._pending_workers = getattr(self, "_pending_workers", [])
+        self._pending_workers.append(worker)
 
     def _filter_ticks_by_exchange_preference(self, ticks: List[Dict]) -> List[Dict]:
         """Filter ticks to prefer NSE over BSE for same symbols"""
