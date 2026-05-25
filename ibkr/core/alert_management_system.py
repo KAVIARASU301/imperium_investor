@@ -38,6 +38,14 @@ class AlertCondition(Enum):
     PRICE_IS_BELOW = "Price is Below"
 
 
+
+
+class AlertStatus(Enum):
+    """Alert lifecycle status values kept for UI/import compatibility."""
+    ACTIVE = "active"
+    TRIGGERED = "triggered"
+    EXPIRED = "expired"
+
 class AlertIntent(Enum):
     """Intelligent alert intent detection."""
     BUY_ENTRY = "Buy Entry Signal"
