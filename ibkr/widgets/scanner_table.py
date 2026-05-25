@@ -994,16 +994,26 @@ class ScanWorker(QThread):
 
             tickers = quick_scrape(url)
             scan_results = []
-            for symbol in tickers:
-                symbol = str(symbol).strip().upper()
+            for row in tickers:
+                if isinstance(row, dict):
+                    symbol = str(row.get('symbol', '')).strip().upper()
+                    price = float(row.get('price', 0.0) or 0.0)
+                    change_pct = float(row.get('change_pct', 0.0) or 0.0)
+                    volume = int(row.get('volume', 0) or 0)
+                else:
+                    symbol = str(row).strip().upper()
+                    price = 0.0
+                    change_pct = 0.0
+                    volume = 0
+
                 if not symbol:
                     continue
                 symbol_data = {
                     'symbol': symbol,
                     'name': symbol,
-                    'price': 0.0,
-                    'change_pct': 0.0,
-                    'volume': 0,
+                    'price': price,
+                    'change_pct': change_pct,
+                    'volume': volume,
                     '_raw_data': {'source': 'finviz', 'url': url},
                 }
                 scan_results.append(symbol_data)

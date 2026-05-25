@@ -59,7 +59,7 @@ def check():
                     bars = ib.reqHistoricalData(
                         contract,
                         endDateTime="",
-                        durationStr="250 D",
+                        durationStr="10 D",
                         barSizeSetting="1 day",
                         whatToShow="TRADES",
                         useRTH=True,
