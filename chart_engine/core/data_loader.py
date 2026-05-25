@@ -1,70 +1,26 @@
 import logging
 import threading
-from datetime import datetime, time as dt_time, timedelta, timezone
-from typing import Dict, List, Optional
+from datetime import datetime, time as dt_time, timedelta
+from typing import Any, Dict, List, Optional
 
 import pandas as pd
 from cachetools import TTLCache
-from kiteconnect import KiteConnect
 from PySide6.QtCore import QThread, Signal
+from zoneinfo import ZoneInfo
+
+from chart_engine.core.broker_protocol import BarData, BrokerCapabilities, BrokerDataFetcher
 
 logger = logging.getLogger(__name__)
 
 
-_IST = timezone(timedelta(hours=5, minutes=30))
-
-
-def _effective_to_date(interval: str):
-    """
-    Return a stable IST-aware upper bound for historical queries.
-
-    Daily/weekly/monthly candles must be requested by exchange session, not by
-    the host calendar day.  The midnight rollover was the bug: at 00:00 IST the
-    old implementation advanced `to_date` into a future calendar day.  Some
-    broker backends do not treat that future date as "latest available" for
-    daily candles, so the just-completed session (for example May 13 when the
-    clock has just become May 14) could disappear.
-
-    Production charting apps keep the previous completed daily candle visible
-    until the next session produces a real candle.  To match that behaviour:
-      - before NSE close (including midnight and pre-market), query through the
-        previous calendar day's 23:59:59 IST;
-      - after NSE close, query through today's 23:59:59 IST;
-      - weekends/holidays are safe because the API simply returns the latest
-        trading session at or before this end-of-day boundary.
-
-    Intraday intervals keep using the current IST datetime so minute candles can
-    load up to the latest available bar.
-    """
-    now_ist = datetime.now(tz=_IST)
-    if interval == "day":
-        # Day timeframe UX: include the in-progress trading session immediately
-        # on symbol switch (mid-session), so the current day candle appears in
-        # the initial historical payload instead of being appended later by the
-        # first live tick.
-        session_date = now_ist.date()
-        return datetime.combine(session_date, dt_time(23, 59, 59), tzinfo=_IST)
-
-    if interval in {"week", "month"}:
-        session_date = now_ist.date()
-        if now_ist.time() < dt_time(15, 30):
-            session_date = session_date - timedelta(days=1)
-        return datetime.combine(session_date, dt_time(23, 59, 59), tzinfo=_IST)
-
-    # Intraday: use current IST datetime for a precise upper boundary.
-    return now_ist
-
-
-def _cache_scope_for_to_date(to_date) -> str:
-    """Return a stable cache scope so daily data cannot survive a session rollover."""
-    if isinstance(to_date, datetime):
-        if to_date.tzinfo is not None:
-            return to_date.astimezone(_IST).strftime("%Y%m%d%H%M%S")
-        return to_date.strftime("%Y%m%d%H%M%S")
-    try:
-        return to_date.strftime("%Y%m%d")
-    except AttributeError:
-        return str(to_date)
+# Canonical interval → Kite API interval string
+KITE_INTERVAL_MAP: Dict[str, str] = {
+    "1min": "minute", "3min": "3minute", "5min": "5minute",
+    "10min": "10minute", "15min": "15minute", "30min": "30minute",
+    "60min": "60minute", "1h": "60minute", "1d": "day",
+    "1w": "week", "1M": "month",
+    "minute": "minute", "day": "day", "week": "week", "month": "month",
+}
 
 
 # ─── Date range config per interval ──────────────────────────────────────────
@@ -97,25 +53,46 @@ def resolve_days_back(interval: str, overrides: Optional[Dict[str, int]] = None)
         return base
 
 
-# ─── DataFetcher ─────────────────────────────────────────────────────────────
+# ─── KiteDataFetcher ─────────────────────────────────────────────────────────
 
-class DataFetcher:
-    """Thin wrapper around KiteConnect.historical_data()."""
 
-    def __init__(self, kite_client: KiteConnect):
-        self.kite = kite_client
+class KiteDataFetcher(BrokerDataFetcher):
+    """Wraps Kite historical_data() behind the broker protocol."""
 
-    def fetch(self, instrument_token: int, from_date, to_date, interval: str) -> List[Dict]:
-        try:
-            return self.kite.historical_data(
-                instrument_token=instrument_token,
-                from_date=from_date,
-                to_date=to_date,
-                interval=interval,
+    def __init__(self, kite_client):
+        self._kite = kite_client
+
+    @property
+    def capabilities(self) -> BrokerCapabilities:
+        return BrokerCapabilities(
+            name="kite",
+            exchange_tz="Asia/Kolkata",
+            currency="INR",
+        )
+
+    def fetch(self, symbol, instrument_token, from_date, to_date, interval) -> List[BarData]:
+        kite_interval = KITE_INTERVAL_MAP.get(interval, interval)
+        fetch_iv = "day" if kite_interval in {"week", "month"} else kite_interval
+        raw = self._kite.historical_data(
+            instrument_token=int(instrument_token),
+            from_date=from_date,
+            to_date=to_date,
+            interval=fetch_iv,
+        )
+        return [
+            BarData(
+                time=r["date"],
+                open=float(r["open"]),
+                high=float(r["high"]),
+                low=float(r["low"]),
+                close=float(r["close"]),
+                volume=float(r["volume"]),
             )
-        except Exception as exc:
-            logger.error("DataFetcher.fetch error: %s", exc)
-            raise
+            for r in raw
+        ]
+
+    def resolve_instrument(self, symbol: str):
+        return None
 
 
 # ─── DataCache ───────────────────────────────────────────────────────────────
@@ -173,10 +150,10 @@ class ChartDataLoaderThread(QThread):
 
     def __init__(
         self,
-        data_fetcher: DataFetcher,
+        data_fetcher: BrokerDataFetcher,
         cache: DataCache,
         symbol: str,
-        instrument_token: int,
+        instrument_token: Any,
         interval: str,
         force_refresh: bool = False,
         parent=None,
@@ -220,15 +197,15 @@ class ChartDataLoaderThread(QThread):
         # cache created before/after the midnight or market-close boundary can
         # be reused for the wrong session and make the latest completed candle
         # appear/disappear until the TTL expires.
-        to_date   = _effective_to_date(self.interval)
+        caps = self.data_fetcher.capabilities
+        exchange_tz = ZoneInfo(caps.exchange_tz)
+        now_exchange = datetime.now(tz=exchange_tz)
+
+        to_date = self._effective_to_date(now_exchange)
         days_back = resolve_days_back(self.interval, self.days_back_overrides)
-        to_date_for_from = to_date.astimezone(_IST).date() if isinstance(to_date, datetime) else to_date
-        from_date = to_date_for_from - timedelta(days=days_back)
-        scoped_cache_key = (
-            f"{self.cache_key}_{_cache_scope_for_to_date(to_date)}"
-            if self.interval in {"day", "week", "month"}
-            else self.cache_key
-        )
+        from_date = to_date.date() - timedelta(days=days_back)
+        from_date_dt = datetime.combine(from_date, dt_time.min, tzinfo=exchange_tz)
+        scoped_cache_key = self._build_cache_key(to_date)
 
         # ── Cache hit ─────────────────────────────────────────────────────
         if not self.force_refresh:
@@ -248,15 +225,14 @@ class ChartDataLoaderThread(QThread):
             return
 
         # ── Fetch from API ────────────────────────────────────────────────
-        # For week/month: fetch daily data and resample client-side.
-        fetch_interval = "day" if self.interval in {"week", "month"} else self.interval
 
         try:
             raw = self.data_fetcher.fetch(
+                symbol=self.symbol,
                 instrument_token=self.instrument_token,
-                from_date=from_date,
+                from_date=from_date_dt,
                 to_date=to_date,
-                interval=fetch_interval,
+                interval=self.interval,
             )
         except Exception as exc:
             if not self._stop_requested:
@@ -278,7 +254,7 @@ class ChartDataLoaderThread(QThread):
 
         # ── Process ───────────────────────────────────────────────────────
         try:
-            df = self._process(raw)
+            df = self._process(raw, exchange_tz)
         except Exception as exc:
             if not self._stop_requested:
                 self.load_error.emit(f"Data processing error: {exc}")
@@ -303,15 +279,32 @@ class ChartDataLoaderThread(QThread):
         if not self._stop_requested:
             self.data_loaded.emit(df, self.cache_key)
 
+
+    def _effective_to_date(self, now_exchange: datetime) -> datetime:
+        if self.interval == "day":
+            return datetime.combine(now_exchange.date(), dt_time(23, 59, 59), tzinfo=now_exchange.tzinfo)
+        if self.interval in {"week", "month"}:
+            d = now_exchange.date()
+            if now_exchange.time() < dt_time(16, 0):
+                d = d - timedelta(days=1)
+            return datetime.combine(d, dt_time(23, 59, 59), tzinfo=now_exchange.tzinfo)
+        return now_exchange
+
+    def _build_cache_key(self, to_date: datetime) -> str:
+        if self.interval in {"day", "week", "month"}:
+            return f"{self.cache_key}_{to_date.strftime('%Y%m%d')}"
+        return self.cache_key
+
     def _emit_progress(self, value: int) -> None:
         try:
             self.load_progress.emit(value)
         except Exception:
             pass
 
-    def _process(self, raw_data: List[Dict]) -> pd.DataFrame:
-        """Convert raw KiteConnect list-of-dicts into a clean OHLCV DataFrame."""
-        df = pd.DataFrame(raw_data)
+    def _process(self, raw_data: List[BarData], exchange_tz) -> pd.DataFrame:
+        """Convert List[BarData] into a clean OHLCV DataFrame."""
+        records = [{"date": b.time, "open": b.open, "high": b.high, "low": b.low, "close": b.close, "volume": b.volume} for b in raw_data]
+        df = pd.DataFrame(records)
         if df.empty:
             return df
 
@@ -336,12 +329,12 @@ class ChartDataLoaderThread(QThread):
         # broker-provided session times.
         if self.interval in {"day", "week", "month"}:
             if df["date"].dt.tz is not None:
-                df["date"] = df["date"].dt.tz_convert(_IST).dt.tz_localize(None)
+                df["date"] = df["date"].dt.tz_convert(exchange_tz).dt.tz_localize(None)
             df["date"] = df["date"].dt.normalize()
         elif df["date"].dt.tz is not None:
             # For intraday data, keep the actual instant but remove timezone info
             # after conversion to IST to match the renderer's existing convention.
-            df["date"] = df["date"].dt.tz_convert(_IST).dt.tz_localize(None)
+            df["date"] = df["date"].dt.tz_convert(exchange_tz).dt.tz_localize(None)
 
         for col in ("open", "high", "low", "close", "volume"):
             df[col] = pd.to_numeric(df[col], errors="coerce")

@@ -25,6 +25,7 @@ from kite.widgets.scanner_table import ChartinkScannerTable
 from kite.widgets.positions_table import PositionsTable
 from kite.widgets.watchlist_table import TabbedWatchlistWidget
 from chart_engine import CandlestickChart as ChartWindow
+from chart_engine.core.data_loader import KiteDataFetcher
 from kite.widgets.header_toolbar import HeaderToolbar
 from kite.widgets.settings_dialog import ColorSettingsDialog
 from kite.widgets.stock_info_dialog import show_stock_info
@@ -364,11 +365,11 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         # Create components
         self.chartink_scanner = ChartinkScannerTable()
         self.candlestick_chart = ChartWindow(
-            self.real_kite_client,
+            KiteDataFetcher(self.real_kite_client),
             storage_dir=self.chart_drawings_dir,
         )
         self.candlestick_chart_secondary = ChartWindow(
-            self.real_kite_client,
+            KiteDataFetcher(self.real_kite_client),
             storage_dir=self.chart_drawings_dir,
         )
         self.candlestick_chart.data_cache = MarketAwareDataCache(parent=self.candlestick_chart)

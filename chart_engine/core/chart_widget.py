@@ -21,7 +21,6 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 import pandas as pd
-from kiteconnect import KiteConnect
 from PySide6.QtCore import QEvent, QTimer, Signal, Slot, Qt
 from PySide6.QtGui import QColor, QShortcut, QKeySequence, QGuiApplication
 from PySide6.QtWebChannel import QWebChannel
@@ -37,8 +36,8 @@ from chart_engine.core.data_loader import (
     DEFAULT_DAYS_BACK,
     ChartDataLoaderThread,
     DataCache,
-    DataFetcher,
 )
+from chart_engine.core.broker_protocol import BrokerDataFetcher
 from chart_engine.core.metrics import calculate_metrics
 from chart_engine.drawings import DrawingStorage
 from chart_engine.renderer.html_builder import ChartHtmlConfig, build_chart_html
@@ -74,7 +73,7 @@ class CandlestickChart(QWidget):
     Institutional-grade candlestick chart widget.
 
     Drop-in replacement for the monolithic canvas_candlestick_chart.py.
-    Works with Kite today; IBKR requires only swapping the DataFetcher.
+    Broker-agnostic: pass any BrokerDataFetcher implementation.
 
     Signals:
         symbol_loaded(str)                     — after a symbol renders successfully
@@ -101,19 +100,21 @@ class CandlestickChart(QWidget):
 
     def __init__(
         self,
-        kite_client: KiteConnect,
+        data_fetcher: BrokerDataFetcher,
         instrument_loader=None,
         storage_dir: str = "kite/user_data/chart_drawings",
         parent=None,
     ):
         super().__init__(parent)
-        self.kite_client       = kite_client
         self.instrument_loader = instrument_loader
+        self._broker_caps = data_fetcher.capabilities
+        if storage_dir == "kite/user_data/chart_drawings":
+            storage_dir = "kite/user_data/chart_drawings" if self._broker_caps.name == "kite" else "ibkr/user_data/chart_drawings"
 
         # ── State ──
         self.current_symbol:          str   = ""
         self.current_interval:        str   = "day"
-        self.current_instrument_token: int  = 0
+        self.current_instrument_token: Any  = 0
         self.current_ltp:             float = 0.0
         self.current_state = ChartState.IDLE
         self.last_df:    Optional[pd.DataFrame] = None
@@ -171,7 +172,7 @@ class CandlestickChart(QWidget):
         self._moving_average_configs = self._load_moving_average_configs()
         self._current_watermark_description = ""
 
-        self.data_fetcher = DataFetcher(kite_client)
+        self.data_fetcher = data_fetcher
         self.data_cache   = DataCache()
         self.data_loader_thread: Optional[ChartDataLoaderThread] = None
 
@@ -938,10 +939,9 @@ class CandlestickChart(QWidget):
 
     # ── Live updates ──────────────────────────────────────────────────────
 
-    @staticmethod
-    def _tick_time_ms(tick: Dict[str, Any]) -> Optional[int]:
+    def _tick_time_ms(self, tick: Dict[str, Any]) -> Optional[int]:
         """Return a broker tick timestamp as Unix milliseconds, if available."""
-        ist_tz = timezone(timedelta(hours=5, minutes=30))
+        exchange_offset = timezone(timedelta(hours=5, minutes=30) if self._broker_caps.name == "kite" else timedelta(hours=-4))
         for key in ("exchange_timestamp", "last_trade_time", "timestamp"):
             value = tick.get(key)
             if value in (None, ""):
@@ -953,7 +953,7 @@ class CandlestickChart(QWidget):
                 # exchange-local timestamps (IST for NSE feeds) instead of host-local
                 # clock to avoid bucket drift and "missing" intraday candles.
                 if dt_value.tzinfo is None:
-                    dt_value = dt_value.replace(tzinfo=ist_tz)
+                    dt_value = dt_value.replace(tzinfo=exchange_offset)
                 return int(dt_value.timestamp() * 1000)
 
             if isinstance(value, (int, float)):
@@ -1023,10 +1023,13 @@ class CandlestickChart(QWidget):
                 datetime.utcfromtimestamp(tick_time_ms / 1000)
                 if isinstance(tick_time_ms, int) else datetime.utcnow()
             )
-            now_ist = reference_utc + timedelta(hours=5, minutes=30)
-            nse_open = dt_time(9, 15)
-            nse_close = dt_time(15, 30)
-            if not (nse_open <= now_ist.time() <= nse_close):
+            if self._broker_caps.name == "kite":
+                now_exchange = reference_utc + timedelta(hours=5, minutes=30)
+                open_t, close_t = dt_time(9, 15), dt_time(15, 30)
+            else:
+                now_exchange = reference_utc - timedelta(hours=4)
+                open_t, close_t = dt_time(9, 30), dt_time(16, 0)
+            if not (open_t <= now_exchange.time() <= close_t):
                 return
 
         self.current_ltp = float(price)

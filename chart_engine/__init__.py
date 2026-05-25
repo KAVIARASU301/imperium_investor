@@ -7,7 +7,7 @@
 #
 # Usage:
 #   from chart_engine import CandlestickChart
-#   chart = CandlestickChart(kite_client=kite, instrument_loader=loader)
+#   chart = CandlestickChart(data_fetcher=KiteDataFetcher(kite), instrument_loader=loader)
 #   chart.load_symbol("RELIANCE", "NSE", 738561)
 
 from chart_engine.core.chart_widget import CandlestickChart
