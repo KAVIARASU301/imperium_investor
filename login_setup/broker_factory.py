@@ -108,11 +108,16 @@ class IBKRClientWrapper(BrokerClientInterface):
             accounts = self.client.managedAccounts()
             account_summary = []
             try:
-                # Avoid creating coroutine objects from ib_insync async APIs in worker threads
-                # without an active event loop (causes "coroutine was never awaited" warnings).
-                asyncio.get_running_loop()
+                # Ensure this thread has an active loop so ib_insync sync wrappers can operate.
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_closed():
+                        raise RuntimeError("Current event loop is closed")
+                except RuntimeError:
+                    asyncio.set_event_loop(asyncio.new_event_loop())
+
                 account_summary = self.client.accountSummary()
-            except RuntimeError as summary_error:
+            except Exception as summary_error:
                 logger.warning(f"Skipping account summary fetch due to runtime context: {summary_error}")
 
             # Enhanced profile with connection info

@@ -615,15 +615,18 @@ class CandlestickChart(QWidget):
         if not self.current_symbol:
             return
 
+        broker_name = getattr(self._broker_caps, "name", "")
         token = self.current_instrument_token
-        if not token and self.instrument_loader:
+        requires_token = broker_name != "ibkr"
+
+        if requires_token and not token and self.instrument_loader:
             try:
                 token = self.instrument_loader.get_token(self.current_symbol)
                 self.current_instrument_token = token
             except Exception as exc:
                 logger.error("Instrument lookup failed: %s", exc)
 
-        if not token:
+        if requires_token and not token:
             if not self.instrument_map:
                 logger.info(
                     "Deferring chart load for %s until instruments are available",
@@ -660,7 +663,7 @@ class CandlestickChart(QWidget):
             data_fetcher=self.data_fetcher,
             cache=self.data_cache,
             symbol=self.current_symbol,
-            instrument_token=token,
+            instrument_token=(token if requires_token else None),
             interval=self.current_interval,
             force_refresh=force_refresh,
             days_back_overrides=self._history_days_by_interval,

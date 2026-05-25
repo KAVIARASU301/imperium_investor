@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List
@@ -7,6 +8,18 @@ from typing import Any, Dict, List
 from chart_engine.core.broker_protocol import BarData, BrokerCapabilities, BrokerDataFetcher
 
 logger = logging.getLogger(__name__)
+
+
+
+def _ensure_event_loop() -> None:
+    """Ensure current thread has an active asyncio event loop for ib_insync sync wrappers."""
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_closed():
+            raise RuntimeError("Current event loop is closed")
+    except RuntimeError:
+        asyncio.set_event_loop(asyncio.new_event_loop())
+
 
 IBKR_INTERVAL_MAP: Dict[str, str] = {
     "1min": "1 min", "minute": "1 min",
@@ -49,6 +62,8 @@ class IBKRDataFetcher(BrokerDataFetcher):
         interval: str,
     ) -> List[BarData]:
         from ib_insync import Contract, Stock
+
+        _ensure_event_loop()
 
         bar_size = IBKR_INTERVAL_MAP.get(interval, "1 day")
         duration_str = self._compute_duration(from_date, to_date, bar_size)
