@@ -35,12 +35,27 @@ class IBKRDataFetcher(BrokerDataFetcher):
         )
 
     def fetch(self, symbol: str, instrument_token: Any, from_date: datetime, to_date: datetime, interval: str) -> List[BarData]:
+        from ib_insync import Contract, Stock
+
         bar_size = IBKR_INTERVAL_MAP.get(interval, "1 day")
         duration_str = self._compute_duration(from_date, to_date, bar_size)
         end_dt_str = to_date.strftime("%Y%m%d %H:%M:%S UTC")
 
+        # Build contract — prefer conId if we have it, fall back to symbol lookup
+        if instrument_token and int(instrument_token) > 0:
+            contract = Contract()
+            contract.conId = int(instrument_token)
+            contract.exchange = "SMART"
+        else:
+            # Qualify by symbol
+            contract = Stock(symbol, "SMART", "USD")
+            qualified = self._ib.qualifyContracts(contract)
+            if not qualified:
+                raise ValueError(f"Could not qualify contract for {symbol}")
+            contract = qualified[0]
+
         bars = self._ib.reqHistoricalData(
-            instrument_token,
+            contract,
             endDateTime=end_dt_str,
             durationStr=duration_str,
             barSizeSetting=bar_size,
@@ -49,6 +64,9 @@ class IBKRDataFetcher(BrokerDataFetcher):
             formatDate=1,
             keepUpToDate=False,
         )
+        if not bars:
+            raise ValueError(f"No data returned for {symbol} [{bar_size}]")
+
         return [self._bar_to_bardata(b) for b in bars]
 
     def resolve_instrument(self, symbol: str):
