@@ -81,6 +81,7 @@ class IBKRMainWindow(QMainWindow):
 
         # Data storage
         self.watchlist = []
+        self._pending_order_subscriptions = set()
         self.market_data = {}
         self.positions = {}
         self.orders = {}
@@ -656,9 +657,47 @@ class IBKRMainWindow(QMainWindow):
             orders = self.trading_client.get_orders()
             self.orders = {order['order_id']: order for order in orders}
             self._refresh_orders_table()
+            self._sync_pending_order_market_data_subscriptions()
         except Exception as e:
             logger.error(f"Error refreshing orders: {e}")
             self.status_bar.showMessage(f"Error refreshing orders: {e}", 5000)
+
+    def _sync_pending_order_market_data_subscriptions(self):
+        """
+        Keep pending-order symbols subscribed for continuous trigger/limit evaluation.
+        This mirrors Kite-side behavior where pending order symbols are preserved in
+        the market-data subscription universe.
+        """
+        subscribe_fn = getattr(self.trading_client, "subscribe_market_data", None)
+        unsubscribe_fn = getattr(self.trading_client, "unsubscribe_market_data", None)
+        if not callable(subscribe_fn):
+            return
+
+        target_symbols = {
+            str(order.get("symbol") or order.get("tradingsymbol") or "").strip().upper()
+            for order in self.orders.values()
+            if str(order.get("status", "")).upper() in {"SUBMITTED", "PENDING", "PENDING_EXECUTION"}
+        }
+        target_symbols = {symbol for symbol in target_symbols if symbol}
+
+        to_add = sorted(target_symbols - self._pending_order_subscriptions)
+        to_remove = sorted(self._pending_order_subscriptions - target_symbols)
+
+        if to_add:
+            try:
+                subscribe_fn(to_add)
+                logger.info(f"Subscribed pending-order symbols: {to_add}")
+            except Exception as exc:
+                logger.warning(f"Failed subscribing pending-order symbols {to_add}: {exc}")
+
+        if to_remove and callable(unsubscribe_fn):
+            try:
+                unsubscribe_fn(to_remove)
+                logger.info(f"Unsubscribed resolved pending-order symbols: {to_remove}")
+            except Exception as exc:
+                logger.warning(f"Failed unsubscribing pending-order symbols {to_remove}: {exc}")
+
+        self._pending_order_subscriptions = target_symbols
 
 
     def _refresh_account_info(self):

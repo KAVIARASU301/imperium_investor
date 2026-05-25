@@ -1997,6 +1997,13 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         logger.info("Watchlist changed - updating subscriptions")
         all_tokens = set()
 
+        # Priority 0: Pending paper-order symbols (must stay subscribed so
+        # trigger/limit orders continue evaluating even when chart focus changes).
+        paper_pending_tokens = self._get_pending_paper_order_tokens()
+        all_tokens.update(paper_pending_tokens)
+        if paper_pending_tokens:
+            logger.info(f"Added {len(paper_pending_tokens)} pending paper-order tokens")
+
         # Priority 1: Position tokens
         if hasattr(self, 'positions_table') and self.positions_table.positions_data:
             position_tokens = [pos.token for pos in self.positions_table.positions_data.values() if pos.token > 0]
@@ -2062,6 +2069,30 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         if not hasattr(self, 'chartink_scanner'):
             return []
         return self.chartink_scanner.get_visible_tokens()
+
+    def _get_pending_paper_order_tokens(self) -> List[int]:
+        """Return instrument tokens for active pending paper orders."""
+        paper_trader = self._get_paper_trading_manager()
+        if not paper_trader:
+            return []
+
+        tokens = set()
+        try:
+            for order in paper_trader.orders() or []:
+                if str(order.get("status", "")).upper() != "PENDING_EXECUTION":
+                    continue
+                symbol = str(order.get("tradingsymbol", "")).strip().upper()
+                if not symbol:
+                    continue
+                instrument = self.instrument_map.get(symbol) or {}
+                token = instrument.get("instrument_token")
+                if token:
+                    tokens.add(int(token))
+        except Exception as exc:
+            logger.warning(f"Failed to collect pending paper-order tokens: {exc}")
+            return []
+
+        return list(tokens)
 
     @Slot(list)
     def _subscribe_to_tokens(self, tokens: List[int]):
