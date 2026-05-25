@@ -5,10 +5,10 @@
 import logging
 from PySide6.QtCore import QObject, Signal, QTimer
 from dataclasses import dataclass
-from widgets.status_bar import (
+from ibkr.widgets.status_bar import (
     show_order_completed, show_order_failed, show_error, show_info
 )
-from utils.sounds import play_entry_exit
+from ibkr.utils.sounds import play_entry_exit
 
 logger = logging.getLogger(__name__)
 
@@ -35,12 +35,15 @@ class PositionManager(QObject):
 
     # Simple signals
     positions_updated = Signal(list)  # Send positions to table
+    partial_fill_symbols_updated = Signal(object)  # emits Set[str]
+    day_pnl_updated = Signal(float)
     show_notification = Signal(str, str)  # message, type
 
-    def __init__(self, trader, main_window=None):
+    def __init__(self, trader, main_window=None, trade_logger=None):
         super().__init__()
         self.trader = trader
         self.main_window = main_window  # Add this line
+        self.trade_logger = trade_logger
         self.tracking_orders = {}  # order_id -> order_data
         self.order_check_timer = QTimer()
         self.order_check_timer.timeout.connect(self._check_pending_orders)
@@ -74,6 +77,8 @@ class PositionManager(QObject):
 
             # Send to positions table - ONE TIME
             self.positions_updated.emit(simple_positions)
+            self.partial_fill_symbols_updated.emit(set())
+            self.day_pnl_updated.emit(sum(p.pnl for p in simple_positions))
             logger.info(f"✅ Sent {len(simple_positions)} positions to table")
 
         except Exception as e:
@@ -257,3 +262,19 @@ class PositionManager(QObject):
         safety_timer.timeout.connect(lambda: self.fetch_positions_from_kite("safety_refresh"))
         safety_timer.start(interval_minutes * 60 * 1000)
         logger.info(f"Started safety refresh every {interval_minutes} minutes")
+
+    # ===========================================================================
+    # Compatibility no-op handlers used by MainWindow signal wiring
+    # ===========================================================================
+
+    def on_ws_order_update(self, *_args, **_kwargs):
+        """Handle websocket order updates (compatibility no-op)."""
+        return
+
+    def on_ws_connected(self, *_args, **_kwargs):
+        """Handle websocket connected (compatibility no-op)."""
+        return
+
+    def on_ws_disconnected(self, *_args, **_kwargs):
+        """Handle websocket disconnected (compatibility no-op)."""
+        return

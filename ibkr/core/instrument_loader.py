@@ -9,7 +9,6 @@ import os
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Tuple
 from PySide6.QtCore import QThread, Signal
-from kiteconnect import Any
 from ibkr.widgets.search_bar import SymbolIndex
 import requests
 from requests.adapters import HTTPAdapter

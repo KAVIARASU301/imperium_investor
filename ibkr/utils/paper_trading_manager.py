@@ -553,3 +553,38 @@ class IBKRPaperTradingManager(QObject):
             current_price = close_price
 
         return bars
+
+
+# Backward-compatibility exports expected by main_window.
+PaperTradingManager = IBKRPaperTradingManager
+
+
+class PaperTradingMixin:
+    """Compatibility mixin for windows integrating paper trading callbacks."""
+
+
+def integrate_paper_trading(window: Any, paper_trader: IBKRPaperTradingManager) -> None:
+    """Wire paper-trading hooks into the main window when available."""
+    if not window or not paper_trader:
+        return
+
+    # Keep integration intentionally defensive: connect only if signals/slots exist.
+    try:
+        if hasattr(window, "_on_paper_order_filled"):
+            paper_trader.order_filled.connect(window._on_paper_order_filled)
+        if hasattr(window, "_on_paper_position_updated"):
+            paper_trader.position_updated.connect(window._on_paper_position_updated)
+        if hasattr(window, "_on_paper_account_updated"):
+            paper_trader.account_updated.connect(window._on_paper_account_updated)
+    except Exception as exc:
+        logger.warning("Paper trading UI integration skipped: %s", exc)
+
+
+__all__ = [
+    "PaperPosition",
+    "PaperOrder",
+    "IBKRPaperTradingManager",
+    "PaperTradingManager",
+    "PaperTradingMixin",
+    "integrate_paper_trading",
+]

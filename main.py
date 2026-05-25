@@ -283,9 +283,11 @@ class Application:
             elif broker_mode == BrokerMode.AMERICA:
                 window = MainWindowClass(
                     trader=trader,
-                    real_ibkr_client=data_client,
-                    client_id=auth_data.get('client_id'),
-                    ib_client=auth_data.get('ib_client')
+                    # Keep constructor compatibility across broker UIs.
+                    # The IBKR main window currently reuses kite-era argument names.
+                    real_kite_client=data_client,
+                    api_key=auth_data.get('client_id', ''),
+                    access_token=auth_data.get('ib_client', '')
                 )
             else:
                 raise NotImplementedError(f"No main window for broker: {broker_mode}")

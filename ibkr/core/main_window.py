@@ -171,11 +171,10 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         paper_trader = self._get_paper_trading_manager()
         self.trading_mode = 'paper' if paper_trader else 'live'
         self.trade_logger = TradeLogger(
-            broker="kite",
             mode=self.trading_mode,
         )
         self.chart_drawings_dir = os.path.join(
-            "kite", "user_data", f"chart_drawings_{self.trading_mode}"
+            "ibkr", "user_data", f"chart_drawings_{self.trading_mode}"
         )
 
         # SIMPLIFIED MANAGERS - NO NOTIFICATION SYSTEM
@@ -1047,7 +1046,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         )
         self.instrument_loader.start()
 
-        self.market_data_worker = MarketDataWorker(self.api_key, self.access_token)
+        self.market_data_worker = MarketDataWorker(self.real_kite_client)
         self.market_data_worker.data_received.connect(self._enqueue_market_data)
         self.market_data_worker.connection_established.connect(self._on_websocket_connect)
         self.market_data_worker.start()
@@ -1093,11 +1092,11 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 )
                 # Also restore on each symbol load (handles interval switches too)
                 self.candlestick_chart.symbol_loaded.connect(
-                    self.alert_system.sync_chart_lines_for_symbol
+                    self.alert_system.refresh_alert_lines_for_symbol
                 )
                 if getattr(self, 'candlestick_chart_secondary', None):
                     self.candlestick_chart_secondary.symbol_loaded.connect(
-                        self.alert_system.sync_chart_lines_for_symbol
+                        self.alert_system.refresh_alert_lines_for_symbol
                     )
                 # ALERT DRAG SYNC: chart line drag → alert manager price update
                 if hasattr(self.candlestick_chart, 'alert_price_updated'):
@@ -1143,7 +1142,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             }
             for symbol in current_symbols:
                 if symbol:
-                    self.alert_system.sync_chart_lines_for_symbol(symbol)
+                    self.alert_system.refresh_alert_lines_for_symbol(symbol)
 
     @Slot(str)
     def _on_alert_line_deleted_from_chart(self, payload: str) -> None:

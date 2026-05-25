@@ -25,7 +25,6 @@ from PySide6.QtWidgets import (
     QWidget,
     QFrame,
 )
-from kiteconnect import IBKRConnect
 
 from app_paths import get_asset_path
 from ibkr.utils.worker import Worker
@@ -410,7 +409,7 @@ class HeaderToolbar(QToolBar):
 
     def __init__(
         self,
-        trader: Union[IBKRConnect, Any],
+        trader: Any,
         parent=None,
         enable_account_polling: bool = True,
     ):

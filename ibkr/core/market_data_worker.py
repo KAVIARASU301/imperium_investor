@@ -1,7 +1,12 @@
 # ibkr/core/market_data_worker.py
 
 import logging
+<<<<<<< ours
+from typing import List, Dict, Set, Any, Iterable
+=======
 from typing import List, Dict, Set, Any
+import time
+>>>>>>> theirs
 from PySide6.QtCore import QObject, Signal, QThread
 from ib_insync import IB, Contract, Ticker, util
 
@@ -16,6 +21,9 @@ class MarketDataWorker(QThread):
     # Signal emits a list of dictionaries, each representing a tick
     data_received = Signal(list)
     connection_error = Signal(str)
+    connection_established = Signal()
+    connection_closed = Signal()
+    order_update = Signal(dict)
 
     def __init__(self, ib_client: IB):
         super().__init__()
@@ -31,14 +39,17 @@ class MarketDataWorker(QThread):
             return
 
         logger.info("MarketDataWorker thread started.")
+        self.connection_established.emit()
         # Register the event handler for incoming ticker data
         self.ib.pendingTickersEvent += self._on_pending_tickers
 
         # Keep the event loop running
         while self._is_running and self.ib.isConnected():
-            self.ib.sleep(0.01) # Use ib_insync's sleep to process events
+            # Avoid ib_insync event-loop helpers in this QThread (no asyncio loop here).
+            time.sleep(0.01)
 
         logger.info("MarketDataWorker thread finished.")
+        self.connection_closed.emit()
 
     def _on_pending_tickers(self, tickers: List[Ticker]):
         """
@@ -87,6 +98,32 @@ class MarketDataWorker(QThread):
                     logger.info(f"Unsubscribed from market data for {contract.symbol}")
                 except Exception as e:
                     logger.error(f"Failed to unsubscribe from {contract.symbol}: {e}")
+
+
+    def is_connected(self) -> bool:
+        return bool(self.ib and self.ib.isConnected())
+
+    def get_subscription_info(self) -> Dict[str, Any]:
+        return {"subscribed_tokens": [], "subscribed_symbols": list(self._subscribed_contracts.keys())}
+
+    def add_instruments(self, instruments: Iterable[Any]):
+        """Compatibility shim for legacy callers expecting token-based subscriptions."""
+        contracts = []
+        unsupported = 0
+        for item in instruments or []:
+            if isinstance(item, Contract):
+                contracts.append(item)
+            else:
+                unsupported += 1
+        if contracts:
+            self.subscribe_to_contracts(contracts)
+        if unsupported:
+            logger.debug(f"Ignored {unsupported} non-Contract instruments in add_instruments")
+
+    def set_instruments(self, instruments: Iterable[Any]):
+        # Best-effort compatibility: clear current contract subscriptions then add new ones.
+        self.unsubscribe_from_contracts(list(self._subscribed_contracts.values()))
+        self.add_instruments(instruments)
 
     def stop(self):
         """Stops the worker and cleans up subscriptions."""

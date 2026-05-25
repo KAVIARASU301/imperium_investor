@@ -911,6 +911,7 @@ class AdvancedAlertManager(QDialog):
 class AlertSystemManager(QObject):
     """Enhanced alert system controller with failproof initialization and operation."""
     alert_sound_requested = Signal()
+    alert_triggered = Signal(str)  # alert_id
     alerts_changed = Signal()
     engine_status_changed = Signal(str)  # "running", "stopped", "error"
 
@@ -1045,6 +1046,8 @@ class AlertSystemManager(QObject):
         try:
             play_alert()
             self.alert_sound_requested.emit()
+            alert_id = str(getattr(alert, "id", "") or getattr(alert, "symbol", ""))
+            self.alert_triggered.emit(alert_id)
             logger.info(f"Alert Triggered: {alert.symbol} at {trigger_price:.2f}")
 
             self._save_and_refresh_all()
