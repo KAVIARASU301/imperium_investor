@@ -765,6 +765,10 @@ class HeaderToolbar(QToolBar):
         self.search_input.set_symbol_index(self._symbol_index)
         logger.info("Search index ready: %s instruments", len(self._instrument_map))
 
+    def set_ibkr_search_provider(self, provider) -> None:
+        """Configure on-demand symbol search provider for IBKR mode."""
+        self.search_input.set_async_search_provider(provider)
+
     def update_alert_counts(self, active_count: int, triggered_today: int) -> None:
         self.alerts_badge.update_count(triggered_today)
 

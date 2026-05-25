@@ -47,6 +47,7 @@ from ibkr.core.alert_management_system import AlertSystemManager
 from ibkr.core.chart_lines_manager import ChartLinesManager
 from ibkr.core.data_cache import MarketAwareDataCache
 from ibkr.core.account_manager import AccountManager
+from ibkr.utils.ibkr_symbol_resolver import IBKRSymbolResolver
 
 from ibkr.core.position_manager import PositionManager
 from ibkr.core.stop_loss_manager import StopLossManager
@@ -205,6 +206,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.instrument_list: List[Dict] = []
         self.instrument_map: Dict[str, Dict] = {}
         self._subscribed_tokens = set()
+        self._ibkr_symbol_resolver: Optional[IBKRSymbolResolver] = None
 
         if paper_trader:
             paper_trader.set_trade_logger(self.trade_logger)
@@ -348,6 +350,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         # Use the raw Kite client for live data, but keep the paper trader for paper mode
         toolbar_client = self.trader if self.trading_mode == 'paper' else self.real_kite_client
         self.header_toolbar = HeaderToolbar(toolbar_client, self, enable_account_polling=False)
+        if self.real_kite_client and hasattr(self.real_kite_client, "reqMatchingSymbols"):
+            self._ibkr_symbol_resolver = IBKRSymbolResolver(self.real_kite_client)
+            self.header_toolbar.set_ibkr_search_provider(self._ibkr_symbol_resolver.search)
 
         self.account_manager = AccountManager(toolbar_client, parent=self)
         self.account_manager.margins_updated.connect(self.header_toolbar._handle_account_info_update)

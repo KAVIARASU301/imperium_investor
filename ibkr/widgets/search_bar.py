@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from PySide6.QtCore import (
     QEvent, QModelIndex, QPoint, QSize, Qt, QTimer, Signal, QStringListModel
@@ -482,8 +482,11 @@ class EnhancedSearchInput(QLineEdit):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._index: Optional[SymbolIndex] = None
+        self._async_search_provider: Optional[Callable[[str, Callable[[List[Dict[str, Any]]], None]], None]] = None
         self._committed_symbol: str = ""
         self._replace_on_next: bool = False
+        self._active_query: str = ""
+        self._last_results_by_symbol: Dict[str, Dict[str, Any]] = {}
 
         # Debounce timer
         self._debounce = QTimer(self)
@@ -507,6 +510,13 @@ class EnhancedSearchInput(QLineEdit):
 
     def set_committed_symbol(self, symbol: str) -> None:
         self._committed_symbol = symbol.upper().strip()
+
+    def set_async_search_provider(
+        self,
+        provider: Optional[Callable[[str, Callable[[List[Dict[str, Any]]], None]], None]],
+    ) -> None:
+        """Enable async on-demand search provider (used by IBKR mode)."""
+        self._async_search_provider = provider
 
     def arm_replace_on_next_input(self) -> None:
         self._replace_on_next = True
@@ -554,12 +564,34 @@ class EnhancedSearchInput(QLineEdit):
         self.search_text_changed.emit(query)
         self.debouncedTextChanged.emit(query)
 
-        if not query or self._index is None:
+        if not query:
+            if self._dropdown:
+                self._dropdown.hide_popup()
+            return
+
+        if self._async_search_provider is not None:
+            self._active_query = query
+            self._async_search_provider(query, self._on_async_results)
+            return
+
+        if self._index is None:
             if self._dropdown:
                 self._dropdown.hide_popup()
             return
 
         results = self._index.search(query)
+        self._ensure_dropdown()
+        self._dropdown.show_results(results, query, self)
+
+    def _on_async_results(self, results: List[Dict[str, Any]]) -> None:
+        query = self.text().strip().upper()
+        if not query or query != self._active_query:
+            return
+        self._last_results_by_symbol = {
+            str(r.get("tradingsymbol", "")).upper(): r
+            for r in results
+            if r.get("tradingsymbol")
+        }
         self._ensure_dropdown()
         self._dropdown.show_results(results, query, self)
 
@@ -589,6 +621,11 @@ class EnhancedSearchInput(QLineEdit):
                     inst = results[0]
                     sym = (inst.get("tradingsymbol") or "").upper()
                     self._on_symbol_committed(sym, inst)
+                    return
+            if query and self._async_search_provider:
+                inst = self._last_results_by_symbol.get(query)
+                if inst:
+                    self._on_symbol_committed(query, inst)
                     return
             self._replace_on_next = True
             super().keyPressEvent(event)
