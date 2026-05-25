@@ -833,13 +833,43 @@ class TradingTable(QTableWidget):
             self._init_data_for_existing()
         self._repopulate()
 
+    def _resolve_symbol_for_instrument_map(self, symbol: str) -> Optional[str]:
+        """Return canonical symbol key from instrument_map for user/chart-provided symbol."""
+        if not symbol:
+            return None
+
+        sym = str(symbol).strip().upper()
+        if not sym:
+            return None
+
+        if sym in self._instrument_map:
+            return sym
+
+        # Accept alternate chart/broker formats like EXCHANGE:SYMBOL or SYMBOL.EXCHANGE.
+        candidates = []
+        if ":" in sym:
+            candidates.append(sym.split(":")[-1])
+        if "." in sym:
+            candidates.append(sym.split(".")[0])
+        if "-" in sym:
+            candidates.append(sym.split("-")[0])
+        if "/" in sym:
+            candidates.append(sym.split("/")[0])
+
+        for candidate in candidates:
+            c = candidate.strip().upper()
+            if c and c in self._instrument_map:
+                return c
+
+        return None
+
     def add_symbol(self, symbol: str) -> bool:
-        if not symbol or symbol in self._symbols:
+        resolved_symbol = self._resolve_symbol_for_instrument_map(symbol)
+        if not resolved_symbol or resolved_symbol in self._symbols:
             return False
-        if symbol not in self._instrument_map:
-            return False
-        self._symbols.append(symbol)
-        self._init_symbol_data(symbol)
+
+        self._symbols.append(resolved_symbol)
+        self._init_symbol_data(resolved_symbol)
         self._repopulate()
         self.watchlist_symbols_changed.emit()
         return True
