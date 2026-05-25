@@ -2,47 +2,33 @@
 
 This checklist tracks module-level differences between `kite/` and `ibkr/`.
 
-## Missing on IBKR side (present on Kite)
+_Last refreshed: 2026-05-25 (UTC)_
+
+## Remaining module-name differences
 
 ### Core
-- `account_manager.py`
-- `data_cache.py`
-- `data_fetcher.py`
-- `direct_order_router.py`
-- `instrument_loader.py`
-- `ip_manager.py`
-- `network_monitor.py`
-- `order_router.py`
-- `reconnection_manager.py`
-- `relay_integration.py`
-- `relay_order_router.py`
-- `shutdown_manager.py`
-- `stop_loss_manager.py`
-- `stop_loss_store.py`
-
-### Widgets
-- `alert_management_dialog.py`
-- `buy_sell_toggle.py`
-- `floating_positions_dialog.py`
-- `floating_watchlist_dialog.py`
-- `order_routing_settings.py`
-- `pending_orders_dialog.py`
-- `pnl_history_dialog.py`
-- `reconnecting_overlay.py`
-- `settings_dialog.py`
-- `stock_info_dialog.py`
-- `stop_loss_dialog.py`
-
-### Utils
-- `base_paper_trader.py`
-- `color_system.py`
-- `pnl_calculator.py`
-
-## IBKR-specific additions (intentional differences)
+These are intentional IBKR-specific additions:
 - `core/linux_ibkr_deep_fix.py`
 - `core/trading_client.py`
+
+### Utils
+These are intentional IBKR-specific additions:
 - `utils/data_converter.py`
 - `utils/data_fetcher.py`
+
+### Scanner
+These are broker-specific scanner implementations:
+- Kite-only: `scanner/run_chartink_scan.py`
+- IBKR-only: `scanner/run_finviz_scan.py`
+
+## Completed parity work
+The following previous gaps are now completed on the IBKR side:
+- `widgets/about_dialog.py`
+- `widgets/keyboard_shortcuts.py`
+- `widgets/sectors_industries_dialog.py`
+- `utils/base_paper_trader.py`
+- `utils/color_system.py`
+- `utils/pnl_calculator.py`
 
 ## How to refresh
 Run:
@@ -51,4 +37,4 @@ Run:
 python tools/check_broker_parity.py
 ```
 
-The script exits with code `1` when gaps exist.
+The script exits with code `1` when any module-name differences exist (including intentional broker-specific modules).
