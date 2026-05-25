@@ -1158,6 +1158,13 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             self.candlestick_chart.symbol_loaded.connect(_reveal_charts)
             self.candlestick_chart.symbol_loaded.connect(self._on_chart_symbol_changed)
             self.candlestick_chart.data_request_for_symbol.connect(self._ensure_chart_subscription)
+
+            # Delay the secondary chart's first load so startup history requests don't compete.
+            if self.dual_chart_mode_enabled:
+                self.candlestick_chart.symbol_loaded.connect(
+                    lambda sym: QTimer.singleShot(5000, lambda: self._load_secondary_chart(sym)),
+                    Qt.ConnectionType.SingleShotConnection,
+                )
             # FIX #9: redraw alert lines whenever the chart switches symbol
             if self.alert_system:
                 # Restore alert lines only after chart JS is fully initialized
@@ -1206,6 +1213,11 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 self.candlestick_chart.target_line_deleted.connect(
                     self._on_target_line_deleted_from_chart
                 )
+
+    def _load_secondary_chart(self, symbol: str):
+        """Triggered once, 5s after primary chart finishes its first load."""
+        if symbol and self.dual_chart_mode_enabled:
+            self.candlestick_chart_secondary.on_search(symbol)
 
     def _restore_alert_lines(self) -> None:
         """Redraw all active alert lines after chart is confirmed ready."""

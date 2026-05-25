@@ -22,6 +22,8 @@ _HISTORY_SEMAPHORE = threading.BoundedSemaphore(1)
 _RECENT_REQUEST_LOCK = threading.Lock()
 _RECENT_REQUESTS: "OrderedDict[str, float]" = OrderedDict()
 _PACING_DELAY_S = 1.0
+_SHARED_HISTORY_IB: Optional[Any] = None
+_SHARED_HISTORY_LOCK = threading.Lock()
 
 
 def _ensure_event_loop() -> None:
@@ -86,8 +88,6 @@ class IBKRDataFetcher(BrokerDataFetcher):
         self._contract_cache: Dict[str, Any] = {}
         self._contract_cache_lock = threading.Lock()
         self._last_history_endpoint: Optional[Tuple[str, int]] = None
-        self._history_connections: Dict[int, Any] = {}
-        self._history_connections_lock = threading.Lock()
 
     @property
     def capabilities(self) -> BrokerCapabilities:
@@ -293,34 +293,27 @@ class IBKRDataFetcher(BrokerDataFetcher):
 
 
     def _get_or_create_history_connection(self):
-        """Reuse one dedicated IBKR history connection per loader thread."""
-        thread_id = threading.get_ident()
-        with self._history_connections_lock:
-            existing = self._history_connections.get(thread_id)
-            if existing is not None:
+        """Return a single, lazily-created shared history IB connection."""
+        global _SHARED_HISTORY_IB
+        with _SHARED_HISTORY_LOCK:
+            if _SHARED_HISTORY_IB is not None:
                 try:
-                    if existing.isConnected():
-                        return existing
+                    if _SHARED_HISTORY_IB.isConnected():
+                        return _SHARED_HISTORY_IB
                 except Exception:
                     pass
-                self._history_connections.pop(thread_id, None)
-
-        ib = self._connect_dedicated_ib()
-        with self._history_connections_lock:
-            self._history_connections[thread_id] = ib
-        return ib
+            _SHARED_HISTORY_IB = self._connect_dedicated_ib()
+            return _SHARED_HISTORY_IB
 
     def close_history_connections(self) -> None:
-        """Best-effort shutdown for pooled dedicated history connections."""
-        with self._history_connections_lock:
-            connections = list(self._history_connections.values())
-            self._history_connections.clear()
-
-        for ib in connections:
-            try:
-                ib.disconnect()
-            except Exception:
-                pass
+        global _SHARED_HISTORY_IB
+        with _SHARED_HISTORY_LOCK:
+            if _SHARED_HISTORY_IB is not None:
+                try:
+                    _SHARED_HISTORY_IB.disconnect()
+                except Exception:
+                    pass
+                _SHARED_HISTORY_IB = None
 
     def _connect_dedicated_ib(self):
         """Create a new IB connection owned by the current loader thread."""
@@ -351,8 +344,7 @@ class IBKRDataFetcher(BrokerDataFetcher):
 
         def add(host: Any, port: Any) -> None:
             try:
-                host_s = str(host or "").strip()
-                port_i = int(port)
+                host_s, port_i = str(host or "").strip(), int(port)
             except Exception:
                 return
             if host_s and port_i and (host_s, port_i) not in candidates:
@@ -361,24 +353,19 @@ class IBKRDataFetcher(BrokerDataFetcher):
         if self._last_history_endpoint:
             add(*self._last_history_endpoint)
 
+        # Try to mirror the main app's active connection first.
         client = getattr(self._ib, "client", None)
-        possible_hosts: List[Any] = []
-        possible_ports: List[Any] = []
         for obj in (client, getattr(client, "conn", None), self._ib):
             if obj is None:
                 continue
-            for name in ("host", "_host"):
-                possible_hosts.append(getattr(obj, name, None))
-            for name in ("port", "_port"):
-                possible_ports.append(getattr(obj, name, None))
-
-        for h in possible_hosts:
-            for p in possible_ports:
+            h = getattr(obj, "host", None) or getattr(obj, "_host", None)
+            p = getattr(obj, "port", None) or getattr(obj, "_port", None)
+            if h and p:
                 add(h, p)
 
-        # Fallbacks: TWS paper, TWS live, Gateway paper, Gateway live.
+        # Fallbacks ordered by likelihood: live TWS, live Gateway, paper TWS, paper Gateway.
         for host in ("127.0.0.1", "localhost", "::1"):
-            for port in (7497, 7496, 4002, 4001):
+            for port in (7496, 4001, 7497, 4002):
                 add(host, port)
         return candidates
 

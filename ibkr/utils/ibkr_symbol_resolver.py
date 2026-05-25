@@ -44,7 +44,27 @@ class IBKRSymbolResolver(QObject):
             return
 
         try:
-            contracts = self.ib_client.reqMatchingSymbols(query)
+            # Run on a worker thread so IBKR/TWS timeouts do not block UI responsiveness.
+            import threading
+
+            result_holder: list[list[Any]] = []
+            done = threading.Event()
+
+            def _worker() -> None:
+                try:
+                    contracts = self.ib_client.reqMatchingSymbols(query)
+                    result_holder.append(contracts or [])
+                except Exception as exc:
+                    logger.debug("Symbol search failed for '%s': %s", query, exc)
+                    result_holder.append([])
+                finally:
+                    done.set()
+
+            worker = threading.Thread(target=_worker, daemon=True)
+            worker.start()
+            done.wait(timeout=8.0)
+
+            contracts = result_holder[0] if result_holder else []
             results = []
             for cd in (contracts or []):
                 contract = getattr(cd, "contract", None)
