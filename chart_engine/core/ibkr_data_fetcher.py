@@ -80,6 +80,8 @@ class IBKRDataFetcher(BrokerDataFetcher):
         self._contract_cache: Dict[str, Any] = {}
         self._contract_cache_lock = threading.Lock()
         self._last_history_endpoint: Optional[Tuple[str, int]] = None
+        self._history_connections: Dict[int, Any] = {}
+        self._history_connections_lock = threading.Lock()
 
     @property
     def capabilities(self) -> BrokerCapabilities:
@@ -103,26 +105,17 @@ class IBKRDataFetcher(BrokerDataFetcher):
         _ensure_event_loop()
 
         ib = self._ib
-        owns_connection = False
         if self._dedicated_history_connection:
-            ib = self._connect_dedicated_ib()
-            owns_connection = True
+            ib = self._get_or_create_history_connection()
 
-        try:
-            return self._fetch_with_ib(
-                ib=ib,
-                symbol=symbol,
-                instrument_token=instrument_token,
-                from_date=from_date,
-                to_date=to_date,
-                interval=interval,
-            )
-        finally:
-            if owns_connection:
-                try:
-                    ib.disconnect()
-                except Exception:
-                    pass
+        return self._fetch_with_ib(
+            ib=ib,
+            symbol=symbol,
+            instrument_token=instrument_token,
+            from_date=from_date,
+            to_date=to_date,
+            interval=interval,
+        )
 
     def _fetch_with_ib(
         self,
@@ -266,6 +259,37 @@ class IBKRDataFetcher(BrokerDataFetcher):
         if not qualified:
             raise ValueError(f"Could not qualify contract for {symbol}/{con_id}")
         return qualified[0]
+
+
+    def _get_or_create_history_connection(self):
+        """Reuse one dedicated IBKR history connection per loader thread."""
+        thread_id = threading.get_ident()
+        with self._history_connections_lock:
+            existing = self._history_connections.get(thread_id)
+            if existing is not None:
+                try:
+                    if existing.isConnected():
+                        return existing
+                except Exception:
+                    pass
+                self._history_connections.pop(thread_id, None)
+
+        ib = self._connect_dedicated_ib()
+        with self._history_connections_lock:
+            self._history_connections[thread_id] = ib
+        return ib
+
+    def close_history_connections(self) -> None:
+        """Best-effort shutdown for pooled dedicated history connections."""
+        with self._history_connections_lock:
+            connections = list(self._history_connections.values())
+            self._history_connections.clear()
+
+        for ib in connections:
+            try:
+                ib.disconnect()
+            except Exception:
+                pass
 
     def _connect_dedicated_ib(self):
         """Create a new IB connection owned by the current loader thread."""

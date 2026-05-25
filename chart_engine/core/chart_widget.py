@@ -1817,6 +1817,9 @@ class CandlestickChart(QWidget):
                 self.drawing_storage.save_last_viewed_symbol(self.current_symbol, self.current_interval)
             self._stop_loader(blocking=True)
             self._stop_retired_loader_threads()
+            close_history = getattr(self.data_fetcher, "close_history_connections", None)
+            if callable(close_history):
+                close_history()
             self.data_cache.clear()
             if self.channel:
                 self.channel.deleteLater()
