@@ -6,11 +6,38 @@ Based on successful analysis - extracts tickers from comment section
 
 import requests
 import re
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+
+
+def build_finviz_page_url(base_url, start_row):
+    """Return Finviz URL for a given 1-indexed row offset (r=1,21,41...)."""
+    parsed = urlparse(base_url)
+    query = parse_qs(parsed.query, keep_blank_values=True)
+    query["r"] = [str(start_row)]
+    encoded_query = urlencode(query, doseq=True)
+    return urlunparse(parsed._replace(query=encoded_query))
+
+
+def fetch_single_page_tickers(url, headers):
+    """Fetch one Finviz page and extract tickers from it."""
+    print(f"🎯 Fetching: {url}")
+    response = requests.get(url, headers=headers, timeout=30)
+    response.raise_for_status()
+
+    html_content = response.text
+    print(f"✅ Got {len(html_content):,} characters")
+
+    tickers = extract_comment_tickers(html_content)
+    if tickers:
+        return tickers
+
+    print("⚠️ No tickers found in comment section; using fallback parser")
+    return extract_fallback_tickers(html_content)
 
 
 def get_finviz_tickers(url):
     """
-    Extract ticker symbols from Finviz screener URL
+    Extract ticker symbols from all pages of a Finviz screener URL.
 
     Args:
         url (str): Finviz screener URL
@@ -22,28 +49,47 @@ def get_finviz_tickers(url):
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
     }
 
+    all_tickers = []
+    seen_tickers = set()
+    page_size = 20
+    max_pages = 200
+
     try:
-        print(f"🎯 Fetching: {url}")
-        response = requests.get(url, headers=headers, timeout=30)
-        response.raise_for_status()
+        for page_index in range(max_pages):
+            start_row = page_index * page_size + 1
+            page_url = build_finviz_page_url(url, start_row)
+            page_tickers = fetch_single_page_tickers(page_url, headers)
 
-        html_content = response.text
-        print(f"✅ Got {len(html_content):,} characters")
+            if not page_tickers:
+                if page_index == 0:
+                    print("❌ No tickers found")
+                else:
+                    print(f"✅ Reached end of results at page {page_index + 1}")
+                break
 
-        # Extract from comment section (most reliable method)
-        tickers = extract_comment_tickers(html_content)
+            new_count = 0
+            for ticker in page_tickers:
+                if ticker not in seen_tickers:
+                    seen_tickers.add(ticker)
+                    all_tickers.append(ticker)
+                    new_count += 1
 
-        if tickers:
-            print(f"✅ Found {len(tickers)} tickers")
-            return tickers
-        else:
-            print("❌ No tickers found in comment section")
-            # Fallback to other methods if needed
-            return extract_fallback_tickers(html_content)
+            print(
+                f"📄 Page {page_index + 1}: fetched {len(page_tickers)} tickers, "
+                f"added {new_count} new (total {len(all_tickers)})"
+            )
+
+            # When Finviz has no more rows it may repeat previous page content.
+            if new_count == 0:
+                print("✅ No new symbols on this page; stopping pagination")
+                break
+
+        print(f"✅ Found {len(all_tickers)} total tickers across all pages")
+        return all_tickers
 
     except Exception as e:
         print(f"❌ Error: {e}")
-        return []
+        return all_tickers
 
 
 def extract_comment_tickers(html_content):
