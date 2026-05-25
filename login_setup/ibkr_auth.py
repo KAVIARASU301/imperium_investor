@@ -44,6 +44,26 @@ class IBKRConnectionParams:
     trading_mode: TradingMode = TradingMode.PAPER
     fallback_hosts: List[str] = field(default_factory=lambda: ["127.0.0.1", "::1"])
 
+    def candidate_hosts(self) -> List[str]:
+        """Return ordered, de-duplicated hosts to probe for TWS/Gateway."""
+        ordered = [self.host, *self.fallback_hosts]
+        seen = set()
+        candidates: List[str] = []
+
+        for host in ordered:
+            normalized = (host or "").strip()
+            if not normalized:
+                continue
+
+            key = normalized.lower()
+            if key in seen:
+                continue
+
+            seen.add(key)
+            candidates.append(normalized)
+
+        return candidates
+
 
 # ------------------------------------------------------------------------------
 # Worker thread
@@ -88,7 +108,7 @@ class IBKRConnectionWorker(QThread):
 
     async def _connect(self):
         """Find the best reachable address and attempt the IB connection."""
-        self.connection_progress.emit("🔍 Scanning for IB Gateway on the network...")
+        self.connection_progress.emit("🔍 Scanning for IB Gateway / TWS endpoint...")
 
         host, port, family = self._find_reachable_address()
         if not host:
@@ -152,7 +172,7 @@ class IBKRConnectionWorker(QThread):
         """
         reachable = []
 
-        for hostname in self.params.fallback_hosts:
+        for hostname in self.params.candidate_hosts():
             try:
                 addr_infos = socket.getaddrinfo(
                     hostname, self.params.port, socket.AF_UNSPEC, socket.SOCK_STREAM
