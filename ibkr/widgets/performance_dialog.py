@@ -329,7 +329,7 @@ class PerformanceDialog(QDialog):
             sells = sum(1 for t in complete if str(t.get("transaction_type", "")).upper() == "SELL")
             side_hint = f"COMPLETE orders: {len(complete)} (BUY: {buys}, SELL: {sells})."
         else:
-            side_hint = "No COMPLETE orders found for the active Kite mode."
+            side_hint = "No COMPLETE orders found for the active IBKR mode."
 
         self.empty_state_label.setText(
             "NO CLOSED TRADES FOUND YET\n"
@@ -372,18 +372,18 @@ class PerformanceDialog(QDialog):
             self.labels[key].setText(text)
             self.labels[key].setStyleSheet(_metric_value_style(color))
 
-        setv("total_pnl", f"₹{total_pnl:,.0f}", _BULL if total_pnl >= 0 else _BEAR)
-        setv("expectancy", f"₹{expectancy:,.0f}", _BULL if expectancy >= 0 else _BEAR)
+        setv("total_pnl", f"${total_pnl:,.0f}", _BULL if total_pnl >= 0 else _BEAR)
+        setv("expectancy", f"${expectancy:,.0f}", _BULL if expectancy >= 0 else _BEAR)
         setv("win_rate", f"{win_rate:.1f}%", _BULL if win_rate >= 50 else _AMBER)
         setv("profit_factor", f"{profit_factor:.2f}", _BULL if profit_factor >= 1.5 else _AMBER)
-        setv("avg_win", f"₹{avg_win:,.0f}", _BULL)
-        setv("avg_loss", f"₹{avg_loss:,.0f}", _BEAR)
+        setv("avg_win", f"${avg_win:,.0f}", _BULL)
+        setv("avg_loss", f"${avg_loss:,.0f}", _BEAR)
         setv("rr_ratio", f"{rr_ratio:.2f}", _CYAN)
         setv("rr_quality", rr_quality, _BULL if rr_ratio >= 2 else _CYAN if rr_ratio >= 1.5 else _AMBER)
         setv("total_trades", str(total_trades), _T1)
         setv("consistency", f"{consistency:.1f}%", _BULL if consistency >= 50 else _AMBER)
-        setv("best_day", f"₹{best_day:,.0f}", _BULL)
-        setv("worst_day", f"₹{worst_day:,.0f}", _BEAR)
+        setv("best_day", f"${best_day:,.0f}", _BULL)
+        setv("worst_day", f"${worst_day:,.0f}", _BEAR)
 
         if hasattr(self, "status_label"):
             self.status_label.setText(f"Updated {datetime.now().strftime('%H:%M:%S')}  ·  {total_trades} trades")
@@ -412,7 +412,7 @@ class PerformanceDialog(QDialog):
                     mode="lines+markers",
                     line=dict(color=_CYAN, width=2),
                     marker=dict(size=5, color=_CYAN, line=dict(width=1, color=_BG1)),
-                    hovertemplate="%{x|%d-%b-%Y}<br>P&L: ₹%{y:,.0f}<extra></extra>",
+                    hovertemplate="%{x|%d-%b-%Y}<br>P&L: $%{y:,.0f}<extra></extra>",
                 )
             )
         fig.update_layout(

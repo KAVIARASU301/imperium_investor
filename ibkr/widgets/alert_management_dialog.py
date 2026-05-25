@@ -1,4 +1,4 @@
-"""Production-grade alert management dialog for Kite alerts.
+"""Production-grade alert management dialog for IBKR alerts.
 
 This module intentionally contains only alert-management UI.  Alert creation UI
 and the old "+ New Alert" footer action were removed so the panel stays focused
@@ -48,7 +48,7 @@ from utils.resource_path import resource_path
 logger = logging.getLogger(__name__)
 
 # -----------------------------------------------------------------------------
-# Visual system: dark, sharp, solid, trading-desk style.
+# Visual system: AMOLED dark, sharp, compact, trading-desk style.
 # -----------------------------------------------------------------------------
 
 _BG_APP = "#050709"
@@ -62,29 +62,29 @@ _BG_SELECTED = "#1a2840"
 _BORDER_DARK = "#1a2030"
 _BORDER_LIGHT = "#243040"
 
-_TEXT_STRONG = "#cbd7e3"
-_SYMBOL_TEXT = "#b3c0ce"
-_TEXT = "#98aabd"
-_TEXT_MUTED = "#62758a"
-_TEXT_FAINT = "#35465a"
+_TEXT_STRONG = "#e8f0ff"
+_SYMBOL_TEXT = "#dbe7f3"
+_TEXT = "#a8bcd4"
+_TEXT_MUTED = "#5a7090"
+_TEXT_FAINT = "#2a3a50"
 
-_ACCENT = "#c89542"
-_GREEN = "#58bfa6"
-_RED = "#d86d7d"
-_BLUE = "#6f8fc8"
-_CYAN = "#69bdd2"
+_ACCENT = "#f59e0b"
+_GREEN = "#00d4a8"
+_RED = "#ff4d6a"
+_BLUE = "#3b82f6"
+_CYAN = "#00d4ff"
 
 _MONO_FAMILY = "Consolas"  # reserved for raw logs, IDs, code/debug text only
-_SANS = "'Inter', 'Segoe UI Variable', 'Segoe UI', 'Noto Sans', -apple-system, BlinkMacSystemFont, sans-serif"
-_NUM = "'Inter', 'Segoe UI Variable', 'Segoe UI', 'Noto Sans', sans-serif"
+_SANS = "'Inter', 'Aptos', 'Segoe UI Variable', 'Segoe UI', 'Roboto', 'Noto Sans', sans-serif"
+_NUM = "'Inter', 'Aptos', 'Segoe UI Variable', 'Segoe UI', 'Roboto', 'Noto Sans', sans-serif"
 _NUM_FONT = "Inter"
 _UI_FONT = "Inter"
 
-_ROW_H = 28
-_DEFAULT_W = 860
-_DEFAULT_H = 520
-_MIN_W = 620
-_MIN_H = 360
+_ROW_H = 24
+_DEFAULT_W = 740
+_DEFAULT_H = 460
+_MIN_W = 540
+_MIN_H = 320
 _REFRESH_MS = 3_000
 
 
@@ -150,12 +150,12 @@ class _ActionCell(QWidget):
         super().__init__(parent)
         self.setFixedHeight(_ROW_H)
         layout = QHBoxLayout(self)
-        # Keep total button + margin height below the table row height.
-        layout.setContentsMargins(2, 2, 2, 2)
-        layout.setSpacing(5)
+        # Keep action controls centered and safely inside the compact table row.
+        layout.setContentsMargins(1, 1, 1, 1)
+        layout.setSpacing(3)
         layout.addStretch(1)
         for button in buttons:
-            layout.addWidget(button)
+            layout.addWidget(button, 0, Qt.AlignmentFlag.AlignCenter)
         layout.addStretch(1)
         self.setStyleSheet("background: transparent;")
 
@@ -190,35 +190,36 @@ def _action_button(
     button = QToolButton()
     button.setToolTip(tooltip)
     button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-    button.setFixedSize(24, 22)
-    button.setIconSize(QSize(12, 12))
+    button.setFixedSize(20, 20)
+    button.setIconSize(QSize(11, 11))
     button.setText("")
     button.setAutoRaise(False)
+    button.setAccessibleName(text)
     if icon_key:
         button.setIcon(_icon_for_action(icon_key))
-        button.setAccessibleName(text)
     else:
-        button.setText(text)
+        button.setText("✓" if text.upper() == "ACK" else text[:1].upper())
 
     button.setStyleSheet(f"""
         QToolButton {{
-            background: {color}10;
+            background: {_BG_PANEL_ALT};
             color: {color};
-            border: 1px solid {color}3d;
+            border: 1px solid {_BORDER_DARK};
             border-radius: 2px;
             padding: 0px;
             margin: 0px;
             font-family: {_SANS};
-            font-size: 8px;
-            font-weight: 600;
+            font-size: 10px;
+            font-weight: 800;
         }}
         QToolButton:hover {{
-            background: {color}1e;
-            border-color: {color}aa;
-            color: {_TEXT_STRONG};
+            background: {color}14;
+            border-color: {color}7a;
+            color: {color};
         }}
         QToolButton:pressed {{
-            background: {color}30;
+            background: {color}24;
+            border-color: {color};
         }}
     """)
     button.clicked.connect(callback)
@@ -304,8 +305,8 @@ class AlertManagementDialog(QDialog):
         body = QWidget()
         body.setObjectName("alertBody")
         body_layout = QVBoxLayout(body)
-        body_layout.setContentsMargins(10, 2, 10, 8)
-        body_layout.setSpacing(8)
+        body_layout.setContentsMargins(8, 2, 8, 7)
+        body_layout.setSpacing(6)
 
         self.tabs = QTabWidget()
         self.tabs.setObjectName("alertTabs")
@@ -313,8 +314,8 @@ class AlertManagementDialog(QDialog):
         self.tabs.setMovable(False)
         self.tabs.setUsesScrollButtons(False)
 
-        self.active_table = self._make_table(["Symbol", "Condition", "Target", "Intent", "Note", ""])
-        self.triggered_table = self._make_table(["Symbol", "Condition", "Target", "Triggered", "Intent", ""])
+        self.active_table = self._make_table(["Symbol", "Condition", "Target", ""])
+        self.triggered_table = self._make_table(["Symbol", "Condition", "Target", "Triggered", ""])
         self.history_table = self._make_table(["Symbol", "Condition", "Target", "Triggered", "Status"])
 
         self.tabs.addTab(self.active_table, "ACTIVE")
@@ -330,7 +331,7 @@ class AlertManagementDialog(QDialog):
     def _build_title_bar(self) -> QFrame:
         bar = QFrame()
         bar.setObjectName("alertTitleBar")
-        bar.setFixedHeight(30)
+        bar.setFixedHeight(28)
         bar.setCursor(QCursor(Qt.CursorShape.SizeAllCursor))
 
         layout = QHBoxLayout(bar)
@@ -360,7 +361,7 @@ class AlertManagementDialog(QDialog):
     def _build_footer(self) -> QFrame:
         footer = QFrame()
         footer.setObjectName("alertFooter")
-        footer.setFixedHeight(26)
+        footer.setFixedHeight(24)
 
         layout = QHBoxLayout(footer)
         layout.setContentsMargins(10, 0, 18, 0)
@@ -370,7 +371,7 @@ class AlertManagementDialog(QDialog):
         self._status_lbl.setObjectName("alertStatusLbl")
         self.status_label = self._status_lbl  # backwards-compatible external access
 
-        hint = QLabel("Space/↓ next · ↑ previous · click row to open chart")
+        hint = QLabel("SPACE / ↓ NEXT  ·  ↑ PREVIOUS  ·  CLICK ROW OPENS CHART")
         hint.setObjectName("alertHintLbl")
 
         layout.addWidget(self._status_lbl)
@@ -384,7 +385,7 @@ class AlertManagementDialog(QDialog):
         button.setToolTip(tooltip)
         button.setObjectName("alertCloseBtn" if close else "alertTitleBtn")
         button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        button.setFixedSize(26, 22)
+        button.setFixedSize(22, 20)
         return button
 
     def _make_table(self, headers: List[str]) -> QTableWidget:
@@ -393,7 +394,7 @@ class AlertManagementDialog(QDialog):
         table.setObjectName("alertTable")
         table.setMouseTracking(True)
         table.setAlternatingRowColors(True)
-        table.setShowGrid(False)
+        table.setShowGrid(True)
         table.setWordWrap(False)
         table.setSortingEnabled(False)
         table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -409,24 +410,28 @@ class AlertManagementDialog(QDialog):
         header = table.horizontalHeader()
         header.setHighlightSections(False)
         header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        header.setMinimumHeight(23)
+        header.setMinimumHeight(21)
         header.setStretchLastSection(False)
 
         for index, name in enumerate(headers):
             if name == "":
                 header.setSectionResizeMode(index, QHeaderView.ResizeMode.Fixed)
-                table.setColumnWidth(index, 82 if "Triggered" in headers else 50)
+                table.setColumnWidth(index, 64 if "Triggered" in headers else 38)
             elif name == "Symbol":
                 header.setSectionResizeMode(index, QHeaderView.ResizeMode.Fixed)
-                table.setColumnWidth(index, 118)
+                table.setColumnWidth(index, 108)
             elif name == "Condition":
                 header.setSectionResizeMode(index, QHeaderView.ResizeMode.Stretch)
-                table.setColumnWidth(index, 230)
-            elif name == "Note":
-                header.setSectionResizeMode(index, QHeaderView.ResizeMode.Stretch)
-                table.setColumnWidth(index, 210)
-            elif name in ("Target", "Triggered", "Intent", "Status"):
-                header.setSectionResizeMode(index, QHeaderView.ResizeMode.ResizeToContents)
+                table.setColumnWidth(index, 260)
+            elif name == "Target":
+                header.setSectionResizeMode(index, QHeaderView.ResizeMode.Fixed)
+                table.setColumnWidth(index, 104)
+            elif name == "Triggered":
+                header.setSectionResizeMode(index, QHeaderView.ResizeMode.Fixed)
+                table.setColumnWidth(index, 118)
+            elif name == "Status":
+                header.setSectionResizeMode(index, QHeaderView.ResizeMode.Fixed)
+                table.setColumnWidth(index, 92)
 
         return table
 
@@ -617,9 +622,7 @@ class AlertManagementDialog(QDialog):
         symbol_item.setData(Qt.ItemDataRole.UserRole, str(getattr(alert, "id", "")))
         table.setItem(row, 0, symbol_item)
         table.setItem(row, 1, self._cell(self._condition(alert), color=_TEXT))
-        table.setItem(row, 2, self._cell(self._fmt_target(alert), Qt.AlignmentFlag.AlignRight, _ACCENT, mono=True))
-        table.setItem(row, 3, self._cell(self._intent(alert), color=_BLUE))
-        table.setItem(row, 4, self._cell(self._note(alert), color=_TEXT_MUTED))
+        table.setItem(row, 2, self._cell(self._fmt_target(alert), Qt.AlignmentFlag.AlignRight, _ACCENT, mono=True, bold=True))
 
         delete_button = _action_button(
             "Delete",
@@ -628,22 +631,22 @@ class AlertManagementDialog(QDialog):
             lambda _checked=False, aid=str(getattr(alert, "id", "")): self._delete_alert(aid),
             icon_key="delete",
         )
-        table.setCellWidget(row, 5, _ActionCell(delete_button))
+        table.setCellWidget(row, 3, _ActionCell(delete_button))
 
     def _apply_triggered_row(self, table: QTableWidget, row: int, alert: object) -> None:
         symbol_item = self._cell(self._symbol(alert), color=_SYMBOL_TEXT, bold=True)
         symbol_item.setData(Qt.ItemDataRole.UserRole, str(getattr(alert, "id", "")))
         table.setItem(row, 0, symbol_item)
         table.setItem(row, 1, self._cell(self._condition(alert), color=_TEXT))
-        table.setItem(row, 2, self._cell(self._fmt_target(alert), Qt.AlignmentFlag.AlignRight, _ACCENT, mono=True))
+        table.setItem(row, 2, self._cell(self._fmt_target(alert), Qt.AlignmentFlag.AlignRight, _ACCENT, mono=True, bold=True))
         table.setItem(row, 3, self._cell(self._fmt_dt(getattr(alert, "triggered_at", None)), color=_TEXT_MUTED, mono=True))
-        table.setItem(row, 4, self._cell(self._intent(alert), color=_BLUE))
 
         ack_button = _action_button(
             "ACK",
             _GREEN,
             "Acknowledge and move to history",
             lambda _checked=False, aid=str(getattr(alert, "id", "")): self._ack_alert(aid),
+            icon_key="ack",
         )
         delete_button = _action_button(
             "Delete",
@@ -652,7 +655,7 @@ class AlertManagementDialog(QDialog):
             lambda _checked=False, aid=str(getattr(alert, "id", "")): self._delete_alert(aid),
             icon_key="delete",
         )
-        table.setCellWidget(row, 5, _ActionCell(ack_button, delete_button))
+        table.setCellWidget(row, 4, _ActionCell(ack_button, delete_button))
 
     def _apply_history_row(self, table: QTableWidget, row: int, alert: object) -> None:
         status = self._alert_status(alert)
@@ -707,8 +710,10 @@ class AlertManagementDialog(QDialog):
         # Latest consistency rule: market numbers, timestamps, prices and UI text
         # use modern UI typography. Monospace is reserved only for raw logs/code/IDs.
         font = QFont(_NUM_FONT if mono else _UI_FONT, 9)
+        if hasattr(font, "setFamilies"):
+            font.setFamilies(["Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", "Noto Sans"])
         font.setStyleHint(QFont.StyleHint.SansSerif)
-        font.setWeight(QFont.Weight.Medium if bold else QFont.Weight.Normal)
+        font.setWeight(QFont.Weight.DemiBold if bold else QFont.Weight.Normal)
         font.setKerning(True)
         item.setFont(font)
         return item
@@ -786,7 +791,7 @@ class AlertManagementDialog(QDialog):
         if "time" in condition:
             raw = int(value) if value else 0
             return f"{raw:04d}" if raw else "—"
-        return f"₹{value:,.2f}"
+        return f"${value:,.2f}"
 
     # ------------------------------------------------------------------
     # Navigation and actions
@@ -919,9 +924,9 @@ class AlertManagementDialog(QDialog):
         QLabel#dialogTitle {{
             color: {_ACCENT};
             font-family: {_SANS};
-            font-size: 11px;
-            font-weight: 600;
-            letter-spacing: 0.7px;
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 1px;
             background: transparent;
         }}
 
@@ -941,7 +946,7 @@ class AlertManagementDialog(QDialog):
             border-radius: 2px;
             font-family: {_SANS};
             font-size: 9px;
-            font-weight: 600;
+            font-weight: 800;
         }}
 
         QToolButton#alertTitleBtn:hover {{
@@ -992,12 +997,12 @@ class AlertManagementDialog(QDialog):
             color: {_TEXT_MUTED};
             border: 1px solid {_BORDER_DARK};
             border-bottom: none;
-            min-height: 23px;
-            padding: 0px 14px;
+            min-height: 21px;
+            padding: 0px 12px;
             margin-right: 2px;
             font-family: {_SANS};
             font-size: 9px;
-            font-weight: 600;
+            font-weight: 800;
             letter-spacing: 0.8px;
         }}
 
@@ -1018,19 +1023,19 @@ class AlertManagementDialog(QDialog):
             alternate-background-color: {_BG_ROW_ALT};
             color: {_TEXT};
             border: none;
-            gridline-color: transparent;
+            gridline-color: rgba(26,32,48,0.62);
             outline: none;
             selection-background-color: {_BG_SELECTED};
             selection-color: {_TEXT_STRONG};
             font-family: {_SANS};
-            font-size: 11px;
+            font-size: 10px;
             show-decoration-selected: 0;
         }}
 
         QTableWidget#alertTable::item {{
             padding-left: 6px;
             padding-right: 6px;
-            border-bottom: 1px solid {_BG_HOVER};
+            border-bottom: 1px solid rgba(26,32,48,0.58);
             background: transparent;
         }}
 
@@ -1050,11 +1055,11 @@ class AlertManagementDialog(QDialog):
             border-bottom: 1px solid {_BORDER_DARK};
             padding-left: 6px;
             padding-right: 6px;
-            min-height: 23px;
-            max-height: 23px;
+            min-height: 21px;
+            max-height: 21px;
             font-family: {_SANS};
             font-size: 8px;
-            font-weight: 600;
+            font-weight: 800;
             letter-spacing: 1px;
         }}
 
@@ -1077,7 +1082,7 @@ class AlertManagementDialog(QDialog):
             color: {_TEXT_MUTED};
             font-family: {_SANS};
             font-size: 9px;
-            font-weight: 600;
+            font-weight: 700;
             background: transparent;
         }}
 

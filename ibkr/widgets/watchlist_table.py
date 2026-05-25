@@ -52,8 +52,8 @@ def _prefer_text_antialias(font: QFont) -> QFont:
         pass
     return font
 
-CHART_TOOLBAR_HEIGHT = 30
-CHART_TOOLBAR_CONTROL_HEIGHT = 24
+CHART_TOOLBAR_HEIGHT = 26
+CHART_TOOLBAR_CONTROL_HEIGHT = 22
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -61,60 +61,64 @@ CHART_TOOLBAR_CONTROL_HEIGHT = 24
 # ─────────────────────────────────────────────────────────────────────────────
 
 class _C:
-    # Calm institutional dark palette — readable, modern, not neon.
-    BG0 = "#06080c"  # app shell
-    BG1 = "#0a0e13"  # primary panels
-    BG2 = "#10151c"  # table rows / input bg
-    BG3 = "#151b24"  # hover / selected elevated
-    BG4 = "#222b38"  # borders / subtle dividers
+    # AMOLED Institutional Dark Trading Terminal palette.
+    # Built from near-black layers, thin borders, compact contrast, and state-only accents.
+    BG0 = "#050709"  # app shell / AMOLED black
+    BG1 = "#0a0d12"  # main table body
+    BG2 = "#0f1318"  # alternate row / panel layer
+    BG3 = "#141920"  # hover / raised layer
+    BG4 = "#1a2030"  # grid lines / borders
+    BG5 = "#26354a"  # active border
 
-    BULL = "#72cdb6"      # muted buy/success green
-    BULL_DIM = "#3f917f"
-    BULL_BG = "rgba(114,205,182,0.06)"
+    BULL = "#00d4a8"      # buy / success / positive
+    BULL_DIM = "#078b72"
+    BULL_BG = "rgba(0,212,168,0.055)"
 
-    BEAR = "#e07a84"      # muted sell/loss red
-    BEAR_DIM = "#94424b"
-    BEAR_BG = "rgba(224,122,132,0.06)"
+    BEAR = "#ff4d6a"      # sell / risk / negative
+    BEAR_DIM = "#a83a4e"
+    BEAR_BG = "rgba(255,77,106,0.055)"
 
-    NEUTRAL = "#7f90a3"
-    NEU_DIM = "#4d5e72"
+    NEUTRAL = "#8da2bd"
+    NEU_DIM = "#5a7090"
 
-    T0 = "#d8e2ef"        # primary — prices / selected emphasis
-    T_SYMBOL = "#c2ccd9"  # symbol text — clear without glowing white
-    T1 = "#9eacbc"        # secondary — headers, labels
-    T2 = "#748396"        # tertiary — muted metadata
-    T3 = "#475466"        # disabled / placeholder
+    T0 = "#e8f0ff"        # primary text
+    T_SYMBOL = "#d6e2f2"  # symbol text
+    T1 = "#a8bcd4"        # secondary text
+    T2 = "#5a7090"        # muted labels / headers
+    T3 = "#2a3a50"        # disabled / placeholder
 
-    CYAN = "#78cfe1"      # utility/focus, intentionally soft
-    AMBER = "#d7a45d"     # alerts/warnings, muted amber
-    BLUE = "#7fa6d8"      # informational
-    SEL = "#1f1f1f"       # selected row
+    CYAN = "#00d4ff"      # info / utility / focus
+    AMBER = "#f59e0b"     # active / warning
+    BLUE = "#3b82f6"      # informational
+    SEL = "#1a2840"       # selected row
+
+    GRID = "rgba(26,32,48,0.58)"
+    ROW_LINE = "rgba(26,32,48,0.42)"
 
     # Flag color (single-state)
-    FLAG_GREEN = "#72cdb6"
+    FLAG_GREEN = "#00d4a8"
 
-    # Heat-map change % bands — reduced saturation to avoid distraction.
     @staticmethod
     def change_color(pct: float) -> Tuple[str, str]:
         """Return (fg_color, bg_rgba) for a % change value."""
         if pct >= 3.0:
-            return "#7bd8c3", "rgba(123,216,195,0.10)"
+            return "#00e6b8", "rgba(0,212,168,0.12)"
         if pct >= 1.0:
-            return "#68c9b2", "rgba(104,201,178,0.06)"
+            return "#00d4a8", "rgba(0,212,168,0.075)"
         if pct >= -0.5:
-            return "#7f90a3", ""
+            return "#8da2bd", ""
         if pct >= -1.0:
-            return "#d78b7f", "rgba(215,139,127,0.06)"
-        return "#e07a84", "rgba(224,122,132,0.10)"
+            return "#ff8a9a", "rgba(255,77,106,0.07)"
+        return "#ff4d6a", "rgba(255,77,106,0.12)"
 
 
-_MONO = "Consolas, 'JetBrains Mono', 'Courier New', monospace"  # raw logs / IDs / code only
-_SANS = "'Inter', 'Segoe UI Variable', 'Segoe UI', 'Noto Sans', Roboto, Arial, sans-serif"
-_SYMBOL = "'Inter', 'Segoe UI Variable', 'Segoe UI', 'Noto Sans', Roboto, Arial, sans-serif"
-_NUM = "'Segoe UI Variable', 'Inter', 'Segoe UI', 'Noto Sans', sans-serif"
+_MONO = "'JetBrains Mono', 'Consolas', 'Courier New', monospace"  # raw logs / IDs / code only
+_SANS = "'Inter', 'Aptos', 'Segoe UI Variable', 'Segoe UI', 'Roboto', 'Noto Sans', Arial, sans-serif"
+_SYMBOL = "'Inter', 'Aptos', 'Segoe UI Variable', 'Segoe UI', 'Roboto', 'Noto Sans', Arial, sans-serif"
+_NUM = "'Inter', 'Aptos', 'Segoe UI Variable', 'Segoe UI', 'Roboto', 'Noto Sans', sans-serif"
 _UI_FONT_FAMILIES = ["Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", "Noto Sans"]
 _SYMBOL_FONT_FAMILIES = ["Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", "Noto Sans"]
-_NUM_FONT_FAMILIES = ["Segoe UI Variable", "Inter", "Aptos", "Segoe UI", "Roboto", "Noto Sans"]
+_NUM_FONT_FAMILIES = ["Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", "Noto Sans"]
 _UI_FONT = _UI_FONT_FAMILIES[0]
 _NUM_FONT = _NUM_FONT_FAMILIES[0]
 _ROW_H = 21
@@ -772,7 +776,7 @@ class TradingTable(QTableWidget):
         self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.setShowGrid(bool(self._color_theme.get("show_table_vertical_lines", True)))
+        self.setShowGrid(True)
         self.setAlternatingRowColors(True)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -903,7 +907,7 @@ class TradingTable(QTableWidget):
 
     def apply_color_theme(self, theme: Dict) -> None:
         self._color_theme = theme
-        self.setShowGrid(bool(self._color_theme.get("show_table_vertical_lines", True)))
+        self.setShowGrid(True)
         self.setColumnHidden(_COL_VOL, not bool(self._color_theme.get("show_watchlist_volume_column", True)))
         self._apply_dynamic_column_widths()
         for sym, row in self._symbol_to_row.items():
@@ -1704,250 +1708,281 @@ class TabbedWatchlistWidget(QWidget):
     # ── Styles ─────────────────────────────────────────────────────────────
 
     def _apply_styles(self):
-        show_vertical_lines = bool(self._color_theme.get("show_table_vertical_lines", True))
-        gridline_color = "rgba(111,129,148,0.28)" if show_vertical_lines else "transparent"
+        """AMOLED dark terminal styling with visible low-contrast grid lines."""
+        gridline_color = _C.GRID
         dropdown_icon_path = get_asset_path("icons", "dropdown-arrow.svg", required=False)
         dropdown_icon_url = dropdown_icon_path.as_posix() if dropdown_icon_path is not None else ""
-        stylesheet = """
+        stylesheet = f"""
             /* ── Widget shell ─────────────────────────────────────── */
-            TabbedWatchlistWidget {
-                background: #06080c;
-                color: #d8e2ef;
-                font-family: "Inter", "Segoe UI Variable", "Segoe UI", "Noto Sans", Roboto, Arial, sans-serif;
-                font-size: 11px;
-            }
-
-            /* ── Header bar ───────────────────────────────────────── */
-            QFrame#wlHeader {
-                background: #080b10;
-                border-bottom: 1px solid #222b38;
-                min-height: 30px;
-                max-height: 30px;
-                padding: 0;
-            }
-
-            QLabel#wlLabel {
-                color: #c79b61;
-                font-family: "Inter", "Segoe UI Variable", "Segoe UI", "Noto Sans", Roboto, Arial, sans-serif;
+            TabbedWatchlistWidget {{
+                background: {_C.BG0};
+                color: {_C.T0};
+                font-family: {_SANS};
                 font-size: 10px;
-                font-weight: 500;
+            }}
+
+            /* ── Compact AMOLED header bar ───────────────────────── */
+            QFrame#wlHeader {{
+                background: {_C.BG0};
+                border-bottom: 1px solid {_C.BG4};
+                min-height: {CHART_TOOLBAR_HEIGHT}px;
+                max-height: {CHART_TOOLBAR_HEIGHT}px;
+                padding: 0px;
+            }}
+
+            QLabel#wlLabel {{
+                color: {_C.AMBER};
+                font-family: {_SANS};
+                font-size: 9px;
+                font-weight: 800;
                 letter-spacing: 0.8px;
                 background: transparent;
-            }
+            }}
 
             /* ── Dropdown ─────────────────────────────────────────── */
-            QComboBox#wlDropdown {
-                background: #10151c;
-                color: #d8e2ef;
-                border: 1px solid #222b38;
+            QComboBox#wlDropdown {{
+                background: {_C.BG1};
+                color: {_C.T0};
+                border: 1px solid {_C.BG4};
                 border-radius: 2px;
-                min-height: 24px;
-                max-height: 24px;
-                padding: 0 22px 0 7px;
-                font-family: "Inter", "Segoe UI Variable", "Segoe UI", "Noto Sans", Roboto, Arial, sans-serif;
-                font-size: 11px;
-                font-weight: 400;
-            }
-            QComboBox#wlDropdown:hover {
-                background: #151b24;
-                border-color: #2b3645;
-            }
-            QComboBox#wlDropdown:focus {
-                border-color: #78cfe1;
+                min-height: {CHART_TOOLBAR_CONTROL_HEIGHT}px;
+                max-height: {CHART_TOOLBAR_CONTROL_HEIGHT}px;
+                padding: 0px 20px 0px 7px;
+                font-family: {_SANS};
+                font-size: 10px;
+                font-weight: 650;
+                selection-background-color: {_C.SEL};
+                selection-color: {_C.T0};
+            }}
+            QComboBox#wlDropdown:hover {{
+                background: {_C.BG2};
+                border-color: {_C.BG5};
+            }}
+            QComboBox#wlDropdown:focus {{
+                background: {_C.BG2};
+                border-color: {_C.CYAN};
                 outline: none;
-            }
-            QComboBox#wlDropdown::drop-down {
+            }}
+            QComboBox#wlDropdown::drop-down {{
                 border: none;
                 width: 18px;
                 background: transparent;
-            }
-            QComboBox#wlDropdown::down-arrow {
+            }}
+            QComboBox#wlDropdown::down-arrow {{
                 image: url("__DROPDOWN_ICON_URL__");
                 width: 10px;
                 height: 10px;
                 margin-right: 4px;
-            }
-            QComboBox#wlDropdown QAbstractItemView {
-                background: #0a0e13;
-                border: 1px solid #222b38;
+            }}
+            QComboBox#wlDropdown QAbstractItemView {{
+                background: {_C.BG1};
+                border: 1px solid {_C.BG4};
                 border-radius: 2px;
-                color: #d8e2ef;
-                selection-background-color: #1f1f1f;
-                selection-color: #d8e2ef;
+                color: {_C.T0};
+                selection-background-color: {_C.SEL};
+                selection-color: {_C.T0};
                 padding: 2px;
                 outline: none;
-                font-size: 11px;
-            }
-            QComboBox#wlDropdown QAbstractItemView::item {
-                padding: 4px 7px;
+                font-family: {_SANS};
+                font-size: 10px;
+            }}
+            QComboBox#wlDropdown QAbstractItemView::item {{
+                padding: 3px 7px;
                 border: none;
                 min-height: 18px;
-            }
-            QComboBox#wlDropdown QAbstractItemView::item:hover {
-                background: #151b24;
-            }
+            }}
+            QComboBox#wlDropdown QAbstractItemView::item:hover {{
+                background: {_C.BG3};
+            }}
 
             /* ── Add / Menu buttons ───────────────────────────────── */
-            QToolButton#wlAddBtn, QToolButton#wlMenuBtn {
-                background: #10151c;
-                color: #78cfe1;
-                min-height: 24px;
-                max-height: 24px;
+            QToolButton#wlAddBtn,
+            QToolButton#wlMenuBtn {{
+                background: {_C.BG1};
+                color: {_C.CYAN};
+                min-height: {CHART_TOOLBAR_CONTROL_HEIGHT}px;
+                max-height: {CHART_TOOLBAR_CONTROL_HEIGHT}px;
                 font-size: 12px;
-                font-weight: 600;
+                font-weight: 800;
                 border-radius: 2px;
-                border: 1px solid #222b38;
-                padding: 0;
-            }
-            QToolButton#wlAddBtn:hover, QToolButton#wlMenuBtn:hover {
-                background: rgba(120,207,225,0.08);
-                border-color: rgba(120,207,225,0.26);
-                color: #c6edf4;
-            }
-            QToolButton#wlAddBtn:pressed, QToolButton#wlMenuBtn:pressed {
-                background: #06080c;
-                border-color: #78cfe1;
-            }
+                border: 1px solid {_C.BG4};
+                padding: 0px;
+            }}
+            QToolButton#wlAddBtn:hover,
+            QToolButton#wlMenuBtn:hover {{
+                background: rgba(0,212,255,0.08);
+                border-color: rgba(0,212,255,0.34);
+                color: {_C.T0};
+            }}
+            QToolButton#wlAddBtn:pressed,
+            QToolButton#wlMenuBtn:pressed {{
+                background: {_C.BG3};
+                border-color: {_C.CYAN};
+            }}
 
-            /* ── Table ────────────────────────────────────────────── */
-            TradingTable {
-                background: #0a0e13;
-                alternate-background-color: #10151c;
+            /* ── Table with visible grid lines ────────────────────── */
+            TradingTable {{
+                background: {_C.BG1};
+                alternate-background-color: {_C.BG2};
                 border: none;
-                gridline-color: __GRIDLINE_COLOR__;
-                selection-background-color: #1f1f1f;
-                color: #d8e2ef;
+                gridline-color: {gridline_color};
+                selection-background-color: {_C.SEL};
+                selection-color: {_C.T0};
+                color: {_C.T0};
                 outline: none;
                 show-decoration-selected: 0;
                 font-size: 10px;
-                font-family: "Inter", "Segoe UI Variable", "Segoe UI", "Noto Sans", Roboto, Arial, sans-serif;
-                border-radius: 0;
-            }
+                font-family: {_NUM};
+                border-radius: 0px;
+            }}
 
-            TradingTable::item {
-                padding: 0 5px;
-                border-bottom: 1px solid #151b24;
+            TradingTable::item {{
+                padding: 0px 5px;
+                border-bottom: 1px solid {_C.ROW_LINE};
                 background: transparent;
                 font-size: 10px;
-                font-family: "Inter", "Segoe UI Variable", "Segoe UI", "Noto Sans", Roboto, Arial, sans-serif;
-                font-weight: 400;
-            }
+                font-family: {_NUM};
+                font-weight: 500;
+            }}
 
-            TradingTable::item:selected {
-                background: #1f1f1f !important;
-                color: #d8e2ef;
+            TradingTable::item:selected {{
+                background: {_C.SEL} !important;
+                color: {_C.T0};
+                font-weight: 600;
                 outline: none;
-            }
+            }}
 
-            TradingTable::item:focus {
-                background: #1f1f1f !important;
+            TradingTable::item:focus {{
+                background: {_C.SEL} !important;
+                color: {_C.T0};
                 outline: none;
-            }
+            }}
 
-            TradingTable::item:hover {
-                background: #151b24;
-            }
+            TradingTable::item:hover {{
+                background: {_C.BG3};
+            }}
 
-            TradingTable::item:alternate {
-                background: #10151c;
-            }
+            TradingTable::item:alternate {{
+                background: {_C.BG2};
+            }}
 
-            TradingTable::item:alternate:selected {
-                background: #1f1f1f !important;
-                color: #d8e2ef;
-            }
+            TradingTable::item:alternate:selected {{
+                background: {_C.SEL} !important;
+                color: {_C.T0};
+            }}
 
             /* ── Table header ─────────────────────────────────────── */
-            QHeaderView::section {
-                background: #10151c;
-                color: #748396;
-                padding: 0 5px;
+            QHeaderView::section {{
+                background: {_C.BG2};
+                color: {_C.T2};
+                padding: 0px 5px;
                 border: none;
-                border-bottom: 1px solid #222b38;
-                font-family: "Inter", "Segoe UI Variable", "Segoe UI", "Noto Sans", Roboto, Arial, sans-serif;
-                font-weight: 500;
+                border-right: 1px solid {_C.BG4};
+                border-bottom: 1px solid {_C.BG4};
+                font-family: {_SANS};
+                font-weight: 800;
                 font-size: 9px;
-                letter-spacing: 0.6px;
+                letter-spacing: 0.8px;
                 text-transform: uppercase;
-            }
-            QHeaderView::section:hover {
-                background: #151b24;
-                color: #9eacbc;
-            }
-            QHeaderView {
-                background: #10151c;
+                min-height: 19px;
+            }}
+            QHeaderView::section:hover {{
+                background: {_C.BG3};
+                color: {_C.T1};
+            }}
+            QHeaderView {{
+                background: {_C.BG2};
                 border: none;
-            }
+            }}
+            QTableCornerButton::section {{
+                background: {_C.BG2};
+                border: none;
+                border-right: 1px solid {_C.BG4};
+                border-bottom: 1px solid {_C.BG4};
+            }}
 
             /* ── Context menu ─────────────────────────────────────── */
-            QMenu#wlCtxMenu, QMenu#wlOptionsMenu {
-                background: #0a0e13;
-                border: 1px solid #222b38;
+            QMenu#wlCtxMenu,
+            QMenu#wlOptionsMenu {{
+                background: {_C.BG1};
+                border: 1px solid {_C.BG4};
                 border-radius: 2px;
-                color: #d8e2ef;
-                font-family: "Inter", "Segoe UI Variable", "Segoe UI", "Noto Sans", Roboto, Arial, sans-serif;
-                font-size: 11px;
-                padding: 4px 0;
-            }
-            QMenu#wlCtxMenu::item, QMenu#wlOptionsMenu::item {
+                color: {_C.T0};
+                font-family: {_SANS};
+                font-size: 10px;
+                padding: 4px 0px;
+            }}
+            QMenu#wlCtxMenu::item,
+            QMenu#wlOptionsMenu::item {{
                 padding: 5px 16px;
-            }
+            }}
             QMenu#wlCtxMenu::item:selected,
-            QMenu#wlOptionsMenu::item:selected {
-                background: #1f1f1f;
-                color: #d8e2ef;
-            }
-            QMenu#wlCtxMenu::separator, QMenu#wlOptionsMenu::separator {
+            QMenu#wlOptionsMenu::item:selected {{
+                background: {_C.SEL};
+                color: {_C.T0};
+            }}
+            QMenu#wlCtxMenu::separator,
+            QMenu#wlOptionsMenu::separator {{
                 height: 1px;
-                background: #222b38;
+                background: {_C.BG4};
                 margin: 3px 8px;
-            }
+            }}
 
             /* ── Stack ────────────────────────────────────────────── */
-            QStackedWidget#wlStack {
-                background: #0a0e13;
+            QStackedWidget#wlStack {{
+                background: {_C.BG1};
                 border: none;
-            }
+            }}
 
             /* ── Scrollbars ───────────────────────────────────────── */
-            QScrollBar:vertical {
+            QScrollBar:vertical {{
                 background: transparent;
                 width: 4px;
                 border: none;
-                margin: 0;
-            }
-            QScrollBar::handle:vertical {
-                background: #2b3645;
+                margin: 0px;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {_C.BG5};
                 border-radius: 2px;
-                min-height: 20px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background: #748396;
-            }
-            QScrollBar:horizontal {
+                min-height: 18px;
+            }}
+            QScrollBar::handle:vertical:hover {{
+                background: {_C.T2};
+            }}
+            QScrollBar:horizontal {{
                 background: transparent;
                 height: 4px;
                 border: none;
-                margin: 0;
-            }
-            QScrollBar::handle:horizontal {
-                background: #2b3645;
+                margin: 0px;
+            }}
+            QScrollBar::handle:horizontal {{
+                background: {_C.BG5};
                 border-radius: 2px;
-                min-width: 20px;
-            }
-            QScrollBar::handle:horizontal:hover {
-                background: #748396;
-            }
-            QScrollBar::add-line, QScrollBar::sub-line {
+                min-width: 18px;
+            }}
+            QScrollBar::handle:horizontal:hover {{
+                background: {_C.T2};
+            }}
+            QScrollBar::add-line,
+            QScrollBar::sub-line {{
                 border: none;
                 background: none;
-                width: 0;
-                height: 0;
-                margin: 0;
-            }
+                width: 0px;
+                height: 0px;
+                margin: 0px;
+            }}
+
+            QToolTip {{
+                background-color: {_C.BG2};
+                color: {_C.T1};
+                border: 1px solid {_C.BG5};
+                border-radius: 2px;
+                padding: 4px 6px;
+                font-family: {_SANS};
+                font-size: 10px;
+            }}
         """
         self.setStyleSheet(
             stylesheet
             .replace("__DROPDOWN_ICON_URL__", dropdown_icon_url)
-            .replace("__GRIDLINE_COLOR__", gridline_color)
         )

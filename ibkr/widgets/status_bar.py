@@ -24,22 +24,23 @@ class StatusBar(QWidget):
     - Leaves transient text/messages to toast notifications.
     """
 
-    HEIGHT = 27
+    HEIGHT = 24
     EDGE_HEIGHT = 1
     CONTENT_HEIGHT = HEIGHT - EDGE_HEIGHT
 
-    COLOR_BG_OUTER = "#070b11"
-    COLOR_BG_CONTENT = "#0b111a"
-    COLOR_TOP_EDGE = "#2c3747"
-    COLOR_BOTTOM_EDGE = "#04070b"
-    COLOR_SEPARATOR = "#263141"
-    COLOR_TEXT_MUTED = "#7f8a9a"
-    COLOR_TEXT_STRONG = "#aeb8c7"
-    COLOR_GREEN = "#46c58f"
-    COLOR_RED = "#e65a6a"
-    COLOR_AMBER = "#d4a84b"
-    COLOR_CLOSED = "#5f6b7a"
-    COLOR_BLUE = "#58a6ff"
+    # AMOLED dark terminal tokens — matched with scanner/watchlist/positions.
+    COLOR_BG_OUTER = "#050709"
+    COLOR_BG_CONTENT = "#070A0F"
+    COLOR_TOP_EDGE = "#1A2030"
+    COLOR_BOTTOM_EDGE = "#050709"
+    COLOR_SEPARATOR = "#1A2030"
+    COLOR_TEXT_MUTED = "#5A7090"
+    COLOR_TEXT_STRONG = "#A8BCD4"
+    COLOR_GREEN = "#00D4A8"
+    COLOR_RED = "#FF4D6A"
+    COLOR_AMBER = "#F59E0B"
+    COLOR_CLOSED = "#2A3A50"
+    COLOR_BLUE = "#00D4FF"
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -52,6 +53,7 @@ class StatusBar(QWidget):
         self._layout: Optional[QHBoxLayout] = None
         self._status_alignment = "left"
         self._metrics_on_right = True
+        self._last_exposure = 0.0
 
         self._build_ui()
         self._apply_styles()
@@ -75,15 +77,17 @@ class StatusBar(QWidget):
 
         layout = QHBoxLayout(self.content)
         self._layout = layout
-        layout.setContentsMargins(12, 0, 12, 1)
-        layout.setSpacing(12)
+        layout.setContentsMargins(8, 0, 8, 1)
+        layout.setSpacing(8)
 
         root_layout.addWidget(self.top_edge)
         root_layout.addWidget(self.content)
 
         self.market_label = QLabel("MARKET: --", self.content)
         self.api_label = QLabel('API <span style="color:#6f7a8c;">●</span>', self.content)
-        self.open_pnl_label = QLabel("OPEN P&L: --", self.content)
+        self.isp_ip_label = QLabel('ISP IP <span style="color:#6f7a8c;">●</span>', self.content)
+        self.day_mtm_label = QLabel("DAY MTM: --", self.content)
+        self.day_realized_label = QLabel("REALIZED: --", self.content)
         self.exposure_label = QLabel("EXPOSURE: --", self.content)
 
         self.group_separator = QFrame(self.content)
@@ -93,10 +97,12 @@ class StatusBar(QWidget):
         self.group_separator.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
 
         min_widths = {
-            self.market_label: 92,
-            self.api_label: 56,
-            self.open_pnl_label: 132,
-            self.exposure_label: 132,
+            self.market_label: 82,
+            self.api_label: 44,
+            self.isp_ip_label: 66,
+            self.day_mtm_label: 120,
+            self.day_realized_label: 110,
+            self.exposure_label: 112,
         }
 
         for label in min_widths:
@@ -173,8 +179,8 @@ class StatusBar(QWidget):
         try:
             self._clear_layout()
 
-            base_labels = (self.market_label, self.api_label)
-            metric_labels = (self.open_pnl_label, self.exposure_label)
+            base_labels = (self.market_label, self.api_label, self.isp_ip_label)
+            metric_labels = (self.day_mtm_label, self.day_realized_label, self.exposure_label)
 
             if self._metrics_on_right:
                 left_group = base_labels
@@ -195,26 +201,51 @@ class StatusBar(QWidget):
         finally:
             self.content.setUpdatesEnabled(True)
 
-    def set_positions_metrics(self, has_data: bool, open_pnl: float = 0.0, exposure: float = 0.0) -> None:
+    def set_positions_metrics(
+        self,
+        has_data: bool,
+        open_pnl: float = 0.0,
+        exposure: float = 0.0,
+        day_unrealized: float = 0.0,
+        day_realized: float = 0.0,
+    ) -> None:
+        self._last_exposure = float(exposure or 0.0)
+
         if not has_data:
-            self._set_label_text(self.open_pnl_label, "OPEN P&L: --")
+            self._set_label_text(self.day_mtm_label, "DAY MTM: --")
+            self._set_label_text(self.day_realized_label, "REALIZED: --")
             self._set_label_text(self.exposure_label, "EXPOSURE: --")
             return
 
-        pnl_value = self._format_number(open_pnl)
-        exposure_value = self._format_number(exposure)
-        pnl_positive = self._is_non_negative(open_pnl)
-        pnl_color = self.COLOR_GREEN if pnl_positive else self.COLOR_RED
-        sign = "+" if pnl_positive else ""
-
+        mtm_value = self._format_number(day_unrealized)
+        mtm_positive = self._is_non_negative(day_unrealized)
+        mtm_color = self.COLOR_GREEN if mtm_positive else self.COLOR_RED
+        mtm_sign = "+" if mtm_positive else ""
         self._set_label_text(
-            self.open_pnl_label,
-            f'OPEN P&L: <span style="color:{pnl_color}; font-weight:700;">{sign}{pnl_value}</span>',
+            self.day_mtm_label,
+            f'DAY MTM: <span style="color:{mtm_color}; font-weight:700;">{mtm_sign}{mtm_value}</span>',
         )
+
+        realized_value = self._format_number(day_realized)
+        realized_positive = self._is_non_negative(day_realized)
+        realized_color = self.COLOR_GREEN if realized_positive else self.COLOR_RED
+        realized_sign = "+" if realized_positive else ""
+        self._set_label_text(
+            self.day_realized_label,
+            f'REALIZED: <span style="color:{realized_color}; font-weight:700;">{realized_sign}{realized_value}</span>',
+        )
+
+        exposure_value = self._format_number(exposure)
         self._set_label_text(
             self.exposure_label,
             f'EXPOSURE: <span style="color:{self.COLOR_TEXT_STRONG}; font-weight:650;">{exposure_value}</span>',
         )
+
+
+    @property
+    def open_pnl_label(self):
+        """Backward compat shim: OPEN P&L now maps to DAY MTM label."""
+        return self.day_mtm_label
 
     def _apply_styles(self) -> None:
         self.setStyleSheet(
@@ -233,6 +264,7 @@ class StatusBar(QWidget):
             QWidget#statusContent {{
                 background-color: {self.COLOR_BG_CONTENT};
                 border: none;
+                border-top: 1px solid rgba(26, 32, 48, 0.80);
                 border-bottom: 1px solid {self.COLOR_BOTTOM_EDGE};
                 border-radius: 0px;
             }}
@@ -246,9 +278,10 @@ class StatusBar(QWidget):
                 background: transparent;
                 border: none;
                 color: {self.COLOR_TEXT_MUTED};
-                font-family: "Inter", "Segoe UI", "Roboto", "Noto Sans", sans-serif;
-                font-size: 10px;
-                font-weight: 600;
+                font-family: "Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", "Noto Sans", sans-serif;
+                font-size: 9px;
+                font-weight: 700;
+                letter-spacing: 0.45px;
                 padding: 0px;
                 margin: 0px;
             }}
@@ -285,7 +318,14 @@ class StatusBar(QWidget):
         dot_color = dot_color_map.get(status, "#6f7a8c")
         self._set_label_text(
             self.api_label,
-            f'API <span style="color:{dot_color}; font-size:11px;">●</span>',
+            f'API <span style="color:{dot_color}; font-size:10px;">●</span>',
+        )
+
+    def set_isp_ip_status(self, changed: bool | None = None) -> None:
+        dot_color = self.COLOR_GREEN if changed is False else (self.COLOR_RED if changed is True else "#6f7a8c")
+        self._set_label_text(
+            self.isp_ip_label,
+            f'ISP IP <span style="color:{dot_color}; font-size:10px;">●</span>',
         )
 
     def set_message(self, text: str) -> None:
@@ -311,6 +351,7 @@ class GlobalStatusManager(QObject):
         if self._status_bar:
             self._status_bar.set_market_status("--")
             self._status_bar.set_api_status("--")
+            self._status_bar.set_isp_ip_status(None)
         logger.debug("GlobalStatusManager initialized")
 
     def is_initialized(self) -> bool:

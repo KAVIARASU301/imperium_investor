@@ -370,6 +370,11 @@ class AlertEngine(QThread):
         self._watchdog_timer.timeout.connect(self._check_engine_health)
         self._watchdog_timer.start(10000)  # Check every 10 seconds
 
+    @staticmethod
+    def _normalize_symbol(symbol: Any) -> str:
+        """Normalize symbols so alert and market-data keys match reliably."""
+        return str(symbol or "").strip().upper()
+
     def update_alerts(self, alerts: List[Alert]):
         """Thread-safe alert list update."""
         try:
@@ -388,7 +393,13 @@ class AlertEngine(QThread):
             with QMutexLocker(self._mutex):
                 for tick in market_data_ticks:
                     if 'symbol' in tick and 'price' in tick:
-                        self._market_data[tick['symbol']] = tick['price']
+                        symbol = self._normalize_symbol(tick.get('symbol'))
+                        try:
+                            price = float(tick.get('price'))
+                        except (TypeError, ValueError):
+                            continue
+                        if symbol:
+                            self._market_data[symbol] = price
                 logger.debug(f"AlertEngine updated market data for {len(market_data_ticks)} symbols")
         except Exception as e:
             logger.error(f"Error updating market data in engine: {e}")
@@ -417,11 +428,12 @@ class AlertEngine(QThread):
                         expired_alerts.append(alert)
                         continue
 
-                    current_price = self._market_data.get(alert.symbol)
+                    alert_symbol = self._normalize_symbol(alert.symbol)
+                    current_price = self._market_data.get(alert_symbol)
                     if current_price is None:
                         continue
 
-                    prev_price = self._last_prices.get(alert.symbol, current_price)
+                    prev_price = self._last_prices.get(alert_symbol, current_price)
                     condition_met = False
 
                     if alert.condition == AlertCondition.PRICE_IS_ABOVE:
@@ -433,7 +445,7 @@ class AlertEngine(QThread):
                         # No candle close confirmation is required.
                         condition_met = current_price <= alert.price
 
-                    self._last_prices[alert.symbol] = current_price
+                    self._last_prices[alert_symbol] = current_price
 
                     if condition_met:
                         alert.triggered = True
@@ -1440,7 +1452,7 @@ class AlertSystemManager(QObject):
                         None
                     )
                     if symbol:
-                        symbol_price_map[symbol] = last_price
+                        symbol_price_map[str(symbol).strip().upper()] = float(last_price)
 
             # Update alert engine
             market_data_for_engine = [

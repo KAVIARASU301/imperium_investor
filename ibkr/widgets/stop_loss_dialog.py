@@ -107,8 +107,8 @@ class StopLossDialog(QDialog):
         for label, value, color in [
             ("Direction", direction, dir_col),
             ("Qty", str(abs(self.quantity)), "#e8f0ff"),
-            ("Avg", f"₹{self.avg_price:.2f}", "#e8f0ff"),
-            ("LTP",  f"₹{self.ltp:.2f}", "#e8f0ff"),
+            ("Avg", f"${self.avg_price:.2f}", "#e8f0ff"),
+            ("LTP",  f"${self.ltp:.2f}", "#e8f0ff"),
         ]:
             cell = QVBoxLayout()
             lbl = QLabel(label)
@@ -128,7 +128,7 @@ class StopLossDialog(QDialog):
         body_lay.addWidget(info_frame)
 
         # SL Price
-        body_lay.addWidget(self._field_label("STOP-LOSS PRICE (₹)"))
+        body_lay.addWidget(self._field_label("STOP-LOSS PRICE ($)"))
         self.sl_price_spin = QDoubleSpinBox()
         self.sl_price_spin.setRange(0.05, 999999.0)
         self.sl_price_spin.setDecimals(2)
@@ -252,7 +252,7 @@ class StopLossDialog(QDialog):
             color = "#00d4a8" if self.is_long and sl < self.avg_price else (
                     "#00d4a8" if not self.is_long and sl > self.avg_price else "#ff4d6a")
             self._dist_label.setText(
-                f"Distance: ₹{dist_pts:.2f}  ({dist_pct:.2f}% from entry)"
+                f"Distance: ${dist_pts:.2f}  ({dist_pct:.2f}% from entry)"
             )
             self._dist_label.setStyleSheet(f"color: {color}; font-size: 10px;")
 

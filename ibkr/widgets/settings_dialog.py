@@ -43,8 +43,8 @@ class P:
     BLUE = "#3b82f6"
 
 
-FONT_UI = "Inter, 'Segoe UI', Arial, sans-serif"
-FONT_MONO = "Consolas, 'Roboto Mono', 'Courier New', monospace"
+FONT_UI = "Inter, Aptos, 'Segoe UI Variable', 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif"
+FONT_MONO = "'JetBrains Mono', Consolas, 'Roboto Mono', 'Courier New', monospace"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -63,23 +63,47 @@ class _Label(QLabel):
 
 
 class _Toggle(QCheckBox):
-    """Sharp terminal toggle."""
+    """Compact AMOLED terminal checkbox."""
 
     def __init__(self, label="", parent=None):
         super().__init__(label, parent)
         self.setCursor(QCursor(Qt.PointingHandCursor))
+        self.setMinimumHeight(20)
         self.setStyleSheet(f"""
             QCheckBox {{
-                color:{P.T1}; spacing:8px;
-                font-family:{FONT_UI}; font-size:11px; font-weight:700; letter-spacing:0.5px;
+                color:{P.T1};
+                spacing:7px;
+                font-family:{FONT_UI};
+                font-size:10px;
+                font-weight:700;
+                letter-spacing:0.45px;
                 background:transparent;
+                padding:1px 0px;
+            }}
+            QCheckBox:hover {{
+                color:{P.T0};
             }}
             QCheckBox::indicator {{
-                width:14px; height:14px;
-                border-radius:1px; background:{P.BG3}; border:1px solid {P.BORDER2};
+                width:12px;
+                height:12px;
+                border-radius:2px;
+                background:{P.BG2};
+                border:1px solid {P.BG4};
+            }}
+            QCheckBox::indicator:hover {{
+                border:1px solid {P.T2};
+                background:{P.BG3};
             }}
             QCheckBox::indicator:checked {{
-                background:{P.BLUE}; border:1px solid {P.BLUE};
+                background:{P.BULL};
+                border:1px solid {P.BULL};
+            }}
+            QCheckBox::indicator:disabled {{
+                background:{P.BG1};
+                border:1px solid {P.BORDER};
+            }}
+            QCheckBox:disabled {{
+                color:{P.T3};
             }}
         """)
 
@@ -97,7 +121,8 @@ class ColorSettingsDialog(QDialog):
         super().__init__(parent)
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.setMinimumWidth(450)
+        self.setMinimumWidth(500)
+        self.setMinimumHeight(520)
         self.setModal(True)
 
         self._theme = current_theme
@@ -127,8 +152,8 @@ class ColorSettingsDialog(QDialog):
         # Main Body
         body_widget = QWidget()
         body_layout = QVBoxLayout(body_widget)
-        body_layout.setContentsMargins(8, 8, 8, 8)
-        body_layout.setSpacing(8)
+        body_layout.setContentsMargins(8, 7, 8, 8)
+        body_layout.setSpacing(6)
 
         self.tabs = QTabWidget()
         self.tabs.setObjectName("customTabs")
@@ -136,8 +161,8 @@ class ColorSettingsDialog(QDialog):
         # --- TAB: COLORS ---
         colors_tab = QWidget()
         colors_layout = QVBoxLayout(colors_tab)
-        colors_layout.setContentsMargins(0, 8, 0, 0)
-        colors_layout.setSpacing(8)
+        colors_layout.setContentsMargins(0, 6, 0, 0)
+        colors_layout.setSpacing(6)
 
         self.link_checkbox = _Toggle("LINK GREEN/RED ACROSS CANDLES, VOLUME, TABLES")
         self.link_checkbox.setChecked(bool(self._theme.get("link_all_sections", True)))
@@ -170,7 +195,8 @@ class ColorSettingsDialog(QDialog):
         # --- TAB: MORE ---
         more_tab = QWidget()
         more_layout = QVBoxLayout(more_tab)
-        more_layout.setContentsMargins(0, 8, 0, 0)
+        more_layout.setContentsMargins(0, 6, 0, 0)
+        more_layout.setSpacing(5)
 
         self.volume_strength_toggle_checkbox = _Toggle("SHOW VOLUME STRENGTH PROGRESS BAR")
         self.volume_strength_toggle_checkbox.setChecked(
@@ -221,8 +247,8 @@ class ColorSettingsDialog(QDialog):
 
         account_group = QGroupBox("ACCOUNT HEADER")
         account_layout = QVBoxLayout(account_group)
-        account_layout.setContentsMargins(8, 8, 8, 8)
-        account_layout.setSpacing(6)
+        account_layout.setContentsMargins(8, 9, 8, 8)
+        account_layout.setSpacing(5)
 
         self.show_account_name_checkbox = _Toggle("SHOW ACCOUNT NAME")
         self.show_account_name_checkbox.setChecked(bool(self._theme.get("show_account_name", True)))
@@ -241,6 +267,7 @@ class ColorSettingsDialog(QDialog):
         ticker_label = _Label("TICKER SYMBOLS (MAX 5)", color=P.T1, size=10, bold=True)
         self.ticker_symbols_input = QLineEdit()
         self.ticker_symbols_input.setPlaceholderText("NIFTY, SENSEX")
+        self.ticker_symbols_input.setFixedHeight(22)
         default_symbols = self._theme.get("ticker_board_symbols", ["NIFTY", "SENSEX"])
         if isinstance(default_symbols, list):
             self.ticker_symbols_input.setText(", ".join(str(sym).strip().upper() for sym in default_symbols[:5] if str(sym).strip()))
@@ -253,6 +280,7 @@ class ColorSettingsDialog(QDialog):
         username_label = _Label("PREFERRED USERNAME", color=P.T1, size=10, bold=True)
         self.preferred_username_input = QLineEdit()
         self.preferred_username_input.setPlaceholderText("Leave blank to use profile ID")
+        self.preferred_username_input.setFixedHeight(22)
         self.preferred_username_input.setText(str(self._theme.get("preferred_username", "")))
         self.preferred_username_input.setClearButtonEnabled(True)
         self.preferred_username_input.setMaxLength(40)
@@ -269,7 +297,8 @@ class ColorSettingsDialog(QDialog):
 
         # Bottom Buttons
         btn_layout = QHBoxLayout()
-        btn_layout.setContentsMargins(0, 6, 0, 0)
+        btn_layout.setContentsMargins(0, 5, 0, 0)
+        btn_layout.setSpacing(6)
         btn_layout.addStretch()
 
         cancel_btn = QPushButton("CANCEL")
@@ -297,30 +326,30 @@ class ColorSettingsDialog(QDialog):
     def _build_header(self) -> QFrame:
         f = QFrame()
         f.setObjectName("header")
-        f.setFixedHeight(28)
+        f.setFixedHeight(26)
         h = QHBoxLayout(f)
-        h.setContentsMargins(8, 0, 8, 0)
-        h.setSpacing(12)
+        h.setContentsMargins(9, 0, 6, 0)
+        h.setSpacing(8)
 
-        h.addWidget(_Label("COLOR SETTINGS", P.T0, 11, bold=True))
+        title = _Label("TERMINAL SETTINGS", P.T0, 10, bold=True)
+        title.setObjectName("dialogTitle")
+        h.addWidget(title)
         h.addStretch()
 
         self._close_btn = QPushButton("✕")
-        self._close_btn.setFixedSize(24, 24)
+        self._close_btn.setObjectName("closeBtn")
+        self._close_btn.setFixedSize(22, 22)
         self._close_btn.setCursor(QCursor(Qt.PointingHandCursor))
         self._close_btn.clicked.connect(self.reject)
-        self._close_btn.setStyleSheet(f"""
-            QPushButton {{ background:transparent; color:{P.T1}; font-size:16px; border:none; font-weight:bold; }}
-            QPushButton:hover {{ color:{P.T0}; }}
-        """)
         h.addWidget(self._close_btn)
         return f
 
     def _build_group(self, title: str, items: list) -> QGroupBox:
         group = QGroupBox(title)
         form = QFormLayout(group)
-        form.setContentsMargins(8, 8, 8, 8)
-        form.setVerticalSpacing(8)
+        form.setContentsMargins(8, 9, 8, 8)
+        form.setVerticalSpacing(5)
+        form.setHorizontalSpacing(10)
 
         for label_text, key, initial_val in items:
             lbl = _Label(label_text, P.T1, 10, bold=True)
@@ -332,124 +361,213 @@ class ColorSettingsDialog(QDialog):
     def _build_color_button(self, key: str, value: str) -> QPushButton:
         btn = QPushButton()
         btn.setCursor(QCursor(Qt.PointingHandCursor))
-        btn.setFixedHeight(24)
-        btn.setFixedWidth(100)
+        btn.setFixedHeight(22)
+        btn.setFixedWidth(92)
         btn.clicked.connect(lambda: self._pick_color(key))
         self._buttons[key] = btn
         self._set_button_color(btn, value)
         return btn
 
     def _set_button_color(self, button: QPushButton, color_hex: str):
-        # Calculate contrast for text
+        # Calculate contrast for text while keeping the swatch compact and readable.
         color = QColor(color_hex)
         luminance = (0.299 * color.red() + 0.587 * color.green() + 0.114 * color.blue()) / 255
-        text_color = "#000000" if luminance > 0.5 else "#ffffff"
+        text_color = "#050709" if luminance > 0.52 else "#eef5ff"
 
         button.setText(color_hex.upper())
         button.setStyleSheet(f"""
             QPushButton {{
                 background-color: {color_hex};
                 color: {text_color};
-                border: 1px solid {P.BORDER2};
+                border: 1px solid rgba(232,240,255,0.18);
                 border-radius: 2px;
                 font-family: {FONT_MONO};
-                font-size: 11px;
-                font-weight: bold;
+                font-size: 10px;
+                font-weight: 800;
+                letter-spacing: 0.2px;
+                padding: 0 4px;
             }}
-            QPushButton:hover {{ border: 1px solid {P.CYAN}; }}
-            QPushButton:disabled {{ opacity: 0.3; }}
+            QPushButton:hover {{
+                border: 1px solid {P.CYAN};
+            }}
+            QPushButton:disabled {{
+                background-color: {P.BG2};
+                color: {P.T3};
+                border: 1px solid {P.BORDER};
+            }}
         """)
 
     def _apply_global_styles(self):
-        self.setStyleSheet(f"QDialog {{ background: {P.BG0}; }}")
+        self.setStyleSheet(f"QDialog {{ background: transparent; }}")
         self._container.setStyleSheet(f"""
             QFrame#dialogContainer {{
                 background: {P.BG1};
-                border: 1px solid {P.BORDER2};
+                border: 1px solid {P.BG4};
+                border-radius: 2px;
             }}
             QFrame#header {{
                 background: {P.BG0};
-                border-bottom: 1px solid {P.BORDER2};
+                border-bottom: 1px solid {P.BG4};
             }}
-            QTabWidget::pane {{
-                border-top: 1px solid {P.BORDER2};
+            QLabel#dialogTitle {{
+                color: {P.T0};
+                font-family: {FONT_UI};
+                font-size: 10px;
+                font-weight: 800;
+                letter-spacing: 1.1px;
                 background: transparent;
             }}
-            QTabBar::tab {{
-                background: {P.BG3};
+            QPushButton#closeBtn {{
+                background: transparent;
                 color: {P.T2};
-                padding: 4px 12px;
-                border: 1px solid {P.BORDER};
+                border: 1px solid transparent;
+                border-radius: 2px;
+                font-family: {FONT_UI};
+                font-size: 12px;
+                font-weight: 800;
+                padding: 0px;
+            }}
+            QPushButton#closeBtn:hover {{
+                color: {P.BEAR};
+                background: rgba(255,77,106,0.10);
+                border: 1px solid rgba(255,77,106,0.28);
+            }}
+
+            QWidget {{
+                background: transparent;
+                font-family: {FONT_UI};
+            }}
+
+            QTabWidget#customTabs::pane {{
+                background: {P.BG1};
+                border: 1px solid {P.BG4};
+                border-radius: 2px;
+                top: -1px;
+            }}
+            QTabBar::tab {{
+                background: {P.BG2};
+                color: {P.T2};
+                padding: 4px 14px;
+                min-height: 18px;
+                border: 1px solid {P.BG4};
                 border-bottom: none;
                 margin-right: 2px;
+                border-top-left-radius: 2px;
+                border-top-right-radius: 2px;
                 font-family: {FONT_UI};
                 font-weight: 800;
-                font-size: 10px;
-                letter-spacing: 1px;
+                font-size: 9px;
+                letter-spacing: 1.1px;
             }}
             QTabBar::tab:selected {{
                 background: {P.BG1};
                 color: {P.T0};
-                border: 1px solid {P.BORDER2};
-                border-bottom: none;
+                border: 1px solid {P.BG4};
+                border-bottom: 1px solid {P.BG1};
                 border-top: 2px solid {P.AMBER};
             }}
             QTabBar::tab:hover:!selected {{
-                background: {P.BG2};
+                background: {P.BG3};
                 color: {P.T1};
             }}
+
             QGroupBox {{
-                border: 1px solid {P.BORDER2};
+                background: {P.BG2};
+                border: 1px solid {P.BG4};
                 border-radius: 2px;
                 margin-top: 8px;
+                padding-top: 8px;
                 font-family: {FONT_UI};
-                font-size: 10px;
+                font-size: 9px;
                 font-weight: 800;
                 color: {P.T2};
-                letter-spacing: 1px;
+                letter-spacing: 1.0px;
             }}
             QGroupBox::title {{
                 subcontrol-origin: margin;
                 left: 8px;
                 padding: 0 4px;
+                color: {P.AMBER};
+                background: {P.BG1};
+            }}
+
+            QPushButton#actionBtnPrimary,
+            QPushButton#actionBtnSecondary {{
+                border-radius: 2px;
+                padding: 4px 11px;
+                min-height: 22px;
+                font-family: {FONT_UI};
+                font-weight: 800;
+                font-size: 10px;
+                letter-spacing: 0.8px;
             }}
             QPushButton#actionBtnPrimary {{
                 background: {P.BULL};
                 color: {P.BG0};
                 border: 1px solid {P.BULL};
-                border-radius: 2px;
-                padding: 4px 12px;
-                font-family: {FONT_UI};
-                font-weight: 800;
-                font-size: 11px;
-                letter-spacing: 1px;
             }}
-            QPushButton#actionBtnPrimary:hover {{ background: #00e6b5; }}
-
+            QPushButton#actionBtnPrimary:hover {{
+                background: #13e0b5;
+                border-color: #13e0b5;
+            }}
+            QPushButton#actionBtnPrimary:pressed {{
+                background: #00b88f;
+            }}
             QPushButton#actionBtnSecondary {{
-                background: {P.BG3};
+                background: {P.BG2};
                 color: {P.T1};
-                border: 1px solid {P.BORDER2};
-                border-radius: 2px;
-                padding: 4px 12px;
-                font-family: {FONT_UI};
-                font-weight: 800;
-                font-size: 11px;
-                letter-spacing: 1px;
+                border: 1px solid {P.BG4};
             }}
-            QPushButton#actionBtnSecondary:hover {{ background: {P.BG2}; color: {P.T0}; border: 1px solid {P.T2}; }}
+            QPushButton#actionBtnSecondary:hover {{
+                background: {P.BG3};
+                color: {P.T0};
+                border: 1px solid {P.T2};
+            }}
+            QPushButton#actionBtnSecondary:pressed {{
+                background: {P.BG0};
+            }}
+
             QLineEdit {{
                 background: {P.BG3};
                 color: {P.T0};
-                border: 1px solid {P.BORDER};
+                border: 1px solid {P.BG4};
                 border-radius: 2px;
-                padding: 4px 6px;
+                padding: 2px 7px;
                 font-family: {FONT_UI};
-                font-size: 11px;
+                font-size: 10px;
+                font-weight: 650;
                 selection-background-color: {P.BG4};
+                selection-color: {P.T0};
+            }}
+            QLineEdit:hover {{
+                border: 1px solid {P.BORDER2};
             }}
             QLineEdit:focus {{
                 border: 1px solid {P.CYAN};
+                background: {P.BG2};
+            }}
+            QLineEdit::placeholder {{
+                color: {P.T3};
+            }}
+
+            QScrollBar:vertical {{
+                background: transparent;
+                width: 4px;
+                border: none;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {P.BG4};
+                border-radius: 2px;
+                min-height: 20px;
+            }}
+            QScrollBar::handle:vertical:hover {{
+                background: {P.T2};
+            }}
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {{
+                height: 0px;
+                border: none;
+                background: none;
             }}
         """)
 

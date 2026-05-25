@@ -174,7 +174,7 @@ class PnlHistoryDialog(QDialog):
         self.next_month_btn.setToolTip("Next month")
         self.next_month_btn.clicked.connect(lambda: self._navigate_months(1))
 
-        self.total_pnl_label = QLabel("MONTH P&L: ₹0.00")
+        self.total_pnl_label = QLabel("MONTH P&L: $0.00")
         self.total_pnl_label.setObjectName("totalPnlLabel")
 
         header_layout.addWidget(self.prev_month_btn)
@@ -236,7 +236,7 @@ class PnlHistoryDialog(QDialog):
                     traded_days += 1
 
         pnl_color = _BULL if month_total_pnl >= 0 else _BEAR
-        self.total_pnl_label.setText(f"MONTH P&L: ₹{month_total_pnl:,.2f}")
+        self.total_pnl_label.setText(f"MONTH P&L: ${month_total_pnl:,.2f}")
         self.total_pnl_label.setStyleSheet(
             f"color: {pnl_color}; font-family: {_NUM}; font-size: 12px; "
             "font-weight: 800; letter-spacing: 0.4px; background: transparent;"
@@ -279,7 +279,7 @@ class PnlHistoryDialog(QDialog):
         layout.addStretch(1)
 
         if pnl is not None and is_current_month:
-            pnl_label = QLabel(f"₹{pnl:,.0f}")
+            pnl_label = QLabel(f"${pnl:,.0f}")
             pnl_label.setObjectName("pnlLabel")
             pnl_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             color = _BULL if pnl >= 0 else _BEAR

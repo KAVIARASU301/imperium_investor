@@ -7,7 +7,7 @@ Ticker board redesign:
   - Individual TickerPill widgets with FIXED width — no layout reflow on ticks
   - Only QLabel.setText() is called on price updates → zero jitter
   - Width is computed once at pill construction and on symbol-set changes
-  - Beautiful institutional design: symbol / price / change % with color bar
+  - TC2000-style inline tape: muted symbol / soft price / dominant colored %Chg
 """
 
 import logging
@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QWidget,
     QFrame,
 )
+from kiteconnect import IBKRConnect
 
 from app_paths import get_asset_path
 from ibkr.utils.worker import Worker
@@ -43,28 +44,31 @@ def _prefer_text_antialias(font: QFont) -> QFont:
 DEFAULT_PAPER_BALANCE = 1_000_000.0
 
 # ── Institutional Dark Trading Terminal palette ──────────────────────────────
-_BG_APP = "#050709"
-_BG_WINDOW = "#0a0d12"
-_BG_PANEL = "#0f1318"
-_BG_SECTION = "#141920"
-_BG_BORDER = "#1a2030"
-_BG_BORDER_HI = "#26354a"
+# AMOLED-leaning shell: use true black for the toolbar surface and reserve
+# slightly lifted layers only for controls, ticker pills, and account chips.
+_BG_APP = "#000000"
+_BG_WINDOW = "#050709"
+_BG_PANEL = "#090d12"
+_BG_SECTION = "#0e141b"
+_BG_BORDER = "#151d2b"
+_BG_BORDER_HI = "#25344a"
 
 _BULL = "#00d4a8"
 _BEAR = "#ff4d6a"
 _AMBER = "#f59e0b"
 _CYAN = "#00d4ff"
-_BLUE = "#00d4ff"
+_BLUE = "#3b82f6"
 
 _TEXT = "#e8f0ff"
-_TEXT_SYMBOL = "#b6c4d6"
+_TEXT_SYMBOL = "#d7e2f2"
 _TEXT_SOFT = "#a8bcd4"
 _TEXT_MUTED = "#5a7090"
+_TEXT_BUTTON = "#8f9caf"
 _TEXT_FAINT = "#2a3a50"
 _SELECTION = "#1a2840"
 
-_MONO = "'Consolas', 'JetBrains Mono', monospace"
-_SANS = "'Inter', 'Segoe UI Variable', 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Arial, sans-serif"
+_MONO = "'JetBrains Mono', 'Consolas', monospace"
+_SANS = "'Inter', 'Aptos', 'Segoe UI Variable', 'Segoe UI', 'Roboto', 'Noto Sans', sans-serif"
 _NUM = _SANS
 _UI_FONT_FAMILY = "Inter"
 
@@ -74,13 +78,19 @@ def _modern_font(point_size: int = 9, weight: QFont.Weight = QFont.Weight.Medium
     font = QFont(_UI_FONT_FAMILY)
     font.setPointSize(point_size)
     font.setWeight(weight)
-    return font
+    try:
+        font.setHintingPreference(QFont.HintingPreference.PreferNoHinting)
+    except Exception:
+        pass
+    return _prefer_text_antialias(font)
 
 
-_TOOLBAR_H = 34
+_TOOLBAR_H = 32
 _CONTROL_H = 24
-_ICON_BTN_W = 26
+_ICON_BTN_W = 28
 _ACTION_BTN_H = 24
+_ACTION_ICON = 16
+_PRIMARY_ACTION_ICON = 12  # BUY / SELL / INFO use visually smaller normal icons
 
 
 # ── Data helpers ─────────────────────────────────────────────────────────────
@@ -115,7 +125,7 @@ class NotificationBadge(QLabel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.count = 0
-        self.setFixedSize(18, 18)
+        self.setFixedSize(16, 16)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setObjectName("notificationBadge")
         self.setContentsMargins(0, 0, 0, 0)
@@ -140,71 +150,70 @@ class NotificationBadge(QLabel):
 
 class TickerPill(QFrame):
     """
-    Compact, fixed-width ticker card for a single symbol.
+    TC2000-style inline ticker item for a single symbol.
 
-    Layout (28 px tall, fixed width):
-    ┌──────────────────────────────┐
-    │ ▌ NIFTY   24,850.20  +0.42% │
-    └──────────────────────────────┘
-      ^color bar  ^name  ^price  ^chg
-
-    The widget width is computed ONCE on construction and never changes again,
-    eliminating all horizontal jitter from the toolbar layout.
+    Design rules:
+      • no %Chg pill/badge/background
+      • symbol muted, price secondary, %Chg dominant through color + size
+      • thin vertical divider between ticker items
+      • fixed width after construction so live ticks never shift the toolbar
     """
 
-    # Fixed per-pill dimensions
-    _PILL_H = 26          # height matches _CONTROL_H
-    _BAR_W = 3            # colored left accent bar width
-    _PAD_L = 7            # padding after bar
-    _PAD_R = 10           # right padding
-    _GAP = 5              # gap between sub-labels
+    _PILL_H = 22
+    _PAD_L = 9
+    _PAD_R = 9
+    _GAP_SYM_PRICE = 4
+    _GAP_PRICE_CHG = 8
+    _SYM_MIN_W = 48
+    _PRICE_W = 72
+    _CHG_W = 56
 
     def __init__(self, symbol: str, parent=None):
         super().__init__(parent)
         self._symbol = symbol.upper()
         self._bull_color = _BULL
         self._bear_color = _BEAR
-        self._neutral_color = _TEXT_MUTED
+        self._neutral_color = _TEXT_BUTTON
 
         self.setObjectName("tickerPill")
         self.setFixedHeight(self._PILL_H)
         self.setFrameShape(QFrame.Shape.NoFrame)
 
-        # ── inner layout ──
         inner = QHBoxLayout(self)
         inner.setContentsMargins(self._PAD_L, 0, self._PAD_R, 0)
-        inner.setSpacing(self._GAP)
+        inner.setSpacing(0)
 
         self._sym_label = QLabel(self._symbol)
         self._sym_label.setObjectName("tickerPillSymbol")
-        self._sym_label.setFont(_modern_font(8, QFont.Weight.Bold))
+        self._sym_label.setFont(_modern_font(7, QFont.Weight.Normal))
+        self._sym_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self._sym_label.setMinimumWidth(self._SYM_MIN_W)
         self._sym_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 
         self._price_label = QLabel("--")
         self._price_label.setObjectName("tickerPillPrice")
-        self._price_label.setFont(_modern_font(9, QFont.Weight.Bold))
+        self._price_label.setFont(_modern_font(8, QFont.Weight.Normal))
+        self._price_label.setFixedWidth(self._PRICE_W)
         self._price_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self._price_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 
         self._chg_label = QLabel("--%")
         self._chg_label.setObjectName("tickerPillChange")
-        self._chg_label.setFont(_modern_font(9, QFont.Weight.ExtraBold))
+        self._chg_label.setFont(_modern_font(9, QFont.Weight.Medium))
+        self._chg_label.setFixedWidth(self._CHG_W)
         self._chg_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self._chg_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 
         inner.addWidget(self._sym_label)
-        inner.addStretch(1)
+        inner.addSpacing(self._GAP_SYM_PRICE)
         inner.addWidget(self._price_label)
+        inner.addSpacing(self._GAP_PRICE_CHG)
         inner.addWidget(self._chg_label)
 
-        # Compute and LOCK width now — never changes on tick updates
         self._compute_fixed_width()
 
-        # State tracking: only repaint color bar when state actually changes
-        self._last_state: Optional[str] = None  # "bull" | "bear" | "flat" | None
+        self._last_state: Optional[str] = None
         self._apply_style(state=None)
-
-    # ── Public update API ─────────────────────────────────────────────────────
 
     def update_data(self, price: Optional[float], change_pct: Optional[float]) -> None:
         """Update displayed values. Only setText() is called — zero layout impact."""
@@ -222,96 +231,71 @@ class TickerPill(QFrame):
             self._chg_label.setText("--%")
             new_state = None
 
-        # Only repaint when state actually changes — avoids unnecessary redraws
         if new_state != self._last_state:
             self._last_state = new_state
             self._apply_style(state=new_state)
 
-    # ── Private helpers ───────────────────────────────────────────────────────
-
     def _compute_fixed_width(self) -> None:
-        """
-        Calculate the pill width that will comfortably hold the widest
-        realistic values for this symbol, then fix it permanently.
-
-        Uses the actual rendered font metrics so the calculation matches
-        what Qt will paint, regardless of DPI or font substitution.
-        """
+        """Lock item width once, using rendered font metrics to prevent jitter."""
         sym_fm = QFontMetrics(self._sym_label.font())
-        price_fm = QFontMetrics(self._price_label.font())
-        chg_fm = QFontMetrics(self._chg_label.font())
-
-        # Reserve for the widest realistic symbol display text
-        sym_w = sym_fm.horizontalAdvance(self._symbol)
-
-        # Reserve for price: 6 digits before decimal + 2 after + comma separators
-        # e.g. "99,999.99" — plenty for NSE indices up to 6 figures
-        price_w = price_fm.horizontalAdvance("88,888.88")
-
-        # Reserve for change: sign + 3 digits + dot + 2 decimals + %
-        # e.g. "+12.88%"
-        chg_w = chg_fm.horizontalAdvance("+12.88%")
+        sym_w = max(self._SYM_MIN_W, sym_fm.horizontalAdvance(self._symbol))
+        self._sym_label.setFixedWidth(sym_w)
 
         total = (
             self._PAD_L
             + sym_w
-            + self._GAP * 2
-            + price_w
-            + self._GAP
-            + chg_w
+            + self._GAP_SYM_PRICE
+            + self._PRICE_W
+            + self._GAP_PRICE_CHG
+            + self._CHG_W
             + self._PAD_R
-            + self._BAR_W   # color bar on left (painted in stylesheet via border-left)
-            + 6             # headroom for anti-aliasing / subpixel rounding
         )
-        self.setFixedWidth(max(total, 100))
+        self.setFixedWidth(total)
 
     def _apply_style(self, state: Optional[str]) -> None:
-        """Paint the pill background, border, and label colors for bull/bear/flat."""
+        """Apply inline market-tape styling. %Chg is text-only, never a badge."""
         if state == "bull":
-            bar_color = self._bull_color
             chg_color = self._bull_color
-            bg = "rgba(0,212,168,0.055)"
-            border = "rgba(0,212,168,0.20)"
         elif state == "bear":
-            bar_color = self._bear_color
             chg_color = self._bear_color
-            bg = "rgba(255,77,106,0.055)"
-            border = "rgba(255,77,106,0.20)"
+        elif state == "flat":
+            chg_color = self._neutral_color
         else:
-            bar_color = _TEXT_FAINT
             chg_color = _TEXT_MUTED
-            bg = f"{_BG_PANEL}"
-            border = _BG_BORDER
 
         self.setStyleSheet(f"""
             QFrame#tickerPill {{
-                background: {bg};
-                border: 1px solid {border};
-                border-left: {self._BAR_W}px solid {bar_color};
-                border-radius: 2px;
+                background: transparent;
+                border: none;
+                border-left: 1px solid {_BG_BORDER_HI};
+                border-radius: 0px;
             }}
             QLabel#tickerPillSymbol {{
                 color: {_TEXT_MUTED};
                 background: transparent;
                 font-size: 8px;
-                font-weight: 700;
-                letter-spacing: 0.4px;
+                font-weight: 500;
+                letter-spacing: 0.45px;
                 border: none;
+                padding: 0px;
             }}
             QLabel#tickerPillPrice {{
-                color: {_TEXT};
+                color: {_TEXT_SOFT};
                 background: transparent;
-                font-size: 10px;
-                font-weight: 700;
+                font-size: 9px;
+                font-weight: 450;
                 border: none;
+                padding: 0px;
             }}
             QLabel#tickerPillChange {{
                 color: {chg_color};
                 background: transparent;
-                font-size: 10px;
-                font-weight: 800;
                 border: none;
-                min-width: 52px;
+                border-radius: 0px;
+                font-size: 10px;
+                font-weight: 650;
+                letter-spacing: 0.12px;
+                padding: 0px;
             }}
         """)
 
@@ -328,7 +312,7 @@ class TickerBoard(QFrame):
     symbol list changes and never touched on tick updates.
     """
 
-    _PILL_GAP = 4        # px between adjacent pills
+    _PILL_GAP = 0        # TC2000-style inline items separated by item borders
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -338,16 +322,16 @@ class TickerBoard(QFrame):
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 
         self._layout = QHBoxLayout(self)
-        self._layout.setContentsMargins(4, 0, 4, 0)
+        self._layout.setContentsMargins(3, 0, 3, 0)
         self._layout.setSpacing(self._PILL_GAP)
 
         self._pills: Dict[str, TickerPill] = {}
 
         self.setStyleSheet(f"""
             QFrame#tickerBoard {{
-                background: {_BG_PANEL};
-                border: 1px solid {_BG_BORDER};
-                border-radius: 3px;
+                background: transparent;
+                border: none;
+                border-radius: 0px;
             }}
         """)
 
@@ -393,7 +377,7 @@ class TickerBoard(QFrame):
         n = len(self._pills)
         pill_total = sum(p.width() for p in self._pills.values())
         gap_total = self._PILL_GAP * max(0, n - 1)
-        margins_total = 4 + 4   # left + right contentsMargins
+        margins_total = 3 + 3   # left + right contentsMargins
         self.setFixedWidth(pill_total + gap_total + margins_total)
 
 
@@ -426,14 +410,14 @@ class HeaderToolbar(QToolBar):
 
     def __init__(
         self,
-        trader: Any,
+        trader: Union[IBKRConnect, Any],
         parent=None,
         enable_account_polling: bool = True,
     ):
         super().__init__(parent)
         self.setMovable(False)
         self.setFloatable(False)
-        self.setIconSize(QSize(14, 14))
+        self.setIconSize(QSize(_ACTION_ICON, _ACTION_ICON))
         self.setObjectName("enhancedHeaderToolbar")
 
         self.trader = trader
@@ -482,35 +466,37 @@ class HeaderToolbar(QToolBar):
         search_group = QWidget()
         search_group.setObjectName("symbolSearchGroup")
         search_layout = QHBoxLayout(search_group)
-        search_layout.setContentsMargins(3, 2, 3, 2)
-        search_layout.setSpacing(1)
+        search_layout.setContentsMargins(0, 0, 0, 0)
+        search_layout.setSpacing(0)
 
         self.buy_button = self._make_action_button(
             object_name="buyButton",
             icon_name="plus.svg",
             required=True,
             tooltip="Buy selected symbol",
-            label="Buy",
+            label="BUY",
         )
         self.buy_button.clicked.connect(self._on_buy_clicked)
         search_layout.addWidget(self.buy_button)
+        search_layout.addWidget(self._create_vertical_divider())
 
         self.sell_button = self._make_action_button(
             object_name="sellButton",
             icon_name="minus.svg",
             required=True,
             tooltip="Sell selected symbol",
-            label="Sell",
+            label="SELL",
         )
         self.sell_button.clicked.connect(self._on_sell_clicked)
         search_layout.addWidget(self.sell_button)
+        search_layout.addWidget(self._create_vertical_divider())
 
         self.info_button = self._make_action_button(
             object_name="infoActionButton",
             icon_name="info.svg",
             required=True,
             tooltip="Open stock information",
-            label="Info",
+            label="INFO",
         )
         self.info_button.clicked.connect(self._on_info_clicked)
         search_layout.addWidget(self.info_button)
@@ -520,17 +506,32 @@ class HeaderToolbar(QToolBar):
         self.search_input.setPlaceholderText("Symbol / company…")
         self.search_input.setObjectName("enhancedSymbolSearch")
         self.search_input.setFixedHeight(_CONTROL_H)
-        self.search_input.setFont(_modern_font(10, QFont.Weight.DemiBold))
-        self.search_input.setMinimumWidth(126)
-        self.search_input.setMaximumWidth(176)
+        self.search_input.setFont(_modern_font(9, QFont.Weight.Medium))
+        self.search_input.setMinimumWidth(124)
+        self.search_input.setMaximumWidth(174)
         self.search_input.symbol_selected.connect(self._on_symbol_committed)
         search_layout.addWidget(self.search_input)
 
         # ── Ticker board inline — right of symbol search ──────────────────
-        search_layout.addWidget(self._create_vertical_divider())
+        # Keep this area permanently reserved. When the ticker board is disabled
+        # from settings, only the board content is hidden; the slot width remains
+        # locked so BUY/SELL/INFO/search never expand into this space.
+        self._ticker_board_divider = self._create_vertical_divider()
+        search_layout.addWidget(self._ticker_board_divider)
 
-        self._ticker_board = TickerBoard(search_group)
-        search_layout.addWidget(self._ticker_board)
+        self._ticker_board_slot = QWidget(search_group)
+        self._ticker_board_slot.setObjectName("tickerBoardSlot")
+        self._ticker_board_slot.setFixedHeight(_CONTROL_H)
+        self._ticker_board_slot.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        ticker_slot_layout = QHBoxLayout(self._ticker_board_slot)
+        ticker_slot_layout.setContentsMargins(0, 0, 0, 0)
+        ticker_slot_layout.setSpacing(0)
+
+        self._ticker_board = TickerBoard(self._ticker_board_slot)
+        ticker_slot_layout.addWidget(self._ticker_board)
+        search_layout.addWidget(self._ticker_board_slot)
+
+        self._ticker_board_reserved_width = 0
 
         # Build initial pills immediately
         self._rebuild_ticker_pills(self._ticker_symbols)
@@ -560,23 +561,24 @@ class HeaderToolbar(QToolBar):
         return
 
     def _create_account_section(self):
-        self._add_section_gap(4)
+        self._add_section_gap(5)
 
         self.account_info_widget = QWidget()
         self.account_info_widget.setObjectName("accountInfoWidget")
         account_layout = QHBoxLayout(self.account_info_widget)
-        account_layout.setContentsMargins(4, 2, 4, 2)
-        account_layout.setSpacing(4)
+        account_layout.setContentsMargins(0, 0, 0, 0)
+        account_layout.setSpacing(0)
 
         self.alerts_button = self._make_action_button(
             object_name="alertActionButton",
             icon_name="alert.svg",
             required=True,
             tooltip="Open alert manager",
-            label="Alerts",
+            label="ALERTS",
         )
         self.alerts_button.clicked.connect(self.alert_manager_requested.emit)
         account_layout.addWidget(self.alerts_button)
+
         self.alerts_badge = NotificationBadge()
         account_layout.addWidget(self.alerts_badge)
         account_layout.addWidget(self._create_vertical_divider())
@@ -586,44 +588,51 @@ class HeaderToolbar(QToolBar):
             icon_name="portfolio.svg",
             required=True,
             tooltip="Open positions",
-            label="Positions",
+            label="POSITIONS",
         )
         self.positions_button.clicked.connect(self.positions_requested.emit)
         account_layout.addWidget(self.positions_button)
         account_layout.addWidget(self._create_vertical_divider())
 
+        self.account_label_divider = self._create_vertical_divider()
+        account_layout.addWidget(self.account_label_divider)
+
+        # Kept as hidden compatibility actions so existing external code can
+        # still reference/connect these buttons, but the visible header remains
+        # focused on only the high-frequency controls.
         self.pending_orders_button = self._make_action_button(
             object_name="pendingOrdersActionButton",
             icon_name="pending.svg",
             required=True,
             tooltip="Open pending orders",
-            label="Pending Orders",
+            label="PENDING",
         )
         self.pending_orders_button.clicked.connect(self.pending_orders_requested.emit)
-        account_layout.addWidget(self.pending_orders_button)
-        account_layout.addWidget(self._create_vertical_divider())
+        self.pending_orders_button.setParent(self)
+        self.pending_orders_button.hide()
 
         self.settings_button = self._make_action_button(
             object_name="settingsActionButton",
             icon_name="gear_setting.svg",
             required=True,
             tooltip="Open settings",
-            label="Settings",
+            label="SETTINGS",
         )
         self.settings_button.clicked.connect(self.color_settings_requested.emit)
-        account_layout.addWidget(self.settings_button)
+        self.settings_button.setParent(self)
+        self.settings_button.hide()
 
         self.user_id_label = QLabel(self._account_info.get("user_id", "N/A"))
         self.user_id_label.setObjectName("userIdLabel")
-        self.user_id_label.setFont(_modern_font(9, QFont.Weight.Normal))
+        self.user_id_label.setFont(_modern_font(8, QFont.Weight.Medium))
         account_layout.addWidget(self.user_id_label)
 
         self.account_separator = self._create_separator_dot()
         account_layout.addWidget(self.account_separator)
 
-        self.balance_label = QLabel("₹0")
+        self.balance_label = QLabel("$0")
         self.balance_label.setObjectName("balanceLabel")
-        self.balance_label.setFont(_modern_font(10, QFont.Weight.Normal))
+        self.balance_label.setFont(_modern_font(9, QFont.Weight.DemiBold))
         account_layout.addWidget(self.balance_label)
 
         self.addWidget(self.account_info_widget)
@@ -640,10 +649,10 @@ class HeaderToolbar(QToolBar):
         button = QPushButton()
         button.setObjectName(object_name)
         button.setFixedSize(_ICON_BTN_W, _CONTROL_H)
-        button.setIconSize(QSize(12, 12))
+        button.setIconSize(QSize(_ACTION_ICON, _ACTION_ICON))
         button.setToolTip("")
         button.setCursor(Qt.CursorShape.PointingHandCursor)
-        button.setFont(_modern_font(9, QFont.Weight.Normal))
+        button.setFont(_modern_font(8, QFont.Weight.Normal))
         icon_path = get_asset_path("icons", icon_name, required=required)
         if icon_path is not None:
             button.setIcon(QIcon(str(icon_path)))
@@ -660,10 +669,22 @@ class HeaderToolbar(QToolBar):
         button = self._make_icon_button(object_name, icon_name, required, tooltip)
         button.setText(label)
         button.setFixedHeight(_ACTION_BTN_H)
-        button.setMinimumWidth(56)
-        button.setMaximumWidth(130)
-        button.setIconSize(QSize(12, 12))
+
+        # BUY / SELL / INFO icons are visually heavier than the rest of the
+        # toolbar assets, so render them smaller to keep a normal, balanced
+        # TC2000-style header rhythm.
+        icon_size = _PRIMARY_ACTION_ICON if object_name in {
+            "buyButton",
+            "sellButton",
+            "infoActionButton",
+        } else max(12, _ACTION_ICON - 2)
+        button.setIconSize(QSize(icon_size, icon_size))
         button.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+
+        # Lock compact button widths so the header does not breathe/reflow as
+        # fonts are substituted on different systems.
+        text_width = QFontMetrics(button.font()).horizontalAdvance(label)
+        button.setFixedWidth(max(48, min(104, text_width + 38)))
         return button
 
     @staticmethod
@@ -671,7 +692,7 @@ class HeaderToolbar(QToolBar):
         divider = QFrame()
         divider.setObjectName("toolbarDivider")
         divider.setFrameShape(QFrame.Shape.VLine)
-        divider.setFixedSize(1, 16)
+        divider.setFixedSize(1, 17)
         return divider
 
     @staticmethod
@@ -680,14 +701,14 @@ class HeaderToolbar(QToolBar):
         button.setObjectName("tradingActionButton")
         button.setFixedHeight(_CONTROL_H)
         button.setCursor(Qt.CursorShape.PointingHandCursor)
-        button.setFont(_modern_font(9, QFont.Weight.Normal))
+        button.setFont(_modern_font(8, QFont.Weight.Normal))
         return button
 
     @staticmethod
     def _create_separator_dot() -> QLabel:
         dot = QLabel("•")
         dot.setObjectName("separatorDot")
-        dot.setFont(_modern_font(8, QFont.Weight.Normal))
+        dot.setFont(_modern_font(8, QFont.Weight.Medium))
         return dot
 
     def _add_section_gap(self, width: int = 10) -> None:
@@ -800,10 +821,30 @@ class HeaderToolbar(QToolBar):
                 price=snap.get("price"),
                 change_pct=snap.get("change_pct"),
             )
+        self._sync_ticker_board_slot_width()
         self._update_ticker_board_visibility()
+
+    def _sync_ticker_board_slot_width(self) -> None:
+        """Reserve ticker-board width even when the board is disabled/hidden."""
+        if not hasattr(self, "_ticker_board") or not hasattr(self, "_ticker_board_slot"):
+            return
+
+        if not self._ticker_board.is_empty():
+            self._ticker_board_reserved_width = max(0, self._ticker_board.width())
+
+        reserved = max(0, getattr(self, "_ticker_board_reserved_width", 0))
+        self._ticker_board_slot.setFixedWidth(reserved)
 
     def _update_ticker_board_visibility(self) -> None:
         visible = self._show_ticker_board and not self._ticker_board.is_empty()
+        self._sync_ticker_board_slot_width()
+
+        reserved = max(0, getattr(self, "_ticker_board_reserved_width", 0))
+        has_reserved_space = reserved > 0
+
+        # Slot remains visible when disabled to stop left controls from shifting.
+        self._ticker_board_slot.setVisible(has_reserved_space)
+        self._ticker_board_divider.setVisible(has_reserved_space)
         self._ticker_board.setVisible(visible)
 
     def ingest_ws_ticks(self, ticks: List[Dict[str, Any]]) -> None:
@@ -1012,15 +1053,21 @@ class HeaderToolbar(QToolBar):
     def _update_account_display_visibility(self) -> None:
         show_name = bool(self._show_account_name)
         show_balance = bool(self._show_account_balance)
+        show_account_text = show_name or show_balance
         self.user_id_label.setVisible(show_name)
         self.balance_label.setVisible(show_balance)
         self.account_separator.setVisible(show_name and show_balance)
-        self.account_info_widget.setVisible(show_name or show_balance)
+        if hasattr(self, "account_label_divider"):
+            self.account_label_divider.setVisible(show_account_text)
+        # Keep the action area visible even when account name/balance chips are
+        # disabled by theme settings, because this widget also hosts the core
+        # toolbar actions: alerts, positions, and orders.
+        self.account_info_widget.setVisible(True)
 
     @staticmethod
     def _format_account_balance(amount: float) -> str:
         if amount == 0:
-            return "₹0"
+            return "$0"
         neg = amount < 0
         amount = abs(amount)
         s = f"{amount:.0f}"
@@ -1035,7 +1082,7 @@ class HeaderToolbar(QToolBar):
                     chunks = "," + chunks
                 chunks = d + chunks
             fmt = chunks + "," + last3
-        return ("-₹" if neg else "₹") + fmt
+        return ("-$" if neg else "$") + fmt
 
     def _remember_recent_symbol(self, symbol: str):
         normalized = symbol.upper().strip()
@@ -1044,8 +1091,9 @@ class HeaderToolbar(QToolBar):
 
     def _apply_explicit_fonts(self) -> None:
         """Force modern UI typography on visible toolbar widgets."""
-        normal_small = _modern_font(9, QFont.Weight.Normal)
-        normal_text  = _modern_font(10, QFont.Weight.Normal)
+        normal_small = _modern_font(8, QFont.Weight.Normal)
+        account_text = _modern_font(8, QFont.Weight.Medium)
+        balance_text = _modern_font(9, QFont.Weight.DemiBold)
 
         for widget in (
             self.buy_button,
@@ -1053,24 +1101,26 @@ class HeaderToolbar(QToolBar):
             self.info_button,
             self.positions_button,
             self.alerts_button,
+            self.pending_orders_button,
+            self.settings_button,
         ):
             widget.setFont(normal_small)
 
-        self.search_input.setFont(_modern_font(10, QFont.Weight.Medium))
-        self.alerts_badge.setFont(_modern_font(9, QFont.Weight.Medium))
-        self.user_id_label.setFont(normal_small)
-        self.balance_label.setFont(normal_text)
-        self.account_separator.setFont(_modern_font(8, QFont.Weight.Normal))
+        self.search_input.setFont(_modern_font(9, QFont.Weight.Medium))
+        self.alerts_badge.setFont(_modern_font(8, QFont.Weight.Bold))
+        self.user_id_label.setFont(account_text)
+        self.balance_label.setFont(balance_text)
+        self.account_separator.setFont(_modern_font(8, QFont.Weight.Medium))
 
     # ── Styles ────────────────────────────────────────────────────────────────
 
     def _apply_styles(self):
         self.setStyleSheet(f"""
         QToolBar#enhancedHeaderToolbar {{
-            background-color: {_BG_WINDOW};
+            background-color: {_BG_APP};
             border: none;
             border-bottom: 1px solid {_BG_BORDER};
-            padding: 2px 6px;
+            padding: 1px 6px;
             spacing: 0px;
             min-height: {_TOOLBAR_H}px;
             max-height: {_TOOLBAR_H}px;
@@ -1079,44 +1129,43 @@ class HeaderToolbar(QToolBar):
 
         QWidget#centerSpacer,
         QWidget#sectionGap,
-        QWidget#tickerBoardWrapper {{
-            background: transparent;
-        }}
-
+        QWidget#tickerBoardWrapper,
+        QWidget#tickerBoardSlot,
         QWidget#symbolSearchGroup,
         QWidget#accountInfoWidget {{
-            background-color: {_BG_PANEL};
-            border: 1px solid {_BG_BORDER};
-            border-radius: 2px;
+            background: transparent;
+            border: none;
         }}
 
         #enhancedSymbolSearch {{
             background-color: {_BG_WINDOW};
             color: {_TEXT_SYMBOL};
-            border: 1px solid {_BG_BORDER_HI};
+            border: 1px solid {_BG_BORDER};
             border-radius: 2px;
-            padding: 2px 8px;
+            padding: 1px 8px;
             selection-background-color: {_SELECTION};
             selection-color: {_TEXT};
             font-family: {_SANS};
-            font-size: 11px;
-            font-weight: 600;
+            font-size: 10px;
+            font-weight: 500;
         }}
         #enhancedSymbolSearch:hover {{
-            border-color: {_TEXT_FAINT};
-            background-color: {_BG_SECTION};
+            border-color: {_BG_BORDER_HI};
+            background-color: {_BG_PANEL};
         }}
         #enhancedSymbolSearch:focus {{
             border: 1px solid {_BG_BORDER_HI};
             background-color: {_BG_SECTION};
-            color: {_TEXT_SYMBOL};
+            color: {_TEXT};
         }}
 
         QPushButton {{
             outline: none;
             border-radius: 0px;
             font-family: {_SANS};
-            font-weight: 400;
+            font-size: 9px;
+            font-weight: 500;
+            letter-spacing: 0.35px;
         }}
 
         QPushButton#buyButton,
@@ -1128,14 +1177,13 @@ class HeaderToolbar(QToolBar):
         QPushButton#pendingOrdersActionButton,
         QPushButton#settingsActionButton {{
             background-color: transparent;
-            border: 1px solid transparent;
-            padding: 2px 4px;
+            border: none;
+            border-radius: 0px;
+            padding: 1px 7px;
             text-align: left;
-            color: #bcc6d3;
-            font-size: 10px;
-            font-weight: 400;
+            color: {_TEXT_BUTTON};
         }}
-        
+
         QPushButton#buyButton:hover,
         QPushButton#sellButton:hover,
         QPushButton#infoActionButton:hover,
@@ -1144,9 +1192,10 @@ class HeaderToolbar(QToolBar):
         QPushButton#orderHistoryActionButton:hover,
         QPushButton#pendingOrdersActionButton:hover,
         QPushButton#settingsActionButton:hover {{
-            background-color: rgba(188, 198, 211, 0.08);
-            color: #d0d8e2;
+            background-color: rgba(143, 156, 175, 0.075);
+            color: {_TEXT};
         }}
+
         QPushButton#buyButton:pressed,
         QPushButton#sellButton:pressed,
         QPushButton#infoActionButton:pressed,
@@ -1155,90 +1204,91 @@ class HeaderToolbar(QToolBar):
         QPushButton#orderHistoryActionButton:pressed,
         QPushButton#pendingOrdersActionButton:pressed,
         QPushButton#settingsActionButton:pressed {{
-            background-color: rgba(188, 198, 211, 0.16);
-            color: #dce2ea;
+            background-color: rgba(26, 40, 64, 0.92);
+            color: {_TEXT};
+        }}
+        QPushButton:disabled {{
+            color: {_TEXT_FAINT};
+            border: none;
+            background-color: transparent;
         }}
 
         QLabel#notificationBadge {{
-            background-color: {_BEAR};
-            color: white;
-            border: 1px solid rgba(255, 255, 255, 0.10);
+            background-color: {_AMBER};
+            color: #120b00;
+            border: 1px solid rgba(245, 158, 11, 0.45);
             border-radius: 2px;
             font-family: {_NUM};
-            font-size: 9px;
-            font-weight: 600;
+            font-size: 8px;
+            font-weight: 650;
             padding: 0px;
+            margin-right: 4px;
         }}
 
         QFrame#toolbarDivider {{
-            background-color: {_BG_BORDER};
+            background-color: {_BG_BORDER_HI};
             border: none;
+            margin-top: 4px;
+            margin-bottom: 4px;
         }}
 
         QPushButton#tradingActionButton {{
             background-color: transparent;
-            color: {_TEXT_MUTED};
-            border: 1px solid transparent;
-            border-radius: 2px;
-            padding: 2px 6px;
+            color: {_TEXT_BUTTON};
+            border: none;
+            border-radius: 0px;
+            padding: 1px 7px;
             font-family: {_SANS};
-            font-size: 10px;
-            font-weight: 400;
+            font-size: 9px;
+            font-weight: 500;
+            letter-spacing: 0.35px;
         }}
         QPushButton#tradingActionButton:hover {{
-            background-color: rgba(0, 212, 255, 0.09);
-            border-color: rgba(0, 212, 255, 0.25);
-            color: {_TEXT_SOFT};
-        }}
-        QPushButton#tradingActionButton:pressed {{
-            background-color: rgba(0, 212, 255, 0.15);
+            background-color: rgba(143, 156, 175, 0.075);
             color: {_TEXT};
         }}
-        QPushButton#tradingActionButton[pnlState="profit"] {{
-            color: {_BULL};
-            border-left: 2px solid {_BULL};
-            padding-left: 7px;
+        QPushButton#tradingActionButton:pressed {{
+            background-color: {_SELECTION};
+            color: {_TEXT};
         }}
-        QPushButton#tradingActionButton[pnlState="loss"] {{
-            color: {_BEAR};
-            border-left: 2px solid {_BEAR};
-            padding-left: 7px;
-        }}
+        QPushButton#tradingActionButton[pnlState="profit"],
+        QPushButton#tradingActionButton[pnlState="loss"],
         QPushButton#tradingActionButton[pnlState="flat"] {{
-            color: {_TEXT_MUTED};
-            border-left: 2px solid transparent;
+            color: {_TEXT_BUTTON};
+            border: none;
             padding-left: 7px;
         }}
 
         QLabel#userIdLabel {{
-            background-color: rgba(0, 212, 255, 0.075);
-            color: {_CYAN};
-            border: 1px solid rgba(0, 212, 255, 0.16);
-            border-radius: 2px;
-            padding: 2px 6px;
+            background-color: transparent;
+            color: {_TEXT_SOFT};
+            border: none;
+            border-radius: 0px;
+            padding: 1px 7px;
             font-family: {_SANS};
             font-size: 9px;
-            font-weight: 400;
+            font-weight: 500;
         }}
         QLabel#balanceLabel {{
-            background-color: rgba(0, 212, 168, 0.075);
+            background-color: transparent;
             color: {_BULL};
-            border: 1px solid rgba(0, 212, 168, 0.16);
-            border-radius: 2px;
-            padding: 2px 7px;
+            border: none;
+            border-radius: 0px;
+            padding: 1px 7px;
             font-family: {_NUM};
             font-size: 10px;
-            font-weight: 400;
+            font-weight: 600;
         }}
         QLabel#separatorDot {{
             background: transparent;
             color: {_TEXT_FAINT};
             font-size: 8px;
-            font-weight: 400;
+            font-weight: 600;
+            padding: 0px 1px;
         }}
 
         QToolTip {{
-            background-color: {_BG_PANEL};
+            background-color: {_BG_APP};
             color: {_TEXT_SOFT};
             border: 1px solid {_BG_BORDER_HI};
             border-radius: 2px;

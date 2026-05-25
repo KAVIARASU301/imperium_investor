@@ -22,7 +22,7 @@ Features
 Public API
 ──────────
     dialog = OrderDialog(parent, symbol, ltp, order_details, instrument)
-    dialog.order_placed.connect(your_slot)   # Signal(dict) — Kite kwargs
+    dialog.order_placed.connect(your_slot)   # Signal(dict) — IBKR kwargs
     dialog.update_tick(ltp, bid, ask, depth) # call from your WebSocket feed
     dialog.exec()
 """
@@ -448,7 +448,7 @@ class _DepthRow(QWidget):
         self.pct    = min(1.0, max(0.0, pct))
         self._l_orders.setText(str(orders))
         self._l_qty.setText(f"{qty:,}")
-        self._l_price.setText(f"₹{price:,.2f}")
+        self._l_price.setText(f"${price:,.2f}")
         self.update()
 
     def paintEvent(self, event):
@@ -529,7 +529,7 @@ class OrderDialog(QDialog):
 
     Signals
     ───────
-    order_placed(dict)  — emitted with Kite place_order() kwargs on confirm
+    order_placed(dict)  — emitted with IBKR place_order() kwargs on confirm
     """
 
     order_placed = Signal(dict)
@@ -658,7 +658,7 @@ class OrderDialog(QDialog):
         ltp_key = _Label("LTP", P.T2, 9, bold=True)
         h.addWidget(ltp_key)
         self._ltp_label = _LTPLabel()
-        self._ltp_label.setText(f"₹{self.ltp:,.2f}" if self.ltp > 0 else "₹—")
+        self._ltp_label.setText(f"${self.ltp:,.2f}" if self.ltp > 0 else "$—")
         h.addWidget(self._ltp_label)
 
         self._close_btn = QPushButton("✕")
@@ -752,7 +752,7 @@ class OrderDialog(QDialog):
         ph.setContentsMargins(0, 0, 0, 0)
         ph.addWidget(self._section_label("PRICE"))
         ph.addStretch()
-        ph.addWidget(_Label(f"TICK ₹{self._tick_size}", P.T2, 9))
+        ph.addWidget(_Label(f"TICK ${self._tick_size}", P.T2, 9))
         price_block_lay.addWidget(self._price_hdr)
 
         self._price_row_w = QWidget()
@@ -797,7 +797,7 @@ class OrderDialog(QDialog):
         self._trig_spin = _NumInput(2, self._tick_size, 0.05, 999_999.95)
         self._trig_spin.setValue(self.ltp * 0.98 if self.ltp > 0 else 1.0)
         tr.addWidget(self._trig_spin, 1)
-        tr.addWidget(_Label("₹", P.T2, 10))
+        tr.addWidget(_Label("$", P.T2, 10))
         lay.addWidget(self._trig_row_w)
 
         # TOGGLES (AMO  GTT  VARIETY)
@@ -954,14 +954,14 @@ class OrderDialog(QDialog):
         hdr_lay = QHBoxLayout(hdr)
         hdr_lay.setContentsMargins(4, 0, 4, 0)
         hdr_lay.setSpacing(0)
-        for t in ["ORDERS", "QTY", "BID ₹"]:
+        for t in ["ORDERS", "QTY", "BID $"]:
             lbl = _Label(t, P.T2, 9)
             hdr_lay.addWidget(lbl)
-            if t != "BID ₹": hdr_lay.addStretch()
+            if t != "BID $": hdr_lay.addStretch()
         # separator
         hdr_lay.addWidget(_sep_v())
-        for t in ["ASK ₹", "QTY", "ORDERS"]:
-            if t != "ASK ₹": hdr_lay.addStretch()
+        for t in ["ASK $", "QTY", "ORDERS"]:
+            if t != "ASK $": hdr_lay.addStretch()
             lbl = _Label(t, P.T2, 9)
             hdr_lay.addWidget(lbl)
         lay.addWidget(hdr)
@@ -1266,7 +1266,7 @@ class OrderDialog(QDialog):
     def _update_ltp_header(self, previous: Optional[float] = None) -> None:
         if not hasattr(self, "_ltp_label"):
             return
-        self._ltp_label.setText(f"₹{self.ltp:,.2f}" if self.ltp > 0 else "₹—")
+        self._ltp_label.setText(f"${self.ltp:,.2f}" if self.ltp > 0 else "$—")
         if previous is not None and self.ltp > 0 and abs(self.ltp - previous) > 1e-9:
             self._ltp_label.flash("up" if self.ltp > previous else "down")
 
@@ -1326,7 +1326,7 @@ class OrderDialog(QDialog):
             qty = self._qty_spin.value()
             p   = self._price_spin.value()
             ot  = self._otype_seg.current()
-            price_str = f"₹{p:,.2f}" if ot in ("LIMIT","SL") else "MKT"
+            price_str = f"${p:,.2f}" if ot in ("LIMIT","SL") else "MKT"
             self._submit_btn.setText(f"Confirm {side} · {qty} @ {price_str}")
             self._confirm_hint.setVisible(True)
 
@@ -1342,8 +1342,8 @@ class OrderDialog(QDialog):
         margin_req  = order_val * margin_pct
         margin_ok   = (self._avail_margin <= 0) or (self._avail_margin >= margin_req)
 
-        self._ov_val.setText(f"₹{order_val:,.2f}")
-        self._mreq_val.setText(f"₹{margin_req:,.2f}")
+        self._ov_val.setText(f"${order_val:,.2f}")
+        self._mreq_val.setText(f"${margin_req:,.2f}")
         self._ov_val.setStyleSheet(
             f"color:{P.T0};font-family:'{FONT_NUM}',{FONT_FALL};font-size:12px;font-weight:750;background:transparent;"
         )
@@ -1353,13 +1353,13 @@ class OrderDialog(QDialog):
 
         if self._avail_margin > 0:
             avail_c = P.BUY if margin_ok else P.SELL
-            self._mavail_val.setText(f"₹{self._avail_margin:,.2f}")
+            self._mavail_val.setText(f"${self._avail_margin:,.2f}")
             self._mavail_val.setStyleSheet(
                 f"color:{avail_c};font-family:'{FONT_NUM}',{FONT_FALL};font-size:12px;font-weight:750;background:transparent;"
             )
             if not margin_ok:
                 shortfall = margin_req - self._avail_margin
-                self._margin_warn.setText(f"⚠  INSUFFICIENT — SHORTFALL ₹{shortfall:,.2f}")
+                self._margin_warn.setText(f"⚠  INSUFFICIENT — SHORTFALL ${shortfall:,.2f}")
                 self._margin_warn.setVisible(True)
             else:
                 self._margin_warn.setVisible(False)
@@ -1420,7 +1420,7 @@ class OrderDialog(QDialog):
     ):
         """
         Push live market data into the dialog.
-        Call this from your Kite WebSocket on_ticks callback.
+        Call this from your IBKR WebSocket on_ticks callback.
 
         depth format (list of 10 dicts, first 5 = buy, last 5 = sell):
             [{"price": 2847.20, "quantity": 342, "orders": 8}, ...]

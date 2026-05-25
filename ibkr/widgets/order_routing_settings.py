@@ -2,7 +2,7 @@
 """
 RelaySettingsWidget — compact, institutional dark panel for configuring the relay server.
 
-Embedded inside DualModeLoginManager on the Kite credentials page.
+Embedded inside DualModeLoginManager on the IBKR credentials page.
 Also available as a standalone dialog from Settings > Relay Server.
 
 Features
@@ -12,7 +12,7 @@ Features
   • Enable / Disable toggle
   • Segmented routing mode selector (Relay / Direct ISP / Auto)
   • Direct ISP public IP lookup with one-click clipboard copy
-  • Kite developer profile shortcut for pasting the IP
+  • IBKR developer profile shortcut for pasting the IP
   • Live connection test with latency readout
   • Save / Close buttons (encrypted via EnhancedTokenManager)
 """
@@ -59,7 +59,7 @@ _GREEN = _BULL
 _RED = _BEAR
 _SANS = _UI_FONT
 
-_KITE_PROFILE_URL = "https://developers.kite.trade/profile"
+_KITE_PROFILE_URL = "https://developers.ibkr.trade/profile"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -332,7 +332,7 @@ class RelaySettingsWidget(QWidget):
         self._kite_profile_btn.setObjectName("relayInfoBtn")
         self._kite_profile_btn.setFixedHeight(24)
         self._kite_profile_btn.setCursor(QCursor(Qt.PointingHandCursor))
-        self._kite_profile_btn.setToolTip("Open Kite developer profile to paste this IP.")
+        self._kite_profile_btn.setToolTip("Open IBKR developer profile to paste this IP.")
         self._kite_profile_btn.clicked.connect(self._open_kite_profile)
         ip_top.addWidget(self._kite_profile_btn)
         ip_lay.addLayout(ip_top)
@@ -350,7 +350,7 @@ class RelaySettingsWidget(QWidget):
             copy_handler=lambda: self._copy_ip_to_clipboard("ipv6"),
         )
 
-        ip_note = QLabel("Paste the matching IP in Kite whitelist. IPv6 usually works more reliably on Direct ISP.")
+        ip_note = QLabel("Paste the matching IP in IBKR whitelist. IPv6 usually works more reliably on Direct ISP.")
         ip_note.setObjectName("relayHint")
         ip_note.setWordWrap(True)
         ip_lay.addWidget(ip_note)
@@ -857,7 +857,7 @@ class RelaySettingsWidget(QWidget):
             self._set_status("COULD NOT OPEN KITE PROFILE IN BROWSER.", _BEAR)
 
     def _save_config(self):
-        from kite.core.relay_order_router import RelayConfig, RelayConfigStore
+        from ibkr.core.relay_order_router import RelayConfig, RelayConfigStore
 
         url = self._url_input.text().strip()
         secret = self._secret_input.text().strip()
@@ -924,7 +924,7 @@ class RelaySettingsWidget(QWidget):
         self.close()
 
     def _load_saved(self):
-        from kite.core.relay_order_router import RelayConfigStore
+        from ibkr.core.relay_order_router import RelayConfigStore
         cfg = RelayConfigStore.load(self._token_manager)
         if cfg:
             self._url_input.setText(cfg.url)
@@ -952,7 +952,7 @@ class RelaySettingsWidget(QWidget):
 
     def current_config(self):
         """Return the RelayConfig from current field values, or None if blank."""
-        from kite.core.relay_order_router import RelayConfig
+        from ibkr.core.relay_order_router import RelayConfig
         url = self._url_input.text().strip()
         secret = self._secret_input.text().strip()
         if not url or not secret:
@@ -970,7 +970,7 @@ class RelaySettingsWidget(QWidget):
             return None
 
     def _selected_route_mode(self):
-        from kite.core.order_router import OrderRouteMode
+        from ibkr.core.order_router import OrderRouteMode
         if self._mode_direct.isChecked():
             return OrderRouteMode.DIRECT_ISP
         if self._mode_auto.isChecked():
@@ -998,7 +998,7 @@ class RelaySettingsWidget(QWidget):
 
     def _extract_ip_text(self) -> str:
         # Stored for backward compatibility with RelayConfig's single IP field.
-        # Prefer IPv6 because Kite/IP whitelisting is usually more reliable with it
+        # Prefer IPv6 because IBKR/IP whitelisting is usually more reliable with it
         # on consumer ISPs, but still fall back to IPv4.
         return self._ip_value("ipv6") or self._ip_value("ipv4")
 
@@ -1128,7 +1128,7 @@ class RelaySettingsDialog(QDialog):
 
         # Instruction banner
         banner = QLabel(
-            "Static-IP live order setup. Deploy relay_server.py on a cloud VM, or use Direct ISP after adding this IP in Kite."
+            "Static-IP live order setup. Deploy relay_server.py on a cloud VM, or use Direct ISP after adding this IP in IBKR."
         )
         banner.setWordWrap(True)
         banner.setStyleSheet(

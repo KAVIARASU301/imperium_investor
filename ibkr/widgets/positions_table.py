@@ -6,7 +6,7 @@ Upgrades:
   • Strictly 3 columns: Symbol, Qty, PnL
   • Modern UI number typography for Qty, %Chg, footer P&L and Exposure
   • Compact symbol typography matched with watchlist/scanner tables
-  • Compact gridless headers and cell paddings to minimize horizontal space
+  • Compact AMOLED headers, visible low-contrast grid lines, and tight cell padding
   • Zero visual noise (no currency symbols inline)
   • Flash animations and quick sorting retained
 """
@@ -38,27 +38,30 @@ def _prefer_text_antialias(font: QFont) -> QFont:
         pass
     return font
 
-# ─── Institutional Dark Trading Terminal UI Tokens ─────────────────────────────
-# Softer terminal palette: still dark/compact, but less neon and easier to read.
-_BG_APP = "#05070a"
-_BG_BASE = "#0a0d11"
-_BG_ALT = "#0e1217"
-_BG_HEADER = "#0c1015"
-_BG_FOOTER = "#070a0e"
-_BG_SEL = "#1f1f1f"
-_BG_HOVER = "#121821"
-_BORDER = "#202838"
+# ─── AMOLED Institutional Dark Trading Terminal UI Tokens ─────────────────────
+# Matched with scanner/watchlist AMOLED tables: black shell, sharp borders,
+# compact density, and visible low-contrast grid lines.
+_BG_APP = "#050709"       # deepest AMOLED shell
+_BG_BASE = "#0a0d12"      # table body
+_BG_ALT = "#0f1318"       # alternate rows
+_BG_HEADER = "#070a0f"    # header strip
+_BG_FOOTER = "#070a0f"    # footer/status strip
+_BG_SEL = "#1a2840"       # selected row
+_BG_HOVER = "#141920"     # row hover / elevated layer
+_BORDER = "#1a2030"       # thin separators
+_BORDER_HI = "#26354a"    # focus/hover border
+_GRIDLINE = "rgba(26,32,48,0.58)"
 
-_T0 = "#d9e2ee"   # primary text — readable, not pure white
-_SYMBOL_TEXT = "#afbdcc"  # calm symbol text
-_T1 = "#9eb0c2"   # secondary text
-_T2 = "#6f8194"   # muted labels / metadata
-_T3 = "#3b4758"   # disabled
+_T0 = "#e8f0ff"           # primary text
+_SYMBOL_TEXT = "#c8d4e3"  # calm symbol text, not glowing white
+_T1 = "#a8bcd4"           # secondary text
+_T2 = "#5a7090"           # muted labels / metadata
+_T3 = "#2a3a50"           # disabled/deep muted
 
-_GREEN = "#6fcfb8"   # success / profit / buy-side — softened
-_RED = "#ee7580"     # danger / loss / sell-side — softened
-_AMBER = "#d6a34d"   # warning / active — softened
-_CYAN = "#67c7d8"    # info / utility — softened
+_GREEN = "#00d4a8"        # success / profit / buy-side
+_RED = "#ff4d6a"          # danger / loss / sell-side
+_AMBER = "#f59e0b"        # warning / active
+_CYAN = "#00d4ff"         # info / utility
 
 _SANS = "'Inter', 'Aptos', 'Segoe UI Variable', 'Segoe UI', 'Roboto', 'Noto Sans', -apple-system, BlinkMacSystemFont, Arial, sans-serif"
 _NUM = "'Inter', 'Aptos', 'Segoe UI Variable', 'Segoe UI', 'Roboto', 'Noto Sans', -apple-system, BlinkMacSystemFont, Arial, sans-serif"
@@ -72,13 +75,13 @@ _APP_FONT_FAMILY = _UI_FONT_FAMILIES[0]
 _NUM_FONT = _NUM_FONT_FAMILIES[0]
 
 _OPEN_PROFIT = _GREEN
-_OPEN_PROFIT_TINT = "#102720"
+_OPEN_PROFIT_TINT = "#08251f"
 _OPEN_LOSS = _RED
-_OPEN_LOSS_TINT = "#291217"
-_OPEN_FLAT = "#7f90a3"
+_OPEN_LOSS_TINT = "#2a1018"
+_OPEN_FLAT = "#5a7090"
 
-_ROW_H = 22
-_HEADER_H = 21
+_ROW_H = 21
+_HEADER_H = 20
 _FOOTER_H = 24
 
 
@@ -244,7 +247,7 @@ class PositionsTable(QWidget):
 
         self._color_theme: Dict = {
             "enable_table_directional_colors": False,
-            "show_table_vertical_lines": False,
+            "show_table_vertical_lines": True,
             "tables": {
                 "positive": _GREEN,
                 "negative": _RED,
@@ -296,7 +299,7 @@ class PositionsTable(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setShowGrid(bool(self._color_theme.get("show_table_vertical_lines", False)))
+        self.table.setShowGrid(True)
         self.table.setAlternatingRowColors(True)
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -350,8 +353,8 @@ class PositionsTable(QWidget):
         frame.setFixedHeight(_FOOTER_H)
 
         lay = QHBoxLayout(frame)
-        lay.setContentsMargins(8, 0, 8, 0)
-        lay.setSpacing(15)
+        lay.setContentsMargins(7, 0, 7, 0)
+        lay.setSpacing(10)
 
         def _metric(label: str) -> tuple:
             lbl = QLabel(label)
@@ -439,7 +442,7 @@ class PositionsTable(QWidget):
         # visually override row selection during live refreshes.
         no_bg = QBrush()
 
-        # Notice: No ₹ symbols to save horizontal space
+        # Notice: No $ symbols to save horizontal space
         symbol_text = f"⚡ {pos.symbol}" if pos.symbol in self._partial_fill_symbols else pos.symbol
         cells = [
             (COL_SYMBOL, symbol_text, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, _SYMBOL_TEXT, symbol_font),
@@ -504,10 +507,10 @@ class PositionsTable(QWidget):
     def _apply_open_pnl_row_style(self, row: int, pnl: float) -> None:
         if pnl > 0:
             fg = QColor(_OPEN_PROFIT)
-            bg = QBrush(QColor(111, 207, 184, 18))
+            bg = QBrush(QColor(0, 212, 168, 18))
         elif pnl < 0:
             fg = QColor(_OPEN_LOSS)
-            bg = QBrush(QColor(238, 117, 128, 18))
+            bg = QBrush(QColor(255, 77, 106, 18))
         else:
             fg = QColor(_OPEN_FLAT)
             bg = QBrush()
@@ -610,13 +613,13 @@ class PositionsTable(QWidget):
                         continue
 
                     if flash.direction > 0:
-                        r = int(24 + (16 - 24) * (1 - ratio))
-                        g = int(74 + (44 - 74) * (1 - ratio))
-                        b = int(55 + (42 - 55) * (1 - ratio))
+                        r = int(0 + (10 - 0) * (1 - ratio))
+                        g = int(76 + (35 - 76) * (1 - ratio))
+                        b = int(61 + (31 - 61) * (1 - ratio))
                     else:
-                        r = int(92 + (52 - 92) * (1 - ratio))
-                        g = int(38 + (30 - 38) * (1 - ratio))
-                        b = int(44 + (35 - 44) * (1 - ratio))
+                        r = int(86 + (42 - 86) * (1 - ratio))
+                        g = int(24 + (16 - 24) * (1 - ratio))
+                        b = int(34 + (24 - 34) * (1 - ratio))
                     item.setBackground(QBrush(QColor(r, g, b)))
                     surviving.append(flash)
                 else:
@@ -657,12 +660,14 @@ class PositionsTable(QWidget):
             self._footer_open_pnl.setText("–")
             self._footer_exposure.setText("–")
             self.footer_metrics_changed.emit(
-                {"has_data": False, "open_pnl": 0.0, "exposure": 0.0}
+                {"has_data": False, "open_pnl": 0.0, "exposure": 0.0, "day_unrealized": 0.0, "day_realized": 0.0}
             )
             return
 
         total_pnl = sum(p.pnl for p in self.positions_data.values())
         exposure = sum(abs(p.quantity) * p.avg_price for p in self.positions_data.values())
+        day_unrealized = sum(getattr(p, "day_unrealized", p.pnl) for p in self.positions_data.values())
+        day_realized = sum(getattr(p, "day_realized", 0.0) for p in self.positions_data.values())
 
         pnl_color = _GREEN if total_pnl >= 0 else _RED
         self._footer_open_pnl.setText(f"{'+' if total_pnl >= 0 else ''}{total_pnl:,.0f}")
@@ -674,7 +679,7 @@ class PositionsTable(QWidget):
             f"color:{_T1}; font-family:{_NUM}; font-size:11px; font-weight:500; background:transparent;"
         )
         self.footer_metrics_changed.emit(
-            {"has_data": True, "open_pnl": total_pnl, "exposure": exposure}
+            {"has_data": True, "open_pnl": total_pnl, "exposure": exposure, "day_unrealized": day_unrealized, "day_realized": day_realized}
         )
 
     def set_footer_metrics_visible(self, visible: bool) -> None:
@@ -803,8 +808,8 @@ class PositionsTable(QWidget):
     # ══════════════════════════════════════════════════════════════════════════
 
     def _apply_styles(self):
-        show_vertical_lines = bool(self._color_theme.get("show_table_vertical_lines", False))
-        gridline_color = "rgba(111,129,148,0.28)" if show_vertical_lines else "transparent"
+        # Positions should visually match scanner/watchlist: visible but quiet grid lines.
+        gridline_color = _GRIDLINE
 
         self.setStyleSheet(f"""
             QWidget {{
@@ -812,14 +817,14 @@ class PositionsTable(QWidget):
                 color: {_T0};
                 font-family: {_SANS};
                 font-size: 10px;
-                font-weight: 400;
+                font-weight: 500;
             }}
 
             QTableWidget#positionsDataTable {{
                 background-color: {_BG_BASE};
                 alternate-background-color: {_BG_ALT};
                 border: none;
-                border-top: 2px solid #2b3444;
+                border-top: 1px solid {_BORDER};
                 gridline-color: {gridline_color};
                 selection-background-color: {_BG_SEL};
                 selection-color: {_T0};
@@ -828,17 +833,17 @@ class PositionsTable(QWidget):
                 show-decoration-selected: 0;
                 font-family: {_SANS};
                 font-size: 10px;
-                font-weight: 400;
+                font-weight: 500;
                 border-radius: 0px;
             }}
 
             QTableWidget#positionsDataTable::item {{
-                padding: 0 5px;
-                border-bottom: 1px solid {_BG_HOVER};
+                padding: 0 6px;
+                border-bottom: 1px solid {_BORDER};
                 background-color: transparent;
                 font-family: {_SANS};
                 font-size: 10px;
-                font-weight: 400;
+                font-weight: 500;
             }}
 
             QTableWidget#positionsDataTable::item:selected,
@@ -870,11 +875,11 @@ class PositionsTable(QWidget):
             QHeaderView::section {{
                 background-color: {_BG_HEADER};
                 color: {_T2};
-                padding: 0 5px;
+                padding: 0 6px;
                 border: none;
                 border-bottom: 1px solid {_BORDER};
                 font-family: {_SANS};
-                font-weight: 500;
+                font-weight: 700;
                 font-size: 9px;
                 letter-spacing: 0.6px;
                 text-transform: uppercase;
@@ -948,7 +953,7 @@ class PositionsTable(QWidget):
 
             QScrollBar:vertical {{
                 background: transparent;
-                width: 4px;
+                width: 5px;
                 border: none;
                 margin: 0;
             }}
@@ -965,7 +970,7 @@ class PositionsTable(QWidget):
 
             QScrollBar:horizontal {{
                 background: transparent;
-                height: 4px;
+                height: 5px;
                 border: none;
                 margin: 0;
             }}
@@ -996,7 +1001,8 @@ class PositionsTable(QWidget):
 
     def apply_color_theme(self, theme: Dict):
         self._color_theme = theme or self._color_theme
-        self.table.setShowGrid(bool(self._color_theme.get("show_table_vertical_lines", False)))
+        # Keep positions aligned with scanner/watchlist AMOLED grid styling.
+        self.table.setShowGrid(True)
         self._apply_styles()
         for sym, row in self.symbol_to_row.items():
             pos = self.positions_data.get(sym)

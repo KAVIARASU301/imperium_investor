@@ -2,8 +2,8 @@ import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
-from PySide6.QtCore import Qt, Signal, QDate, QTimer, QThreadPool
-from PySide6.QtGui import QColor, QMouseEvent, QFont, QCursor, QBrush
+from PySide6.QtCore import Qt, Signal, QDate, QTimer, QThreadPool, QSize
+from PySide6.QtGui import QColor, QMouseEvent, QFont, QCursor, QBrush, QIcon
 from PySide6.QtWidgets import (
     QApplication, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget,
     QTableWidget, QTableWidgetItem, QHeaderView, QComboBox,
@@ -13,6 +13,11 @@ from PySide6.QtWidgets import (
 
 from ibkr.utils.worker import Worker
 
+try:
+    from app_paths import get_asset_path
+except Exception:  # pragma: no cover - app_paths may not be available in isolated tests
+    get_asset_path = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -20,12 +25,12 @@ logger = logging.getLogger(__name__)
 #  Institutional Dark Trading Terminal UI tokens
 # ─────────────────────────────────────────────────────────────────────────────
 
-_BG0 = "#050709"     # app shell
-_BG1 = "#0a0d12"     # dialog/window background
-_BG2 = "#0f1318"     # panels/table rows
-_BG3 = "#141920"     # hover/inner section
-_BG4 = "#1a2030"     # borders
-_BGTB = "#070a0f"    # title/footer
+_BG0 = "#000000"     # true AMOLED shell
+_BG1 = "#050709"     # dialog/window background
+_BG2 = "#0a0d12"     # panels/table rows
+_BG3 = "#0f1318"     # hover/inner section
+_BG4 = "#1a2030"     # borders / grid lines
+_BGTB = "#000000"    # title/footer
 
 _BULL = "#00d4a8"
 _BEAR = "#ff4d6a"
@@ -40,25 +45,50 @@ _T3 = "#2a3a50"
 _SYMBOL_SOFT = "#b6c4d6"
 _SEL = "#1a2840"
 
-_SANS = "'Inter', 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Arial, sans-serif"
-_MONO = "'Consolas', 'JetBrains Mono', monospace"
+_SANS = "'Inter', 'Aptos', 'Segoe UI Variable', 'Segoe UI', 'Roboto', 'Noto Sans', Arial, sans-serif"
+_NUM_FONT = _SANS
+_MONO = _SANS
 
 _ROW_H = 24
 _HEADER_H = 23
-_TITLE_H = 32
-_FOOTER_H = 32
+_TITLE_H = 30
+_FOOTER_H = 30
 
 
 def _ui_font(point_size: int = 9, bold: bool = False) -> QFont:
-    font = QFont("Segoe UI", point_size)
+    font = QFont("Inter", point_size)
     font.setBold(bold)
+    try:
+        font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
+        font.setHintingPreference(QFont.HintingPreference.PreferNoHinting)
+    except Exception:
+        pass
     return font
 
 
 def _mono_font(point_size: int = 9, bold: bool = False) -> QFont:
-    font = QFont("Consolas", point_size)
-    font.setBold(bold)
-    return font
+    # Market values in this UI use the same modern UI font family for calmer,
+    # more readable table typography. Keep monospace only for raw logs/debug.
+    return _ui_font(point_size, bold)
+
+
+def _apply_copy_icon(button: QPushButton) -> None:
+    """Use a bundled copy/clipboard icon when available, otherwise a quiet text glyph."""
+    button.setText("⧉")
+    if get_asset_path is None:
+        return
+    for icon_name in ("copy.svg", "clipboard.svg", "duplicate.svg"):
+        try:
+            icon_path = get_asset_path("icons", icon_name, required=False)
+        except TypeError:
+            icon_path = get_asset_path("icons", icon_name)
+        except Exception:
+            icon_path = None
+        if icon_path:
+            button.setIcon(QIcon(str(icon_path)))
+            button.setIconSize(QSize(13, 13))
+            button.setText("")
+            return
 
 
 def _status_color(status: str) -> str:
@@ -79,7 +109,7 @@ def _format_currency(value: float, decimals: int = 2) -> str:
         value = 0.0
     if value <= 0:
         return "—"
-    return f"₹{value:,.{decimals}f}"
+    return f"${value:,.{decimals}f}"
 
 
 class FilterWidget(QWidget):
@@ -178,7 +208,7 @@ class FilterWidget(QWidget):
 
 
 class OrderHistoryTable(QTableWidget):
-    """Compact gridless table widget for displaying order history."""
+    """Compact AMOLED table widget for displaying order history."""
 
     order_selected = Signal(dict)
 
@@ -187,7 +217,7 @@ class OrderHistoryTable(QTableWidget):
         self.setObjectName("ordersTable")
         self.setColumnCount(9)
         self.setHorizontalHeaderLabels([
-            "Date", "Time", "Symbol", "Type", "Qty", "Price", "Avg Price", "Status", "Order ID"
+            "Date", "Time", "Symbol", "Type", "Qty", "Price", "Avg Price", "Status", "ID"
         ])
         self._orders_data: List[Dict[str, Any]] = []
         self._visible_orders: List[Dict[str, Any]] = []
@@ -202,7 +232,7 @@ class OrderHistoryTable(QTableWidget):
         self.verticalHeader().setVisible(False)
         self.verticalHeader().setDefaultSectionSize(_ROW_H)
         self.verticalHeader().setMinimumSectionSize(_ROW_H)
-        self.setShowGrid(False)
+        self.setShowGrid(True)
         self.setSortingEnabled(True)
         self.setWordWrap(False)
         self.setCornerButtonEnabled(False)
@@ -215,10 +245,11 @@ class OrderHistoryTable(QTableWidget):
         header.setHighlightSections(False)
         header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         header.setStretchLastSection(False)
-        header.setMinimumSectionSize(42)
+        header.setMinimumSectionSize(50)
         header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)  # Symbol
-        header.setSectionResizeMode(8, QHeaderView.ResizeMode.Stretch)  # Order ID
+        header.setSectionResizeMode(8, QHeaderView.ResizeMode.Fixed)    # Copy Order ID
+        self.setColumnWidth(8, 50)
 
         self.itemSelectionChanged.connect(self._on_selection_changed)
 
@@ -244,7 +275,8 @@ class OrderHistoryTable(QTableWidget):
         self.setSortingEnabled(True)
         self.resizeColumnsToContents()
         self.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        self.horizontalHeader().setSectionResizeMode(8, QHeaderView.ResizeMode.Stretch)
+        self.horizontalHeader().setSectionResizeMode(8, QHeaderView.ResizeMode.Fixed)
+        self.setColumnWidth(8, 48)
 
     def _apply_filters(self, orders: List[Dict], filters: Dict[str, Any]) -> List[Dict]:
         """Apply filters to orders list."""
@@ -304,6 +336,7 @@ class OrderHistoryTable(QTableWidget):
 
         time_item = self._item(formatted_time, _T2, Qt.AlignmentFlag.AlignCenter, mono=True)
         time_item.setToolTip(str(timestamp))
+        time_item.setData(Qt.ItemDataRole.UserRole, order)
         self.setItem(row, 1, time_item)
 
         symbol_item = self._item(str(order.get("tradingsymbol", "") or "—").upper(), _SYMBOL_SOFT, bold=True)
@@ -318,12 +351,12 @@ class OrderHistoryTable(QTableWidget):
         self.setItem(row, 4, qty_item)
 
         price = order.get('price', 0.0) or 0.0
-        price_text = f"₹{float(price):,.2f}" if price > 0 else "MKT"
+        price_text = f"${float(price):,.2f}" if price > 0 else "MKT"
         price_item = self._item(price_text, _T1, Qt.AlignmentFlag.AlignRight, mono=True)
         self.setItem(row, 5, price_item)
 
         avg_price = order.get('average_price', 0.0) or 0.0
-        avg_text = f"₹{float(avg_price):,.2f}" if avg_price > 0 else "—"
+        avg_text = f"${float(avg_price):,.2f}" if avg_price > 0 else "—"
         avg_item = self._item(avg_text, _T1, Qt.AlignmentFlag.AlignRight, mono=True)
         self.setItem(row, 6, avg_item)
 
@@ -331,10 +364,58 @@ class OrderHistoryTable(QTableWidget):
         status_item = self._item(status, _status_color(status), Qt.AlignmentFlag.AlignCenter, bold=True)
         self.setItem(row, 7, status_item)
 
-        order_id = str(order.get("order_id", "") or "—")
-        id_item = self._item(order_id, _T3 if order_id == "—" else _T2, mono=True)
-        id_item.setToolTip(f"Order ID: {order_id}")
+        order_id = str(order.get("order_id", "") or "").strip()
+        id_item = self._item("", _T3, Qt.AlignmentFlag.AlignCenter)
+        id_item.setToolTip("Copy order ID" if order_id else "No order ID available")
         self.setItem(row, 8, id_item)
+        self.setCellWidget(row, 8, self._make_copy_id_cell(order_id))
+
+    def _make_copy_id_cell(self, order_id: str) -> QWidget:
+        """Return a centered copy-icon cell without exposing the order id text."""
+        holder = QWidget()
+        holder.setObjectName("copyCell")
+        holder_layout = QHBoxLayout(holder)
+        holder_layout.setContentsMargins(0, 0, 0, 0)
+        holder_layout.setSpacing(0)
+
+        button = QPushButton()
+        button.setObjectName("copyOrderIdButton")
+        button.setFixedSize(22, 20)
+        button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        button.setToolTip("Copy order ID" if order_id else "No order ID available")
+        button.setEnabled(bool(order_id))
+        _apply_copy_icon(button)
+        if order_id:
+            button.clicked.connect(lambda _checked=False, oid=order_id, btn=button: self._copy_order_id(oid, btn))
+
+        holder_layout.addStretch(1)
+        holder_layout.addWidget(button)
+        holder_layout.addStretch(1)
+        return holder
+
+    def _copy_order_id(self, order_id: str, button: QPushButton) -> None:
+        """Copy the order id to clipboard and give brief visual feedback."""
+        if not order_id:
+            return
+        QApplication.clipboard().setText(order_id)
+        old_text = button.text()
+        old_icon = button.icon()
+        button.setIcon(QIcon())
+        button.setText("✓")
+        button.setProperty("copied", True)
+        button.style().unpolish(button)
+        button.style().polish(button)
+        button.update()
+
+        def restore() -> None:
+            button.setProperty("copied", False)
+            button.setText(old_text)
+            button.setIcon(old_icon)
+            button.style().unpolish(button)
+            button.style().polish(button)
+            button.update()
+
+        QTimer.singleShot(850, restore)
 
     def _item(
         self,
@@ -350,18 +431,28 @@ class OrderHistoryTable(QTableWidget):
         item.setFont(_mono_font(9, bold) if mono else _ui_font(9, bold))
         return item
 
+    def _order_for_visual_row(self, row: int) -> Optional[Dict]:
+        """Return the order represented by the current visual row, even after sorting."""
+        if row < 0:
+            return None
+        item = self.item(row, 0)
+        if item is not None:
+            order = item.data(Qt.ItemDataRole.UserRole)
+            if isinstance(order, dict):
+                return order
+        if 0 <= row < len(self._visible_orders):
+            return self._visible_orders[row]
+        return None
+
     def _on_selection_changed(self):
         """Handle row selection change."""
-        current_row = self.currentRow()
-        if 0 <= current_row < len(self._visible_orders):
-            self.order_selected.emit(self._visible_orders[current_row])
+        order = self._order_for_visual_row(self.currentRow())
+        if order:
+            self.order_selected.emit(order)
 
     def get_selected_order(self) -> Optional[Dict]:
         """Get currently selected order."""
-        current_row = self.currentRow()
-        if 0 <= current_row < len(self._visible_orders):
-            return self._visible_orders[current_row]
-        return None
+        return self._order_for_visual_row(self.currentRow())
 
     def get_displayed_orders(self) -> List[Dict]:
         """Return orders currently visible after filtering/sorting."""
@@ -443,8 +534,8 @@ class OrderSummaryWidget(QWidget):
         self.completed_orders_label.setText(str(completed))
         self.cancelled_orders_label.setText(str(cancelled))
         self.pending_orders_label.setText(str(pending))
-        self.total_volume_label.setText(f"₹{total_volume:,.0f}")
-        self.avg_order_size_label.setText(f"₹{avg_order_size:,.0f}")
+        self.total_volume_label.setText(f"${total_volume:,.0f}")
+        self.avg_order_size_label.setText(f"${avg_order_size:,.0f}")
 
         self._stats = {
             'total_orders': total_orders,
@@ -461,8 +552,8 @@ class OrderSummaryWidget(QWidget):
         self.completed_orders_label.setText("0")
         self.cancelled_orders_label.setText("0")
         self.pending_orders_label.setText("0")
-        self.total_volume_label.setText("₹0")
-        self.avg_order_size_label.setText("₹0")
+        self.total_volume_label.setText("$0")
+        self.avg_order_size_label.setText("$0")
         self._stats = {}
 
     def get_statistics(self) -> Dict:
@@ -502,8 +593,8 @@ class OrderHistoryDialog(QDialog):
     def _setup_window(self):
         """Initialize window properties."""
         self.setWindowTitle("Order History - qullamaggie")
-        self.setMinimumSize(880, 520)
-        self.resize(1000, 620)
+        self.setMinimumSize(900, 520)
+        self.resize(1040, 620)
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground, False)
 
@@ -533,9 +624,9 @@ class OrderHistoryDialog(QDialog):
 
         left_panel = QWidget()
         left_panel.setObjectName("leftPanel")
-        left_panel.setFixedWidth(268)
+        left_panel.setFixedWidth(252)
         left_panel_layout = QVBoxLayout(left_panel)
-        left_panel_layout.setContentsMargins(0, 0, 6, 0)
+        left_panel_layout.setContentsMargins(0, 0, 5, 0)
         left_panel_layout.setSpacing(8)
 
         self.filter_widget = FilterWidget()
@@ -547,7 +638,7 @@ class OrderHistoryDialog(QDialog):
         right_panel = QWidget()
         right_panel.setObjectName("rightPanel")
         right_panel_layout = QVBoxLayout(right_panel)
-        right_panel_layout.setContentsMargins(6, 0, 0, 0)
+        right_panel_layout.setContentsMargins(5, 0, 0, 0)
         right_panel_layout.setSpacing(0)
 
         self.orders_table = OrderHistoryTable()
@@ -555,7 +646,7 @@ class OrderHistoryDialog(QDialog):
 
         content_splitter.addWidget(left_panel)
         content_splitter.addWidget(right_panel)
-        content_splitter.setSizes([268, 900])
+        content_splitter.setSizes([252, 940])
 
         body_layout.addWidget(content_splitter, 1)
         container_layout.addWidget(body_widget, 1)
@@ -764,8 +855,8 @@ class OrderHistoryDialog(QDialog):
                 color: {_T1};
                 font-family: {_SANS};
                 font-size: 11px;
-                font-weight: 900;
-                letter-spacing: 1.1px;
+                font-weight: 650;
+                letter-spacing: 0.85px;
                 background: transparent;
             }}
 
@@ -775,9 +866,9 @@ class OrderHistoryDialog(QDialog):
                 border: 1px solid {_BG4};
                 border-radius: 2px;
                 padding: 2px 7px;
-                font-family: {_MONO};
+                font-family: {_NUM_FONT};
                 font-size: 9px;
-                font-weight: 800;
+                font-weight: 600;
                 letter-spacing: 0.5px;
             }}
             QLabel#statusLabel[state="loading"] {{
@@ -800,7 +891,7 @@ class OrderHistoryDialog(QDialog):
                 color: {_T2};
                 font-family: {_SANS};
                 font-size: 10px;
-                font-weight: 700;
+                font-weight: 500;
                 background: transparent;
             }}
 
@@ -831,8 +922,8 @@ class OrderHistoryDialog(QDialog):
                 border-radius: 2px;
                 font-family: {_SANS};
                 font-size: 10px;
-                font-weight: 800;
-                letter-spacing: 0.5px;
+                font-weight: 600;
+                letter-spacing: 0.4px;
                 padding: 0 10px;
             }}
             QPushButton#secondaryBtn:hover {{
@@ -909,9 +1000,9 @@ class OrderHistoryDialog(QDialog):
             QLabel#volumeValue,
             QLabel#avgValue {{
                 color: {_T1};
-                font-family: {_MONO};
+                font-family: {_NUM_FONT};
                 font-size: 11px;
-                font-weight: 800;
+                font-weight: 600;
                 background: transparent;
             }}
             QLabel#completeValue {{ color: {_BULL}; }}
@@ -929,8 +1020,8 @@ class OrderHistoryDialog(QDialog):
                 padding: 3px 7px;
                 border-radius: 2px;
                 font-family: {_SANS};
-                font-size: 11px;
-                font-weight: 600;
+                font-size: 10px;
+                font-weight: 500;
                 min-height: 20px;
                 selection-background-color: {_SEL};
                 selection-color: {_T0};
@@ -982,8 +1073,8 @@ class OrderHistoryDialog(QDialog):
                 color: {_T1};
                 font-family: {_SANS};
                 font-size: 10px;
-                font-weight: 800;
-                letter-spacing: 0.3px;
+                font-weight: 500;
+                letter-spacing: 0.25px;
                 spacing: 6px;
                 background: transparent;
             }}
@@ -1006,9 +1097,9 @@ class OrderHistoryDialog(QDialog):
                 background-color: {_BG1};
                 alternate-background-color: {_BG2};
                 border: 1px solid {_BG4};
-                gridline-color: transparent;
+                gridline-color: rgba(26, 32, 48, 0.62);
                 font-family: {_SANS};
-                font-size: 11px;
+                font-size: 10px;
                 color: {_T1};
                 selection-background-color: {_SEL};
                 selection-color: {_T0};
@@ -1018,8 +1109,8 @@ class OrderHistoryDialog(QDialog):
 
             QTableWidget#ordersTable::item {{
                 padding: 0 6px;
-                border-bottom: 1px solid {_BG3};
-                border-right: none;
+                border-bottom: 1px solid rgba(26,32,48,0.62);
+                border-right: 1px solid rgba(26,32,48,0.42);
                 background: transparent;
             }}
             QTableWidget#ordersTable::item:selected {{
@@ -1044,7 +1135,7 @@ class OrderHistoryDialog(QDialog):
                 border: none;
                 border-bottom: 1px solid {_BG4};
                 font-family: {_SANS};
-                font-weight: 900;
+                font-weight: 650;
                 font-size: 8px;
                 text-transform: uppercase;
                 letter-spacing: 1px;
@@ -1058,6 +1149,42 @@ class OrderHistoryDialog(QDialog):
             QHeaderView {{
                 background-color: {_BG2};
                 border: none;
+            }}
+
+            QWidget#copyCell {{
+                background: transparent;
+                border: none;
+            }}
+
+            QPushButton#copyOrderIdButton {{
+                background: transparent;
+                color: {_T2};
+                border: 1px solid transparent;
+                border-radius: 2px;
+                font-family: {_SANS};
+                font-size: 12px;
+                font-weight: 500;
+                padding: 0;
+            }}
+            QPushButton#copyOrderIdButton:hover {{
+                background: rgba(0, 212, 255, 0.075);
+                color: {_CYAN};
+                border-color: rgba(0, 212, 255, 0.24);
+            }}
+            QPushButton#copyOrderIdButton:pressed {{
+                background: {_SEL};
+                color: {_T0};
+                border-color: {_BG4};
+            }}
+            QPushButton#copyOrderIdButton[copied="true"] {{
+                background: rgba(0, 212, 168, 0.09);
+                color: {_BULL};
+                border-color: rgba(0, 212, 168, 0.30);
+            }}
+            QPushButton#copyOrderIdButton:disabled {{
+                color: {_T3};
+                background: transparent;
+                border-color: transparent;
             }}
 
             QScrollBar:vertical {{

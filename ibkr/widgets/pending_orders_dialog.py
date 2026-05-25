@@ -247,7 +247,7 @@ class EditPendingOrderDialog(QDialog):
         controls.setContentsMargins(10, 6, 10, 6)
         controls.setSpacing(8)
 
-        hint = QLabel("Modify only editable Kite pending-order fields")
+        hint = QLabel("Modify only editable IBKR pending-order fields")
         hint.setObjectName("footerHint")
 
         cancel_btn = QPushButton("CANCEL")
@@ -921,7 +921,7 @@ class PendingOrdersDialog(QDialog):
             return
 
         self._refresh_inflight = True
-        self.status_label.setText("Syncing with Kite...")
+        self.status_label.setText("Syncing with IBKR...")
         worker = Worker(self.trader.orders)
         worker.signals.result.connect(self._handle_orders_result)
         worker.signals.error.connect(lambda err: self._handle_orders_error(err[1]))
@@ -942,7 +942,7 @@ class PendingOrdersDialog(QDialog):
 
         self.count_label.setText(f"{len(self._orders)} pending")
         now = datetime.now().strftime("%H:%M:%S")
-        self.status_label.setText(f"Synced with Kite at {now}")
+        self.status_label.setText(f"Synced with IBKR at {now}")
         self.pending_orders_updated.emit(len(self._orders))
 
     def _handle_orders_error(self, exc):
@@ -1054,7 +1054,7 @@ class PendingOrdersDialog(QDialog):
             row,
             7,
             _table_item(
-                "MKT" if price <= 0 else f"₹{price:.2f}",
+                "MKT" if price <= 0 else f"${price:.2f}",
                 color=_T1 if price > 0 else _CYAN,
                 align=Qt.AlignmentFlag.AlignRight,
                 mono=True,
@@ -1064,7 +1064,7 @@ class PendingOrdersDialog(QDialog):
             row,
             8,
             _table_item(
-                "—" if trigger <= 0 else f"₹{trigger:.2f}",
+                "—" if trigger <= 0 else f"${trigger:.2f}",
                 color=_T3 if trigger <= 0 else _AMBER,
                 align=Qt.AlignmentFlag.AlignRight,
                 mono=True,
