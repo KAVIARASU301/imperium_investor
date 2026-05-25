@@ -39,7 +39,7 @@ from PySide6.QtWidgets import (
     QPushButton, QToolButton, QComboBox, QStackedWidget, QMenu,
     QDialog, QLineEdit, QDialogButtonBox, QMessageBox, QApplication
 )
-from app_paths import get_asset_path
+from app_paths import get_asset_path, get_user_data_dir
 
 logger = logging.getLogger(__name__)
 
@@ -143,8 +143,8 @@ _FLAG_TOOLTIP = {
 #  PERSISTENCE PATHS
 # ─────────────────────────────────────────────────────────────────────────────
 
-_APP_DIR = os.path.join(os.path.expanduser("~"), ".qullamaggie")
-_DATA_DIR = "kite/user_data"
+_APP_DIR = str(get_user_data_dir("kite", os.environ.get("QULLAMAGGIE_TRADING_MODE", "live")))
+_DATA_DIR = os.path.join(_APP_DIR, "watchlists")
 _CONFIG_FILE = os.path.join(_APP_DIR, "watchlist_config.json")
 _FLAGS_FILE = os.path.join(_APP_DIR, "watchlist_flags.json")
 

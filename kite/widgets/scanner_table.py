@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtGui import QColor, QFont, QBrush, QCursor, QFontMetrics, QIcon
 from PySide6.QtCore import QItemSelectionModel
-from app_paths import get_asset_path
+from app_paths import get_asset_path, get_user_data_dir
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +27,9 @@ def _prefer_text_antialias(font: QFont) -> QFont:
     except Exception:
         pass
     return font
-SCAN_URL_FILE = os.path.join(os.path.expanduser("~/.qullamaggie"), "chartink_scans.json")
-SETTINGS_FILE = os.path.join(os.path.expanduser("~/.qullamaggie"), "scanner_settings.json")
+_APP_DIR = str(get_user_data_dir("kite", os.environ.get("QULLAMAGGIE_TRADING_MODE", "live")))
+SCAN_URL_FILE = os.path.join(_APP_DIR, "chartink_scans.json")
+SETTINGS_FILE = os.path.join(_APP_DIR, "scanner_settings.json")
 SCAN_GROUP_ORDER = ["Momentum Breakouts", "Episodic Pivot", "Parabolic", "Intraday", "Others"]
 CHART_TOOLBAR_HEIGHT = 26
 CHART_TOOLBAR_CONTROL_HEIGHT = 22

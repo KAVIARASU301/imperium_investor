@@ -6,6 +6,8 @@ import logging
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 
+from app_paths import get_user_data_dir
+
 logger = logging.getLogger(__name__)
 
 
@@ -14,7 +16,7 @@ class ConfigManager:
 
     def __init__(self, config_dir: Optional[Path] = None):
         if config_dir is None:
-            self.config_dir = Path.home() / ".qullamaggie"
+            self.config_dir = get_user_data_dir("kite", "live")
         else:
             self.config_dir = Path(config_dir)
 

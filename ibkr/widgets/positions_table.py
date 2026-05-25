@@ -27,6 +27,8 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QColor, QFont, QBrush, QCursor
 
+from app_paths import get_user_data_dir
+
 logger = logging.getLogger(__name__)
 
 
@@ -135,7 +137,8 @@ _FLAG_TOOLTIP = {
     None: "Click to flag",
     "green": "Flagged — click to remove",
 }
-_FLAGS_FILE = os.path.join(os.path.expanduser("~"), ".qullamaggie", "watchlist_flags.json")
+_APP_DIR = str(get_user_data_dir("ibkr", os.environ.get("QULLAMAGGIE_TRADING_MODE", "live")))
+_FLAGS_FILE = os.path.join(_APP_DIR, "watchlist_flags.json")
 
 
 class _FlagStore:

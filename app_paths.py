@@ -103,3 +103,21 @@ def get_app_icon_path() -> Optional[Path]:
 def get_sound_assets_dir() -> Optional[Path]:
     """Return the assets directory containing bundled notification sounds."""
     return find_assets_dir(required_files=_ASSET_SOUND_FILES)
+
+
+
+
+def get_home_app_dir() -> Path:
+    """Return the shared app storage root in the user's home directory."""
+    app_dir = Path.home() / ".qullamaggie" / "apps"
+    app_dir.mkdir(parents=True, exist_ok=True)
+    return app_dir
+
+
+def get_user_data_dir(broker: str, trading_mode: str = "live") -> Path:
+    """Return isolated user-data directory for a broker and trading mode."""
+    broker_key = (broker or "unknown").strip().lower()
+    mode_key = (trading_mode or "live").strip().lower()
+    user_dir = get_home_app_dir() / broker_key / mode_key
+    user_dir.mkdir(parents=True, exist_ok=True)
+    return user_dir
