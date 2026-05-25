@@ -27,7 +27,7 @@ import os
 import time
 from dataclasses import dataclass, asdict
 from enum import Enum
-from utils.sounds import play_alert
+from ibkr.utils.sounds import play_alert
 
 logger = logging.getLogger(__name__)
 
