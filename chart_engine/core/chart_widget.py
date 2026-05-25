@@ -418,6 +418,15 @@ class CandlestickChart(QWidget):
         for candidate in candidates:
             if candidate in self.instrument_map:
                 return candidate
+
+        # IBKR supports on-demand contract qualification from raw symbols.
+        # If a symbol is not yet present in the local instrument map (seed list),
+        # still allow the chart to load it; IBKRDataFetcher.resolve_instrument()
+        # and fetch() can resolve via IB contract lookup.
+        if getattr(self._broker_caps, "name", "") == "ibkr":
+            fallback = value.split(":", 1)[-1].strip()
+            if fallback:
+                return fallback
         return None
 
 

@@ -52,7 +52,7 @@ def check():
                     print(f"   Server time: {t}")
 
                     # Test candle data from IBKR/TWS
-                    symbol = "AAPL"
+                    symbol = "KLAC"
                     contract = Stock(symbol, "SMART", "USD")
                     ib.qualifyContracts(contract)
 
