@@ -26,6 +26,7 @@ from ibkr.widgets.positions_table import PositionsTable
 from ibkr.widgets.watchlist_table import TabbedWatchlistWidget
 from chart_engine import CandlestickChart as ChartWindow
 from chart_engine.core.data_loader import KiteDataFetcher
+from chart_engine.core.ibkr_data_fetcher import IBKRDataFetcher
 from ibkr.widgets.header_toolbar import HeaderToolbar
 from ibkr.widgets.settings_dialog import ColorSettingsDialog
 from ibkr.widgets.stock_info_dialog import show_stock_info
@@ -58,7 +59,6 @@ from ibkr.utils.paper_trading_manager import (
     integrate_paper_trading,
 )
 from ibkr.utils.config_manager import ConfigManager
-from ibkr.core.instrument_loader import InstrumentLoader
 from ibkr.core.trade_logger import TradeLogger
 try:
     from ib_insync import IB
@@ -366,12 +366,13 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         # Create components
         self.chartink_scanner = ChartinkScannerTable()
+        chart_data_fetcher = self._create_chart_data_fetcher()
         self.candlestick_chart = ChartWindow(
-            KiteDataFetcher(self.real_kite_client),
+            chart_data_fetcher,
             storage_dir=self.chart_drawings_dir,
         )
         self.candlestick_chart_secondary = ChartWindow(
-            KiteDataFetcher(self.real_kite_client),
+            chart_data_fetcher,
             storage_dir=self.chart_drawings_dir,
         )
         self.candlestick_chart.data_cache = MarketAwareDataCache(parent=self.candlestick_chart)
@@ -951,15 +952,25 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             day_realized=float(payload.get("day_realized", 0.0) or 0.0),
         )
 
-    @Slot(dict)
-    def _on_day_pnl_updated(self, pnl_data: Dict[str, Any]):
+    @Slot(object)
+    def _on_day_pnl_updated(self, pnl_data: Any):
         """Fast-path status metrics update using broker-reported day P&L aggregates."""
         if not self.positions_action.isChecked():
             return
+
+        unrealized = 0.0
+        realized = 0.0
+        if isinstance(pnl_data, dict):
+            unrealized = float(pnl_data.get("unrealized", 0.0) or 0.0)
+            realized = float(pnl_data.get("realized", 0.0) or 0.0)
+        elif isinstance(pnl_data, (int, float)):
+            # PositionManager currently emits a float aggregate for unrealized day P&L.
+            unrealized = float(pnl_data)
+
         self.app_status_bar.set_positions_metrics(
             has_data=True,
-            day_unrealized=float(pnl_data.get("unrealized", 0.0) or 0.0),
-            day_realized=float(pnl_data.get("realized", 0.0) or 0.0),
+            day_unrealized=unrealized,
+            day_realized=realized,
             exposure=getattr(self.app_status_bar, "_last_exposure", 0.0) or 0.0,
         )
 
@@ -1038,18 +1049,36 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.chart_init_timer.setSingleShot(True)
         self.chart_init_timer.timeout.connect(self._initialize_chart_after_instruments)
 
-        self.instrument_loader = InstrumentLoader(self.real_kite_client)
-        self.instrument_loader.instruments_loaded.connect(self._on_instruments_loaded)
-        self.instrument_loader.error_occurred.connect(self._on_instruments_load_failed)
-        self.instrument_loader.progress_update.connect(
-            lambda msg: logger.info(f"Instruments: {msg}")
-        )
-        self.instrument_loader.start()
+        # IBKR instruments should be fetched on-demand (not preloaded from Kite).
+        self.instrument_loader = None
+        self._initialize_ibkr_instruments()
 
         self.market_data_worker = MarketDataWorker(self.real_kite_client)
         self.market_data_worker.data_received.connect(self._enqueue_market_data)
         self.market_data_worker.connection_established.connect(self._on_websocket_connect)
         self.market_data_worker.start()
+
+
+    def _initialize_ibkr_instruments(self):
+        """Initialize the IBKR symbol universe without Kite instrument preloading."""
+        try:
+            instruments = self.real_kite_client.get_instruments() if self.real_kite_client else []
+        except Exception as exc:
+            logger.warning(f"IBKR instrument bootstrap failed, continuing with empty set: {exc}")
+            instruments = []
+
+        instrument_map = {
+            str(inst.get("tradingsymbol", "")).upper(): inst
+            for inst in instruments
+            if inst.get("tradingsymbol")
+        }
+        payload = {
+            "instruments": instruments,
+            "instrument_map": instrument_map,
+            "token_to_symbol": {},
+            "symbol_index": None,
+        }
+        self._on_instruments_loaded(payload)
 
     @Slot()
     def _on_websocket_connect(self):
@@ -2806,14 +2835,23 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             if ltp > 0:
                 return ltp
 
-        # Fallback to API with NSE preference
+        # Fallback to API: support both Kite-style quote() and IBKR reqMktData().
         try:
             if self.real_kite_client:
-                # Use the exchange from our NSE-preferred instrument map
-                exchange = self.instrument_map.get(symbol, {}).get('exchange', 'NSE')
-                quote = self.real_kite_client.quote([f"{exchange}:{symbol}"])
-                ltp = quote[f"{exchange}:{symbol}"].get('last_price', 0)
-                return ltp
+                if hasattr(self.real_kite_client, "quote"):
+                    exchange = self.instrument_map.get(symbol, {}).get('exchange', 'NSE')
+                    quote = self.real_kite_client.quote([f"{exchange}:{symbol}"])
+                    ltp = quote[f"{exchange}:{symbol}"].get('last_price', 0)
+                    return ltp
+
+                if hasattr(self.real_kite_client, "reqMktData") and hasattr(self.real_kite_client, "reqContractDetails"):
+                    from ib_insync import Stock
+                    details = self.real_kite_client.reqContractDetails(Stock(symbol, "SMART", "USD"))
+                    if details:
+                        contract = details[0].contract
+                        ticker = self.real_kite_client.reqMktData(contract, '', False, False)
+                        time.sleep(0.2)
+                        return float((ticker.last or ticker.close or 0.0) if ticker else 0.0)
         except Exception as e:
             logger.warning(f"Failed to fetch LTP for {symbol} via API: {e}")
 
@@ -2836,6 +2874,13 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             return False
 
         return True
+
+    def _create_chart_data_fetcher(self):
+        """Create the correct chart data fetcher for the active broker client."""
+        client = self.real_kite_client
+        if hasattr(client, "reqHistoricalData"):
+            return IBKRDataFetcher(client)
+        return KiteDataFetcher(client)
 
     def _setup_watchlist_shortcuts(self):
         """Setup keyboard shortcuts"""
