@@ -5,6 +5,8 @@ import itertools
 import logging
 import os
 import threading
+import time
+from collections import OrderedDict
 from datetime import date as date_cls
 from datetime import datetime, time as dt_time, timezone
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -16,6 +18,10 @@ logger = logging.getLogger(__name__)
 
 _CLIENT_ID_LOCK = threading.Lock()
 _CLIENT_ID_COUNTER = itertools.count(1)
+_HISTORY_SEMAPHORE = threading.BoundedSemaphore(1)
+_RECENT_REQUEST_LOCK = threading.Lock()
+_RECENT_REQUESTS: "OrderedDict[str, float]" = OrderedDict()
+_PACING_DELAY_S = 1.0
 
 
 def _ensure_event_loop() -> None:
@@ -212,8 +218,28 @@ class IBKRDataFetcher(BrokerDataFetcher):
         return [self._bar_to_bardata(b) for b in bars]
 
     def _request_historical_bars(self, ib, contract, end_dt_str: str, duration_str: str, bar_size: str):
-        """Request historical bars with a bounded wait to avoid frozen loaders."""
-        request_kwargs = dict(
+        """Serialize and pace TWS historical requests to prevent timeouts."""
+        pacing_key = f"{getattr(contract, 'conId', '')}_{bar_size}_{duration_str}_{end_dt_str}"
+
+        with _RECENT_REQUEST_LOCK:
+            last_time = _RECENT_REQUESTS.get(pacing_key)
+            now = time.monotonic()
+            if last_time and (now - last_time) < _PACING_DELAY_S:
+                wait = _PACING_DELAY_S - (now - last_time)
+            else:
+                wait = 0.0
+
+        if wait > 0:
+            logger.info("TWS pacing: sleeping %.1fs before duplicate request %s", wait, pacing_key)
+            time.sleep(wait)
+
+        with _HISTORY_SEMAPHORE:
+            with _RECENT_REQUEST_LOCK:
+                _RECENT_REQUESTS[pacing_key] = time.monotonic()
+                if len(_RECENT_REQUESTS) > 200:
+                    _RECENT_REQUESTS.popitem(last=False)
+
+            request_kwargs = dict(
             endDateTime=end_dt_str,
             durationStr=duration_str,
             barSizeSetting=bar_size,
@@ -221,15 +247,12 @@ class IBKRDataFetcher(BrokerDataFetcher):
             useRTH=self._use_rth,
             formatDate=1,
             keepUpToDate=False,
-        )
+            )
 
-        # Newer ib_insync versions support a ``timeout`` keyword; use it when
-        # available so a stalled TWS/HMDS response cannot block the chart thread
-        # indefinitely (black chart + stuck progress bar).
-        try:
-            return ib.reqHistoricalData(contract, timeout=20, **request_kwargs)
-        except TypeError:
-            return ib.reqHistoricalData(contract, **request_kwargs)
+            try:
+                return ib.reqHistoricalData(contract, timeout=30, **request_kwargs)
+            except TypeError:
+                return ib.reqHistoricalData(contract, **request_kwargs)
 
     @staticmethod
     def _coerce_con_id(instrument_token: Any) -> int:
