@@ -49,20 +49,27 @@ class PositionManager(QObject):
         self.order_check_timer.timeout.connect(self._check_pending_orders)
 
     # ===========================================================================
-    # JOB 1: FETCH POSITIONS FROM KITE (SIMPLE)
+    # JOB 1: FETCH POSITIONS FROM BROKER (SIMPLE)
     # ===========================================================================
 
-    def fetch_positions_from_kite(self, reason="manual"):
+    def fetch_positions_from_broker(self, reason="manual"):
         """Dead simple position fetch - just get and send"""
         try:
-            logger.info(f"Fetching positions from Kite - Reason: {reason}")
+            logger.info(f"Fetching positions from broker - Reason: {reason}")
 
-            # Get positions from Kite
-            kite_positions = self.trader.positions()
+            broker_positions = self.trader.positions()
+
+            # IBKR wrapper returns a list while Kite returns {"net": [...]}
+            if isinstance(broker_positions, dict):
+                raw_positions = broker_positions.get('net', [])
+            elif isinstance(broker_positions, list):
+                raw_positions = broker_positions
+            else:
+                raw_positions = []
 
             # Convert to simple format
             simple_positions = []
-            for pos_data in kite_positions.get('net', []):
+            for pos_data in raw_positions:
                 if pos_data.get('quantity', 0) != 0:  # Only non-zero positions
                     position = Position(
                         symbol=pos_data.get('tradingsymbol', ''),
@@ -84,6 +91,10 @@ class PositionManager(QObject):
         except Exception as e:
             logger.error(f"Failed to fetch positions: {e}")
             self.show_notification.emit(f"Failed to fetch positions: {e}", "error")
+
+    def fetch_positions_from_kite(self, reason="manual"):
+        """Backward-compatible alias for older call sites."""
+        self.fetch_positions_from_broker(reason)
 
     # ===========================================================================
     # JOB 2: TRACK ORDER STATUS (SIMPLE POLLING)

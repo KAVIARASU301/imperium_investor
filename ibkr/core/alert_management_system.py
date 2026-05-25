@@ -1169,6 +1169,42 @@ class AlertSystemManager(QObject):
         except Exception as e:
             logger.error(f"Error creating alert from chart: {e}")
 
+    @Slot(str)
+    def update_alert_price_from_chart(self, payload_json: str):
+        """Update an existing alert price when its chart line is dragged."""
+        try:
+            if not self._initialized:
+                return
+
+            payload = json.loads(payload_json)
+            symbol = str(payload.get("symbol", "")).upper()
+            old_price = float(payload.get("old_price", 0.0) or 0.0)
+            new_price = float(payload.get("new_price", 0.0) or 0.0)
+
+            if not symbol or new_price <= 0:
+                logger.warning("Ignoring alert drag update with invalid payload: %s", payload)
+                return
+
+            target_alert = None
+            for alert in self.all_alerts:
+                if alert.triggered or alert.symbol != symbol:
+                    continue
+                if old_price > 0 and abs(alert.price - old_price) < 0.01:
+                    target_alert = alert
+                    break
+                if target_alert is None:
+                    target_alert = alert
+
+            if not target_alert:
+                logger.warning("No active alert found for drag update: %s @ %.2f", symbol, new_price)
+                return
+
+            target_alert.price = new_price
+            self._save_and_refresh_all()
+            logger.info("Updated alert price from chart drag: %s %.2f -> %.2f", symbol, old_price, new_price)
+        except Exception as e:
+            logger.error(f"Failed to update alert price from chart: {e}")
+
     def _add_alert(self, alert: Alert):
         """Add a new alert to the system with chart line integration."""
         try:

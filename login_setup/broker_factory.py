@@ -6,7 +6,7 @@ Provides unified interface for both Kite and IBKR brokers.
 
 import logging
 import importlib
-import inspect
+import asyncio
 from typing import Union, Dict, Any, Optional, Type, List
 from abc import ABC, abstractmethod
 
@@ -108,14 +108,10 @@ class IBKRClientWrapper(BrokerClientInterface):
             accounts = self.client.managedAccounts()
             account_summary = []
             try:
-                summary_result = self.client.accountSummary()
-                if inspect.isawaitable(summary_result):
-                    logger.warning("IBKR accountSummary returned awaitable; skipping in sync profile fetch")
-                    close_fn = getattr(summary_result, "close", None)
-                    if callable(close_fn):
-                        close_fn()
-                else:
-                    account_summary = summary_result
+                # Avoid creating coroutine objects from ib_insync async APIs in worker threads
+                # without an active event loop (causes "coroutine was never awaited" warnings).
+                asyncio.get_running_loop()
+                account_summary = self.client.accountSummary()
             except RuntimeError as summary_error:
                 logger.warning(f"Skipping account summary fetch due to runtime context: {summary_error}")
 

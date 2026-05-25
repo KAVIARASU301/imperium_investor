@@ -1,12 +1,8 @@
 # ibkr/core/market_data_worker.py
 
 import logging
-<<<<<<< ours
 from typing import List, Dict, Set, Any, Iterable
-=======
-from typing import List, Dict, Set, Any
 import time
->>>>>>> theirs
 from PySide6.QtCore import QObject, Signal, QThread
 from ib_insync import IB, Contract, Ticker, util
 
