@@ -5,6 +5,7 @@ import os
 import requests
 from bs4 import BeautifulSoup as bs
 from typing import List, Dict, Optional
+from ibkr.scanner.run_finviz_scan import quick_scrape
 
 from PySide6.QtCore import Signal, Slot, Qt, QThread, QTimer, QSize
 from PySide6.QtWidgets import (
@@ -27,7 +28,7 @@ def _prefer_text_antialias(font: QFont) -> QFont:
     except Exception:
         pass
     return font
-SCAN_URL_FILE = os.path.join(os.path.expanduser("~/.qullamaggie"), "chartink_scans.json")
+SCAN_URL_FILE = os.path.join(os.path.expanduser("~/.qullamaggie"), "finviz_scans.json")
 SETTINGS_FILE = os.path.join(os.path.expanduser("~/.qullamaggie"), "scanner_settings.json")
 SCAN_GROUP_ORDER = ["Momentum Breakouts", "Episodic Pivot", "Parabolic", "Intraday", "Others"]
 CHART_TOOLBAR_HEIGHT = 26
@@ -194,14 +195,14 @@ def _volume_strength_level(volume: int) -> int:
 
 
 class ModernAddScanDialog(QDialog):
-    """Enhanced dialog for adding new Chartink scans with modern styling."""
+    """Enhanced dialog for adding new Finviz scans with modern styling."""
 
     def __init__(self, parent=None, initial_scan: Optional[Dict[str, str]] = None, is_edit: bool = False):
         super().__init__(parent)
         self.initial_scan = initial_scan or {}
         self.is_edit = is_edit
 
-        self.setWindowTitle("Edit Chartink Scan" if self.is_edit else "Add New Chartink Scan")
+        self.setWindowTitle("Edit Finviz Scan" if self.is_edit else "Add New Finviz Scan")
         self.setModal(True)
         self.setFixedSize(560, 350)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
@@ -260,12 +261,12 @@ class ModernAddScanDialog(QDialog):
         form_layout.addWidget(name_label)
         form_layout.addWidget(self.name_input)
 
-        # Scan clause
-        clause_label = QLabel("SCAN CLAUSE")
+        # Finviz scan URL
+        clause_label = QLabel("FINVIZ SCAN LINK")
         clause_label.setObjectName("fieldLabel")
         self.url_input = QTextEdit()
         self.url_input.setObjectName("minimalTextArea")
-        self.url_input.setPlaceholderText("Paste your Chartink scan clause here...")
+        self.url_input.setPlaceholderText("Paste your Finviz screener URL here...")
         self.url_input.setMaximumHeight(64)
 
         form_layout.addWidget(clause_label)
@@ -544,7 +545,7 @@ class ModernManageScansDialog(QDialog):
     def __init__(self, scans: List[Dict[str, str]], parent=None):
         super().__init__(parent)
         self.scans = scans.copy()
-        self.setWindowTitle("Manage Chartink Scans")
+        self.setWindowTitle("Manage Finviz Scans")
         self.setModal(True)
         self.setFixedSize(760, 500)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
@@ -577,7 +578,7 @@ class ModernManageScansDialog(QDialog):
         title_label = QLabel("MANAGE SCANS")
         title_label.setObjectName("dialogTitle")
 
-        subtitle_label = QLabel("Saved Chartink scan clauses and groups")
+        subtitle_label = QLabel("Saved Finviz scan links and groups")
         subtitle_label.setObjectName("dialogSubtitle")
 
         title_stack.addWidget(title_label)
@@ -976,7 +977,7 @@ class ModernManageScansDialog(QDialog):
 
 
 class ScanWorker(QThread):
-    """Worker thread for Chartink scans - returns complete EOD data."""
+    """Worker thread for Finviz scans - returns symbol-first EOD rows."""
     scan_completed = Signal(list)  # Emits list of complete symbol data
     scan_error = Signal(str)
 
@@ -986,85 +987,28 @@ class ScanWorker(QThread):
 
     def run(self):
         try:
-            clause = self.scan_url.strip()
-            if not clause:
-                raise Exception("No scan clause provided")
+            url = self.scan_url.strip()
+            if not url:
+                raise Exception("No Finviz scan URL provided")
 
-            # Use the direct XHR method
-            with requests.Session() as s:
-                # Step 1: Get the main page to establish session
-                main_page = s.get('https://chartink.com/', timeout=30)
-                main_page.raise_for_status()
-
-                # Step 2: Get the screener page to get CSRF token
-                screener_page = s.get('https://chartink.com/screener', timeout=30)
-                screener_page.raise_for_status()
-
-                # Extract CSRF token
-                csrf_token = None
-                if 'csrf-token' in screener_page.text:
-                    import re
-                    csrf_match = re.search(r'<meta name="csrf-token" content="([^"]*)"', screener_page.text)
-                    if csrf_match:
-                        csrf_token = csrf_match.group(1)
-                    else:
-                        csrf_match = re.search(r'csrf-token["\']?\s*:\s*["\']([^"\']+)["\']', screener_page.text)
-                        if csrf_match:
-                            csrf_token = csrf_match.group(1)
-
-                if not csrf_token:
-                    raise Exception("Could not extract CSRF token from screener page")
-
-                # Step 3: Prepare the direct XHR request
-                xhr_headers = {
-                    'Accept': 'application/json, text/javascript, */*; q=0.01',
-                    'Accept-Language': 'en-US,en;q=0.9',
-                    'Cache-Control': 'no-cache',
-                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                    'Origin': 'https://chartink.com',
-                    'Pragma': 'no-cache',
-                    'Referer': 'https://chartink.com/screener',
-                    'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-                    'Sec-Ch-Ua-Mobile': '?0',
-                    'Sec-Ch-Ua-Platform': '"Linux"',
-                    'Sec-Fetch-Dest': 'empty',
-                    'Sec-Fetch-Mode': 'cors',
-                    'Sec-Fetch-Site': 'same-origin',
-                    'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'X-Csrf-Token': csrf_token,
-                    'X-Requested-With': 'XMLHttpRequest'
+            tickers = quick_scrape(url)
+            scan_results = []
+            for symbol in tickers:
+                symbol = str(symbol).strip().upper()
+                if not symbol:
+                    continue
+                symbol_data = {
+                    'symbol': symbol,
+                    'name': symbol,
+                    'price': 0.0,
+                    'change_pct': 0.0,
+                    'volume': 0,
+                    '_raw_data': {'source': 'finviz', 'url': url},
                 }
+                scan_results.append(symbol_data)
 
-                s.headers.update(xhr_headers)
-
-                # Step 4: Make the request
-                payload = {'scan_clause': clause}
-                process_url = 'https://chartink.com/screener/process'
-                response = s.post(process_url, data=payload, timeout=60)
-                response.raise_for_status()
-
-                # Step 5: Parse response and extract complete data
-                data = response.json()
-                results = data.get("data", [])
-
-                scan_results = []
-                for row in results:
-                    if isinstance(row, dict) and "nsecode" in row:
-                        # Extract all EOD data from Chartink
-                        symbol_data = {
-                            'symbol': row.get('nsecode', ''),
-                            'name': row.get('name', row.get('nsecode', '')),
-                            'price': float(row.get('close', 0.0)),  # EOD closing price
-                            'change_pct': float(row.get('per_chg', 0.0)),  # % change from Chartink
-                            'volume': int(row.get('volume', 0)),  # Volume from Chartink
-                            'bsecode': row.get('bsecode'),
-                            'sr': row.get('sr', 0),
-                            '_raw_data': row  # Store complete raw data for debugging
-                        }
-                        scan_results.append(symbol_data)
-
-                logger.info(f"EOD Scan completed: {len(scan_results)} symbols with complete data")
-                self.scan_completed.emit(scan_results)
+            logger.info(f"EOD Scan completed: {len(scan_results)} symbols with complete data")
+            self.scan_completed.emit(scan_results)
 
         except Exception as e:
             logger.error(f"ScanWorker failed: {e}", exc_info=True)
@@ -1500,7 +1444,7 @@ class ChartinkScannerTable(QWidget):
 
     @Slot(list)
     def _on_scan_complete(self, scan_results: List[Dict]):
-        """Handle scan completion with EOD data from Chartink."""
+        """Handle scan completion with EOD data from Finviz ticker scan."""
         self._symbol_data.clear()
         self._symbol_to_row.clear()
         self.table.setRowCount(0)
@@ -1674,7 +1618,7 @@ class ChartinkScannerTable(QWidget):
                 logger.info(f"Scans saved successfully. {len(self.scans)} scans available.")
 
     def _run_current_scan(self):
-        """Run the currently selected Chartink scan."""
+        """Run the currently selected Finviz scan."""
         if self.scan_dropdown.signalsBlocked():
             return
 
@@ -1698,7 +1642,7 @@ class ChartinkScannerTable(QWidget):
                 self.table.setItem(0, col, QTableWidgetItem(""))
             return
 
-        logger.info(f"Running EOD Chartink scan: {selected_scan.get('name', 'Unnamed')}")
+        logger.info(f"Running EOD Finviz scan: {selected_scan.get('name', 'Unnamed')}")
 
         self.scan_dropdown.setEnabled(False)
         self.manage_btn.setEnabled(False)
@@ -1928,7 +1872,7 @@ class ChartinkScannerTable(QWidget):
     def cleanup(self):
         """Clean up scanner table threads"""
         try:
-            logger.info("Cleaning up ChartinkScannerTable...")
+            logger.info("Cleaning up IBKR scanner table...")
 
             if hasattr(self, 'scan_thread') and self.scan_thread:
                 if self.scan_thread.isRunning():
@@ -1937,9 +1881,9 @@ class ChartinkScannerTable(QWidget):
                         self.scan_thread.terminate()
                         self.scan_thread.wait(1000)
 
-            logger.info("ChartinkScannerTable cleanup completed")
+            logger.info("IBKR scanner table cleanup completed")
         except Exception as e:
-            logger.error(f"Error cleaning up ChartinkScannerTable: {e}")
+            logger.error(f"Error cleaning up IBKR scanner table: {e}")
 
     def closeEvent(self, event):
         """Clean up when widget is closed."""
@@ -1986,7 +1930,7 @@ class ChartinkScannerTable(QWidget):
             return valid_scans
 
         except (json.JSONDecodeError, IOError) as e:
-            logger.error(f"Failed to load Chartink scan URLs: {e}")
+            logger.error(f"Failed to load Finviz scan URLs: {e}")
             return []
 
     def _save_scans(self):
