@@ -21,8 +21,7 @@ try:
 except ImportError:
     IBKR_AVAILABLE = False
 
-from login_setup.broker_modes import BrokerMode, TradingMode
-from login_setup.broker_factory import BrokerClientInterface
+from login_setup.broker_modes import TradingMode
 
 # Import the data converter
 from ibkr.utils.data_converter import (
@@ -48,7 +47,7 @@ class IBKROrderParams:
     outside_rth: bool = False
 
 
-class IBKRTradingClient(QObject, BrokerClientInterface):
+class IBKRTradingClient(QObject):
     """
     Enhanced IBKR trading client with full order management and market data capabilities.
     Implements the BrokerClientInterface for seamless integration with your app.
