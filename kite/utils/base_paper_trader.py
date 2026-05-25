@@ -439,20 +439,25 @@ class BasePaperTrader(QObject, ABC, metaclass=QObjectABCMeta):
 
         elif ot == self.ORDER_TYPE_LIMIT:
             limit = order.price or 0.0
+
+            # Mirror live exchange behavior for limit orders:
+            # BUY fills when market is at or below limit, SELL fills when market
+            # is at or above limit. Use the better available market price rather
+            # than forcing an exact-limit fill.
             if tx == self.TRANSACTION_TYPE_BUY and ltp <= limit:
-                return True, limit
+                return True, min(ltp, limit)
             if tx == self.TRANSACTION_TYPE_SELL and ltp >= limit:
-                return True, limit
+                return True, max(ltp, limit)
             return False, ltp
 
         elif ot == self.ORDER_TYPE_SL:
-            # Stop-limit: trigger first, then limit
+            # Stop-limit: trigger first, then apply limit guard.
             trigger = order.trigger_price or 0.0
             limit   = order.price or 0.0
             if tx == self.TRANSACTION_TYPE_SELL and ltp <= trigger and ltp >= limit:
-                return True, limit
+                return True, max(ltp, limit)
             if tx == self.TRANSACTION_TYPE_BUY and ltp >= trigger and ltp <= limit:
-                return True, limit
+                return True, min(ltp, limit)
             return False, ltp
 
         elif ot == self.ORDER_TYPE_SL_M:

@@ -14,6 +14,8 @@ from app_paths import find_project_root as find_app_project_root, get_sound_asse
 
 logger = logging.getLogger(__name__)
 
+MIN_NOTIFICATION_VOLUME = 0.8
+
 
 class SoundManager(QObject):
     """
@@ -210,8 +212,8 @@ class SoundManager(QObject):
             logger.warning(f"Failed to create Qt sound effect for {sound_path}: {e}")
             return None
 
-    def _play_with_qt(self, sound_name: str) -> bool:
-        """Play sound using Qt QSoundEffect"""
+    def _play_with_qt(self, sound_name: str, force_min_volume: bool = False) -> bool:
+        """Play sound using Qt QSoundEffect."""
         if not self.use_qt_audio:
             return False
 
@@ -233,7 +235,16 @@ class SoundManager(QObject):
             if hasattr(sound_effect, 'isPlaying') and sound_effect.isPlaying():
                 sound_effect.stop()
 
+            original_volume = self.default_volume
+            restore_volume = False
+            if force_min_volume and sound_effect.volume() < MIN_NOTIFICATION_VOLUME:
+                sound_effect.setVolume(MIN_NOTIFICATION_VOLUME)
+                restore_volume = True
+
             sound_effect.play()
+
+            if restore_volume:
+                QTimer.singleShot(250, lambda se=sound_effect, v=original_volume: se.setVolume(v))
             logger.debug(f"🔊 Qt playing sound: {sound_name}")
             return True
 
@@ -275,8 +286,8 @@ class SoundManager(QObject):
         except Exception as e:
             logger.debug(f"System player {player_name} failed for {sound_name}: {e}")
 
-    def _play_sound_safe(self, sound_name: str) -> bool:
-        """Safely play a sound effect with fallback"""
+    def _play_sound_safe(self, sound_name: str, force_min_volume: bool = False) -> bool:
+        """Safely play a sound effect with fallback."""
         if not self.enabled:
             return False
 
@@ -291,7 +302,7 @@ class SoundManager(QObject):
             return True
 
         # Try Qt audio first
-        if self._play_with_qt(sound_name):
+        if self._play_with_qt(sound_name, force_min_volume=force_min_volume):
             return True
 
         # Fallback to system audio
@@ -305,9 +316,13 @@ class SoundManager(QObject):
     # PUBLIC SOUND METHODS
     # ==========================================================================
 
+    def play_notification_with_min_volume(self, sound_name: str = 'alert') -> bool:
+        """Play notification at >=80% app volume, then restore configured volume."""
+        return self._play_sound_safe(sound_name, force_min_volume=True)
+
     def play_alert(self) -> bool:
-        """Play alert sound (for price alerts, notifications)"""
-        return self._play_sound_safe('alert')
+        """Play alert sound (for price alerts, notifications)."""
+        return self.play_notification_with_min_volume('alert')
 
     def play_entry_exit(self) -> bool:
         """Play execution sound for both entry and exit fills."""
