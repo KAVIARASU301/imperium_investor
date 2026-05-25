@@ -1758,6 +1758,36 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         """Initialize chart after instruments are ready"""
         try:
             logger.info("Chart auto-loading initiated")
+            active_symbol = (getattr(self.candlestick_chart, "current_symbol", "") or "").strip().upper()
+            if active_symbol:
+                logger.info("Chart already has active symbol: %s", active_symbol)
+                return
+
+            symbol_to_load = ""
+
+            # 1) Prefer current watchlist symbol when available.
+            if hasattr(self, "watchlist_widget") and self.watchlist_widget:
+                get_symbol = getattr(self.watchlist_widget, "get_current_symbol", None)
+                if callable(get_symbol):
+                    symbol_to_load = (get_symbol() or "").strip().upper()
+
+            # 2) Fall back to first scanner row (keeps startup aligned with scanner output).
+            if not symbol_to_load and hasattr(self, "chartink_scanner") and self.chartink_scanner:
+                table = getattr(self.chartink_scanner, "table", None)
+                if table and table.rowCount() > 0:
+                    cell = table.item(0, 0)
+                    if cell:
+                        symbol_to_load = (cell.text() or "").strip().upper()
+
+            # 3) Last fallback: first instrument in map.
+            if not symbol_to_load and self.instrument_map:
+                symbol_to_load = next(iter(self.instrument_map.keys()), "").strip().upper()
+
+            if symbol_to_load:
+                logger.info("Auto-loading startup chart symbol: %s", symbol_to_load)
+                self._on_scanner_symbol_selected(symbol_to_load)
+            else:
+                logger.warning("Chart auto-load skipped: no startup symbol available")
         except Exception as e:
             logger.error(f"Error in chart auto-loading: {e}")
 
