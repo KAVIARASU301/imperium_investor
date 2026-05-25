@@ -3033,7 +3033,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         """Create the correct chart data fetcher for the active broker client."""
         client = self.real_kite_client
         if hasattr(client, "reqHistoricalData"):
-            return IBKRDataFetcher(client)
+            # Use the app's shared IBKR connection so chart history requests
+            # do not open additional API client sessions in Gateway.
+            return IBKRDataFetcher(client, dedicated_history_connection=False)
         return KiteDataFetcher(client)
 
     def _setup_watchlist_shortcuts(self):
