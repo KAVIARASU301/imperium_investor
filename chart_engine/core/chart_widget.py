@@ -175,6 +175,7 @@ class CandlestickChart(QWidget):
         self.data_fetcher = data_fetcher
         self.data_cache   = DataCache()
         self.data_loader_thread: Optional[ChartDataLoaderThread] = None
+        self._retired_loader_threads: list[ChartDataLoaderThread] = []
 
         self._historical_sync_timer = QTimer(self)
         self._historical_sync_timer.setSingleShot(True)
@@ -725,20 +726,7 @@ class CandlestickChart(QWidget):
         # NSE daily candle from (for example) May 13 to May 12.  Intraday bars
         # remain true broker timestamps.
         calendar_interval = self.current_interval in {"day", "week", "month"}
-        candles, volumes = [], []
-        for _, row in df.iterrows():
-            ts_value = row["time"]
-            if calendar_interval:
-                ts_dt = pd.Timestamp(ts_value).to_pydatetime()
-                ts = calendar.timegm(ts_dt.date().timetuple()) * 1000
-            else:
-                ts = int(pd.Timestamp(ts_value).timestamp() * 1000)
-            candles.append({
-                "time": ts, "open": float(row["open"]), "high": float(row["high"]),
-                "low": float(row["low"]), "close": float(row["close"]),
-                "volume": float(row["volume"]),
-            })
-            volumes.append({"time": ts, "value": float(row["volume"])})
+        candles, volumes = self._build_chart_payload(df, calendar_interval)
 
         # ── Load saved state for THIS symbol/interval ─────────────────────
         saved_state = self.drawing_storage.load_state(self.current_symbol, self.current_interval)
@@ -846,6 +834,65 @@ class CandlestickChart(QWidget):
         logger.info("Chart HTML loaded: %s (%d candles)", self.current_symbol, len(candles))
         self._restart_historical_sync_timer()
         self._is_periodic_historical_refresh = False
+
+
+    def _build_chart_payload(self, df: pd.DataFrame, calendar_interval: bool) -> tuple[list[dict], list[dict]]:
+        """
+        Convert the OHLCV DataFrame into JS-ready candle/volume arrays.
+
+        This avoids DataFrame.iterrows(), which is very slow on the GUI thread
+        when intraday data has thousands of candles. Keep the exact same time
+        semantics as the old implementation:
+        - day/week/month = exchange calendar date at UTC midnight
+        - intraday = broker timestamp in Unix milliseconds
+        """
+        if df is None or df.empty:
+            return [], []
+
+        cols = ["time", "open", "high", "low", "close", "volume"]
+        work = df.loc[:, cols].copy()
+        work["time"] = pd.to_datetime(work["time"], errors="coerce")
+        work = work.dropna(subset=["time", "open", "high", "low", "close"])
+        if work.empty:
+            return [], []
+
+        if calendar_interval:
+            time_values = [
+                calendar.timegm(pd.Timestamp(ts).date().timetuple()) * 1000
+                for ts in work["time"].tolist()
+            ]
+        else:
+            time_values = (work["time"].astype("int64") // 1_000_000).astype("int64").tolist()
+
+        open_values = pd.to_numeric(work["open"], errors="coerce").astype(float).to_numpy()
+        high_values = pd.to_numeric(work["high"], errors="coerce").astype(float).to_numpy()
+        low_values = pd.to_numeric(work["low"], errors="coerce").astype(float).to_numpy()
+        close_values = pd.to_numeric(work["close"], errors="coerce").astype(float).to_numpy()
+        volume_values = pd.to_numeric(work["volume"], errors="coerce").fillna(0.0).astype(float).to_numpy()
+
+        candles = [
+            {
+                "time": int(ts),
+                "open": float(o),
+                "high": float(h),
+                "low": float(l),
+                "close": float(c),
+                "volume": float(v),
+            }
+            for ts, o, h, l, c, v in zip(
+                time_values,
+                open_values,
+                high_values,
+                low_values,
+                close_values,
+                volume_values,
+            )
+        ]
+        volumes = [
+            {"time": int(ts), "value": float(v)}
+            for ts, v in zip(time_values, volume_values)
+        ]
+        return candles, volumes
 
 
     def _infer_default_price_scale_currency(self) -> str:
@@ -1686,28 +1733,73 @@ class CandlestickChart(QWidget):
 
     # ── Thread cleanup ────────────────────────────────────────────────────
 
-    def _stop_loader(self) -> None:
-        """
-        Cancel any in-flight data load and wait for the thread to exit.
+    def _stop_loader(self, blocking: bool = False) -> None:
+        """Cancel the active loader without freezing symbol switches.
 
-        FIX: _stop_requested is set on the thread BEFORE quit() is called.
-        The original code called quit() first, leaving a race window where
-        the thread could still emit data_loaded before checking the flag —
-        which caused a previous symbol's candle data to render on the new
-        symbol's chart.
+        IBKR history requests are blocking while TWS responds.  Waiting up to
+        3000 ms here makes the chart feel slow when the user changes symbols
+        before the previous request returns.  For normal reloads, detach the old
+        loader and let it finish silently; stale results are already guarded by
+        `_active_load_key`.  Use blocking=True only during application shutdown.
         """
-        if self.data_loader_thread and self.data_loader_thread.isRunning():
-            # 1. Flip the flag so the thread drops its result immediately
-            #    even if it is mid-flight through _run_inner().
-            self.data_loader_thread._stop_requested = True
-            # 2. Then stop the Qt event loop inside the thread.
-            self.data_loader_thread.stop()
-            self.data_loader_thread.quit()
-            self.data_loader_thread.wait(3000)
-            if self.data_loader_thread.isRunning():
-                self.data_loader_thread.terminate()
-            self.data_loader_thread.deleteLater()
-            self.data_loader_thread = None
+        thread = self.data_loader_thread
+        if not thread:
+            return
+
+        self.data_loader_thread = None
+
+        try:
+            thread._stop_requested = True
+            thread.stop()
+            thread.quit()
+        except Exception:
+            pass
+
+        if blocking:
+            thread.wait(3000)
+            if thread.isRunning():
+                thread.terminate()
+                thread.wait(500)
+            thread.deleteLater()
+            return
+
+        # Detach callbacks from retired work so an old IBKR response cannot
+        # touch the progress bar or error page after a newer load has started.
+        for signal_name in ("data_loaded", "load_error", "load_progress", "finished"):
+            try:
+                getattr(thread, signal_name).disconnect()
+            except (TypeError, RuntimeError):
+                pass
+            except Exception:
+                pass
+
+        self._retired_loader_threads.append(thread)
+        thread.finished.connect(lambda t=thread: self._cleanup_retired_loader(t))
+        if not thread.isRunning():
+            self._cleanup_retired_loader(thread)
+
+    def _cleanup_retired_loader(self, thread: ChartDataLoaderThread) -> None:
+        try:
+            if thread in self._retired_loader_threads:
+                self._retired_loader_threads.remove(thread)
+            thread.deleteLater()
+        except Exception:
+            pass
+
+    def _stop_retired_loader_threads(self) -> None:
+        for thread in list(getattr(self, "_retired_loader_threads", [])):
+            try:
+                thread._stop_requested = True
+                thread.stop()
+                thread.quit()
+                thread.wait(1500)
+                if thread.isRunning():
+                    thread.terminate()
+                    thread.wait(500)
+                thread.deleteLater()
+            except Exception:
+                pass
+        self._retired_loader_threads.clear()
 
     def _js(self, code: str) -> None:
         if self.chart_view:
@@ -1723,7 +1815,8 @@ class CandlestickChart(QWidget):
             if self.current_symbol and self.chart_view:
                 self._save_current_state_sync()
                 self.drawing_storage.save_last_viewed_symbol(self.current_symbol, self.current_interval)
-            self._stop_loader()
+            self._stop_loader(blocking=True)
+            self._stop_retired_loader_threads()
             self.data_cache.clear()
             if self.channel:
                 self.channel.deleteLater()

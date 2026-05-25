@@ -19,6 +19,23 @@ _CHART_JS_PATH          = resource_path("chart_engine/renderer/chart.js")
 _DRAWING_ENGINE_PATH    = resource_path("chart_engine/renderer/drawing_engine.js")
 _INTEGRATION_PATCH_PATH = resource_path("chart_engine/renderer/drawing_engine_integration.patch.js")
 
+_JS_SOURCE_CACHE: Dict[str, str] = {}
+
+
+def _read_js_source(path: str, label: str) -> str:
+    """Read embedded JS once per process; first chart render should not re-hit disk."""
+    cached = _JS_SOURCE_CACHE.get(path)
+    if cached is not None:
+        return cached
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            source = f.read()
+    except FileNotFoundError:
+        logger.error("%s not found at %s", label, path)
+        source = f"console.error('{label} missing');"
+    _JS_SOURCE_CACHE[path] = source
+    return source
+
 
 # ─── Config dataclass ─────────────────────────────────────────────────────────
 
@@ -80,17 +97,9 @@ def build_chart_html(cfg: ChartHtmlConfig) -> str:
         })
 
     # ── Read JS files ──
-    def _read(path: str, label: str) -> str:
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                return f.read()
-        except FileNotFoundError:
-            logger.error("%s not found at %s", label, path)
-            return f"console.error('{label} missing');"
-
-    drawing_engine_js    = _read(_DRAWING_ENGINE_PATH,    "drawing_engine.js")
-    integration_patch_js = _read(_INTEGRATION_PATCH_PATH, "drawing_engine_integration.patch.js")
-    chart_js             = _read(_CHART_JS_PATH,           "chart.js")
+    drawing_engine_js    = _read_js_source(_DRAWING_ENGINE_PATH,    "drawing_engine.js")
+    integration_patch_js = _read_js_source(_INTEGRATION_PATCH_PATH, "drawing_engine_integration.patch.js")
+    chart_js             = _read_js_source(_CHART_JS_PATH,           "chart.js")
 
     # ── Data injection ──
     data_obj: Dict[str, Any] = {

@@ -77,6 +77,9 @@ class IBKRDataFetcher(BrokerDataFetcher):
         self._dedicated_history_connection = bool(dedicated_history_connection)
         self._history_client_id_base = int(history_client_id_base)
         self._connect_timeout = float(connect_timeout)
+        self._contract_cache: Dict[str, Any] = {}
+        self._contract_cache_lock = threading.Lock()
+        self._last_history_endpoint: Optional[Tuple[str, int]] = None
 
     @property
     def capabilities(self) -> BrokerCapabilities:
@@ -136,39 +139,29 @@ class IBKRDataFetcher(BrokerDataFetcher):
         duration_str = self._compute_duration(from_date, to_date, bar_size)
         end_dt_str = self._format_end_datetime(to_date)
 
-        # Resolve contract — prefer conId from the IBKR instrument map, fall back
-        # to symbol lookup for ad-hoc typed symbols.
-        contract = None
-        con_id = None
-        try:
-            con_id = int(instrument_token) if instrument_token else 0
-        except (TypeError, ValueError):
-            con_id = 0
+        con_id = self._coerce_con_id(instrument_token)
+        cache_key = self._contract_cache_key(symbol, con_id)
+        contract = self._get_cached_contract(cache_key)
+        qualified_once = contract is not None
 
-        if con_id and con_id > 0:
+        if contract is None and con_id > 0:
+            # With a valid conId, TWS can usually serve history without an extra
+            # qualifyContracts() round-trip. If it fails, we qualify and retry once.
             contract = Contract()
             contract.conId = con_id
             contract.symbol = symbol
             contract.secType = "STK"
             contract.exchange = "SMART"
             contract.currency = "USD"
-            try:
-                qualified = ib.qualifyContracts(contract)
-                if qualified:
-                    contract = qualified[0]
-                else:
-                    contract = None
-            except Exception as e:
-                logger.warning("qualify by conId failed for %s/%s: %s", symbol, con_id, e)
-                contract = None
-
-        if contract is None:
+        elif contract is None:
             stock = Stock(symbol, "SMART", "USD")
             try:
                 qualified = ib.qualifyContracts(stock)
                 if not qualified:
                     raise ValueError(f"Could not qualify contract for {symbol}")
                 contract = qualified[0]
+                qualified_once = True
+                self._cache_contract(cache_key, contract)
             except Exception as e:
                 raise ValueError(f"Could not qualify contract for {symbol}: {e}") from e
 
@@ -181,7 +174,52 @@ class IBKRDataFetcher(BrokerDataFetcher):
             end_dt_str or "latest",
         )
 
-        bars = ib.reqHistoricalData(
+        try:
+            bars = self._request_historical_bars(
+                ib=ib,
+                contract=contract,
+                end_dt_str=end_dt_str,
+                duration_str=duration_str,
+                bar_size=bar_size,
+            )
+        except Exception:
+            if con_id > 0 and not qualified_once:
+                logger.debug("IBKR history failed with conId-only contract; qualifying %s and retrying", symbol)
+                contract = self._qualify_by_con_id(ib, symbol, con_id)
+                self._cache_contract(cache_key, contract)
+                bars = self._request_historical_bars(
+                    ib=ib,
+                    contract=contract,
+                    end_dt_str=end_dt_str,
+                    duration_str=duration_str,
+                    bar_size=bar_size,
+                )
+            else:
+                raise
+
+        if not bars and con_id > 0 and not qualified_once:
+            contract = self._qualify_by_con_id(ib, symbol, con_id)
+            self._cache_contract(cache_key, contract)
+            bars = self._request_historical_bars(
+                ib=ib,
+                contract=contract,
+                end_dt_str=end_dt_str,
+                duration_str=duration_str,
+                bar_size=bar_size,
+            )
+
+        if not bars:
+            raise ValueError(f"No data returned for {symbol} [{bar_size}]")
+
+        if getattr(contract, "conId", 0):
+            self._cache_contract(cache_key, contract)
+            self._cache_contract(self._contract_cache_key(symbol, int(getattr(contract, "conId", 0))), contract)
+
+        logger.info("Received %d IBKR bars for %s", len(bars), symbol)
+        return [self._bar_to_bardata(b) for b in bars]
+
+    def _request_historical_bars(self, ib, contract, end_dt_str: str, duration_str: str, bar_size: str):
+        return ib.reqHistoricalData(
             contract,
             endDateTime=end_dt_str,
             durationStr=duration_str,
@@ -192,11 +230,42 @@ class IBKRDataFetcher(BrokerDataFetcher):
             keepUpToDate=False,
         )
 
-        if not bars:
-            raise ValueError(f"No data returned for {symbol} [{bar_size}]")
+    @staticmethod
+    def _coerce_con_id(instrument_token: Any) -> int:
+        try:
+            return int(instrument_token) if instrument_token else 0
+        except (TypeError, ValueError):
+            return 0
 
-        logger.info("Received %d IBKR bars for %s", len(bars), symbol)
-        return [self._bar_to_bardata(b) for b in bars]
+    @staticmethod
+    def _contract_cache_key(symbol: str, con_id: int) -> str:
+        if con_id > 0:
+            return f"conid:{con_id}"
+        return f"symbol:{str(symbol or '').strip().upper()}"
+
+    def _get_cached_contract(self, key: str):
+        with self._contract_cache_lock:
+            return self._contract_cache.get(key)
+
+    def _cache_contract(self, key: str, contract) -> None:
+        if not key or contract is None:
+            return
+        with self._contract_cache_lock:
+            self._contract_cache[key] = contract
+
+    def _qualify_by_con_id(self, ib, symbol: str, con_id: int):
+        from ib_insync import Contract
+
+        contract = Contract()
+        contract.conId = int(con_id)
+        contract.symbol = symbol
+        contract.secType = "STK"
+        contract.exchange = "SMART"
+        contract.currency = "USD"
+        qualified = ib.qualifyContracts(contract)
+        if not qualified:
+            raise ValueError(f"Could not qualify contract for {symbol}/{con_id}")
+        return qualified[0]
 
     def _connect_dedicated_ib(self):
         """Create a new IB connection owned by the current loader thread."""
@@ -209,6 +278,7 @@ class IBKRDataFetcher(BrokerDataFetcher):
             try:
                 ib.connect(host=host, port=int(port), clientId=client_id, timeout=self._connect_timeout)
                 if ib.isConnected():
+                    self._last_history_endpoint = (str(host), int(port))
                     logger.info("IBKR chart history connected on %s:%s clientId=%s", host, port, client_id)
                     return ib
             except Exception as exc:
@@ -232,6 +302,9 @@ class IBKRDataFetcher(BrokerDataFetcher):
                 return
             if host_s and port_i and (host_s, port_i) not in candidates:
                 candidates.append((host_s, port_i))
+
+        if self._last_history_endpoint:
+            add(*self._last_history_endpoint)
 
         client = getattr(self._ib, "client", None)
         possible_hosts: List[Any] = []
