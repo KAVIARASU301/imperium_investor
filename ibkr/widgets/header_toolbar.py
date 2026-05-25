@@ -769,6 +769,11 @@ class HeaderToolbar(QToolBar):
         """Configure on-demand symbol search provider for IBKR mode."""
         self.search_input.set_async_search_provider(provider)
 
+    def set_live_search_callback(self, provider) -> None:
+        """Backward-compatible alias used by MainWindow to wire IBKR live search."""
+        self.set_ibkr_search_provider(provider)
+
+
     def update_alert_counts(self, active_count: int, triggered_today: int) -> None:
         self.alerts_badge.update_count(triggered_today)
 
