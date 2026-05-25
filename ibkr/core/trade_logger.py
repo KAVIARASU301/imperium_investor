@@ -365,6 +365,36 @@ class TradeLogger(QObject):
             logger.error(f"Failed to fetch trades: {e}")
             return []
 
+
+    def get_all_orders(self, limit: int = 2_000) -> List[Dict]:
+        """
+        Return all orders for order history views (not just completed trades).
+        """
+        try:
+            conn = sqlite3.connect(self.db_path, timeout=5.0)
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT order_id, tradingsymbol, transaction_type, quantity,
+                       order_type, product, exchange, variety, validity,
+                       price, trigger_price, average_price,
+                       filled_quantity, pending_quantity, cancelled_quantity,
+                       status, status_message, tag, order_source,
+                       order_timestamp, update_timestamp, execution_timestamp
+                FROM orders
+                ORDER BY order_timestamp DESC
+                LIMIT ?
+            """, (limit,))
+
+            columns = [description[0] for description in cursor.description]
+            orders = [dict(zip(columns, row)) for row in cursor.fetchall()]
+            conn.close()
+            return orders
+
+        except Exception as e:
+            logger.error(f"Failed to fetch orders: {e}")
+            return []
+
     def get_daily_pnl_history(self, days: int = 90) -> List[Dict]:
         """
         Calculate daily P&L history from completed trades.

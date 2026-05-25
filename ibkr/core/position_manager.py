@@ -263,6 +263,17 @@ class PositionManager(QObject):
         except Exception as e:
             logger.error(f"Error handling external position closure for {symbol}: {e}")
 
+
+    def stop_tracking(self):
+        """Stop order tracking timers and clear pending tracked orders."""
+        try:
+            if self.order_check_timer.isActive():
+                self.order_check_timer.stop()
+            self.tracking_orders.clear()
+            logger.info("PositionManager order tracking stopped")
+        except Exception as e:
+            logger.error(f"Error stopping PositionManager tracking: {e}")
+
     # ===========================================================================
     # JOB 4: SAFETY REFRESH (OPTIONAL)
     # ===========================================================================
