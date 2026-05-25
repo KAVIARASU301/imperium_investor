@@ -40,11 +40,6 @@ from ibkr.widgets.stock_info_dialog import show_stock_info
 from ibkr.widgets.stop_loss_dialog import StopLossDialog
 from ibkr.widgets.alert_management_dialog import AlertManagementDialog
 from ibkr.widgets.sectors_industries_dialog import show_sectors_industries_dialog
-try:
-    from ibkr.widgets.order_routing_settings import RelaySettingsDialog
-except Exception:
-    RelaySettingsDialog = None
-
 # Import the separate order dialog
 try:
     from ibkr.ui.order_dialog import OrderDialog
@@ -285,10 +280,6 @@ class IBKRMainWindow(QMainWindow):
         stop_loss_action.triggered.connect(self._show_stop_loss_dialog)
         tools_menu.addAction(stop_loss_action)
 
-        if RelaySettingsDialog is not None:
-            routing_action = QAction("Order Routing", self)
-            routing_action.triggered.connect(self._show_order_routing_settings)
-            tools_menu.addAction(routing_action)
 
         refresh_action = QAction("Refresh All Data", self)
         refresh_action.triggered.connect(self._refresh_all_data)
@@ -1059,11 +1050,6 @@ class IBKRMainWindow(QMainWindow):
             return
         StopLossDialog(symbol, parent=self).exec()
 
-    def _show_order_routing_settings(self):
-        if RelaySettingsDialog is None:
-            QMessageBox.information(self, "Order Routing", "Order routing settings unavailable.")
-            return
-        RelaySettingsDialog(parent=self).exec()
 
     def _show_order_dialog(self):
         """Show advanced order dialog"""
