@@ -14,7 +14,7 @@ from PySide6.QtCore import QObject, Signal, QTimer, QThread
 
 try:
     from ib_insync import IB, Contract, Stock, Option, Future, Index, Forex
-    from ib_insync import MarketOrder, LimitOrder, StopOrder, Order
+    from ib_insync import MarketOrder, LimitOrder, StopOrder, StopLimitOrder, Order
     from ib_insync import Trade, Position, OrderStatus, Ticker
 
     IBKR_AVAILABLE = True
@@ -71,6 +71,7 @@ class IBKRTradingClient(QObject, BrokerClientInterface):
         self._positions = {}
         self._orders = {}
         self._subscribed_symbols = set()
+        self._market_data_subscriptions = {}
 
         # Set up event handlers
         self._setup_event_handlers()
@@ -234,6 +235,12 @@ class IBKRTradingClient(QObject, BrokerClientInterface):
                 if not stop_price:
                     return {'error': 'Stop price required for stop orders'}
                 order = StopOrder(action, quantity, stop_price)
+            elif order_type in ['STOP_LIMIT', 'STOP LIMIT', 'STOP-LIMIT', 'STP LMT', 'SL-M']:
+                stop_price = order_params.get('stop_price')
+                limit_price = order_params.get('limit_price')
+                if not stop_price or not limit_price:
+                    return {'error': 'Both stop price and limit price are required for stop-limit orders'}
+                order = StopLimitOrder(action, quantity, limit_price, stop_price)
             else:
                 return {'error': f'Unsupported order type: {order_type}'}
 
@@ -339,7 +346,16 @@ class IBKRTradingClient(QObject, BrokerClientInterface):
             for symbol in symbols:
                 if symbol not in self._subscribed_symbols:
                     contract = Stock(symbol, 'SMART', 'USD')
-                    self.ib.reqMktData(contract, '', False, False)
+                    qualified_contracts = self.ib.qualifyContracts(contract)
+                    if not qualified_contracts:
+                        logger.warning(f"Unable to qualify contract for market data subscription: {symbol}")
+                        continue
+                    qualified_contract = qualified_contracts[0]
+                    ticker = self.ib.reqMktData(qualified_contract, '', False, False)
+                    self._market_data_subscriptions[symbol] = {
+                        'contract': qualified_contract,
+                        'ticker': ticker
+                    }
                     self._subscribed_symbols.add(symbol)
                     logger.info(f"Subscribed to market data for {symbol}")
         except Exception as e:
@@ -350,9 +366,12 @@ class IBKRTradingClient(QObject, BrokerClientInterface):
         try:
             for symbol in symbols:
                 if symbol in self._subscribed_symbols:
-                    contract = Stock(symbol, 'SMART', 'USD')
-                    self.ib.cancelMktData(contract)
+                    sub = self._market_data_subscriptions.get(symbol, {})
+                    contract = sub.get('contract')
+                    if contract is not None:
+                        self.ib.cancelMktData(contract)
                     self._subscribed_symbols.discard(symbol)
+                    self._market_data_subscriptions.pop(symbol, None)
                     logger.info(f"Unsubscribed from market data for {symbol}")
         except Exception as e:
             logger.error(f"Error unsubscribing from market data: {e}")

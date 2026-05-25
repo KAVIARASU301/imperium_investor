@@ -347,11 +347,27 @@ class IBKRDataConverter:
         Returns:
             IBKR-formatted order parameters
         """
+        normalized_type = order_params.get('order_type', 'MKT').upper().strip()
+        order_type_aliases = {
+            'MARKET': 'MKT',
+            'MKT': 'MKT',
+            'LIMIT': 'LMT',
+            'LMT': 'LMT',
+            'STOP': 'STP',
+            'SL': 'STP',
+            'STP': 'STP',
+            'STOP_LIMIT': 'STP LMT',
+            'STOP-LIMIT': 'STP LMT',
+            'STOP LIMIT': 'STP LMT',
+            'SL-M': 'STP LMT',
+            'STP LMT': 'STP LMT'
+        }
+
         ibkr_params = {
             'symbol': order_params.get('symbol', order_params.get('tradingsymbol', '')),
             'action': order_params.get('action', order_params.get('transaction_type', 'BUY')).upper(),
             'quantity': IBKRDataConverter.safe_int(order_params.get('quantity', 0)),
-            'order_type': order_params.get('order_type', 'MKT').upper(),
+            'order_type': order_type_aliases.get(normalized_type, normalized_type),
             'exchange': order_params.get('exchange', 'SMART'),
             'currency': order_params.get('currency', 'USD'),
             'outside_rth': order_params.get('outside_rth', False)
@@ -364,6 +380,10 @@ class IBKRDataConverter:
                 ibkr_params['limit_price'] = price
             elif ibkr_params['order_type'] in ['STP']:
                 ibkr_params['stop_price'] = price
+        if 'limit_price' in order_params:
+            ibkr_params['limit_price'] = IBKRDataConverter.safe_float(order_params['limit_price'])
+        if 'stop_price' in order_params:
+            ibkr_params['stop_price'] = IBKRDataConverter.safe_float(order_params['stop_price'])
 
         # Handle time in force
         tif_mapping = {
