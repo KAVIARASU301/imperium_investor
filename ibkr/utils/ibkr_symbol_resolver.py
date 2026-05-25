@@ -17,8 +17,8 @@ class IBKRSymbolSearchWorker(QThread):
     results_ready = Signal(list)
     search_failed = Signal(str)
 
-    def __init__(self, ib_client: Any, query: str):
-        super().__init__()
+    def __init__(self, ib_client: Any, query: str, parent: Optional[QObject] = None):
+        super().__init__(parent)
         self.ib_client = ib_client
         self.query = query.strip().upper()
 
@@ -26,7 +26,7 @@ class IBKRSymbolSearchWorker(QThread):
         try:
             contracts = asyncio.run(self.ib_client.reqMatchingSymbolsAsync(self.query))
             results = []
-            for cd in contracts:
+            for cd in (contracts or []):
                 contract = getattr(cd, "contract", None)
                 if not contract:
                     continue
@@ -53,8 +53,8 @@ class IBKRSymbolSearchWorker(QThread):
 class IBKRSymbolResolver(QObject):
     """Resolves IBKR symbols on demand."""
 
-    def __init__(self, ib_client: Any):
-        super().__init__()
+    def __init__(self, ib_client: Any, parent: Optional[QObject] = None):
+        super().__init__(parent)
         self.ib_client = ib_client
         self._cache: Dict[str, Dict[str, Any]] = {}
         self._search_worker: Optional[IBKRSymbolSearchWorker] = None
@@ -74,11 +74,19 @@ class IBKRSymbolResolver(QObject):
             self._search_worker.quit()
             self._search_worker.wait(200)
 
-        worker = IBKRSymbolSearchWorker(self.ib_client, query)
+        worker = IBKRSymbolSearchWorker(self.ib_client, query, parent=self)
         worker.results_ready.connect(lambda results: self._on_results(results, callback))
         worker.search_failed.connect(lambda _err: callback([]))
         self._search_worker = worker
         worker.start()
+
+
+    def stop(self) -> None:
+        """Stop any in-flight search worker thread."""
+        if self._search_worker and self._search_worker.isRunning():
+            self._search_worker.requestInterruption()
+            self._search_worker.quit()
+            self._search_worker.wait(500)
 
     def _on_results(self, results: list, callback: Callable[[list], None]) -> None:
         for inst in results:

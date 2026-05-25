@@ -20,18 +20,15 @@ def build_finviz_page_url(base_url, start_row):
 
 def fetch_single_page_tickers(url, headers):
     """Fetch one Finviz page and extract tickers from it."""
-    print(f"🎯 Fetching: {url}")
     response = requests.get(url, headers=headers, timeout=30)
     response.raise_for_status()
 
     html_content = response.text
-    print(f"✅ Got {len(html_content):,} characters")
 
     tickers = extract_comment_tickers(html_content)
     if tickers:
         return tickers
 
-    print("⚠️ No tickers found in comment section; using fallback parser")
     return extract_fallback_tickers(html_content)
 
 
@@ -61,10 +58,6 @@ def get_finviz_tickers(url):
             page_tickers = fetch_single_page_tickers(page_url, headers)
 
             if not page_tickers:
-                if page_index == 0:
-                    print("❌ No tickers found")
-                else:
-                    print(f"✅ Reached end of results at page {page_index + 1}")
                 break
 
             new_count = 0
@@ -74,21 +67,15 @@ def get_finviz_tickers(url):
                     all_tickers.append(ticker)
                     new_count += 1
 
-            print(
-                f"📄 Page {page_index + 1}: fetched {len(page_tickers)} tickers, "
-                f"added {new_count} new (total {len(all_tickers)})"
-            )
+            print(f"Page {page_index + 1}: {len(page_tickers)}")
 
             # When Finviz has no more rows it may repeat previous page content.
             if new_count == 0:
-                print("✅ No new symbols on this page; stopping pagination")
                 break
 
-        print(f"✅ Found {len(all_tickers)} total tickers across all pages")
         return all_tickers
 
-    except Exception as e:
-        print(f"❌ Error: {e}")
+    except Exception:
         return all_tickers
 
 

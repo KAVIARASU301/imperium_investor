@@ -351,7 +351,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         toolbar_client = self.trader if self.trading_mode == 'paper' else self.real_kite_client
         self.header_toolbar = HeaderToolbar(toolbar_client, self, enable_account_polling=False)
         if self.real_kite_client and hasattr(self.real_kite_client, "reqMatchingSymbols"):
-            self._ibkr_symbol_resolver = IBKRSymbolResolver(self.real_kite_client)
+            self._ibkr_symbol_resolver = IBKRSymbolResolver(self.real_kite_client, parent=self)
             self.header_toolbar.set_ibkr_search_provider(self._ibkr_symbol_resolver.search)
 
         self.account_manager = AccountManager(toolbar_client, parent=self)
@@ -1069,7 +1069,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         from ibkr.utils.ibkr_symbol_resolver import IBKRSymbolResolver
 
         # Create live search resolver
-        self.ibkr_symbol_resolver = IBKRSymbolResolver(self.real_kite_client)
+        self.ibkr_symbol_resolver = IBKRSymbolResolver(self.real_kite_client, parent=self)
 
         # Wire search bar to use live IBKR search
         self.header_toolbar.set_live_search_callback(self._ibkr_live_search)
