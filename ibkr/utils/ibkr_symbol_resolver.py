@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import asyncio
 from typing import Any, Callable, Dict, Optional
 
 from PySide6.QtCore import QObject, QThread, Signal
@@ -23,7 +24,7 @@ class IBKRSymbolSearchWorker(QThread):
 
     def run(self) -> None:
         try:
-            contracts = self.ib_client.reqMatchingSymbols(self.query)
+            contracts = asyncio.run(self.ib_client.reqMatchingSymbolsAsync(self.query))
             results = []
             for cd in contracts:
                 contract = getattr(cd, "contract", None)
@@ -85,4 +86,3 @@ class IBKRSymbolResolver(QObject):
             if symbol:
                 self._cache[symbol] = inst
         callback(results)
-

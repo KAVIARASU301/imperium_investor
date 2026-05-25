@@ -8,6 +8,7 @@ via IBKRSymbolResolver when the user types in the search bar.
 """
 
 import logging
+import asyncio
 from typing import Any, Dict, List
 
 from PySide6.QtCore import QThread, Signal
@@ -151,7 +152,7 @@ class IBKRInstrumentLoader(QThread):
             contracts = [Stock(sym, "SMART", "USD") for sym in batch]
 
             try:
-                qualified = self.ib_client.qualifyContracts(*contracts)
+                qualified = asyncio.run(self.ib_client.qualifyContractsAsync(*contracts))
                 for contract in qualified:
                     sym = contract.symbol
                     con_id = contract.conId
