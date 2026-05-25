@@ -8,7 +8,6 @@ via IBKRSymbolResolver when the user types in the search bar.
 """
 
 import logging
-import asyncio
 from typing import Any, Dict, List
 
 from PySide6.QtCore import QThread, Signal
@@ -140,9 +139,8 @@ class IBKRInstrumentLoader(QThread):
         """Qualify symbols in small batches; re-emit updated payload as tokens arrive."""
         from ib_insync import Stock
 
-        batch_size = 20  # IBKR rate-limits; keep batches small
+        batch_size = 10
         symbols = list(instrument_map.keys())
-        updated = False
 
         for i in range(0, len(symbols), batch_size):
             if self._stop_requested:
@@ -152,7 +150,7 @@ class IBKRInstrumentLoader(QThread):
             contracts = [Stock(sym, "SMART", "USD") for sym in batch]
 
             try:
-                qualified = asyncio.run(self.ib_client.qualifyContractsAsync(*contracts))
+                qualified = self.ib_client.qualifyContracts(*contracts)
                 for contract in qualified:
                     sym = contract.symbol
                     con_id = contract.conId
@@ -160,26 +158,24 @@ class IBKRInstrumentLoader(QThread):
                         instrument_map[sym]["instrument_token"] = con_id
                         instrument_map[sym]["exchange"] = contract.exchange or "SMART"
                         token_to_symbol[con_id] = sym
-                        updated = True
             except Exception as e:
-                logger.warning("Batch qualification failed (%s...): %s", batch[0], e)
+                logger.warning(
+                    "Batch qualification failed (batch starting %s): %s", batch[0], e
+                )
 
-            # Re-emit after each batch so the UI updates progressively
-            if updated:
-                updated_payload = {
+            self.instruments_loaded.emit(
+                {
                     "instruments": list(instrument_map.values()),
                     "instrument_map": dict(instrument_map),
                     "token_to_symbol": dict(token_to_symbol),
                     "symbol_index": None,
                 }
-                self.instruments_loaded.emit(updated_payload)
-                updated = False
-                self.progress_update.emit(
-                    f"Qualified {min(i + batch_size, len(symbols))}/{len(symbols)} symbols..."
-                )
+            )
+            self.progress_update.emit(
+                f"Qualified {min(i + batch_size, len(symbols))}/{len(symbols)} symbols..."
+            )
 
-            # Small sleep between batches to avoid IBKR pacing limits
-            self.msleep(200)
+            self.msleep(300)
 
         self.progress_update.emit(
             f"Ready — {len(token_to_symbol)} symbols with live data tokens"

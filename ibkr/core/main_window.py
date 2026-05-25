@@ -1058,10 +1058,25 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.instrument_loader = None
         self._initialize_ibkr_instruments()
 
-        self.market_data_worker = MarketDataWorker(self.real_kite_client)
-        self.market_data_worker.data_received.connect(self._enqueue_market_data)
-        self.market_data_worker.connection_established.connect(self._on_websocket_connect)
-        self.market_data_worker.start()
+        # Only start market data worker if actually connected.
+        if self.real_kite_client and self.real_kite_client.isConnected():
+            self.market_data_worker = MarketDataWorker(self.real_kite_client)
+            self.market_data_worker.data_received.connect(self._enqueue_market_data)
+            self.market_data_worker.connection_established.connect(self._on_websocket_connect)
+            self.market_data_worker.start()
+        else:
+            logger.warning("IB client not connected — market data worker not started")
+            self.market_data_worker = None
+            QTimer.singleShot(3000, self._retry_start_market_data_worker)
+
+    def _retry_start_market_data_worker(self):
+        if self.real_kite_client and self.real_kite_client.isConnected():
+            self.market_data_worker = MarketDataWorker(self.real_kite_client)
+            self.market_data_worker.data_received.connect(self._enqueue_market_data)
+            self.market_data_worker.connection_established.connect(self._on_websocket_connect)
+            self.market_data_worker.start()
+        else:
+            logger.error("IB still not connected after retry")
 
 
     def _initialize_ibkr_instruments(self):

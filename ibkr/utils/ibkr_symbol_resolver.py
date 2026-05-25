@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import asyncio
 from typing import Any, Callable, Dict, Optional
 
 from PySide6.QtCore import QObject, QThread, Signal
@@ -24,13 +23,14 @@ class IBKRSymbolSearchWorker(QThread):
 
     def run(self) -> None:
         try:
-            contracts = asyncio.run(self.ib_client.reqMatchingSymbolsAsync(self.query))
+            from ib_insync import Stock
+
+            # Use synchronous reqMatchingSymbols — avoids asyncio.run conflict
+            contracts = self.ib_client.reqMatchingSymbols(self.query)
             results = []
             for cd in (contracts or []):
                 contract = getattr(cd, "contract", None)
-                if not contract:
-                    continue
-                if contract.secType != "STK":
+                if not contract or contract.secType != "STK":
                     continue
                 details = getattr(cd, "contractDetails", None)
                 results.append(
