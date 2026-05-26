@@ -41,6 +41,8 @@ except ImportError:
 from login_setup.broker_modes import BrokerMode, TradingMode, get_broker_config, get_display_config
 from login_setup.token_manager import EnhancedTokenManager
 from login_setup.ibkr_auth import IBKRAuth, is_ibkr_available
+from polygon.auth import PolygonAuth
+from polygon.client import PolygonRESTClient
 from kite.widgets.order_routing_settings import RelaySettingsDialog
 from utils.resource_path import resource_path
 
@@ -202,6 +204,8 @@ class DualModeLoginManager(QDialog):
         super().__init__(parent)
         self.token_manager = EnhancedTokenManager()
         self.ibkr_auth = IBKRAuth()
+        self.polygon_auth = PolygonAuth(self.token_manager)
+        self.polygon_status: Dict[str, Any] = {"ok": False, "plan_tier": "Unknown", "error": ""}
         self.authentication_data: Dict[str, Any] = {}
         self.selected_broker: Optional[BrokerMode] = None
         self.selected_trading_mode: Optional[TradingMode] = None
@@ -272,6 +276,8 @@ class DualModeLoginManager(QDialog):
         self.stacked_widget.addWidget(self._create_kite_credentials_page())
         self.stacked_widget.addWidget(self._create_kite_token_page())
         self.stacked_widget.addWidget(self._create_ibkr_connection_page())
+        self.stacked_widget.addWidget(self._create_polygon_api_page())
+        self.stacked_widget.addWidget(self._create_connection_summary_page())
 
 
     def _create_header(self) -> QWidget:
@@ -986,6 +992,112 @@ class DualModeLoginManager(QDialog):
                 "client_id": client_id,
             },
         }
+        self.stacked_widget.setCurrentIndex(5)
+        self._prefill_polygon_key()
+        self._update_connection_summary()
+
+    def _create_polygon_api_page(self) -> QWidget:
+        page = QWidget()
+        page.setObjectName("loginPage")
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(18, 14, 18, 14)
+        layout.setSpacing(10)
+
+        title = QLabel("POLYGON DATA API")
+        title.setObjectName("pageTitle")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.polygon_key_input = QLineEdit()
+        self.polygon_key_input.setObjectName("terminalInput")
+        self.polygon_key_input.setPlaceholderText("Polygon API Key")
+        self.polygon_key_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.polygon_status_label = QLabel("Enter API key and validate.")
+        self.polygon_status_label.setObjectName("statusLabel")
+        self.polygon_status_label.setWordWrap(True)
+        self.polygon_status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        validate_btn = QPushButton("VALIDATE KEY")
+        validate_btn.setObjectName("primaryButton")
+        validate_btn.clicked.connect(self._validate_polygon_key)
+
+        nav = self._create_nav_buttons(
+            back_slot=lambda: self.stacked_widget.setCurrentIndex(4),
+            continue_slot=self._goto_connection_summary,
+            continue_text="CONTINUE"
+        )
+        layout.addWidget(title)
+        layout.addWidget(self.polygon_key_input)
+        layout.addWidget(validate_btn)
+        layout.addWidget(self.polygon_status_label)
+        layout.addStretch()
+        layout.addLayout(nav)
+        return page
+
+    def _prefill_polygon_key(self):
+        self.polygon_key_input.setText(self.polygon_auth.get_api_key() or "")
+
+    def _validate_polygon_key(self):
+        key = self.polygon_key_input.text().strip()
+        if not key:
+            QMessageBox.warning(self, "Input Required", "Polygon API key is required.")
+            return
+        try:
+            client = PolygonRESTClient(api_key=key)
+            result = client.validate_key()
+            self.polygon_auth.save_api_key(key)
+            self.polygon_status = {"ok": True, "plan_tier": "Developer", "error": "", "request_id": result.get("request_id")}
+            self.polygon_status_label.setText("✅ Polygon key validated. Plan tier: Developer.")
+        except Exception as e:
+            self.polygon_status = {"ok": False, "plan_tier": "Unknown", "error": str(e)}
+            self.polygon_status_label.setText(f"❌ Validation failed: {e}")
+
+    def _goto_connection_summary(self):
+        if not self.polygon_key_input.text().strip():
+            QMessageBox.warning(self, "Input Required", "Please provide Polygon API key.")
+            return
+        if not self.polygon_status.get("ok"):
+            reply = QMessageBox.question(
+                self,
+                "Proceed without validation?",
+                "Polygon key has not been validated yet. Continue anyway?",
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+        self.polygon_auth.save_api_key(self.polygon_key_input.text().strip())
+        self.stacked_widget.setCurrentIndex(6)
+        self._update_connection_summary()
+
+    def _create_connection_summary_page(self) -> QWidget:
+        page = QWidget()
+        page.setObjectName("loginPage")
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(18, 14, 18, 14)
+        layout.setSpacing(10)
+        title = QLabel("CONNECTION SUMMARY")
+        title.setObjectName("pageTitle")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.connection_summary_label = QLabel("")
+        self.connection_summary_label.setObjectName("statusLabel")
+        self.connection_summary_label.setWordWrap(True)
+        finalize_btn = QPushButton("ENTER TERMINAL")
+        finalize_btn.setObjectName("primaryButton")
+        finalize_btn.clicked.connect(self._finalize_america_login)
+        nav = self._create_nav_buttons(back_slot=lambda: self.stacked_widget.setCurrentIndex(5))
+        nav.addWidget(finalize_btn)
+        layout.addWidget(title)
+        layout.addWidget(self.connection_summary_label)
+        layout.addStretch()
+        layout.addLayout(nav)
+        return page
+
+    def _update_connection_summary(self):
+        conn = self.authentication_data.get("connection_details", {})
+        ibkr = f"IBKR: Connected ({conn.get('host', 'n/a')} / client {conn.get('client_id', 'n/a')})"
+        polygon = "Polygon: Validated" if self.polygon_status.get("ok") else f"Polygon: Not validated ({self.polygon_status.get('error', 'no validation')})"
+        plan = self.polygon_status.get("plan_tier", "Unknown")
+        self.connection_summary_label.setText(f"{ibkr}\n{polygon}\nPlan tier: {plan}")
+
+    def _finalize_america_login(self):
+        self.authentication_data["polygon_api_key"] = self.polygon_key_input.text().strip()
         self.accept()
 
         # --------------------------------------------------------------------------
