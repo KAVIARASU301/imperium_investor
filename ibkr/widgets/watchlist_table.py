@@ -957,16 +957,21 @@ class TradingTable(QTableWidget):
             self._last_tick_time = time.monotonic()
 
         for tick in ticks:
+            sym = None
             raw = tick.get("instrument_token")
-            if raw is None:
-                continue
-            try:
-                token = int(raw)
-            except (TypeError, ValueError):
-                continue
+            if raw is not None:
+                try:
+                    token = int(raw)
+                    sym = self._token_to_symbol.get(token)
+                except (TypeError, ValueError):
+                    sym = None
 
-            sym = self._token_to_symbol.get(token)
             if not sym:
+                raw_symbol = str(tick.get("tradingsymbol") or tick.get("symbol") or "").strip().upper()
+                if raw_symbol:
+                    sym = self._resolve_symbol_for_instrument_map(raw_symbol) or raw_symbol
+
+            if not sym or sym not in self._watchlist_data:
                 continue
 
             data = self._watchlist_data[sym]
@@ -990,6 +995,8 @@ class TradingTable(QTableWidget):
                 close = ohlc.get("close")
                 if close:
                     data["prev_close"] = float(close)
+            elif tick.get("close"):
+                data["prev_close"] = float(tick.get("close"))
 
             prev = data.get("prev_close", 0.0)
             cur = data.get("ltp", 0.0)

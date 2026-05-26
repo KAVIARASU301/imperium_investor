@@ -103,16 +103,22 @@ class MarketDataWorker(QThread):
         for ticker in tickers:
             if not ticker.contract:
                 continue
-            last = ticker.last if (ticker.last and ticker.last > 0) else ticker.close
+            # marketPrice() prefers last trade and falls back to bid/ask midpoint.
+            last = ticker.marketPrice() if hasattr(ticker, "marketPrice") else None
+            if not last or last <= 0:
+                last = ticker.last if (ticker.last and ticker.last > 0) else ticker.close
             if not last or last <= 0:
                 continue
+            close = ticker.close or 0
+            change_pct = ((last - close) / close * 100.0) if close and close > 0 else 0.0
             ticks_data.append({
                 'symbol': ticker.contract.symbol,
                 'tradingsymbol': ticker.contract.symbol,
-                'last_price': last,
+                'last_price': float(last),
                 'instrument_token': ticker.contract.conId,
                 'volume': ticker.volume or 0,
-                'close': ticker.close or 0,
+                'close': close,
+                'change_percent': change_pct,
                 'open': ticker.open or 0,
                 'high': ticker.high or 0,
                 'low': ticker.low or 0,
@@ -122,7 +128,7 @@ class MarketDataWorker(QThread):
                     'open': ticker.open or 0,
                     'high': ticker.high or 0,
                     'low': ticker.low or 0,
-                    'close': ticker.close or 0,
+                    'close': close,
                 },
             })
         if ticks_data:
