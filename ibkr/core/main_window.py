@@ -3108,6 +3108,18 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             api_key = str(settings.get("polygon_api_key", "") or "").strip()
             timeout_s = float(settings.get("polygon_timeout_seconds", 10) or 10)
 
+            # If the config file doesn't contain the key, fall back to the
+            # encrypted America broker credentials used by login setup.
+            if not api_key:
+                try:
+                    from login_setup.broker_modes import BrokerMode
+                    from login_setup.token_manager import EnhancedTokenManager
+
+                    credentials = EnhancedTokenManager().load_broker_credentials(BrokerMode.AMERICA) or {}
+                    api_key = str(credentials.get("polygon_api_key", "") or "").strip()
+                except Exception as exc:
+                    logger.debug("Unable to load Polygon key from token manager: %s", exc)
+
             # In IBKR mode, chart history should use Polygon whenever an API key
             # is configured (execution/routing remains on IBKR).
             use_polygon_for_chart = provider == "polygon" or bool(api_key)
