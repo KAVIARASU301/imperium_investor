@@ -77,7 +77,7 @@ class IBKRDataFetcher(BrokerDataFetcher):
         use_rth: bool = True,
         dedicated_history_connection: bool = True,
         history_client_id_base: int = 9000,
-        connect_timeout: float = 4.0,
+        connect_timeout: float = 8.0,
     ):
         self._ib = ib_client
         self._what_to_show = what_to_show
@@ -217,8 +217,23 @@ class IBKRDataFetcher(BrokerDataFetcher):
         logger.info("Received %d IBKR bars for %s", len(bars), symbol)
         return [self._bar_to_bardata(b) for b in bars]
 
-    def _request_historical_bars(self, ib, contract, end_dt_str: str, duration_str: str, bar_size: str):
-        """Serialize and pace TWS historical requests to prevent timeouts."""
+    def _request_historical_bars(
+            self,
+            ib,
+            contract,
+            end_dt_str: str,
+            duration_str: str,
+            bar_size: str,
+            max_retries: int = 3,
+    ):
+        """
+        Serialize and pace TWS historical requests, with automatic retry on
+        empty/timeout responses.
+
+        TWS paces identical requests and the HMDS data farm can take up to
+        ~15 s to warm up after login.  Three attempts with exponential back-off
+        handles both race conditions without blocking the UI thread for too long.
+        """
         pacing_key = f"{getattr(contract, 'conId', '')}_{bar_size}_{duration_str}_{end_dt_str}"
 
         with _RECENT_REQUEST_LOCK:
@@ -233,13 +248,7 @@ class IBKRDataFetcher(BrokerDataFetcher):
             logger.info("TWS pacing: sleeping %.1fs before duplicate request %s", wait, pacing_key)
             time.sleep(wait)
 
-        with _HISTORY_SEMAPHORE:
-            with _RECENT_REQUEST_LOCK:
-                _RECENT_REQUESTS[pacing_key] = time.monotonic()
-                if len(_RECENT_REQUESTS) > 200:
-                    _RECENT_REQUESTS.popitem(last=False)
-
-            request_kwargs = dict(
+        request_kwargs = dict(
             endDateTime=end_dt_str,
             durationStr=duration_str,
             barSizeSetting=bar_size,
@@ -247,12 +256,49 @@ class IBKRDataFetcher(BrokerDataFetcher):
             useRTH=self._use_rth,
             formatDate=1,
             keepUpToDate=False,
-            )
+        )
 
-            try:
-                return ib.reqHistoricalData(contract, timeout=30, **request_kwargs)
-            except TypeError:
-                return ib.reqHistoricalData(contract, **request_kwargs)
+        last_bars = []
+        for attempt in range(1, max_retries + 1):
+            with _HISTORY_SEMAPHORE:
+                with _RECENT_REQUEST_LOCK:
+                    _RECENT_REQUESTS[pacing_key] = time.monotonic()
+                    if len(_RECENT_REQUESTS) > 200:
+                        _RECENT_REQUESTS.popitem(last=False)
+
+                try:
+                    bars = ib.reqHistoricalData(contract, timeout=60, **request_kwargs)
+                except TypeError:
+                    # Older ib_insync builds don't accept timeout as a kwarg.
+                    bars = ib.reqHistoricalData(contract, **request_kwargs)
+                except Exception as exc:
+                    logger.warning(
+                        "reqHistoricalData raised on attempt %d/%d: %s",
+                        attempt, max_retries, exc,
+                    )
+                    bars = []
+
+            last_bars = bars or []
+
+            if last_bars:
+                return last_bars
+
+            # Empty result — could be HMDS farm warming up or TWS pacing.
+            # Back-off: 5s, 10s, 20s …
+            if attempt < max_retries:
+                back_off = 5.0 * (2 ** (attempt - 1))
+                logger.warning(
+                    "Empty bars for %s [%s] on attempt %d/%d; "
+                    "retrying in %.0fs (HMDS may still be warming up)…",
+                    getattr(contract, "symbol", "?"),
+                    bar_size,
+                    attempt,
+                    max_retries,
+                    back_off,
+                )
+                time.sleep(back_off)
+
+        return last_bars
 
     @staticmethod
     def _coerce_con_id(instrument_token: Any) -> int:

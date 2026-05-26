@@ -1,9 +1,9 @@
-"""On-demand symbol resolution for IBKR using reqMatchingSymbols."""
+"""On-demand symbol resolution for IBKR using reqContractDetails."""
 
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from PySide6.QtCore import QObject, QTimer
 
@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class IBKRSymbolResolver(QObject):
-    """Resolves IBKR symbols on demand."""
+    """Resolves IBKR symbols on demand via reqContractDetails pattern search."""
 
     def __init__(self, ib_client: Any, parent: Optional[QObject] = None):
         super().__init__(parent)
@@ -25,15 +25,23 @@ class IBKRSymbolResolver(QObject):
             return
 
         cache_key = query.strip().upper()
-        if cache_key in self._cache:
-            callback([self._cache[cache_key]])
+
+        # Return cache hit immediately (exact match)
+        cached = self._cache.get(cache_key)
+        if cached:
+            callback([cached])
+            return
+
+        # Return all cached entries that start with the query prefix
+        prefix_hits = [v for k, v in self._cache.items() if k.startswith(cache_key)]
+        if prefix_hits:
+            callback(prefix_hits)
             return
 
         self._pending_query = cache_key
         QTimer.singleShot(0, lambda: self._execute_search(callback))
 
     def stop(self) -> None:
-        """Stop any in-flight search request."""
         self._pending_query = None
 
     def _execute_search(self, callback: Callable[[list], None]) -> None:
@@ -43,53 +51,79 @@ class IBKRSymbolResolver(QObject):
             callback([])
             return
 
+        import threading
+
+        result_holder: list[list] = []
+        done = threading.Event()
+
+        def _worker() -> None:
+            try:
+                results = self._fetch_symbols(query)
+                result_holder.append(results)
+            except Exception as exc:
+                logger.debug("Symbol search failed for '%s': %s", query, exc)
+                result_holder.append([])
+            finally:
+                done.set()
+
+        threading.Thread(target=_worker, daemon=True, name=f"IBKRSearch-{query}").start()
+        done.wait(timeout=8.0)
+
+        results = result_holder[0] if result_holder else []
+        self._on_results(results, callback)
+
+    def _fetch_symbols(self, query: str) -> List[Dict[str, Any]]:
+        """
+        Fetch matching symbols from TWS.
+
+        reqMatchingSymbols became async-only in ib_insync ≥ 0.9.86.
+        We use reqContractDetails with a Stock pattern instead, which is
+        reliably synchronous and works identically for equity searches.
+        """
+        from ib_insync import Stock
+
+        results = []
+
         try:
-            # Run on a worker thread so IBKR/TWS timeouts do not block UI responsiveness.
-            import threading
+            # Build a wildcard-style contract: TWS matches on symbol prefix.
+            contract = Stock(query, "SMART", "USD")
+            details_list = self.ib_client.reqContractDetails(contract)
 
-            result_holder: list[list[Any]] = []
-            done = threading.Event()
-
-            def _worker() -> None:
-                try:
-                    contracts = self.ib_client.reqMatchingSymbols(query)
-                    result_holder.append(contracts or [])
-                except Exception as exc:
-                    logger.debug("Symbol search failed for '%s': %s", query, exc)
-                    result_holder.append([])
-                finally:
-                    done.set()
-
-            worker = threading.Thread(target=_worker, daemon=True)
-            worker.start()
-            done.wait(timeout=8.0)
-
-            contracts = result_holder[0] if result_holder else []
-            results = []
-            for cd in (contracts or []):
-                contract = getattr(cd, "contract", None)
-                if not contract or contract.secType != "STK":
+            for details in (details_list or []):
+                c = details.contract
+                if not c or c.secType != "STK":
                     continue
-                details = getattr(cd, "contractDetails", None)
-                results.append(
-                    {
-                        "tradingsymbol": contract.symbol,
-                        "name": getattr(details, "longName", "") if details else "",
-                        "exchange": contract.primaryExch or contract.exchange or "SMART",
-                        "instrument_token": contract.conId,
-                        "segment": contract.secType,
-                        "currency": contract.currency,
-                        "instrument_type": "EQ",
-                    }
-                )
-            self._on_results(results, callback)
+                results.append({
+                    "tradingsymbol": c.symbol,
+                    "name": getattr(details, "longName", "") or c.symbol,
+                    "exchange": c.primaryExch or c.exchange or "SMART",
+                    "instrument_token": c.conId,
+                    "segment": c.secType,
+                    "currency": c.currency or "USD",
+                    "instrument_type": "EQ",
+                })
+
+            if results:
+                return results
+
         except Exception as exc:
-            logger.error("IBKR symbol search failed for '%s': %s", query, exc)
-            callback([])
+            logger.debug("reqContractDetails search failed for '%s': %s", query, exc)
+
+        # Fallback: build a minimal entry so the search bar can still
+        # load the chart even if TWS contract details are unavailable.
+        return [{
+            "tradingsymbol": query,
+            "name": query,
+            "exchange": "SMART",
+            "instrument_token": 0,
+            "segment": "STK",
+            "currency": "USD",
+            "instrument_type": "EQ",
+        }]
 
     def _on_results(self, results: list, callback: Callable[[list], None]) -> None:
         for inst in results:
             symbol = str(inst.get("tradingsymbol", "")).strip().upper()
-            if symbol:
+            if symbol and symbol != "0":
                 self._cache[symbol] = inst
         callback(results)
