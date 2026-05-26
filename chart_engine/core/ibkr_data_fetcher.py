@@ -197,7 +197,8 @@ class IBKRDataFetcher(BrokerDataFetcher):
 
         con_id = self._coerce_con_id(instrument_token)
         cache_key = self._contract_cache_key(symbol, con_id)
-        contract = self._get_cached_contract(cache_key)
+        symbol_cache_key = self._contract_cache_key(symbol, 0)
+        contract = self._get_cached_contract(cache_key) or self._get_cached_contract(symbol_cache_key)
         qualified_once = contract is not None
 
         if contract is None and con_id > 0:
@@ -215,7 +216,7 @@ class IBKRDataFetcher(BrokerDataFetcher):
                     raise ValueError(f"Could not qualify contract for {symbol}")
                 contract = qualified[0]
                 qualified_once = True
-                self._cache_contract(cache_key, contract)
+                self._cache_contract_aliases(symbol, contract, preferred_key=cache_key)
             except Exception as e:
                 raise ValueError(f"Could not qualify contract for {symbol}: {e}") from e
 
@@ -233,7 +234,7 @@ class IBKRDataFetcher(BrokerDataFetcher):
         except Exception:
             if con_id > 0 and not qualified_once:
                 contract = await self._qualify_by_con_id_async(ib, symbol, con_id)
-                self._cache_contract(cache_key, contract)
+                self._cache_contract_aliases(symbol, contract, preferred_key=cache_key)
                 bars = await self._request_historical_bars_async(
                     ib=ib, contract=contract, end_dt_str=end_dt_str,
                     duration_str=duration_str, bar_size=bar_size,
@@ -243,7 +244,7 @@ class IBKRDataFetcher(BrokerDataFetcher):
 
         if not bars and con_id > 0 and not qualified_once:
             contract = await self._qualify_by_con_id_async(ib, symbol, con_id)
-            self._cache_contract(cache_key, contract)
+            self._cache_contract_aliases(symbol, contract, preferred_key=cache_key)
             bars = await self._request_historical_bars_async(
                 ib=ib, contract=contract, end_dt_str=end_dt_str,
                 duration_str=duration_str, bar_size=bar_size,
@@ -253,8 +254,7 @@ class IBKRDataFetcher(BrokerDataFetcher):
             raise ValueError(f"No data returned for {symbol} [{bar_size}]")
 
         if getattr(contract, "conId", 0):
-            self._cache_contract(cache_key, contract)
-            self._cache_contract(self._contract_cache_key(symbol, int(getattr(contract, "conId", 0))), contract)
+            self._cache_contract_aliases(symbol, contract, preferred_key=cache_key)
 
         return [self._bar_to_bardata(b) for b in bars]
 
@@ -390,12 +390,20 @@ class IBKRDataFetcher(BrokerDataFetcher):
         return candidates
 
     def resolve_instrument(self, symbol: str):
+        symbol_cache_key = self._contract_cache_key(symbol, 0)
+        cached_contract = self._get_cached_contract(symbol_cache_key)
+        if cached_contract is not None:
+            return cached_contract
+
         if not self._dedicated_history_connection:
             from ib_insync import Stock
             _ensure_event_loop()
             try:
                 details = self._ib.reqContractDetails(Stock(symbol, "SMART", "USD"))
-                if details: return details[0].contract
+                if details:
+                    contract = details[0].contract
+                    self._cache_contract_aliases(symbol, contract, preferred_key=symbol_cache_key)
+                    return contract
             except Exception as exc:
                 logger.error("resolve_instrument failed for %s: %s", symbol, exc)
             return None
@@ -406,12 +414,19 @@ class IBKRDataFetcher(BrokerDataFetcher):
 
     async def _resolve_instrument_in_dedicated_thread_async(self, symbol: str):
         from ib_insync import Stock
+        symbol_cache_key = self._contract_cache_key(symbol, 0)
+        cached_contract = self._get_cached_contract(symbol_cache_key)
+        if cached_contract is not None:
+            return cached_contract
+
         try:
             ib = await self._get_or_create_history_connection_async()
             coro = ib.reqContractDetailsAsync(Stock(symbol, "SMART", "USD"))
             details = await asyncio.wait_for(coro, timeout=10.0)
             if details:
-                return details[0].contract
+                contract = details[0].contract
+                self._cache_contract_aliases(symbol, contract, preferred_key=symbol_cache_key)
+                return contract
         except Exception as exc:
             logger.error("resolve_instrument in dedicated thread failed for %s: %s", symbol, exc)
         return None
@@ -433,6 +448,16 @@ class IBKRDataFetcher(BrokerDataFetcher):
     def _cache_contract(self, key: str, contract) -> None:
         if not key or contract is None: return
         with self._contract_cache_lock: self._contract_cache[key] = contract
+
+    def _cache_contract_aliases(self, symbol: str, contract, preferred_key: Optional[str] = None) -> None:
+        if contract is None:
+            return
+        if preferred_key:
+            self._cache_contract(preferred_key, contract)
+        con_id = int(getattr(contract, "conId", 0) or 0)
+        self._cache_contract(self._contract_cache_key(symbol, 0), contract)
+        if con_id > 0:
+            self._cache_contract(self._contract_cache_key(symbol, con_id), contract)
 
     @staticmethod
     def _bar_to_bardata(bar) -> BarData:
