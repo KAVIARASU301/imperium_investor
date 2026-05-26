@@ -86,10 +86,11 @@ FONT_FALL = "'Segoe UI Variable', 'Segoe UI', Arial, sans-serif"
 #  CONSTANTS
 # ─────────────────────────────────────────────────────────────────────────────
 VALID_ORDER_TYPES = ["MARKET", "LIMIT", "SL", "SL-M"]
-VALID_PRODUCTS    = ["CNC", "MIS"]
-VALID_VARIETIES   = ["regular", "bo", "co"]
-VALID_EXCHANGES   = ["NSE", "BSE", "NFO", "MCX", "BFO", "CDS"]
-VALID_VALIDITY    = ["DAY", "IOC"]
+# IBKR routing fields
+VALID_PRODUCTS    = ["IBKR"]
+VALID_VARIETIES   = ["regular"]
+VALID_EXCHANGES   = ["SMART", "NASDAQ", "NYSE", "ARCA", "ISLAND", "BATS"]
+VALID_VALIDITY    = ["DAY", "IOC", "GTC"]
 
 BROKERAGE_INTRADAY = 0.0003
 STT_EQUITY_INTRADAY_SELL = 0.00025
@@ -562,8 +563,8 @@ class OrderDialog(QDialog):
         od              = order_details or {}
 
         self._exchange     = self._infer_exchange(od, instrument)
-        requested_product = str(od.get("product", "CNC")).upper()
-        self._product_type = requested_product if requested_product in VALID_PRODUCTS else "CNC"
+        requested_product = str(od.get("product", "IBKR")).upper()
+        self._product_type = requested_product if requested_product in VALID_PRODUCTS else "IBKR"
         self._order_type   = od.get("order_type", "LIMIT")
         self._variety      = od.get("variety", "regular")
         self._is_buy       = od.get("transaction_type", "BUY").upper() == "BUY"
@@ -602,7 +603,7 @@ class OrderDialog(QDialog):
     def _infer_exchange(self, od: Dict, instr: Optional[Dict]) -> str:
         if od.get("exchange"):   return od["exchange"].upper()
         if instr and instr.get("exchange"): return instr["exchange"].upper()
-        return "NSE"
+        return "SMART"
 
     def _infer_product(self, instr: Optional[Dict]) -> str:
         # CNC is the default in this dialog; NRML is intentionally excluded from UI options.
@@ -1529,19 +1530,39 @@ class OrderDialog(QDialog):
         bo     = self._bo_chk.isChecked()
         variety = "bo" if bo else "regular"
 
+        ibkr_order_type = {
+            "MARKET": "MKT",
+            "LIMIT": "LMT",
+            # SL  -> stop-limit, SL-M -> stop-market (IBKR semantics)
+            "SL": "STP LMT",
+            "SL-M": "STP",
+        }.get(ot, ot)
+
         data: Dict[str, Any] = {
+            "symbol":           self.symbol,
             "tradingsymbol":    self.symbol,
             "exchange":         self._exchange,
+            "action":           side,
             "transaction_type": side,
-            "quantity":         self._qty_spin.value(),
-            "order_type":       ot,
+            "quantity":         int(self._qty_spin.value()),
+            "order_type":       ibkr_order_type,
             "product":          self._product_seg.current(),
             "variety":          variety,
             "validity":         self._validity_seg.current(),
-            "price":            self._price_spin.value() if ot in ("LIMIT", "SL") else 0,
-            "trigger_price":    self._trig_spin.value() if ot in ("SL", "SL-M") else 0,
             "tag":              "terminal",
         }
+
+        if ot == "LIMIT":
+            data["limit_price"] = self._price_spin.value()
+            data["price"] = self._price_spin.value()
+        elif ot == "SL":
+            data["limit_price"] = self._price_spin.value()
+            data["stop_price"] = self._trig_spin.value()
+            data["price"] = self._price_spin.value()
+            data["trigger_price"] = self._trig_spin.value()
+        elif ot == "SL-M":
+            data["stop_price"] = self._trig_spin.value()
+            data["trigger_price"] = self._trig_spin.value()
         if bo:
             ref_price = data["price"] or self.ltp
             data["squareoff"]         = abs(self._target_spin.value() - ref_price)

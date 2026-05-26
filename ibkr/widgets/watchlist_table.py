@@ -1596,14 +1596,49 @@ class TabbedWatchlistWidget(QWidget):
         inst = self._instrument_map.get(symbol, {}) or {}
         exchange = str(inst.get("exchange") or "NSE")
         instrument = f"{exchange}:{symbol}"
+        # Prefer broker quote API when available (Kite-like interface).
+        quote_fn = getattr(client, "quote", None)
+        if callable(quote_fn):
+            try:
+                quote = quote_fn([instrument]).get(instrument, {}) or {}
+                ohlc = quote.get("ohlc") or {}
+                table.apply_symbol_snapshot(
+                    symbol,
+                    ltp=quote.get("last_price"),
+                    prev_close=ohlc.get("close"),
+                    volume=quote.get("volume"),
+                )
+                return
+            except Exception:
+                # Continue into historical fallback below.
+                pass
+
+        # IBKR fallback (or any broker with historical API only):
+        # pull latest completed bars and derive last/previous close so watchlist LTP updates
+        # still land while markets are closed and no live ticks are flowing.
+        history_fn = getattr(client, "get_historical_data", None)
+        if not callable(history_fn):
+            return
+
         try:
-            quote = client.quote([instrument]).get(instrument, {}) or {}
-            ohlc = quote.get("ohlc") or {}
+            bars = history_fn(symbol, duration="2 D", bar_size="1 day") or []
+            if not bars:
+                bars = history_fn(symbol, duration="1 D", bar_size="5 mins") or []
+            if not bars:
+                return
+
+            last_bar = bars[-1] or {}
+            prev_bar = bars[-2] if len(bars) > 1 else {}
+            ltp = last_bar.get("close")
+            prev_close = prev_bar.get("close")
+            if prev_close in (None, 0, 0.0):
+                prev_close = last_bar.get("open") or last_bar.get("close")
+
             table.apply_symbol_snapshot(
                 symbol,
-                ltp=quote.get("last_price"),
-                prev_close=ohlc.get("close"),
-                volume=quote.get("volume"),
+                ltp=ltp,
+                prev_close=prev_close,
+                volume=last_bar.get("volume"),
             )
         except Exception:
             # Non-blocking best-effort update; live ticks / startup refresh will still populate.
