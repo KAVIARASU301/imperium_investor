@@ -258,7 +258,10 @@ class IBKRClientWrapper(BrokerClientInterface):
                 self.client.disconnect()
                 logger.info("Disconnected from IBKR")
         except Exception as e:
-            logger.error(f"Error disconnecting from IBKR: {e}")
+            if "event loop is closed" in str(e).lower():
+                logger.info("IBKR disconnect skipped: event loop already closed")
+            else:
+                logger.error(f"Error disconnecting from IBKR: {e}")
 
     def _convert_to_ibkr_order(self, generic_order: Dict[str, Any]) -> Dict[str, Any]:
         """Convert generic order parameters to IBKR format"""

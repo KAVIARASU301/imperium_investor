@@ -1212,7 +1212,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
             self.candlestick_chart.symbol_loaded.connect(_reveal_charts)
             self.candlestick_chart.symbol_loaded.connect(self._on_chart_symbol_changed)
+            self.candlestick_chart_secondary.symbol_loaded.connect(self._on_chart_symbol_changed)
             self.candlestick_chart.data_request_for_symbol.connect(self._ensure_chart_subscription)
+            self.candlestick_chart_secondary.data_request_for_symbol.connect(self._ensure_chart_subscription)
 
             # Trigger the secondary chart load immediately; async IBKR history
             # requests now run concurrently without blocking startup.
@@ -1456,17 +1458,29 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
     @Slot(str)
     def _ensure_chart_subscription(self, symbol: str):
-        """Ensure chart symbol is subscribed"""
-        if symbol in self.instrument_map:
-            token = self.instrument_map[symbol]['instrument_token']
-            try:
-                if self.market_data_worker:
-                    current_info = self.market_data_worker.get_subscription_info()
-                    if token not in current_info.get('subscribed_tokens', []):
-                        self.market_data_worker.add_instruments([token])
-                        logger.info(f"Ensured subscription for chart symbol {symbol}")
-            except Exception as e:
-                logger.error(f"Failed to ensure chart subscription for {symbol}: {e}")
+        """Ensure chart symbol is subscribed for live IBKR streaming updates."""
+        resolved_symbol = str(symbol or "").strip().upper()
+        if not resolved_symbol:
+            return
+
+        instrument = self.instrument_map.get(resolved_symbol, {})
+        token = instrument.get('instrument_token')
+        if not token:
+            # IBKR chart can load symbols not yet present in the seeded map; in
+            # that case we still request a symbol-based subscription.
+            token = resolved_symbol
+
+        try:
+            if self.market_data_worker:
+                current_info = self.market_data_worker.get_subscription_info()
+                subscribed_tokens = set(current_info.get('subscribed_tokens', []))
+                subscribed_symbols = {str(s or '').strip().upper() for s in current_info.get('subscribed_symbols', [])}
+                if token in subscribed_tokens or resolved_symbol in subscribed_symbols:
+                    return
+                self.market_data_worker.add_instruments([token])
+                logger.info(f"Ensured subscription for chart symbol {resolved_symbol}")
+        except Exception as e:
+            logger.error(f"Failed to ensure chart subscription for {resolved_symbol}: {e}")
 
 
     def _refresh_header_ticker_ws_subscriptions(self) -> None:
@@ -3120,9 +3134,10 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 except Exception as exc:
                     logger.debug("Unable to load Polygon key from token manager: %s", exc)
 
-            # In IBKR mode, chart history should use Polygon whenever an API key
-            # is configured (execution/routing remains on IBKR).
-            use_polygon_for_chart = provider == "polygon" or bool(api_key)
+            # Respect the explicit data-provider choice from settings:
+            # - provider=ibkr   -> chart history uses IBKR
+            # - provider=polygon -> chart history uses Polygon (if key present)
+            use_polygon_for_chart = provider == "polygon"
             if use_polygon_for_chart:
                 if api_key:
                     polygon_client = PolygonRESTClient(api_key=api_key, timeout_s=timeout_s)

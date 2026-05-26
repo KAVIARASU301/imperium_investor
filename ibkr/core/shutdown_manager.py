@@ -212,7 +212,14 @@ class ShutdownManager:
         Prevents: 'QThread: Destroyed while thread is still running'.
         """
         count = 0
-        for thread in self.window.findChildren(QThread):
+        from PySide6.QtWidgets import QApplication
+
+        app = QApplication.instance()
+        threads = set(self.window.findChildren(QThread))
+        if app is not None:
+            threads.update(app.findChildren(QThread))
+
+        for thread in threads:
             if not thread or thread == QThread.currentThread():
                 continue
             if not thread.isRunning():

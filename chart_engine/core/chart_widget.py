@@ -426,7 +426,8 @@ class CandlestickChart(QWidget):
         # If a symbol is not yet present in the local instrument map (seed list),
         # still allow the chart to load it; IBKRDataFetcher.resolve_instrument()
         # and fetch() can resolve via IB contract lookup.
-        if getattr(self._broker_caps, "name", "") == "ibkr":
+        broker_name = str(getattr(self._broker_caps, "name", "") or "").strip().lower()
+        if "ibkr" in broker_name:
             fallback = value.split(":", 1)[-1].strip()
             if fallback:
                 return fallback
@@ -618,9 +619,11 @@ class CandlestickChart(QWidget):
         if not self.current_symbol:
             return
 
-        broker_name = getattr(self._broker_caps, "name", "")
+        broker_name = str(getattr(self._broker_caps, "name", "") or "").strip().lower()
         token = self.current_instrument_token
-        requires_token = broker_name != "ibkr"
+        # Hybrid Polygon+IBKR history mode should follow IBKR symbol semantics:
+        # instrument tokens are optional and symbols can be resolved on-demand.
+        requires_token = "ibkr" not in broker_name
 
         if requires_token and not token and self.instrument_loader:
             try:

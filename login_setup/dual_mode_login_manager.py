@@ -206,6 +206,7 @@ class DualModeLoginManager(QDialog):
         self.ibkr_auth = IBKRAuth()
         self.polygon_auth = PolygonAuth(self.token_manager)
         self.polygon_status: Dict[str, Any] = {"ok": False, "plan_tier": "Unknown", "error": ""}
+        self.selected_market_data_provider: str = "ibkr"
         self.authentication_data: Dict[str, Any] = {}
         self.selected_broker: Optional[BrokerMode] = None
         self.selected_trading_mode: Optional[TradingMode] = None
@@ -1019,12 +1020,26 @@ class DualModeLoginManager(QDialog):
         validate_btn.setObjectName("primaryButton")
         validate_btn.clicked.connect(self._validate_polygon_key)
 
+        provider_label = QLabel("MARKET DATA SOURCE")
+        provider_label.setObjectName("fieldLabel")
+        self.ibkr_data_radio = QRadioButton("Use IBKR market data")
+        self.ibkr_data_radio.setChecked(True)
+        self.polygon_data_radio = QRadioButton("Use Polygon market data")
+        self.data_provider_group = QButtonGroup(page)
+        self.data_provider_group.addButton(self.ibkr_data_radio)
+        self.data_provider_group.addButton(self.polygon_data_radio)
+        self.ibkr_data_radio.toggled.connect(self._on_market_data_provider_changed)
+        self.polygon_data_radio.toggled.connect(self._on_market_data_provider_changed)
+
         nav = self._create_nav_buttons(
             back_slot=lambda: self.stacked_widget.setCurrentIndex(4),
             continue_slot=self._goto_connection_summary,
             continue_text="CONTINUE"
         )
         layout.addWidget(title)
+        layout.addWidget(provider_label)
+        layout.addWidget(self.ibkr_data_radio)
+        layout.addWidget(self.polygon_data_radio)
         layout.addWidget(self.polygon_key_input)
         layout.addWidget(validate_btn)
         layout.addWidget(self.polygon_status_label)
@@ -1034,6 +1049,13 @@ class DualModeLoginManager(QDialog):
 
     def _prefill_polygon_key(self):
         self.polygon_key_input.setText(self.polygon_auth.get_api_key() or "")
+        self._on_market_data_provider_changed()
+
+    def _on_market_data_provider_changed(self):
+        using_polygon = self.polygon_data_radio.isChecked()
+        self.selected_market_data_provider = "polygon" if using_polygon else "ibkr"
+        self.polygon_key_input.setEnabled(using_polygon)
+        self.polygon_status_label.setEnabled(using_polygon)
 
     def _validate_polygon_key(self):
         key = self.polygon_key_input.text().strip()
@@ -1051,18 +1073,19 @@ class DualModeLoginManager(QDialog):
             self.polygon_status_label.setText(f"❌ Validation failed: {e}")
 
     def _goto_connection_summary(self):
-        if not self.polygon_key_input.text().strip():
-            QMessageBox.warning(self, "Input Required", "Please provide Polygon API key.")
-            return
-        if not self.polygon_status.get("ok"):
-            reply = QMessageBox.question(
-                self,
-                "Proceed without validation?",
-                "Polygon key has not been validated yet. Continue anyway?",
-            )
-            if reply != QMessageBox.StandardButton.Yes:
+        if self.selected_market_data_provider == "polygon":
+            if not self.polygon_key_input.text().strip():
+                QMessageBox.warning(self, "Input Required", "Please provide Polygon API key.")
                 return
-        self.polygon_auth.save_api_key(self.polygon_key_input.text().strip())
+            if not self.polygon_status.get("ok"):
+                reply = QMessageBox.question(
+                    self,
+                    "Proceed without validation?",
+                    "Polygon key has not been validated yet. Continue anyway?",
+                )
+                if reply != QMessageBox.StandardButton.Yes:
+                    return
+            self.polygon_auth.save_api_key(self.polygon_key_input.text().strip())
         self.stacked_widget.setCurrentIndex(6)
         self._update_connection_summary()
 
@@ -1092,12 +1115,29 @@ class DualModeLoginManager(QDialog):
     def _update_connection_summary(self):
         conn = self.authentication_data.get("connection_details", {})
         ibkr = f"IBKR: Connected ({conn.get('host', 'n/a')} / client {conn.get('client_id', 'n/a')})"
-        polygon = "Polygon: Validated" if self.polygon_status.get("ok") else f"Polygon: Not validated ({self.polygon_status.get('error', 'no validation')})"
+        if self.selected_market_data_provider == "polygon":
+            polygon = "Polygon: Validated" if self.polygon_status.get("ok") else f"Polygon: Not validated ({self.polygon_status.get('error', 'no validation')})"
+        else:
+            polygon = "Polygon: Disabled (using IBKR market data)"
         plan = self.polygon_status.get("plan_tier", "Unknown")
-        self.connection_summary_label.setText(f"{ibkr}\n{polygon}\nPlan tier: {plan}")
+        provider = f"Market data provider: {self.selected_market_data_provider.upper()}"
+        self.connection_summary_label.setText(f"{ibkr}\n{provider}\n{polygon}\nPlan tier: {plan}")
 
     def _finalize_america_login(self):
-        self.authentication_data["polygon_api_key"] = self.polygon_key_input.text().strip()
+        self.authentication_data["market_data_provider"] = self.selected_market_data_provider
+        self.authentication_data["polygon_api_key"] = (
+            self.polygon_key_input.text().strip() if self.selected_market_data_provider == "polygon" else ""
+        )
+        try:
+            from ibkr.utils.config_manager import ConfigManager
+
+            config_manager = ConfigManager()
+            settings = config_manager.load_settings()
+            settings["market_data_provider"] = self.selected_market_data_provider
+            settings["polygon_api_key"] = self.authentication_data["polygon_api_key"]
+            config_manager.save_settings(settings)
+        except Exception as exc:
+            logger.warning("Could not persist market data provider selection: %s", exc)
         self.accept()
 
         # --------------------------------------------------------------------------
