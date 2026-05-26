@@ -380,6 +380,11 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             chart_data_fetcher,
             storage_dir=self.chart_drawings_dir,
         )
+        # Prevent the secondary chart from firing its own startup symbol restore.
+        # It will be loaded by the primary chart's symbol_loaded signal instead.
+        self.candlestick_chart_secondary._stop_loader()
+        self.candlestick_chart_secondary.current_symbol = ""
+        self.candlestick_chart_secondary._active_load_key = None
         self.candlestick_chart.data_cache = MarketAwareDataCache(parent=self.candlestick_chart)
         # Backward-compat for force-refresh path still using `_cache`.
         if not hasattr(self.candlestick_chart.data_cache, '_cache'):
