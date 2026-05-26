@@ -18,7 +18,6 @@ appropriate main window, and manages the application lifecycle.
 
 import logging
 import signal
-import atexit
 from typing import Optional
 
 from PySide6.QtCore import Qt, QTimer
@@ -63,6 +62,7 @@ class Application:
         self.app: Optional[QApplication] = None
         self.window: Optional[QWidget] = None
         self.broker_manager: Optional[BrokerClientManager] = None
+        self._cleanup_done = False
         self._setup_signal_handlers()
 
     def run(self):
@@ -70,6 +70,7 @@ class Application:
         logger.info("🚀 Starting qullamaggie Application...")
         configure_qt_startup()
         self.app = QApplication(sys.argv)
+        self.app.aboutToQuit.connect(self._cleanup)
         self.app.setApplicationName("qullamaggie")
         icon_path = get_app_icon_path()
         if icon_path is not None:
@@ -300,7 +301,6 @@ class Application:
 
     def _setup_signal_handlers(self):
         """Ensures graceful shutdown on signals."""
-        atexit.register(self._cleanup)
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
 
@@ -311,11 +311,18 @@ class Application:
 
     def _cleanup(self):
         """Graceful cleanup of application resources."""
+        if self._cleanup_done:
+            return
+        self._cleanup_done = True
         logger.info("Shutting down and cleaning up resources...")
+        if self.window:
+            try:
+                if self.window.isVisible():
+                    self.window.close()
+            except Exception as e:
+                logger.warning(f"Window close during cleanup failed: {e}")
         if self.broker_manager:
             self.broker_manager.disconnect_all()
-        if self.window:
-            self.window.close()
         logger.info("Cleanup complete.")
 
     def _show_critical_error(self, message: str):
