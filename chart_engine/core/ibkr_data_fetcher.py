@@ -143,27 +143,41 @@ class IBKRDataFetcher(BrokerDataFetcher):
             interval: str,
     ) -> List[BarData]:
         if self._polygon_client is not None:
+            logger.info(
+                "Chart data source=Polygon symbol=%s interval=%s from=%s to=%s",
+                symbol, interval, from_date.isoformat(), to_date.isoformat(),
+            )
             bars = self._polygon_client.get_agg_bars(
                 symbol=symbol,
                 from_date=from_date,
                 to_date=to_date,
                 interval=interval,
             )
+            logger.info("Chart data fetch complete source=Polygon symbol=%s bars=%d", symbol, len(bars or []))
             return [self._polygon_bar_to_bardata(bar) for bar in bars]
+
+        logger.info(
+            "Chart data source=IBKR symbol=%s interval=%s from=%s to=%s dedicated_history=%s",
+            symbol, interval, from_date.isoformat(), to_date.isoformat(), self._dedicated_history_connection,
+        )
 
         if not self._dedicated_history_connection:
             _ensure_event_loop()
             # If not dedicated, run the async method synchronously using the main IB instance
-            return self._ib.run(
+            bars = self._ib.run(
                 self._fetch_with_ib_async(self._ib, symbol, instrument_token, from_date, to_date, interval)
             )
+            logger.info("Chart data fetch complete source=IBKR symbol=%s bars=%d", symbol, len(bars or []))
+            return bars
 
         # Dispatch the async pipeline to the persistent daemon loop
         executor = _get_history_executor()
         future = executor.submit_async(
             self._fetch_async(symbol, instrument_token, from_date, to_date, interval)
         )
-        return future.result()
+        bars = future.result()
+        logger.info("Chart data fetch complete source=IBKR symbol=%s bars=%d", symbol, len(bars or []))
+        return bars
 
     def prewarm_connection(self) -> None:
         """Forces the background thread to establish the TWS connection immediately."""
