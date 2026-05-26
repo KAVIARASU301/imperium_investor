@@ -22,7 +22,7 @@ _CLIENT_ID_COUNTER = itertools.count(1)
 # Pacing and Caching
 _RECENT_REQUEST_LOCK = threading.Lock()
 _RECENT_REQUESTS: "OrderedDict[str, float]" = OrderedDict()
-_PACING_DELAY_S = 0.3
+_PACING_DELAY_S = 0.2
 
 # Shared Async Connection State
 _SHARED_HISTORY_IB: Optional[Any] = None
@@ -259,7 +259,7 @@ class IBKRDataFetcher(BrokerDataFetcher):
         return [self._bar_to_bardata(b) for b in bars]
 
     async def _request_historical_bars_async(
-            self, ib, contract, end_dt_str: str, duration_str: str, bar_size: str, max_retries: int = 3
+            self, ib, contract, end_dt_str: str, duration_str: str, bar_size: str, max_retries: int = 4
     ):
         pacing_key = f"{getattr(contract, 'conId', '')}_{bar_size}_{duration_str}_{end_dt_str}"
 
@@ -302,7 +302,8 @@ class IBKRDataFetcher(BrokerDataFetcher):
 
             if attempt < max_retries:
                 # Fast aggressive retry: 1s, 2s, 3s
-                back_off = 1.0 * attempt
+                backoff_schedule = (1.0, 2.0, 3.0)
+                back_off = backoff_schedule[min(attempt - 1, len(backoff_schedule) - 1)]
                 logger.warning("Empty bars for %s on attempt %d/%d; retrying in %.1fs...",
                                getattr(contract, "symbol", "?"), attempt, max_retries, back_off)
                 await asyncio.sleep(back_off)
