@@ -12,6 +12,7 @@ from datetime import date as date_cls
 from datetime import datetime, time as dt_time, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+from ibkr.core.polygon_rest_client import PolygonRESTClient
 from chart_engine.core.broker_protocol import BarData, BrokerCapabilities, BrokerDataFetcher
 
 logger = logging.getLogger(__name__)
@@ -100,6 +101,7 @@ class IBKRDataFetcher(BrokerDataFetcher):
     def __init__(
             self,
             ib_client,
+            polygon_client: Optional[PolygonRESTClient] = None,
             what_to_show: str = "TRADES",
             use_rth: bool = True,
             dedicated_history_connection: bool = True,
@@ -107,6 +109,7 @@ class IBKRDataFetcher(BrokerDataFetcher):
             connect_timeout: float = 8.0,
     ):
         self._ib = ib_client
+        self._polygon_client = polygon_client
         self._what_to_show = what_to_show
         self._use_rth = use_rth
         self._dedicated_history_connection = bool(dedicated_history_connection)
@@ -123,7 +126,7 @@ class IBKRDataFetcher(BrokerDataFetcher):
     @property
     def capabilities(self) -> BrokerCapabilities:
         return BrokerCapabilities(
-            name="ibkr",
+            name="polygon+ibkr" if self._polygon_client is not None else "ibkr",
             exchange_tz="America/New_York",
             currency="USD",
             supports_options=True,
@@ -139,6 +142,14 @@ class IBKRDataFetcher(BrokerDataFetcher):
             to_date: datetime,
             interval: str,
     ) -> List[BarData]:
+        if self._polygon_client is not None:
+            bars = self._polygon_client.get_agg_bars(
+                symbol=symbol,
+                from_date=from_date,
+                to_date=to_date,
+                interval=interval,
+            )
+            return [self._polygon_bar_to_bardata(bar) for bar in bars]
 
         if not self._dedicated_history_connection:
             _ensure_event_loop()
@@ -458,6 +469,19 @@ class IBKRDataFetcher(BrokerDataFetcher):
         self._cache_contract(self._contract_cache_key(symbol, 0), contract)
         if con_id > 0:
             self._cache_contract(self._contract_cache_key(symbol, con_id), contract)
+
+    @staticmethod
+    def _polygon_bar_to_bardata(bar: Dict[str, Any]) -> BarData:
+        ts_ms = int(bar.get("t", 0) or 0)
+        dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc)
+        return BarData(
+            time=dt,
+            open=float(bar.get("o", 0) or 0),
+            high=float(bar.get("h", 0) or 0),
+            low=float(bar.get("l", 0) or 0),
+            close=float(bar.get("c", 0) or 0),
+            volume=float(bar.get("v", 0) or 0),
+        )
 
     @staticmethod
     def _bar_to_bardata(bar) -> BarData:

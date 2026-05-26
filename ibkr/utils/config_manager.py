@@ -36,6 +36,9 @@ class ConfigManager:
             'auto_refresh': True,
             'refresh_interval': 2,
             'timeout': 7,
+            'market_data_provider': 'ibkr',
+            'polygon_api_key': '',
+            'polygon_timeout_seconds': 10,
         }
 
     # ... (load_settings, save_settings, and other methods remain the same) ...

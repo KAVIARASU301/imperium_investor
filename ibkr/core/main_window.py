@@ -27,6 +27,7 @@ from ibkr.widgets.watchlist_table import TabbedWatchlistWidget
 from chart_engine import CandlestickChart as ChartWindow
 from chart_engine.core.data_loader import KiteDataFetcher
 from chart_engine.core.ibkr_data_fetcher import IBKRDataFetcher
+from ibkr.core.polygon_rest_client import PolygonRESTClient
 from ibkr.widgets.header_toolbar import HeaderToolbar
 from ibkr.widgets.settings_dialog import ColorSettingsDialog
 from ibkr.widgets.stock_info_dialog import show_stock_info
@@ -3054,11 +3055,22 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         """Create the correct chart data fetcher for the active broker client."""
         client = self.real_kite_client
         if hasattr(client, "reqHistoricalData"):
+            settings = self.config_manager.load_settings()
+            provider = str(settings.get("market_data_provider", "ibkr") or "ibkr").strip().lower()
+            polygon_client = None
+            if provider == "polygon":
+                api_key = str(settings.get("polygon_api_key", "") or "").strip()
+                timeout_s = float(settings.get("polygon_timeout_seconds", 10) or 10)
+                if api_key:
+                    polygon_client = PolygonRESTClient(api_key=api_key, timeout_s=timeout_s)
+                    logger.info("Using Polygon REST as chart market-data provider (execution via IBKR).")
+                else:
+                    logger.warning("market_data_provider=polygon but polygon_api_key is empty; falling back to IBKR.")
             # Important: chart loads run in QThread workers. Reusing the app's
             # foreground IB socket from those worker threads can deadlock/stall
             # ib_insync because socket + asyncio loop ownership belongs to the
             # market-data thread. Keep chart history on dedicated connection(s).
-            return IBKRDataFetcher(client)
+            return IBKRDataFetcher(client, polygon_client=polygon_client)
         return KiteDataFetcher(client)
 
     def _setup_watchlist_shortcuts(self):
