@@ -380,6 +380,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             chart_data_fetcher,
             storage_dir=self.chart_drawings_dir,
         )
+        if isinstance(chart_data_fetcher, IBKRDataFetcher):
+            chart_data_fetcher.prewarm_connection()
         # Prevent the secondary chart from firing its own startup symbol restore.
         # It will be loaded by the primary chart's symbol_loaded signal instead.
         self.candlestick_chart_secondary._stop_loader()
@@ -1164,10 +1166,11 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             self.candlestick_chart.symbol_loaded.connect(self._on_chart_symbol_changed)
             self.candlestick_chart.data_request_for_symbol.connect(self._ensure_chart_subscription)
 
-            # Delay the secondary chart's first load so startup history requests don't compete.
+            # Trigger the secondary chart load immediately; async IBKR history
+            # requests now run concurrently without blocking startup.
             if self.dual_chart_mode_enabled:
                 self.candlestick_chart.symbol_loaded.connect(
-                    lambda sym: QTimer.singleShot(5000, lambda: self._load_secondary_chart(sym)),
+                    self._load_secondary_chart,
                     Qt.ConnectionType.SingleShotConnection,
                 )
             # FIX #9: redraw alert lines whenever the chart switches symbol

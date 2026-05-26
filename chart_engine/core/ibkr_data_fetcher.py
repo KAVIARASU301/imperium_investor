@@ -22,7 +22,7 @@ _CLIENT_ID_COUNTER = itertools.count(1)
 # Pacing and Caching
 _RECENT_REQUEST_LOCK = threading.Lock()
 _RECENT_REQUESTS: "OrderedDict[str, float]" = OrderedDict()
-_PACING_DELAY_S = 1.0
+_PACING_DELAY_S = 0.3
 
 # Shared Async Connection State
 _SHARED_HISTORY_IB: Optional[Any] = None
@@ -149,6 +149,14 @@ class IBKRDataFetcher(BrokerDataFetcher):
             self._fetch_async(symbol, instrument_token, from_date, to_date, interval)
         )
         return future.result()
+
+    def prewarm_connection(self) -> None:
+        """Forces the background thread to establish the TWS connection immediately."""
+        if not self._dedicated_history_connection:
+            return
+        logger.info("Pre-warming dedicated IBKR history connection...")
+        executor = _get_history_executor()
+        executor.submit_async(self._get_or_create_history_connection_async())
 
     async def _fetch_async(
             self,
@@ -289,8 +297,9 @@ class IBKRDataFetcher(BrokerDataFetcher):
                 return last_bars
 
             if attempt < max_retries:
-                back_off = 5.0 * (2 ** (attempt - 1))
-                logger.warning("Empty bars for %s on attempt %d/%d; retrying in %.0fs...",
+                # Fast aggressive retry: 1s, 2s, 3s
+                back_off = 1.0 * attempt
+                logger.warning("Empty bars for %s on attempt %d/%d; retrying in %.1fs...",
                                getattr(contract, "symbol", "?"), attempt, max_retries, back_off)
                 await asyncio.sleep(back_off)
 
