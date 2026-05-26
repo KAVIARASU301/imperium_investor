@@ -4,7 +4,8 @@
 import logging
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta
-from ib_insync import Contract, Stock, Option, Future, Forex, MarketOrder, LimitOrder
+from ib_insync import Contract, Stock, Option, Future, Forex, MarketOrder, LimitOrder, util as ib_util
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -66,14 +67,17 @@ class IBKRDataFetcher:
                 formatDate=1
             )
 
-            return [{
-                'date': bar.date,
-                'open': bar.open,
-                'high': bar.high,
-                'low': bar.low,
-                'close': bar.close,
-                'volume': bar.volume
-            } for bar in bars]
+            df = ib_util.df(bars)
+            if df.empty:
+                return []
+
+            # Keep only payload columns and vectorize datetime normalization.
+            payload_columns = ['date', 'open', 'high', 'low', 'close', 'volume']
+            df = df.reindex(columns=payload_columns)
+            df['date'] = pd.to_datetime(df['date'], errors='coerce').dt.strftime('%Y-%m-%d %H:%M:%S')
+            df['date'] = df['date'].fillna('')
+
+            return df.to_dict('records')
 
         except Exception as e:
             logger.error(f"Error fetching historical data for {symbol}: {e}")
