@@ -769,6 +769,10 @@ class HeaderToolbar(QToolBar):
         """Configure on-demand symbol search provider for IBKR mode."""
         self.search_input.set_async_search_provider(provider)
 
+    def set_polygon_search_provider(self, provider) -> None:
+        """Configure on-demand symbol search provider for Polygon mode."""
+        self.set_ibkr_search_provider(provider)
+
     def set_live_search_callback(self, provider) -> None:
         """Backward-compatible alias used by MainWindow to wire IBKR live search."""
         self.set_ibkr_search_provider(provider)

@@ -28,6 +28,7 @@ from chart_engine import CandlestickChart as ChartWindow
 from chart_engine.core.data_loader import KiteDataFetcher
 from chart_engine.core.ibkr_data_fetcher import IBKRDataFetcher
 from ibkr.core.polygon_rest_client import PolygonRESTClient
+from polygon.symbol_resolver import PolygonSymbolResolver
 from ibkr.widgets.header_toolbar import HeaderToolbar
 from ibkr.widgets.settings_dialog import ColorSettingsDialog
 from ibkr.widgets.stock_info_dialog import show_stock_info
@@ -208,6 +209,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.instrument_map: Dict[str, Dict] = {}
         self._subscribed_tokens = set()
         self._ibkr_symbol_resolver: Optional[IBKRSymbolResolver] = None
+        self._polygon_symbol_resolver: Optional[PolygonSymbolResolver] = None
 
         if paper_trader:
             paper_trader.set_trade_logger(self.trade_logger)
@@ -353,7 +355,14 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.header_toolbar = HeaderToolbar(toolbar_client, self, enable_account_polling=False)
         if self.real_kite_client and hasattr(self.real_kite_client, "reqMatchingSymbols"):
             self._ibkr_symbol_resolver = IBKRSymbolResolver(self.real_kite_client, parent=self)
-            self.header_toolbar.set_ibkr_search_provider(self._ibkr_symbol_resolver.search)
+            settings = self.config_manager.load_settings()
+            provider = str(settings.get("market_data_provider", "ibkr") or "ibkr").strip().lower()
+            api_key = str(settings.get("polygon_api_key", "") or "").strip()
+            if provider == "polygon" and api_key:
+                self._polygon_symbol_resolver = PolygonSymbolResolver(PolygonRESTClient(api_key=api_key), parent=self)
+                self.header_toolbar.set_polygon_search_provider(self._polygon_symbol_resolver.search)
+            else:
+                self.header_toolbar.set_ibkr_search_provider(self._ibkr_symbol_resolver.search)
 
         self.account_manager = AccountManager(toolbar_client, parent=self)
         self.account_manager.margins_updated.connect(self.header_toolbar._handle_account_info_update)
