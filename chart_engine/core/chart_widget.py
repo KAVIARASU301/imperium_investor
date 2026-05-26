@@ -186,6 +186,7 @@ class CandlestickChart(QWidget):
         self.chart_view:   Optional[QWebEngineView] = None
         self.chart_bridge: Optional[ChartBridge]    = None
         self.channel:      Optional[QWebChannel]    = None
+        self._html_bootstrapped = False
 
         # ── Build UI ──
         self._build_ui()
@@ -754,7 +755,7 @@ class CandlestickChart(QWidget):
         drawings_json = json.dumps(saved_state.get("drawings", {}))
 
         # ── Path A: seamless reload on existing chart ─────────────────────
-        if self.chart_view and self.current_state == ChartState.LOADED:
+        if self.chart_view and self._html_bootstrapped:
             price_scale_currency = self._resolve_price_scale_currency()
             payload_dict = {
                 "candlestickData":          candles,
@@ -779,7 +780,7 @@ class CandlestickChart(QWidget):
                 "initialIndicatorVisibility": self._indicator_visibility,
             }
             loader_method = "refreshHistoricalData" if self._is_periodic_historical_refresh else "loadNewData"
-            self._js(f"if(window.chart) window.chart.{loader_method}({json.dumps(payload_dict)});")
+            self._inject_chart_payload(loader_method, payload_dict)
             self._update_symbol_info(df)
             self.symbol_loaded.emit(self.current_symbol)
             self.data_request_for_symbol.emit(self.current_symbol)
@@ -925,6 +926,20 @@ class CandlestickChart(QWidget):
             self._create_chart_view()
         html = build_chart_html(cfg)
         self.chart_view.setHtml(html)
+        self._html_bootstrapped = True
+
+    def _inject_chart_payload(self, loader_method: str, payload_dict: Dict[str, Any]) -> None:
+        """Push fresh symbol payload directly into live JS memory without rebuilding DOM."""
+        payload_json = json.dumps(payload_dict)
+        self._js(
+            "(function injectChartPayload(method,payload,attempt){"
+            "attempt=attempt||0;"
+            "if(window.chart && typeof window.chart[method]===\"function\"){"
+            "window.chart[method](payload); return;"
+            "}"
+            "if(attempt<30){setTimeout(function(){injectChartPayload(method,payload,attempt+1);},50);}"
+            "})(" + json.dumps(loader_method) + "," + payload_json + ",0);"
+        )
 
     def _create_chart_view(self) -> None:
         # Tear down previous view
@@ -936,6 +951,7 @@ class CandlestickChart(QWidget):
             self.channel.deleteLater()
             self.channel = None
 
+        self._html_bootstrapped = False
         self.chart_bridge = ChartBridge(self)
         self.chart_view   = QWebEngineView(self.chart_container)
         self.channel      = QWebChannel(self.chart_view.page())
