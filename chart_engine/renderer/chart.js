@@ -144,6 +144,7 @@ class FixedTradingChart {
         this.lastMouseX  = 0;
         this.lastMouseY  = 0;
         this.panOffsetPx = 0;
+        this._olderDataRequestPending = false;
         this.isUserZooming = false;
         this._rafPending = false;
         this._dirty = true;
@@ -2218,7 +2219,14 @@ class FixedTradingChart {
 
             // Hard boundaries to stop panning past edges
             const maxEnd = this.data.length - 1 + this.rightBufferCandles;
-            if (this.viewPortStart <= 0 && this.panOffsetPx > 0) this.panOffsetPx = 0;
+            if (this.viewPortStart <= 0 && this.panOffsetPx > 0) {
+                if (!this._olderDataRequestPending && this.chartBridge && typeof this.chartBridge.notify_older_data_requested === 'function') {
+                    this._olderDataRequestPending = true;
+                    try { this.chartBridge.notify_older_data_requested(); } catch (err) { console.error("notify_older_data_requested error:", err); }
+                    setTimeout(() => { this._olderDataRequestPending = false; }, 1200);
+                }
+                this.panOffsetPx = 0;
+            }
             if (this.viewPortEnd >= maxEnd && this.panOffsetPx < 0) this.panOffsetPx = 0;
 
             // Automatically unlock Auto-Scale on intentional vertical drag.

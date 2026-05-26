@@ -41,6 +41,16 @@ DEFAULT_DAYS_BACK: Dict[str, int] = {
     "month":   2000,
 }
 
+IBKR_DYNAMIC_DAYS_BACK: Dict[str, int] = {
+    "minute": 14,
+    "3minute": 14,
+    "5minute": 14,
+    "10minute": 14,
+    "15minute": 14,
+    "60minute": 30,
+    "day": 365,
+}
+
 
 def resolve_days_back(interval: str, overrides: Optional[Dict[str, int]] = None) -> int:
     base = int(DEFAULT_DAYS_BACK.get(interval, 365))
@@ -203,6 +213,8 @@ class ChartDataLoaderThread(QThread):
 
         to_date = self._effective_to_date(now_exchange)
         days_back = resolve_days_back(self.interval, self.days_back_overrides)
+        if str(getattr(caps, "name", "")).lower() == "ibkr":
+            days_back = int(self.days_back_overrides.get(self.interval, IBKR_DYNAMIC_DAYS_BACK.get(self.interval, days_back)))
         from_date = to_date.date() - timedelta(days=days_back)
         from_date_dt = datetime.combine(from_date, dt_time.min, tzinfo=exchange_tz)
         scoped_cache_key = self._build_cache_key(to_date)

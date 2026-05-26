@@ -36,6 +36,7 @@ from chart_engine.core.data_loader import (
     DEFAULT_DAYS_BACK,
     ChartDataLoaderThread,
     DataCache,
+    resolve_days_back,
 )
 from chart_engine.core.broker_protocol import BrokerDataFetcher
 from chart_engine.core.metrics import calculate_metrics
@@ -967,6 +968,7 @@ class CandlestickChart(QWidget):
         self.chart_bridge.text_note_edit_requested.connect(self._open_text_note_edit_dialog)
         self.chart_bridge.drawing_tool_cleared.connect(self._clear_active_tool_ui)
         self.chart_bridge.timeframe_step_requested.connect(self._step_timeframe)
+        self.chart_bridge.older_data_requested.connect(self._on_older_data_requested)
         self.chart_bridge.alert_creation_requested.connect(self.alert_creation_requested)
         self.chart_bridge.alert_price_updated.connect(self._on_alert_price_updated)
         self.chart_bridge.alert_line_deleted.connect(self.alert_line_deleted)
@@ -1623,6 +1625,22 @@ class CandlestickChart(QWidget):
         if self.current_symbol:
             self._save_current_state_sync()
             self._load_chart_data(force_refresh=True)
+
+    def _on_older_data_requested(self) -> None:
+        """Lazy-load older history only when user pans to the left boundary."""
+        if not self.current_symbol:
+            return
+        interval = self.current_interval
+        current_days = int(self._history_days_by_interval.get(interval, resolve_days_back(interval)))
+        expanded_days = min(4000, int(current_days * 2))
+        if expanded_days <= current_days:
+            return
+        self._history_days_by_interval[interval] = expanded_days
+        logger.info(
+            "Lazy-loading older candles for %s [%s]: %d -> %d days",
+            self.current_symbol, interval, current_days, expanded_days,
+        )
+        self._load_chart_data(force_refresh=True)
 
     def _retry_load(self) -> None:
         if self.current_symbol:
