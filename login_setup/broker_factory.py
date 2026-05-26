@@ -6,7 +6,6 @@ Provides unified interface for both Kite and IBKR brokers.
 
 import logging
 import importlib
-import asyncio
 from typing import Union, Dict, Any, Optional, Type, List
 from abc import ABC, abstractmethod
 
@@ -106,19 +105,7 @@ class IBKRClientWrapper(BrokerClientInterface):
         """Get account information as profile"""
         try:
             accounts = self.client.managedAccounts()
-            account_summary = []
-            try:
-                # Ensure this thread has an active loop so ib_insync sync wrappers can operate.
-                try:
-                    loop = asyncio.get_event_loop()
-                    if loop.is_closed():
-                        raise RuntimeError("Current event loop is closed")
-                except RuntimeError:
-                    asyncio.set_event_loop(asyncio.new_event_loop())
-
-                account_summary = self.client.accountSummary()
-            except Exception as summary_error:
-                logger.warning(f"Skipping account summary fetch due to runtime context: {summary_error}")
+            account_summary = self.client.accountSummary()
 
             # Enhanced profile with connection info
             profile = {
@@ -258,10 +245,7 @@ class IBKRClientWrapper(BrokerClientInterface):
                 self.client.disconnect()
                 logger.info("Disconnected from IBKR")
         except Exception as e:
-            if "event loop is closed" in str(e).lower():
-                logger.info("IBKR disconnect skipped: event loop already closed")
-            else:
-                logger.error(f"Error disconnecting from IBKR: {e}")
+            logger.error(f"Error disconnecting from IBKR: {e}")
 
     def _convert_to_ibkr_order(self, generic_order: Dict[str, Any]) -> Dict[str, Any]:
         """Convert generic order parameters to IBKR format"""
