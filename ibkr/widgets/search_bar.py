@@ -511,6 +511,10 @@ class EnhancedSearchInput(QLineEdit):
     def set_committed_symbol(self, symbol: str) -> None:
         self._committed_symbol = symbol.upper().strip()
 
+
+    def get_committed_symbol(self) -> str:
+        """Return last committed valid symbol (or empty string)."""
+        return self._committed_symbol
     def set_async_search_provider(
         self,
         provider: Optional[Callable[[str, Callable[[List[Dict[str, Any]]], None]], None]],
