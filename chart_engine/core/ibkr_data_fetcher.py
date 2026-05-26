@@ -5,61 +5,56 @@ import concurrent.futures
 import itertools
 import logging
 import os
-import queue
 import threading
 import time
 from collections import OrderedDict
 from datetime import date as date_cls
 from datetime import datetime, time as dt_time, timezone
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from chart_engine.core.broker_protocol import BarData, BrokerCapabilities, BrokerDataFetcher
 
 logger = logging.getLogger(__name__)
 
-
 _CLIENT_ID_LOCK = threading.Lock()
 _CLIENT_ID_COUNTER = itertools.count(1)
-_HISTORY_SEMAPHORE = threading.BoundedSemaphore(1)
+
+# Pacing and Caching
 _RECENT_REQUEST_LOCK = threading.Lock()
 _RECENT_REQUESTS: "OrderedDict[str, float]" = OrderedDict()
 _PACING_DELAY_S = 1.0
+
+# Shared Async Connection State
 _SHARED_HISTORY_IB: Optional[Any] = None
-_SHARED_HISTORY_LOCK = threading.Lock()
+_SHARED_HISTORY_LOCK_ASYNC: Optional[asyncio.Lock] = None
 
 
-# ─── Persistent Daemon Thread for IBKR History ───────────────────────────────
-# To prevent ib_insync's asyncio event loop from getting destroyed between symbol
-# changes (which causes deadlocks), we route all historical data fetching through
-# a single, persistent daemon thread. This also keeps the HMDS data farm warm.
+# ─── Native Asyncio Daemon Thread for True IBKR Concurrency ──────────────────
+# Upgraded from a sync queue to an asyncio event loop. This allows multiple
+# charts (Dual Chart mode) to fetch data concurrently on a single IB connection
+# without hitting TWS pacing blocks or freezing the UI.
 
 class HistoryExecutor(threading.Thread):
     def __init__(self):
-        super().__init__(daemon=True, name="IBKR-History-Thread")
-        self._q = queue.Queue()
+        super().__init__(daemon=True, name="IBKR-History-Async-Thread")
+        self.loop = asyncio.new_event_loop()
+        self._started = threading.Event()
         self.start()
 
     def run(self):
-        while True:
-            task = self._q.get()
-            if task is None:
-                break
-            func, args, kwargs, future = task
-            if future.set_running_or_notify_cancel():
-                try:
-                    result = func(*args, **kwargs)
-                    future.set_result(result)
-                except Exception as e:
-                    future.set_exception(e)
-            self._q.task_done()
+        asyncio.set_event_loop(self.loop)
+        self._started.set()
+        self.loop.run_forever()
 
-    def submit(self, func, *args, **kwargs):
-        future = concurrent.futures.Future()
-        self._q.put((func, args, kwargs, future))
-        return future
+    def submit_async(self, coro) -> concurrent.futures.Future:
+        """Submit an async coroutine to the background loop safely."""
+        self._started.wait()
+        return asyncio.run_coroutine_threadsafe(coro, self.loop)
+
 
 _HISTORY_EXECUTOR: Optional[HistoryExecutor] = None
 _HISTORY_EXECUTOR_LOCK = threading.Lock()
+
 
 def _get_history_executor() -> HistoryExecutor:
     global _HISTORY_EXECUTOR
@@ -67,11 +62,12 @@ def _get_history_executor() -> HistoryExecutor:
         if _HISTORY_EXECUTOR is None:
             _HISTORY_EXECUTOR = HistoryExecutor()
         return _HISTORY_EXECUTOR
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 
 
 def _ensure_event_loop() -> None:
-    """Ensure current thread has an active asyncio event loop for ib_insync sync wrappers."""
     try:
         loop = asyncio.get_event_loop()
         if loop.is_closed():
@@ -81,10 +77,8 @@ def _ensure_event_loop() -> None:
 
 
 def _next_history_client_id(base: int) -> int:
-    """Return a unique TWS clientId for short-lived chart history sessions."""
     with _CLIENT_ID_LOCK:
         n = next(_CLIENT_ID_COUNTER)
-    # Keep it deterministic but away from the main app clientId, usually 1.
     return int(base) + (os.getpid() % 1000) + (n % 500)
 
 
@@ -103,24 +97,14 @@ IBKR_INTERVAL_MAP: Dict[str, str] = {
 
 
 class IBKRDataFetcher(BrokerDataFetcher):
-    """
-    IBKR historical data adapter for the chart engine.
-
-    Important: the chart loader runs in a QThread. Reusing the already-connected
-    app-wide IB instance inside that worker thread can stall ib_insync requests
-    because the socket/asyncio ownership belongs to another thread.
-    Therefore, requests are safely dispatched to a persistent daemon thread
-    which maintains a dedicated IB connection.
-    """
-
     def __init__(
-        self,
-        ib_client,
-        what_to_show: str = "TRADES",
-        use_rth: bool = True,
-        dedicated_history_connection: bool = True,
-        history_client_id_base: int = 9000,
-        connect_timeout: float = 8.0,
+            self,
+            ib_client,
+            what_to_show: str = "TRADES",
+            use_rth: bool = True,
+            dedicated_history_connection: bool = True,
+            history_client_id_base: int = 9000,
+            connect_timeout: float = 8.0,
     ):
         self._ib = ib_client
         self._what_to_show = what_to_show
@@ -144,47 +128,38 @@ class IBKRDataFetcher(BrokerDataFetcher):
         )
 
     def fetch(
-        self,
-        symbol: str,
-        instrument_token: Any,
-        from_date: datetime,
-        to_date: datetime,
-        interval: str,
+            self,
+            symbol: str,
+            instrument_token: Any,
+            from_date: datetime,
+            to_date: datetime,
+            interval: str,
     ) -> List[BarData]:
+
         if not self._dedicated_history_connection:
             _ensure_event_loop()
-            return self._fetch_with_ib(
-                ib=self._ib,
-                symbol=symbol,
-                instrument_token=instrument_token,
-                from_date=from_date,
-                to_date=to_date,
-                interval=interval,
+            # If not dedicated, run the async method synchronously using the main IB instance
+            return self._ib.run(
+                self._fetch_with_ib_async(self._ib, symbol, instrument_token, from_date, to_date, interval)
             )
 
-        # Dispatch to the persistent history thread to preserve the asyncio event loop
+        # Dispatch the async pipeline to the persistent daemon loop
         executor = _get_history_executor()
-        future = executor.submit(
-            self._fetch_in_dedicated_thread,
-            symbol,
-            instrument_token,
-            from_date,
-            to_date,
-            interval,
+        future = executor.submit_async(
+            self._fetch_async(symbol, instrument_token, from_date, to_date, interval)
         )
         return future.result()
 
-    def _fetch_in_dedicated_thread(
-        self,
-        symbol: str,
-        instrument_token: Any,
-        from_date: datetime,
-        to_date: datetime,
-        interval: str,
+    async def _fetch_async(
+            self,
+            symbol: str,
+            instrument_token: Any,
+            from_date: datetime,
+            to_date: datetime,
+            interval: str,
     ) -> List[BarData]:
-        _ensure_event_loop()
-        ib = self._get_or_create_history_connection()
-        return self._fetch_with_ib(
+        ib = await self._get_or_create_history_connection_async()
+        return await self._fetch_with_ib_async(
             ib=ib,
             symbol=symbol,
             instrument_token=instrument_token,
@@ -193,14 +168,14 @@ class IBKRDataFetcher(BrokerDataFetcher):
             interval=interval,
         )
 
-    def _fetch_with_ib(
-        self,
-        ib,
-        symbol: str,
-        instrument_token: Any,
-        from_date: datetime,
-        to_date: datetime,
-        interval: str,
+    async def _fetch_with_ib_async(
+            self,
+            ib,
+            symbol: str,
+            instrument_token: Any,
+            from_date: datetime,
+            to_date: datetime,
+            interval: str,
     ) -> List[BarData]:
         from ib_insync import Contract, Stock
 
@@ -214,8 +189,6 @@ class IBKRDataFetcher(BrokerDataFetcher):
         qualified_once = contract is not None
 
         if contract is None and con_id > 0:
-            # With a valid conId, TWS can usually serve history without an extra
-            # qualifyContracts() round-trip. If it fails, we qualify and retry once.
             contract = Contract()
             contract.conId = con_id
             contract.symbol = symbol
@@ -225,7 +198,7 @@ class IBKRDataFetcher(BrokerDataFetcher):
         elif contract is None:
             stock = Stock(symbol, "SMART", "USD")
             try:
-                qualified = ib.qualifyContracts(stock)
+                qualified = await ib.qualifyContractsAsync(stock)
                 if not qualified:
                     raise ValueError(f"Could not qualify contract for {symbol}")
                 contract = qualified[0]
@@ -236,45 +209,32 @@ class IBKRDataFetcher(BrokerDataFetcher):
 
         logger.info(
             "Requesting IBKR historical data: %s conId=%s bar=%s duration=%s end=%s",
-            symbol,
-            getattr(contract, "conId", con_id) or con_id or "symbol-lookup",
-            bar_size,
-            duration_str,
-            end_dt_str or "latest",
+            symbol, getattr(contract, "conId", con_id) or con_id or "symbol-lookup",
+            bar_size, duration_str, end_dt_str or "latest",
         )
 
         try:
-            bars = self._request_historical_bars(
-                ib=ib,
-                contract=contract,
-                end_dt_str=end_dt_str,
-                duration_str=duration_str,
-                bar_size=bar_size,
+            bars = await self._request_historical_bars_async(
+                ib=ib, contract=contract, end_dt_str=end_dt_str,
+                duration_str=duration_str, bar_size=bar_size,
             )
         except Exception:
             if con_id > 0 and not qualified_once:
-                logger.debug("IBKR history failed with conId-only contract; qualifying %s and retrying", symbol)
-                contract = self._qualify_by_con_id(ib, symbol, con_id)
+                contract = await self._qualify_by_con_id_async(ib, symbol, con_id)
                 self._cache_contract(cache_key, contract)
-                bars = self._request_historical_bars(
-                    ib=ib,
-                    contract=contract,
-                    end_dt_str=end_dt_str,
-                    duration_str=duration_str,
-                    bar_size=bar_size,
+                bars = await self._request_historical_bars_async(
+                    ib=ib, contract=contract, end_dt_str=end_dt_str,
+                    duration_str=duration_str, bar_size=bar_size,
                 )
             else:
                 raise
 
         if not bars and con_id > 0 and not qualified_once:
-            contract = self._qualify_by_con_id(ib, symbol, con_id)
+            contract = await self._qualify_by_con_id_async(ib, symbol, con_id)
             self._cache_contract(cache_key, contract)
-            bars = self._request_historical_bars(
-                ib=ib,
-                contract=contract,
-                end_dt_str=end_dt_str,
-                duration_str=duration_str,
-                bar_size=bar_size,
+            bars = await self._request_historical_bars_async(
+                ib=ib, contract=contract, end_dt_str=end_dt_str,
+                duration_str=duration_str, bar_size=bar_size,
             )
 
         if not bars:
@@ -284,148 +244,95 @@ class IBKRDataFetcher(BrokerDataFetcher):
             self._cache_contract(cache_key, contract)
             self._cache_contract(self._contract_cache_key(symbol, int(getattr(contract, "conId", 0))), contract)
 
-        logger.info("Received %d IBKR bars for %s", len(bars), symbol)
         return [self._bar_to_bardata(b) for b in bars]
 
-    def _request_historical_bars(
-            self,
-            ib,
-            contract,
-            end_dt_str: str,
-            duration_str: str,
-            bar_size: str,
-            max_retries: int = 3,
+    async def _request_historical_bars_async(
+            self, ib, contract, end_dt_str: str, duration_str: str, bar_size: str, max_retries: int = 3
     ):
         pacing_key = f"{getattr(contract, 'conId', '')}_{bar_size}_{duration_str}_{end_dt_str}"
 
+        # 1. Pacing Delay (Applied ONLY to identical symbols/timeframes to prevent TWS soft-bans)
         with _RECENT_REQUEST_LOCK:
             last_time = _RECENT_REQUESTS.get(pacing_key)
             now = time.monotonic()
-            if last_time and (now - last_time) < _PACING_DELAY_S:
-                wait = _PACING_DELAY_S - (now - last_time)
-            else:
-                wait = 0.0
+            wait = _PACING_DELAY_S - (now - last_time) if (last_time and (now - last_time) < _PACING_DELAY_S) else 0.0
 
         if wait > 0:
             logger.info("TWS pacing: sleeping %.1fs before duplicate request %s", wait, pacing_key)
-            time.sleep(wait)
+            await asyncio.sleep(wait)
 
         request_kwargs = dict(
-            endDateTime=end_dt_str,
-            durationStr=duration_str,
-            barSizeSetting=bar_size,
-            whatToShow=self._what_to_show,
-            useRTH=self._use_rth,
-            formatDate=1,
-            keepUpToDate=False,
+            endDateTime=end_dt_str, durationStr=duration_str, barSizeSetting=bar_size,
+            whatToShow=self._what_to_show, useRTH=self._use_rth, formatDate=1, keepUpToDate=False,
         )
 
         last_bars = []
         for attempt in range(1, max_retries + 1):
-            with _HISTORY_SEMAPHORE:
-                with _RECENT_REQUEST_LOCK:
-                    _RECENT_REQUESTS[pacing_key] = time.monotonic()
-                    if len(_RECENT_REQUESTS) > 200:
-                        _RECENT_REQUESTS.popitem(last=False)
+            with _RECENT_REQUEST_LOCK:
+                _RECENT_REQUESTS[pacing_key] = time.monotonic()
+                if len(_RECENT_REQUESTS) > 200:
+                    _RECENT_REQUESTS.popitem(last=False)
 
-                try:
-                    bars = ib.reqHistoricalData(contract, timeout=60, **request_kwargs)
-                except TypeError:
-                    bars = ib.reqHistoricalData(contract, **request_kwargs)
-                except Exception as exc:
-                    logger.warning(
-                        "reqHistoricalData raised on attempt %d/%d: %s",
-                        attempt, max_retries, exc,
-                    )
-                    bars = []
+            try:
+                # 2. Asynchronous TWS Request (No Semaphore! Allows Parallel Chart Loading)
+                coro = ib.reqHistoricalDataAsync(contract, **request_kwargs)
+                bars = await asyncio.wait_for(coro, timeout=60.0)
+            except asyncio.TimeoutError:
+                logger.warning("reqHistoricalDataAsync timed out on attempt %d/%d", attempt, max_retries)
+                bars = []
+            except Exception as exc:
+                logger.warning("reqHistoricalDataAsync raised on attempt %d/%d: %s", attempt, max_retries, exc)
+                bars = []
 
             last_bars = bars or []
-
             if last_bars:
                 return last_bars
 
             if attempt < max_retries:
                 back_off = 5.0 * (2 ** (attempt - 1))
-                logger.warning(
-                    "Empty bars for %s [%s] on attempt %d/%d; "
-                    "retrying in %.0fs (HMDS may still be warming up)…",
-                    getattr(contract, "symbol", "?"),
-                    bar_size,
-                    attempt,
-                    max_retries,
-                    back_off,
-                )
-                time.sleep(back_off)
+                logger.warning("Empty bars for %s on attempt %d/%d; retrying in %.0fs...",
+                               getattr(contract, "symbol", "?"), attempt, max_retries, back_off)
+                await asyncio.sleep(back_off)
 
         return last_bars
 
-    @staticmethod
-    def _coerce_con_id(instrument_token: Any) -> int:
-        try:
-            return int(instrument_token) if instrument_token else 0
-        except (TypeError, ValueError):
-            return 0
-
-    @staticmethod
-    def _contract_cache_key(symbol: str, con_id: int) -> str:
-        if con_id > 0:
-            return f"conid:{con_id}"
-        return f"symbol:{str(symbol or '').strip().upper()}"
-
-    def _get_cached_contract(self, key: str):
-        with self._contract_cache_lock:
-            return self._contract_cache.get(key)
-
-    def _cache_contract(self, key: str, contract) -> None:
-        if not key or contract is None:
-            return
-        with self._contract_cache_lock:
-            self._contract_cache[key] = contract
-
-    def _qualify_by_con_id(self, ib, symbol: str, con_id: int):
+    async def _qualify_by_con_id_async(self, ib, symbol: str, con_id: int):
         from ib_insync import Contract
-
         contract = Contract()
         contract.conId = int(con_id)
         contract.symbol = symbol
         contract.secType = "STK"
         contract.exchange = "SMART"
         contract.currency = "USD"
-        qualified = ib.qualifyContracts(contract)
+        qualified = await ib.qualifyContractsAsync(contract)
         if not qualified:
             raise ValueError(f"Could not qualify contract for {symbol}/{con_id}")
         return qualified[0]
 
-    def _get_or_create_history_connection(self):
-        """Return a single, lazily-created shared history IB connection."""
-        global _SHARED_HISTORY_IB
-        with _SHARED_HISTORY_LOCK:
+    async def _get_or_create_history_connection_async(self):
+        """Return a single, lazily-created shared async IB connection."""
+        global _SHARED_HISTORY_IB, _SHARED_HISTORY_LOCK_ASYNC
+        if _SHARED_HISTORY_LOCK_ASYNC is None:
+            _SHARED_HISTORY_LOCK_ASYNC = asyncio.Lock()
+
+        async with _SHARED_HISTORY_LOCK_ASYNC:
             if _SHARED_HISTORY_IB is not None:
                 try:
                     if _SHARED_HISTORY_IB.isConnected():
                         return _SHARED_HISTORY_IB
                 except Exception:
                     pass
-            _SHARED_HISTORY_IB = self._connect_dedicated_ib()
+            _SHARED_HISTORY_IB = await self._connect_dedicated_ib_async()
             return _SHARED_HISTORY_IB
 
-    def close_history_connections(self) -> None:
-        """
-        No-op. We deliberately keep the connection alive in the daemon thread
-        to prevent the 10-15 second HMDS data farm warm-up penalty on every symbol change.
-        """
-        pass
-
-    def _connect_dedicated_ib(self):
-        """Create a new IB connection owned by the current loader thread."""
+    async def _connect_dedicated_ib_async(self):
         from ib_insync import IB
-
-        last_error: Optional[Exception] = None
+        last_error = None
         for host, port in self._connection_candidates():
             ib = IB()
             client_id = _next_history_client_id(self._history_client_id_base)
             try:
-                ib.connect(host=host, port=int(port), clientId=client_id, timeout=self._connect_timeout)
+                await ib.connectAsync(host=host, port=int(port), clientId=client_id, timeout=self._connect_timeout)
                 if ib.isConnected():
                     self._last_history_endpoint = (str(host), int(port))
                     logger.info("IBKR chart history connected on %s:%s clientId=%s", host, port, client_id)
@@ -436,8 +343,10 @@ class IBKRDataFetcher(BrokerDataFetcher):
                     ib.disconnect()
                 except Exception:
                     pass
-
         raise ConnectionError(f"Could not open dedicated IBKR history connection: {last_error}")
+
+    def close_history_connections(self) -> None:
+        pass
 
     def _connection_candidates(self) -> List[Tuple[str, int]]:
         candidates: List[Tuple[str, int]] = []
@@ -455,12 +364,10 @@ class IBKRDataFetcher(BrokerDataFetcher):
 
         client = getattr(self._ib, "client", None)
         for obj in (client, getattr(client, "conn", None), self._ib):
-            if obj is None:
-                continue
+            if obj is None: continue
             h = getattr(obj, "host", None) or getattr(obj, "_host", None)
             p = getattr(obj, "port", None) or getattr(obj, "_port", None)
-            if h and p:
-                add(h, p)
+            if h and p: add(h, p)
 
         for host in ("127.0.0.1", "localhost", "::1"):
             for port in (7496, 4001, 7497, 4002):
@@ -473,27 +380,44 @@ class IBKRDataFetcher(BrokerDataFetcher):
             _ensure_event_loop()
             try:
                 details = self._ib.reqContractDetails(Stock(symbol, "SMART", "USD"))
-                if details:
-                    return details[0].contract
+                if details: return details[0].contract
             except Exception as exc:
                 logger.error("resolve_instrument failed for %s: %s", symbol, exc)
             return None
 
         executor = _get_history_executor()
-        future = executor.submit(self._resolve_instrument_in_dedicated_thread, symbol)
+        future = executor.submit_async(self._resolve_instrument_in_dedicated_thread_async(symbol))
         return future.result()
 
-    def _resolve_instrument_in_dedicated_thread(self, symbol: str):
+    async def _resolve_instrument_in_dedicated_thread_async(self, symbol: str):
         from ib_insync import Stock
-        _ensure_event_loop()
         try:
-            ib = self._get_or_create_history_connection()
-            details = ib.reqContractDetails(Stock(symbol, "SMART", "USD"))
+            ib = await self._get_or_create_history_connection_async()
+            coro = ib.reqContractDetailsAsync(Stock(symbol, "SMART", "USD"))
+            details = await asyncio.wait_for(coro, timeout=10.0)
             if details:
                 return details[0].contract
         except Exception as exc:
             logger.error("resolve_instrument in dedicated thread failed for %s: %s", symbol, exc)
         return None
+
+    @staticmethod
+    def _coerce_con_id(instrument_token: Any) -> int:
+        try:
+            return int(instrument_token) if instrument_token else 0
+        except (TypeError, ValueError):
+            return 0
+
+    @staticmethod
+    def _contract_cache_key(symbol: str, con_id: int) -> str:
+        return f"conid:{con_id}" if con_id > 0 else f"symbol:{str(symbol or '').strip().upper()}"
+
+    def _get_cached_contract(self, key: str):
+        with self._contract_cache_lock: return self._contract_cache.get(key)
+
+    def _cache_contract(self, key: str, contract) -> None:
+        if not key or contract is None: return
+        with self._contract_cache_lock: self._contract_cache[key] = contract
 
     @staticmethod
     def _bar_to_bardata(bar) -> BarData:
@@ -509,31 +433,18 @@ class IBKRDataFetcher(BrokerDataFetcher):
             dt = raw_date
 
         return BarData(
-            time=dt,
-            open=float(bar.open),
-            high=float(bar.high),
-            low=float(bar.low),
-            close=float(bar.close),
-            volume=float(getattr(bar, "volume", 0) or 0),
+            time=dt, open=float(bar.open), high=float(bar.high), low=float(bar.low),
+            close=float(bar.close), volume=float(getattr(bar, "volume", 0) or 0)
         )
 
     @staticmethod
     def _format_end_datetime(to_date: datetime) -> str:
-        if to_date.tzinfo is None:
-            end_utc = to_date.replace(tzinfo=timezone.utc)
-        else:
-            end_utc = to_date.astimezone(timezone.utc)
-
-        if end_utc >= datetime.now(timezone.utc):
-            return ""
-        return end_utc.strftime("%Y%m%d %H:%M:%S UTC")
+        end_utc = to_date.replace(tzinfo=timezone.utc) if to_date.tzinfo is None else to_date.astimezone(timezone.utc)
+        return "" if end_utc >= datetime.now(timezone.utc) else end_utc.strftime("%Y%m%d %H:%M:%S UTC")
 
     @staticmethod
     def _compute_duration(from_date: datetime, to_date: datetime, bar_size: str) -> str:
         days = max(1, (to_date - from_date).days + 1)
         if bar_size in ("1 week", "1 month"):
-            years = max(1, min(10, (days // 365) + 1))
-            return f"{years} Y"
-        if bar_size == "1 day":
-            return f"{min(days, 365)} D"
-        return f"{min(days, 30)} D"
+            return f"{max(1, min(10, (days // 365) + 1))} Y"
+        return f"{min(days, 365)} D" if bar_size == "1 day" else f"{min(days, 30)} D"
