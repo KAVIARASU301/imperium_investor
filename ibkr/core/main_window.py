@@ -2333,9 +2333,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     @Slot(str, float)
     def _show_order_dialog(self, symbol: str = "", ltp_from_chart: float = 0.0):
         """Show order dialog - simplified"""
-        symbol = (symbol or "").strip().upper()
+        symbol = self._resolve_known_symbol(symbol)
         if not symbol:
-            symbol = self._get_active_symbol_for_shortcuts()
+            symbol = self._resolve_known_symbol(self._get_active_symbol_for_shortcuts())
         if not symbol:
             show_info("Select a symbol on chart before placing an order")
             return
@@ -2375,12 +2375,12 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         except Exception:
             payload = {}
 
-        symbol = str(payload.get("symbol") or "").strip().upper()
+        symbol = self._resolve_known_symbol(payload.get("symbol") or "")
         level_price = float(payload.get("price") or 0.0)
         ltp_hint = float(payload.get("ltp") or 0.0)
 
         if not symbol:
-            symbol = self._get_active_symbol_for_shortcuts()
+            symbol = self._resolve_known_symbol(self._get_active_symbol_for_shortcuts())
         if not symbol:
             show_info("Select a symbol on chart before placing an order")
             return
@@ -2428,6 +2428,10 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
     def _on_header_sell_order(self, symbol: str):
         """Handle sell order from header"""
+        symbol = self._resolve_known_symbol(symbol)
+        if not symbol:
+            show_info("Select a symbol on chart before placing an order")
+            return
         ltp = self._get_fresh_ltp(symbol)
         if ltp == 0.0:
             show_error(f"Could not fetch LTP for {symbol}")
@@ -3119,6 +3123,41 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         if not symbol:
             symbol = (self.header_toolbar.get_current_symbol() or "").strip().upper()
         return symbol
+
+    def _resolve_known_symbol(self, symbol: str) -> str:
+        """Resolve chart/header symbol aliases (including conId aliases) to a known tradingsymbol."""
+        value = str(symbol or "").strip().upper()
+        if not value:
+            return ""
+        if value in self.instrument_map:
+            return value
+
+        token: int = 0
+        if value.startswith("CONID:"):
+            try:
+                token = int(value.split(":", 1)[1].strip() or 0)
+            except Exception:
+                token = 0
+        if token <= 0 and value.isdigit():
+            token = int(value)
+
+        if token > 0:
+            resolved = self._resolve_symbol_from_token(token)
+            if resolved:
+                return str(resolved).strip().upper()
+
+        if ":" in value:
+            tail = value.split(":", 1)[1].strip().upper()
+            if tail in self.instrument_map:
+                return tail
+
+        if value.endswith("-EQ"):
+            base = value[:-3]
+            if base in self.instrument_map:
+                return base
+        elif f"{value}-EQ" in self.instrument_map:
+            return f"{value}-EQ"
+        return value
 
     def _focus_order_quantity_input(self):
         active_modal = QApplication.activeModalWidget()
