@@ -1,4 +1,4 @@
-# kite/widgets/positions_table.py
+# ibkr/widgets/positions_table.py
 """
 Institutional-grade Positions Table — Ultra-Compact Mode.
 
@@ -194,19 +194,19 @@ class Position:
     token: int
     ltp: float = 0.0
     pnl: float = 0.0
-    product: str = "MIS"
+    product: str = "CNC"
     prev_close: float = 0.0
     is_partial_building: bool = False
 
     @classmethod
-    def from_kite_position(cls, pos_data: Dict) -> "Position":
+    def from_broker_position(cls, pos_data: Dict) -> "Position":
         return cls(
-            symbol=pos_data.get("tradingsymbol", ""),
-            quantity=int(pos_data.get("quantity", 0) or 0),
-            avg_price=float(pos_data.get("average_price", 0) or 0),
-            token=int(pos_data.get("instrument_token", 0) or 0),
-            ltp=float(pos_data.get("last_price", 0) or 0),
-            product=pos_data.get("product") or pos_data.get("product_type") or "MIS",
+            symbol=str(pos_data.get("tradingsymbol") or pos_data.get("symbol") or ""),
+            quantity=int(pos_data.get("quantity", pos_data.get("position", 0)) or 0),
+            avg_price=float(pos_data.get("average_price", pos_data.get("avg_price", 0)) or 0),
+            token=int(pos_data.get("instrument_token", pos_data.get("conId", 0)) or 0),
+            ltp=float(pos_data.get("last_price", pos_data.get("market_price", pos_data.get("current_price", 0))) or 0),
+            product=pos_data.get("product") or pos_data.get("product_type") or pos_data.get("secType") or "CNC",
         )
 
 

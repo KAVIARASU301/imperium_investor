@@ -19,6 +19,7 @@ class MarketDataWorker(QThread):
         super().__init__()
         self.ib = ib_client
         self._subscribed_contracts: Dict[str, Contract] = {}
+        self._symbol_to_key: Dict[str, str] = {}
         self._is_running = True
 
     def run(self):
@@ -54,6 +55,9 @@ class MarketDataWorker(QThread):
         con_id = getattr(contract, "conId", 0) or 0
         symbol = (getattr(contract, "symbol", "") or "").strip().upper()
         return str(con_id) if con_id else symbol
+
+    def _symbol_key(self, contract: Optional[Contract]) -> str:
+        return (getattr(contract, "symbol", "") or "").strip().upper()
 
     def _contract_from_item(self, item: Any) -> Optional[Contract]:
         """Accept IB Contract objects, conId ints, symbol strings, or instrument dicts."""
@@ -138,9 +142,15 @@ class MarketDataWorker(QThread):
         if not self.ib.isConnected():
             return
         for contract in contracts:
-            key = self._contract_key(contract)
+            requested_key = self._contract_key(contract)
+            requested_symbol = self._symbol_key(contract)
+            if requested_key and requested_key in self._subscribed_contracts:
+                continue
+            if requested_symbol and requested_symbol in self._symbol_to_key:
+                continue
+            key = requested_key
             label = (getattr(contract, "symbol", "") or key or "UNKNOWN").strip().upper()
-            if not key or key in self._subscribed_contracts:
+            if not key and not requested_symbol:
                 continue
             try:
                 # conId-only contracts are common in the IBKR instrument map.
@@ -150,10 +160,15 @@ class MarketDataWorker(QThread):
                     contract = qualified[0]
                     key = self._contract_key(contract)
                     label = (getattr(contract, "symbol", "") or key or label).strip().upper()
+                symbol_key = self._symbol_key(contract)
                 if key in self._subscribed_contracts:
+                    continue
+                if symbol_key and symbol_key in self._symbol_to_key:
                     continue
                 self.ib.reqMktData(contract, '', False, False)
                 self._subscribed_contracts[key] = contract
+                if symbol_key:
+                    self._symbol_to_key[symbol_key] = key
                 logger.info(f"Subscribed: {label}")
             except Exception as e:
                 logger.error(f"Subscribe failed {label}: {e}")
@@ -163,10 +178,17 @@ class MarketDataWorker(QThread):
             return
         for contract in contracts:
             key = self._contract_key(contract)
+            symbol_key = self._symbol_key(contract)
+            if key not in self._subscribed_contracts and symbol_key:
+                key = self._symbol_to_key.get(symbol_key, key)
             if key in self._subscribed_contracts:
                 try:
-                    self.ib.cancelMktData(self._subscribed_contracts[key])
+                    subscribed = self._subscribed_contracts[key]
+                    self.ib.cancelMktData(subscribed)
                     del self._subscribed_contracts[key]
+                    subscribed_symbol = self._symbol_key(subscribed)
+                    if subscribed_symbol:
+                        self._symbol_to_key.pop(subscribed_symbol, None)
                 except Exception as e:
                     logger.error(f"Unsubscribe failed {key}: {e}")
 
@@ -193,8 +215,33 @@ class MarketDataWorker(QThread):
             self.subscribe_to_contracts(contracts)
 
     def set_instruments(self, instruments: Iterable[Any]):
-        self.unsubscribe_from_contracts(list(self._subscribed_contracts.values()))
-        self.add_instruments(instruments)
+        desired_contracts: List[Contract] = []
+        desired_keys: set[str] = set()
+        desired_symbols: set[str] = set()
+
+        for item in (instruments or []):
+            contract = self._contract_from_item(item)
+            if contract is None:
+                continue
+            key = self._contract_key(contract)
+            symbol = self._symbol_key(contract)
+            if key:
+                desired_keys.add(key)
+            if symbol:
+                desired_symbols.add(symbol)
+            desired_contracts.append(contract)
+
+        if self._subscribed_contracts:
+            to_remove: List[Contract] = []
+            for sub_key, sub_contract in list(self._subscribed_contracts.items()):
+                sub_symbol = self._symbol_key(sub_contract)
+                if sub_key in desired_keys or (sub_symbol and sub_symbol in desired_symbols):
+                    continue
+                to_remove.append(sub_contract)
+            if to_remove:
+                self.unsubscribe_from_contracts(to_remove)
+
+        self.subscribe_to_contracts(desired_contracts)
 
     def stop(self):
         logger.info("Stopping MarketDataWorker...")
