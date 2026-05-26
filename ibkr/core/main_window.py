@@ -2395,9 +2395,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     @Slot(str, float)
     def _show_order_dialog(self, symbol: str = "", ltp_from_chart: float = 0.0):
         """Show order dialog - simplified"""
-        symbol = self._resolve_known_symbol(symbol)
+        symbol = (symbol or "").strip().upper()
         if not symbol:
-            symbol = self._resolve_known_symbol(self._get_active_symbol_for_shortcuts())
+            symbol = self._get_active_symbol_for_shortcuts()
         if not symbol:
             show_info("Select a symbol on chart before placing an order")
             return
@@ -2437,12 +2437,12 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         except Exception:
             payload = {}
 
-        symbol = self._resolve_known_symbol(payload.get("symbol") or "")
+        symbol = str(payload.get("symbol") or "").strip().upper()
         level_price = float(payload.get("price") or 0.0)
         ltp_hint = float(payload.get("ltp") or 0.0)
 
         if not symbol:
-            symbol = self._resolve_known_symbol(self._get_active_symbol_for_shortcuts())
+            symbol = self._get_active_symbol_for_shortcuts()
         if not symbol:
             show_info("Select a symbol on chart before placing an order")
             return
