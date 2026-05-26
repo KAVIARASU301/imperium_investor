@@ -56,6 +56,8 @@ from ibkr.core.stop_loss_manager import StopLossManager
 from ibkr.core.shutdown_manager import CleanShutdownMixin
 
 from ibkr.core.market_data_worker import MarketDataWorker
+from polygon.websocket_worker import PolygonWebSocketWorker
+from polygon.client import PolygonRESTClient as PolygonLiveClient
 from ibkr.utils.paper_trading_manager import (
     PaperTradingManager,
     PaperTradingMixin,
@@ -1075,7 +1077,21 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.instrument_loader = None
         self._initialize_ibkr_instruments()
 
-        # Only start market data worker if actually connected.
+        settings = self.config_manager.load_settings()
+        provider = str(settings.get("market_data_provider", "ibkr") or "ibkr").strip().lower()
+        if provider == "polygon":
+            api_key = str(settings.get("polygon_api_key", "") or "").strip()
+            if api_key:
+                poll_interval = float(settings.get("polygon_poll_interval_seconds", 1.0) or 1.0)
+                self.market_data_worker = PolygonWebSocketWorker(PolygonLiveClient(api_key=api_key), poll_interval_s=poll_interval)
+                self.market_data_worker.data_received.connect(self._enqueue_market_data)
+                self.market_data_worker.connection_established.connect(self._on_websocket_connect)
+                self.market_data_worker.start()
+                logger.info("Started PolygonWebSocketWorker for market data")
+                return
+            logger.warning("market_data_provider=polygon but polygon_api_key missing; falling back to IBKR worker")
+
+        # Only start IB market data worker if actually connected.
         if self.real_kite_client and self.real_kite_client.isConnected():
             self.market_data_worker = MarketDataWorker(self.real_kite_client)
             self.market_data_worker.data_received.connect(self._enqueue_market_data)
@@ -1103,8 +1119,12 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         # Create live search resolver
         self.ibkr_symbol_resolver = IBKRSymbolResolver(self.real_kite_client, parent=self)
 
-        # Wire search bar to use live IBKR search
-        self.header_toolbar.set_live_search_callback(self._ibkr_live_search)
+        settings = self.config_manager.load_settings()
+        provider = str(settings.get("market_data_provider", "ibkr") or "ibkr").strip().lower()
+        if provider == "polygon" and self._polygon_symbol_resolver:
+            self.header_toolbar.set_live_search_callback(self._polygon_live_search)
+        else:
+            self.header_toolbar.set_live_search_callback(self._ibkr_live_search)
 
         # Load seed instruments
         self.ibkr_instrument_loader = IBKRInstrumentLoader(self.real_kite_client)
@@ -1114,6 +1134,12 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         )
         self.ibkr_instrument_loader.start()
 
+
+    def _polygon_live_search(self, query: str, callback) -> None:
+        if not self._polygon_symbol_resolver:
+            callback([])
+            return
+        self._polygon_symbol_resolver.search(query, callback)
     def _ibkr_live_search(self, query: str, callback) -> None:
         """Called by search bar for every keystroke — hits IBKR API live."""
         if not query or len(query) < 1:
