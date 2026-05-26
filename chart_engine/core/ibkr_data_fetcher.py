@@ -116,6 +116,10 @@ class IBKRDataFetcher(BrokerDataFetcher):
         self._contract_cache_lock = threading.Lock()
         self._last_history_endpoint: Optional[Tuple[str, int]] = None
 
+        # Keep HMDS warm from startup so first/next symbol transitions do not
+        # pay the dedicated history-socket cold-start cost.
+        self.prewarm_connection()
+
     @property
     def capabilities(self) -> BrokerCapabilities:
         return BrokerCapabilities(
@@ -355,7 +359,8 @@ class IBKRDataFetcher(BrokerDataFetcher):
         raise ConnectionError(f"Could not open dedicated IBKR history connection: {last_error}")
 
     def close_history_connections(self) -> None:
-        pass
+        """Intentionally keep dedicated HMDS connection alive for app lifetime."""
+        return None
 
     def _connection_candidates(self) -> List[Tuple[str, int]]:
         candidates: List[Tuple[str, int]] = []
