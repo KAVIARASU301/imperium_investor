@@ -27,8 +27,6 @@ from ibkr.widgets.watchlist_table import TabbedWatchlistWidget
 from chart_engine import CandlestickChart as ChartWindow
 from chart_engine.core.data_loader import KiteDataFetcher
 from chart_engine.core.ibkr_data_fetcher import IBKRDataFetcher
-from ibkr.core.polygon_rest_client import PolygonRESTClient
-from polygon.symbol_resolver import PolygonSymbolResolver
 from ibkr.widgets.header_toolbar import HeaderToolbar
 from ibkr.widgets.settings_dialog import ColorSettingsDialog
 from ibkr.widgets.stock_info_dialog import show_stock_info
@@ -50,15 +48,12 @@ from ibkr.core.chart_lines_manager import ChartLinesManager
 from ibkr.core.data_cache import MarketAwareDataCache
 from ibkr.core.account_manager import AccountManager
 from ibkr.utils.ibkr_symbol_resolver import IBKRSymbolResolver
-from polygon.instrument_loader import PolygonInstrumentLoader
 
 from ibkr.core.position_manager import PositionManager
 from ibkr.core.stop_loss_manager import StopLossManager
 from ibkr.core.shutdown_manager import CleanShutdownMixin
 
 from ibkr.core.market_data_worker import MarketDataWorker
-from polygon.websocket_worker import PolygonWebSocketWorker
-from polygon.client import PolygonRESTClient as PolygonLiveClient
 from ibkr.utils.paper_trading_manager import (
     PaperTradingManager,
     PaperTradingMixin,
@@ -212,7 +207,6 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.instrument_map: Dict[str, Dict] = {}
         self._subscribed_tokens = set()
         self._ibkr_symbol_resolver: Optional[IBKRSymbolResolver] = None
-        self._polygon_symbol_resolver: Optional[PolygonSymbolResolver] = None
 
         if paper_trader:
             paper_trader.set_trade_logger(self.trade_logger)
@@ -358,14 +352,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.header_toolbar = HeaderToolbar(toolbar_client, self, enable_account_polling=False)
         if self.real_kite_client and hasattr(self.real_kite_client, "reqMatchingSymbols"):
             self._ibkr_symbol_resolver = IBKRSymbolResolver(self.real_kite_client, parent=self)
-            settings = self.config_manager.load_settings()
-            provider = str(settings.get("market_data_provider", "ibkr") or "ibkr").strip().lower()
-            api_key = str(settings.get("polygon_api_key", "") or "").strip()
-            if provider == "polygon" and api_key:
-                self._polygon_symbol_resolver = PolygonSymbolResolver(PolygonRESTClient(api_key=api_key), parent=self)
-                self.header_toolbar.set_polygon_search_provider(self._polygon_symbol_resolver.search)
-            else:
-                self.header_toolbar.set_ibkr_search_provider(self._ibkr_symbol_resolver.search)
+            self.header_toolbar.set_ibkr_search_provider(self._ibkr_symbol_resolver.search)
 
         self.account_manager = AccountManager(toolbar_client, parent=self)
         self.account_manager.margins_updated.connect(self.header_toolbar._handle_account_info_update)
@@ -1078,20 +1065,6 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.instrument_loader = None
         self._initialize_ibkr_instruments()
 
-        settings = self.config_manager.load_settings()
-        provider = str(settings.get("market_data_provider", "ibkr") or "ibkr").strip().lower()
-        if provider == "polygon":
-            api_key = str(settings.get("polygon_api_key", "") or "").strip()
-            if api_key:
-                poll_interval = float(settings.get("polygon_poll_interval_seconds", 1.0) or 1.0)
-                self.market_data_worker = PolygonWebSocketWorker(PolygonLiveClient(api_key=api_key), poll_interval_s=poll_interval)
-                self.market_data_worker.data_received.connect(self._enqueue_market_data)
-                self.market_data_worker.connection_established.connect(self._on_websocket_connect)
-                self.market_data_worker.start()
-                logger.info("Started PolygonWebSocketWorker for market data")
-                return
-            logger.warning("market_data_provider=polygon but polygon_api_key missing; falling back to IBKR worker")
-
         # Only start IB market data worker if actually connected.
         if self.real_kite_client and self.real_kite_client.isConnected():
             self.market_data_worker = MarketDataWorker(self.real_kite_client)
@@ -1120,24 +1093,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         # Create live search resolver
         self.ibkr_symbol_resolver = IBKRSymbolResolver(self.real_kite_client, parent=self)
 
-        settings = self.config_manager.load_settings()
-        provider = str(settings.get("market_data_provider", "ibkr") or "ibkr").strip().lower()
-        if provider == "polygon" and self._polygon_symbol_resolver:
-            self.header_toolbar.set_live_search_callback(self._polygon_live_search)
-        else:
-            self.header_toolbar.set_live_search_callback(self._ibkr_live_search)
-
-        # Load provider-specific instruments
-        if provider == "polygon":
-            settings = self.config_manager.load_settings()
-            api_key = str(settings.get("polygon_api_key", "") or "").strip()
-            if api_key:
-                self.instrument_loader = PolygonInstrumentLoader(PolygonLiveClient(api_key=api_key))
-                self.instrument_loader.instruments_loaded.connect(self._on_instruments_loaded)
-                self.instrument_loader.progress_update.connect(lambda msg: logger.info("Polygon loader: %s", msg))
-                self.instrument_loader.start()
-                return
-            logger.warning("Polygon provider selected but API key missing; using IBKR instrument loader")
+        self.header_toolbar.set_live_search_callback(self._ibkr_live_search)
 
         self.ibkr_instrument_loader = IBKRInstrumentLoader(self.real_kite_client)
         self.ibkr_instrument_loader.instruments_loaded.connect(self._on_instruments_loaded)
@@ -1147,11 +1103,6 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.ibkr_instrument_loader.start()
 
 
-    def _polygon_live_search(self, query: str, callback) -> None:
-        if not self._polygon_symbol_resolver:
-            callback([])
-            return
-        self._polygon_symbol_resolver.search(query, callback)
     def _ibkr_live_search(self, query: str, callback) -> None:
         """Called by search bar for every keystroke — hits IBKR API live."""
         if not query or len(query) < 1:
@@ -3118,37 +3069,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         if hasattr(client, "reqHistoricalData"):
             settings = self.config_manager.load_settings()
             provider = str(settings.get("market_data_provider", "ibkr") or "ibkr").strip().lower()
-            polygon_client = None
-            api_key = str(settings.get("polygon_api_key", "") or "").strip()
-            timeout_s = float(settings.get("polygon_timeout_seconds", 10) or 10)
-
-            # If the config file doesn't contain the key, fall back to the
-            # encrypted America broker credentials used by login setup.
-            if not api_key:
-                try:
-                    from login_setup.broker_modes import BrokerMode
-                    from login_setup.token_manager import EnhancedTokenManager
-
-                    credentials = EnhancedTokenManager().load_broker_credentials(BrokerMode.AMERICA) or {}
-                    api_key = str(credentials.get("polygon_api_key", "") or "").strip()
-                except Exception as exc:
-                    logger.debug("Unable to load Polygon key from token manager: %s", exc)
-
-            # Respect the explicit data-provider choice from settings:
-            # - provider=ibkr   -> chart history uses IBKR
-            # - provider=polygon -> chart history uses Polygon (if key present)
-            use_polygon_for_chart = provider == "polygon"
-            if use_polygon_for_chart:
-                if api_key:
-                    polygon_client = PolygonRESTClient(api_key=api_key, timeout_s=timeout_s)
-                    logger.info("Using Polygon REST as chart market-data provider (execution via IBKR).")
-                elif provider == "polygon":
-                    logger.warning("market_data_provider=polygon but polygon_api_key is empty; falling back to IBKR.")
-            # Important: chart loads run in QThread workers. Reusing the app's
-            # foreground IB socket from those worker threads can deadlock/stall
-            # ib_insync because socket + asyncio loop ownership belongs to the
-            # market-data thread. Keep chart history on dedicated connection(s).
-            return IBKRDataFetcher(client, polygon_client=polygon_client)
+            # IBKR-only market data path for charts.
+            return IBKRDataFetcher(client)
         return KiteDataFetcher(client)
 
     def _setup_watchlist_shortcuts(self):
