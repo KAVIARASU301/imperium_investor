@@ -12,6 +12,8 @@ import logging
 import math
 from datetime import datetime, timedelta, timezone, time, date
 from typing import Any, Dict, List, Optional, Tuple
+
+from chart_engine.core.broker_protocol import BrokerCapabilities
 from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
@@ -56,6 +58,18 @@ class DataFetcher:
     def __init__(self, client: Any):
         self.client = client
         self._contract_cache: Dict[str, Any] = {}
+
+    @property
+    def capabilities(self) -> BrokerCapabilities:
+        """Chart-engine capability descriptor for this broker fetcher."""
+        return BrokerCapabilities(
+            name="ibkr",
+            exchange_tz="America/New_York",
+            currency="USD",
+            supports_options=True,
+            supports_greeks=True,
+            supports_level2=True,
+        )
 
     # ------------------------------------------------------------------
     # Public chart-engine interface

@@ -96,6 +96,22 @@ class ShutdownManager:
                 critical=True,  # Must drain DB queue before exit
             ),
             ShutdownStep(
+                name="stop_network_resilience",
+                fn=self._stop_network_resilience,
+                timeout_ms=1_500,
+            ),
+            ShutdownStep(
+                name="stop_instrument_loader",
+                fn=self._stop_instrument_loader,
+                timeout_ms=2_500,
+            ),
+            ShutdownStep(
+                name="disconnect_ibkr_client",
+                fn=self._disconnect_ibkr_client,
+                timeout_ms=2_000,
+                critical=True,
+            ),
+            ShutdownStep(
                 name="stop_remaining_timers",
                 fn=self._stop_all_timers,
                 timeout_ms=500,
@@ -189,6 +205,52 @@ class ShutdownManager:
             mdw.stop()
         except Exception as e:
             logger.error(f"MarketDataWorker.stop() raised: {e}")
+
+
+    def _stop_network_resilience(self) -> None:
+        w = self.window
+        try:
+            if hasattr(w, "network_monitor") and w.network_monitor:
+                w.network_monitor.stop()
+        except Exception as e:
+            logger.warning(f"Failed to stop network monitor: {e}")
+
+        try:
+            if hasattr(w, "reconnection_manager") and w.reconnection_manager:
+                retry_timer = getattr(w.reconnection_manager, "_retry_timer", None)
+                if retry_timer and retry_timer.isActive():
+                    retry_timer.stop()
+                w.reconnection_manager._reconnecting = False
+        except Exception as e:
+            logger.warning(f"Failed to stop reconnection manager: {e}")
+
+    def _stop_instrument_loader(self) -> None:
+        w = self.window
+        loader = getattr(w, "ibkr_instrument_loader", None)
+        if not loader:
+            return
+        if loader.isRunning():
+            loader.requestInterruption()
+            loader.quit()
+            if not loader.wait(2000):
+                logger.warning("IBKRInstrumentLoader did not stop gracefully; terminating")
+                loader.terminate()
+                loader.wait(500)
+
+    def _disconnect_ibkr_client(self) -> None:
+        w = self.window
+        ib_client = getattr(w, "real_kite_client", None)
+        if not ib_client:
+            return
+        try:
+            if hasattr(ib_client, "isConnected") and ib_client.isConnected():
+                ib_client.disconnect()
+                logger.info("IBKR client disconnected")
+        except RuntimeError as e:
+            if "Event loop is closed" in str(e):
+                logger.info("IBKR client disconnect skipped because event loop is already closed")
+            else:
+                raise
 
     def _stop_all_timers(self) -> None:
         """Stop any QTimer children that are still active."""
