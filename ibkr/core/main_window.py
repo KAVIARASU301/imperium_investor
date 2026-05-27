@@ -4,7 +4,7 @@ import logging
 from typing import Any
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QMainWindow, QSplitter, QTabWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QMainWindow, QSplitter, QVBoxLayout, QWidget
 
 from chart_engine import CandlestickChart
 from chart_engine.core.ibkr_data_fetcher import IBKRDataFetcher
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 class QullamaggieWindow(QMainWindow):
-    """IBKR window that mirrors Kite terminal structure (left widgets + chart)."""
+    """IBKR window with Kite-style three-column main workspace."""
 
     def __init__(self, trader: Any, real_kite_client: Any = None, api_key: str = "", access_token: str = ""):
         super().__init__()
@@ -64,23 +64,31 @@ class QullamaggieWindow(QMainWindow):
         self.header_toolbar = HeaderToolbar(self.ib, self, enable_account_polling=False)
         root_layout.addWidget(self.header_toolbar)
 
-        splitter = QSplitter(Qt.Horizontal)
-        root_layout.addWidget(splitter, 1)
+        self.main_splitter = QSplitter(Qt.Horizontal)
+        root_layout.addWidget(self.main_splitter, 1)
 
-        left_panel = QTabWidget()
-        self.watchlist_table = TabbedWatchlistWidget(self)
         self.scanner_table = FinvizScannerTable(self)
+        self.watchlist_table = TabbedWatchlistWidget(self)
         self.positions_table = PositionsTable(self)
 
-        left_panel.addTab(self.watchlist_table, "Watchlist")
-        left_panel.addTab(self.scanner_table, "Scanner")
-        left_panel.addTab(self.positions_table, "Positions")
-
         self.chart = CandlestickChart(IBKRDataFetcher(self.data_client), storage_dir="ibkr/user_data/chart_drawings")
+        self.scanner_table.setObjectName("scannerPanel")
+        self.chart.setObjectName("primaryChartPanel")
+        self.watchlist_table.setObjectName("watchlistPanel")
 
-        splitter.addWidget(left_panel)
-        splitter.addWidget(self.chart)
-        splitter.setSizes([460, 1140])
+        self.scanner_table.setMinimumWidth(220)
+        self.chart.setMinimumWidth(460)
+        self.watchlist_table.setMinimumWidth(220)
+
+        self.main_splitter.addWidget(self.scanner_table)
+        self.main_splitter.addWidget(self.chart)
+        self.main_splitter.addWidget(self.watchlist_table)
+        self.main_splitter.setChildrenCollapsible(False)
+        self.main_splitter.setHandleWidth(1)
+        self.main_splitter.setStretchFactor(0, 2)
+        self.main_splitter.setStretchFactor(1, 6)
+        self.main_splitter.setStretchFactor(2, 3)
+        self.main_splitter.setSizes([300, 980, 420])
 
         self._apply_color_theme()
 
