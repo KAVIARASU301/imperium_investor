@@ -127,6 +127,16 @@ class MarketDataWorker(QThread):
         # This command performs a diff in the worker thread instead.
         self._commands.put(("set", list(instruments or [])))
 
+    def request_snapshots(self, instruments: Iterable[Any]) -> None:
+        """Request one-shot quote snapshots without blocking the UI thread.
+
+        Used by the watchlist when markets are closed or immediately after a
+        symbol is added, so LTP/%Chg populate even before a live tick arrives.
+        """
+        items = list(instruments or [])
+        if items:
+            self._commands.put(("snapshot", items))
+
     def is_connected(self) -> bool:
         return bool(self.ib and self.ib.isConnected())
 
@@ -166,6 +176,8 @@ class MarketDataWorker(QThread):
                 self._unsubscribe_items(items)
             elif command == "set":
                 self._set_items(items)
+            elif command == "snapshot":
+                self._snapshot_items(items)
 
     def _set_items(self, items: List[Any]) -> None:
         desired_keys: Set[str] = set()
@@ -254,6 +266,42 @@ class MarketDataWorker(QThread):
             logger.info("Subscribed IBKR market data: %s", symbol or key)
         except Exception as exc:
             logger.error("IBKR market data subscribe failed for %s: %s", symbol or key, exc)
+
+    def _snapshot_items(self, items: List[Any]) -> None:
+        """Fetch one-shot LTP/close snapshots in the worker thread."""
+        ticks: List[Dict[str, Any]] = []
+        for item in items[:75]:  # protect against accidental huge snapshot bursts
+            key = self._key_from_item(item)
+            if not key:
+                continue
+            with self._lock:
+                cached_contract = self._contract_cache.get(key) or self._contract_cache.get(self._symbol_to_key.get(key, ""))
+            contract = cached_contract or self._contract_from_item(item)
+            if contract is None:
+                continue
+            try:
+                if cached_contract is None:
+                    qualified = self.ib.qualifyContracts(contract)
+                    if qualified:
+                        contract = qualified[0]
+                ticker = self.ib.reqMktData(contract, "", True, False)
+                # Snapshot delivery is asynchronous; wait briefly inside the
+                # worker only. The UI remains responsive.
+                for _ in range(5):
+                    self.ib.waitOnUpdate(timeout=0.15)
+                    tick = self._tick_from_ticker(ticker)
+                    if tick:
+                        ticks.append(tick)
+                        with self._lock:
+                            t_key = str(tick.get("instrument_token") or key)
+                            self._latest_ticks[t_key] = tick
+                            if tick.get("symbol"):
+                                self._latest_ticks[str(tick.get("symbol")).upper()] = tick
+                        break
+            except Exception as exc:
+                logger.debug("IBKR snapshot failed for %s: %s", key, exc)
+        if ticks:
+            self.data_received.emit(ticks)
 
     def _unsubscribe_items(self, items: List[Any]) -> None:
         keys = {self._symbol_to_key.get(self._key_from_item(item), self._key_from_item(item)) for item in items}
@@ -353,42 +401,58 @@ class MarketDataWorker(QThread):
             return Stock(symbol, "SMART", currency)
         return None
 
+    def _tick_from_ticker(self, ticker: Ticker) -> Optional[Dict[str, Any]]:
+        contract = getattr(ticker, "contract", None)
+        if not contract:
+            return None
+        symbol = (getattr(contract, "symbol", "") or "").strip().upper()
+        con_id = int(getattr(contract, "conId", 0) or 0)
+        key = str(con_id) if con_id else symbol
+        if not key:
+            return None
+
+        market_price = _clean_float(ticker.marketPrice() if hasattr(ticker, "marketPrice") else 0.0, 0.0)
+        last_price = _positive_price(market_price, getattr(ticker, "last", 0.0), getattr(ticker, "close", 0.0), getattr(ticker, "bid", 0.0), getattr(ticker, "ask", 0.0))
+        if last_price <= 0:
+            return None
+
+        prev_close = _positive_price(
+            getattr(ticker, "prevClose", 0.0),
+            getattr(ticker, "close", 0.0),
+        )
+        change_pct = ((last_price - prev_close) / prev_close * 100.0) if prev_close > 0 else 0.0
+        tick = {
+            "symbol": symbol,
+            "tradingsymbol": symbol,
+            "instrument_token": con_id or key,
+            "conId": con_id or 0,
+            "last_price": last_price,
+            "volume": int(_clean_float(getattr(ticker, "volume", 0.0), 0.0)),
+            "close": prev_close,
+            "prev_close": prev_close,
+            "change_percent": change_pct,
+            "open": _clean_float(getattr(ticker, "open", 0.0), 0.0),
+            "high": _clean_float(getattr(ticker, "high", 0.0), 0.0),
+            "low": _clean_float(getattr(ticker, "low", 0.0), 0.0),
+            "bid": _clean_float(getattr(ticker, "bid", 0.0), 0.0),
+            "ask": _clean_float(getattr(ticker, "ask", 0.0), 0.0),
+            "ohlc": {
+                "open": _clean_float(getattr(ticker, "open", 0.0), 0.0),
+                "high": _clean_float(getattr(ticker, "high", 0.0), 0.0),
+                "low": _clean_float(getattr(ticker, "low", 0.0), 0.0),
+                "close": prev_close,
+            },
+        }
+        return tick
+
     def _on_pending_tickers(self, tickers: List[Ticker]) -> None:
         ticks_data: List[Dict[str, Any]] = []
         for ticker in tickers:
-            contract = getattr(ticker, "contract", None)
-            if not contract:
+            tick = self._tick_from_ticker(ticker)
+            if not tick:
                 continue
-            symbol = (getattr(contract, "symbol", "") or "").strip().upper()
-            con_id = int(getattr(contract, "conId", 0) or 0)
-            key = str(con_id) if con_id else symbol
-            if not key:
-                continue
-
-            market_price = _clean_float(ticker.marketPrice() if hasattr(ticker, "marketPrice") else 0.0, 0.0)
-            last_price = _positive_price(market_price, ticker.last, ticker.close, ticker.bid, ticker.ask)
-            if last_price <= 0:
-                continue
-
-            tick = {
-                "symbol": symbol,
-                "tradingsymbol": symbol,
-                "instrument_token": con_id or key,
-                "last_price": last_price,
-                "volume": int(_clean_float(ticker.volume, 0.0)),
-                "close": _clean_float(ticker.close, 0.0),
-                "open": _clean_float(ticker.open, 0.0),
-                "high": _clean_float(ticker.high, 0.0),
-                "low": _clean_float(ticker.low, 0.0),
-                "bid": _clean_float(ticker.bid, 0.0),
-                "ask": _clean_float(ticker.ask, 0.0),
-                "ohlc": {
-                    "open": _clean_float(ticker.open, 0.0),
-                    "high": _clean_float(ticker.high, 0.0),
-                    "low": _clean_float(ticker.low, 0.0),
-                    "close": _clean_float(ticker.close, 0.0),
-                },
-            }
+            symbol = str(tick.get("symbol") or "").upper()
+            key = str(tick.get("instrument_token") or symbol)
             with self._lock:
                 self._latest_ticks[key] = tick
                 if symbol:

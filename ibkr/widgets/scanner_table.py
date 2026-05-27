@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem, QHeaderView,
     QAbstractItemView, QPushButton, QHBoxLayout, QLabel, QComboBox, QMessageBox,
     QDialog, QLineEdit, QGroupBox, QTextEdit,
-    QStyledItemDelegate, QStyleOptionViewItem, QApplication, QStyle
+    QStyledItemDelegate, QStyleOptionViewItem, QApplication, QStyle, QSizePolicy
 )
 from PySide6.QtGui import QColor, QFont, QBrush, QCursor, QFontMetrics, QIcon
 from PySide6.QtCore import QItemSelectionModel
@@ -1209,6 +1209,10 @@ class ChartinkScannerTable(QWidget):
         self.scan_dropdown = QComboBox()
         self.scan_dropdown.setObjectName("minimalDropdown")
         self.scan_dropdown.setFixedHeight(CHART_TOOLBAR_CONTROL_HEIGHT)
+        self.scan_dropdown.setMinimumWidth(0)
+        self.scan_dropdown.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.scan_dropdown.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.scan_dropdown.setMinimumContentsLength(0)
         self.scan_dropdown.currentIndexChanged.connect(self._on_scan_selection_changed)
         header_layout.addWidget(self.scan_dropdown, 1)
 

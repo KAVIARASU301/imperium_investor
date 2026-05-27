@@ -1228,6 +1228,10 @@ class ChartinkScannerTable(QWidget):
         self.scan_dropdown = QComboBox()
         self.scan_dropdown.setObjectName("minimalDropdown")
         self.scan_dropdown.setFixedHeight(CHART_TOOLBAR_CONTROL_HEIGHT)
+        self.scan_dropdown.setMinimumWidth(0)
+        self.scan_dropdown.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.scan_dropdown.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.scan_dropdown.setMinimumContentsLength(0)
         self.scan_dropdown.currentIndexChanged.connect(self._on_scan_selection_changed)
         header_layout.addWidget(self.scan_dropdown, 1)
 
