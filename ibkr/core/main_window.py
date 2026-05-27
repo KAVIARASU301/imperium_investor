@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from chart_engine import CandlestickChart
-from ibkr.core.ibkr_data_fetcher import IBKRDataFetcher
+from ibkr.core.data_fetcher import IBKRDataFetcher
 from ibkr.core.market_data_worker import IBKRMarketDataWorker
 from ibkr.core.order_router import IBKROrderRouter
 from ibkr.core.position_manager import IBKRPositionManager
