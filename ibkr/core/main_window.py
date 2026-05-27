@@ -3,8 +3,20 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QMainWindow, QSplitter, QVBoxLayout, QWidget
+from PySide6.QtCore import QPoint, Qt
+from PySide6.QtGui import QAction
+from PySide6.QtWidgets import (
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QMainWindow,
+    QMenuBar,
+    QPushButton,
+    QSizePolicy,
+    QSplitter,
+    QVBoxLayout,
+    QWidget,
+)
 
 from chart_engine import CandlestickChart
 from chart_engine.core.ibkr_data_fetcher import IBKRDataFetcher
@@ -51,6 +63,10 @@ class QullamaggieWindow(QMainWindow):
         self.setWindowTitle("qullamaggie - USA (IBKR)")
         self.resize(1600, 950)
 
+        self._is_maximized = False
+        self._drag_pos = QPoint()
+
+        self._setup_frameless_window()
         self._build_ui()
         self._wire_signals()
         self.refresh_positions()
@@ -59,13 +75,22 @@ class QullamaggieWindow(QMainWindow):
         root = QWidget(self)
         self.setCentralWidget(root)
         root_layout = QVBoxLayout(root)
-        root_layout.setContentsMargins(6, 6, 6, 6)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
+
+        self.menu_bar = self._create_menu_bar()
+        self.top_bar = self._create_top_bar()
+        root_layout.addWidget(self.top_bar)
+
+        content = QWidget(self)
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(6, 6, 6, 6)
 
         self.header_toolbar = HeaderToolbar(self.ib, self, enable_account_polling=False)
-        root_layout.addWidget(self.header_toolbar)
+        content_layout.addWidget(self.header_toolbar)
 
         self.main_splitter = QSplitter(Qt.Horizontal)
-        root_layout.addWidget(self.main_splitter, 1)
+        content_layout.addWidget(self.main_splitter, 1)
 
         self.scanner_table = FinvizScannerTable(self)
         self.watchlist_table = TabbedWatchlistWidget(self)
@@ -91,6 +116,7 @@ class QullamaggieWindow(QMainWindow):
         self.main_splitter.setSizes([300, 980, 420])
 
         self._apply_color_theme()
+        root_layout.addWidget(content, 1)
 
     def _wire_signals(self) -> None:
         self.header_toolbar.symbol_selected.connect(self._load_symbol)
@@ -161,3 +187,99 @@ class QullamaggieWindow(QMainWindow):
             return
         positions = [Position.from_broker_position(pos) for pos in raw_positions]
         self.positions_table.update_positions(positions)
+
+
+    def _setup_frameless_window(self) -> None:
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
+        self.setMinimumSize(1200, 700)
+        self.menuBar().setVisible(False)
+
+    def _create_menu_bar(self) -> QMenuBar:
+        menu_bar = QMenuBar()
+        menu_bar.setObjectName("mainMenuBar")
+        menu_bar.setNativeMenuBar(False)
+
+        file_menu = menu_bar.addMenu("File")
+        file_menu.addAction("Exit", self.close)
+
+        view_menu = menu_bar.addMenu("View")
+        self.scanner_action = QAction("Scanner", self, checkable=True, checked=True)
+        self.scanner_action.toggled.connect(self.scanner_table.setVisible)
+        view_menu.addAction(self.scanner_action)
+
+        self.watchlist_action = QAction("Watchlist", self, checkable=True, checked=True)
+        self.watchlist_action.toggled.connect(self.watchlist_table.setVisible)
+        view_menu.addAction(self.watchlist_action)
+
+        tools_menu = menu_bar.addMenu("Tools")
+        tools_menu.addAction("Settings", self._open_color_settings)
+
+        return menu_bar
+
+    def _create_top_bar(self) -> QWidget:
+        top_bar = QWidget()
+        top_bar.setObjectName("customTitleBar")
+        top_bar.setFixedHeight(28)
+
+        root_layout = QGridLayout(top_bar)
+        root_layout.setContentsMargins(7, 0, 4, 0)
+
+        self.menu_container = QWidget()
+        self.menu_container.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Fixed)
+        menu_layout = QHBoxLayout(self.menu_container)
+        menu_layout.setContentsMargins(0, 0, 0, 0)
+        self.menu_bar.setFixedHeight(24)
+        menu_layout.addWidget(self.menu_bar)
+
+        title = QLabel("Qullamaggie [IBKR]")
+
+        controls = QWidget()
+        controls_layout = QHBoxLayout(controls)
+        controls_layout.setContentsMargins(0, 0, 0, 0)
+        controls_layout.setSpacing(4)
+
+        min_btn = QPushButton("−")
+        min_btn.setFixedSize(24, 22)
+        min_btn.clicked.connect(self.showMinimized)
+        controls_layout.addWidget(min_btn)
+
+        self.max_btn = QPushButton("□")
+        self.max_btn.setFixedSize(24, 22)
+        self.max_btn.clicked.connect(self._toggle_maximize)
+        controls_layout.addWidget(self.max_btn)
+
+        close_btn = QPushButton("✕")
+        close_btn.setFixedSize(24, 22)
+        close_btn.clicked.connect(self.close)
+        controls_layout.addWidget(close_btn)
+
+        root_layout.addWidget(self.menu_container, 0, 0)
+        root_layout.addWidget(title, 0, 1)
+        root_layout.addWidget(controls, 0, 2, alignment=Qt.AlignmentFlag.AlignRight)
+        root_layout.setColumnStretch(0, 1)
+        root_layout.setColumnStretch(2, 1)
+
+        top_bar.mousePressEvent = self._title_bar_mouse_press
+        top_bar.mouseMoveEvent = self._title_bar_mouse_move
+        top_bar.mouseDoubleClickEvent = self._title_bar_double_click
+        return top_bar
+
+    def _toggle_maximize(self) -> None:
+        if self._is_maximized:
+            self.showNormal()
+            self._is_maximized = False
+        else:
+            self.showMaximized()
+            self._is_maximized = True
+
+    def _title_bar_mouse_press(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+
+    def _title_bar_mouse_move(self, event) -> None:
+        if event.buttons() == Qt.MouseButton.LeftButton and not self._is_maximized:
+            self.move(event.globalPosition().toPoint() - self._drag_pos)
+
+    def _title_bar_double_click(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._toggle_maximize()
