@@ -78,6 +78,10 @@ class QullamaggieWindow(QMainWindow):
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
 
+        self.scanner_table = FinvizScannerTable(self)
+        self.watchlist_table = TabbedWatchlistWidget(self)
+        self.positions_table = PositionsTable(self)
+
         self.menu_bar = self._create_menu_bar()
         self.top_bar = self._create_top_bar()
         root_layout.addWidget(self.top_bar)
@@ -91,10 +95,6 @@ class QullamaggieWindow(QMainWindow):
 
         self.main_splitter = QSplitter(Qt.Horizontal)
         content_layout.addWidget(self.main_splitter, 1)
-
-        self.scanner_table = FinvizScannerTable(self)
-        self.watchlist_table = TabbedWatchlistWidget(self)
-        self.positions_table = PositionsTable(self)
 
         self.chart = CandlestickChart(IBKRDataFetcher(self.data_client), storage_dir="ibkr/user_data/chart_drawings")
         self.scanner_table.setObjectName("scannerPanel")
