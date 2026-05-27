@@ -4,7 +4,7 @@ import json
 import os
 import requests
 from bs4 import BeautifulSoup as bs
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from ibkr.scanner.run_finviz_scan import quick_scrape
 
 from PySide6.QtCore import Signal, Slot, Qt, QThread, QTimer, QSize
@@ -184,6 +184,30 @@ class VolumeStrengthDelegate(QStyledItemDelegate):
             size.setWidth(max(size.width(), 82))
         return size
 
+
+
+
+def _coerce_change_pct(raw_value: Any) -> float:
+    """Normalize scanner change values from different key formats into float percent."""
+    if raw_value is None:
+        return 0.0
+    if isinstance(raw_value, (int, float)):
+        return float(raw_value)
+
+    token = str(raw_value).strip()
+    if not token:
+        return 0.0
+
+    token = token.replace('%', '').replace(',', '').strip()
+    if token.startswith('(') and token.endswith(')'):
+        token = '-' + token[1:-1].strip()
+    if token == '--':
+        return 0.0
+
+    try:
+        return float(token)
+    except (TypeError, ValueError):
+        return 0.0
 
 def _volume_strength_level(volume: int) -> int:
     if volume >= 5_000_000:
@@ -996,10 +1020,13 @@ class ScanWorker(QThread):
             scan_results = []
             for row in tickers:
                 if isinstance(row, dict):
-                    symbol = str(row.get('symbol', '')).strip().upper()
-                    price = float(row.get('price', 0.0) or 0.0)
-                    change_pct = float(row.get('change_pct', 0.0) or 0.0)
-                    volume = int(row.get('volume', 0) or 0)
+                    symbol = str(row.get('symbol', row.get('ticker', ''))).strip().upper()
+                    price = float(row.get('price', row.get('Price', 0.0)) or 0.0)
+                    change_pct_raw = (
+                        row.get('change_pct', row.get('change', row.get('Change', row.get('chg_pct', row.get('CHG%', 0.0)))))
+                    )
+                    change_pct = _coerce_change_pct(change_pct_raw)
+                    volume = int(row.get('volume', row.get('Volume', 0)) or 0)
                 else:
                     symbol = str(row).strip().upper()
                     price = 0.0
@@ -1279,14 +1306,15 @@ class ChartinkScannerTable(QWidget):
 
         # THE FIX: Native Qt sizing for ultimate density
         # Symbol absorbs empty space and shrinks first. Data columns perfectly fit contents.
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(0, 56)
         self.table.setColumnWidth(3, 64)
 
         # Prevent columns from disappearing entirely if crushed
-        header.setMinimumSectionSize(35)
+        header.setMinimumSectionSize(0)
         header.setStretchLastSection(False)
 
         self.table.verticalHeader().setVisible(False)
