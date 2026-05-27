@@ -85,7 +85,6 @@ class StatusBar(QWidget):
 
         self.market_label = QLabel("MARKET: --", self.content)
         self.api_label = QLabel('API <span style="color:#6f7a8c;">●</span>', self.content)
-        self.isp_ip_label = QLabel('ISP IP <span style="color:#6f7a8c;">●</span>', self.content)
         self.day_mtm_label = QLabel("DAY MTM: --", self.content)
         self.day_realized_label = QLabel("REALIZED: --", self.content)
         self.exposure_label = QLabel("EXPOSURE: --", self.content)
@@ -99,7 +98,6 @@ class StatusBar(QWidget):
         min_widths = {
             self.market_label: 82,
             self.api_label: 44,
-            self.isp_ip_label: 66,
             self.day_mtm_label: 120,
             self.day_realized_label: 110,
             self.exposure_label: 112,
@@ -179,7 +177,7 @@ class StatusBar(QWidget):
         try:
             self._clear_layout()
 
-            base_labels = (self.market_label, self.api_label, self.isp_ip_label)
+            base_labels = (self.market_label, self.api_label)
             metric_labels = (self.day_mtm_label, self.day_realized_label, self.exposure_label)
 
             if self._metrics_on_right:
@@ -321,13 +319,6 @@ class StatusBar(QWidget):
             f'API <span style="color:{dot_color}; font-size:10px;">●</span>',
         )
 
-    def set_isp_ip_status(self, changed: bool | None = None) -> None:
-        dot_color = self.COLOR_GREEN if changed is False else (self.COLOR_RED if changed is True else "#6f7a8c")
-        self._set_label_text(
-            self.isp_ip_label,
-            f'ISP IP <span style="color:{dot_color}; font-size:10px;">●</span>',
-        )
-
     def set_message(self, text: str) -> None:
         # Status bar is reserved for persistent system vitals.
         # Temporary messages should go through GlobalStatusManager toasts.
@@ -351,7 +342,6 @@ class GlobalStatusManager(QObject):
         if self._status_bar:
             self._status_bar.set_market_status("--")
             self._status_bar.set_api_status("--")
-            self._status_bar.set_isp_ip_status(None)
         logger.debug("GlobalStatusManager initialized")
 
     def is_initialized(self) -> bool:

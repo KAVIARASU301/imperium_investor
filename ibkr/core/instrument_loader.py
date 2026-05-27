@@ -1,280 +1,220 @@
-# src/utils/instrument_loader.py
+# ibkr/core/instrument_loader.py
+"""Fast IBKR instrument seed loader.
 
-"""Robust instrument loader for fetching trading instruments from Zerodha with enhanced retry logic"""
+IBKR does not provide a Kite-style daily dump of all instruments.  Loading a
+large universe by calling reqMatchingSymbols/reqContractDetails repeatedly will
+make startup feel slow and can hit pacing limits.  This loader therefore:
+
+  1. Loads a small cached/seed US-equity universe immediately.
+  2. Lets the live symbol resolver enrich exact symbols on demand.
+  3. Emits the same payload shape the existing main window expects.
+"""
+
+from __future__ import annotations
 
 import logging
-import time
-import pickle
 import os
+import pickle
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional, Tuple
+from typing import Any, Dict, List, Optional
+
 from PySide6.QtCore import QThread, Signal
-from ibkr.widgets.search_bar import SymbolIndex
-import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
+
+try:
+    from ibkr.widgets.search_bar import SymbolIndex
+except Exception:  # pragma: no cover - app package may not be importable in tests
+    class SymbolIndex:  # type: ignore
+        def __init__(self):
+            self.items = []
+        def build(self, instruments):
+            self.items = list(instruments or [])
 
 logger = logging.getLogger(__name__)
 
+_SEED_SYMBOLS = [
+    ("AAPL", "Apple Inc.", "NASDAQ"),
+    ("MSFT", "Microsoft Corporation", "NASDAQ"),
+    ("NVDA", "NVIDIA Corporation", "NASDAQ"),
+    ("AMZN", "Amazon.com Inc.", "NASDAQ"),
+    ("META", "Meta Platforms Inc.", "NASDAQ"),
+    ("GOOGL", "Alphabet Inc. Class A", "NASDAQ"),
+    ("GOOG", "Alphabet Inc. Class C", "NASDAQ"),
+    ("TSLA", "Tesla Inc.", "NASDAQ"),
+    ("AMD", "Advanced Micro Devices Inc.", "NASDAQ"),
+    ("NFLX", "Netflix Inc.", "NASDAQ"),
+    ("AVGO", "Broadcom Inc.", "NASDAQ"),
+    ("INTC", "Intel Corporation", "NASDAQ"),
+    ("QCOM", "Qualcomm Inc.", "NASDAQ"),
+    ("ADBE", "Adobe Inc.", "NASDAQ"),
+    ("CRM", "Salesforce Inc.", "NYSE"),
+    ("ORCL", "Oracle Corporation", "NYSE"),
+    ("JPM", "JPMorgan Chase & Co.", "NYSE"),
+    ("BAC", "Bank of America Corporation", "NYSE"),
+    ("WFC", "Wells Fargo & Company", "NYSE"),
+    ("GS", "Goldman Sachs Group Inc.", "NYSE"),
+    ("V", "Visa Inc.", "NYSE"),
+    ("MA", "Mastercard Incorporated", "NYSE"),
+    ("UNH", "UnitedHealth Group Incorporated", "NYSE"),
+    ("LLY", "Eli Lilly and Company", "NYSE"),
+    ("JNJ", "Johnson & Johnson", "NYSE"),
+    ("ABBV", "AbbVie Inc.", "NYSE"),
+    ("MRK", "Merck & Co. Inc.", "NYSE"),
+    ("XOM", "Exxon Mobil Corporation", "NYSE"),
+    ("CVX", "Chevron Corporation", "NYSE"),
+    ("WMT", "Walmart Inc.", "NYSE"),
+    ("COST", "Costco Wholesale Corporation", "NASDAQ"),
+    ("HD", "Home Depot Inc.", "NYSE"),
+    ("MCD", "McDonald's Corporation", "NYSE"),
+    ("NKE", "Nike Inc.", "NYSE"),
+    ("DIS", "Walt Disney Company", "NYSE"),
+    ("SPY", "SPDR S&P 500 ETF Trust", "ARCA"),
+    ("QQQ", "Invesco QQQ Trust", "NASDAQ"),
+    ("IWM", "iShares Russell 2000 ETF", "ARCA"),
+    ("DIA", "SPDR Dow Jones Industrial Average ETF", "ARCA"),
+]
 
-class InstrumentLoader(QThread):
-    """Background thread for loading instruments from Zerodha with robust retry logic and caching"""
 
+def _seed_instruments() -> List[Dict[str, Any]]:
+    return [
+        {
+            "tradingsymbol": symbol,
+            "symbol": symbol,
+            "name": name,
+            "exchange": exchange,
+            "primaryExchange": exchange,
+            "instrument_token": 0,
+            "conId": 0,
+            "currency": "USD",
+            "secType": "STK" if symbol not in {"SPY", "QQQ", "IWM", "DIA"} else "ETF",
+        }
+        for symbol, name, exchange in _SEED_SYMBOLS
+    ]
+
+
+class IBKRInstrumentLoader(QThread):
     instruments_loaded = Signal(dict)
     error_occurred = Signal(str)
-    progress_update = Signal(str)  # For status updates
+    progress_update = Signal(str)
 
-    def __init__(self, kite_client: Any, cache_dir: str = None):
+    def __init__(self, ib_client: Any, cache_dir: Optional[str] = None, cache_ttl_hours: int = 24):
         super().__init__()
-        self.kite = kite_client
+        self.ib = ib_client
         self.cache_dir = cache_dir or os.path.expanduser("~/.qullamaggie/cache")
-        self.cache_file = os.path.join(self.cache_dir, "instruments_cache.pkl")
-        self.cache_info_file = os.path.join(self.cache_dir, "cache_info.pkl")
+        self.cache_file = os.path.join(self.cache_dir, "ibkr_instruments_cache.pkl")
+        self.cache_info_file = os.path.join(self.cache_dir, "ibkr_instruments_cache_info.pkl")
+        self.cache_ttl = timedelta(hours=max(1, int(cache_ttl_hours)))
         self._stop_requested = False
-
-        # Create cache directory if it doesn't exist
         os.makedirs(self.cache_dir, exist_ok=True)
 
-        # Configure requests session with retry strategy
-        self.session = requests.Session()
-        retry_strategy = Retry(
-            total=3,
-            status_forcelist=[429, 500, 502, 503, 504],
-            backoff_factor=1,
-            allowed_methods=["HEAD", "GET", "OPTIONS"]
-        )
-        adapter = HTTPAdapter(max_retries=retry_strategy)
-        self.session.mount("http://", adapter)
-        self.session.mount("https://", adapter)
-
-    def stop(self):
-        """Request the thread to stop"""
+    def stop(self) -> None:
         self._stop_requested = True
-        logger.info("Stop requested for InstrumentLoader")
 
-    def is_cache_valid(self) -> bool:
-        """Check if cached instruments are still valid (within 24 hours)"""
+    def run(self) -> None:
+        try:
+            self.progress_update.emit("Loading IBKR symbol cache…")
+            instruments = self._load_valid_cache()
+            if not instruments:
+                instruments = _seed_instruments()
+                self._save_cache(instruments)
+                self.progress_update.emit("Loaded fast US equity seed list")
+            else:
+                self.progress_update.emit(f"Loaded {len(instruments)} cached IBKR instruments")
+
+            if self._stop_requested:
+                return
+
+            self.instruments_loaded.emit(self._build_payload(instruments))
+        except Exception as exc:
+            logger.error("IBKRInstrumentLoader failed: %s", exc, exc_info=True)
+            self.error_occurred.emit(str(exc))
+            # Last-resort seed means the UI/search bar still opens instantly.
+            self.instruments_loaded.emit(self._build_payload(_seed_instruments()))
+
+    def merge_and_cache(self, instruments: List[Dict[str, Any]]) -> None:
+        """Optional helper used by live search code to persist resolved conIds."""
+        current = self._load_cache_any_age() or _seed_instruments()
+        by_symbol = {str(i.get("tradingsymbol") or i.get("symbol") or "").upper(): dict(i) for i in current}
+        for inst in instruments or []:
+            sym = str(inst.get("tradingsymbol") or inst.get("symbol") or "").upper()
+            if sym:
+                by_symbol[sym] = {**by_symbol.get(sym, {}), **inst, "tradingsymbol": sym, "symbol": sym}
+        self._save_cache(list(by_symbol.values()))
+
+    def _load_valid_cache(self) -> Optional[List[Dict[str, Any]]]:
         try:
             if not os.path.exists(self.cache_file) or not os.path.exists(self.cache_info_file):
-                return False
-
-            with open(self.cache_info_file, 'rb') as f:
-                cache_info = pickle.load(f)
-
-            cache_time = cache_info.get('timestamp')
-            if not cache_time:
-                return False
-
-            # Check if cache is less than 24 hours old
-            cache_age = datetime.now() - cache_time
-            is_valid = cache_age < timedelta(hours=24)
-
-            if is_valid:
-                logger.info(f"Using cached instruments (age: {cache_age})")
-            else:
-                logger.info(f"Cache expired (age: {cache_age})")
-
-            return is_valid
-
-        except Exception as e:
-            logger.error(f"Error checking cache validity: {e}")
-            return False
-
-    def load_cached_instruments(self) -> Optional[List[Dict[str, Any]]]:
-        """Load instruments from cache"""
-        try:
-            with open(self.cache_file, 'rb') as f:
-                instruments = pickle.load(f)
-            logger.info(f"Loaded {len(instruments)} instruments from cache")
-            return instruments
-        except Exception as e:
-            logger.error(f"Error loading cached instruments: {e}")
+                return None
+            with open(self.cache_info_file, "rb") as fh:
+                info = pickle.load(fh)
+            timestamp = info.get("timestamp")
+            if not timestamp or datetime.now() - timestamp > self.cache_ttl:
+                return None
+            return self._load_cache_any_age()
+        except Exception as exc:
+            logger.warning("IBKR instrument cache validation failed: %s", exc)
             return None
 
-    def save_instruments_to_cache(self, instruments: List[Dict[str, Any]]):
-        """Save instruments to cache with timestamp"""
+    def _load_cache_any_age(self) -> Optional[List[Dict[str, Any]]]:
         try:
-            # Save instruments
-            with open(self.cache_file, 'wb') as f:
-                pickle.dump(instruments, f)
+            with open(self.cache_file, "rb") as fh:
+                data = pickle.load(fh)
+            if isinstance(data, list):
+                return data
+        except Exception as exc:
+            logger.debug("No IBKR instrument cache available: %s", exc)
+        return None
 
-            # Save cache info
-            cache_info = {
-                'timestamp': datetime.now(),
-                'count': len(instruments)
-            }
-            with open(self.cache_info_file, 'wb') as f:
-                pickle.dump(cache_info, f)
-
-            logger.info(f"Cached {len(instruments)} instruments")
-
-        except Exception as e:
-            logger.error(f"Error saving instruments to cache: {e}")
-
-    def fetch_instruments_with_fallback(self) -> List[Dict[str, Any]]:
-        """Fetch instruments with multiple fallback strategies - NSE FIRST"""
-        max_retries = 5
-        base_delay = 2
-        exchanges = ["NSE", "BSE"]  # This order is CRITICAL - NSE must be first
-
-        for attempt in range(max_retries):
-            if self._stop_requested:
-                logger.info("Stop requested, aborting instrument fetch")
-                raise Exception("Operation cancelled by user")
-
-            try:
-                self.progress_update.emit(f"Attempt {attempt + 1}/{max_retries}: Fetching instruments...")
-                logger.info(f"Attempt {attempt + 1}: Loading instruments...")
-
-                # Try to fetch instruments with increased timeout
-                all_instruments = []
-
-                # Set a longer timeout for the Any client
-                original_timeout = getattr(self.kite, 'timeout', 7)
-                self.kite.timeout = min(30, original_timeout + (attempt * 5))
-
-                # IMPORTANT: Process NSE first, then BSE
-                for exchange in exchanges:
-                    if self._stop_requested:
-                        raise Exception("Operation cancelled by user")
-
-                    try:
-                        logger.info(f"Fetching {exchange} instruments...")
-                        self.progress_update.emit(f"Fetching {exchange} instruments...")
-
-                        instruments = self.kite.instruments(exchange)
-
-                        if instruments:
-                            logger.info(f"Fetched {len(instruments)} instruments from {exchange}")
-                            # Add exchange info to each instrument if not present
-                            for inst in instruments:
-                                if 'exchange' not in inst:
-                                    inst['exchange'] = exchange
-                            all_instruments.extend(instruments)
-                        else:
-                            logger.warning(f"No instruments returned from {exchange}")
-
-                    except Exception as exchange_error:
-                        logger.error(f"Failed to fetch {exchange} instruments: {exchange_error}")
-                        # Continue with next exchange instead of failing completely
-
-                if all_instruments:
-                    logger.info(f"Successfully fetched {len(all_instruments)} total instruments")
-                    self.save_instruments_to_cache(all_instruments)
-                    return all_instruments
-                else:
-                    raise Exception("No instruments fetched from any exchange")
-
-            except Exception as e:
-                if attempt < max_retries - 1:
-                    delay = base_delay * (2 ** attempt)  # Exponential backoff
-                    logger.warning(f"Fetch attempt {attempt + 1} failed: {e}. Retrying in {delay}s...")
-                    self.progress_update.emit(f"Attempt failed. Retrying in {delay}s...")
-                    time.sleep(delay)
-                else:
-                    logger.error(f"All {max_retries} attempts failed. Last error: {e}")
-                    raise
-
-        return []
+    def _save_cache(self, instruments: List[Dict[str, Any]]) -> None:
+        try:
+            with open(self.cache_file, "wb") as fh:
+                pickle.dump(instruments, fh, protocol=pickle.HIGHEST_PROTOCOL)
+            with open(self.cache_info_file, "wb") as fh:
+                pickle.dump({"timestamp": datetime.now(), "count": len(instruments)}, fh, protocol=pickle.HIGHEST_PROTOCOL)
+        except Exception as exc:
+            logger.warning("Failed to save IBKR instrument cache: %s", exc)
 
     @staticmethod
-    def _build_instrument_map_with_nse_preference(instruments: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
-        """Build instrument map prioritizing NSE over BSE for same symbols."""
+    def _build_payload(instruments: List[Dict[str, Any]]) -> Dict[str, Any]:
         instrument_map: Dict[str, Dict[str, Any]] = {}
+        token_to_symbol: Dict[int, str] = {}
+        normalised: List[Dict[str, Any]] = []
 
-        def exchange_priority(inst: Dict[str, Any]) -> int:
-            exchange = inst.get("exchange", "")
-            if exchange == "NSE":
-                return 0
-            if exchange == "BSE":
-                return 1
-            return 2
+        for raw in instruments or []:
+            symbol = str(raw.get("tradingsymbol") or raw.get("symbol") or "").strip().upper()
+            if not symbol:
+                continue
+            con_id = raw.get("instrument_token") or raw.get("conId") or raw.get("conid") or 0
+            try:
+                con_id = int(con_id or 0)
+            except Exception:
+                con_id = 0
+            item = {
+                **raw,
+                "tradingsymbol": symbol,
+                "symbol": symbol,
+                "instrument_token": con_id,
+                "conId": con_id,
+                "exchange": raw.get("exchange") or raw.get("primaryExchange") or "SMART",
+                "currency": raw.get("currency") or "USD",
+            }
+            normalised.append(item)
+            instrument_map[symbol] = item
+            if con_id:
+                token_to_symbol[con_id] = symbol
 
-        sorted_instruments = sorted(instruments, key=exchange_priority)
-        for inst in sorted_instruments:
-            symbol = inst.get("tradingsymbol")
-            if symbol and symbol not in instrument_map:
-                instrument_map[symbol] = inst
-        return instrument_map
+        symbol_index = SymbolIndex()
+        try:
+            symbol_index.build(normalised)
+        except Exception:
+            logger.debug("SymbolIndex build failed", exc_info=True)
 
-    @staticmethod
-    def _build_token_to_symbol(instrument_map: Dict[str, Dict[str, Any]]) -> Dict[int, str]:
         return {
-            int(inst.get("instrument_token")): symbol
-            for symbol, inst in instrument_map.items()
-            if inst.get("instrument_token") is not None
+            "instruments": normalised,
+            "instrument_map": instrument_map,
+            "token_to_symbol": token_to_symbol,
+            "symbol_index": symbol_index,
         }
 
-    def run(self):
-        """Load instruments with caching and robust error handling"""
-        try:
-            # Check if we have valid cached instruments first
-            if self.is_cache_valid():
-                cached_instruments = self.load_cached_instruments()
-                if cached_instruments:
-                    self.progress_update.emit("Using cached instruments")
-                    instrument_map = self._build_instrument_map_with_nse_preference(cached_instruments)
-                    token_to_symbol = self._build_token_to_symbol(instrument_map)
-                    symbol_index = SymbolIndex()
-                    symbol_index.build(cached_instruments)
-                    self.instruments_loaded.emit({
-                        "instruments": cached_instruments,
-                        "instrument_map": instrument_map,
-                        "token_to_symbol": token_to_symbol,
-                        "symbol_index": symbol_index,
-                    })
-                    return
 
-            # If no valid cache, fetch from API
-            self.progress_update.emit("Fetching fresh instruments from API...")
-            instruments = self.fetch_instruments_with_fallback()
-
-            if not self._stop_requested:
-                self.progress_update.emit(f"Loaded {len(instruments)} instruments successfully")
-                instrument_map = self._build_instrument_map_with_nse_preference(instruments)
-                token_to_symbol = self._build_token_to_symbol(instrument_map)
-                symbol_index = SymbolIndex()
-                symbol_index.build(instruments)
-                self.instruments_loaded.emit({
-                    "instruments": instruments,
-                    "instrument_map": instrument_map,
-                    "token_to_symbol": token_to_symbol,
-                    "symbol_index": symbol_index,
-                })
-
-        except Exception as e:
-            if not self._stop_requested:
-                error_msg = str(e)
-                logger.error(f"InstrumentLoader failed: {error_msg}")
-
-                # Try to fall back to cached instruments even if expired
-                if "cancelled" not in error_msg.lower():
-                    logger.info("Attempting to use expired cache as fallback...")
-                    cached_instruments = self.load_cached_instruments()
-                    if cached_instruments:
-                        logger.warning("Using expired cached instruments as fallback")
-                        self.progress_update.emit("Using cached instruments (fallback)")
-                        instrument_map = self._build_instrument_map_with_nse_preference(cached_instruments)
-                        token_to_symbol = self._build_token_to_symbol(instrument_map)
-                        symbol_index = SymbolIndex()
-                        symbol_index.build(cached_instruments)
-                        self.instruments_loaded.emit({
-                            "instruments": cached_instruments,
-                            "instrument_map": instrument_map,
-                            "token_to_symbol": token_to_symbol,
-                            "symbol_index": symbol_index,
-                        })
-                        return
-
-                self.error_occurred.emit(error_msg)
-
-    def clear_cache(self):
-        """Clear the instrument cache"""
-        try:
-            if os.path.exists(self.cache_file):
-                os.remove(self.cache_file)
-            if os.path.exists(self.cache_info_file):
-                os.remove(self.cache_info_file)
-            logger.info("Instrument cache cleared")
-        except Exception as e:
-            logger.error(f"Error clearing cache: {e}")
+# Backward-compatible class name used by older imports.
+InstrumentLoader = IBKRInstrumentLoader

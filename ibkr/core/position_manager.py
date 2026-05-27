@@ -1,13 +1,15 @@
-# ==============================================================================
-# 1. SIMPLIFIED POSITION MANAGER - ONLY 4 RESPONSIBILITIES
-# ==============================================================================
+# ibkr/core/position_manager.py
+"""Broker-neutral position/order lifecycle manager for IBKR/Kite-style clients."""
+
+from __future__ import annotations
 
 import logging
-from PySide6.QtCore import QObject, Signal, QTimer
 from dataclasses import dataclass
-from ibkr.widgets.status_bar import (
-    show_order_completed, show_order_failed, show_error, show_info
-)
+from typing import Any, Dict, Iterable, List, Optional, Set
+
+from PySide6.QtCore import QObject, Signal, QTimer
+
+from ibkr.widgets.status_bar import show_order_completed, show_order_failed
 from ibkr.utils.sounds import play_entry_exit
 
 logger = logging.getLogger(__name__)
@@ -21,306 +23,304 @@ class Position:
     token: int
     ltp: float = 0.0
     pnl: float = 0.0
-    product: str = "MIS"  # ADD THIS LINE - Default to MIS
+    product: str = "IBKR"
 
 
 class PositionManager(QObject):
-    """
-    SUPER SIMPLE Position Manager with only 4 jobs:
-    1. Fetch positions from broker when asked
-    2. Track order status from pending to complete
-    3. Send notifications based on order status
-    4. Go dead after order completed
-    """
-
-    # Simple signals
-    positions_updated = Signal(list)  # Send positions to table
-    partial_fill_symbols_updated = Signal(object)  # emits Set[str]
+    positions_updated = Signal(list)
+    partial_fill_symbols_updated = Signal(object)
     day_pnl_updated = Signal(float)
-    show_notification = Signal(str, str)  # message, type
+    show_notification = Signal(str, str)
 
-    def __init__(self, trader, main_window=None, trade_logger=None):
-        super().__init__()
+    def __init__(self, trader: Any, main_window=None, trade_logger=None):
+        super().__init__(main_window)
         self.trader = trader
-        self.main_window = main_window  # Add this line
+        self.main_window = main_window
         self.trade_logger = trade_logger
-        self.tracking_orders = {}  # order_id -> order_data
-        self.order_check_timer = QTimer()
+        self.tracking_orders: Dict[str, Dict[str, Any]] = {}
+        self.order_check_timer = QTimer(self)
+        self.order_check_timer.setInterval(1000)
         self.order_check_timer.timeout.connect(self._check_pending_orders)
+        self.safety_timer: Optional[QTimer] = None
 
-    # ===========================================================================
-    # JOB 1: FETCH POSITIONS FROM BROKER (SIMPLE)
-    # ===========================================================================
-
-    def fetch_positions_from_broker(self, reason="manual"):
-        """Dead simple position fetch - just get and send"""
+    # ------------------------------------------------------------------
+    # Positions
+    # ------------------------------------------------------------------
+    def fetch_positions_from_broker(self, reason: str = "manual") -> None:
         try:
-            logger.info(f"Fetching positions from broker - Reason: {reason}")
+            logger.info("Fetching positions from broker - Reason: %s", reason)
+            raw_payload = self._broker_positions()
+            raw_positions = self._extract_position_rows(raw_payload)
 
-            broker_positions = self.trader.positions()
-
-            # IBKR wrapper returns a list while Kite returns {"net": [...]}
-            if isinstance(broker_positions, dict):
-                raw_positions = broker_positions.get('net', [])
-            elif isinstance(broker_positions, list):
-                raw_positions = broker_positions
-            else:
-                raw_positions = []
-
-            # Convert broker payloads (IBKR + paper + legacy Kite) to unified positions
-            simple_positions = []
-            for pos_data in raw_positions:
-                position = self._normalize_position(pos_data)
+            positions: List[Position] = []
+            for row in raw_positions:
+                position = self._normalize_position(row)
                 if position.quantity != 0:
-                    simple_positions.append(position)
+                    positions.append(position)
 
-            # Send to positions table - ONE TIME
-            self.positions_updated.emit(simple_positions)
+            self.positions_updated.emit(positions)
             self.partial_fill_symbols_updated.emit(set())
-            self.day_pnl_updated.emit(sum(p.pnl for p in simple_positions))
-            logger.info(f"✅ Sent {len(simple_positions)} positions to table")
+            self.day_pnl_updated.emit(sum(p.pnl for p in positions))
+            logger.info("Sent %d positions to table", len(positions))
+        except Exception as exc:
+            logger.error("Failed to fetch positions: %s", exc, exc_info=True)
+            self.show_notification.emit(f"Failed to fetch positions: {exc}", "error")
 
-        except Exception as e:
-            logger.error(f"Failed to fetch positions: {e}")
-            self.show_notification.emit(f"Failed to fetch positions: {e}", "error")
-
-    def fetch_positions_from_kite(self, reason="manual"):
-        """Backward-compatible alias for older call sites."""
+    def fetch_positions_from_kite(self, reason: str = "manual") -> None:
         self.fetch_positions_from_broker(reason)
 
+    def _broker_positions(self) -> Any:
+        if hasattr(self.trader, "get_positions"):
+            return self.trader.get_positions()
+        if hasattr(self.trader, "positions"):
+            return self.trader.positions()
+        return []
+
     @staticmethod
-    def _field(data: dict, *keys, default=None):
-        for key in keys:
-            if key in data and data.get(key) is not None:
-                return data.get(key)
-        return default
+    def _extract_position_rows(payload: Any) -> List[Any]:
+        if isinstance(payload, dict):
+            return list(payload.get("net") or payload.get("positions") or [])
+        if isinstance(payload, list):
+            return payload
+        if isinstance(payload, tuple):
+            return list(payload)
+        return []
 
-    def _normalize_position(self, pos_data: dict) -> Position:
-        symbol = str(self._field(pos_data, "tradingsymbol", "symbol", default="") or "")
-        quantity = int(self._field(pos_data, "quantity", "position", default=0) or 0)
-        avg_price = float(self._field(pos_data, "average_price", "avg_price", "avgCost", default=0) or 0)
-        token = int(self._field(pos_data, "instrument_token", "conid", "conId", default=0) or 0)
-        ltp = float(self._field(pos_data, "last_price", "ltp", "market_price", "current_price", default=0) or 0)
-        product = str(self._field(pos_data, "product", "product_type", "secType", default="CNC") or "CNC")
-        position = Position(symbol=symbol, quantity=quantity, avg_price=avg_price, token=token, ltp=ltp, product=product)
-        position.pnl = float(self._field(pos_data, "pnl", default=(ltp - avg_price) * quantity) or 0.0)
-        return position
+    # ------------------------------------------------------------------
+    # Order tracking
+    # ------------------------------------------------------------------
+    def start_tracking_order(self, order_id: Any, order_data: Dict[str, Any]) -> None:
+        order_id = str(order_id or "").strip()
+        if not order_id:
+            logger.warning("Cannot track order without order_id: %s", order_data)
+            return
 
-    def _normalize_order(self, order_data: dict) -> dict:
-        return {
-            "order_id": str(self._field(order_data, "order_id", "id", "permId", default="") or ""),
-            "tradingsymbol": str(self._field(order_data, "tradingsymbol", "symbol", default="") or ""),
-            "quantity": int(self._field(order_data, "quantity", "totalQuantity", "filled_quantity", default=0) or 0),
-            "price": float(self._field(order_data, "price", "lmtPrice", "avgFillPrice", default=0) or 0),
-            "transaction_type": str(self._field(order_data, "transaction_type", "action", "side", default="") or "").upper(),
-            "status": str(self._field(order_data, "status", "orderStatus", default="UNKNOWN") or "UNKNOWN").upper(),
-            "filled_quantity": int(self._field(order_data, "filled_quantity", "filled", default=0) or 0),
-            "average_price": float(self._field(order_data, "average_price", "avgFillPrice", default=0) or 0),
-        }
+        normalized = self._normalize_order({**(order_data or {}), "order_id": order_id})
+        self.tracking_orders[order_id] = {**(order_data or {}), **normalized}
 
-    # ===========================================================================
-    # JOB 2: TRACK ORDER STATUS (SIMPLE POLLING)
-    # ===========================================================================
+        symbol = normalized.get("tradingsymbol", "")
+        quantity = normalized.get("quantity", 0)
+        price = normalized.get("price", 0.0)
+        tx_type = normalized.get("transaction_type", "")
+        price_text = f" @ {price:.2f}" if price else ""
+        self.show_notification.emit(f"⏳ {tx_type} {quantity} {symbol}{price_text} - Pending", "pending")
 
-    def start_tracking_order(self, order_id: str, order_data: dict):
-        """
-        OPTIMIZED: Start tracking an order - NO BLOCKING OPERATIONS
-        """
-        logger.info(f"🔄 Started tracking order: {order_id}")
-
-        # Store order for tracking - IMMEDIATE
-        self.tracking_orders[order_id] = order_data
-
-        # Show notification - IMMEDIATE, NO DELAYS
-        normalized = self._normalize_order(order_data)
-        symbol = normalized.get('tradingsymbol', '')
-        quantity = normalized.get('quantity', 0)
-        price = normalized.get('price', 0)
-        tx_type = normalized.get('transaction_type', '')
-
-        self.show_notification.emit(
-            f"⏳ {tx_type} {quantity} {symbol} @ ₹{price} - Pending",
-            "pending"
-        )
-
-        # Start checking IMMEDIATELY - no delays
         if not self.order_check_timer.isActive():
-            self.order_check_timer.start(1000)  # Check every 1 second
+            self.order_check_timer.start()
 
-    def _check_pending_orders(self):
-        """Check status of all pending orders"""
+    def _check_pending_orders(self) -> None:
         if not self.tracking_orders:
             self.order_check_timer.stop()
             return
 
         try:
-            # Get all orders from broker
-            broker_orders = self.trader.orders()
+            broker_orders = self._broker_orders()
+            normalized_orders = [self._normalize_order(order) for order in broker_orders]
+            by_id = {str(order.get("order_id")): order for order in normalized_orders if order.get("order_id")}
 
-            completed_orders = []
-            normalized_orders = [self._normalize_order(o) for o in broker_orders]
+            completed: List[str] = []
+            for order_id in list(self.tracking_orders):
+                broker_order = by_id.get(str(order_id))
+                if not broker_order:
+                    continue
+                status = str(broker_order.get("status", "UNKNOWN")).upper()
+                if status in {"COMPLETE", "FILLED", "CANCELLED", "REJECTED", "FAILED", "INACTIVE"}:
+                    self._handle_order_completion(order_id, broker_order, status)
+                    completed.append(order_id)
 
-            for order_id, order_data in self.tracking_orders.items():
-                # Find this order in normalized response
-                broker_order = next((o for o in normalized_orders if o.get('order_id') == str(order_id)), None)
+            for order_id in completed:
+                self.tracking_orders.pop(order_id, None)
 
-                if broker_order:
-                    status = broker_order.get('status', 'UNKNOWN')
-
-                    if status in ['COMPLETE', 'FILLED', 'CANCELLED', 'REJECTED', 'FAILED']:
-                        self._handle_order_completion(order_id, broker_order, status)
-                        completed_orders.append(order_id)
-
-            # Remove completed orders from tracking
-            for order_id in completed_orders:
-                del self.tracking_orders[order_id]
-
-            # Stop timer if no more orders to track
             if not self.tracking_orders:
                 self.order_check_timer.stop()
-                logger.info("✅ All orders completed - Position manager going dead")
+        except Exception as exc:
+            logger.error("Error checking order status: %s", exc, exc_info=True)
 
-        except Exception as e:
-            logger.error(f"Error checking order status: {e}")
+    def _broker_orders(self) -> List[Any]:
+        if hasattr(self.trader, "get_orders"):
+            return list(self.trader.get_orders() or [])
+        if hasattr(self.trader, "orders"):
+            return list(self.trader.orders() or [])
+        return []
 
-    # ===========================================================================
-    # JOB 3: HANDLE ORDER COMPLETION & NOTIFICATIONS
-    # ===========================================================================
-
-    def _handle_order_completion(self, order_id: str, broker_order: dict, status: str):
-        """Handle when order completes/fails with chart line integration"""
-        symbol = broker_order.get('tradingsymbol', '')
-        quantity = broker_order.get('quantity', 0)
-        tx_type = broker_order.get('transaction_type', '').upper()
-        tracked_order = self.tracking_orders.get(order_id, {})
+    def _handle_order_completion(self, order_id: str, broker_order: Dict[str, Any], status: str) -> None:
+        symbol = broker_order.get("tradingsymbol") or broker_order.get("symbol") or ""
+        tx_type = str(broker_order.get("transaction_type", "")).upper()
+        tracked_order = self.tracking_orders.get(str(order_id), {})
         is_exit = bool(tracked_order.get("_is_exit_order")) or tx_type == "SELL"
 
         try:
-            if status in ['COMPLETE', 'FILLED']:
-                # Show order completed notification
+            if status in {"COMPLETE", "FILLED"}:
                 show_order_completed(symbol, "")
                 play_entry_exit()
-
-                # Update chart position line
-                if self.main_window and hasattr(self.main_window, 'chart_lines_manager'):
-                    filled_quantity = broker_order.get('filled_quantity', broker_order.get('quantity', 0))
-                    avg_price = broker_order.get('average_price', 0)
-
-                    if filled_quantity and avg_price:
-                        if is_exit:
-                            success = self.main_window.chart_lines_manager.remove_position_line(symbol)
-                            if success:
-                                logger.info(f"Position line removed for exit {symbol}")
-                            else:
-                                logger.warning(f"Failed to remove position line for exit {symbol}")
-                        else:
-                            success = self.main_window.chart_lines_manager.add_position_line(
-                                symbol=symbol,
-                                order_type=tx_type,
-                                quantity=filled_quantity,
-                                avg_price=avg_price
-                            )
-                            if success:
-                                logger.info(f"Position line added to chart for {symbol}")
-                            else:
-                                logger.warning(f"Failed to add position line to chart for {symbol}")
-                    else:
-                        logger.warning(
-                            f"Invalid order data for chart line: quantity={filled_quantity}, price={avg_price}")
-                else:
-                    logger.debug("Chart lines manager not available, position line not added")
-
-            elif status in ['REJECTED', 'CANCELLED', 'FAILED']:
+                self._sync_chart_position_line(symbol, tx_type, broker_order, is_exit)
+                QTimer.singleShot(250, lambda: self.fetch_positions_from_broker("order_completed"))
+            elif status in {"REJECTED", "CANCELLED", "FAILED", "INACTIVE"}:
                 show_order_failed(f"Order {status.lower()}")
+        except Exception as exc:
+            logger.error("Error handling order completion: %s", exc, exc_info=True)
 
-        except Exception as e:
-            logger.error(f"Error in order completion handling: {e}")
+    def _sync_chart_position_line(self, symbol: str, tx_type: str, broker_order: Dict[str, Any], is_exit: bool) -> None:
+        manager = getattr(self.main_window, "chart_lines_manager", None)
+        if not manager or not symbol:
+            return
 
-    def update_position_line(self, symbol: str, total_quantity: int, avg_price: float, order_type: str):
-        """Update position line when position changes (e.g., partial fills, position averaging)"""
+        filled_quantity = int(broker_order.get("filled_quantity") or broker_order.get("quantity") or 0)
+        avg_price = float(broker_order.get("average_price") or broker_order.get("price") or 0.0)
+        if filled_quantity <= 0 or avg_price <= 0:
+            return
+
+        if is_exit:
+            manager.remove_position_line(symbol)
+            return
+
+        manager.add_position_line(
+            symbol=symbol,
+            order_type=tx_type,
+            quantity=filled_quantity,
+            avg_price=avg_price,
+        )
+
+    # ------------------------------------------------------------------
+    # Normalisation helpers support dicts and ib_insync objects.
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _field(data: Any, *keys: str, default=None):
+        if data is None:
+            return default
+        if isinstance(data, dict):
+            for key in keys:
+                if key in data and data.get(key) is not None:
+                    return data.get(key)
+            return default
+        for key in keys:
+            if hasattr(data, key):
+                value = getattr(data, key)
+                if value is not None:
+                    return value
+        return default
+
+    def _normalize_position(self, pos_data: Any) -> Position:
+        contract = self._field(pos_data, "contract")
+        symbol = str(self._field(pos_data, "tradingsymbol", "symbol", default="") or "").strip().upper()
+        if not symbol and contract is not None:
+            symbol = str(getattr(contract, "symbol", "") or "").strip().upper()
+
+        quantity = int(float(self._field(pos_data, "quantity", "position", default=0) or 0))
+        avg_price = float(self._field(pos_data, "average_price", "avg_price", "avgCost", default=0) or 0)
+        token = int(float(self._field(pos_data, "instrument_token", "conid", "conId", default=0) or 0))
+        if not token and contract is not None:
+            token = int(getattr(contract, "conId", 0) or 0)
+
+        ltp = float(self._field(pos_data, "last_price", "ltp", "market_price", "current_price", default=0) or 0)
+        if ltp <= 0 and self.main_window and hasattr(self.main_window, "market_data_worker"):
+            worker = getattr(self.main_window, "market_data_worker", None)
+            if worker and hasattr(worker, "get_last_price"):
+                ltp = float(worker.get_last_price(token or symbol) or 0.0)
+
+        product = str(self._field(pos_data, "product", "product_type", "secType", default="IBKR") or "IBKR")
+        pnl_default = (ltp - avg_price) * quantity if ltp and avg_price else 0.0
+        pnl = float(self._field(pos_data, "pnl", "unrealized_pnl", "unrealizedPNL", default=pnl_default) or 0.0)
+        return Position(symbol=symbol, quantity=quantity, avg_price=avg_price, token=token, ltp=ltp, pnl=pnl, product=product)
+
+    def _normalize_order(self, order_data: Any) -> Dict[str, Any]:
+        # ib_insync Trade support
+        contract = self._field(order_data, "contract")
+        order_obj = self._field(order_data, "order")
+        status_obj = self._field(order_data, "orderStatus")
+        if order_obj is not None or status_obj is not None:
+            symbol = getattr(contract, "symbol", "") if contract is not None else ""
+            return {
+                "order_id": str(getattr(order_obj, "orderId", "") or getattr(order_obj, "permId", "") or ""),
+                "tradingsymbol": str(symbol or "").upper(),
+                "quantity": int(float(getattr(order_obj, "totalQuantity", 0) or 0)),
+                "price": float(getattr(order_obj, "lmtPrice", 0) or getattr(order_obj, "auxPrice", 0) or 0),
+                "transaction_type": str(getattr(order_obj, "action", "") or "").upper(),
+                "status": self._normalize_status(getattr(status_obj, "status", "UNKNOWN") if status_obj else "UNKNOWN"),
+                "filled_quantity": int(float(getattr(status_obj, "filled", 0) or 0)) if status_obj else 0,
+                "average_price": float(getattr(status_obj, "avgFillPrice", 0) or 0) if status_obj else 0.0,
+            }
+
+        return {
+            "order_id": str(self._field(order_data, "order_id", "id", "permId", default="") or ""),
+            "tradingsymbol": str(self._field(order_data, "tradingsymbol", "symbol", default="") or "").upper(),
+            "quantity": int(float(self._field(order_data, "quantity", "totalQuantity", "filled_quantity", default=0) or 0)),
+            "price": float(self._field(order_data, "price", "limit_price", "lmtPrice", "avgFillPrice", default=0) or 0),
+            "transaction_type": str(self._field(order_data, "transaction_type", "action", "side", default="") or "").upper(),
+            "status": self._normalize_status(self._field(order_data, "status", "orderStatus", default="UNKNOWN")),
+            "filled_quantity": int(float(self._field(order_data, "filled_quantity", "filled", default=0) or 0)),
+            "average_price": float(self._field(order_data, "average_price", "avg_fill_price", "avgFillPrice", default=0) or 0),
+        }
+
+    @staticmethod
+    def _normalize_status(status: Any) -> str:
+        text = str(status or "UNKNOWN").upper()
+        mapping = {
+            "FILLED": "FILLED",
+            "COMPLETE": "COMPLETE",
+            "SUBMITTED": "OPEN",
+            "PRESUBMITTED": "OPEN",
+            "PENDINGSUBMIT": "PENDING",
+            "APIPENDING": "PENDING",
+            "CANCELLED": "CANCELLED",
+            "INACTIVE": "INACTIVE",
+        }
+        return mapping.get(text.replace(" ", ""), text)
+
+    # ------------------------------------------------------------------
+    # Chart-line utility methods used elsewhere
+    # ------------------------------------------------------------------
+    def update_position_line(self, symbol: str, total_quantity: int, avg_price: float, order_type: str) -> None:
+        manager = getattr(self.main_window, "chart_lines_manager", None)
+        if not manager:
+            return
         try:
-            if not self.main_window or not hasattr(self.main_window, 'chart_lines_manager'):
-                logger.debug("Chart lines manager not available for position line update")
-                return
+            manager.remove_position_line(symbol)
+            if total_quantity:
+                manager.add_position_line(symbol=symbol, order_type=order_type, quantity=abs(total_quantity), avg_price=avg_price)
+        except Exception as exc:
+            logger.error("Error updating position line for %s: %s", symbol, exc)
 
-            # Remove existing position line first
-            remove_success = self.main_window.chart_lines_manager.remove_position_line(symbol)
+    def remove_position_line_for_symbol(self, symbol: str) -> None:
+        manager = getattr(self.main_window, "chart_lines_manager", None)
+        if manager:
+            try:
+                manager.remove_position_line(symbol)
+            except Exception as exc:
+                logger.error("Error removing position line for %s: %s", symbol, exc)
 
-            # Add new line with updated info if position still exists
-            if total_quantity != 0:
-                add_success = self.main_window.chart_lines_manager.add_position_line(
-                    symbol=symbol,
-                    order_type=order_type,
-                    quantity=abs(total_quantity),
-                    avg_price=avg_price
-                )
-                if add_success:
-                    logger.info(f"Updated position line for {symbol}: {total_quantity} @ {avg_price:.2f}")
-                else:
-                    logger.warning(f"Failed to update position line for {symbol}")
-            else:
-                logger.info(f"Position closed, line removed for {symbol}")
+    def on_position_closed_externally(self, symbol: str) -> None:
+        self.remove_position_line_for_symbol(symbol)
 
-        except Exception as e:
-            logger.error(f"Error updating position line for {symbol}: {e}")
+    def stop_tracking(self) -> None:
+        if self.order_check_timer.isActive():
+            self.order_check_timer.stop()
+        self.tracking_orders.clear()
 
-    def remove_position_line_for_symbol(self, symbol: str):
-        """Remove position line for a symbol (when position is fully closed)"""
-        try:
-            if self.main_window and hasattr(self.main_window, 'chart_lines_manager'):
-                success = self.main_window.chart_lines_manager.remove_position_line(symbol)
-                if success:
-                    logger.info(f"Position line removed for {symbol}")
-                else:
-                    logger.warning(f"Failed to remove position line for {symbol}")
-            else:
-                logger.debug("Chart lines manager not available for position line removal")
-        except Exception as e:
-            logger.error(f"Error removing position line for {symbol}: {e}")
+    def start_safety_refresh(self, interval_minutes: int = 5) -> None:
+        if self.safety_timer is None:
+            self.safety_timer = QTimer(self)
+            self.safety_timer.timeout.connect(lambda: self.fetch_positions_from_broker("safety_refresh"))
+        self.safety_timer.start(max(1, int(interval_minutes)) * 60 * 1000)
 
-    # Add method to handle position updates from external sources (like position table)
-    def on_position_closed_externally(self, symbol: str):
-        """Handle position closure from external sources (e.g., manual close, web platform)"""
-        try:
-            self.remove_position_line_for_symbol(symbol)
-            logger.info(f"External position closure handled for {symbol}")
-        except Exception as e:
-            logger.error(f"Error handling external position closure for {symbol}: {e}")
+    # ------------------------------------------------------------------
+    # Real-time order update signal handlers
+    # ------------------------------------------------------------------
+    def on_ws_order_update(self, update: Any = None, *_args, **_kwargs) -> None:
+        if not update:
+            return
+        order = self._normalize_order(update)
+        order_id = str(order.get("order_id", ""))
+        if order_id and order_id in self.tracking_orders:
+            status = str(order.get("status", "UNKNOWN")).upper()
+            if status in {"COMPLETE", "FILLED", "CANCELLED", "REJECTED", "FAILED", "INACTIVE"}:
+                self._handle_order_completion(order_id, order, status)
+                self.tracking_orders.pop(order_id, None)
+                if not self.tracking_orders:
+                    self.order_check_timer.stop()
 
-
-    def stop_tracking(self):
-        """Stop order tracking timers and clear pending tracked orders."""
-        try:
-            if self.order_check_timer.isActive():
-                self.order_check_timer.stop()
-            self.tracking_orders.clear()
-            logger.info("PositionManager order tracking stopped")
-        except Exception as e:
-            logger.error(f"Error stopping PositionManager tracking: {e}")
-
-    # ===========================================================================
-    # JOB 4: SAFETY REFRESH (OPTIONAL)
-    # ===========================================================================
-
-    def start_safety_refresh(self, interval_minutes=5):
-        """Optional: Refresh positions every X minutes for safety"""
-        safety_timer = QTimer()
-        safety_timer.timeout.connect(lambda: self.fetch_positions_from_kite("safety_refresh"))
-        safety_timer.start(interval_minutes * 60 * 1000)
-        logger.info(f"Started safety refresh every {interval_minutes} minutes")
-
-    # ===========================================================================
-    # Compatibility no-op handlers used by MainWindow signal wiring
-    # ===========================================================================
-
-    def on_ws_order_update(self, *_args, **_kwargs):
-        """Handle websocket order updates (compatibility no-op)."""
+    def on_ws_connected(self, *_args, **_kwargs) -> None:
         return
 
-    def on_ws_connected(self, *_args, **_kwargs):
-        """Handle websocket connected (compatibility no-op)."""
-        return
-
-    def on_ws_disconnected(self, *_args, **_kwargs):
-        """Handle websocket disconnected (compatibility no-op)."""
+    def on_ws_disconnected(self, *_args, **_kwargs) -> None:
         return
