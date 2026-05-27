@@ -1,4 +1,4 @@
-# ibkr/widgets/watchlist_table.py
+# kite/widgets/watchlist_table.py
 """
 Institutional Watchlist — TC2000-grade, production-ready.
 

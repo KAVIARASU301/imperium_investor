@@ -1,1 +1,1 @@
-"""Core IBKR runtime modules."""
+"""Core IBKR broker application modules."""

@@ -1,5 +1,5 @@
 """
-ibkr/widgets/search_bar.py
+kite/widgets/search_bar.py
 
 Institutional-grade symbol search — TC2000/TradingView feel.
 Target: first keystroke result in < 30 ms even on 100k instruments.

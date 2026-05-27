@@ -1,102 +1,254 @@
-"""Qt worker for real-time IBKR market data aggregation."""
-
-from __future__ import annotations
-
+import asyncio
 import logging
-from typing import Any
+from typing import List, Dict, Any, Iterable, Optional
 
-from PySide6.QtCore import QObject, QTimer, Signal, Slot
-
-from ibkr.core.contract_manager import ContractManager
+from PySide6.QtCore import Signal, QThread
+from ib_insync import IB, Contract, Stock, Ticker
 
 logger = logging.getLogger(__name__)
 
 
-class IBKRMarketDataWorker(QObject):
+class MarketDataWorker(QThread):
     data_received = Signal(list)
-    tick_received = Signal(dict)
+    connection_error = Signal(str)
     connection_established = Signal()
     connection_closed = Signal()
-    error = Signal(str)
+    order_update = Signal(dict)
 
-    def __init__(self, ib: Any):
+    def __init__(self, ib_client: IB):
         super().__init__()
-        self.ib = ib
-        self.contracts = ContractManager(ib)
-        self._subscriptions: dict[str, Any] = {}
-        self._tick_buffer: dict[int, dict[str, Any]] = {}
-        self._flush_timer = QTimer(self)
-        self._flush_timer.timeout.connect(self._flush)
-        self._flush_timer.start(225)
-        self.ib.pendingTickersEvent += self._on_pending_tickers
+        self.ib = ib_client
+        self._subscribed_contracts: Dict[str, Contract] = {}
+        self._symbol_to_key: Dict[str, str] = {}
+        self._is_running = True
+
+    def run(self):
+        # Ensure this worker thread has an asyncio event loop.
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        if not self.ib or not self.ib.isConnected():
+            logger.error("IB client not connected.")
+            self.connection_error.emit("IB client is not connected.")
+            return
+
+        logger.info("MarketDataWorker started.")
         self.connection_established.emit()
+        self.ib.pendingTickersEvent += self._on_pending_tickers
 
-    @Slot(str)
-    def subscribe_symbol(self, symbol: str) -> None:
         try:
-            key = symbol.strip().upper()
-            if not key or key in self._subscriptions:
-                return
+            while self._is_running and self.ib.isConnected():
+                self.ib.waitOnUpdate(timeout=0.05)
+        except Exception as e:
+            logger.error(f"MarketDataWorker loop error: {e}")
+        finally:
+            try:
+                self.ib.pendingTickersEvent -= self._on_pending_tickers
+            except Exception:
+                pass
+            asyncio.set_event_loop(None)
+            loop.close()
+            logger.info("MarketDataWorker stopped.")
+            self.connection_closed.emit()
 
-            contract = self.contracts.resolve_stock(key)
-            self.ib.reqMktData(contract, "", False, False)
-            self._subscriptions[key] = contract
-        except Exception as exc:
-            self.error.emit(str(exc))
+    def _contract_key(self, contract: Contract) -> str:
+        con_id = getattr(contract, "conId", 0) or 0
+        symbol = (getattr(contract, "symbol", "") or "").strip().upper()
+        return str(con_id) if con_id else symbol
 
-    @Slot(str)
-    def unsubscribe_symbol(self, symbol: str) -> None:
-        key = symbol.strip().upper()
-        contract = self._subscriptions.pop(key, None)
-        if not contract:
-            return
+    def _symbol_key(self, contract: Optional[Contract]) -> str:
+        return (getattr(contract, "symbol", "") or "").strip().upper()
+
+    def _contract_from_item(self, item: Any) -> Optional[Contract]:
+        """Accept IB Contract objects, conId ints, symbol strings, or instrument dicts."""
+        if isinstance(item, Contract):
+            return item
+
+        token = None
+        symbol = None
+        exchange = "SMART"
+        currency = "USD"
+
+        if isinstance(item, dict):
+            token = item.get("instrument_token") or item.get("conId") or item.get("conid")
+            symbol = item.get("tradingsymbol") or item.get("symbol") or item.get("name")
+            exchange = item.get("exchange") or exchange
+            currency = item.get("currency") or currency
+        elif isinstance(item, int):
+            token = item
+        elif isinstance(item, str):
+            text = item.strip().upper()
+            if not text:
+                return None
+            if text.isdigit():
+                token = int(text)
+            else:
+                symbol = text
+
         try:
-            self.ib.cancelMktData(contract)
-            con_id = int(getattr(contract, "conId", 0) or 0)
-            if con_id:
-                self._tick_buffer.pop(con_id, None)
-        except Exception as exc:
-            self.error.emit(str(exc))
+            if token:
+                contract = Contract()
+                contract.conId = int(token)
+                contract.secType = "STK"
+                contract.exchange = exchange
+                contract.currency = currency
+                if symbol:
+                    contract.symbol = str(symbol).strip().upper()
+                return contract
+        except (TypeError, ValueError):
+            pass
 
-    def stop(self) -> None:
-        for symbol in list(self._subscriptions.keys()):
-            self.unsubscribe_symbol(symbol)
-        self._flush_timer.stop()
-        self.connection_closed.emit()
+        if symbol:
+            return Stock(str(symbol).strip().upper(), exchange, currency)
+        return None
 
-    def _on_pending_tickers(self, tickers) -> None:
+    def _on_pending_tickers(self, tickers: List[Ticker]):
+        ticks_data = []
         for ticker in tickers:
-            contract = getattr(ticker, "contract", None)
-            con_id = int(getattr(contract, "conId", 0) or 0)
-            if not con_id:
+            if not ticker.contract:
                 continue
-
-            symbol = str(getattr(contract, "symbol", "") or "")
-            tick = {
-                "instrument_token": con_id,
-                "tradingsymbol": symbol,
-                "symbol": symbol,
-                "exchange": getattr(contract, "exchange", "SMART"),
-                "last_price": float(getattr(ticker, "last", 0) or getattr(ticker, "close", 0) or 0),
-                "volume": int(getattr(ticker, "volume", 0) or 0),
-                "ohlc": {
-                    "open": float(getattr(ticker, "open", 0) or 0),
-                    "high": float(getattr(ticker, "high", 0) or 0),
-                    "low": float(getattr(ticker, "low", 0) or 0),
-                    "close": float(getattr(ticker, "close", 0) or 0),
+            # marketPrice() prefers last trade and falls back to bid/ask midpoint.
+            last = ticker.marketPrice() if hasattr(ticker, "marketPrice") else None
+            if not last or last <= 0:
+                last = ticker.last if (ticker.last and ticker.last > 0) else ticker.close
+            if not last or last <= 0:
+                continue
+            close = ticker.close or 0
+            change_pct = ((last - close) / close * 100.0) if close and close > 0 else 0.0
+            ticks_data.append({
+                'symbol': ticker.contract.symbol,
+                'tradingsymbol': ticker.contract.symbol,
+                'last_price': float(last),
+                'instrument_token': ticker.contract.conId,
+                'volume': ticker.volume or 0,
+                'close': close,
+                'change_percent': change_pct,
+                'open': ticker.open or 0,
+                'high': ticker.high or 0,
+                'low': ticker.low or 0,
+                'bid': ticker.bid or 0,
+                'ask': ticker.ask or 0,
+                'ohlc': {
+                    'open': ticker.open or 0,
+                    'high': ticker.high or 0,
+                    'low': ticker.low or 0,
+                    'close': close,
                 },
-                "bid": float(getattr(ticker, "bid", 0) or 0),
-                "ask": float(getattr(ticker, "ask", 0) or 0),
-                "last": getattr(ticker, "last", None),
-                "close": getattr(ticker, "close", None),
-            }
-            self._tick_buffer[con_id] = tick
+            })
+        if ticks_data:
+            self.data_received.emit(ticks_data)
 
-    def _flush(self) -> None:
-        if not self._tick_buffer:
+    def subscribe_to_contracts(self, contracts: List[Contract]):
+        if not self.ib.isConnected():
             return
-        ticks = list(self._tick_buffer.values())
-        self._tick_buffer.clear()
-        self.data_received.emit(ticks)
-        for tick in ticks:
-            self.tick_received.emit(tick)
+        for contract in contracts:
+            requested_key = self._contract_key(contract)
+            requested_symbol = self._symbol_key(contract)
+            if requested_key and requested_key in self._subscribed_contracts:
+                continue
+            if requested_symbol and requested_symbol in self._symbol_to_key:
+                continue
+            key = requested_key
+            label = (getattr(contract, "symbol", "") or key or "UNKNOWN").strip().upper()
+            if not key and not requested_symbol:
+                continue
+            try:
+                # conId-only contracts are common in the IBKR instrument map.
+                # Qualify them once so TWS has the missing symbol/secType details.
+                qualified = self.ib.qualifyContracts(contract)
+                if qualified:
+                    contract = qualified[0]
+                    key = self._contract_key(contract)
+                    label = (getattr(contract, "symbol", "") or key or label).strip().upper()
+                symbol_key = self._symbol_key(contract)
+                if key in self._subscribed_contracts:
+                    continue
+                if symbol_key and symbol_key in self._symbol_to_key:
+                    continue
+                self.ib.reqMktData(contract, '', False, False)
+                self._subscribed_contracts[key] = contract
+                if symbol_key:
+                    self._symbol_to_key[symbol_key] = key
+                logger.info(f"Subscribed: {label}")
+            except Exception as e:
+                logger.error(f"Subscribe failed {label}: {e}")
+
+    def unsubscribe_from_contracts(self, contracts: List[Contract]):
+        if not self.ib.isConnected():
+            return
+        for contract in contracts:
+            key = self._contract_key(contract)
+            symbol_key = self._symbol_key(contract)
+            if key not in self._subscribed_contracts and symbol_key:
+                key = self._symbol_to_key.get(symbol_key, key)
+            if key in self._subscribed_contracts:
+                try:
+                    subscribed = self._subscribed_contracts[key]
+                    self.ib.cancelMktData(subscribed)
+                    del self._subscribed_contracts[key]
+                    subscribed_symbol = self._symbol_key(subscribed)
+                    if subscribed_symbol:
+                        self._symbol_to_key.pop(subscribed_symbol, None)
+                except Exception as e:
+                    logger.error(f"Unsubscribe failed {key}: {e}")
+
+    def is_connected(self) -> bool:
+        return bool(self.ib and self.ib.isConnected())
+
+    def get_subscription_info(self) -> Dict[str, Any]:
+        return {
+            "subscribed_tokens": [
+                int(k) for k in self._subscribed_contracts.keys() if str(k).isdigit()
+            ],
+            "subscribed_symbols": [
+                getattr(c, "symbol", "") for c in self._subscribed_contracts.values() if getattr(c, "symbol", "")
+            ],
+        }
+
+    def add_instruments(self, instruments: Iterable[Any]):
+        contracts = []
+        for item in (instruments or []):
+            contract = self._contract_from_item(item)
+            if contract is not None:
+                contracts.append(contract)
+        if contracts:
+            self.subscribe_to_contracts(contracts)
+
+    def set_instruments(self, instruments: Iterable[Any]):
+        desired_contracts: List[Contract] = []
+        desired_keys: set[str] = set()
+        desired_symbols: set[str] = set()
+
+        for item in (instruments or []):
+            contract = self._contract_from_item(item)
+            if contract is None:
+                continue
+            key = self._contract_key(contract)
+            symbol = self._symbol_key(contract)
+            if key:
+                desired_keys.add(key)
+            if symbol:
+                desired_symbols.add(symbol)
+            desired_contracts.append(contract)
+
+        if self._subscribed_contracts:
+            to_remove: List[Contract] = []
+            for sub_key, sub_contract in list(self._subscribed_contracts.items()):
+                sub_symbol = self._symbol_key(sub_contract)
+                if sub_key in desired_keys or (sub_symbol and sub_symbol in desired_symbols):
+                    continue
+                to_remove.append(sub_contract)
+            if to_remove:
+                self.unsubscribe_from_contracts(to_remove)
+
+        self.subscribe_to_contracts(desired_contracts)
+
+    def stop(self):
+        logger.info("Stopping MarketDataWorker...")
+        self._is_running = False
+        try:
+            self.ib.pendingTickersEvent -= self._on_pending_tickers
+        except Exception:
+            pass
+        self.quit()
+        self.wait(3000)

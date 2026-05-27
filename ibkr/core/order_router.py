@@ -1,32 +1,35 @@
-"""Signal-friendly order router for IBKR."""
-
 from __future__ import annotations
 
-from typing import Any, Dict
-
-from PySide6.QtCore import QObject, Signal, Slot
-
-from ibkr.core.trading_client import IBKRTradingClient
+from enum import Enum
 
 
-class IBKROrderRouter(QObject):
-    order_submitted = Signal(dict)
-    order_failed = Signal(str)
+class OrderRouteMode(Enum):
+    RELAY = "relay"
+    DIRECT_ISP = "direct_isp"
+    AUTO = "auto"
 
-    def __init__(self, ib: Any):
-        super().__init__()
-        self.client = IBKRTradingClient(ib)
 
-    @Slot(dict)
-    def submit(self, order_payload: Dict[str, Any]) -> None:
+class OrderRouter:
+    def __init__(self, mode: OrderRouteMode, relay_router, direct_router, auto_direction: str = "relay_first"):
+        self._mode = mode
+        self._relay = relay_router
+        self._direct = direct_router
+        self._auto_direction = auto_direction
+
+    def place_order(self, **kwargs):
+        if self._mode == OrderRouteMode.RELAY:
+            return self._relay.place_order(**kwargs)
+        if self._mode == OrderRouteMode.DIRECT_ISP:
+            return self._direct.place_order(**kwargs)
+        return self._auto_place_order(**kwargs)
+
+    def _auto_place_order(self, **kwargs):
+        first, second = (self._relay, self._direct) if self._auto_direction == "relay_first" else (self._direct, self._relay)
         try:
-            response = self.client.place_order(
-                symbol=order_payload["symbol"],
-                quantity=order_payload["qty"],
-                side=order_payload["action"],
-                order_type=order_payload.get("order_type", "MKT"),
-                price=order_payload.get("price"),
-            )
-            self.order_submitted.emit(response)
-        except Exception as exc:
-            self.order_failed.emit(str(exc))
+            return first.place_order(**kwargs)
+        except Exception:
+            return second.place_order(**kwargs)
+
+    def __getattr__(self, name: str):
+        # route non-overridden calls to relay client by default (same as raw Kite behavior)
+        return getattr(self._relay, name)

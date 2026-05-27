@@ -1,4 +1,4 @@
-# ibkr/widgets/scanner_table.py
+# kite/widgets/scanner_table.py
 import logging
 import json
 import os
@@ -1026,7 +1026,7 @@ class ScanWorker(QThread):
             self.scan_error.emit(str(e))
 
 
-class FinvizScannerTable(QWidget):
+class ChartinkScannerTable(QWidget):
     """FIXED EOD scanner table with proper row selection and highlighting."""
     symbol_selected     = Signal(str)
     scan_results_changed = Signal()   # emitted when scan completes → triggers re-subscription
