@@ -129,6 +129,10 @@ class QullamaggieWindow(QMainWindow):
             return
         self._last_price_by_symbol[symbol] = float(last)
 
+        current_symbol = str(getattr(self.chart, "current_symbol", "") or "").upper()
+        if current_symbol and current_symbol == symbol:
+            self.chart.update_live_data(tick)
+
     def _open_color_settings(self) -> None:
         dlg = ColorSettingsDialog(self._color_theme, self)
         if dlg.exec() == dlg.DialogCode.Accepted:
