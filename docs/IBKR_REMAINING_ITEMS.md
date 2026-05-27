@@ -2,19 +2,18 @@
 
 This checklist tracks module-level differences between `kite/` and `ibkr/`.
 
-_Last refreshed: 2026-05-25 (UTC)_
+_Last refreshed: 2026-05-27 (UTC)_
 
 ## Remaining module-name differences
 
 ### Core
 These are intentional IBKR-specific additions:
-- `core/linux_ibkr_deep_fix.py`
+- `core/contract_manager.py`
 - `core/trading_client.py`
 
 ### Utils
 These are intentional IBKR-specific additions:
 - `utils/data_converter.py`
-- `utils/data_fetcher.py`
 
 ### Scanner
 These are broker-specific scanner implementations:
