@@ -239,11 +239,21 @@ class IBKRClientWrapper(BrokerClientInterface):
             return False
 
     def disconnect(self):
-        """Disconnect from IBKR"""
+        """Disconnect from IBKR.
+
+        During Qt application shutdown, the asyncio loop used by ib_insync may
+        already be closed by the time this runs. In that case we treat the
+        disconnect as best-effort and avoid noisy error logs.
+        """
         try:
             if self.client and self.client.isConnected():
                 self.client.disconnect()
                 logger.info("Disconnected from IBKR")
+        except RuntimeError as e:
+            if "Event loop is closed" in str(e):
+                logger.info("IBKR disconnect skipped because event loop is already closed")
+            else:
+                logger.error(f"Error disconnecting from IBKR: {e}")
         except Exception as e:
             logger.error(f"Error disconnecting from IBKR: {e}")
 
