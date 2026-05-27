@@ -8,15 +8,12 @@ import os
 import sys
 import json
 import re
-import threading
 import time
-import urllib.request
-import ipaddress
 from collections import deque
 from datetime import datetime, timedelta
 from typing import List, Dict, Union, Any, Optional
 
-from PySide6.QtCore import Qt, QByteArray, QTimer, Slot, Signal, QEvent, QProcess, QObject
+from PySide6.QtCore import Qt, QByteArray, QTimer, Slot, Signal, QEvent, QProcess
 from PySide6.QtWidgets import QMainWindow, QSplitter, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, \
     QPushButton, QLabel, QApplication, QMessageBox, QMenuBar, QSizePolicy, QDialog, QLineEdit, QGraphicsDropShadowEffect
 from PySide6.QtGui import QMouseEvent, QKeySequence, QKeyEvent, QAction, QColor
@@ -80,55 +77,6 @@ logger = logging.getLogger(__name__)
 
 
 
-
-class _IspIpMonitor(QObject):
-    ip_status_checked = Signal(bool)
-
-    def __init__(self, interval_seconds: int = 180):
-        super().__init__()
-        self._interval_seconds = max(30, int(interval_seconds))
-        self._running = False
-        self._thread = None
-        self._last_ips: set[str] | None = None
-
-    def start(self) -> None:
-        if self._running:
-            return
-        self._running = True
-        self._thread = threading.Thread(target=self._run, name="isp-ip-monitor", daemon=True)
-        self._thread.start()
-
-    def stop(self) -> None:
-        self._running = False
-
-    def _run(self) -> None:
-        while self._running:
-            ips = self._fetch_public_ips()
-            if ips:
-                changed = self._last_ips is not None and ips != self._last_ips
-                self._last_ips = ips
-                self.ip_status_checked.emit(changed)
-            for _ in range(self._interval_seconds):
-                if not self._running:
-                    return
-                time.sleep(1)
-
-    def _fetch_public_ips(self) -> set[str]:
-        urls = (
-            "https://api.ipify.org",
-            "https://ifconfig.me/ip",
-            "https://ipv4.icanhazip.com",
-        )
-        found: set[str] = set()
-        for url in urls:
-            try:
-                with urllib.request.urlopen(url, timeout=5) as r:
-                    text = r.read().decode("utf-8", errors="ignore").strip()
-                ip = str(ipaddress.ip_address(text))
-                found.add(ip)
-            except Exception:
-                continue
-        return found
 
 class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     """
@@ -581,9 +529,6 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         settings_action = tools_menu.addAction("Settings", self._open_color_settings_dialog)
         settings_action.setShortcut(QKeySequence("Ctrl+,"))
         settings_action.setShortcutVisibleInContextMenu(True)
-        order_routing_action = tools_menu.addAction("Order Routing Settings", self._show_relay_settings_dialog)
-        order_routing_action.setShortcut(QKeySequence("Shift+R"))
-        order_routing_action.setShortcutVisibleInContextMenu(True)
 
         about_menu = menu_bar.addMenu("About")
         about_menu.addAction("Keyboard Shortcuts", lambda: show_keyboard_shortcuts_dialog(self))
@@ -599,19 +544,6 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self._market_status_timer.timeout.connect(self._refresh_market_status)
         self._market_status_timer.start(60_000)
         self._refresh_market_status()
-        self._setup_isp_ip_monitor()
-
-
-    def _setup_isp_ip_monitor(self) -> None:
-        self._isp_ip_monitor = _IspIpMonitor(interval_seconds=180)
-        self._isp_ip_monitor.ip_status_checked.connect(self._on_isp_ip_status_checked)
-        # Delay startup so this monitor does not compete with initial instrument loading.
-        QTimer.singleShot(10_000, self._isp_ip_monitor.start)
-
-    @Slot(bool)
-    def _on_isp_ip_status_checked(self, changed: bool) -> None:
-        if hasattr(self, "app_status_bar"):
-            self.app_status_bar.set_isp_ip_status(changed)
 
     def _refresh_market_status(self) -> None:
         """Update bottom status bar with NSE session status based on IST."""
@@ -991,45 +923,6 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 self.dual_chart_action.blockSignals(True)
                 self.dual_chart_action.setChecked(self.dual_chart_mode_enabled)
                 self.dual_chart_action.blockSignals(False)
-
-    def _show_relay_settings_dialog(self):
-        """Open relay settings and hot-reload an active RelayOrderRouter."""
-        from ibkr.core.relay_order_router import _HMACSigner
-        from ibkr.widgets.order_routing_settings import RelaySettingsDialog
-        from login_setup.token_manager import EnhancedTokenManager
-
-        dialog = RelaySettingsDialog(token_manager=EnhancedTokenManager(), parent=self)
-
-        def _resolve_active_relay_router():
-            if hasattr(self.trader, "_cfg"):
-                return self.trader
-            wrapped_client = getattr(self.trader, "client", None)
-            if wrapped_client and hasattr(wrapped_client, "_cfg"):
-                return wrapped_client
-            return None
-
-        def on_config_saved(new_cfg):
-            router = _resolve_active_relay_router()
-            if not router:
-                status.show_info("Relay config saved. It will be applied on next login/session.")
-                return
-
-            if new_cfg:
-                router._cfg = new_cfg
-                if hasattr(router, "_signer"):
-                    router._signer = _HMACSigner(new_cfg.secret)
-                try:
-                    router.check_health()
-                    status.show_info(f"Relay updated and connected: {new_cfg.url}")
-                except Exception as e:
-                    show_error(f"Relay saved but health check failed: {e}")
-            else:
-                if hasattr(router, "_cfg") and router._cfg:
-                    router._cfg.enabled = False
-                status.show_info("Relay routing disabled. Orders will route directly.")
-
-        dialog.config_saved.connect(on_config_saved)
-        dialog.exec()
 
     def _init_alert_system(self):
         try:
@@ -2803,42 +2696,13 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         try:
             if hasattr(self, 'trade_logger') and self.trade_logger:
                 order_data = dict(order_data or {})
-                order_data["order_source"] = self._resolve_order_source()
+                order_data["order_source"] = "ibkr"
                 # This is now fully async and won't block the UI
                 self.trade_logger.log_order_placement(order_data, order_id)
                 logger.info(f"Order queued for logging: {order_id}")
         except Exception as log_error:
             # Even if logging fails, don't block the UI
             logger.error(f"Failed to queue order for logging: {log_error}")
-
-    def _resolve_order_source(self) -> str:
-        router = getattr(self, "trader", None)
-        mode = getattr(router, "_mode", None)
-        if mode is not None and getattr(mode, "value", ""):
-            if mode.value == "direct_isp":
-                ip_manager = getattr(getattr(router, "_direct", None), "_ip_manager", None)
-                if ip_manager:
-                    ip = ip_manager.get_cached_status().current_ip
-                    return f"direct_isp:{ip}" if ip else "direct_isp"
-                return "direct_isp"
-            if mode.value == "auto":
-                return "auto"
-            return "relay"
-        if hasattr(router, "_cfg"):
-            return "relay"
-        return "manual"
-
-    def _stop_ip_manager(self):
-        try:
-            router = getattr(self, "trader", None)
-            for candidate in (
-                getattr(router, "_ip_manager", None),
-                getattr(getattr(router, "_direct", None), "_ip_manager", None),
-            ):
-                if candidate and hasattr(candidate, "stop"):
-                    candidate.stop()
-        except Exception as e:
-            logger.warning(f"Failed to stop IP manager: {e}")
 
     # ==============================================================================
     # DIALOG SHOW METHODS

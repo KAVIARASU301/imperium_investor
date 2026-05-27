@@ -132,7 +132,6 @@ def setup_keyboard_shortcuts(main_window: QWidget) -> list[QShortcut]:
     shortcuts.append(_bind_shortcut(main_window, "Ctrl+I", main_window._show_stock_info_for_active_symbol))
     shortcuts.append(_bind_shortcut(main_window, "Shift+I", main_window._show_stock_info_for_active_symbol))
     shortcuts.append(_bind_shortcut(main_window, "Ctrl+,", main_window._open_color_settings_dialog))
-    shortcuts.append(_bind_shortcut(main_window, "Shift+R", main_window._show_relay_settings_dialog))
     shortcuts.append(_bind_shortcut(main_window, Qt.Key.Key_Space, main_window._handle_global_spacebar))
     shortcuts.append(_bind_shortcut(main_window, "Shift+Space", main_window._handle_global_shift_spacebar))
     shortcuts.append(_bind_shortcut(main_window, "Esc", main_window._handle_escape_shortcut))

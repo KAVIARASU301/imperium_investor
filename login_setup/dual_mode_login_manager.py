@@ -901,7 +901,7 @@ class DualModeLoginManager(QDialog):
         host_label.setObjectName("fieldLabel")
         self.ibkr_host_combo = QComboBox()
         self.ibkr_host_combo.setObjectName("terminalInput")
-        self.ibkr_host_combo.addItems(["127.0.0.1 (IPv4 / localhost)", "::1 (IPv6 / localhost)"])
+        self.ibkr_host_combo.addItems(["127.0.0.1 (localhost)"])
         host_col.addWidget(host_label)
         host_col.addWidget(self.ibkr_host_combo)
 
@@ -929,7 +929,7 @@ class DualModeLoginManager(QDialog):
             "TWS / IB Gateway checklist:\n"
             "1) Login to TWS (or IB Gateway)\n"
             "2) Enable API: Configure → API → Settings → Enable ActiveX and Socket Clients\n"
-            "3) Allow localhost in Trusted IPs: 127.0.0.1, ::1\n"
+            "3) Allow localhost in Trusted IPs: 127.0.0.1\n"
             "4) Match port to mode: Paper 7497, Live 7496"
         )
 
@@ -953,7 +953,7 @@ class DualModeLoginManager(QDialog):
             self.stacked_widget.setCurrentIndex(1)
             return
 
-        host = "127.0.0.1" if self.ibkr_host_combo.currentIndex() == 0 else "::1"
+        host = "127.0.0.1"
         client_id = self.ibkr_client_id_input.value()
         self.connect_ibkr_btn.setEnabled(False)
         self.connect_ibkr_btn.setText("CONNECTING…")
@@ -974,7 +974,7 @@ class DualModeLoginManager(QDialog):
             self.connect_ibkr_btn.setText("CONNECT")
 
     def _on_ibkr_connection_success(self, ib_client):
-        host = "127.0.0.1" if self.ibkr_host_combo.currentIndex() == 0 else "::1"
+        host = "127.0.0.1"
         client_id = self.ibkr_client_id_input.value()
         self.authentication_data = {
             "broker_mode": BrokerMode.AMERICA,
