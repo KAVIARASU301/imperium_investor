@@ -368,8 +368,10 @@ class IBKRDataFetcher(BrokerDataFetcher):
         raise ConnectionError(f"Could not open dedicated IBKR history connection: {last_error}")
 
     def close_history_connections(self) -> None:
-        """Intentionally keep dedicated HMDS connection alive for app lifetime."""
-        return None
+        """Close dedicated HMDS connection and stop background async executor."""
+        if not self._dedicated_history_connection:
+            return
+        _shutdown_history_resources()
 
     def _connection_candidates(self) -> List[Tuple[str, int]]:
         candidates: List[Tuple[str, int]] = []
@@ -496,3 +498,42 @@ class IBKRDataFetcher(BrokerDataFetcher):
         if bar_size in ("1 week", "1 month"):
             return f"{max(1, min(10, (days // 365) + 1))} Y"
         return f"{min(days, 365)} D" if bar_size == "1 day" else f"{min(days, 30)} D"
+
+
+def _shutdown_history_resources() -> None:
+    """Best-effort teardown for shared history IB connection and loop thread."""
+    global _SHARED_HISTORY_IB, _HISTORY_EXECUTOR
+
+    with _HISTORY_EXECUTOR_LOCK:
+        executor = _HISTORY_EXECUTOR
+        if executor is None:
+            _SHARED_HISTORY_IB = None
+            return
+
+        try:
+            async def _close_async():
+                global _SHARED_HISTORY_IB
+                ib = _SHARED_HISTORY_IB
+                if ib is not None:
+                    try:
+                        if ib.isConnected():
+                            ib.disconnect()
+                    except Exception:
+                        pass
+                _SHARED_HISTORY_IB = None
+
+            fut = executor.submit_async(_close_async())
+            fut.result(timeout=5.0)
+        except Exception as exc:
+            logger.warning("Failed to close shared IBKR history connection cleanly: %s", exc)
+            _SHARED_HISTORY_IB = None
+
+        try:
+            executor.loop.call_soon_threadsafe(executor.loop.stop)
+            executor.join(timeout=2.0)
+            if not executor.loop.is_closed():
+                executor.loop.close()
+        except Exception as exc:
+            logger.warning("Failed to stop IBKR history executor loop: %s", exc)
+        finally:
+            _HISTORY_EXECUTOR = None

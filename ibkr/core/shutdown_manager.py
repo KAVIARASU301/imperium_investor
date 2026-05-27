@@ -112,6 +112,12 @@ class ShutdownManager:
                 critical=True,
             ),
             ShutdownStep(
+                name="close_ibkr_history_connections",
+                fn=self._close_ibkr_history_connections,
+                timeout_ms=2_500,
+                critical=True,
+            ),
+            ShutdownStep(
                 name="stop_remaining_timers",
                 fn=self._stop_all_timers,
                 timeout_ms=500,
@@ -251,6 +257,33 @@ class ShutdownManager:
                 logger.info("IBKR client disconnect skipped because event loop is already closed")
             else:
                 raise
+
+    def _close_ibkr_history_connections(self) -> None:
+        """
+        Close dedicated IBKR history sockets/threads used by chart data fetchers.
+        Without this, ib_insync background activity can keep the app process alive.
+        """
+        w = self.window
+        candidates = (
+            getattr(w, "candlestick_chart", None),
+            getattr(w, "candlestick_chart_secondary", None),
+        )
+
+        closed_any = False
+        for chart in candidates:
+            if not chart:
+                continue
+            data_fetcher = getattr(chart, "data_fetcher", None)
+            close_fn = getattr(data_fetcher, "close_history_connections", None)
+            if callable(close_fn):
+                try:
+                    close_fn()
+                    closed_any = True
+                except Exception as exc:
+                    logger.warning("Failed closing chart history connections: %s", exc)
+
+        if closed_any:
+            logger.info("Closed IBKR dedicated chart history connections")
 
     def _stop_all_timers(self) -> None:
         """Stop any QTimer children that are still active."""
