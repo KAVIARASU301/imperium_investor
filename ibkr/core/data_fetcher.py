@@ -68,14 +68,34 @@ class IBKRDataFetcher:
         self._contract_cache[key] = qualified[0]
         return qualified[0]
 
-    def fetch_ohlcv(self, symbol: str, interval: str = "day") -> list[dict[str, Any]]:
+    def fetch_ohlcv(
+        self,
+        symbol: str,
+        instrument_token: int | None = None,
+        interval: str = "day",
+        from_date: datetime | None = None,
+        to_date: datetime | None = None,
+    ) -> list[dict[str, Any]]:
         """Synchronously fetch IBKR historical bars and return chart-engine friendly rows."""
         try:
             contract = self._qualified_contract_for_symbol(symbol)
+            if to_date is None:
+                to_date = datetime.utcnow()
+
+            if from_date is None:
+                from_date, _ = self.get_optimal_date_range(interval)
+
+            end_dt = to_date.strftime("%Y%m%d %H:%M:%S") + " US/Eastern"
+            date_span_days = max((to_date - from_date).days + 1, 1)
+            if interval in {"day", "week", "month"}:
+                duration = f"{min(date_span_days, 730)} D"
+            else:
+                duration = f"{min(date_span_days, 5)} D"
+
             bars = self.ib.reqHistoricalData(
                 contract,
-                endDateTime="",
-                durationStr=self._duration_for_interval(interval),
+                endDateTime=end_dt,
+                durationStr=duration,
                 barSizeSetting=self._bar_size_for_interval(interval),
                 whatToShow="TRADES",
                 useRTH=True,
