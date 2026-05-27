@@ -1,31 +1,21 @@
-"""IBKR-specific main window with Kite-like layout and essential widgets."""
-
 from __future__ import annotations
 
 import logging
 from typing import Any
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QMainWindow,
-    QMessageBox,
-    QPushButton,
-    QSplitter,
-    QTableWidget,
-    QTableWidgetItem,
-    QTabWidget,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QMainWindow, QSplitter, QTabWidget, QVBoxLayout, QWidget
 
 from chart_engine import CandlestickChart
 from ibkr.core.data_fetcher import IBKRDataFetcher
 from ibkr.core.market_data_worker import IBKRMarketDataWorker
 from ibkr.core.order_router import IBKROrderRouter
 from ibkr.core.position_manager import IBKRPositionManager
+from ibkr.widgets.header_toolbar import HeaderToolbar
+from ibkr.widgets.positions_table import Position, PositionsTable
+from ibkr.widgets.scanner_table import FinvizScannerTable
+from ibkr.widgets.settings_dialog import ColorSettingsDialog
+from ibkr.widgets.watchlist_table import TabbedWatchlistWidget
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +29,20 @@ class QullamaggieWindow(QMainWindow):
         self.ib = getattr(trader, "client", trader)
         self.data_client = real_kite_client or self.ib
         self._last_price_by_symbol: dict[str, float] = {}
+        self._color_theme = {
+            "enable_table_directional_colors": False,
+            "show_table_vertical_lines": True,
+            "show_scanner_volume_column": True,
+            "show_watchlist_volume_column": True,
+            "tables": {
+                "positive": "#00d4a8",
+                "negative": "#ff4d6a",
+                "neutral": "#5a7090",
+                "volume": "#00d4ff",
+            },
+            "candles": {"up": "#00C896", "down": "#E84060"},
+            "volume": {"up": "#00C896", "down": "#E84060"},
+        }
 
         self.order_router = IBKROrderRouter(self.ib)
         self.position_manager = IBKRPositionManager(self.ib)
@@ -57,83 +61,64 @@ class QullamaggieWindow(QMainWindow):
         root_layout = QVBoxLayout(root)
         root_layout.setContentsMargins(6, 6, 6, 6)
 
-        # Header strip (Kite-like quick actions)
-        header = QWidget(self)
-        header_layout = QHBoxLayout(header)
-        self.symbol_input = QLineEdit()
-        self.symbol_input.setPlaceholderText("Search symbol (e.g. AAPL)")
-        self.btn_load = QPushButton("Load")
-        self.btn_buy = QPushButton("BUY")
-        self.btn_sell = QPushButton("SELL")
-        self.qty_input = QLineEdit("1")
-        self.qty_input.setMaximumWidth(70)
-        self.ltp_label = QLabel("LTP: --")
-        for w in (self.symbol_input, self.btn_load, self.qty_input, self.btn_buy, self.btn_sell, self.ltp_label):
-            header_layout.addWidget(w)
-        header_layout.addStretch(1)
-        root_layout.addWidget(header)
+        self.header_toolbar = HeaderToolbar(self.ib, self, enable_account_polling=False)
+        root_layout.addWidget(self.header_toolbar)
 
         splitter = QSplitter(Qt.Horizontal)
         root_layout.addWidget(splitter, 1)
 
         left_panel = QTabWidget()
-        self.watchlist_table = QTableWidget(0, 2)
-        self.watchlist_table.setHorizontalHeaderLabels(["Symbol", "Last"])
-        self.scanner_table = QTableWidget(0, 3)
-        self.scanner_table.setHorizontalHeaderLabels(["Symbol", "%Chg", "Volume"])
-        self.positions_table = QTableWidget(0, 5)
-        self.positions_table.setHorizontalHeaderLabels(["Symbol", "Qty", "Avg", "PnL", "Exchange"])
+        self.watchlist_table = TabbedWatchlistWidget(self)
+        self.scanner_table = FinvizScannerTable(self)
+        self.positions_table = PositionsTable(self)
 
         left_panel.addTab(self.watchlist_table, "Watchlist")
         left_panel.addTab(self.scanner_table, "Scanner")
         left_panel.addTab(self.positions_table, "Positions")
 
-        # Right panel chart engine
         self.chart = CandlestickChart(IBKRDataFetcher(self.data_client), storage_dir="ibkr/user_data/chart_drawings")
 
         splitter.addWidget(left_panel)
         splitter.addWidget(self.chart)
-        splitter.setSizes([420, 1180])
+        splitter.setSizes([460, 1140])
+
+        self._apply_color_theme()
 
     def _wire_signals(self) -> None:
-        self.btn_load.clicked.connect(self._load_symbol)
-        self.symbol_input.returnPressed.connect(self._load_symbol)
-        self.btn_buy.clicked.connect(lambda: self._submit_order("BUY"))
-        self.btn_sell.clicked.connect(lambda: self._submit_order("SELL"))
+        self.header_toolbar.symbol_selected.connect(self._load_symbol)
+        self.header_toolbar.buy_order_requested.connect(lambda s: self._submit_order("BUY", s))
+        self.header_toolbar.sell_order_requested.connect(lambda s: self._submit_order("SELL", s))
+        self.header_toolbar.color_settings_requested.connect(self._open_color_settings)
+
+        self.watchlist_table.symbol_selected.connect(self._load_symbol)
+        self.scanner_table.symbol_selected.connect(self._load_symbol)
+        self.positions_table.symbol_selected.connect(self._load_symbol)
+
         self.order_router.order_submitted.connect(self._on_order_submitted)
         self.order_router.order_failed.connect(self._on_order_failed)
         self.market_data_worker.tick_received.connect(self._on_tick)
 
-    def _load_symbol(self) -> None:
-        symbol = self.symbol_input.text().strip().upper()
+    def _load_symbol(self, symbol: str) -> None:
+        symbol = (symbol or "").strip().upper()
         if not symbol:
             return
         self.chart.load_symbol(symbol, symbol, 0, "day")
         self.market_data_worker.subscribe_symbol(symbol)
-        self._upsert_watchlist(symbol)
 
-    def _submit_order(self, action: str) -> None:
-        symbol = self.symbol_input.text().strip().upper()
-        if not symbol:
-            QMessageBox.warning(self, "Missing symbol", "Please enter a symbol first.")
+    def _submit_order(self, action: str, symbol: str | None = None) -> None:
+        sym = (symbol or "").strip().upper()
+        if not sym:
+            sym = (self.header_toolbar.search_input.get_committed_symbol() or "").strip().upper()
+        if not sym:
             return
-        try:
-            qty = float(self.qty_input.text().strip() or "0")
-        except ValueError:
-            QMessageBox.warning(self, "Invalid quantity", "Quantity should be numeric.")
-            return
-        if qty <= 0:
-            QMessageBox.warning(self, "Invalid quantity", "Quantity should be greater than zero.")
-            return
-
-        self.order_router.submit({"symbol": symbol, "qty": qty, "action": action, "order_type": "MKT"})
+        self.order_router.submit({"symbol": sym, "qty": 1.0, "action": action, "order_type": "MKT"})
 
     def _on_order_submitted(self, payload: dict) -> None:
-        QMessageBox.information(self, "Order Submitted", f"Order submitted: {payload}")
+        logger.info("Order submitted: %s", payload)
         self.refresh_positions()
 
     def _on_order_failed(self, error: str) -> None:
-        QMessageBox.critical(self, "Order Failed", error)
+        logger.error("Order failed: %s", error)
 
     def _on_tick(self, tick: dict) -> None:
         symbol = str(tick.get("symbol") or "").upper()
@@ -143,32 +128,24 @@ class QullamaggieWindow(QMainWindow):
         if last is None:
             return
         self._last_price_by_symbol[symbol] = float(last)
-        if self.symbol_input.text().strip().upper() == symbol:
-            self.ltp_label.setText(f"LTP: {float(last):.2f}")
-        self._upsert_watchlist(symbol)
 
-    def _upsert_watchlist(self, symbol: str) -> None:
-        for row in range(self.watchlist_table.rowCount()):
-            if self.watchlist_table.item(row, 0).text() == symbol:
-                self.watchlist_table.setItem(row, 1, QTableWidgetItem(f"{self._last_price_by_symbol.get(symbol, 0.0):.2f}"))
-                return
-        row = self.watchlist_table.rowCount()
-        self.watchlist_table.insertRow(row)
-        self.watchlist_table.setItem(row, 0, QTableWidgetItem(symbol))
-        self.watchlist_table.setItem(row, 1, QTableWidgetItem(f"{self._last_price_by_symbol.get(symbol, 0.0):.2f}"))
+    def _open_color_settings(self) -> None:
+        dlg = ColorSettingsDialog(self._color_theme, self)
+        if dlg.exec() == dlg.DialogCode.Accepted:
+            self._color_theme = dlg.get_theme()
+            self._apply_color_theme()
+
+    def _apply_color_theme(self) -> None:
+        self.watchlist_table.apply_color_theme(self._color_theme)
+        self.scanner_table.apply_color_theme(self._color_theme)
+        self.positions_table.apply_color_theme(self._color_theme)
+        self.header_toolbar.apply_color_theme(self._color_theme)
 
     def refresh_positions(self) -> None:
         try:
-            positions = self.position_manager.snapshot()
+            raw_positions = self.position_manager.snapshot()
         except Exception as exc:
             logger.error("Failed to refresh positions: %s", exc)
             return
-        self.positions_table.setRowCount(0)
-        for pos in positions:
-            row = self.positions_table.rowCount()
-            self.positions_table.insertRow(row)
-            self.positions_table.setItem(row, 0, QTableWidgetItem(str(pos.get("tradingsymbol", ""))))
-            self.positions_table.setItem(row, 1, QTableWidgetItem(str(pos.get("quantity", 0))))
-            self.positions_table.setItem(row, 2, QTableWidgetItem(str(pos.get("average_price", 0))))
-            self.positions_table.setItem(row, 3, QTableWidgetItem(str(pos.get("pnl", 0))))
-            self.positions_table.setItem(row, 4, QTableWidgetItem(str(pos.get("exchange", "SMART"))))
+        positions = [Position.from_broker_position(pos) for pos in raw_positions]
+        self.positions_table.update_positions(positions)
