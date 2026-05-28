@@ -461,15 +461,16 @@ class CandlestickChart(QWidget):
         try:
             info = SymbolInfoDatabase().get_symbol_info(key) or {}
             company = str(info.get("company_name") or "").strip()
+            country = str(info.get("country") or "").strip()
             sector = str(info.get("sector") or "").strip()
             industry = str(info.get("industry") or "").strip()
             market_cap = str(info.get("market_cap_text") or "").strip()
             if "ibkr" in broker_name:
-                line1 = " · ".join([p for p in [company or fallback_name, market_cap] if p]).strip()
-                line2 = " · ".join([p for p in [sector, industry] if p]).strip()
+                line1 = ", ".join([p for p in [company or fallback_name, country, market_cap] if p]).strip()
+                line2 = " - ".join([p for p in [sector, industry] if p]).strip()
                 desc = "\n".join([p for p in [line1, line2] if p]).strip()
             else:
-                parts = [company or fallback_name, sector, industry, market_cap]
+                parts = [company or fallback_name, country, sector, industry, market_cap]
                 desc = " · ".join([p for p in parts if p]).strip()
             return desc or fallback_name
         except Exception:

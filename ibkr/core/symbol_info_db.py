@@ -59,6 +59,7 @@ class SymbolInfoDatabase:
                 CREATE TABLE IF NOT EXISTS symbol_info (
                     symbol TEXT PRIMARY KEY,
                     company_name TEXT,
+                    country TEXT,
                     sector TEXT,
                     industry TEXT,
                     market_cap_text TEXT,
@@ -71,6 +72,13 @@ class SymbolInfoDatabase:
                 )
                 """
             )
+            # Backward-compatible schema migration for existing databases.
+            columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(symbol_info)").fetchall()
+            }
+            if "country" not in columns:
+                conn.execute("ALTER TABLE symbol_info ADD COLUMN country TEXT")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_symbol_info_last_seen ON symbol_info(last_seen)")
             conn.commit()
 
@@ -80,6 +88,7 @@ class SymbolInfoDatabase:
             return
 
         company_name = str(row.get("company") or row.get("company_name") or row.get("name") or "").strip()
+        country = str(row.get("country") or "").strip()
         sector = str(row.get("sector") or "").strip()
         industry = str(row.get("industry") or "").strip()
         market_cap_text = str(row.get("market_cap") or row.get("marketCap") or "").strip()
@@ -90,12 +99,13 @@ class SymbolInfoDatabase:
             conn.execute(
                 """
                 INSERT INTO symbol_info (
-                    symbol, company_name, sector, industry,
+                    symbol, company_name, country, sector, industry,
                     market_cap_text, market_cap_value, source,
                     first_seen, last_seen, seen_count, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
                 ON CONFLICT(symbol) DO UPDATE SET
                     company_name=excluded.company_name,
+                    country=excluded.country,
                     sector=excluded.sector,
                     industry=excluded.industry,
                     market_cap_text=excluded.market_cap_text,
@@ -108,6 +118,7 @@ class SymbolInfoDatabase:
                 (
                     symbol,
                     company_name or None,
+                    country or None,
                     sector or None,
                     industry or None,
                     market_cap_text or None,
@@ -134,6 +145,7 @@ class SymbolInfoDatabase:
             return ""
         parts = [
             info.get("company_name") or "",
+            info.get("country") or "",
             info.get("sector") or "",
             info.get("industry") or "",
             info.get("market_cap_text") or "",
