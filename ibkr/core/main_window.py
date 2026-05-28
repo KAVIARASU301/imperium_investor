@@ -10,14 +10,11 @@ import json
 import re
 import threading
 import time
+import warnings
 import urllib.request
 import ipaddress
 from collections import deque
 from datetime import datetime, timedelta
-try:
-    from zoneinfo import ZoneInfo
-except Exception:
-    ZoneInfo = None
 from typing import List, Dict, Union, Any, Optional
 
 from PySide6.QtCore import Qt, QByteArray, QTimer, Slot, Signal, QEvent, QProcess, QObject
@@ -30,10 +27,7 @@ from ibkr.widgets.positions_table import PositionsTable
 from ibkr.widgets.watchlist_table import TabbedWatchlistWidget
 from chart_engine import CandlestickChart as ChartWindow
 from chart_engine.core.data_loader import KiteDataFetcher
-try:
-    from ibkr.core.data_fetcher import IBKRDataFetcher
-except Exception:
-    from chart_engine.core.ibkr_data_fetcher import IBKRDataFetcher
+from chart_engine.core.ibkr_data_fetcher import IBKRDataFetcher
 from ibkr.widgets.header_toolbar import HeaderToolbar
 from ibkr.widgets.settings_dialog import ColorSettingsDialog
 from ibkr.widgets.stock_info_dialog import show_stock_info
@@ -212,8 +206,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         self.instrument_list: List[Dict] = []
         self.instrument_map: Dict[str, Dict] = {}
-        self._subscribed_tokens = set()  # legacy name; stores normalized subscription keys
-        self._last_quote_by_symbol: Dict[str, Dict[str, Any]] = {}
+        self._subscribed_tokens = set()
         self._ibkr_symbol_resolver: Optional[IBKRSymbolResolver] = None
 
         if paper_trader:
@@ -389,11 +382,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             storage_dir=self.chart_drawings_dir,
         )
         self.candlestick_chart.data_cache = MarketAwareDataCache(parent=self.candlestick_chart)
-        self.candlestick_chart_secondary.data_cache = MarketAwareDataCache(parent=self.candlestick_chart_secondary)
         # Backward-compat for force-refresh path still using `_cache`.
-        for _chart in (self.candlestick_chart, self.candlestick_chart_secondary):
-            if not hasattr(_chart.data_cache, '_cache'):
-                _chart.data_cache._cache = _chart.data_cache._store
+        if not hasattr(self.candlestick_chart.data_cache, '_cache'):
+            self.candlestick_chart.data_cache._cache = self.candlestick_chart.data_cache._store
         self.watchlist = TabbedWatchlistWidget()
         self.watchlist.set_quote_client(self.real_kite_client)
         self.positions_table = PositionsTable(parent=self)
@@ -622,25 +613,13 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             self.app_status_bar.set_isp_ip_status(changed)
 
     def _refresh_market_status(self) -> None:
-        """Update bottom status bar for the US equity session (IBKR mode)."""
-        market_status = "OPEN" if self._is_us_market_open_now() else "CLOSED"
+        """Update bottom status bar with NSE session status based on IST."""
+        now_ist = datetime.utcnow() + timedelta(hours=5, minutes=30)
+        is_weekend = now_ist.weekday() >= 5
+        time_tuple = (now_ist.hour, now_ist.minute)
+        is_open_time = (9, 15) <= time_tuple <= (15, 30)
+        market_status = "OPEN" if (not is_weekend and is_open_time) else "CLOSED"
         status.set_market_indicator(market_status)
-
-    def _is_us_market_open_now(self) -> bool:
-        """Basic NYSE/Nasdaq regular-hours check; holidays are handled by no ticks/snapshots."""
-        try:
-            if ZoneInfo is not None:
-                now_et = datetime.now(ZoneInfo("America/New_York"))
-            else:
-                # Conservative fallback: use UTC-5 approximation. DST only affects
-                # the status label/snapshot eagerness, not actual IBKR streaming.
-                now_et = datetime.utcnow() - timedelta(hours=5)
-            if now_et.weekday() >= 5:
-                return False
-            hhmm = (now_et.hour, now_et.minute)
-            return (9, 30) <= hhmm <= (16, 0)
-        except Exception:
-            return False
 
     def _apply_intelligent_main_splitter_layout(self, preferred_sizes=None):
         """Keep scanner/watchlist compact and protect chart space during resize/drag."""
@@ -1071,136 +1050,81 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             logger.info("Alert engine is running normally")
 
     def _init_background_workers(self):
-        """Initialize background workers without blocking the UI thread."""
-        self.chart_init_timer = QTimer(self)
+        """Initialize background workers"""
+        self.chart_init_timer = QTimer()
         self.chart_init_timer.setSingleShot(True)
         self.chart_init_timer.timeout.connect(self._initialize_chart_after_instruments)
 
-        # IBKR instruments are seed/cached immediately and enriched on demand.
+        # IBKR instruments should be fetched on-demand (not preloaded from Kite).
         self.instrument_loader = None
         self._initialize_ibkr_instruments()
 
-        self.market_data_worker = None
-        self._start_market_data_worker()
-        if self.market_data_worker is None:
+        # Only start market data worker if actually connected.
+        if self.real_kite_client and self.real_kite_client.isConnected():
+            self.market_data_worker = MarketDataWorker(self.real_kite_client)
+            self.market_data_worker.data_received.connect(self._enqueue_market_data)
+            self.market_data_worker.connection_established.connect(self._on_websocket_connect)
+            self.market_data_worker.start()
+        else:
+            logger.warning("IB client not connected — market data worker not started")
+            self.market_data_worker = None
             QTimer.singleShot(3000, self._retry_start_market_data_worker)
 
-    def _connect_market_data_worker_signals(self):
-        """Connect worker signals idempotently; used for normal and retry startup."""
-        if not getattr(self, "market_data_worker", None):
-            return
-
-        def _safe_connect(signal, slot):
-            try:
-                signal.disconnect(slot)
-            except Exception:
-                pass
-            signal.connect(slot)
-
-        _safe_connect(self.market_data_worker.data_received, self._enqueue_market_data)
-        _safe_connect(self.market_data_worker.connection_established, self._on_websocket_connect)
-        _safe_connect(self.market_data_worker.connection_error, self._on_market_data_connection_error)
-        if hasattr(self.market_data_worker, "connection_closed"):
-            _safe_connect(self.market_data_worker.connection_closed, self._on_market_data_connection_closed)
-        if hasattr(self, "position_manager") and hasattr(self.market_data_worker, "order_update"):
-            _safe_connect(self.market_data_worker.order_update, self.position_manager.on_ws_order_update)
-            _safe_connect(self.market_data_worker.connection_established, self.position_manager.on_ws_connected)
-            _safe_connect(self.market_data_worker.connection_closed, self.position_manager.on_ws_disconnected)
-
-    def _start_market_data_worker(self) -> bool:
-        if not (self.real_kite_client and hasattr(self.real_kite_client, "isConnected") and self.real_kite_client.isConnected()):
-            logger.warning("IB client not connected — market data worker not started")
-            return False
-        if self.market_data_worker and self.market_data_worker.isRunning():
-            return True
-        self.market_data_worker = MarketDataWorker(self.real_kite_client)
-        self._connect_market_data_worker_signals()
-        self.market_data_worker.start()
-        return True
-
     def _retry_start_market_data_worker(self):
-        if self._start_market_data_worker():
-            self._schedule_subscription_rebuild()
+        if self.real_kite_client and self.real_kite_client.isConnected():
+            self.market_data_worker = MarketDataWorker(self.real_kite_client)
+            self.market_data_worker.data_received.connect(self._enqueue_market_data)
+            self.market_data_worker.connection_established.connect(self._on_websocket_connect)
+            self.market_data_worker.start()
         else:
             logger.error("IB still not connected after retry")
 
-    @Slot(str)
-    def _on_market_data_connection_error(self, message: str):
-        logger.error("Market data worker error: %s", message)
-        status.set_api_indicator("DEGRADED")
-        status.show_notification(f"Market data error: {message}", "error", 5000)
-
-    @Slot()
-    def _on_market_data_connection_closed(self):
-        logger.warning("Market data worker connection closed")
-        status.set_api_indicator("DISCONNECTED")
-
 
     def _initialize_ibkr_instruments(self):
-        try:
-            from ibkr.core.instrument_loader import IBKRInstrumentLoader
-        except Exception:
-            from ibkr.utils.ibkr_instrument_loader import IBKRInstrumentLoader
+        from ibkr.utils.ibkr_instrument_loader import IBKRInstrumentLoader
         from ibkr.utils.ibkr_symbol_resolver import IBKRSymbolResolver
 
-        # Create live search resolver; exact symbols are resolved on demand.
+        # Create live search resolver
         self.ibkr_symbol_resolver = IBKRSymbolResolver(self.real_kite_client, parent=self)
-        self._ibkr_symbol_resolver = self.ibkr_symbol_resolver
 
-        # Wire search bar to use live IBKR search.
+        # Wire search bar to use live IBKR search
         self.header_toolbar.set_live_search_callback(self._ibkr_live_search)
 
-        # Load cached/seed instruments quickly. Do not bulk-request IBKR universe.
+        # Load seed instruments
         self.ibkr_instrument_loader = IBKRInstrumentLoader(self.real_kite_client)
         self.ibkr_instrument_loader.instruments_loaded.connect(self._on_instruments_loaded)
-        if hasattr(self.ibkr_instrument_loader, "error_occurred"):
-            self.ibkr_instrument_loader.error_occurred.connect(self._on_instruments_load_failed)
-        self.ibkr_instrument_loader.progress_update.connect(lambda msg: logger.info("IBKR loader: %s", msg))
+        self.ibkr_instrument_loader.progress_update.connect(
+            lambda msg: logger.info("IBKR loader: %s", msg)
+        )
         self.ibkr_instrument_loader.start()
 
     def _ibkr_live_search(self, query: str, callback) -> None:
-        """Search local cache first, then IBKR only when needed."""
-        query = (query or "").strip().upper()
-        if not query:
+        """Called by search bar for every keystroke — hits IBKR API live."""
+        if not query or len(query) < 1:
             callback([])
             return
 
-        local_matches = [inst for sym, inst in self.instrument_map.items() if sym.startswith(query)]
-        if len(local_matches) >= 20:
-            callback(local_matches[:20])
-            return
+        # Check local instrument map first (instant)
+        local_matches = [
+            inst for sym, inst in self.instrument_map.items()
+            if sym.startswith(query.upper())
+        ]
         if local_matches:
             callback(local_matches[:20])
 
-        resolver = getattr(self, "ibkr_symbol_resolver", None) or getattr(self, "_ibkr_symbol_resolver", None)
-        if resolver and hasattr(resolver, "search"):
-            resolver.search(query, lambda results: self._on_ibkr_search_results(results, query, callback))
+        # Also search IBKR for anything not in local map
+        self.ibkr_symbol_resolver.search(
+            query,
+            lambda results: self._on_ibkr_search_results(results, query, callback)
+        )
 
     def _on_ibkr_search_results(self, results: list, query: str, callback) -> None:
-        """Merge live IBKR search results into local maps and return results."""
-        normalized = []
-        for inst in results or []:
-            sym = str(inst.get("tradingsymbol") or inst.get("symbol") or "").strip().upper()
-            if not sym:
-                continue
-            token = inst.get("instrument_token") or inst.get("conId") or inst.get("conid") or 0
-            try:
-                token = int(token or 0)
-            except Exception:
-                token = 0
-            merged = {**inst, "tradingsymbol": sym, "symbol": sym, "instrument_token": token, "conId": token, "currency": inst.get("currency") or "USD"}
-            self.instrument_map[sym] = merged
-            if token:
-                if not hasattr(self, "_token_to_symbol"):
-                    self._token_to_symbol = {}
-                self._token_to_symbol[token] = sym
-            normalized.append(merged)
-        if normalized and hasattr(self, "ibkr_instrument_loader") and hasattr(self.ibkr_instrument_loader, "merge_and_cache"):
-            try:
-                self.ibkr_instrument_loader.merge_and_cache(normalized)
-            except Exception:
-                logger.debug("Failed to persist IBKR search results", exc_info=True)
-        callback(normalized[:20])
+        """Merge live IBKR search results into instrument map and call back."""
+        for inst in results:
+            sym = inst.get("tradingsymbol", "")
+            if sym and sym not in self.instrument_map:
+                self.instrument_map[sym] = inst
+        callback(results[:20])
 
     @Slot()
     def _on_websocket_connect(self):
@@ -1608,7 +1532,10 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.position_manager.positions_updated.connect(self._update_floating_positions_dialog)
         self.position_manager.day_pnl_updated.connect(self._on_day_pnl_updated)
         self.position_manager.show_notification.connect(self._show_position_manager_notification)
-        self._connect_market_data_worker_signals()
+        if hasattr(self, 'market_data_worker') and self.market_data_worker:
+            self.market_data_worker.order_update.connect(self.position_manager.on_ws_order_update)
+            self.market_data_worker.connection_established.connect(self.position_manager.on_ws_connected)
+            self.market_data_worker.connection_closed.connect(self.position_manager.on_ws_disconnected)
         # Position manager notifications route through the Qt signal so WS callbacks stay visible/audible.
 
         # SIMPLIFIED: Positions Table → Main Window
@@ -1649,8 +1576,6 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.watchlist.symbol_selected.connect(self.candlestick_chart.on_search)
         self.watchlist.symbol_selected.connect(self.candlestick_chart_secondary.on_search)
         self.watchlist.subscribe_tokens_requested.connect(self._subscribe_to_tokens)
-        if hasattr(self.watchlist, "quote_snapshot_requested"):
-            self.watchlist.quote_snapshot_requested.connect(self._request_quote_snapshots)
         self.watchlist.place_order_requested.connect(self._show_order_dialog_from_dict)
         self.watchlist.watchlist_changed.connect(self._schedule_subscription_rebuild)
         self.watchlist.watchlist_changed.connect(self._sync_floating_watchlist_dialog)
@@ -1903,40 +1828,26 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         if not ticks:
             return
 
-        chart_refs = []
-        for chart in (getattr(self, "candlestick_chart", None), getattr(self, "candlestick_chart_secondary", None)):
-            if not chart:
-                continue
-            chart_symbol = str(getattr(chart, "current_symbol", "") or "").strip().upper()
-            chart_token = getattr(chart, "current_instrument_token", None)
-            chart_token_int = None
-            if chart_token not in (None, ""):
-                try:
-                    chart_token_int = int(chart_token)
-                except (TypeError, ValueError):
-                    chart_token_int = None
-            chart_refs.append((chart_symbol, chart_token_int))
+        chart_token = getattr(self.candlestick_chart, 'current_instrument_token', None)
+        chart_token_int = None
+        if chart_token not in (None, ""):
+            try:
+                chart_token_int = int(chart_token)
+            except (TypeError, ValueError):
+                chart_token_int = None
 
         for tick in ticks:
-            token = tick.get("instrument_token") or tick.get("conId")
-            tick_symbol = str(tick.get("tradingsymbol") or tick.get("symbol") or "").strip().upper()
+            token = tick.get("instrument_token")
 
-            # Chart ticks go into a separate deque — never coalesced. IBKR may
-            # stream symbol-only ticks before conId qualification completes.
-            matches_chart = False
-            for chart_symbol, chart_token_int in chart_refs:
-                if chart_symbol and tick_symbol == chart_symbol:
-                    matches_chart = True
-                    break
-                if chart_token_int is not None and token not in (None, ""):
-                    try:
-                        if int(token) == chart_token_int:
-                            matches_chart = True
-                            break
-                    except (TypeError, ValueError):
-                        pass
+            # Chart ticks go into a separate deque — never coalesced
+            token_matches_chart = False
+            if chart_token_int is not None and token not in (None, ""):
+                try:
+                    token_matches_chart = int(token) == chart_token_int
+                except (TypeError, ValueError):
+                    token_matches_chart = False
 
-            if matches_chart:
+            if token_matches_chart:
                 self._chart_tick_queue.append(tick)
                 continue  # skip the coalescing buffer for chart ticks
 
@@ -1975,18 +1886,6 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         if not ticks:
             return
 
-        for tick in ticks:
-            sym = str(tick.get("tradingsymbol") or tick.get("symbol") or "").strip().upper()
-            if sym:
-                self._last_quote_by_symbol[sym] = tick
-                inst = self.instrument_map.get(sym)
-                if isinstance(inst, dict):
-                    if tick.get("last_price") is not None:
-                        inst["last_price"] = tick.get("last_price")
-                    if tick.get("instrument_token") not in (None, "", 0, "0"):
-                        inst["instrument_token"] = tick.get("instrument_token")
-                        inst["conId"] = tick.get("instrument_token")
-
         if hasattr(self, "header_toolbar"):
             self.header_toolbar.ingest_ws_ticks(ticks)
 
@@ -2012,20 +1911,14 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             if scanner_ticks:
                 self.chartink_scanner.update_data(scanner_ticks)
 
-        # 2. Positions — pass raw ticks; table does O(1) token→row lookup.
-        # IBKR should normally provide conId, but guard against symbol-only ticks.
+        # 2. Positions — pass raw ticks; table does O(1) token→row lookup
         for tick in ticks:
             token = tick.get("instrument_token")
             ltp = tick.get("last_price")
-            if token is None or ltp is None:
-                continue
-            try:
-                token_int = int(token)
-            except (TypeError, ValueError):
-                continue
-            self.positions_table.update_market_data(token_int, float(ltp))
-            if self.floating_positions_dialog and self.floating_positions_dialog.isVisible():
-                self.floating_positions_dialog.update_market_data(token_int, float(ltp))
+            if token is not None and ltp is not None:
+                self.positions_table.update_market_data(int(token), float(ltp))
+                if self.floating_positions_dialog and self.floating_positions_dialog.isVisible():
+                    self.floating_positions_dialog.update_market_data(int(token), float(ltp))
 
         # 3. Paper trader (only in paper mode, lightweight)
         paper_trader = self._get_paper_trading_manager()
@@ -2041,59 +1934,81 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
     @Slot(str)
     def _on_scanner_symbol_selected(self, symbol: str):
-        """Ensure scanner-selected symbols are resolved and subscribed."""
-        symbol = symbol.strip().upper()
-        instrument = self.instrument_map.get(symbol)
+        """Resolve scanner-selected US symbols and subscribe them without stale worker imports."""
+        symbol = (symbol or "").strip().upper()
+        if not symbol:
+            return
 
+        instrument = self.instrument_map.get(symbol)
         if instrument and instrument.get("instrument_token"):
-            # Already known — subscribe and load
             token = instrument["instrument_token"]
             self._subscribe_to_tokens([token])
             self.candlestick_chart.on_search(symbol)
             self.candlestick_chart_secondary.on_search(symbol)
             return
 
-        # Unknown symbol — qualify it first
-        def _on_qualified(contract):
-            if contract:
-                self.instrument_map[symbol] = {
-                    "tradingsymbol": symbol,
-                    "name": symbol,
-                    "exchange": contract.exchange or "SMART",
-                    "instrument_token": contract.conId,
-                    "currency": "USD",
-                    "instrument_type": "EQ",
-                }
-                self._token_to_symbol[contract.conId] = symbol
-                self._subscribe_to_tokens([contract.conId])
-            # Load chart regardless — IBKRDataFetcher can resolve without conId
+        def _merge_and_load(inst: Optional[Dict[str, Any]] = None) -> None:
+            inst = inst or {}
+            token = inst.get("instrument_token") or inst.get("conId") or inst.get("conid") or 0
+            try:
+                token = int(token or 0)
+            except (TypeError, ValueError):
+                token = 0
+
+            resolved = {
+                "tradingsymbol": symbol,
+                "symbol": symbol,
+                "name": inst.get("name") or inst.get("longName") or symbol,
+                "exchange": inst.get("exchange") or inst.get("primaryExch") or "SMART",
+                "instrument_token": token,
+                "conId": token,
+                "segment": inst.get("segment") or inst.get("secType") or "STK",
+                "secType": inst.get("secType") or inst.get("segment") or "STK",
+                "currency": inst.get("currency") or "USD",
+                "instrument_type": inst.get("instrument_type") or "EQ",
+            }
+
+            self.instrument_map[symbol] = resolved
+            if not hasattr(self, "_token_to_symbol"):
+                self._token_to_symbol = {}
+            if token:
+                self._token_to_symbol[token] = symbol
+                self._subscribe_to_tokens([token])
+
+            # Keep both chart widgets aware of the newly resolved contract.
+            for chart in (getattr(self, "candlestick_chart", None), getattr(self, "candlestick_chart_secondary", None)):
+                if chart is not None and hasattr(chart, "instrument_map"):
+                    chart.instrument_map[symbol] = resolved
+
+            # Persist the search result in the IBKR seed cache when supported.
+            loader = getattr(self, "ibkr_instrument_loader", None)
+            if token and loader is not None and hasattr(loader, "merge_and_cache"):
+                try:
+                    loader.merge_and_cache([resolved])
+                except Exception:
+                    logger.debug("Failed to persist resolved scanner symbol %s", symbol, exc_info=True)
+
             self.candlestick_chart.on_search(symbol)
             self.candlestick_chart_secondary.on_search(symbol)
+            self._schedule_subscription_rebuild()
 
-        # Run qualification in background
-        from ibkr.utils.ibkr_symbol_resolver import IBKRSymbolSearchWorker
-        worker = IBKRSymbolSearchWorker(self.real_kite_client, symbol)
+        def _handle_results(results: list) -> None:
+            exact = None
+            for item in results or []:
+                candidate = str(item.get("tradingsymbol") or item.get("symbol") or "").strip().upper()
+                if candidate == symbol:
+                    exact = item
+                    break
+            if exact is None and results:
+                exact = results[0]
+            _merge_and_load(exact)
 
-        def _handle_results(results):
-            contract_obj = None
-            if results:
-                # Use first exact match
-                for r in results:
-                    if r.get("tradingsymbol") == symbol:
-                        from ib_insync import Stock
-                        c = Stock(symbol, "SMART", "USD")
-                        c.conId = r.get("instrument_token", 0)
-                        c.exchange = r.get("exchange", "SMART")
-                        contract_obj = c
-                        break
-            _on_qualified(contract_obj)
-
-        worker.results_ready.connect(_handle_results)
-        worker.search_failed.connect(lambda _: _on_qualified(None))
-        worker.start()
-        # Keep reference so it's not GC'd
-        self._pending_workers = getattr(self, "_pending_workers", [])
-        self._pending_workers.append(worker)
+        resolver = getattr(self, "ibkr_symbol_resolver", None) or getattr(self, "_ibkr_symbol_resolver", None)
+        if resolver is not None and hasattr(resolver, "search"):
+            resolver.search(symbol, _handle_results)
+        else:
+            logger.warning("IBKR symbol resolver unavailable for scanner symbol %s", symbol)
+            _merge_and_load(None)
 
     def _filter_ticks_by_exchange_preference(self, ticks: List[Dict]) -> List[Dict]:
         """Filter ticks to prefer NSE over BSE for same symbols"""
@@ -2286,125 +2201,72 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
     @Slot()
     def _rebuild_subscription_universe(self):
-        """Handle watchlist/UI changes with IBKR symbol+contract subscriptions."""
-        logger.info("Updating IBKR subscription universe")
-        subscriptions: Dict[str, Any] = {}
+        """Handle watchlist and UI changes with position-priority subscriptions."""
+        logger.info("Watchlist changed - updating subscriptions")
+        all_tokens = set()
 
-        def add_items(items):
-            for item in items or []:
-                key = self._subscription_key(item)
-                if key:
-                    subscriptions[key] = item
+        # Priority 0: Pending paper-order symbols (must stay subscribed so
+        # trigger/limit orders continue evaluating even when chart focus changes).
+        paper_pending_tokens = self._get_pending_paper_order_tokens()
+        all_tokens.update(paper_pending_tokens)
+        if paper_pending_tokens:
+            logger.info(f"Added {len(paper_pending_tokens)} pending paper-order tokens")
 
-        # Priority 0: Pending paper-order symbols.
-        add_items(self._get_pending_paper_order_tokens())
+        # Priority 1: Position tokens
+        if hasattr(self, 'positions_table') and self.positions_table.positions_data:
+            position_tokens = [pos.token for pos in self.positions_table.positions_data.values() if pos.token > 0]
+            all_tokens.update(position_tokens)
+            logger.info(f"Added {len(position_tokens)} position tokens")
 
-        # Priority 1: Positions. Prefer conId tokens but keep symbol fallback.
-        if hasattr(self, 'positions_table') and getattr(self.positions_table, 'positions_data', None):
-            for pos in self.positions_table.positions_data.values():
-                token = getattr(pos, "token", 0) or 0
-                symbol = str(getattr(pos, "symbol", "") or "").strip().upper()
-                if token:
-                    add_items([int(token)])
-                elif symbol:
-                    add_items([self._instrument_payload_for_symbol(symbol)])
-
-        # Priority 2: Chart symbols/tokens.
+        # Priority 2: Chart token
         for chart in (getattr(self, 'candlestick_chart', None), getattr(self, 'candlestick_chart_secondary', None)):
-            if not chart:
-                continue
-            token = getattr(chart, 'current_instrument_token', None)
-            symbol = str(getattr(chart, 'current_symbol', '') or '').strip().upper()
-            if token not in (None, "", 0, "0"):
-                add_items([token])
-            elif symbol:
-                add_items([self._instrument_payload_for_symbol(symbol)])
+            if chart and getattr(chart, 'current_instrument_token', None):
+                all_tokens.add(chart.current_instrument_token)
+                logger.info(f"Added chart token: {chart.current_instrument_token}")
 
-        # Priority 3: Watchlists. Use full payloads, not just tokens, so symbols
-        # without conId still stream after MarketDataWorker qualifies them.
-        watchlist_items = []
-        if hasattr(self.watchlist, "get_all_subscription_items"):
-            watchlist_items = self.watchlist.get_all_subscription_items()
-        elif hasattr(self.watchlist, "get_all_watchlist_tokens"):
-            watchlist_items = self.watchlist.get_all_watchlist_tokens()
+        # Priority 3: Watchlist tokens (always include)
+        # NOTE:
+        # Keep watchlist symbols subscribed even when the watchlist pane is hidden.
+        # Multiple consumers (watchlist/floating watchlist, order dialog LTP,
+        # alerts, scanner interactions, etc.) read from shared live ticks; tying
+        # subscriptions to widget visibility can cause intermittent "one panel
+        # updates, another stalls" behavior for overlapping symbols.
+        watchlist_tokens = []
+        if hasattr(self.watchlist, "get_all_watchlist_tokens"):
+            watchlist_tokens = self.watchlist.get_all_watchlist_tokens()
         else:
-            watchlist_items = self.watchlist.get_all_tokens()
-        add_items(watchlist_items)
-        logger.info("Added %d watchlist subscription items", len(watchlist_items or []))
+            watchlist_tokens = self.watchlist.get_all_tokens()
 
-        # Priority 4: Scanner-visible rows.
+        all_tokens.update(watchlist_tokens)
+        logger.info(f"Added {len(watchlist_tokens)} watchlist tokens")
+
+        # Priority 4: Scanner-visible symbols
         theme = self.color_theme_manager.get_theme()
         if theme.get("scanner_live_ticks", True):
-            add_items(self._get_scanner_visible_tokens())
+            scanner_tokens = self._get_scanner_visible_tokens()
+            all_tokens.update(scanner_tokens)
+            logger.info(f"Added {len(scanner_tokens)} scanner tokens")
 
-        # Priority 5: Alert tokens.
-        add_items(self._get_alert_tokens())
+        # Priority 5: Alert tokens
+        alert_tokens = self._get_alert_tokens()
+        all_tokens.update(alert_tokens)
 
-        # Priority 6: Header ticker board tokens.
+        # Priority 6: Header ticker board tokens
+        # Keep these in the core subscription universe so they are not dropped
+        # when set_instruments() replaces the websocket subscriptions.
         if hasattr(self, "header_toolbar") and getattr(self, "instrument_map", None):
             try:
-                add_items(self.header_toolbar.configure_ticker_ws_tokens(self.instrument_map))
+                header_tokens = self.header_toolbar.configure_ticker_ws_tokens(self.instrument_map)
+                all_tokens.update(header_tokens)
+                logger.info(f"Added {len(header_tokens)} header ticker tokens")
             except Exception as exc:
                 logger.error(f"Failed to resolve header ticker tokens: {exc}")
 
-        items = list(subscriptions.values())
+        # Subscribe to all tokens (or clear when empty)
         if self.market_data_worker:
-            self.market_data_worker.set_instruments(items)
-            self._subscribed_tokens = set(subscriptions.keys())
-            logger.info("Updated subscription universe to %d instruments", len(items))
-            # During closed/pre-market sessions IBKR may not emit live ticks.
-            # Snapshot requests run inside MarketDataWorker and keep LTP/%Chg populated.
-            if not self._is_us_market_open_now() and watchlist_items:
-                self._request_quote_snapshots(watchlist_items)
-
-    def _subscription_key(self, item: Any) -> str:
-        if isinstance(item, dict):
-            token = item.get("instrument_token") or item.get("conId") or item.get("conid")
-            if token not in (None, "", 0, "0"):
-                return str(token)
-            return str(item.get("tradingsymbol") or item.get("symbol") or item.get("name") or "").strip().upper()
-        if isinstance(item, int):
-            return str(item)
-        if isinstance(item, str):
-            return item.strip().upper()
-        con_id = getattr(item, "conId", 0) if item is not None else 0
-        if con_id:
-            return str(con_id)
-        return str(getattr(item, "symbol", "") or "").strip().upper()
-
-    def _instrument_payload_for_symbol(self, symbol: str) -> Dict[str, Any]:
-        symbol = (symbol or "").strip().upper()
-        inst = dict(self.instrument_map.get(symbol) or {})
-        token = inst.get("instrument_token") or inst.get("conId") or inst.get("conid") or 0
-        try:
-            token = int(token or 0)
-        except Exception:
-            token = 0
-        payload = {
-            **inst,
-            "tradingsymbol": symbol,
-            "symbol": symbol,
-            "exchange": inst.get("exchange") or inst.get("primaryExchange") or "SMART",
-            "primaryExchange": inst.get("primaryExchange") or inst.get("exchange") or "SMART",
-            "currency": inst.get("currency") or "USD",
-            "secType": inst.get("secType") or inst.get("instrument_type") or "STK",
-        }
-        if token:
-            payload["instrument_token"] = token
-            payload["conId"] = token
-        return payload
-
-    @Slot(list)
-    def _request_quote_snapshots(self, items: List[Any]):
-        """Ask MarketDataWorker for non-blocking quote snapshots."""
-        if not items:
-            return
-        try:
-            worker = getattr(self, "market_data_worker", None)
-            if worker and hasattr(worker, "request_snapshots"):
-                worker.request_snapshots(items)
-        except Exception as exc:
-            logger.debug("Quote snapshot request failed: %s", exc)
+            self.market_data_worker.set_instruments(list(all_tokens))
+            self._subscribed_tokens = set(all_tokens)
+            logger.info(f"Updated subscription universe to {len(all_tokens)} tokens")
 
     def _get_scanner_visible_tokens(self) -> List[int]:
         """
@@ -2441,29 +2303,22 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         return list(tokens)
 
     @Slot(list)
-    def _subscribe_to_tokens(self, tokens: List[Any]):
-        """Add market-data subscriptions. Accepts tokens, symbols, contracts, or dict payloads."""
+    def _subscribe_to_tokens(self, tokens: List[int]):
+        """Subscribe to market data tokens"""
         if not tokens:
             return
 
-        new_items = []
-        for item in tokens:
-            key = self._subscription_key(item)
-            if key and key not in self._subscribed_tokens:
-                new_items.append(item)
-                self._subscribed_tokens.add(key)
-
-        if not new_items:
+        new_tokens = [token for token in tokens if token not in self._subscribed_tokens]
+        if not new_tokens:
             return
 
         try:
             if self.market_data_worker and hasattr(self.market_data_worker, 'add_instruments'):
-                self.market_data_worker.add_instruments(new_items)
-                logger.info("Added %d incremental market-data subscriptions", len(new_items))
-                if not self._is_us_market_open_now():
-                    self._request_quote_snapshots(new_items)
+                self.market_data_worker.add_instruments(new_tokens)
+                self._subscribed_tokens.update(new_tokens)
+                logger.info(f"Added {len(new_tokens)} new tokens to subscription")
         except Exception as e:
-            logger.error(f"Failed to subscribe to instruments: {e}")
+            logger.error(f"Failed to subscribe to tokens: {e}")
 
 
     @Slot(dict)
@@ -2599,17 +2454,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         if position and getattr(position, "product", None):
             return position.product
         try:
-            raw_positions = self.trader.get_positions() if hasattr(self.trader, "get_positions") else self.trader.positions()
-            if isinstance(raw_positions, dict):
-                rows = raw_positions.get("net", [])
-            else:
-                rows = raw_positions or []
-            for pos_data in rows:
-                if isinstance(pos_data, dict):
-                    pos_symbol = pos_data.get("tradingsymbol") or pos_data.get("symbol")
-                    qty = int(float(pos_data.get("quantity", pos_data.get("position", 0)) or 0))
-                    if pos_symbol == symbol and qty != 0:
-                        return pos_data.get("product") or pos_data.get("product_type") or pos_data.get("secType") or fallback
+            for pos_data in (self.trader.positions() or {}).get("net", []):
+                if pos_data.get("tradingsymbol") == symbol and int(pos_data.get("quantity", 0)) != 0:
+                    return pos_data.get("product") or pos_data.get("product_type") or fallback
         except Exception:
             pass
         return fallback
@@ -2757,12 +2604,11 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 f"Submitting {tx_type} {qty} {symbol}…", 3000, level="action"
             )
 
-            accepted, order_id, broker_order, error_message = self._submit_broker_order(order_data)
+            order_id = self.trader.place_order(**order_data)
 
-            if accepted:
-                order_data.update(broker_order)
+            if order_id:
                 order_data["order_id"] = order_id
-                order_data["status"] = broker_order.get("status", "ROUTED")
+                order_data["status"] = "ROUTED"
 
                 status.notify("submitted", symbol)
                 self.position_manager.start_tracking_order(order_id, order_data)
@@ -2772,8 +2618,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 self._log_order_placement_immediate(order_data, order_id)
                 logger.info(f"[ENTRY] Order accepted by broker: {order_id}")
             else:
-                show_order_failed(error_message or f"{symbol} — no order ID returned (possible rejection)")
-                logger.warning(f"[ENTRY] Broker rejected/failed order for {symbol}: {error_message}")
+                show_order_failed(f"{symbol} — no order ID returned (possible rejection)")
+                logger.warning(f"[ENTRY] Broker returned no order_id for {symbol}")
 
         except Exception as e:
             symbol = order_data.get("tradingsymbol", "?")
@@ -2807,12 +2653,11 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 f"Submitting exit {tx_type} {qty} {symbol}…", 3000, level="action"
             )
 
-            accepted, order_id, broker_order, error_message = self._submit_broker_order(order_data)
+            order_id = self.trader.place_order(**order_data)
 
-            if accepted:
-                order_data.update(broker_order)
+            if order_id:
                 order_data["order_id"] = order_id
-                order_data["status"] = broker_order.get("status", "ROUTED")
+                order_data["status"] = "ROUTED"
                 order_data["_is_exit_order"] = True
 
                 status.notify("submitted", symbol)
@@ -2823,8 +2668,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 self._log_order_placement_immediate(order_data, order_id)
                 logger.info(f"[EXIT] Exit order accepted: {order_id}")
             else:
-                show_order_failed(error_message or f"{symbol} exit — no order ID returned")
-                logger.warning(f"[EXIT] Broker rejected/failed exit for {symbol}: {error_message}")
+                show_order_failed(f"{symbol} exit — no order ID returned")
+                logger.warning(f"[EXIT] Broker returned no order_id for exit {symbol}")
 
         except Exception as e:
             symbol = order_data.get("tradingsymbol", "?")
@@ -2832,77 +2677,19 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             status.notify("rejected", symbol, compact_error)
             logger.error(f"[EXIT] Exit placement exception: {e}", exc_info=True)
 
-    def _submit_broker_order(self, order_data: Dict[str, Any]):
-        """Submit to broker and normalize Kite-style IDs or IBKR-style dicts."""
-        try:
-            result = self.trader.place_order(**order_data)
-        except Exception as exc:
-            return False, "", {}, self._compact_broker_error(exc)
-        return self._normalize_order_submission_result(result)
-
-    @staticmethod
-    def _normalize_order_submission_result(result: Any):
-        if isinstance(result, dict):
-            error = result.get("error")
-            if error is None and result.get("accepted") is False:
-                error = result.get("message") or "Broker rejected the order"
-            order_id = str(result.get("order_id") or result.get("id") or result.get("permId") or "").strip()
-            accepted = bool(order_id) and not error
-            return accepted, order_id, dict(result), str(error or "")
-        if result:
-            return True, str(result), {"order_id": str(result), "status": "ROUTED"}, ""
-        return False, "", {}, "No order ID returned"
-
-    def _ensure_ibkr_symbol_in_map(self, symbol: str) -> bool:
-        """Allow IBKR order flow even when symbol was not in the seed map."""
-        symbol = (symbol or "").strip().upper()
-        if not symbol:
-            return False
-        if symbol in self.instrument_map:
-            return True
-        if not (self.real_kite_client and hasattr(self.real_kite_client, "reqMatchingSymbols")):
-            return False
-        try:
-            # Do a narrow synchronous lookup only at order validation time. Search-bar
-            # typing still uses the async resolver path.
-            matches = self.real_kite_client.reqMatchingSymbols(symbol)
-            for match in matches or []:
-                contract = getattr(match, "contract", match)
-                if str(getattr(contract, "symbol", "")).upper() != symbol:
-                    continue
-                token = int(getattr(contract, "conId", 0) or 0)
-                self.instrument_map[symbol] = {
-                    "tradingsymbol": symbol,
-                    "symbol": symbol,
-                    "name": getattr(match, "longName", "") or symbol,
-                    "exchange": getattr(contract, "primaryExchange", "") or getattr(contract, "exchange", "SMART"),
-                    "instrument_token": token,
-                    "conId": token,
-                    "currency": getattr(contract, "currency", "USD"),
-                    "secType": getattr(contract, "secType", "STK"),
-                }
-                if token:
-                    if not hasattr(self, "_token_to_symbol"):
-                        self._token_to_symbol = {}
-                    self._token_to_symbol[token] = symbol
-                return True
-        except Exception as exc:
-            logger.warning(f"Could not resolve IBKR symbol {symbol}: {exc}")
-        return False
-
     def _ensure_symbol_subscription_for_order(self, symbol: str) -> None:
-        """Subscribe order symbol immediately so order dialogs get fresh ticks."""
+        """Subscribe order symbol immediately so paper/live flows get fresh ticks."""
         symbol = (symbol or "").strip().upper()
-        if not symbol:
+        if not symbol or symbol not in self.instrument_map:
             return
-        instrument = self.instrument_map.get(symbol, {})
-        token = instrument.get("instrument_token") or instrument.get("conId")
-        if token:
-            self._subscribe_to_tokens([int(token)])
-        elif self.market_data_worker and hasattr(self.market_data_worker, "add_instruments"):
-            self.market_data_worker.add_instruments([symbol])
+
+        token = self.instrument_map[symbol].get("instrument_token")
+        if not token:
+            return
+
+        self._subscribe_to_tokens([int(token)])
         self._schedule_subscription_rebuild()
-        logger.info(f"Ensured pre-order subscription for {symbol} ({token or 'symbol'})")
+        logger.info(f"Ensured pre-order subscription for {symbol} ({token})")
 
     def _log_order_placement_immediate(self, order_data: Dict[str, Any], order_id: str):
         """
@@ -3209,53 +2996,46 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     # ==============================================================================
 
     def _get_fresh_ltp(self, symbol: str) -> float:
-        """Get latest cached LTP without sleeping/blocking the UI hot path."""
-        symbol = (symbol or "").strip().upper()
-        if not symbol:
-            return 0.0
+        """Get fresh LTP for symbol with NSE preference"""
+        ltp = 0.0
 
-        for table in getattr(self.watchlist, "_tables", {}).values():
+        # Check watchlist tables
+        for table in self.watchlist._tables.values():
             if hasattr(table, '_watchlist_data') and symbol in table._watchlist_data:
-                try:
-                    ltp = float(table._watchlist_data[symbol].get('ltp', 0.0) or 0.0)
-                    if ltp > 0:
-                        return ltp
-                except Exception:
-                    pass
-
-        quote = self._last_quote_by_symbol.get(symbol) or {}
-        try:
-            ltp = float(quote.get("last_price") or 0.0)
-            if ltp > 0:
-                return ltp
-        except Exception:
-            pass
-
-        instrument = self.instrument_map.get(symbol, {})
-        try:
-            ltp = float(instrument.get('last_price', 0) or 0)
-            if ltp > 0:
-                return ltp
-        except Exception:
-            pass
-
-        worker = getattr(self, "market_data_worker", None)
-        if worker and hasattr(worker, "get_last_price"):
-            token = instrument.get("instrument_token") or instrument.get("conId") or symbol
-            try:
-                ltp = float(worker.get_last_price(token) or worker.get_last_price(symbol) or 0.0)
+                ltp = table._watchlist_data[symbol].get('ltp', 0.0)
                 if ltp > 0:
                     return ltp
-            except Exception:
-                pass
 
-        # Do not block the UI with reqMktData/reqHistoricalData here. Ask the
-        # worker for a snapshot and let the dialog/watchlist update on the next tick.
-        self._request_quote_snapshots([self._instrument_payload_for_symbol(symbol)])
-        return 0.0
+        # Check instrument map (now NSE-preferred)
+        if symbol in self.instrument_map:
+            ltp = self.instrument_map[symbol].get('last_price', 0)
+            if ltp > 0:
+                return ltp
+
+        # Fallback to API: support both Kite-style quote() and IBKR reqMktData().
+        try:
+            if self.real_kite_client:
+                if hasattr(self.real_kite_client, "quote"):
+                    exchange = self.instrument_map.get(symbol, {}).get('exchange', 'NSE')
+                    quote = self.real_kite_client.quote([f"{exchange}:{symbol}"])
+                    ltp = quote[f"{exchange}:{symbol}"].get('last_price', 0)
+                    return ltp
+
+                if hasattr(self.real_kite_client, "reqMktData") and hasattr(self.real_kite_client, "reqContractDetails"):
+                    from ib_insync import Stock
+                    details = self.real_kite_client.reqContractDetails(Stock(symbol, "SMART", "USD"))
+                    if details:
+                        contract = details[0].contract
+                        ticker = self.real_kite_client.reqMktData(contract, '', False, False)
+                        time.sleep(0.2)
+                        return float((ticker.last or ticker.close or 0.0) if ticker else 0.0)
+        except Exception as e:
+            logger.warning(f"Failed to fetch LTP for {symbol} via API: {e}")
+
+        return ltp
 
     def _validate_order_data(self, order_data: Dict[str, Any]) -> bool:
-        """Validate order data while allowing on-demand IBKR symbols."""
+        """Validate order data"""
         required = ['tradingsymbol', 'transaction_type', 'quantity', 'order_type']
         for field in required:
             if field not in order_data:
@@ -3266,9 +3046,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             show_error("Invalid quantity")
             return False
 
-        symbol = str(order_data.get('tradingsymbol', '')).strip().upper()
-        if symbol not in self.instrument_map and not self._ensure_ibkr_symbol_in_map(symbol):
-            show_error(f"Symbol not found: {symbol}")
+        if order_data['tradingsymbol'] not in self.instrument_map:
+            show_error(f"Symbol not found: {order_data['tradingsymbol']}")
             return False
 
         return True
