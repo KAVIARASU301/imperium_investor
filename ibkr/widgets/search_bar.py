@@ -509,6 +509,7 @@ class EnhancedSearchInput(QLineEdit):
         self._replace_on_next: bool = False
         self._active_query: str = ""
         self._last_results_by_symbol: Dict[str, Dict[str, Any]] = {}
+        self._last_local_results_by_query: Dict[str, List[Dict[str, Any]]] = {}
 
         # Debounce timer
         self._debounce = QTimer(self)
@@ -595,14 +596,20 @@ class EnhancedSearchInput(QLineEdit):
                 self._dropdown.hide_popup()
             return
 
-        # Always search local index first for instant suggestions.
+        # Always search local index first for instant suggestions.  Keep those
+        # rows for this query so a slower/empty live provider response cannot
+        # erase symbols that were loaded from the local symbol database.
         local_results: List[Dict[str, Any]] = []
         if self._index is not None:
             local_results = self._index.search(query)
+            self._last_local_results_by_query[query] = list(local_results)
+            self._last_results_by_symbol = self._merge_results_by_symbol(local_results)
             self._ensure_dropdown()
             self._dropdown.show_results(local_results, query, self)
-        elif self._dropdown:
-            self._dropdown.hide_popup()
+        else:
+            self._last_local_results_by_query[query] = []
+            if self._dropdown:
+                self._dropdown.hide_popup()
 
         # Optionally enrich with async/live provider results.
         if self._async_search_provider is not None:
@@ -614,13 +621,42 @@ class EnhancedSearchInput(QLineEdit):
         query = self.text().strip().upper()
         if not query or query != self._active_query:
             return
-        self._last_results_by_symbol = {
-            str(r.get("tradingsymbol", "")).upper(): r
-            for r in results
-            if r.get("tradingsymbol")
-        }
+
+        # Merge live/async results into the local search results instead of
+        # replacing them.  IBKR can legitimately return no results for a prefix
+        # query; hiding the dropdown in that case made symbol-database matches
+        # appear to be missing.
+        merged_results = self._merge_results(
+            self._last_local_results_by_query.get(query, []),
+            results or [],
+        )
+        self._last_results_by_symbol = self._merge_results_by_symbol(merged_results)
         self._ensure_dropdown()
-        self._dropdown.show_results(results, query, self)
+        self._dropdown.show_results(merged_results, query, self)
+
+    @staticmethod
+    def _result_symbol(inst: Dict[str, Any]) -> str:
+        return str(inst.get("tradingsymbol") or inst.get("symbol") or "").strip().upper()
+
+    @classmethod
+    def _merge_results(cls, *groups: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        merged: List[Dict[str, Any]] = []
+        seen: set[str] = set()
+        for group in groups:
+            for inst in group or []:
+                symbol = cls._result_symbol(inst)
+                if not symbol or symbol in seen:
+                    continue
+                seen.add(symbol)
+                if inst.get("tradingsymbol") == symbol and inst.get("symbol") == symbol:
+                    merged.append(inst)
+                else:
+                    merged.append({**inst, "tradingsymbol": symbol, "symbol": symbol})
+        return merged
+
+    @classmethod
+    def _merge_results_by_symbol(cls, results: Sequence[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+        return {cls._result_symbol(r): r for r in results or [] if cls._result_symbol(r)}
 
     def _on_symbol_committed(self, symbol: str, inst: Dict) -> None:
         self.setText(symbol)

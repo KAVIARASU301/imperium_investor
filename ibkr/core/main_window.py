@@ -1101,31 +1101,59 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
     def _ibkr_live_search(self, query: str, callback) -> None:
         """Called by search bar for every keystroke — hits IBKR API live."""
-        if not query or len(query) < 1:
+        query = (query or "").strip().upper()
+        if not query:
             callback([])
             return
 
-        # Check local instrument map first (instant)
+        # Check local instrument map first (instant).  This map is populated
+        # from the symbol-info database at startup, so it is the authoritative
+        # source for prefix suggestions even if the live IBKR lookup is slow or
+        # returns an empty prefix response.
         local_matches = [
             inst for sym, inst in self.instrument_map.items()
-            if sym.startswith(query.upper())
-        ]
+            if str(sym or "").upper().startswith(query)
+        ][:20]
         if local_matches:
-            callback(local_matches[:20])
+            callback(local_matches)
 
-        # Also search IBKR for anything not in local map
+        # Also search IBKR for anything not in local map.  The completion
+        # callback receives local + live rows, never live rows alone, so a later
+        # empty live response cannot clear the local suggestions from the UI.
         self.ibkr_symbol_resolver.search(
             query,
-            lambda results: self._on_ibkr_search_results(results, query, callback)
+            lambda results, local=local_matches: self._on_ibkr_search_results(
+                results, query, callback, local
+            )
         )
 
-    def _on_ibkr_search_results(self, results: list, query: str, callback) -> None:
+    def _on_ibkr_search_results(
+        self,
+        results: list,
+        query: str,
+        callback,
+        local_matches: list | None = None,
+    ) -> None:
         """Merge live IBKR search results into instrument map and call back."""
-        for inst in results:
-            sym = inst.get("tradingsymbol", "")
-            if sym and sym not in self.instrument_map:
-                self.instrument_map[sym] = inst
-        callback(results[:20])
+        merged = []
+        seen = set()
+
+        def add(inst):
+            sym = str(inst.get("tradingsymbol") or inst.get("symbol") or "").strip().upper()
+            if not sym or sym in seen:
+                return
+            normalized = {**inst, "tradingsymbol": sym, "symbol": sym}
+            seen.add(sym)
+            merged.append(normalized)
+            if sym not in self.instrument_map:
+                self.instrument_map[sym] = normalized
+
+        for inst in local_matches or []:
+            add(inst)
+        for inst in results or []:
+            add(inst)
+
+        callback(merged[:20])
 
     @Slot()
     def _on_websocket_connect(self):
