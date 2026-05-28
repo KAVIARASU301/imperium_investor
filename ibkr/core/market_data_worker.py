@@ -60,7 +60,7 @@ def _configured_market_data_type() -> int:
 
 
 def _delayed_fallback_enabled() -> bool:
-    raw = os.environ.get("IBKR_MARKET_DATA_FALLBACK_DELAYED", "1").strip().lower()
+    raw = os.environ.get("IBKR_MARKET_DATA_FALLBACK_DELAYED", "0").strip().lower()
     return raw not in {"0", "false", "no", "off"}
 
 
@@ -651,7 +651,11 @@ class MarketDataWorker(QThread):
 
         if error_code in _DELAYED_NOTICE_CODES:
             logger.warning("IBKR market data notice for %s: %s (%s)", label, error_string, error_code)
-            if "delayed" in str(error_string or "").lower() and self._market_data_type not in {3, 4}:
+            if (
+                self._allow_delayed_fallback
+                and "delayed" in str(error_string or "").lower()
+                and self._market_data_type not in {3, 4}
+            ):
                 self._market_data_type = 3
                 self._tried_delayed_fallback = True
                 self._last_live_retry_monotonic = time.monotonic()

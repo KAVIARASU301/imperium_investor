@@ -210,6 +210,7 @@ class DualModeLoginManager(QDialog):
         self._drag_pos = None
         self._active_kite_session: Optional[Dict[str, Any]] = None
         self._active_kite_creds: Optional[Dict[str, Any]] = None
+        self.selected_ibkr_market_data_type = "live"
 
         self._request_token_servers: List[KiteRequestTokenServer] = []
         self._callback_failure_reasons: Dict[int, str] = {}
@@ -919,6 +920,8 @@ class DualModeLoginManager(QDialog):
         settings_layout.addLayout(host_col, 2)
         settings_layout.addLayout(client_id_col, 1)
 
+        market_data_panel = self._create_ibkr_market_data_selector()
+
         # Status area — QTextEdit handles long multi-line error messages cleanly
         self.ibkr_status_display = QTextEdit()
         self.ibkr_status_display.setObjectName("ibkrStatusDisplay")
@@ -942,10 +945,54 @@ class DualModeLoginManager(QDialog):
 
         layout.addWidget(title)
         layout.addWidget(settings_panel)
+        layout.addWidget(market_data_panel)
         layout.addWidget(self.ibkr_status_display)
         layout.addStretch()
         layout.addLayout(nav)
         return page
+
+
+    def _create_ibkr_market_data_selector(self) -> QFrame:
+        frame = QFrame()
+        frame.setObjectName("inputPanel")
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(7)
+
+        label = QLabel("MARKET DATA")
+        label.setObjectName("fieldLabel")
+
+        choices = QHBoxLayout()
+        choices.setContentsMargins(0, 0, 0, 0)
+        choices.setSpacing(6)
+
+        self.ibkr_live_data_radio = QRadioButton("LIVE DATA")
+        self.ibkr_live_data_radio.setObjectName("modeRadio")
+        self.ibkr_live_data_radio.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.ibkr_live_data_radio.setChecked(True)
+
+        self.ibkr_delayed_data_radio = QRadioButton("DELAYED DATA")
+        self.ibkr_delayed_data_radio.setObjectName("modeRadio")
+        self.ibkr_delayed_data_radio.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        self.ibkr_market_data_group = QButtonGroup(self)
+        self.ibkr_market_data_group.setExclusive(True)
+        self.ibkr_market_data_group.addButton(self.ibkr_live_data_radio)
+        self.ibkr_market_data_group.addButton(self.ibkr_delayed_data_radio)
+
+        hint = QLabel(
+            "Choose Live only if your IBKR account has real-time subscriptions. "
+            "Choose Delayed for fee-free practice accounts; the app will request delayed ticks directly."
+        )
+        hint.setObjectName("hintLabel")
+        hint.setWordWrap(True)
+
+        choices.addWidget(self.ibkr_live_data_radio)
+        choices.addWidget(self.ibkr_delayed_data_radio)
+        layout.addWidget(label)
+        layout.addLayout(choices)
+        layout.addWidget(hint)
+        return frame
 
     def _connect_to_ibkr(self):
         if self.selected_trading_mode is None:
@@ -955,10 +1002,13 @@ class DualModeLoginManager(QDialog):
 
         host = "127.0.0.1"
         client_id = self.ibkr_client_id_input.value()
+        self.selected_ibkr_market_data_type = "delayed" if self.ibkr_delayed_data_radio.isChecked() else "live"
         self.connect_ibkr_btn.setEnabled(False)
         self.connect_ibkr_btn.setText("CONNECTING…")
         self.ibkr_status_display.clear()
-        self.ibkr_status_display.setPlainText("Initiating connection...")
+        self.ibkr_status_display.setPlainText(
+            f"Initiating connection...\nMarket data: {self.selected_ibkr_market_data_type.upper()} (no automatic fallback)"
+        )
         self.ibkr_auth.connect_to_tws(
             trading_mode=self.selected_trading_mode,
             host=host,
@@ -976,14 +1026,21 @@ class DualModeLoginManager(QDialog):
     def _on_ibkr_connection_success(self, ib_client):
         host = "127.0.0.1"
         client_id = self.ibkr_client_id_input.value()
+        self.selected_ibkr_market_data_type = "delayed" if self.ibkr_delayed_data_radio.isChecked() else "live"
+        os.environ["IBKR_MARKET_DATA_TYPE"] = self.selected_ibkr_market_data_type
+        os.environ["IBKR_MARKET_DATA_FALLBACK_DELAYED"] = "0"
         self.authentication_data = {
             "broker_mode": BrokerMode.AMERICA,
             "trading_mode": self.selected_trading_mode,
             "ib_client": ib_client,
             "client_id": client_id,
+            "market_data_type": self.selected_ibkr_market_data_type,
+            "market_data_fallback_delayed": False,
             "connection_details": {
                 "host": host,
                 "client_id": client_id,
+                "market_data_type": self.selected_ibkr_market_data_type,
+                "market_data_fallback_delayed": False,
             },
         }
         self.accept()
