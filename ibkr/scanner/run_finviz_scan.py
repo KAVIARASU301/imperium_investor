@@ -153,6 +153,9 @@ def _parse_int(value):
 
 
 def _parse_change_pct(parts):
+    # Finviz comment rows are not perfectly stable across table views.
+    # Sometimes "Change" has a trailing `%`, sometimes it is a plain signed
+    # number token. Prioritise explicit percent tokens first.
     for part in parts:
         token = str(part).strip()
         if '%' not in token:
@@ -162,6 +165,27 @@ def _parse_change_pct(parts):
             return float(token)
         except Exception:
             continue
+
+    # Fallback: scan from the right for a signed numeric token that looks
+    # like a daily change percentage. We skip known symbol/price/volume slots.
+    # Example accepted tokens: +1.23, -0.45, 0.00
+    for idx in range(len(parts) - 1, -1, -1):
+        if idx in (0, 1, 2):  # symbol, price, volume
+            continue
+        token = str(parts[idx]).strip().replace(',', '')
+        if not token:
+            continue
+        if not re.fullmatch(r"[+-]?\d+(?:\.\d+)?", token):
+            continue
+        try:
+            value = float(token)
+        except Exception:
+            continue
+        # Keep plausible daily change ranges and avoid accidental picks
+        # from unrelated columns.
+        if -100.0 <= value <= 100.0:
+            return value
+
     return 0.0
 
 

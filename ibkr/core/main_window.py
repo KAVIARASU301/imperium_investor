@@ -22,7 +22,7 @@ from PySide6.QtWidgets import QMainWindow, QSplitter, QWidget, QVBoxLayout, QHBo
     QPushButton, QLabel, QApplication, QMessageBox, QMenuBar, QSizePolicy, QDialog, QLineEdit, QGraphicsDropShadowEffect
 from PySide6.QtGui import QMouseEvent, QKeySequence, QKeyEvent, QAction, QColor
 
-from ibkr.widgets.scanner_table import ChartinkScannerTable
+from ibkr.widgets.scanner_table import FinvizScannerTable
 from ibkr.widgets.positions_table import PositionsTable
 from ibkr.widgets.watchlist_table import TabbedWatchlistWidget
 from chart_engine import CandlestickChart as ChartWindow
@@ -371,7 +371,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self._is_adjusting_splitter = False
 
         # Create components
-        self.chartink_scanner = ChartinkScannerTable()
+        self.finviz_scanner = FinvizScannerTable()
         chart_data_fetcher = self._create_chart_data_fetcher()
         self.candlestick_chart = ChartWindow(
             chart_data_fetcher,
@@ -399,7 +399,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.positions_title.setContentsMargins(8, 2, 8, 2)
         positions_panel_layout.addWidget(self.positions_title)
         positions_panel_layout.addWidget(self.positions_table, 1)
-        self.chartink_scanner.setObjectName("scannerPanel")
+        self.finviz_scanner.setObjectName("scannerPanel")
         self.candlestick_chart.setObjectName("primaryChartPanel")
         self.candlestick_chart_secondary.setObjectName("secondaryChartPanel")
         self.watchlist.setObjectName("watchlistPanel")
@@ -407,8 +407,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         initial_theme = self.color_theme_manager.get_theme()
         self.header_toolbar.apply_color_theme(initial_theme)
-        self.chartink_scanner.apply_color_theme(initial_theme)
-        self.chartink_scanner.set_live_ticks_enabled(
+        self.finviz_scanner.apply_color_theme(initial_theme)
+        self.finviz_scanner.set_live_ticks_enabled(
             bool(initial_theme.get("scanner_live_ticks", True))
         )
         self.watchlist.apply_color_theme(initial_theme)
@@ -433,13 +433,13 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.positions_table.setMinimumHeight(100)
 
         # Keep side panels compact while preserving readability.
-        self.chartink_scanner.setMinimumWidth(0)
+        self.finviz_scanner.setMinimumWidth(0)
         right_panel_splitter.setMinimumWidth(220)
         self.candlestick_chart.setMinimumWidth(460)
         self.candlestick_chart_secondary.setMinimumWidth(460)
 
         # Add to the main splitter
-        self.main_splitter.addWidget(self.chartink_scanner)
+        self.main_splitter.addWidget(self.finviz_scanner)
         self.main_splitter.addWidget(self.candlestick_chart)
         self.main_splitter.addWidget(self.candlestick_chart_secondary)
         self.main_splitter.addWidget(right_panel_splitter)
@@ -503,7 +503,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
     def _apply_panel_elevation(self) -> None:
         """Give primary widgets a gentle, cohesive elevation."""
-        self._apply_subtle_shadow(self.chartink_scanner, blur_radius=12.0, y_offset=0.0)
+        self._apply_subtle_shadow(self.finviz_scanner, blur_radius=12.0, y_offset=0.0)
         self._apply_subtle_shadow(self.watchlist, blur_radius=12.0, y_offset=0.0)
         self._apply_subtle_shadow(self.positions_table, blur_radius=12.0, y_offset=0.0)
         self._apply_subtle_shadow(self.app_status_bar, blur_radius=16.0, y_offset=-1.0)
@@ -639,7 +639,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         chart_total = primary + (secondary if self.dual_chart_mode_enabled else 0)
         total = max(1, left + chart_total + right)
 
-        left_visible = self.chartink_scanner.isVisible()
+        left_visible = self.finviz_scanner.isVisible()
         right_visible = self.right_panel_splitter.isVisible()
 
         left_min = 0 if left_visible else 0
@@ -715,7 +715,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             self._is_adjusting_splitter = False
 
     def _set_scanner_visible(self, visible: bool):
-        self.chartink_scanner.setVisible(visible)
+        self.finviz_scanner.setVisible(visible)
         if visible and self._saved_scanner_panel_width:
             sizes = self.main_splitter.sizes()
             if len(sizes) == 4:
@@ -785,7 +785,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         """Prevent one pane from taking all width when dragging splitter handles."""
         sizes = self.main_splitter.sizes()
         if len(sizes) == 4:
-            if self.chartink_scanner.isVisible():
+            if self.finviz_scanner.isVisible():
                 self._saved_scanner_panel_width = int(sizes[0])
             if self.right_panel_splitter.isVisible():
                 self._saved_watchlist_panel_width = int(sizes[3])
@@ -933,12 +933,12 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     @Slot(dict)
     def _on_color_theme_changed(self, theme: Dict[str, Any]):
         self.header_toolbar.apply_color_theme(theme)
-        self.chartink_scanner.apply_color_theme(theme)
+        self.finviz_scanner.apply_color_theme(theme)
         self.watchlist.apply_color_theme(theme)
         self.positions_table.apply_color_theme(theme)
         self.candlestick_chart.apply_color_theme(theme)
         self.candlestick_chart_secondary.apply_color_theme(theme)
-        self.chartink_scanner.set_live_ticks_enabled(
+        self.finviz_scanner.set_live_ticks_enabled(
             bool(theme.get("scanner_live_ticks", True))
         )
         # Apply scanner live-tick subscription changes immediately after
@@ -1568,12 +1568,12 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             self.candlestick_chart_secondary.alert_creation_requested.connect(self.alert_system.create_alert_from_chart)
 
         # Scanner & Watchlist → Chart
-        self.chartink_scanner.symbol_selected.connect(self.candlestick_chart.on_search)
-        self.chartink_scanner.symbol_selected.connect(self.candlestick_chart_secondary.on_search)
-        self.chartink_scanner.symbol_selected.connect(self._on_scanner_symbol_selected)
+        self.finviz_scanner.symbol_selected.connect(self.candlestick_chart.on_search)
+        self.finviz_scanner.symbol_selected.connect(self.candlestick_chart_secondary.on_search)
+        self.finviz_scanner.symbol_selected.connect(self._on_scanner_symbol_selected)
         # Re-evaluate subscription universe whenever scan results refresh or user scrolls
-        self.chartink_scanner.scan_results_changed.connect(self._schedule_subscription_rebuild)
-        self.chartink_scanner.visible_rows_changed.connect(self._schedule_subscription_rebuild)
+        self.finviz_scanner.scan_results_changed.connect(self._schedule_subscription_rebuild)
+        self.finviz_scanner.visible_rows_changed.connect(self._schedule_subscription_rebuild)
         self.watchlist.symbol_selected.connect(self.candlestick_chart.on_search)
         self.watchlist.symbol_selected.connect(self.candlestick_chart_secondary.on_search)
         self.watchlist.subscribe_tokens_requested.connect(self._subscribe_to_tokens)
@@ -1707,7 +1707,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.candlestick_chart.set_instrument_list(instruments, instrument_map=self.instrument_map)
         self.candlestick_chart_secondary.set_instrument_list(instruments, instrument_map=self.instrument_map)
         self.watchlist.set_instrument_map(self.instrument_map)
-        self.chartink_scanner.set_instrument_map(self.instrument_map)
+        self.finviz_scanner.set_instrument_map(self.instrument_map)
 
         paper_trader = self._get_paper_trading_manager()
         if paper_trader:
@@ -1804,8 +1804,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                     symbol_to_load = (get_symbol() or "").strip().upper()
 
             # 2) Fall back to first scanner row (keeps startup aligned with scanner output).
-            if not symbol_to_load and hasattr(self, "chartink_scanner") and self.chartink_scanner:
-                table = getattr(self.chartink_scanner, "table", None)
+            if not symbol_to_load and hasattr(self, "finviz_scanner") and self.finviz_scanner:
+                table = getattr(self.finviz_scanner, "table", None)
                 if table and table.rowCount() > 0:
                     cell = table.item(0, 0)
                     if cell:
@@ -1894,7 +1894,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.watchlist.update_data(ticks)
         if self.floating_watchlist_dialog and self.floating_watchlist_dialog.isVisible():
             self.floating_watchlist_dialog.update_data(ticks)
-        scanner_token_map = getattr(self.chartink_scanner, "_token_to_symbol", None)
+        scanner_token_map = getattr(self.finviz_scanner, "_token_to_symbol", None)
         if scanner_token_map:
             scanner_ticks = []
             for tick in ticks:
@@ -1910,7 +1910,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 except (TypeError, ValueError):
                     continue
             if scanner_ticks:
-                self.chartink_scanner.update_data(scanner_ticks)
+                self.finviz_scanner.update_data(scanner_ticks)
 
         # 2. Positions — pass raw ticks; table does O(1) token→row lookup
         for tick in ticks:
@@ -2275,9 +2275,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         Includes a ±5 row scroll buffer (handled inside get_visible_tokens).
         Never subscribes the full scan result set — only what the trader sees.
         """
-        if not hasattr(self, 'chartink_scanner'):
+        if not hasattr(self, 'finviz_scanner'):
             return []
-        return self.chartink_scanner.get_visible_tokens()
+        return self.finviz_scanner.get_visible_tokens()
 
     def _get_pending_paper_order_tokens(self) -> List[int]:
         """Return instrument tokens for active pending paper orders."""
@@ -3217,8 +3217,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         # cannot steal the "scanner" context away mid-session.
         if context == "scanner" or self._is_scanner_focused(focused_widget):
             self._set_last_spacebar_context("scanner")
-            if hasattr(self.chartink_scanner, '_next_symbol'):
-                self.chartink_scanner._next_symbol()
+            if hasattr(self.finviz_scanner, '_next_symbol'):
+                self.finviz_scanner._next_symbol()
                 return
 
         # Check watchlist focus — only resolve the table when context is "watchlist".
@@ -3278,8 +3278,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         if context == "scanner" or self._is_scanner_focused(focused_widget):
             self._set_last_spacebar_context("scanner")
-            if hasattr(self.chartink_scanner, '_previous_symbol'):
-                self.chartink_scanner._previous_symbol()
+            if hasattr(self.finviz_scanner, '_previous_symbol'):
+                self.finviz_scanner._previous_symbol()
                 return
 
         watchlist_table = None
@@ -3307,7 +3307,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     def _clear_non_active_table_selections(self, active_context: str):
         """Keep row highlight visible only on the active spacebar navigation table."""
         try:
-            scanner_table = getattr(self.chartink_scanner, "table", None)
+            scanner_table = getattr(self.finviz_scanner, "table", None)
             if scanner_table is not None and active_context != "scanner":
                 scanner_table.clearSelection()
 
@@ -3359,8 +3359,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     def _bind_spacebar_context_tracking(self):
         """Bind mouse-selection tracking for scanner/watchlist tables."""
         try:
-            if hasattr(self.chartink_scanner, "table"):
-                scanner_table = self.chartink_scanner.table
+            if hasattr(self.finviz_scanner, "table"):
+                scanner_table = self.finviz_scanner.table
                 if not getattr(scanner_table, "_spacebar_context_bound", False):
                     scanner_table.cellClicked.connect(
                         lambda _r, _c: self._set_last_spacebar_context("scanner")
@@ -3473,7 +3473,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             return False
         current = widget
         while current:
-            if current == self.chartink_scanner:
+            if current == self.finviz_scanner:
                 return True
             if hasattr(current, 'objectName') and 'scanner' in current.objectName().lower():
                 return True
@@ -3616,10 +3616,10 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 'main_splitter': self.main_splitter.saveState().toBase64().data().decode('utf-8'),
                 'main_splitter_sizes': self.main_splitter.sizes(),
                 'is_maximized': self.isMaximized(),
-                'scanner_visible': self.chartink_scanner.isVisible(),
+                'scanner_visible': self.finviz_scanner.isVisible(),
                 'watchlist_visible': self.watchlist_action.isChecked(),
                 'positions_visible': self.positions_action.isChecked(),
-                'scanner_panel_width': int(self.main_splitter.sizes()[0]) if self.chartink_scanner.isVisible() else self._saved_scanner_panel_width,
+                'scanner_panel_width': int(self.main_splitter.sizes()[0]) if self.finviz_scanner.isVisible() else self._saved_scanner_panel_width,
                 'watchlist_panel_width': int(self.main_splitter.sizes()[3]) if self.right_panel_splitter.isVisible() else self._saved_watchlist_panel_width
             }
 
