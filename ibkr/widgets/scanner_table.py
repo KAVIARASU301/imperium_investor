@@ -6,6 +6,7 @@ import requests
 from bs4 import BeautifulSoup as bs
 from typing import List, Dict, Optional, Any
 from ibkr.scanner.run_finviz_scan import quick_scrape
+from ibkr.core.symbol_info_db import SymbolInfoDatabase
 
 from PySide6.QtCore import Signal, Slot, Qt, QThread, QTimer, QSize, QByteArray
 from PySide6.QtWidgets import (
@@ -1020,6 +1021,7 @@ class ScanWorker(QThread):
     def __init__(self, scan_url: str):
         super().__init__()
         self.scan_url = scan_url
+        self._symbol_info_db = SymbolInfoDatabase()
 
     def run(self):
         try:
@@ -1046,6 +1048,7 @@ class ScanWorker(QThread):
 
                 if not symbol:
                     continue
+                self._symbol_info_db.upsert_row(row if isinstance(row, dict) else {'symbol': symbol}, source='finviz_scan')
                 symbol_data = {
                     'symbol': symbol,
                     'name': symbol,
@@ -2368,3 +2371,4 @@ class FinvizScannerTable(QWidget):
 
 # Backward-compatible name for older main_window imports.
 ChartinkScannerTable = FinvizScannerTable
+

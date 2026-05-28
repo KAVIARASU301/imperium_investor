@@ -47,6 +47,11 @@ from chart_engine.settings.text_note_dialog import TextNoteDialog
 from chart_engine.settings.indicator_library_dialog import IndicatorLibraryDialog
 from chart_engine.toolbar.chart_toolbar import ChartToolbar
 
+try:
+    from ibkr.core.symbol_info_db import SymbolInfoDatabase
+except Exception:
+    SymbolInfoDatabase = None
+
 logger = logging.getLogger(__name__)
 
 SNAPSHOT_READY_RETRY_DELAY_MS = 150
@@ -445,8 +450,24 @@ class CandlestickChart(QWidget):
             self.current_drawing_color = QColor(drawing_color).name()
 
     def _resolve_symbol_description(self, symbol: str) -> str:
-        instrument = self.instrument_map.get(str(symbol or "").strip().upper(), {})
-        return str(instrument.get("name", "") or "").strip()
+        key = str(symbol or "").strip().upper()
+        instrument = self.instrument_map.get(key, {})
+        fallback_name = str(instrument.get("name", "") or "").strip()
+
+        if SymbolInfoDatabase is None:
+            return fallback_name
+
+        try:
+            info = SymbolInfoDatabase().get_symbol_info(key) or {}
+            company = str(info.get("company_name") or "").strip()
+            sector = str(info.get("sector") or "").strip()
+            industry = str(info.get("industry") or "").strip()
+            market_cap = str(info.get("market_cap_text") or "").strip()
+            parts = [company or fallback_name, sector, industry, market_cap]
+            desc = " · ".join([p for p in parts if p]).strip()
+            return desc or fallback_name
+        except Exception:
+            return fallback_name
 
     # ═══════════════════════════════════════════════════════════════════════
     # BUILD UI
