@@ -1380,15 +1380,15 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         """Handle chart symbol changes"""
         self._chart_tick_queue.clear()
         logger.info(f"Chart symbol changed to: {symbol}")
-        if symbol in self.instrument_map:
-            token = self.instrument_map[symbol]['instrument_token']
-            try:
-                if self.market_data_worker and self.market_data_worker.is_connected():
-                    self.market_data_worker.add_instruments([token])
-                    logger.info(f"Added chart symbol {symbol} to subscription")
-                self._schedule_subscription_rebuild()
-            except Exception as e:
-                logger.error(f"Failed to subscribe to chart symbol {symbol}: {e}")
+        try:
+            item = self._build_subscription_item(symbol)
+            if item is not None and self.market_data_worker and self.market_data_worker.is_connected():
+                self.market_data_worker.add_instruments([item])
+                self.market_data_worker.request_snapshots([item])
+                logger.info(f"Added chart symbol {symbol} to subscription")
+            self._schedule_subscription_rebuild()
+        except Exception as e:
+            logger.error(f"Failed to subscribe to chart symbol {symbol}: {e}")
 
     @Slot(str)
     def _ensure_chart_subscription(self, symbol: str):
@@ -1972,7 +1972,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         if instrument and instrument.get("instrument_token"):
             # Already known — subscribe and load
             token = instrument["instrument_token"]
-            self._subscribe_to_tokens([token])
+            self._subscribe_to_tokens([self._build_subscription_item(symbol, token=token) or token])
             self.candlestick_chart.on_search(symbol)
             self.candlestick_chart_secondary.on_search(symbol)
             return
@@ -1989,7 +1989,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                     "instrument_type": "EQ",
                 }
                 self._token_to_symbol[contract.conId] = symbol
-                self._subscribe_to_tokens([contract.conId])
+                self._subscribe_to_tokens([self._build_subscription_item(symbol, token=contract.conId) or contract.conId])
             # Load chart regardless — IBKRDataFetcher can resolve without conId
             self.candlestick_chart.on_search(symbol)
             self.candlestick_chart_secondary.on_search(symbol)
@@ -2208,31 +2208,142 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         """Backward-compatible entrypoint for subscription rebuild triggers."""
         self._schedule_subscription_rebuild()
 
+    def _safe_int_token(self, value: Any) -> int:
+        try:
+            token = int(float(value or 0))
+            return token if token > 0 else 0
+        except (TypeError, ValueError):
+            return 0
+
+    def _token_from_subscription_item(self, item: Any) -> int:
+        if isinstance(item, dict):
+            return self._safe_int_token(item.get("instrument_token") or item.get("conId") or item.get("conid"))
+        return self._safe_int_token(item)
+
+    def _subscription_item_key(self, item: Any) -> str:
+        if isinstance(item, dict):
+            token = self._token_from_subscription_item(item)
+            if token:
+                return f"T:{token}"
+            symbol = str(item.get("tradingsymbol") or item.get("symbol") or item.get("name") or "").strip().upper()
+            return f"S:{symbol}" if symbol else ""
+        token = self._token_from_subscription_item(item)
+        if token:
+            return f"T:{token}"
+        symbol = str(item or "").strip().upper()
+        return f"S:{symbol}" if symbol else ""
+
+    def _build_subscription_item(self, symbol: str = "", token: Any = None) -> Optional[Any]:
+        """Build a market-data subscription item that IBKR can qualify.
+
+        IBKR widgets can have only a symbol before conId qualification (for
+        example scanner rows or newly added watchlist symbols). Passing a raw
+        symbol keeps those widgets live instead of silently skipping them.
+        """
+        clean_symbol = str(symbol or "").strip().upper()
+        instrument = self.instrument_map.get(clean_symbol, {}) if clean_symbol and getattr(self, "instrument_map", None) else {}
+        resolved_token = self._safe_int_token(token) or self._safe_int_token(
+            instrument.get("instrument_token") or instrument.get("conId") or instrument.get("conid")
+        )
+
+        if resolved_token:
+            return {
+                "instrument_token": resolved_token,
+                "conId": resolved_token,
+                "tradingsymbol": clean_symbol or instrument.get("tradingsymbol") or instrument.get("symbol") or "",
+                "symbol": clean_symbol or instrument.get("symbol") or instrument.get("tradingsymbol") or "",
+                "exchange": instrument.get("exchange") or "SMART",
+                "currency": instrument.get("currency") or "USD",
+            }
+
+        if clean_symbol:
+            return clean_symbol
+        return None
+
+    def _get_pending_paper_order_subscription_items(self) -> List[Any]:
+        """Return market-data subscription items for active pending paper orders."""
+        paper_trader = self._get_paper_trading_manager()
+        if not paper_trader:
+            return []
+
+        items: List[Any] = []
+        try:
+            for order in paper_trader.orders() or []:
+                if str(order.get("status", "")).upper() != "PENDING_EXECUTION":
+                    continue
+                symbol = str(order.get("tradingsymbol") or order.get("symbol") or "").strip().upper()
+                if not symbol:
+                    continue
+                item = self._build_subscription_item(symbol)
+                if item is not None:
+                    items.append(item)
+        except Exception as exc:
+            logger.warning(f"Failed to collect pending paper-order subscriptions: {exc}")
+            return []
+
+        return items
+
+    def _get_scanner_visible_subscription_items(self) -> List[Any]:
+        """Return subscription items for visible scanner rows, including raw symbols without conIds."""
+        if not hasattr(self, 'finviz_scanner'):
+            return []
+        symbols = []
+        if hasattr(self.finviz_scanner, "get_visible_symbols"):
+            symbols = self.finviz_scanner.get_visible_symbols()
+        items: List[Any] = []
+        for symbol in symbols:
+            item = self._build_subscription_item(symbol)
+            if item is not None:
+                items.append(item)
+        return items
+
     @Slot()
     def _rebuild_subscription_universe(self):
         """Handle watchlist and UI changes with position-priority subscriptions."""
         logger.info("Watchlist changed - updating subscriptions")
         all_tokens = set()
         all_instruments: List[Any] = []
+        seen_instruments: set[str] = set()
+
+        def add_subscription_item(item: Any) -> None:
+            key = self._subscription_item_key(item)
+            if not key or key in seen_instruments:
+                return
+            seen_instruments.add(key)
+            all_instruments.append(item)
+            token = self._token_from_subscription_item(item)
+            if token:
+                all_tokens.add(token)
+
+        def add_symbol(symbol: str, token: Any = None) -> None:
+            item = self._build_subscription_item(symbol, token=token)
+            if item is not None:
+                add_subscription_item(item)
 
         # Priority 0: Pending paper-order symbols (must stay subscribed so
         # trigger/limit orders continue evaluating even when chart focus changes).
-        paper_pending_tokens = self._get_pending_paper_order_tokens()
-        all_tokens.update(paper_pending_tokens)
-        if paper_pending_tokens:
-            logger.info(f"Added {len(paper_pending_tokens)} pending paper-order tokens")
+        paper_pending_items = self._get_pending_paper_order_subscription_items()
+        for item in paper_pending_items:
+            add_subscription_item(item)
+        if paper_pending_items:
+            logger.info(f"Added {len(paper_pending_items)} pending paper-order symbols")
 
         # Priority 1: Position tokens
         if hasattr(self, 'positions_table') and self.positions_table.positions_data:
-            position_tokens = [pos.token for pos in self.positions_table.positions_data.values() if pos.token > 0]
-            all_tokens.update(position_tokens)
-            logger.info(f"Added {len(position_tokens)} position tokens")
+            position_count = 0
+            for pos in self.positions_table.positions_data.values():
+                add_symbol(getattr(pos, "symbol", ""), token=getattr(pos, "token", 0))
+                position_count += 1
+            logger.info(f"Added {position_count} position symbols")
 
         # Priority 2: Chart token
         for chart in (getattr(self, 'candlestick_chart', None), getattr(self, 'candlestick_chart_secondary', None)):
-            if chart and getattr(chart, 'current_instrument_token', None):
-                all_tokens.add(chart.current_instrument_token)
-                logger.info(f"Added chart token: {chart.current_instrument_token}")
+            if chart:
+                chart_symbol = getattr(chart, 'current_symbol', '')
+                chart_token = getattr(chart, 'current_instrument_token', None)
+                if chart_symbol or chart_token:
+                    add_symbol(chart_symbol, token=chart_token)
+                    logger.info(f"Added chart subscription: {chart_symbol or chart_token}")
 
         # Priority 3: Watchlist tokens (always include)
         # NOTE:
@@ -2247,21 +2358,27 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         else:
             watchlist_tokens = self.watchlist.get_all_tokens()
 
-        all_tokens.update(watchlist_tokens)
         if hasattr(self.watchlist, "get_all_watchlist_subscription_items"):
-            all_instruments.extend(self.watchlist.get_all_watchlist_subscription_items())
+            watchlist_items = self.watchlist.get_all_watchlist_subscription_items()
+            for item in watchlist_items:
+                add_subscription_item(item)
+        else:
+            for token in watchlist_tokens:
+                add_subscription_item(token)
         logger.info(f"Added {len(watchlist_tokens)} watchlist tokens")
 
         # Priority 4: Scanner-visible symbols
         theme = self.color_theme_manager.get_theme()
         if theme.get("scanner_live_ticks", True):
-            scanner_tokens = self._get_scanner_visible_tokens()
-            all_tokens.update(scanner_tokens)
-            logger.info(f"Added {len(scanner_tokens)} scanner tokens")
+            scanner_items = self._get_scanner_visible_subscription_items()
+            for item in scanner_items:
+                add_subscription_item(item)
+            logger.info(f"Added {len(scanner_items)} scanner visible symbols")
 
         # Priority 5: Alert tokens
         alert_tokens = self._get_alert_tokens()
-        all_tokens.update(alert_tokens)
+        for token in alert_tokens:
+            add_subscription_item(token)
 
         # Priority 6: Header ticker board tokens
         # Keep these in the core subscription universe so they are not dropped
@@ -2269,7 +2386,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         if hasattr(self, "header_toolbar") and getattr(self, "instrument_map", None):
             try:
                 header_tokens = self.header_toolbar.configure_ticker_ws_tokens(self.instrument_map)
-                all_tokens.update(header_tokens)
+                for token in header_tokens:
+                    add_subscription_item(token)
                 logger.info(f"Added {len(header_tokens)} header ticker tokens")
             except Exception as exc:
                 logger.error(f"Failed to resolve header ticker tokens: {exc}")
@@ -2280,13 +2398,6 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         # other consumers.
         if self.market_data_worker:
             token_keys = {str(token) for token in all_tokens}
-            for token in all_tokens:
-                if str(token) not in {
-                    str(item.get("instrument_token") or item.get("conId"))
-                    for item in all_instruments
-                    if isinstance(item, dict)
-                }:
-                    all_instruments.append(token)
             self.market_data_worker.set_instruments(all_instruments)
             self.market_data_worker.request_snapshots(all_instruments)
             self._subscribed_tokens = set(all_tokens)
@@ -2330,20 +2441,43 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         return list(tokens)
 
     @Slot(list)
-    def _subscribe_to_tokens(self, tokens: List[int]):
-        """Subscribe to market data tokens"""
+    def _subscribe_to_tokens(self, tokens: List[Any]):
+        """Subscribe widgets to IBKR market data by token, symbol, or rich item."""
         if not tokens:
             return
 
-        new_tokens = [token for token in tokens if token not in self._subscribed_tokens]
-        if not new_tokens:
+        instruments: List[Any] = []
+        new_token_count = 0
+        seen: set[str] = set()
+        for token in tokens:
+            item = token if isinstance(token, (dict, str)) else self._build_subscription_item(token=token)
+            if item is None:
+                continue
+            key = self._subscription_item_key(item)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            token_value = self._token_from_subscription_item(item)
+            if token_value and token_value in self._subscribed_tokens:
+                continue
+            instruments.append(item)
+            if token_value:
+                new_token_count += 1
+
+        if not instruments:
             return
 
         try:
             if self.market_data_worker and hasattr(self.market_data_worker, 'add_instruments'):
-                self.market_data_worker.add_instruments(new_tokens)
-                self._subscribed_tokens.update(new_tokens)
-                logger.info(f"Added {len(new_tokens)} new tokens to subscription")
+                self.market_data_worker.add_instruments(instruments)
+                self.market_data_worker.request_snapshots(instruments)
+                self._subscribed_tokens.update(
+                    token for token in (self._token_from_subscription_item(item) for item in instruments) if token
+                )
+                logger.info(
+                    f"Added {len(instruments)} widget market-data subscriptions "
+                    f"({new_token_count} token-backed)"
+                )
         except Exception as e:
             logger.error(f"Failed to subscribe to tokens: {e}")
 
@@ -2872,11 +3006,15 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             if self.floating_positions_dialog is None:
                 self.floating_positions_dialog = FloatingPositionsDialog(parent=self)
                 self.floating_positions_dialog.symbol_chart_requested.connect(self.candlestick_chart.on_search)
+                self.floating_positions_dialog.symbol_chart_requested.connect(self.candlestick_chart_secondary.on_search)
+                self.floating_positions_dialog.symbol_chart_requested.connect(self.header_toolbar.set_current_symbol)
+                self.floating_positions_dialog.symbol_chart_requested.connect(self._ensure_chart_subscription)
                 self.floating_positions_dialog.exit_position_requested.connect(self._handle_exit_position_request)
                 self.floating_positions_dialog.exit_half_position_requested.connect(self._handle_exit_half_position_request)
                 self.floating_positions_dialog.subscribe_to_market_data.connect(self._subscribe_to_tokens)
 
             self._update_floating_positions_dialog(getattr(self.positions_table, 'positions_data', {}).values())
+            self._schedule_subscription_rebuild()
             self.floating_positions_dialog.show()
             self.floating_positions_dialog.raise_()
             self.floating_positions_dialog.activateWindow()
@@ -2890,10 +3028,14 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         try:
             if self.floating_watchlist_dialog is None:
                 self.floating_watchlist_dialog = attach_floating_watchlist(self)
+                self.floating_watchlist_dialog.symbol_chart_requested.connect(self.candlestick_chart_secondary.on_search)
+                self.floating_watchlist_dialog.symbol_chart_requested.connect(self.header_toolbar.set_current_symbol)
+                self.floating_watchlist_dialog.symbol_chart_requested.connect(self._ensure_chart_subscription)
                 self.floating_watchlist_dialog.table.cellClicked.connect(
                     lambda _r, _c: self._set_last_spacebar_context("floating_watchlist")
                 )
             self._sync_floating_watchlist_dialog()
+            self._schedule_subscription_rebuild()
             self.floating_watchlist_dialog.show()
             self.floating_watchlist_dialog.raise_()
             self.floating_watchlist_dialog.activateWindow()
@@ -2921,6 +3063,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                     "name": entry.get("name", wl_id),
                     "symbols": symbols,
                     "data": data,
+                    "instrument_map": self.instrument_map,
                 })
                 self.floating_watchlist_dialog._token_to_symbol[wl_id] = dict(table._token_to_symbol)
 
