@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup as bs
 from typing import List, Dict, Optional, Any
 from ibkr.scanner.run_finviz_scan import quick_scrape
 
-from PySide6.QtCore import Signal, Slot, Qt, QThread, QTimer, QSize
+from PySide6.QtCore import Signal, Slot, Qt, QThread, QTimer, QSize, QByteArray
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem, QHeaderView,
     QAbstractItemView, QPushButton, QHBoxLayout, QLabel, QComboBox, QMessageBox,
@@ -1109,6 +1109,7 @@ class ChartinkScannerTable(QWidget):
         self.table.cellClicked.connect(self._on_cell_clicked)
         self.table.horizontalHeader().sectionClicked.connect(self._on_header_clicked)
         self.table.horizontalHeader().sectionResized.connect(lambda *_: self._sync_header_controls_to_table_width())
+        self.table.horizontalHeader().sectionResized.connect(self._save_table_layout_settings)
         self.table.setItemDelegateForColumn(2, VolumeStrengthDelegate(self.table))
         self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.table.setFocus()
@@ -1391,7 +1392,30 @@ class ChartinkScannerTable(QWidget):
 
         self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.table.setColumnHidden(2, not bool(self._color_theme.get("show_scanner_volume_column", True)))
+        QTimer.singleShot(0, self._restore_table_layout_settings)
         QTimer.singleShot(0, self._sync_header_controls_to_table_width)
+
+    def _save_table_layout_settings(self, *_args) -> None:
+        """Persist scanner table header/column layout to avoid width resets on startup."""
+        try:
+            header = self.table.horizontalHeader()
+            settings = self._load_scanner_settings()
+            settings["table_header_state"] = bytes(header.saveState().toBase64()).decode("utf-8")
+            with open(SETTINGS_FILE, "w") as f:
+                json.dump(settings, f, indent=2)
+        except Exception as e:
+            logger.debug(f"Failed to save scanner table layout settings: {e}")
+
+    def _restore_table_layout_settings(self) -> None:
+        """Restore scanner table header/column layout from persisted settings."""
+        try:
+            settings = self._load_scanner_settings()
+            encoded = settings.get("table_header_state")
+            if not encoded:
+                return
+            self.table.horizontalHeader().restoreState(QByteArray.fromBase64(encoded.encode("utf-8")))
+        except Exception as e:
+            logger.debug(f"Failed to restore scanner table layout settings: {e}")
 
     def _on_header_clicked(self, section: int) -> None:
         """Toggle tri-state sorting for %CHG column when header is clicked."""
@@ -1650,11 +1674,8 @@ class ChartinkScannerTable(QWidget):
     def _save_last_selected_scan(self, index: int):
         """Save the last selected scan index."""
         try:
-            settings = {"last_selected_scan": index}
-            settings_dir = os.path.dirname(SETTINGS_FILE)
-            if not os.path.exists(settings_dir):
-                os.makedirs(settings_dir, exist_ok=True)
-
+            settings = self._load_scanner_settings()
+            settings["last_selected_scan"] = index
             with open(SETTINGS_FILE, 'w') as f:
                 json.dump(settings, f, indent=2)
         except Exception as e:
@@ -1663,13 +1684,22 @@ class ChartinkScannerTable(QWidget):
     def _load_last_selected_scan(self) -> int:
         """Load the last selected scan index."""
         try:
-            if os.path.exists(SETTINGS_FILE):
-                with open(SETTINGS_FILE, 'r') as f:
-                    settings = json.load(f)
-                    return settings.get("last_selected_scan", 0)
+            settings = self._load_scanner_settings()
+            return int(settings.get("last_selected_scan", 0))
         except Exception as e:
             logger.warning(f"Failed to load scanner settings: {e}")
         return 0
+
+    def _load_scanner_settings(self) -> Dict[str, Any]:
+        """Load scanner settings dictionary from disk safely."""
+        settings_dir = os.path.dirname(SETTINGS_FILE)
+        if settings_dir and not os.path.exists(settings_dir):
+            os.makedirs(settings_dir, exist_ok=True)
+        if not os.path.exists(SETTINGS_FILE):
+            return {}
+        with open(SETTINGS_FILE, "r") as f:
+            data = json.load(f)
+            return data if isinstance(data, dict) else {}
 
     def _manage_scans(self):
         """Open the manage scans dialog."""
