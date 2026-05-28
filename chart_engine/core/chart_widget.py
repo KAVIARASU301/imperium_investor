@@ -17,6 +17,10 @@ import logging
 import os
 import re
 from datetime import datetime, time as dt_time, timedelta, timezone
+try:
+    from zoneinfo import ZoneInfo
+except Exception:  # pragma: no cover - Python fallback for stripped runtimes
+    ZoneInfo = None
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -810,6 +814,7 @@ class CandlestickChart(QWidget):
                 "showTimeSlider":         self._show_time_slider,
                 "movingAverageConfigs":      self._moving_average_configs,
                 "initialIndicatorVisibility": self._indicator_visibility,
+                "brokerName":                self._broker_caps.name,
             }
             loader_method = "refreshHistoricalData" if self._is_periodic_historical_refresh else "loadNewData"
             self._inject_chart_payload(loader_method, payload_dict)
@@ -857,6 +862,7 @@ class CandlestickChart(QWidget):
             info_visibility            = dict(self._chart_info_visibility),
             price_scale_currency       = self._resolve_price_scale_currency(),
             moving_average_configs     = self._moving_average_configs,
+            broker_name                = self._broker_caps.name,
         )
 
         self._render_html(cfg)
@@ -1048,9 +1054,16 @@ class CandlestickChart(QWidget):
     # ── Live updates ──────────────────────────────────────────────────────
 
     def _tick_time_ms(self, tick: Dict[str, Any]) -> Optional[int]:
-        """Return a broker tick timestamp as Unix milliseconds, if available."""
-        exchange_offset = timezone(timedelta(hours=5, minutes=30) if self._broker_caps.name == "kite" else timedelta(hours=-4))
-        for key in ("exchange_timestamp", "last_trade_time", "timestamp"):
+        """Return a broker-supplied tick timestamp as Unix milliseconds, if available."""
+        broker_name = str(getattr(self._broker_caps, "name", "") or "").strip().lower()
+        if broker_name == "kite":
+            exchange_tz = timezone(timedelta(hours=5, minutes=30))
+        elif ZoneInfo is not None:
+            exchange_tz = ZoneInfo("America/New_York")
+        else:  # conservative fallback for US equities when zoneinfo is unavailable
+            exchange_tz = timezone(timedelta(hours=-4))
+
+        for key in ("exchange_timestamp", "last_trade_time", "timestamp", "time"):
             value = tick.get(key)
             if value in (None, ""):
                 continue
@@ -1061,7 +1074,7 @@ class CandlestickChart(QWidget):
                 # exchange-local timestamps (IST for NSE feeds) instead of host-local
                 # clock to avoid bucket drift and "missing" intraday candles.
                 if dt_value.tzinfo is None:
-                    dt_value = dt_value.replace(tzinfo=exchange_offset)
+                    dt_value = dt_value.replace(tzinfo=exchange_tz)
                 return int(dt_value.timestamp() * 1000)
 
             if isinstance(value, (int, float)):
@@ -1135,7 +1148,10 @@ class CandlestickChart(QWidget):
                 now_exchange = reference_utc + timedelta(hours=5, minutes=30)
                 open_t, close_t = dt_time(9, 15), dt_time(15, 30)
             else:
-                now_exchange = reference_utc - timedelta(hours=4)
+                if ZoneInfo is not None:
+                    now_exchange = reference_utc.replace(tzinfo=timezone.utc).astimezone(ZoneInfo("America/New_York")).replace(tzinfo=None)
+                else:
+                    now_exchange = reference_utc - timedelta(hours=4)
                 open_t, close_t = dt_time(9, 30), dt_time(16, 0)
             if not (open_t <= now_exchange.time() <= close_t):
                 return

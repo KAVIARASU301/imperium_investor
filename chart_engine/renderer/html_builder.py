@@ -75,6 +75,7 @@ class ChartHtmlConfig:
     info_visibility:        Dict[str, bool] = field(default_factory=dict)
     price_scale_currency:   str   = ""
     moving_average_configs:  List[Dict] = field(default_factory=list)
+    broker_name:             str  = ""
     qwebchannel_src:         str   = "qrc:///qtwebchannel/qwebchannel.js"
 
 
@@ -138,6 +139,7 @@ def build_chart_html(cfg: ChartHtmlConfig) -> str:
         "infoVisibility":            cfg.info_visibility,
         "priceScaleCurrency":        (cfg.price_scale_currency or "").upper(),
         "movingAverageConfigs":       cfg.moving_average_configs,
+        "brokerName":                 (cfg.broker_name or "").lower(),
     }
 
     data_json = json.dumps(data_obj)

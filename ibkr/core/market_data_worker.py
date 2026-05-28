@@ -17,6 +17,7 @@ import queue
 import random
 import threading
 import time
+from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from PySide6.QtCore import QThread, Signal
@@ -703,12 +704,18 @@ class MarketDataWorker(QThread):
             getattr(ticker, "close", 0.0),
         )
         change_pct = ((last_price - prev_close) / prev_close * 100.0) if prev_close > 0 else 0.0
+        ticker_time = getattr(ticker, "time", None)
+        if isinstance(ticker_time, datetime) and ticker_time.tzinfo is None:
+            ticker_time = ticker_time.replace(tzinfo=timezone.utc)
+
         tick = {
             "symbol": symbol,
             "tradingsymbol": symbol,
             "instrument_token": con_id or key,
             "conId": con_id or 0,
             "last_price": last_price,
+            "timestamp": ticker_time,
+            "exchange_timestamp": ticker_time,
             "volume": int(_clean_float(getattr(ticker, "volume", 0.0), 0.0)),
             "close": prev_close,
             "prev_close": prev_close,

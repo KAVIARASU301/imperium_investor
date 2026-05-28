@@ -85,6 +85,7 @@ class FixedTradingChart {
         this.currentADR = cfg.initialADR || {};
         this.percentageChanges = cfg.percentageChanges || {};
         this.currentInterval = cfg.currentInterval || 'day';
+        this.brokerName = String(cfg.brokerName || '').toLowerCase();
         this._chartType = cfg.chartType === 'renko' ? 'candle' : (cfg.chartType || 'candle');
         this.heikinAshiData = [];
         this._renkoBoxPctIntraday = cfg.renkoBoxPctIntraday || 0.5;
@@ -3215,6 +3216,19 @@ class FixedTradingChart {
 
     _tradingDayKey(epochMs) {
         if (!Number.isFinite(epochMs)) return '';
+
+        // IBKR ticks arrive with a broker/API timestamp.  For US regular-session
+        // equities the UTC calendar date of that timestamp is the exchange
+        // trading date, so do not apply the Kite/IST offset here; doing so can
+        // make live ticks target a different daily candle than IBKR history.
+        if (this.brokerName === 'ibkr') {
+            const d = new Date(epochMs);
+            const year  = d.getUTCFullYear();
+            const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+            const day   = String(d.getUTCDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
         // IST = UTC+5:30. Use pure offset arithmetic so this works even in
         // Chromium-embedded environments where IANA timezone data may be
         // incomplete (some QtWebEngine builds on Linux).
@@ -3313,11 +3327,11 @@ class FixedTradingChart {
 
                 let newCandleTime;
                 if (isDailyInterval) {
-                    // TradingView-style daily candles are exchange calendar bars.
-                    // Use UTC midnight for the IST trading date as a stable
-                    // date key; do not use IST midnight as an absolute instant.
-                    const istMs = nowMs + IST_OFFSET_MS;
-                    const _d = new Date(istMs);
+                    // Daily candles are exchange calendar bars serialized at UTC
+                    // midnight.  IBKR mode must use the IBKR tick timestamp date
+                    // directly; Kite mode keeps the existing IST trading-date key.
+                    const dailyKeyMs = this.brokerName === 'ibkr' ? nowMs : nowMs + IST_OFFSET_MS;
+                    const _d = new Date(dailyKeyMs);
                     newCandleTime = Date.UTC(
                         _d.getUTCFullYear(),
                         _d.getUTCMonth(),
@@ -3422,6 +3436,7 @@ class FixedTradingChart {
         this.currentADR = cfg.initialADR || {};
         this.percentageChanges = cfg.percentageChanges || {};
         this.currentInterval = cfg.interval || 'day';
+        this.brokerName = String(cfg.brokerName || this.brokerName || '').toLowerCase();
         if (cfg.chartType !== undefined) {
             this._chartType = cfg.chartType;
         }
