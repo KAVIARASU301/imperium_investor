@@ -72,6 +72,17 @@ _NUM_FONT_FAMILIES = ["Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto
 _ROW_H = 22
 _DIALOG_ROW_H = 24
 
+# Compact scanner columns. Keep SYMBOL intentionally bounded so it cannot
+# stretch the scanner pane/splitter to the right.
+_SCANNER_COL_DEFAULTS = [74, 60, 64, 54]  # SYMBOL, PRICE, VOL, CHG%
+_SCANNER_COL_LIMITS = [
+    (56, 96),   # SYMBOL
+    (48, 78),   # PRICE
+    (54, 96),   # VOL
+    (48, 68),   # CHG%
+]
+
+
 
 def _set_font_families(font: QFont, families: List[str]) -> QFont:
     """Apply Qt font fallbacks without relying on CSS-only font stacks."""
@@ -1358,18 +1369,10 @@ class FinvizScannerTable(QWidget):
         self.table.horizontalHeader().setVisible(True)
         header = self.table.horizontalHeader()
 
-        # Fill any trailing viewport gap by letting SYMBOL absorb remaining width.
-        # Other columns stay content/fixed sized for stable numeric alignment.
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(0, 56)
-        self.table.setColumnWidth(3, 64)
-
-        # Prevent columns from disappearing entirely if crushed
-        header.setMinimumSectionSize(0)
-        header.setStretchLastSection(False)
+        # Fixed/interactive compact columns. Avoid Stretch here: if SYMBOL stretches,
+        # the scanner table asks for excessive width and pushes the main splitter.
+        self._apply_compact_column_policy()
+        self._set_compact_column_widths()
 
         self.table.verticalHeader().setVisible(False)
 
@@ -1395,25 +1398,58 @@ class FinvizScannerTable(QWidget):
         QTimer.singleShot(0, self._restore_table_layout_settings)
         QTimer.singleShot(0, self._sync_header_controls_to_table_width)
 
+    def _clamp_scanner_column_widths(self, widths: Optional[List[int]] = None) -> List[int]:
+        """Clamp persisted column widths so old Stretch states cannot return."""
+        source = list(widths or _SCANNER_COL_DEFAULTS)
+        if len(source) != len(_SCANNER_COL_DEFAULTS):
+            source = list(_SCANNER_COL_DEFAULTS)
+
+        clamped: List[int] = []
+        for index, default in enumerate(_SCANNER_COL_DEFAULTS):
+            try:
+                value = int(source[index])
+            except (TypeError, ValueError, IndexError):
+                value = default
+            low, high = _SCANNER_COL_LIMITS[index]
+            clamped.append(max(low, min(value, high)))
+        return clamped
+
+    def _apply_compact_column_policy(self) -> None:
+        """Use bounded, user-resizable columns instead of width-hungry Stretch."""
+        header = self.table.horizontalHeader()
+        header.setStretchLastSection(False)
+        header.setMinimumSectionSize(36)
+        for col in range(4):
+            mode = QHeaderView.ResizeMode.Fixed if col == 3 else QHeaderView.ResizeMode.Interactive
+            header.setSectionResizeMode(col, mode)
+
+    def _set_compact_column_widths(self, widths: Optional[List[int]] = None) -> None:
+        """Apply compact scanner widths and resync the toolbar span."""
+        self._apply_compact_column_policy()
+        for col, width in enumerate(self._clamp_scanner_column_widths(widths)):
+            self.table.setColumnWidth(col, width)
+        self._sync_header_controls_to_table_width()
+
     def _save_table_layout_settings(self, *_args) -> None:
-        """Persist scanner table header/column layout to avoid width resets on startup."""
+        """Persist compact scanner column widths without saving Stretch state."""
         try:
-            header = self.table.horizontalHeader()
             settings = self._load_scanner_settings()
-            settings["table_header_state"] = bytes(header.saveState().toBase64()).decode("utf-8")
+            widths = [self.table.columnWidth(col) for col in range(self.table.columnCount())]
+            settings["table_column_widths"] = self._clamp_scanner_column_widths(widths)
+            # Drop the previous header-state blob because it may contain Stretch
+            # metadata that re-expands the SYMBOL column on the next startup.
+            settings.pop("table_header_state", None)
             with open(SETTINGS_FILE, "w") as f:
                 json.dump(settings, f, indent=2)
         except Exception as e:
             logger.debug(f"Failed to save scanner table layout settings: {e}")
 
     def _restore_table_layout_settings(self) -> None:
-        """Restore scanner table header/column layout from persisted settings."""
+        """Restore bounded scanner column widths from persisted settings."""
         try:
             settings = self._load_scanner_settings()
-            encoded = settings.get("table_header_state")
-            if not encoded:
-                return
-            self.table.horizontalHeader().restoreState(QByteArray.fromBase64(encoded.encode("utf-8")))
+            widths = settings.get("table_column_widths")
+            self._set_compact_column_widths(widths if isinstance(widths, list) else None)
         except Exception as e:
             logger.debug(f"Failed to restore scanner table layout settings: {e}")
 
@@ -2327,3 +2363,7 @@ class FinvizScannerTable(QWidget):
             }}
         """
         self.setStyleSheet(stylesheet.replace("__DROPDOWN_ICON_URL__", dropdown_icon_url))
+
+
+# Backward-compatible name for older main_window imports.
+ChartinkScannerTable = FinvizScannerTable

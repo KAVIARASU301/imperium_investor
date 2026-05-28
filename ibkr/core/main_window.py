@@ -10,7 +10,6 @@ import json
 import re
 import threading
 import time
-import warnings
 import urllib.request
 import ipaddress
 from collections import deque
@@ -79,6 +78,14 @@ from ibkr.utils.color_system import get_color_theme_manager
 
 logger = logging.getLogger(__name__)
 
+# Scanner panel sizing: keep the left scanner lane compact and stable.
+# This prevents the scanner table/header from pushing the main splitter handle
+# to the right on startup or after scan results refresh.
+_SCANNER_PANEL_MIN_WIDTH = 260
+_SCANNER_PANEL_DEFAULT_WIDTH = 260
+_SCANNER_PANEL_MAX_WIDTH = 360
+_RIGHT_PANEL_MIN_WIDTH = 220
+_RIGHT_PANEL_DEFAULT_WIDTH = 320
 
 
 
@@ -433,8 +440,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.positions_table.setMinimumHeight(100)
 
         # Keep side panels compact while preserving readability.
-        self.finviz_scanner.setMinimumWidth(0)
-        right_panel_splitter.setMinimumWidth(220)
+        self.finviz_scanner.setMinimumWidth(_SCANNER_PANEL_MIN_WIDTH)
+        self.finviz_scanner.setMaximumWidth(_SCANNER_PANEL_MAX_WIDTH)
+        right_panel_splitter.setMinimumWidth(_RIGHT_PANEL_MIN_WIDTH)
         self.candlestick_chart.setMinimumWidth(460)
         self.candlestick_chart_secondary.setMinimumWidth(460)
 
@@ -445,12 +453,13 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.main_splitter.addWidget(right_panel_splitter)
 
         self.main_splitter.setChildrenCollapsible(False)
-        self.main_splitter.setCollapsible(0, True)
         self.main_splitter.setHandleWidth(1)
-        self.main_splitter.setStretchFactor(0, 1)
+        # Side panels should not grow when the window grows; give the extra
+        # space to charts only. This keeps the scanner splitter handle stable.
+        self.main_splitter.setStretchFactor(0, 0)
         self.main_splitter.setStretchFactor(1, 4)
         self.main_splitter.setStretchFactor(2, 4)
-        self.main_splitter.setStretchFactor(3, 2)
+        self.main_splitter.setStretchFactor(3, 0)
         self.main_splitter.splitterMoved.connect(self._on_main_splitter_moved)
         self.main_splitter.splitterMoved.connect(self._queue_window_state_save)
 
@@ -581,6 +590,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         settings_action = tools_menu.addAction("Settings", self._open_color_settings_dialog)
         settings_action.setShortcut(QKeySequence("Ctrl+,"))
         settings_action.setShortcutVisibleInContextMenu(True)
+        order_routing_action = tools_menu.addAction("Order Routing Settings", self._show_relay_settings_dialog)
+        order_routing_action.setShortcut(QKeySequence("Shift+R"))
+        order_routing_action.setShortcutVisibleInContextMenu(True)
 
         about_menu = menu_bar.addMenu("About")
         about_menu.addAction("Keyboard Shortcuts", lambda: show_keyboard_shortcuts_dialog(self))
@@ -619,111 +631,102 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         market_status = "OPEN" if (not is_weekend and is_open_time) else "CLOSED"
         status.set_market_indicator(market_status)
 
-    def _apply_intelligent_main_splitter_layout(self, preferred_sizes=None):
-        """Keep scanner/watchlist compact and protect chart space during resize/drag."""
-        if self._is_adjusting_splitter:
-            return
+    def _clamp_scanner_panel_width(self, width: Any = None) -> int:
+        """Return a safe, compact scanner width for persisted/splitter values."""
+        try:
+            value = int(width) if width not in (None, "") else _SCANNER_PANEL_DEFAULT_WIDTH
+        except (TypeError, ValueError):
+            value = _SCANNER_PANEL_DEFAULT_WIDTH
+        return max(_SCANNER_PANEL_MIN_WIDTH, min(value, _SCANNER_PANEL_MAX_WIDTH))
 
-        splitter_width = self.main_splitter.size().width()
-        if splitter_width <= 0:
-            return
+    def _clamp_right_panel_width(self, width: Any = None) -> int:
+        """Return a safe right-side width while allowing it to be wider than scanner."""
+        splitter_width = self.main_splitter.size().width() if hasattr(self, "main_splitter") else 0
+        max_width = max(_RIGHT_PANEL_MIN_WIDTH, int(splitter_width * 0.34)) if splitter_width > 0 else 520
+        try:
+            value = int(width) if width not in (None, "") else _RIGHT_PANEL_DEFAULT_WIDTH
+        except (TypeError, ValueError):
+            value = _RIGHT_PANEL_DEFAULT_WIDTH
+        return max(_RIGHT_PANEL_MIN_WIDTH, min(value, max_width))
 
-        sizes = preferred_sizes or self.main_splitter.sizes()
+    def _sanitize_main_splitter_sizes(self, raw_sizes=None) -> List[int]:
+        """Clamp restored/saved splitter sizes so side panels cannot drift outward."""
+        sizes = list(raw_sizes or self.main_splitter.sizes())
         if len(sizes) != 4:
-            return
+            sizes = [_SCANNER_PANEL_DEFAULT_WIDTH, 900, 0, _RIGHT_PANEL_DEFAULT_WIDTH]
 
-        left, primary, secondary, right = sizes
-        chart_total = primary + (secondary if self.dual_chart_mode_enabled else 0)
-        total = max(1, left + chart_total + right)
+        try:
+            sizes = [max(0, int(v)) for v in sizes]
+        except (TypeError, ValueError):
+            sizes = [_SCANNER_PANEL_DEFAULT_WIDTH, 900, 0, _RIGHT_PANEL_DEFAULT_WIDTH]
 
-        left_visible = self.finviz_scanner.isVisible()
-        right_visible = self.right_panel_splitter.isVisible()
+        splitter_width = self.main_splitter.size().width() if hasattr(self, "main_splitter") else 0
+        total = max(1, splitter_width, sum(sizes))
 
-        left_min = 0 if left_visible else 0
-        right_min = 220 if right_visible else 0
-        center_min = max(460, int(splitter_width * 0.45))
+        left_visible = bool(getattr(self, "finviz_scanner", None) and self.finviz_scanner.isVisible())
+        right_visible = bool(getattr(self, "right_panel_splitter", None) and self.right_panel_splitter.isVisible())
 
-        left_max = int(splitter_width * 0.3) if left_visible else 0
-        right_max = int(splitter_width * 0.34) if right_visible else 0
+        left = self._clamp_scanner_panel_width(sizes[0]) if left_visible else 0
+        right = self._clamp_right_panel_width(sizes[3]) if right_visible else 0
 
-        if right_visible and self._saved_watchlist_panel_width:
-            right = int(self._saved_watchlist_panel_width)
-        if left_visible and self._saved_scanner_panel_width:
-            left = int(self._saved_scanner_panel_width)
+        # Always protect the chart lane first. If side panels would squeeze the
+        # center, reduce the right panel before touching the scanner width.
+        center_floor = 520 if not self.dual_chart_mode_enabled else 920
+        if left + right + center_floor > total:
+            deficit = (left + right + center_floor) - total
+            right_reduction = min(max(0, right - _RIGHT_PANEL_MIN_WIDTH), deficit)
+            right -= right_reduction
+            deficit -= right_reduction
+            if deficit > 0:
+                left = max(_SCANNER_PANEL_MIN_WIDTH if left_visible else 0, left - deficit)
 
-        # Start from user ratio if available, then clamp side columns.
-        left = max(left_min, min(left, left_max))
-        right = max(right_min, min(right, right_max))
-
-        if left + right >= total:
-            chart_total = center_min
-            remainder = max(0, total - chart_total)
-            left = max(left_min, int(remainder * 0.42))
-            right = max(right_min, remainder - left)
-        else:
-            chart_total = total - left - right
-
-        # Guarantee minimum chart width by borrowing proportionally from side panels.
-        if chart_total < center_min:
-            deficit = center_min - chart_total
-            left_spare = max(0, left - left_min)
-            right_spare = max(0, right - right_min)
-            spare = left_spare + right_spare
-
-            if spare > 0:
-                take_left = min(left_spare, int(round(deficit * (left_spare / spare))))
-                take_right = min(right_spare, deficit - take_left)
-                leftover = deficit - (take_left + take_right)
-                if leftover > 0 and left_spare - take_left > 0:
-                    extra = min(left_spare - take_left, leftover)
-                    take_left += extra
-                    leftover -= extra
-                if leftover > 0 and right_spare - take_right > 0:
-                    take_right += min(right_spare - take_right, leftover)
-
-                left -= take_left
-                right -= take_right
-                chart_total = total - left - right
-
-        # Final sanity pass.
-        left = max(left_min, left)
-        right = max(right_min, right)
-        chart_total = max(center_min, total - left - right)
-
-        if left + chart_total + right != total:
-            chart_total = max(center_min, total - left - right)
-
+        chart_total = max(0, total - left - right)
         if self.dual_chart_mode_enabled:
-            primary_ratio = primary / max(1, primary + secondary)
-            primary = max(520, int(round(chart_total * primary_ratio)))
-            secondary = max(520, chart_total - primary)
-            # Ensure exact sum after min-width adjustments.
-            if primary + secondary != chart_total:
-                secondary = max(520, chart_total - primary)
-                primary = max(520, chart_total - secondary)
+            old_primary = max(1, sizes[1])
+            old_secondary = max(1, sizes[2])
+            primary_ratio = old_primary / max(1, old_primary + old_secondary)
+            primary = int(round(chart_total * primary_ratio))
+            secondary = chart_total - primary
         else:
             primary = chart_total
             secondary = 0
 
+        return [int(left), int(primary), int(secondary), int(right)]
+
+    def _apply_intelligent_main_splitter_layout(self, preferred_sizes=None):
+        """Keep scanner/watchlist compact and protect chart space during resize/drag."""
+        if self._is_adjusting_splitter:
+            return
+        if self.main_splitter.size().width() <= 0:
+            return
+
+        current_sizes = self.main_splitter.sizes()
+        sizes = self._sanitize_main_splitter_sizes(preferred_sizes or current_sizes)
+        if len(current_sizes) == 4 and [int(v) for v in current_sizes] == sizes:
+            return
+
         self._is_adjusting_splitter = True
         try:
-            self.main_splitter.setSizes([left, primary, secondary, right])
+            self.main_splitter.setSizes(sizes)
         finally:
             self._is_adjusting_splitter = False
 
     def _set_scanner_visible(self, visible: bool):
+        if visible:
+            self.finviz_scanner.setMinimumWidth(_SCANNER_PANEL_MIN_WIDTH)
+            self.finviz_scanner.setMaximumWidth(_SCANNER_PANEL_MAX_WIDTH)
         self.finviz_scanner.setVisible(visible)
-        if visible and self._saved_scanner_panel_width:
-            sizes = self.main_splitter.sizes()
-            if len(sizes) == 4:
-                total = max(1, sum(sizes))
-                left = max(0, int(self._saved_scanner_panel_width))
-                right = sizes[3]
-                chart_total = max(520, total - left - right)
-                left = max(0, total - chart_total - right)
-                primary = chart_total if not self.dual_chart_mode_enabled else max(520, chart_total // 2)
-                secondary = 0 if not self.dual_chart_mode_enabled else max(520, chart_total - primary)
-                self.main_splitter.setSizes([left, primary, secondary, right])
+
+        sizes = self.main_splitter.sizes()
+        if len(sizes) == 4:
+            if visible:
+                sizes[0] = self._clamp_scanner_panel_width(self._saved_scanner_panel_width)
+            else:
+                if sizes[0] > 0:
+                    self._saved_scanner_panel_width = self._clamp_scanner_panel_width(sizes[0])
+                sizes[0] = 0
+            self.main_splitter.setSizes(self._sanitize_main_splitter_sizes(sizes))
+
         self._apply_intelligent_main_splitter_layout()
         # Rebuild immediately so scanner tokens subscribe/unsubscribe exactly
         # when the user toggles visibility from View → Scanner.
@@ -770,7 +773,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             if len(pane_sizes) == 2:
                 if watchlist_visible and positions_visible:
                     if pane_sizes[0] == 0 and pane_sizes[1] == 0:
-                        self.right_panel_splitter.setSizes([320, 220])
+                        self.right_panel_splitter.setSizes([_RIGHT_PANEL_DEFAULT_WIDTH, 220])
                 elif watchlist_visible:
                     self.right_panel_splitter.setSizes([1, 0])
                 elif positions_visible:
@@ -779,13 +782,13 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self._apply_intelligent_main_splitter_layout()
 
     def _on_main_splitter_moved(self, _pos: int, _index: int):
-        """Prevent one pane from taking all width when dragging splitter handles."""
+        """Persist user splitter drags, but keep side panes inside safe limits."""
         sizes = self.main_splitter.sizes()
         if len(sizes) == 4:
             if self.finviz_scanner.isVisible():
-                self._saved_scanner_panel_width = int(sizes[0])
+                self._saved_scanner_panel_width = self._clamp_scanner_panel_width(sizes[0])
             if self.right_panel_splitter.isVisible():
-                self._saved_watchlist_panel_width = int(sizes[3])
+                self._saved_watchlist_panel_width = self._clamp_right_panel_width(sizes[3])
         self._apply_intelligent_main_splitter_layout()
 
     def _queue_window_state_save(self, *_args):
@@ -810,7 +813,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         """Apply restored splitter sizes once widgets have a real on-screen size."""
         try:
             if self._pending_main_splitter_sizes:
-                self.main_splitter.setSizes(self._pending_main_splitter_sizes)
+                self.main_splitter.setSizes(self._sanitize_main_splitter_sizes(self._pending_main_splitter_sizes))
                 self._pending_main_splitter_sizes = None
 
             if hasattr(self, 'right_panel_splitter') and self._pending_right_splitter_sizes:
@@ -988,6 +991,45 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 self.dual_chart_action.blockSignals(True)
                 self.dual_chart_action.setChecked(self.dual_chart_mode_enabled)
                 self.dual_chart_action.blockSignals(False)
+
+    def _show_relay_settings_dialog(self):
+        """Open relay settings and hot-reload an active RelayOrderRouter."""
+        from ibkr.core.relay_order_router import _HMACSigner
+        from ibkr.widgets.order_routing_settings import RelaySettingsDialog
+        from login_setup.token_manager import EnhancedTokenManager
+
+        dialog = RelaySettingsDialog(token_manager=EnhancedTokenManager(), parent=self)
+
+        def _resolve_active_relay_router():
+            if hasattr(self.trader, "_cfg"):
+                return self.trader
+            wrapped_client = getattr(self.trader, "client", None)
+            if wrapped_client and hasattr(wrapped_client, "_cfg"):
+                return wrapped_client
+            return None
+
+        def on_config_saved(new_cfg):
+            router = _resolve_active_relay_router()
+            if not router:
+                status.show_info("Relay config saved. It will be applied on next login/session.")
+                return
+
+            if new_cfg:
+                router._cfg = new_cfg
+                if hasattr(router, "_signer"):
+                    router._signer = _HMACSigner(new_cfg.secret)
+                try:
+                    router.check_health()
+                    status.show_info(f"Relay updated and connected: {new_cfg.url}")
+                except Exception as e:
+                    show_error(f"Relay saved but health check failed: {e}")
+            else:
+                if hasattr(router, "_cfg") and router._cfg:
+                    router._cfg.enabled = False
+                status.show_info("Relay routing disabled. Orders will route directly.")
+
+        dialog.config_saved.connect(on_config_saved)
+        dialog.exec()
 
     def _init_alert_system(self):
         try:
@@ -1893,81 +1935,59 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
     @Slot(str)
     def _on_scanner_symbol_selected(self, symbol: str):
-        """Resolve scanner-selected US symbols and subscribe them without stale worker imports."""
-        symbol = (symbol or "").strip().upper()
-        if not symbol:
-            return
-
+        """Ensure scanner-selected symbols are resolved and subscribed."""
+        symbol = symbol.strip().upper()
         instrument = self.instrument_map.get(symbol)
+
         if instrument and instrument.get("instrument_token"):
+            # Already known — subscribe and load
             token = instrument["instrument_token"]
             self._subscribe_to_tokens([token])
             self.candlestick_chart.on_search(symbol)
             self.candlestick_chart_secondary.on_search(symbol)
             return
 
-        def _merge_and_load(inst: Optional[Dict[str, Any]] = None) -> None:
-            inst = inst or {}
-            token = inst.get("instrument_token") or inst.get("conId") or inst.get("conid") or 0
-            try:
-                token = int(token or 0)
-            except (TypeError, ValueError):
-                token = 0
-
-            resolved = {
-                "tradingsymbol": symbol,
-                "symbol": symbol,
-                "name": inst.get("name") or inst.get("longName") or symbol,
-                "exchange": inst.get("exchange") or inst.get("primaryExch") or "SMART",
-                "instrument_token": token,
-                "conId": token,
-                "segment": inst.get("segment") or inst.get("secType") or "STK",
-                "secType": inst.get("secType") or inst.get("segment") or "STK",
-                "currency": inst.get("currency") or "USD",
-                "instrument_type": inst.get("instrument_type") or "EQ",
-            }
-
-            self.instrument_map[symbol] = resolved
-            if not hasattr(self, "_token_to_symbol"):
-                self._token_to_symbol = {}
-            if token:
-                self._token_to_symbol[token] = symbol
-                self._subscribe_to_tokens([token])
-
-            # Keep both chart widgets aware of the newly resolved contract.
-            for chart in (getattr(self, "candlestick_chart", None), getattr(self, "candlestick_chart_secondary", None)):
-                if chart is not None and hasattr(chart, "instrument_map"):
-                    chart.instrument_map[symbol] = resolved
-
-            # Persist the search result in the IBKR seed cache when supported.
-            loader = getattr(self, "ibkr_instrument_loader", None)
-            if token and loader is not None and hasattr(loader, "merge_and_cache"):
-                try:
-                    loader.merge_and_cache([resolved])
-                except Exception:
-                    logger.debug("Failed to persist resolved scanner symbol %s", symbol, exc_info=True)
-
+        # Unknown symbol — qualify it first
+        def _on_qualified(contract):
+            if contract:
+                self.instrument_map[symbol] = {
+                    "tradingsymbol": symbol,
+                    "name": symbol,
+                    "exchange": contract.exchange or "SMART",
+                    "instrument_token": contract.conId,
+                    "currency": "USD",
+                    "instrument_type": "EQ",
+                }
+                self._token_to_symbol[contract.conId] = symbol
+                self._subscribe_to_tokens([contract.conId])
+            # Load chart regardless — IBKRDataFetcher can resolve without conId
             self.candlestick_chart.on_search(symbol)
             self.candlestick_chart_secondary.on_search(symbol)
-            self._schedule_subscription_rebuild()
 
-        def _handle_results(results: list) -> None:
-            exact = None
-            for item in results or []:
-                candidate = str(item.get("tradingsymbol") or item.get("symbol") or "").strip().upper()
-                if candidate == symbol:
-                    exact = item
-                    break
-            if exact is None and results:
-                exact = results[0]
-            _merge_and_load(exact)
+        # Run qualification in background
+        from ibkr.utils.ibkr_symbol_resolver import IBKRSymbolSearchWorker
+        worker = IBKRSymbolSearchWorker(self.real_kite_client, symbol)
 
-        resolver = getattr(self, "ibkr_symbol_resolver", None) or getattr(self, "_ibkr_symbol_resolver", None)
-        if resolver is not None and hasattr(resolver, "search"):
-            resolver.search(symbol, _handle_results)
-        else:
-            logger.warning("IBKR symbol resolver unavailable for scanner symbol %s", symbol)
-            _merge_and_load(None)
+        def _handle_results(results):
+            contract_obj = None
+            if results:
+                # Use first exact match
+                for r in results:
+                    if r.get("tradingsymbol") == symbol:
+                        from ib_insync import Stock
+                        c = Stock(symbol, "SMART", "USD")
+                        c.conId = r.get("instrument_token", 0)
+                        c.exchange = r.get("exchange", "SMART")
+                        contract_obj = c
+                        break
+            _on_qualified(contract_obj)
+
+        worker.results_ready.connect(_handle_results)
+        worker.search_failed.connect(lambda _: _on_qualified(None))
+        worker.start()
+        # Keep reference so it's not GC'd
+        self._pending_workers = getattr(self, "_pending_workers", [])
+        self._pending_workers.append(worker)
 
     def _filter_ticks_by_exchange_preference(self, ticks: List[Dict]) -> List[Dict]:
         """Filter ticks to prefer NSE over BSE for same symbols"""
@@ -2309,20 +2329,15 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         if ltp == 0.0:
             show_error(f"Could not fetch LTP for {symbol}")
             return
-        instrument = self.instrument_map.get(symbol) or {
-            'tradingsymbol': symbol,
-            'symbol': symbol,
-            'exchange': 'SMART',
-            'currency': 'USD',
-            'instrument_type': 'STK',
-        }
         if symbol not in self.instrument_map:
-            self.instrument_map[symbol] = instrument
+            show_error(f"Symbol {symbol} not found")
+            return
 
         default_qty = self.config_manager.load_settings().get('default_quantity', 1)
         order_details = {'tradingsymbol': symbol, 'ltp': ltp, 'transaction_type': 'BUY', 'quantity': default_qty}
         order_details = self._build_order_details_with_account(order_details)
 
+        instrument = self.instrument_map.get(symbol, {})
         dialog = OrderDialog(self, symbol, ltp, order_details, instrument=instrument, ltp_fetcher=self._get_fresh_ltp)
         dialog.order_placed.connect(self._handle_order_placement)
         dialog.show()
@@ -2354,15 +2369,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         if not symbol:
             show_info("Select a symbol on chart before placing an order")
             return
-        instrument = self.instrument_map.get(symbol) or {
-            'tradingsymbol': symbol,
-            'symbol': symbol,
-            'exchange': 'SMART',
-            'currency': 'USD',
-            'instrument_type': 'STK',
-        }
         if symbol not in self.instrument_map:
-            self.instrument_map[symbol] = instrument
+            show_error(f"Symbol {symbol} not found")
+            return
 
         ltp = ltp_hint if ltp_hint > 0 else self._get_fresh_ltp(symbol)
         if ltp <= 0:
@@ -2380,6 +2389,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         }
         order_details = self._build_order_details_with_account(order_details)
 
+        instrument = self.instrument_map.get(symbol, {})
         dialog = OrderDialog(
             self,
             symbol,
@@ -2412,6 +2422,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         order_details = {'tradingsymbol': symbol, 'ltp': ltp, 'transaction_type': 'SELL', 'quantity': default_qty}
         order_details = self._build_order_details_with_account(order_details)
 
+        instrument = self.instrument_map.get(symbol, {})
         dialog = OrderDialog(self, symbol, ltp, order_details, instrument=instrument, ltp_fetcher=self._get_fresh_ltp)
         dialog.order_placed.connect(self._handle_order_placement)
         dialog.show()
@@ -3569,16 +3580,28 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             if not isinstance(existing_state, dict):
                 existing_state = {}
 
+            splitter_sizes = self._sanitize_main_splitter_sizes(self.main_splitter.sizes())
+            scanner_width = (
+                splitter_sizes[0]
+                if self.finviz_scanner.isVisible()
+                else self._clamp_scanner_panel_width(self._saved_scanner_panel_width)
+            )
+            watchlist_width = (
+                splitter_sizes[3]
+                if self.right_panel_splitter.isVisible()
+                else self._clamp_right_panel_width(self._saved_watchlist_panel_width)
+            )
+
             state = {
                 'geometry': self.saveGeometry().toBase64().data().decode('utf-8'),
                 'main_splitter': self.main_splitter.saveState().toBase64().data().decode('utf-8'),
-                'main_splitter_sizes': self.main_splitter.sizes(),
+                'main_splitter_sizes': splitter_sizes,
                 'is_maximized': self.isMaximized(),
                 'scanner_visible': self.finviz_scanner.isVisible(),
                 'watchlist_visible': self.watchlist_action.isChecked(),
                 'positions_visible': self.positions_action.isChecked(),
-                'scanner_panel_width': int(self.main_splitter.sizes()[0]) if self.finviz_scanner.isVisible() else self._saved_scanner_panel_width,
-                'watchlist_panel_width': int(self.main_splitter.sizes()[3]) if self.right_panel_splitter.isVisible() else self._saved_watchlist_panel_width
+                'scanner_panel_width': scanner_width,
+                'watchlist_panel_width': watchlist_width
             }
 
             if hasattr(self, 'right_panel_splitter'):
@@ -3603,9 +3626,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                         self.main_splitter.restoreState(QByteArray.fromBase64(state['main_splitter'].encode('utf-8')))
                     except Exception as e:
                         logger.warning(f"Failed to restore main splitter state: {e}")
-                        self.main_splitter.setSizes([220, 900, 0, 320])
+                        self.main_splitter.setSizes([_SCANNER_PANEL_DEFAULT_WIDTH, 900, 0, _RIGHT_PANEL_DEFAULT_WIDTH])
                 else:
-                    self.main_splitter.setSizes([220, 900, 0, 320])
+                    self.main_splitter.setSizes([_SCANNER_PANEL_DEFAULT_WIDTH, 900, 0, _RIGHT_PANEL_DEFAULT_WIDTH])
                 if state.get('main_splitter_sizes'):
                     self._pending_main_splitter_sizes = state['main_splitter_sizes']
 
@@ -3615,14 +3638,14 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                             QByteArray.fromBase64(state['right_panel_splitter'].encode('utf-8')))
                     except Exception as e:
                         logger.warning(f"Failed to restore right panel splitter state: {e}")
-                        self.right_panel_splitter.setSizes([320, 220])
+                        self.right_panel_splitter.setSizes([_RIGHT_PANEL_DEFAULT_WIDTH, 220])
                 elif hasattr(self, 'right_panel_splitter'):
-                    self.right_panel_splitter.setSizes([320, 220])
+                    self.right_panel_splitter.setSizes([_RIGHT_PANEL_DEFAULT_WIDTH, 220])
                 if hasattr(self, 'right_panel_splitter') and state.get('right_panel_splitter_sizes'):
                     self._pending_right_splitter_sizes = state['right_panel_splitter_sizes']
 
-                self._saved_watchlist_panel_width = state.get('watchlist_panel_width')
-                self._saved_scanner_panel_width = state.get('scanner_panel_width')
+                self._saved_watchlist_panel_width = self._clamp_right_panel_width(state.get('watchlist_panel_width'))
+                self._saved_scanner_panel_width = self._clamp_scanner_panel_width(state.get('scanner_panel_width'))
 
                 scanner_visible = state.get('scanner_visible', True)
                 watchlist_visible = state.get('watchlist_visible', True)
@@ -3639,18 +3662,18 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             else:
                 # Default state
                 self._start_maximized = True
-                self.main_splitter.setSizes([220, 900, 0, 320])
+                self.main_splitter.setSizes([_SCANNER_PANEL_DEFAULT_WIDTH, 900, 0, _RIGHT_PANEL_DEFAULT_WIDTH])
                 if hasattr(self, 'right_panel_splitter'):
-                    self.right_panel_splitter.setSizes([320, 220])
+                    self.right_panel_splitter.setSizes([_RIGHT_PANEL_DEFAULT_WIDTH, 220])
                 self._apply_intelligent_main_splitter_layout()
 
         except Exception as e:
             logger.error(f"Failed to restore window state: {e}")
             # Safe fallback
             self._start_maximized = True
-            self.main_splitter.setSizes([220, 900, 0, 320])
+            self.main_splitter.setSizes([_SCANNER_PANEL_DEFAULT_WIDTH, 900, 0, _RIGHT_PANEL_DEFAULT_WIDTH])
             if hasattr(self, 'right_panel_splitter'):
-                self.right_panel_splitter.setSizes([320, 220])
+                self.right_panel_splitter.setSizes([_RIGHT_PANEL_DEFAULT_WIDTH, 220])
             self._apply_intelligent_main_splitter_layout()
 
 
