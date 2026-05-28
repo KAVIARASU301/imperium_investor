@@ -1119,8 +1119,6 @@ class FinvizScannerTable(QWidget):
 
         self.table.cellClicked.connect(self._on_cell_clicked)
         self.table.horizontalHeader().sectionClicked.connect(self._on_header_clicked)
-        self.table.horizontalHeader().sectionResized.connect(lambda *_: self._sync_header_controls_to_table_width())
-        self.table.horizontalHeader().sectionResized.connect(self._save_table_layout_settings)
         self.table.setItemDelegateForColumn(2, VolumeStrengthDelegate(self.table))
         self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.table.setFocus()
@@ -1146,7 +1144,6 @@ class FinvizScannerTable(QWidget):
         self._apply_enhanced_styles()
         self.table.setShowGrid(bool(self._color_theme.get("show_table_vertical_lines", False)))
         self.table.setColumnHidden(2, not bool(self._color_theme.get("show_scanner_volume_column", True)))
-        self._sync_header_controls_to_table_width()
         for symbol, row in self._symbol_to_row.items():
             data = self._symbol_data.get(symbol)
             if data is not None:
@@ -1229,11 +1226,11 @@ class FinvizScannerTable(QWidget):
         self.scan_dropdown.setObjectName("minimalDropdown")
         self.scan_dropdown.setFixedHeight(CHART_TOOLBAR_CONTROL_HEIGHT)
         self.scan_dropdown.setMinimumWidth(0)
-        self.scan_dropdown.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.scan_dropdown.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.scan_dropdown.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
-        self.scan_dropdown.setMinimumContentsLength(1)
+        self.scan_dropdown.setMinimumContentsLength(0)
         self.scan_dropdown.currentIndexChanged.connect(self._on_scan_selection_changed)
-        header_layout.addWidget(self.scan_dropdown)
+        header_layout.addWidget(self.scan_dropdown, 1)
 
         # Settings button
         self.manage_btn = QPushButton()
@@ -1246,10 +1243,7 @@ class FinvizScannerTable(QWidget):
             self.manage_btn.setIconSize(QSize(14, 14))
         self.manage_btn.clicked.connect(self._manage_scans)
         header_layout.addWidget(self.manage_btn)
-        header_layout.addStretch(1)
-
         self._update_scan_dropdown()
-        self._sync_header_controls_to_table_width()
         return header_container
 
     def _sync_header_controls_to_table_width(self) -> None:
@@ -1290,7 +1284,6 @@ class FinvizScannerTable(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        self._sync_header_controls_to_table_width()
 
     def _normalize_scan_tag(self, tag: Optional[str]) -> str:
         """Normalize user-entered scan tags into known scan sections."""
@@ -1369,10 +1362,15 @@ class FinvizScannerTable(QWidget):
         self.table.horizontalHeader().setVisible(True)
         header = self.table.horizontalHeader()
 
-        # Fixed/interactive compact columns. Avoid Stretch here: if SYMBOL stretches,
-        # the scanner table asks for excessive width and pushes the main splitter.
-        self._apply_compact_column_policy()
-        self._set_compact_column_widths()
+        # Match watchlist behavior: symbol flexes with available width, while
+        # numeric columns collapse cleanly to content.
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(3, 64)
+        header.setMinimumSectionSize(35)
+        header.setStretchLastSection(False)
 
         self.table.verticalHeader().setVisible(False)
 
@@ -1395,8 +1393,6 @@ class FinvizScannerTable(QWidget):
 
         self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.table.setColumnHidden(2, not bool(self._color_theme.get("show_scanner_volume_column", True)))
-        QTimer.singleShot(0, self._restore_table_layout_settings)
-        QTimer.singleShot(0, self._sync_header_controls_to_table_width)
 
     def _clamp_scanner_column_widths(self, widths: Optional[List[int]] = None) -> List[int]:
         """Clamp persisted column widths for cols 0-2 only.
@@ -1417,13 +1413,13 @@ class FinvizScannerTable(QWidget):
         return clamped
 
     def _apply_compact_column_policy(self) -> None:
-        """Cols 0-2 are user-resizable (Interactive). Col 3 (CHG%) stretches to
-        fill remaining viewport width, eliminating the empty strip before the scrollbar."""
+        """Keep SYMBOL/PRICE/VOL rigid and let only CHG% flex with pane width.
+        This makes splitter/slider adjustments collapse/expand CHG% first."""
         header = self.table.horizontalHeader()
         header.setStretchLastSection(True)
-        header.setMinimumSectionSize(36)
+        header.setMinimumSectionSize(24)
         for col in range(4):
-            mode = QHeaderView.ResizeMode.Stretch if col == 3 else QHeaderView.ResizeMode.Interactive
+            mode = QHeaderView.ResizeMode.Stretch if col == 3 else QHeaderView.ResizeMode.Fixed
             header.setSectionResizeMode(col, mode)
 
     def _set_compact_column_widths(self, widths: Optional[List[int]] = None) -> None:
