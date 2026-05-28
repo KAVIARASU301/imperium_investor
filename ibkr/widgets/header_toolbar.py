@@ -731,13 +731,13 @@ class HeaderToolbar(QToolBar):
         self.symbol_selected.emit(symbol)
 
     def _on_buy_clicked(self):
-        sym = self.get_current_symbol()
-        if sym:
+        sym = self.search_input.text().upper().strip()
+        if sym and sym in self._instrument_map:
             self.buy_order_requested.emit(sym)
 
     def _on_sell_clicked(self):
-        sym = self.get_current_symbol()
-        if sym:
+        sym = self.search_input.text().upper().strip()
+        if sym and sym in self._instrument_map:
             self.sell_order_requested.emit(sym)
 
     def _on_info_clicked(self):

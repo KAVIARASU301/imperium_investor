@@ -2351,15 +2351,20 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         if ltp == 0.0:
             show_error(f"Could not fetch LTP for {symbol}")
             return
+        instrument = self.instrument_map.get(symbol) or {
+            'tradingsymbol': symbol,
+            'symbol': symbol,
+            'exchange': 'SMART',
+            'currency': 'USD',
+            'instrument_type': 'STK',
+        }
         if symbol not in self.instrument_map:
-            show_error(f"Symbol {symbol} not found")
-            return
+            self.instrument_map[symbol] = instrument
 
         default_qty = self.config_manager.load_settings().get('default_quantity', 1)
         order_details = {'tradingsymbol': symbol, 'ltp': ltp, 'transaction_type': 'BUY', 'quantity': default_qty}
         order_details = self._build_order_details_with_account(order_details)
 
-        instrument = self.instrument_map.get(symbol, {})
         dialog = OrderDialog(self, symbol, ltp, order_details, instrument=instrument, ltp_fetcher=self._get_fresh_ltp)
         dialog.order_placed.connect(self._handle_order_placement)
         dialog.show()
@@ -2391,9 +2396,15 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         if not symbol:
             show_info("Select a symbol on chart before placing an order")
             return
+        instrument = self.instrument_map.get(symbol) or {
+            'tradingsymbol': symbol,
+            'symbol': symbol,
+            'exchange': 'SMART',
+            'currency': 'USD',
+            'instrument_type': 'STK',
+        }
         if symbol not in self.instrument_map:
-            show_error(f"Symbol {symbol} not found")
-            return
+            self.instrument_map[symbol] = instrument
 
         ltp = ltp_hint if ltp_hint > 0 else self._get_fresh_ltp(symbol)
         if ltp <= 0:
@@ -2411,7 +2422,6 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         }
         order_details = self._build_order_details_with_account(order_details)
 
-        instrument = self.instrument_map.get(symbol, {})
         dialog = OrderDialog(
             self,
             symbol,
@@ -2444,7 +2454,6 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         order_details = {'tradingsymbol': symbol, 'ltp': ltp, 'transaction_type': 'SELL', 'quantity': default_qty}
         order_details = self._build_order_details_with_account(order_details)
 
-        instrument = self.instrument_map.get(symbol, {})
         dialog = OrderDialog(self, symbol, ltp, order_details, instrument=instrument, ltp_fetcher=self._get_fresh_ltp)
         dialog.order_placed.connect(self._handle_order_placement)
         dialog.show()
