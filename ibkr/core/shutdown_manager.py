@@ -236,12 +236,15 @@ class ShutdownManager:
         if not loader:
             return
         if loader.isRunning():
+            stop_fn = getattr(loader, "stop", None)
+            if callable(stop_fn):
+                stop_fn()
             loader.requestInterruption()
             loader.quit()
-            if not loader.wait(2000):
+            if not loader.wait(5000):
                 logger.warning("IBKRInstrumentLoader did not stop gracefully; terminating")
                 loader.terminate()
-                loader.wait(500)
+                loader.wait(1000)
 
     def _disconnect_ibkr_client(self) -> None:
         w = self.window

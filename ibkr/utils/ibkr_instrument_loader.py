@@ -199,7 +199,7 @@ class IBKRInstrumentLoader(QThread):
         symbols = list(instrument_map.keys())
 
         for i in range(0, len(symbols), batch_size):
-            if self._stop_requested:
+            if self._stop_requested or self.isInterruptionRequested():
                 break
 
             batch = symbols[i : i + batch_size]
