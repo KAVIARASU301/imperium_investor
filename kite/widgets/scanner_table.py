@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem, QHeaderView,
     QAbstractItemView, QPushButton, QHBoxLayout, QLabel, QComboBox, QMessageBox,
     QDialog, QLineEdit, QGroupBox, QTextEdit,
-    QStyledItemDelegate, QStyleOptionViewItem, QApplication, QStyle
+    QStyledItemDelegate, QStyleOptionViewItem, QApplication, QStyle, QSizePolicy
 )
 from PySide6.QtGui import QColor, QFont, QBrush, QCursor, QFontMetrics, QIcon
 from PySide6.QtCore import QItemSelectionModel
