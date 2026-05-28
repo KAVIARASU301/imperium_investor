@@ -6,6 +6,7 @@ Provides unified interface for both Kite and IBKR brokers.
 
 import logging
 import importlib
+import asyncio
 from typing import Union, Dict, Any, Optional, Type, List
 from abc import ABC, abstractmethod
 
@@ -14,6 +15,20 @@ from login_setup.token_manager import EnhancedTokenManager
 from kite.core.relay_integration import build_relay_client
 
 logger = logging.getLogger(__name__)
+
+def _ensure_thread_event_loop():
+    """Ensure current thread has an asyncio event loop for ib_insync sync wrappers."""
+    try:
+        asyncio.get_running_loop()
+        return
+    except RuntimeError:
+        pass
+    try:
+        asyncio.get_event_loop()
+    except RuntimeError:
+        asyncio.set_event_loop(asyncio.new_event_loop())
+
+
 
 
 class BrokerClientInterface(ABC):
@@ -104,6 +119,7 @@ class IBKRClientWrapper(BrokerClientInterface):
     def get_profile(self) -> Dict[str, Any]:
         """Get account information as profile"""
         try:
+            _ensure_thread_event_loop()
             accounts = self.client.managedAccounts()
             account_summary = self.client.accountSummary()
 

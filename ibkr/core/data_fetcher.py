@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import math
+import asyncio
 from datetime import datetime, timedelta, timezone, time, date
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -17,6 +18,20 @@ from chart_engine.core.broker_protocol import BarData, BrokerCapabilities
 from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
+
+def _ensure_thread_event_loop():
+    """Ensure current thread has an asyncio event loop for ib_insync sync wrappers."""
+    try:
+        asyncio.get_running_loop()
+        return
+    except RuntimeError:
+        pass
+    try:
+        asyncio.get_event_loop()
+    except RuntimeError:
+        asyncio.set_event_loop(asyncio.new_event_loop())
+
+
 
 try:
     from ib_insync import Contract, Stock
@@ -167,6 +182,7 @@ class DataFetcher:
         end_dt = self._ibkr_end_datetime(to_date)
 
         try:
+            _ensure_thread_event_loop()
             bars = self.client.reqHistoricalData(
                 contract,
                 endDateTime=end_dt,
@@ -222,6 +238,7 @@ class DataFetcher:
             return None
 
         try:
+            _ensure_thread_event_loop()
             qualified = self.client.qualifyContracts(contract)
             resolved = qualified[0] if qualified else contract
         except Exception as exc:
