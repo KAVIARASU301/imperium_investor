@@ -319,6 +319,13 @@ class StatusBar(QWidget):
             f'API <span style="color:{dot_color}; font-size:10px;">●</span>',
         )
 
+
+    def set_isp_ip_status(self, changed: bool | None = None) -> None:
+        """Compatibility shim for ISP/IP monitor updates in main window."""
+        # IBKR status bar currently does not render a dedicated ISP/IP indicator.
+        # Keep this method as a no-op so periodic monitor callbacks never crash UI.
+        _ = changed
+
     def set_message(self, text: str) -> None:
         # Status bar is reserved for persistent system vitals.
         # Temporary messages should go through GlobalStatusManager toasts.
@@ -342,6 +349,7 @@ class GlobalStatusManager(QObject):
         if self._status_bar:
             self._status_bar.set_market_status("--")
             self._status_bar.set_api_status("--")
+            self._status_bar.set_isp_ip_status(None)
         logger.debug("GlobalStatusManager initialized")
 
     def is_initialized(self) -> bool:
