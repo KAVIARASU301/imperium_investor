@@ -1642,7 +1642,21 @@ class FixedTradingChart {
                 : Math.max(14, Math.round(fontSize * 0.32));
             ctx.globalAlpha = Math.max(0.0, Math.min(1.0, this.watermark.descriptionOpacity));
             ctx.font        = `600 ${descriptionFontSize}px "Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", sans-serif`;
-            ctx.fillText(this.currentSymbolDescription, centerX, centerY + Math.round(fontSize * 0.48));
+            const descriptionLines = String(this.currentSymbolDescription || '')
+                .split('\n')
+                .map(line => line.trim())
+                .filter(Boolean);
+            const lineHeight = Math.round(descriptionFontSize * 1.25);
+            const baseY = centerY + Math.round(fontSize * 0.48);
+            if (descriptionLines.length <= 1) {
+                ctx.fillText(descriptionLines[0] || '', centerX, baseY);
+            } else {
+                const totalHeight = lineHeight * (descriptionLines.length - 1);
+                const firstLineY = baseY - Math.round(totalHeight / 2);
+                descriptionLines.forEach((line, idx) => {
+                    ctx.fillText(line, centerX, firstLineY + (idx * lineHeight));
+                });
+            }
         }
         ctx.restore();
     }
