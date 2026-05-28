@@ -12,6 +12,8 @@ import logging
 import math
 from datetime import datetime, timedelta, timezone, time, date
 from typing import Any, Dict, List, Optional, Tuple
+
+from chart_engine.core.broker_protocol import BarData, BrokerCapabilities
 from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
@@ -60,6 +62,44 @@ class DataFetcher:
     # ------------------------------------------------------------------
     # Public chart-engine interface
     # ------------------------------------------------------------------
+
+    @property
+    def capabilities(self) -> BrokerCapabilities:
+        """Expose broker metadata required by chart engine."""
+        if self._is_ibkr_client():
+            return BrokerCapabilities(
+                name="ibkr",
+                exchange_tz="America/New_York",
+                currency="USD",
+                supports_options=True,
+                supports_level2=True,
+            )
+        return BrokerCapabilities(
+            name="kite",
+            exchange_tz="Asia/Kolkata",
+            currency="INR",
+        )
+
+    def fetch(self, symbol: str, instrument_token: Any, from_date, to_date, interval: str) -> List[BarData]:
+        """Protocol-compatible fetch for chart data loader."""
+        raw = self.fetch_ohlcv(symbol, instrument_token, interval, from_date, to_date)
+        bars: List[BarData] = []
+        for r in raw or []:
+            bars.append(
+                BarData(
+                    time=getattr(r, "date", None) if not isinstance(r, dict) else r.get("date"),
+                    open=_safe_float(r.get("open") if isinstance(r, dict) else getattr(r, "open", 0.0)),
+                    high=_safe_float(r.get("high") if isinstance(r, dict) else getattr(r, "high", 0.0)),
+                    low=_safe_float(r.get("low") if isinstance(r, dict) else getattr(r, "low", 0.0)),
+                    close=_safe_float(r.get("close") if isinstance(r, dict) else getattr(r, "close", 0.0)),
+                    volume=_safe_float(r.get("volume") if isinstance(r, dict) else getattr(r, "volume", 0.0)),
+                )
+            )
+        return bars
+
+    def resolve_instrument(self, symbol: str) -> Optional[Any]:
+        """No-op resolver for compatibility with broker protocol."""
+        return None
     def fetch_ohlcv(self, symbol: str, instrument_token: Any, interval: str, from_date, to_date) -> List[Dict[str, Any]]:
         if self._is_ibkr_client():
             return self._fetch_ibkr_ohlcv(symbol, instrument_token, interval, from_date, to_date)
