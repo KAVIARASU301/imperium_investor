@@ -76,7 +76,7 @@ _DIALOG_ROW_H = 24
 # stretch the scanner pane/splitter to the right.
 _SCANNER_COL_DEFAULTS = [74, 60, 64, 54]  # SYMBOL, PRICE, VOL, CHG%
 _SCANNER_COL_LIMITS = [
-    (56, 96),   # SYMBOL
+    (0, 96),    # SYMBOL (allow full collapse, even clipping/hiding text)
     (48, 78),   # PRICE
     (54, 96),   # VOL
     (48, 68),   # CHG%
@@ -1417,7 +1417,8 @@ class FinvizScannerTable(QWidget):
         This makes splitter/slider adjustments collapse/expand CHG% first."""
         header = self.table.horizontalHeader()
         header.setStretchLastSection(True)
-        header.setMinimumSectionSize(24)
+        # Do not let header minimums block collapse; SYMBOL may shrink to 0.
+        header.setMinimumSectionSize(0)
         for col in range(4):
             mode = QHeaderView.ResizeMode.Stretch if col == 3 else QHeaderView.ResizeMode.Fixed
             header.setSectionResizeMode(col, mode)

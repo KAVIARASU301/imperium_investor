@@ -81,7 +81,7 @@ logger = logging.getLogger(__name__)
 # Scanner panel sizing: keep the left scanner lane compact and stable.
 # This prevents the scanner table/header from pushing the main splitter handle
 # to the right on startup or after scan results refresh.
-_SCANNER_PANEL_MIN_WIDTH = 260
+_SCANNER_PANEL_MIN_WIDTH = 80
 _SCANNER_PANEL_DEFAULT_WIDTH = 260
 _SCANNER_PANEL_MAX_WIDTH = 360
 _RIGHT_PANEL_MIN_WIDTH = 220
