@@ -126,23 +126,33 @@ def _convert_ticker(ticker: Any) -> Dict[str, Any]:
     symbol = str(getattr(contract, "symbol", "") or "").upper()
     con_id = int(getattr(contract, "conId", 0) or 0) if contract else 0
     market_price = _safe_float(ticker.marketPrice() if hasattr(ticker, "marketPrice") else 0.0, 0.0)
-    last_price = _first_price(market_price, getattr(ticker, "last", 0.0), getattr(ticker, "close", 0.0), getattr(ticker, "bid", 0.0), getattr(ticker, "ask", 0.0))
+
+    # FIX: Add getattr for delayedLast and delayedClose
+    last_price = _first_price(
+        market_price,
+        getattr(ticker, "last", 0.0),
+        getattr(ticker, "delayedLast", 0.0),
+        getattr(ticker, "close", 0.0),
+        getattr(ticker, "delayedClose", 0.0),
+        getattr(ticker, "bid", 0.0),
+        getattr(ticker, "ask", 0.0)
+    )
+
     return {
         "tradingsymbol": symbol,
         "symbol": symbol,
         "instrument_token": con_id,
         "last_price": last_price,
-        "volume": int(_safe_float(getattr(ticker, "volume", 0), 0.0)),
-        "bid": _safe_float(getattr(ticker, "bid", 0.0), 0.0),
-        "ask": _safe_float(getattr(ticker, "ask", 0.0), 0.0),
+        "volume": int(_safe_float(getattr(ticker, "volume", 0) or getattr(ticker, "delayedVolume", 0), 0.0)),
+        "bid": _safe_float(getattr(ticker, "bid", 0.0) or getattr(ticker, "delayedBid", 0.0), 0.0),
+        "ask": _safe_float(getattr(ticker, "ask", 0.0) or getattr(ticker, "delayedAsk", 0.0), 0.0),
         "ohlc": {
-            "open": _safe_float(getattr(ticker, "open", 0.0), 0.0),
-            "high": _safe_float(getattr(ticker, "high", 0.0), 0.0),
-            "low": _safe_float(getattr(ticker, "low", 0.0), 0.0),
-            "close": _safe_float(getattr(ticker, "close", 0.0), 0.0),
+            "open": _safe_float(getattr(ticker, "open", 0.0) or getattr(ticker, "delayedOpen", 0.0), 0.0),
+            "high": _safe_float(getattr(ticker, "high", 0.0) or getattr(ticker, "delayedHigh", 0.0), 0.0),
+            "low": _safe_float(getattr(ticker, "low", 0.0) or getattr(ticker, "delayedLow", 0.0), 0.0),
+            "close": _safe_float(getattr(ticker, "close", 0.0) or getattr(ticker, "delayedClose", 0.0), 0.0),
         },
     }
-
 
 class IBKRTradingClient(QObject):
     order_status_updated = Signal(dict)

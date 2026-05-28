@@ -21,23 +21,31 @@ class IBKRLiveFeed(QObject):
             for t in tickers:
                 if t.contract != contract:
                     continue
-                last_price = t.last if t.last and t.last > 0 else t.close
+
+                # FIX: Check for live data first, then fall back to delayed data
+                last_price = (
+                        getattr(t, "last", 0.0) or
+                        getattr(t, "delayedLast", 0.0) or
+                        getattr(t, "close", 0.0) or
+                        getattr(t, "delayedClose", 0.0)
+                )
+
                 if not last_price or last_price <= 0:
                     continue
+
                 self.tick_received.emit({
                     "tradingsymbol": symbol,
                     "last_price": last_price,
                     "instrument_token": contract.conId,
                     "exchange_timestamp": t.time,
                     "ohlc": {
-                        "open": t.open or 0,
-                        "high": t.high or 0,
-                        "low": t.low or 0,
-                        "close": t.close or 0,
+                        "open": t.open or getattr(t, "delayedOpen", 0) or 0,
+                        "high": t.high or getattr(t, "delayedHigh", 0) or 0,
+                        "low": t.low or getattr(t, "delayedLow", 0) or 0,
+                        "close": t.close or getattr(t, "delayedClose", 0) or 0,
                     },
-                    "volume_traded": t.volume or 0,
+                    "volume_traded": t.volume or getattr(t, "delayedVolume", 0) or 0,
                 })
-
         self._ib.pendingTickersEvent += _on_pending_tickers
 
     def unsubscribe(self, symbol: str) -> None:
