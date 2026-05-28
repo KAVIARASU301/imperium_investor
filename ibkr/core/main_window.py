@@ -1160,6 +1160,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             self.candlestick_chart.symbol_loaded.connect(_reveal_charts)
             self.candlestick_chart.symbol_loaded.connect(self._on_chart_symbol_changed)
             self.candlestick_chart.data_request_for_symbol.connect(self._ensure_chart_subscription)
+            if self.candlestick_chart_secondary:
+                self.candlestick_chart_secondary.data_request_for_symbol.connect(self._ensure_chart_subscription)
             # FIX #9: redraw alert lines whenever the chart switches symbol
             if self.alert_system:
                 # Restore alert lines only after chart JS is fully initialized
@@ -1390,17 +1392,37 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
     @Slot(str)
     def _ensure_chart_subscription(self, symbol: str):
-        """Ensure chart symbol is subscribed"""
-        if symbol in self.instrument_map:
-            token = self.instrument_map[symbol]['instrument_token']
-            try:
-                if self.market_data_worker:
-                    current_info = self.market_data_worker.get_subscription_info()
-                    if token not in current_info.get('subscribed_tokens', []):
-                        self.market_data_worker.add_instruments([token])
-                        logger.info(f"Ensured subscription for chart symbol {symbol}")
-            except Exception as e:
-                logger.error(f"Failed to ensure chart subscription for {symbol}: {e}")
+        """Ensure chart symbol is subscribed."""
+        clean_symbol = str(symbol or "").strip().upper()
+        if not clean_symbol or not self.market_data_worker:
+            return
+
+        instrument = self.instrument_map.get(clean_symbol, {}) or {}
+        token = instrument.get('instrument_token')
+        item: Any
+        if token:
+            item = {
+                "instrument_token": token,
+                "conId": token,
+                "tradingsymbol": clean_symbol,
+                "symbol": clean_symbol,
+                "exchange": instrument.get("exchange") or "SMART",
+                "currency": instrument.get("currency") or "USD",
+            }
+        else:
+            # IBKR can qualify raw symbols on demand; this keeps chart LTP live
+            # even before a conId has landed in instrument_map.
+            item = clean_symbol
+
+        try:
+            self.market_data_worker.add_instruments([item])
+            self.market_data_worker.request_snapshots([item])
+            if token:
+                self._subscribed_tokens.add(token)
+            logger.info(f"Ensured subscription for chart symbol {clean_symbol}")
+            self._schedule_subscription_rebuild()
+        except Exception as e:
+            logger.error(f"Failed to ensure chart subscription for {clean_symbol}: {e}")
 
 
     def _refresh_header_ticker_ws_subscriptions(self) -> None:
@@ -1829,33 +1851,41 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         if not ticks:
             return
 
-        chart_token = getattr(self.candlestick_chart, 'current_instrument_token', None)
-        chart_token_int = None
-        if chart_token not in (None, ""):
-            try:
-                chart_token_int = int(chart_token)
-            except (TypeError, ValueError):
-                chart_token_int = None
-
         for tick in ticks:
             token = tick.get("instrument_token")
 
-            # Chart ticks go into a separate deque — never coalesced
-            token_matches_chart = False
-            if chart_token_int is not None and token not in (None, ""):
-                try:
-                    token_matches_chart = int(token) == chart_token_int
-                except (TypeError, ValueError):
-                    token_matches_chart = False
-
-            if token_matches_chart:
+            # Chart ticks go into a separate deque for low-latency rendering, but
+            # they must still flow through the coalesced path so watchlist,
+            # scanners, positions, alerts, and paper orders update for the same
+            # symbol.  Match both primary and secondary charts by token or symbol
+            # because IBKR may emit symbol-qualified ticks before a chart has a
+            # conId, and secondary charts have their own active token.
+            if self._tick_matches_any_chart(tick):
                 self._chart_tick_queue.append(tick)
-                continue  # skip the coalescing buffer for chart ticks
 
             if token is None:
                 self._tick_buffer_without_token.append(tick)
             else:
                 self._tick_buffer_by_token[token] = tick
+
+
+    def _tick_matches_any_chart(self, tick: Dict[str, Any]) -> bool:
+        tick_symbol = str(tick.get("tradingsymbol") or tick.get("symbol") or "").strip().upper()
+        tick_token = tick.get("instrument_token")
+        for chart in (getattr(self, "candlestick_chart", None), getattr(self, "candlestick_chart_secondary", None)):
+            if not chart:
+                continue
+            chart_symbol = str(getattr(chart, "current_symbol", "") or "").strip().upper()
+            if tick_symbol and chart_symbol and tick_symbol == chart_symbol:
+                return True
+            chart_token = getattr(chart, "current_instrument_token", None)
+            if tick_token not in (None, "") and chart_token not in (None, "", 0, "0"):
+                try:
+                    if int(tick_token) == int(chart_token):
+                        return True
+                except (TypeError, ValueError):
+                    continue
+        return False
 
     @Slot()
     def _flush_market_data_ticks(self):
@@ -2183,6 +2213,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         """Handle watchlist and UI changes with position-priority subscriptions."""
         logger.info("Watchlist changed - updating subscriptions")
         all_tokens = set()
+        all_instruments: List[Any] = []
 
         # Priority 0: Pending paper-order symbols (must stay subscribed so
         # trigger/limit orders continue evaluating even when chart focus changes).
@@ -2217,6 +2248,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             watchlist_tokens = self.watchlist.get_all_tokens()
 
         all_tokens.update(watchlist_tokens)
+        if hasattr(self.watchlist, "get_all_watchlist_subscription_items"):
+            all_instruments.extend(self.watchlist.get_all_watchlist_subscription_items())
         logger.info(f"Added {len(watchlist_tokens)} watchlist tokens")
 
         # Priority 4: Scanner-visible symbols
@@ -2241,11 +2274,26 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             except Exception as exc:
                 logger.error(f"Failed to resolve header ticker tokens: {exc}")
 
-        # Subscribe to all tokens (or clear when empty)
+        # Subscribe to all tokens/symbols (or clear when empty).  IBKR watchlist
+        # rows can be raw symbols before conId qualification, so pass rich
+        # instrument dicts/strings for the watchlist and bare tokens for the
+        # other consumers.
         if self.market_data_worker:
-            self.market_data_worker.set_instruments(list(all_tokens))
+            token_keys = {str(token) for token in all_tokens}
+            for token in all_tokens:
+                if str(token) not in {
+                    str(item.get("instrument_token") or item.get("conId"))
+                    for item in all_instruments
+                    if isinstance(item, dict)
+                }:
+                    all_instruments.append(token)
+            self.market_data_worker.set_instruments(all_instruments)
+            self.market_data_worker.request_snapshots(all_instruments)
             self._subscribed_tokens = set(all_tokens)
-            logger.info(f"Updated subscription universe to {len(all_tokens)} tokens")
+            logger.info(
+                f"Updated subscription universe to {len(all_instruments)} instruments "
+                f"({len(token_keys)} token-backed)"
+            )
 
     def _get_scanner_visible_tokens(self) -> List[int]:
         """

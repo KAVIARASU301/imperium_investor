@@ -70,6 +70,13 @@ class MarketDataWorker(QThread):
             return
 
         logger.info("IBKR MarketDataWorker started")
+        try:
+            # Prefer real-time streaming data when the account has live market
+            # data permissions. Closed-market LTP is handled separately by
+            # snapshot requests, which can use frozen/close fields from IBKR.
+            self.ib.reqMarketDataType(1)
+        except Exception:
+            logger.debug("Could not request live IBKR market data type", exc_info=True)
         self.connection_established.emit()
         self.ib.pendingTickersEvent += self._on_pending_tickers
         try:
@@ -287,6 +294,10 @@ class MarketDataWorker(QThread):
                     qualified = self.ib.qualifyContracts(contract)
                     if qualified:
                         contract = qualified[0]
+                try:
+                    self.ib.reqMarketDataType(2)
+                except Exception:
+                    logger.debug("Could not request IBKR frozen snapshot data type", exc_info=True)
                 ticker = self.ib.reqMktData(contract, "", True, False)
                 # Snapshot delivery is asynchronous; wait briefly inside the
                 # worker only. The UI remains responsive.
@@ -303,6 +314,11 @@ class MarketDataWorker(QThread):
                         break
             except Exception as exc:
                 logger.debug("IBKR snapshot failed for %s: %s", key, exc)
+            finally:
+                try:
+                    self.ib.reqMarketDataType(1)
+                except Exception:
+                    logger.debug("Could not restore IBKR live market data type", exc_info=True)
         if ticks:
             self.data_received.emit(ticks)
 

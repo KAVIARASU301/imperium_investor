@@ -27,7 +27,7 @@ import logging
 import os
 import uuid
 from functools import partial
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from PySide6.QtCore import Qt, Signal, Slot, QPoint, QTimer, QSize, QSignalBlocker
 from PySide6.QtGui import (
@@ -940,6 +940,33 @@ class TradingTable(QTableWidget):
     def get_all_tokens(self) -> List[int]:
         return list(self._token_to_symbol.keys())
 
+    def get_subscription_items(self) -> List[Any]:
+        """Return token-backed instruments plus raw symbols for IBKR subscriptions."""
+        items: List[Any] = []
+        seen: Set[str] = set()
+        for sym in self._symbols:
+            data = self._watchlist_data.get(sym) or {}
+            inst = self._instrument_map.get(sym, {}) or {}
+            token = data.get("instrument_token") or inst.get("instrument_token")
+            item: Any
+            if token not in (None, "", 0, "0"):
+                item = {
+                    "instrument_token": token,
+                    "conId": token,
+                    "tradingsymbol": sym,
+                    "symbol": sym,
+                    "exchange": inst.get("exchange") or data.get("exchange") or "SMART",
+                    "currency": inst.get("currency") or data.get("currency") or "USD",
+                }
+                key = str(token)
+            else:
+                item = str(sym).strip().upper()
+                key = item
+            if key and key not in seen:
+                seen.add(key)
+                items.append(item)
+        return items
+
     def apply_color_theme(self, theme: Dict) -> None:
         self._color_theme = theme
         self.setShowGrid(True)
@@ -1660,6 +1687,28 @@ class TabbedWatchlistWidget(QWidget):
         for table in self._tables.values():
             tokens.extend(table.get_all_tokens())
         return list(set(tokens))
+
+    def get_subscription_items(self) -> List[Any]:
+        """Return subscription items for the current watchlist."""
+        table = self._current_table()
+        if not table:
+            return []
+        return table.get_subscription_items()
+
+    def get_all_watchlist_subscription_items(self) -> List[Any]:
+        """Return token-backed items and raw symbols from every watchlist."""
+        items: List[Any] = []
+        seen: Set[str] = set()
+        for table in self._tables.values():
+            for item in table.get_subscription_items():
+                if isinstance(item, dict):
+                    key = str(item.get("instrument_token") or item.get("conId") or item.get("symbol") or "").upper()
+                else:
+                    key = str(item).strip().upper()
+                if key and key not in seen:
+                    seen.add(key)
+                    items.append(item)
+        return items
 
     @Slot(list)
     def update_data(self, ticks: List[Dict]) -> None:
