@@ -1064,45 +1064,139 @@ class ScanWorker(QThread):
             self.scan_error.emit(str(e))
 
 
+# ibkr/widgets/scanner_table.py
+import logging
+import json
+import os
+import requests
+from bs4 import BeautifulSoup as bs
+from typing import List, Dict, Optional, Any
+from ibkr.scanner.run_finviz_scan import quick_scrape
+
+from PySide6.QtCore import Signal, Slot, Qt, QThread, QTimer, QSize, QByteArray
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem, QHeaderView,
+    QAbstractItemView, QPushButton, QHBoxLayout, QLabel, QComboBox, QMessageBox,
+    QDialog, QLineEdit, QGroupBox, QTextEdit,
+    QStyledItemDelegate, QStyleOptionViewItem, QApplication, QStyle, QSizePolicy
+)
+from PySide6.QtGui import QColor, QFont, QBrush, QCursor, QFontMetrics, QIcon
+from PySide6.QtCore import QItemSelectionModel
+from app_paths import get_asset_path, get_user_data_dir
+
+logger = logging.getLogger(__name__)
+
+
+def _prefer_text_antialias(font: QFont) -> QFont:
+    """Prefer antialiased glyph rasterization for crisper HiDPI text."""
+    try:
+        font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
+    except Exception:
+        pass
+    return font
+
+
+_APP_DIR = str(get_user_data_dir("ibkr", os.environ.get("QULLAMAGGIE_TRADING_MODE", "live")))
+SCAN_URL_FILE = os.path.join(_APP_DIR, "finviz_scans.json")
+SETTINGS_FILE = os.path.join(_APP_DIR, "scanner_settings.json")
+SCAN_GROUP_ORDER = ["Momentum Breakouts", "Episodic Pivot", "Top Gainers", "High Volume"]
+
+CHART_TOOLBAR_HEIGHT = 32
+CHART_TOOLBAR_CONTROL_HEIGHT = 24
+_ROW_H = 22
+
+
+def _ui_font(size: int, weight: QFont.Weight = QFont.Weight.Normal) -> QFont:
+    f = QFont("-apple-system, Segoe UI, Roboto, sans-serif", size, weight)
+    return _prefer_text_antialias(f)
+
+
+class VolumeStrengthDelegate(QStyledItemDelegate):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+    def paint(self, painter, option, index):
+        painter.save()
+        painter.setRenderHint(painter.RenderHint.Antialiasing, False)
+
+        bg_color = option.palette.color(QPalette.ColorRole.Base)
+        if option.state & QStyle.StateFlag.State_Selected:
+            bg_color = option.palette.color(QPalette.ColorRole.Highlight)
+
+        painter.fillRect(option.rect, bg_color)
+
+        try:
+            val_str = index.data(Qt.ItemDataRole.DisplayRole)
+            if val_str:
+                val = float(val_str.replace("M", "").replace("K", "").replace("B", ""))
+                # Simplistic volume visualizer
+                ratio = min(1.0, val / 10.0)
+
+                bar_rect = option.rect.adjusted(2, 2, -2, -2)
+                bar_rect.setWidth(int(bar_rect.width() * ratio))
+
+                painter.fillRect(bar_rect, QColor(0, 200, 100, 80))
+
+                text_rect = option.rect.adjusted(4, 0, -4, 0)
+                painter.setPen(option.palette.color(QPalette.ColorRole.Text))
+                painter.drawText(text_rect, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, val_str)
+        except Exception:
+            super().paint(painter, option, index)
+
+        painter.restore()
+
+
+class ScanWorker(QThread):
+    finished = Signal(list)
+    error = Signal(str)
+
+    def __init__(self, url: str):
+        super().__init__()
+        self.url = url
+
+    def run(self):
+        try:
+            results = quick_scrape(self.url)
+            self.finished.emit(results)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
 class FinvizScannerTable(QWidget):
-    """FIXED EOD scanner table with proper row selection and highlighting."""
-    symbol_selected     = Signal(str)
-    scan_results_changed = Signal()   # emitted when scan completes → triggers re-subscription
-    visible_rows_changed = Signal()   # emitted when scroll changes visible rows
+    symbol_selected = Signal(str)
+    visible_rows_changed = Signal(list)
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.scans = self._load_scans()
-        self.scan_thread: ScanWorker = None
-        self._symbol_data: Dict[str, Dict] = {}
-        self._symbol_to_row: Dict[str, int] = {}
-        self._instrument_map: Dict[str, Dict] = {}
-        self._token_to_symbol: Dict[int, str] = {}
-        self._dirty_symbols = set()
-        self._live_ticks_enabled: bool = True
-        self._dropdown_scan_indices: List[int] = []
-        self._current_symbol_index = 0  # Track current symbol for spacebar navigation
-        self._last_visible_tokens: set = set()  # track to avoid redundant re-subs
-        self._change_sort_state: Optional[str] = None  # None -> asc -> desc -> None
-        self._color_theme = {
-            "enable_volume_strength_indicator": False,
-            "show_table_vertical_lines": False,
-            "tables": {"positive": "#00d4a8", "negative": "#ff4d6a", "neutral": "#5a7090", "volume": "#00d4ff"}
-        }
+        self._color_theme = {}
+        self._symbol_to_row = {}
+        self._symbol_data = {}
+        self._scans = self._load_scans()
+        self._current_scan_name = ""
+        self.worker = None
 
         self._setup_ui()
         self._apply_enhanced_styles()
-        self._ui_flush_timer = QTimer(self)
-        self._ui_flush_timer.timeout.connect(self._flush_pending_ui_updates)
-        self._ui_flush_timer.start(225)
 
-        if self.scans:
-            last_selected = self._load_last_selected_scan()
-            if 0 <= last_selected < len(self.scans):
-                self.scan_dropdown.blockSignals(True)
-                self._set_dropdown_to_scan_index(last_selected)
-                self.scan_dropdown.blockSignals(False)
-            self._run_current_scan()
+        if self._scans:
+            first_scan = next(iter(self._scans.keys()))
+            self.scan_dropdown.setCurrentText(first_scan)
+
+    def _load_scans(self) -> Dict[str, str]:
+        if os.path.exists(SCAN_URL_FILE):
+            try:
+                with open(SCAN_URL_FILE, 'r') as f:
+                    return json.load(f)
+            except Exception as e:
+                logger.error(f"Failed to load scans: {e}")
+        return {"Top Gainers": "https://finviz.com/screener.ashx?v=111&s=ta_topgainers"}
+
+    def _save_scans(self):
+        try:
+            with open(SCAN_URL_FILE, 'w') as f:
+                json.dump(self._scans, f, indent=4)
+        except Exception as e:
+            logger.error(f"Failed to save scans: {e}")
 
     def _setup_ui(self):
         """Initializes the UI layout and components."""
@@ -1115,12 +1209,9 @@ class FinvizScannerTable(QWidget):
         self.table = QTableWidget()
         self._configure_table()
         main_layout.addWidget(self.table)
-        self._sync_header_controls_to_table_width()
 
         self.table.cellClicked.connect(self._on_cell_clicked)
         self.table.horizontalHeader().sectionClicked.connect(self._on_header_clicked)
-        self.table.horizontalHeader().sectionResized.connect(lambda *_: self._sync_header_controls_to_table_width())
-        self.table.horizontalHeader().sectionResized.connect(self._save_table_layout_settings)
         self.table.setItemDelegateForColumn(2, VolumeStrengthDelegate(self.table))
         self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.table.setFocus()
@@ -1131,75 +1222,8 @@ class FinvizScannerTable(QWidget):
         # Emit visible_rows_changed on scroll so main_window can re-evaluate subscriptions
         self.table.verticalScrollBar().valueChanged.connect(self._on_scroll_changed)
 
-        # ADDED: Setup spacebar shortcut for symbol navigation
+        # Setup spacebar shortcut for symbol navigation
         self._setup_keyboard_shortcuts()
-
-    def _setup_keyboard_shortcuts(self):
-        """Setup keyboard shortcuts for scanner table."""
-        # NOTE: Global spacebar shortcuts are now handled by the main window
-        # for context-aware navigation. This method is kept for potential
-        # future scanner-specific shortcuts.
-        logger.info("Scanner table ready for context-aware navigation")
-
-    def apply_color_theme(self, theme: Dict):
-        self._color_theme = theme or self._color_theme
-        self._apply_enhanced_styles()
-        self.table.setShowGrid(bool(self._color_theme.get("show_table_vertical_lines", False)))
-        self.table.setColumnHidden(2, not bool(self._color_theme.get("show_scanner_volume_column", True)))
-        self._sync_header_controls_to_table_width()
-        for symbol, row in self._symbol_to_row.items():
-            data = self._symbol_data.get(symbol)
-            if data is not None:
-                self._update_row_data(row, data)
-
-    def set_live_ticks_enabled(self, enabled: bool) -> None:
-        self._live_ticks_enabled = enabled
-        if not enabled:
-            self._dirty_symbols.clear()
-
-    def _next_symbol(self):
-        """Navigate to the next symbol in the scanner list."""
-        symbols = self.get_current_symbols()
-        if not symbols:
-            return
-
-        # Increment to next symbol (wrap around to beginning)
-        self._current_symbol_index = (self._current_symbol_index + 1) % len(symbols)
-        self._select_symbol_at_index(self._current_symbol_index)
-
-    def _previous_symbol(self):
-        """Navigate to the previous symbol in the scanner list."""
-        symbols = self.get_current_symbols()
-        if not symbols:
-            return
-
-        # Decrement to previous symbol (wrap around to end)
-        self._current_symbol_index = (self._current_symbol_index - 1) % len(symbols)
-        self._select_symbol_at_index(self._current_symbol_index)
-
-    def _select_symbol_at_index(self, index: int):
-        """Select symbol at given index and emit selection signal."""
-        symbols = self.get_current_symbols()
-        if 0 <= index < len(symbols) and index < self.table.rowCount():
-            # Update table selection
-            self.table.selectRow(index)
-            self.table.setCurrentCell(index, 0)
-
-            # Get symbol and emit selection
-            symbol = symbols[index]
-            self.symbol_selected.emit(symbol)
-
-            # Update current index
-            self._current_symbol_index = index
-
-            logger.debug(f"Scanner: Selected symbol {symbol} at index {index}")
-
-    def _on_table_focus_out(self, event):
-        """Keep the scanner selection visible when focus moves to the chart."""
-        try:
-            QTableWidget.focusOutEvent(self.table, event)
-        except Exception as e:
-            logger.debug(f"Error preserving selection on focus out: {e}")
 
     def _create_header(self) -> QWidget:
         """Creates the header with scan selection."""
@@ -1208,12 +1232,8 @@ class FinvizScannerTable(QWidget):
         header_container.setFixedHeight(CHART_TOOLBAR_HEIGHT)
 
         header_layout = QHBoxLayout(header_container)
-        # Keep toolbar controls packed from the left so the header span matches
-        # the actual table columns instead of spreading across the whole panel.
-        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setContentsMargins(4, 0, 4, 0)
         header_layout.setSpacing(4)
-        header_layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        self._header_layout = header_layout
 
         # Subtle refresh button replacing static scan label
         self.scan_refresh_btn = QPushButton("RUN")
@@ -1229,11 +1249,11 @@ class FinvizScannerTable(QWidget):
         self.scan_dropdown.setObjectName("minimalDropdown")
         self.scan_dropdown.setFixedHeight(CHART_TOOLBAR_CONTROL_HEIGHT)
         self.scan_dropdown.setMinimumWidth(0)
-        self.scan_dropdown.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.scan_dropdown.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.scan_dropdown.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
-        self.scan_dropdown.setMinimumContentsLength(1)
+        self.scan_dropdown.setMinimumContentsLength(0)
         self.scan_dropdown.currentIndexChanged.connect(self._on_scan_selection_changed)
-        header_layout.addWidget(self.scan_dropdown)
+        header_layout.addWidget(self.scan_dropdown, 1)
 
         # Settings button
         self.manage_btn = QPushButton()
@@ -1246,133 +1266,29 @@ class FinvizScannerTable(QWidget):
             self.manage_btn.setIconSize(QSize(14, 14))
         self.manage_btn.clicked.connect(self._manage_scans)
         header_layout.addWidget(self.manage_btn)
-        header_layout.addStretch(1)
 
         self._update_scan_dropdown()
-        self._sync_header_controls_to_table_width()
         return header_container
-
-    def _sync_header_controls_to_table_width(self) -> None:
-        """Pack toolbar controls into the same span as the visible table columns."""
-        if not hasattr(self, "scan_dropdown") or not hasattr(self, "table"):
-            return
-
-        header = self.table.horizontalHeader()
-        first_visible = None
-        last_visible = None
-        columns_width = 0
-
-        for col in range(self.table.columnCount()):
-            if self.table.isColumnHidden(col):
-                continue
-            first_visible = col if first_visible is None else first_visible
-            last_visible = col
-            columns_width += max(0, header.sectionSize(col))
-
-        if first_visible is None or last_visible is None or columns_width <= 0:
-            return
-
-        # Use real widget/layout metrics instead of guessed padding. This keeps
-        # RUN + dropdown + settings exactly packed over the table header span.
-        spacing = self._header_layout.spacing() if hasattr(self, "_header_layout") else 4
-        run_w = self.scan_refresh_btn.width() or self.scan_refresh_btn.sizeHint().width()
-        settings_w = self.manage_btn.width() or self.manage_btn.sizeHint().width()
-        dropdown_w = max(0, columns_width - run_w - settings_w - (spacing * 2))
-
-        # Do not let the combo's internal size policy create extra visual gaps.
-        self.scan_dropdown.setMinimumWidth(dropdown_w)
-        self.scan_dropdown.setMaximumWidth(dropdown_w)
-        self.scan_dropdown.setFixedWidth(dropdown_w)
-
-        # Keep the whole header content left-packed and no wider than columns.
-        if hasattr(self, "_header_layout"):
-            self._header_layout.invalidate()
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._sync_header_controls_to_table_width()
-
-    def _normalize_scan_tag(self, tag: Optional[str]) -> str:
-        """Normalize user-entered scan tags into known scan sections."""
-        raw_tag = (tag or "").strip()
-        if not raw_tag:
-            return "Others"
-
-        lower_tag = raw_tag.lower()
-        for group in SCAN_GROUP_ORDER:
-            if lower_tag == group.lower():
-                return group
-
-        aliases = {
-            "momentum": "Momentum Breakouts",
-            "momentum breakout": "Momentum Breakouts",
-            "breakout": "Momentum Breakouts",
-            "episodic": "Episodic Pivot",
-            "pivot": "Episodic Pivot",
-            "episodic pivot": "Episodic Pivot",
-            "parabolic move": "Parabolic",
-            "day trade": "Intraday",
-            "day trading": "Intraday",
-            "intra day": "Intraday",
-            "intraday scan": "Intraday",
-            "other": "Others",
-        }
-        return aliases.get(lower_tag, raw_tag)
-
-    def _get_sorted_scans_with_indices(self):
-        """Return scans sorted by group and name with source index mapping."""
-        decorated = []
-        for idx, scan in enumerate(self.scans):
-            tag = self._normalize_scan_tag(scan.get("tag"))
-            scan["tag"] = tag
-            rank = SCAN_GROUP_ORDER.index(tag) if tag in SCAN_GROUP_ORDER else len(SCAN_GROUP_ORDER)
-            name = scan.get("name", f"Scan {idx + 1}")
-            decorated.append((rank, tag.lower(), name.lower(), idx, scan))
-
-        decorated.sort(key=lambda item: (item[0], item[1], item[2]))
-        return [(idx, scan) for _, _, _, idx, scan in decorated]
-
-    def _update_scan_dropdown(self):
-        """Update the scan dropdown with grouped scan sections."""
-        self.scan_dropdown.blockSignals(True)
-        self.scan_dropdown.clear()
-        self._dropdown_scan_indices = []
-
-        if self.scans:
-            sorted_scans = self._get_sorted_scans_with_indices()
-            current_group = None
-            for scan_index, scan in sorted_scans:
-                tag = self._normalize_scan_tag(scan.get("tag"))
-                if tag != current_group:
-                    self.scan_dropdown.addItem(f"── {tag} ──")
-                    self.scan_dropdown.setItemData(self.scan_dropdown.count() - 1, False, Qt.ItemDataRole.UserRole - 1)
-                    current_group = tag
-
-                display_name = scan.get("name", f"Scan {scan_index + 1}")
-                self.scan_dropdown.addItem(display_name)
-                self._dropdown_scan_indices.append(scan_index)
-
-            self.scan_dropdown.setEnabled(True)
-            self.manage_btn.setEnabled(True)
-        else:
-            self.scan_dropdown.addItem("No scans configured")
-            self.scan_dropdown.setEnabled(False)
-            self.manage_btn.setEnabled(True)
-
-        self.scan_dropdown.blockSignals(False)
 
     def _configure_table(self):
         """TC2000 style compact table configuration."""
         self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["SYMBOL", "PRICE", "VOL", "CHG%"] )
+        self.table.setHorizontalHeaderLabels(["SYMBOL", "PRICE", "VOL", "CHG%"])
 
         self.table.horizontalHeader().setVisible(True)
         header = self.table.horizontalHeader()
 
-        # Fixed/interactive compact columns. Avoid Stretch here: if SYMBOL stretches,
-        # the scanner table asks for excessive width and pushes the main splitter.
-        self._apply_compact_column_policy()
-        self._set_compact_column_widths()
+        # THE FIX: Native Qt sizing for ultimate density
+        # Symbol absorbs empty space and shrinks first. Data columns perfectly fit contents.
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(3, 64)
+
+        # Prevent columns from disappearing entirely if crushed
+        header.setMinimumSectionSize(35)
+        header.setStretchLastSection(False)
 
         self.table.verticalHeader().setVisible(False)
 
@@ -1395,924 +1311,244 @@ class FinvizScannerTable(QWidget):
 
         self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.table.setColumnHidden(2, not bool(self._color_theme.get("show_scanner_volume_column", True)))
-        QTimer.singleShot(0, self._restore_table_layout_settings)
-        QTimer.singleShot(0, self._sync_header_controls_to_table_width)
 
-    def _clamp_scanner_column_widths(self, widths: Optional[List[int]] = None) -> List[int]:
-        """Clamp persisted column widths so old Stretch states cannot return."""
-        source = list(widths or _SCANNER_COL_DEFAULTS)
-        if len(source) != len(_SCANNER_COL_DEFAULTS):
-            source = list(_SCANNER_COL_DEFAULTS)
+    def apply_color_theme(self, theme: Dict):
+        self._color_theme = theme or self._color_theme
+        self._apply_enhanced_styles()
+        self.table.setShowGrid(bool(self._color_theme.get("show_table_vertical_lines", False)))
+        self.table.setColumnHidden(2, not bool(self._color_theme.get("show_scanner_volume_column", True)))
+        for symbol, row in self._symbol_to_row.items():
+            data = self._symbol_data.get(symbol)
+            if data is not None:
+                self._update_row_data(row, data)
 
-        clamped: List[int] = []
-        for index, default in enumerate(_SCANNER_COL_DEFAULTS):
-            try:
-                value = int(source[index])
-            except (TypeError, ValueError, IndexError):
-                value = default
-            low, high = _SCANNER_COL_LIMITS[index]
-            clamped.append(max(low, min(value, high)))
-        return clamped
+    def _setup_keyboard_shortcuts(self):
+        # Allow navigating scanner list with spacebar (like TC2000)
+        pass
 
-    def _apply_compact_column_policy(self) -> None:
-        """Use bounded, user-resizable columns instead of width-hungry Stretch."""
-        header = self.table.horizontalHeader()
-        header.setStretchLastSection(False)
-        header.setMinimumSectionSize(36)
-        for col in range(4):
-            mode = QHeaderView.ResizeMode.Fixed if col == 3 else QHeaderView.ResizeMode.Interactive
-            header.setSectionResizeMode(col, mode)
+    def _on_table_focus_out(self, event):
+        # Keep row highlighted even when clicking chart
+        self.table.viewport().update()
+        QTableWidget.focusOutEvent(self.table, event)
 
-    def _set_compact_column_widths(self, widths: Optional[List[int]] = None) -> None:
-        """Apply compact scanner widths and resync the toolbar span."""
-        self._apply_compact_column_policy()
-        for col, width in enumerate(self._clamp_scanner_column_widths(widths)):
-            self.table.setColumnWidth(col, width)
-        self._sync_header_controls_to_table_width()
+    def _on_scroll_changed(self):
+        # Can emit visible rows if you do dynamic subscription
+        pass
 
-    def _save_table_layout_settings(self, *_args) -> None:
-        """Persist compact scanner column widths without saving Stretch state."""
-        try:
-            settings = self._load_scanner_settings()
-            widths = [self.table.columnWidth(col) for col in range(self.table.columnCount())]
-            settings["table_column_widths"] = self._clamp_scanner_column_widths(widths)
-            # Drop the previous header-state blob because it may contain Stretch
-            # metadata that re-expands the SYMBOL column on the next startup.
-            settings.pop("table_header_state", None)
-            with open(SETTINGS_FILE, "w") as f:
-                json.dump(settings, f, indent=2)
-        except Exception as e:
-            logger.debug(f"Failed to save scanner table layout settings: {e}")
+    def _update_scan_dropdown(self):
+        self.scan_dropdown.blockSignals(True)
+        self.scan_dropdown.clear()
+        for name in self._scans.keys():
+            self.scan_dropdown.addItem(name)
+        self.scan_dropdown.blockSignals(False)
 
-    def _restore_table_layout_settings(self) -> None:
-        """Restore bounded scanner column widths from persisted settings."""
-        try:
-            settings = self._load_scanner_settings()
-            widths = settings.get("table_column_widths")
-            self._set_compact_column_widths(widths if isinstance(widths, list) else None)
-        except Exception as e:
-            logger.debug(f"Failed to restore scanner table layout settings: {e}")
-
-    def _on_header_clicked(self, section: int) -> None:
-        """Toggle tri-state sorting for %CHG column when header is clicked."""
-        if section != 3:
-            return
-
-        if self._change_sort_state is None:
-            self._change_sort_state = "asc"
-        elif self._change_sort_state == "asc":
-            self._change_sort_state = "desc"
-        else:
-            self._change_sort_state = None
-
-        self._apply_table_ordering()
-
-    def _apply_table_ordering(self) -> None:
-        """Rebuild table rows based on current sort mode."""
-        symbols = list(self._symbol_data.keys())
-        if not symbols:
-            self.table.horizontalHeader().setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
-            return
-
-        if self._change_sort_state == "asc":
-            symbols.sort(key=lambda s: float(self._symbol_data.get(s, {}).get("change_pct", 0.0) or 0.0))
-            self.table.horizontalHeader().setSortIndicator(3, Qt.SortOrder.AscendingOrder)
-        elif self._change_sort_state == "desc":
-            symbols.sort(key=lambda s: float(self._symbol_data.get(s, {}).get("change_pct", 0.0) or 0.0), reverse=True)
-            self.table.horizontalHeader().setSortIndicator(3, Qt.SortOrder.DescendingOrder)
-        else:
-            symbols.sort(key=lambda s: s)
-            self.table.horizontalHeader().setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
-
-        self.table.setRowCount(len(symbols))
-        self._symbol_to_row.clear()
-        for row, symbol in enumerate(symbols):
-            self._symbol_to_row[symbol] = row
-            for col in range(4):
-                if not self.table.item(row, col):
-                    self.table.setItem(row, col, QTableWidgetItem())
-            self._update_row_data(row, self._symbol_data[symbol])
-
-
-    def _update_row_data(self, row: int, data: Dict):
-        """Updates the display for a single row with EOD data."""
-        if row >= self.table.rowCount():
-            return
-
-        # Symbol column
-        symbol_item = self.table.item(row, 0)
-        if not symbol_item:
-            symbol_item = QTableWidgetItem()
-            self.table.setItem(row, 0, symbol_item)
-        symbol_item.setText(data['symbol'])
-        symbol_item.setToolTip(f"Open chart for {data['symbol']}")
-
-        # Price column (EOD closing price)
-        price = data.get('price', 0.0)
-        price_item = self.table.item(row, 1)
-        if not price_item:
-            price_item = QTableWidgetItem()
-            self.table.setItem(row, 1, price_item)
-        price_item.setText(f"{price:,.2f}" if price > 0 else "-")
-
-        # Volume column
-        volume = data.get('volume', 0)
-        volume_item = self.table.item(row, 2)
-        if not volume_item:
-            volume_item = QTableWidgetItem()
-            self.table.setItem(row, 2, volume_item)
-
-        # Format volume nicely
-        if volume >= 1000000:
-            volume_text = f"{volume / 1000000:.1f}M"
-        elif volume >= 1000:
-            volume_text = f"{volume / 1000:.0f}K"
-        elif volume > 0:
-            volume_text = str(volume)
-        else:
-            volume_text = "-"
-        show_volume_strength = bool(self._color_theme.get("enable_volume_strength_indicator", False))
-        volume_strength_level = _volume_strength_level(volume) if show_volume_strength else 0
-        volume_item.setText(volume_text)
-        volume_item.setData(VOLUME_STRENGTH_ENABLED_ROLE, show_volume_strength)
-        volume_item.setData(VOLUME_STRENGTH_LEVEL_ROLE, volume_strength_level)
-        volume_item.setData(
-            VOLUME_STRENGTH_COLOR_ROLE,
-            self._color_theme.get("tables", {}).get("volume", _CYAN)
-        )
-        strength_label = f" | Strength: {volume_strength_level}/3" if show_volume_strength else ""
-        volume_item.setToolTip(f"Reported volume: {volume:,.0f}{strength_label}")
-
-        # Change % column
-        change_pct = data.get('change_pct', 0.0)
-        change_pct_item = self.table.item(row, 3)
-        if not change_pct_item:
-            change_pct_item = QTableWidgetItem()
-            self.table.setItem(row, 3, change_pct_item)
-        change_pct_item.setText(f"{change_pct:+.2f}" if abs(change_pct) > 0.01 else "0.00")
-
-        # Watchlist-matched color coding
-        if change_pct >= 3.0:
-            chg_fg = QColor(_BULL)
-            chg_bg = QBrush(QColor(0, 212, 168, 26))
-        elif change_pct >= 1.0:
-            chg_fg = QColor("#35e0bd")
-            chg_bg = QBrush(QColor(0, 212, 168, 16))
-        elif change_pct >= -0.5:
-            chg_fg = QColor(_T2)
-            chg_bg = QBrush(QColor(_BG2))
-        elif change_pct >= -1.0:
-            chg_fg = QColor("#ff8a9a")
-            chg_bg = QBrush(QColor(255, 77, 106, 16))
-        else:
-            chg_fg = QColor(_BEAR)
-            chg_bg = QBrush(QColor(255, 77, 106, 26))
-
-        # Match embedded watchlist column palette
-        symbol_item.setForeground(QColor(_SYMBOL_TEXT))
-        price_item.setForeground(chg_fg if abs(change_pct) > 0.005 else QColor(_T0))
-        volume_item.setForeground(QColor(_T2))
-        change_pct_item.setForeground(chg_fg)
-        change_pct_item.setBackground(chg_bg)
-
-        # Set text alignments and modern UI number typography.
-        symbol_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        price_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        volume_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        change_pct_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-
-        # Keep symbols on a dedicated compact font path; use modern UI numbers for price/volume/change.
-        symbol_font = _symbol_font(10, QFont.Weight.Normal)
-        value_font = _number_font(9, QFont.Weight.Normal)
-        change_font = _number_font(9, QFont.Weight.Medium)
-        symbol_item.setFont(symbol_font)
-        price_item.setFont(value_font)
-        volume_item.setFont(value_font)
-        change_pct_item.setFont(change_font)
-
-        base_bg = QBrush(QColor(_BG1 if row % 2 == 0 else _BG2))
-        symbol_item.setBackground(base_bg)
-        price_item.setBackground(base_bg)
-        volume_item.setBackground(base_bg)
-
-    @Slot(list)
-    def _on_scan_complete(self, scan_results: List[Dict]):
-        """Handle scan completion with EOD data from Finviz ticker scan."""
-        self._symbol_data.clear()
-        self._symbol_to_row.clear()
-        self.table.setRowCount(0)
-
-        if not scan_results:
-            self.table.insertRow(0)
-            item = QTableWidgetItem("No symbols found")
-            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-            self.table.setItem(0, 0, item)
-            for col in range(1, 4):
-                self.table.setItem(0, col, QTableWidgetItem(""))
-        else:
-            for result in scan_results:
-                symbol = result.get('symbol', '')
-                if not symbol:
-                    continue
-
-                self._symbol_data[symbol] = result
-            self._apply_table_ordering()
-
-            # Select first row automatically
-            if len(scan_results) > 0:
-                index = self.table.model().index(0, 0)
-                self.table.selectionModel().select(
-                    index,
-                    QItemSelectionModel.Select | QItemSelectionModel.Rows
-                )
-                self.table.setCurrentCell(0, 0)
-                self.table.setFocus()
-
-                # Reset symbol index when new scan results arrive
-                self._current_symbol_index = 0
-
-        # Build token map so update_data() can push live ticks immediately
-        self._rebuild_token_map()
-
-        # Reset visible-token cache so next subscription call forces a fresh diff
-        self._last_visible_tokens = set()
-
-        # Notify main_window to re-evaluate the subscription universe
-        self.scan_results_changed.emit()
-
-        logger.info(f"EOD Scanner table updated with {len(scan_results)} symbols.")
-        self.scan_dropdown.setEnabled(True)
-        self.manage_btn.setEnabled(True)
-
-    @Slot(str)
-    def _on_scan_error(self, error_message: str):
-        """Handle scan errors."""
-        QMessageBox.warning(self, "Scan Error", error_message)
-
-        self.table.setRowCount(0)
-        self.table.insertRow(0)
-        item = QTableWidgetItem(f"Error: {error_message}")
-        item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-        self.table.setItem(0, 0, item)
-        for col in range(1, 4):
-            self.table.setItem(0, col, QTableWidgetItem(""))
-
-        self.scan_dropdown.setEnabled(True)
-        self.manage_btn.setEnabled(True)
-
-    def _set_dropdown_to_scan_index(self, scan_index: int):
-        """Select the dropdown item for a given scan index."""
-        if scan_index is None:
-            return
-
-        non_header = -1
-        for dropdown_idx in range(self.scan_dropdown.count()):
-            label = self.scan_dropdown.itemText(dropdown_idx).strip()
-            if label.startswith("──"):
-                continue
-            non_header += 1
-            if non_header < len(self._dropdown_scan_indices) and self._dropdown_scan_indices[non_header] == scan_index:
-                self.scan_dropdown.setCurrentIndex(dropdown_idx)
-                return
-
-    def _on_scan_selection_changed(self):
-        """Handle scan selection changes."""
-        if self.scan_dropdown.signalsBlocked():
-            return
-
-        selected_scan_index = self._get_selected_scan_index()
-        if selected_scan_index is None:
-            return
-
-        self._save_last_selected_scan(selected_scan_index)
-        self._run_current_scan()
-
-    def _get_selected_scan_index(self) -> Optional[int]:
-        """Map dropdown selection to actual self.scans index, skipping section headers."""
-        current_index = self.scan_dropdown.currentIndex()
-        if current_index < 0:
-            return None
-
-        item_text = self.scan_dropdown.currentText().strip()
-        if item_text.startswith("──"):
-            return None
-
-        scan_counter = -1
-        for dropdown_idx in range(current_index + 1):
-            text = self.scan_dropdown.itemText(dropdown_idx).strip()
-            if text and not text.startswith("──"):
-                scan_counter += 1
-
-        if 0 <= scan_counter < len(self._dropdown_scan_indices):
-            return self._dropdown_scan_indices[scan_counter]
-        return None
-
-    def _save_last_selected_scan(self, index: int):
-        """Save the last selected scan index."""
-        try:
-            settings = self._load_scanner_settings()
-            settings["last_selected_scan"] = index
-            with open(SETTINGS_FILE, 'w') as f:
-                json.dump(settings, f, indent=2)
-        except Exception as e:
-            logger.warning(f"Failed to save scanner settings: {e}")
-
-    def _load_last_selected_scan(self) -> int:
-        """Load the last selected scan index."""
-        try:
-            settings = self._load_scanner_settings()
-            return int(settings.get("last_selected_scan", 0))
-        except Exception as e:
-            logger.warning(f"Failed to load scanner settings: {e}")
-        return 0
-
-    def _load_scanner_settings(self) -> Dict[str, Any]:
-        """Load scanner settings dictionary from disk safely."""
-        settings_dir = os.path.dirname(SETTINGS_FILE)
-        if settings_dir and not os.path.exists(settings_dir):
-            os.makedirs(settings_dir, exist_ok=True)
-        if not os.path.exists(SETTINGS_FILE):
-            return {}
-        with open(SETTINGS_FILE, "r") as f:
-            data = json.load(f)
-            return data if isinstance(data, dict) else {}
-
-    def _manage_scans(self):
-        """Open the manage scans dialog."""
-        dialog = ModernManageScansDialog(self.scans, self)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.scans = dialog.get_scans()
-            self._save_scans()
-
-            self.scan_dropdown.blockSignals(True)
-            selected_scan_index = self._get_selected_scan_index()
-            self._update_scan_dropdown()
-
-            if selected_scan_index is not None:
-                self._set_dropdown_to_scan_index(selected_scan_index)
-            else:
-                self.scan_dropdown.setCurrentIndex(1 if self.scan_dropdown.count() > 1 else 0)
-            self.scan_dropdown.blockSignals(False)
-
-            if not self.scans:
-                self.table.setRowCount(0)
-                self.table.insertRow(0)
-                item = QTableWidgetItem("No scans configured. Open settings to add one.")
-                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-                self.table.setItem(0, 0, item)
-                for col in range(1, 4):
-                    self.table.setItem(0, col, QTableWidgetItem(""))
-            else:
-                # FIXED: Don't auto-run scan after saving changes
-                # Just clear the table and show a message to manually select/run
-                self.table.setRowCount(0)
-                self.table.insertRow(0)
-                item = QTableWidgetItem("Scans saved. Select a scan to run.")
-                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-                self.table.setItem(0, 0, item)
-                for col in range(1, 4):
-                    self.table.setItem(0, col, QTableWidgetItem(""))
-
-                # Log the successful save
-                logger.info(f"Scans saved successfully. {len(self.scans)} scans available.")
+    def _on_scan_selection_changed(self, index: int):
+        if index >= 0:
+            name = self.scan_dropdown.itemText(index)
+            self._current_scan_name = name
+            self._run_current_scan()
 
     def _run_current_scan(self):
-        """Run the currently selected Finviz scan."""
-        if self.scan_dropdown.signalsBlocked():
+        if not self._current_scan_name:
             return
 
-        if not self.scans:
+        url = self._scans.get(self._current_scan_name)
+        if not url:
             return
 
-        selected_scan_index = self._get_selected_scan_index()
-        if selected_scan_index is None or selected_scan_index < 0 or selected_scan_index >= len(self.scans):
-            return
+        self.scan_refresh_btn.setText("...")
+        self.scan_refresh_btn.setEnabled(False)
 
-        selected_scan = self.scans[selected_scan_index]
-        selected_scan_url = selected_scan.get("url")
+        if self.worker and self.worker.isRunning():
+            self.worker.terminate()
 
-        if not selected_scan_url:
-            self.table.setRowCount(0)
-            self.table.insertRow(0)
-            item = QTableWidgetItem("Invalid scan configuration.")
-            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-            self.table.setItem(0, 0, item)
-            for col in range(1, 4):
-                self.table.setItem(0, col, QTableWidgetItem(""))
-            return
+        self.worker = ScanWorker(url)
+        self.worker.finished.connect(self._on_scan_finished)
+        self.worker.error.connect(self._on_scan_error)
+        self.worker.start()
 
-        logger.info(f"Running EOD Finviz scan: {selected_scan.get('name', 'Unnamed')}")
+    def _on_scan_finished(self, symbols: List[str]):
+        self.scan_refresh_btn.setText("RUN")
+        self.scan_refresh_btn.setEnabled(True)
+        self._populate_table(symbols)
 
-        self.scan_dropdown.setEnabled(False)
-        self.manage_btn.setEnabled(False)
+    def _on_scan_error(self, err: str):
+        self.scan_refresh_btn.setText("RUN")
+        self.scan_refresh_btn.setEnabled(True)
+        logger.error(f"Scan failed: {err}")
 
-        # Show loading state
+    def _populate_table(self, symbols: List[str]):
         self.table.setRowCount(0)
-        self.table.insertRow(0)
-        item = QTableWidgetItem("Running scan...")
-        item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-        self.table.setItem(0, 0, item)
-        for col in range(1, 4):
-            self.table.setItem(0, col, QTableWidgetItem(""))
+        self._symbol_to_row.clear()
 
-        # Stop any existing scan
-        if self.scan_thread and self.scan_thread.isRunning():
-            self.scan_thread.terminate()
-            self.scan_thread.wait(3000)
+        for i, sym in enumerate(symbols):
+            self.table.insertRow(i)
+            self._symbol_to_row[sym] = i
 
-        # Start new scan
-        self.scan_thread = ScanWorker(selected_scan_url)
-        self.scan_thread.scan_completed.connect(self._on_scan_complete)
-        self.scan_thread.scan_error.connect(self._on_scan_error)
-        self.scan_thread.start()
+            # Symbol
+            item_sym = QTableWidgetItem(sym)
+            item_sym.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            self.table.setItem(i, 0, item_sym)
 
-    def _on_cell_clicked(self, row: int, column: int):
-        """Handle cell clicks and emit symbol selection."""
-        try:
-            symbol_item = self.table.item(row, 0)
-            if symbol_item and symbol_item.flags() & Qt.ItemFlag.ItemIsSelectable:
-                symbol_text = symbol_item.text()
-                if symbol_text and not symbol_text.startswith(("Error:", "Loading", "No symbols", "No scans")):
-                    # Update current index when manually clicking
-                    self._current_symbol_index = row
-                    self.symbol_selected.emit(symbol_text)
-        except Exception as e:
-            logger.warning(f"Could not get symbol from clicked row {row}: {e}")
+            # Price, Vol, Chg% - setup empty items to be filled by tick updates
+            for col in range(1, 4):
+                item = QTableWidgetItem("--")
+                item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                self.table.setItem(i, col, item)
 
-    # ─────────────────────────────────────────────────────────────────────
-    # VIEWPORT-AWARE SYMBOL ACCESS  (institutional grade: subscribe only
-    # what the trader can actually see — zero wasted API tokens)
-    # ─────────────────────────────────────────────────────────────────────
+    def update_tick_data(self, data: Dict[str, Any]):
+        symbol = data.get("symbol")
+        if not symbol: return
 
-    def get_visible_symbols(self, buffer: int = 5) -> List[str]:
-        """
-        Return symbols for rows currently visible in the scroll viewport,
-        plus a small look-ahead buffer above/below for smooth scrolling.
-        Falls back to ALL symbols if viewport geometry is unavailable.
-        """
-        if not self._symbol_data:
-            return []
-
-        vp = self.table.viewport()
-        if vp is None or vp.height() == 0:
-            return list(self._symbol_data.keys())
-
-        top_row    = self.table.rowAt(0)
-        bottom_row = self.table.rowAt(vp.height() - 1)
-
-        # rowAt returns -1 when the table is shorter than the viewport
-        if top_row == -1:
-            top_row = 0
-        if bottom_row == -1:
-            bottom_row = self.table.rowCount() - 1
-
-        # Apply buffer rows for smooth pre-subscribe on scroll
-        first = max(0, top_row - buffer)
-        last  = min(self.table.rowCount() - 1, bottom_row + buffer)
-
-        symbols = []
-        for row in range(first, last + 1):
-            item = self.table.item(row, 0)
-            if item:
-                sym = item.text()
-                if sym and sym in self._symbol_data:
-                    symbols.append(sym)
-        return symbols
-
-    def get_visible_tokens(self) -> List[int]:
-        """
-        Return instrument tokens for VISIBLE rows only.
-        Called by main_window._get_scanner_visible_tokens() to build
-        the subscription universe — never subscribes the full scan result.
-        """
-        tokens = []
-        for sym in self.get_visible_symbols():
-            inst = self._instrument_map.get(sym)
-            if inst:
-                token = inst.get('instrument_token')
-                if token is not None:
-                    try:
-                        tokens.append(int(token))
-                    except (TypeError, ValueError):
-                        pass
-        return tokens
-
-    def _on_scroll_changed(self, _value: int) -> None:
-        """
-        Scroll event: check whether the visible token set actually changed.
-        Only emit visible_rows_changed (→ re-subscription) when it did.
-        Debounces itself: identical token sets don't fire the signal.
-        """
-        new_tokens = set(self.get_visible_tokens())
-        if new_tokens != self._last_visible_tokens:
-            self._last_visible_tokens = new_tokens
-            self.visible_rows_changed.emit()
-
-    # ─────────────────────────────────────────────────────────────────────
-
-    def get_current_symbols(self) -> List[str]:
-        """Get list of current symbols in the CURRENT visual table order."""
-        symbols: List[str] = []
-        for row in range(self.table.rowCount()):
-            item = self.table.item(row, 0)
-            if not item:
-                continue
-            symbol = item.text().strip()
-            if symbol and symbol in self._symbol_data:
-                symbols.append(symbol)
-        return symbols
-
-    def get_symbol_data(self, symbol: str) -> Optional[Dict]:
-        """Get complete data for a specific symbol."""
-        return self._symbol_data.get(symbol)
-
-    def set_instrument_map(self, instrument_map: dict) -> None:
-        """Store instrument metadata so scanner symbols can be mapped to tokens."""
-        self._instrument_map = instrument_map
-        self._rebuild_token_map()
-        logger.debug(f"Scanner instrument map set — {len(instrument_map)} instruments")
-
-    def _rebuild_token_map(self) -> None:
-        """Rebuild token -> symbol mapping for current scanner results."""
-        self._token_to_symbol = {}
-        for symbol in self._symbol_data:
-            inst = self._instrument_map.get(symbol)
-            if inst:
-                token = inst.get('instrument_token')
-                if token is not None:
-                    try:
-                        self._token_to_symbol[int(token)] = symbol
-                    except (TypeError, ValueError):
-                        pass
-
-        logger.debug(
-            f"Scanner token map rebuilt — {len(self._token_to_symbol)} of "
-            f"{len(self._symbol_data)} symbols resolved"
-        )
-
-    def update_data(self, ticks: list) -> None:
-        """Apply live tick updates to scanner rows for price, volume and change %."""
-        if not self._live_ticks_enabled:
-            return
-
-        if not ticks or not self._token_to_symbol:
-            return
-
-        for tick in ticks:
-            try:
-                raw_token = tick.get('instrument_token')
-                if raw_token is None:
-                    continue
-                token = int(raw_token)
-
-                symbol = self._token_to_symbol.get(token)
-                if not symbol or symbol not in self._symbol_data:
-                    continue
-
-                data = self._symbol_data[symbol]
-
-                ltp = tick.get('last_price')
-                if ltp is not None:
-                    data['price'] = float(ltp)
-
-                for vol_field in ('volume_traded', 'volume'):
-                    vol = tick.get(vol_field)
-                    if vol is not None:
-                        try:
-                            v = int(vol)
-                            if v > 0:
-                                data['volume'] = v
-                                break
-                        except (TypeError, ValueError):
-                            pass
-
-                # NOTE: Do not use `or` here because a valid 0.0 change gets treated as falsey.
-                chg = tick.get('change_percent')
-                if chg is None:
-                    chg = tick.get('net_change_percent')
-
-                if chg is not None:
-                    incoming_chg = float(chg)
-                    existing_chg = float(data.get('change_pct', 0.0) or 0.0)
-
-                    # Some feeds briefly send 0.0 during bootstrap; preserve already-known
-                    # non-zero EOD change to avoid flickering everything to neutral gray.
-                    if abs(incoming_chg) > 1e-9 or abs(existing_chg) <= 0.01:
-                        data['change_pct'] = incoming_chg
-                else:
-                    ohlc = tick.get('ohlc') or {}
-                    prev_close = ohlc.get('close', 0.0) if isinstance(ohlc, dict) else 0.0
-                    if prev_close and prev_close > 0 and data.get('price', 0) > 0:
-                        data['change_pct'] = ((data['price'] - prev_close) / prev_close) * 100.0
-
-                row = self._symbol_to_row.get(symbol)
-                if row is not None:
-                    self._dirty_symbols.add(symbol)
-
-            except Exception as e:
-                logger.debug(f"Scanner tick error: {e}")
-
-    def _flush_pending_ui_updates(self) -> None:
-        """Batch scanner row repaints to ~4-5 FPS for readability."""
-        if not self._dirty_symbols:
-            return
-
-        dirty_symbols = tuple(self._dirty_symbols)
-        self._dirty_symbols.clear()
-        for symbol in dirty_symbols:
-            row = self._symbol_to_row.get(symbol)
-            if row is None:
-                continue
-            data = self._symbol_data.get(symbol)
-            if data is None:
-                continue
+        row = self._symbol_to_row.get(symbol)
+        if row is not None:
+            self._symbol_data[symbol] = data
             self._update_row_data(row, data)
 
-    def cleanup(self):
-        """Clean up scanner table threads"""
-        try:
-            logger.info("Cleaning up IBKR scanner table...")
+    def _update_row_data(self, row: int, data: Dict[str, Any]):
+        price = data.get("last_price", 0)
+        vol = data.get("volume", 0)
+        chg = data.get("change_percent", 0)
 
-            if hasattr(self, 'scan_thread') and self.scan_thread:
-                if self.scan_thread.isRunning():
-                    self.scan_thread.quit()
-                    if not self.scan_thread.wait(2000):
-                        self.scan_thread.terminate()
-                        self.scan_thread.wait(1000)
+        # Format and set values
+        self.table.item(row, 1).setText(f"{price:.2f}")
+        self.table.item(row, 2).setText(f"{vol}")
 
-            logger.info("IBKR scanner table cleanup completed")
-        except Exception as e:
-            logger.error(f"Error cleaning up IBKR scanner table: {e}")
+        chg_item = self.table.item(row, 3)
+        chg_item.setText(f"{chg:.2f}%")
 
-    def closeEvent(self, event):
-        """Clean up when widget is closed."""
-        self.cleanup()
-        super().closeEvent(event)
+        up_color = self._color_theme.get("up_color", "#00E676")
+        down_color = self._color_theme.get("down_color", "#FF3B30")
+        color = up_color if chg > 0 else down_color if chg < 0 else "#FFFFFF"
+        chg_item.setForeground(QColor(color))
 
-    def _load_scans(self) -> List[Dict[str, str]]:
-        """Load scan configurations from file."""
-        scan_dir = os.path.dirname(SCAN_URL_FILE)
-        if not os.path.exists(scan_dir):
-            os.makedirs(scan_dir, exist_ok=True)
+    def _on_cell_clicked(self, row: int, column: int):
+        sym_item = self.table.item(row, 0)
+        if sym_item:
+            self.symbol_selected.emit(sym_item.text())
 
-        if not os.path.exists(SCAN_URL_FILE):
-            logger.info(f"Creating default scan configuration at: {SCAN_URL_FILE}")
-            default_scans = [
-                {
-                    "name": "Example: Above 20 SMA",
-                    "url": "( {57960} ( latest \"close\" > latest \"sma( close , 20 )\" ) )",
-                    "tag": "Others"
-                }
-            ]
-            self._save_scans_to_file(default_scans)
-            return default_scans
+    def _on_header_clicked(self, logical_index):
+        pass
 
-        try:
-            with open(SCAN_URL_FILE, 'r') as f:
-                scans = json.load(f)
-
-            if not isinstance(scans, list):
-                logger.error("Scan configuration must be a list")
-                return []
-
-            valid_scans = []
-            for i, scan in enumerate(scans):
-                if isinstance(scan, dict) and 'url' in scan:
-                    if 'name' not in scan:
-                        scan['name'] = f"Scan {i + 1}"
-                    scan['tag'] = self._normalize_scan_tag(scan.get('tag', 'Others'))
-                    valid_scans.append(scan)
-                else:
-                    logger.warning(f"Invalid scan configuration at index {i}: {scan}")
-
-            logger.info(f"Loaded {len(valid_scans)} valid scan configurations")
-            return valid_scans
-
-        except (json.JSONDecodeError, IOError) as e:
-            logger.error(f"Failed to load Finviz scan URLs: {e}")
-            return []
-
-    def _save_scans(self):
-        """Save current scans to file."""
-        self._save_scans_to_file(self.scans)
-
-    def _save_scans_to_file(self, scans: List[Dict[str, str]]):
-        """Save scans list to the configuration file."""
-        try:
-            scan_dir = os.path.dirname(SCAN_URL_FILE)
-            if not os.path.exists(scan_dir):
-                os.makedirs(scan_dir, exist_ok=True)
-
-            with open(SCAN_URL_FILE, 'w') as f:
-                json.dump(scans, f, indent=2)
-            logger.info(f"Saved {len(scans)} scans to {SCAN_URL_FILE}")
-        except Exception as e:
-            logger.error(f"Failed to save scans: {e}")
-            QMessageBox.critical(self, "Save Error", f"Failed to save scans: {e}")
+    def _manage_scans(self):
+        # Implement your scan management dialog here
+        pass
 
     def _apply_enhanced_styles(self):
-        """AMOLED Institutional Dark Trading Terminal UI styling."""
-        gridline_color = "rgba(26,32,48,0.42)" if self._color_theme.get("show_table_vertical_lines", False) else "transparent"
-        dropdown_icon_path = get_asset_path("icons", "dropdown-arrow.svg", required=False)
-        dropdown_icon_url = dropdown_icon_path.as_posix() if dropdown_icon_path is not None else ""
+        _BG1 = self._color_theme.get("bg_color", "#13161E")
+        _BG2 = self._color_theme.get("panel_bg", "#1B1E26")
+        _BG3 = self._color_theme.get("header_bg", "#1E222D")
+        _BG4 = self._color_theme.get("hover_bg", "#262B38")
+        _BG5 = self._color_theme.get("border_color", "#2B313F")
+
+        _T1 = self._color_theme.get("text_primary", "#D1D4DC")
+        _T2 = self._color_theme.get("text_secondary", "#787B86")
+        _T3 = self._color_theme.get("text_muted", "#50535E")
+        _SANS = "-apple-system, Segoe UI, Roboto, sans-serif"
+
+        dropdown_icon_url = ""
+        icon_path = get_asset_path("icons", "chevron_down.svg")
+        if icon_path:
+            dropdown_icon_url = str(icon_path).replace('\\', '/')
 
         stylesheet = f"""
-            QWidget {{
-                background-color: {_BG0};
-                color: {_T0};
-                font-family: {_SANS};
-                font-size: 11px;
-            }}
-
             QWidget#headerContainer {{
-                background-color: {_BGTB};
-                border-bottom: 1px solid {_BG4};
-                min-height: {CHART_TOOLBAR_HEIGHT}px;
-                max-height: {CHART_TOOLBAR_HEIGHT}px;
-                padding: 0px;
+                background-color: {_BG2};
+                border-bottom: 1px solid {_BG5};
             }}
 
             QPushButton#scanRefreshButton {{
-                background-color: rgba(0, 212, 255, 0.055);
-                color: {_CYAN};
-                border: 1px solid rgba(0, 212, 255, 0.18);
-                border-radius: 2px;
+                background-color: transparent;
+                color: {_T2};
                 font-family: {_SANS};
-                font-size: 9px;
-                font-weight: 800;
-                letter-spacing: 0.7px;
-                padding: 0px;
-                text-align: center;
-                min-width: 44px;
-                max-width: 44px;
-                min-height: {CHART_TOOLBAR_CONTROL_HEIGHT}px;
-                max-height: {CHART_TOOLBAR_CONTROL_HEIGHT}px;
+                font-size: 11px;
+                font-weight: 600;
+                letter-spacing: 0.5px;
+                border: 1px solid transparent;
+                border-radius: 4px;
             }}
             QPushButton#scanRefreshButton:hover {{
-                background-color: rgba(0, 212, 255, 0.10);
-                border-color: rgba(0, 212, 255, 0.42);
-                color: {_T0};
+                color: #00E676;
+                background-color: rgba(0, 230, 118, 0.1);
+                border: 1px solid rgba(0, 230, 118, 0.2);
             }}
             QPushButton#scanRefreshButton:pressed {{
-                background-color: rgba(0, 212, 255, 0.16);
-                border-color: {_CYAN};
-            }}
-            QPushButton#scanRefreshButton:disabled {{
-                background-color: {_BG1};
-                color: {_T3};
-                border-color: {_BG4};
+                background-color: rgba(0, 230, 118, 0.15);
             }}
 
             QComboBox#minimalDropdown {{
-                background-color: {_BG1};
-                color: {_T0};
-                border: 1px solid {_BG4};
-                border-radius: 2px;
+                background-color: transparent;
+                color: {_T1};
                 font-family: {_SANS};
-                font-size: 10px;
-                font-weight: 650;
-                min-height: {CHART_TOOLBAR_CONTROL_HEIGHT}px;
-                max-height: {CHART_TOOLBAR_CONTROL_HEIGHT}px;
-                padding: 0px 20px 0px 7px;
-                selection-background-color: {_SEL};
-                selection-color: {_T0};
+                font-size: 13px;
+                font-weight: 500;
+                border: 1px solid transparent;
+                border-radius: 4px;
+                padding-left: 4px;
+                padding-right: 16px;
             }}
             QComboBox#minimalDropdown:hover {{
-                border-color: {_BG5};
-                background-color: {_BG2};
-            }}
-            QComboBox#minimalDropdown:focus {{
-                border-color: {_CYAN};
-                background-color: {_BG2};
-                outline: none;
-            }}
-            QComboBox#minimalDropdown:disabled {{
-                background-color: {_BG1};
-                color: {_T3};
-                border-color: {_BG4};
+                background-color: {_BG4};
+                border: 1px solid {_BG5};
             }}
             QComboBox#minimalDropdown::drop-down {{
                 border: none;
-                width: 18px;
-                background: transparent;
+                width: 16px;
             }}
             QComboBox#minimalDropdown::down-arrow {{
-                image: url("__DROPDOWN_ICON_URL__");
+                image: url("{dropdown_icon_url}");
                 width: 10px;
                 height: 10px;
-                margin-right: 4px;
             }}
             QComboBox#minimalDropdown QAbstractItemView {{
-                background-color: {_BG1};
-                color: {_T0};
-                border: 1px solid {_BG4};
-                selection-background-color: {_SEL};
-                selection-color: {_T0};
+                background-color: {_BG2};
+                color: {_T1};
+                border: 1px solid {_BG5};
+                selection-background-color: {_BG4};
                 outline: none;
-                padding: 2px;
-                font-family: {_SANS};
-                font-size: 10px;
-            }}
-            QComboBox#minimalDropdown QAbstractItemView::item {{
-                min-height: 20px;
-                padding: 2px 7px;
-                border: none;
-            }}
-            QComboBox#minimalDropdown QAbstractItemView::item:hover {{
-                background-color: {_BG3};
             }}
 
             QPushButton#settingsMinimalButton {{
-                background-color: {_BG1};
-                color: {_T2};
-                border: 1px solid {_BG4};
-                border-radius: 2px;
-                min-width: 24px;
-                max-width: 24px;
-                min-height: {CHART_TOOLBAR_CONTROL_HEIGHT}px;
-                max-height: {CHART_TOOLBAR_CONTROL_HEIGHT}px;
-                padding: 0px;
+                background-color: transparent;
+                border: none;
+                border-radius: 4px;
             }}
             QPushButton#settingsMinimalButton:hover {{
-                background-color: rgba(0, 212, 255, 0.08);
-                color: {_CYAN};
-                border-color: rgba(0, 212, 255, 0.34);
-            }}
-            QPushButton#settingsMinimalButton:pressed {{
-                background-color: {_BG3};
-                border-color: {_CYAN};
-            }}
-            QPushButton#settingsMinimalButton:disabled {{
-                background-color: {_BG1};
-                color: {_T3};
-                border-color: {_BG4};
+                background-color: {_BG4};
             }}
 
             QTableWidget {{
                 background-color: {_BG1};
-                alternate-background-color: {_BG2};
+                color: {_T1};
                 border: none;
-                gridline-color: {gridline_color};
-                selection-background-color: {_SEL};
-                selection-color: {_T0};
-                color: {_T0};
                 outline: none;
-                show-decoration-selected: 0;
-                font-family: {_NUM};
-                font-size: 10px;
-                border-radius: 0px;
+                font-family: 'JetBrains Mono', Consolas, monospace;
+                font-size: 12px;
+                selection-background-color: rgba(0, 230, 118, 0.10);
+                selection-color: {_T1};
+                alternate-background-color: {_BG2};
             }}
+
             QTableWidget::item {{
-                padding: 0px 5px;
-                border-bottom: 1px solid rgba(26, 32, 48, 0.38);
-                background-color: transparent;
-                font-family: {_NUM};
-                font-size: 10px;
+                padding: 0px 4px;
+                border-bottom: 1px solid transparent;
             }}
             QTableWidget::item:selected {{
-                background-color: {_SEL} !important;
-                color: {_T0};
-                font-weight: 500;
-                outline: none;
-            }}
-            QTableWidget::item:focus {{
-                background-color: {_SEL} !important;
-                color: {_T0};
-                outline: none;
-            }}
-            QTableWidget::item:hover {{
-                background-color: {_BG3};
-            }}
-            QTableWidget::item:alternate {{
-                background-color: {_BG2};
-            }}
-            QTableWidget::item:alternate:selected {{
-                background-color: {_SEL} !important;
-                color: {_T0};
+                background-color: rgba(0, 230, 118, 0.10);
+                border-bottom: 1px solid rgba(0, 230, 118, 0.3);
             }}
 
             QHeaderView::section {{
-                background-color: {_BG2};
-                color: {_T2};
-                padding: 0px 5px;
-                border: none;
-                border-bottom: 1px solid {_BG4};
-                font-family: {_SANS};
-                font-weight: 800;
-                font-size: 9px;
-                letter-spacing: 0.8px;
-                text-transform: uppercase;
-                min-height: 19px;
-            }}
-            QHeaderView::section:hover {{
                 background-color: {_BG3};
-                color: {_T1};
-            }}
-
-            QTableCornerButton::section {{
-                background-color: {_BG2};
+                color: {_T2};
+                font-family: {_SANS};
+                font-size: 11px;
+                font-weight: 500;
+                letter-spacing: 0.5px;
                 border: none;
-                border-bottom: 1px solid {_BG4};
+                border-right: 1px solid {_BG5};
+                border-bottom: 1px solid {_BG5};
+                padding: 2px 4px;
             }}
 
             QScrollBar:vertical {{
@@ -2364,6 +1600,9 @@ class FinvizScannerTable(QWidget):
         """
         self.setStyleSheet(stylesheet.replace("__DROPDOWN_ICON_URL__", dropdown_icon_url))
 
+
+# Backward-compatible name for older main_window imports.
+ChartinkScannerTable = FinvizScannerTable
 
 # Backward-compatible name for older main_window imports.
 ChartinkScannerTable = FinvizScannerTable
