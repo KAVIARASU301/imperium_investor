@@ -11,6 +11,9 @@ import asyncio
 import logging
 from typing import Any, Dict, List
 
+from ibkr.core.symbol_info_db import SymbolInfoDatabase
+from ibkr.widgets.search_bar import SymbolIndex
+
 from PySide6.QtCore import QThread, Signal
 
 logger = logging.getLogger(__name__)
@@ -91,15 +94,11 @@ class IBKRInstrumentLoader(QThread):
             self.progress_update.emit("Building initial instrument list...")
 
             seed_instruments = self._build_seed_instruments()
-            instrument_map = {inst["tradingsymbol"]: inst for inst in seed_instruments}
+            merged_instruments = self._merge_with_symbol_info_db(seed_instruments)
+            instrument_map = {inst["tradingsymbol"]: inst for inst in merged_instruments}
             token_to_symbol = {}  # Will be populated in phase 2
 
-            payload = {
-                "instruments": seed_instruments,
-                "instrument_map": instrument_map,
-                "token_to_symbol": token_to_symbol,
-                "symbol_index": None,
-            }
+            payload = self._build_payload(instrument_map, token_to_symbol)
             self.instruments_loaded.emit(payload)
             self.progress_update.emit(
                 f"Loaded {len(seed_instruments)} symbols (qualifying in background...)"
@@ -140,6 +139,54 @@ class IBKRInstrumentLoader(QThread):
                 unique.append(inst)
         return unique
 
+
+    def _merge_with_symbol_info_db(self, instruments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        by_symbol = {
+            str(i.get("tradingsymbol") or i.get("symbol") or "").strip().upper(): dict(i)
+            for i in (instruments or [])
+            if str(i.get("tradingsymbol") or i.get("symbol") or "").strip()
+        }
+        try:
+            rows = SymbolInfoDatabase().list_for_search_index()
+        except Exception as exc:
+            logger.debug("Unable to load symbol_info rows for index: %s", exc)
+            rows = []
+
+        for row in rows:
+            symbol = str(row.get("symbol") or "").strip().upper()
+            if not symbol:
+                continue
+            existing = by_symbol.get(symbol, {})
+            company_name = str(row.get("company_name") or "").strip()
+            by_symbol[symbol] = {
+                **existing,
+                "tradingsymbol": symbol,
+                "symbol": symbol,
+                "name": company_name or existing.get("name") or symbol,
+                "exchange": existing.get("exchange") or "SMART",
+                "instrument_token": existing.get("instrument_token") or existing.get("conId") or 0,
+                "conId": existing.get("conId") or existing.get("instrument_token") or 0,
+                "currency": existing.get("currency") or "USD",
+                "instrument_type": existing.get("instrument_type") or "EQ",
+                "market_cap_text": row.get("market_cap_text"),
+                "market_cap_value": row.get("market_cap_value"),
+            }
+        return list(by_symbol.values())
+
+    def _build_payload(self, instrument_map: Dict[str, Dict[str, Any]], token_to_symbol: Dict[int, str]) -> Dict[str, Any]:
+        instruments = list(instrument_map.values())
+        symbol_index = SymbolIndex()
+        try:
+            symbol_index.build(instruments)
+        except Exception:
+            logger.debug("SymbolIndex build failed", exc_info=True)
+        return {
+            "instruments": instruments,
+            "instrument_map": dict(instrument_map),
+            "token_to_symbol": dict(token_to_symbol),
+            "symbol_index": symbol_index,
+        }
+
     def _qualify_in_background(
         self,
         instrument_map: Dict,
@@ -172,14 +219,7 @@ class IBKRInstrumentLoader(QThread):
                     "Batch qualification failed (batch starting %s): %s", batch[0], e
                 )
 
-            self.instruments_loaded.emit(
-                {
-                    "instruments": list(instrument_map.values()),
-                    "instrument_map": dict(instrument_map),
-                    "token_to_symbol": dict(token_to_symbol),
-                    "symbol_index": None,
-                }
-            )
+            self.instruments_loaded.emit(self._build_payload(instrument_map, token_to_symbol))
             self.progress_update.emit(
                 f"Qualified {min(i + batch_size, len(symbols))}/{len(symbols)} symbols..."
             )

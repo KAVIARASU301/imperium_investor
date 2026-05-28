@@ -595,19 +595,20 @@ class EnhancedSearchInput(QLineEdit):
                 self._dropdown.hide_popup()
             return
 
+        # Always search local index first for instant suggestions.
+        local_results: List[Dict[str, Any]] = []
+        if self._index is not None:
+            local_results = self._index.search(query)
+            self._ensure_dropdown()
+            self._dropdown.show_results(local_results, query, self)
+        elif self._dropdown:
+            self._dropdown.hide_popup()
+
+        # Optionally enrich with async/live provider results.
         if self._async_search_provider is not None:
             self._active_query = query
             self._async_search_provider(query, self._on_async_results)
             return
-
-        if self._index is None:
-            if self._dropdown:
-                self._dropdown.hide_popup()
-            return
-
-        results = self._index.search(query)
-        self._ensure_dropdown()
-        self._dropdown.show_results(results, query, self)
 
     def _on_async_results(self, results: List[Dict[str, Any]]) -> None:
         query = self.text().strip().upper()
