@@ -23,6 +23,12 @@ class ChartLinesManager(QObject):
         self.drawings_dir = "user_data/chart_drawings"
         os.makedirs(self.drawings_dir, exist_ok=True)
 
+    def _get_trading_mode(self) -> str:
+        """Return the active trading mode used to scope chart-managed lines."""
+        mode = getattr(self.main_window, "trading_mode", "live")
+        mode = str(mode or "live").lower()
+        return "paper" if mode == "paper" else "live"
+
     def _get_symbol_file_path(self, symbol: str, interval: str = None) -> str:
         """Get the path to the symbol's drawings JSON file (shared across intervals)."""
         safe_symbol = symbol.replace("/", "_").replace(":", "_")
@@ -106,6 +112,25 @@ class ChartLinesManager(QObject):
             logger.error(f"Error saving drawings for {symbol}: {e}")
             return False
 
+    def _save_to_all_intervals(self, symbol: str, apply_fn, current_state: Dict = None) -> bool:
+        """Apply a drawing mutation and save it.
+
+        IBKR drawings are stored in one symbol-level state file shared by all
+        intervals, but the alert manager uses the Kite-compatible helper name
+        when restoring alert lines.  Keeping this wrapper here preserves that
+        interface and avoids chart refresh failures during startup/symbol loads.
+        """
+        state = current_state if current_state is not None else self._load_symbol_drawings(symbol)
+        if not isinstance(state, dict):
+            state = self._load_symbol_drawings(symbol)
+        drawings = state.setdefault("drawings", {})
+        for draw_type in ["lines", "rectangles", "notes", "horizontal_lines", "horizontal_rays", "arrow_lines"]:
+            value = drawings.get(draw_type)
+            if not isinstance(value, list):
+                drawings[draw_type] = []
+        apply_fn(drawings)
+        return self._save_symbol_drawings(symbol, state)
+
     def _create_horizontal_ray_line(self, price: float, color: str, start_time: float,
                                     text: str, metadata: Optional[Dict[str, Any]] = None) -> Dict:
         """Create a horizontal ray line structure matching existing format"""
@@ -163,7 +188,11 @@ class ChartLinesManager(QObject):
                 color="#FFD700",  # Yellow
                 start_time=0,  # Not used anymore, calculated inside function
                 text="",
-                metadata={"lineCategory": "alert"}
+                metadata={
+                    "lineCategory": "alert",
+                    "intent": intent,
+                    "tradingMode": self._get_trading_mode(),
+                }
             )
 
             # Add only the line to drawings (no note text)
@@ -327,7 +356,8 @@ class ChartLinesManager(QObject):
                     "lineCategory": "position",
                     "quantity": int(total_quantity),
                     "orderType": normalized_order_type,
-                    "avgPrice": float(final_avg_price)
+                    "avgPrice": float(final_avg_price),
+                    "tradingMode": self._get_trading_mode(),
                 }
             )
 

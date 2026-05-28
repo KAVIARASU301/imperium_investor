@@ -2631,11 +2631,13 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 f"Submitting {tx_type} {qty} {symbol}…", 3000, level="action"
             )
 
-            order_id = self.trader.place_order(**order_data)
+            order_response = self.trader.place_order(**order_data)
+            order_id, broker_order = self._normalize_order_response(order_response)
 
             if order_id:
+                order_data.update(broker_order)
                 order_data["order_id"] = order_id
-                order_data["status"] = "ROUTED"
+                order_data["status"] = str(broker_order.get("status") or "ROUTED").upper()
 
                 status.notify("submitted", symbol)
                 self.position_manager.start_tracking_order(order_id, order_data)
@@ -2643,10 +2645,11 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 self.account_manager.refresh_margins(force=True)
                 QTimer.singleShot(2000, lambda: self.account_manager.refresh_margins(force=True))
                 self._log_order_placement_immediate(order_data, order_id)
-                logger.info(f"[ENTRY] Order accepted by broker: {order_id}")
+                logger.info(f"[ENTRY] Order accepted by broker: {broker_order or order_id}")
             else:
-                show_order_failed(f"{symbol} — no order ID returned (possible rejection)")
-                logger.warning(f"[ENTRY] Broker returned no order_id for {symbol}")
+                reason = broker_order.get("error") or broker_order.get("status_message") or "no order ID returned"
+                show_order_failed(f"{symbol} — {reason}")
+                logger.warning(f"[ENTRY] Broker returned no order_id for {symbol}: {broker_order or order_response}")
 
         except Exception as e:
             symbol = order_data.get("tradingsymbol", "?")
@@ -2680,11 +2683,13 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 f"Submitting exit {tx_type} {qty} {symbol}…", 3000, level="action"
             )
 
-            order_id = self.trader.place_order(**order_data)
+            order_response = self.trader.place_order(**order_data)
+            order_id, broker_order = self._normalize_order_response(order_response)
 
             if order_id:
+                order_data.update(broker_order)
                 order_data["order_id"] = order_id
-                order_data["status"] = "ROUTED"
+                order_data["status"] = str(broker_order.get("status") or "ROUTED").upper()
                 order_data["_is_exit_order"] = True
 
                 status.notify("submitted", symbol)
@@ -2693,16 +2698,32 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 self.account_manager.refresh_margins(force=True)
                 QTimer.singleShot(2000, lambda: self.account_manager.refresh_margins(force=True))
                 self._log_order_placement_immediate(order_data, order_id)
-                logger.info(f"[EXIT] Exit order accepted: {order_id}")
+                logger.info(f"[EXIT] Exit order accepted: {broker_order or order_id}")
             else:
-                show_order_failed(f"{symbol} exit — no order ID returned")
-                logger.warning(f"[EXIT] Broker returned no order_id for exit {symbol}")
+                reason = broker_order.get("error") or broker_order.get("status_message") or "no order ID returned"
+                show_order_failed(f"{symbol} exit — {reason}")
+                logger.warning(f"[EXIT] Broker returned no order_id for exit {symbol}: {broker_order or order_response}")
 
         except Exception as e:
             symbol = order_data.get("tradingsymbol", "?")
             compact_error = self._compact_broker_error(e)
             status.notify("rejected", symbol, compact_error)
             logger.error(f"[EXIT] Exit placement exception: {e}", exc_info=True)
+
+    @staticmethod
+    def _normalize_order_response(order_response: Any) -> tuple[str, Dict[str, Any]]:
+        """Return a scalar order id plus broker metadata from broker-specific responses."""
+        if isinstance(order_response, dict):
+            data = dict(order_response)
+            if data.get("error"):
+                return "", data
+            raw_order_id = data.get("order_id") or data.get("orderId") or data.get("id")
+            return str(raw_order_id).strip() if raw_order_id is not None else "", data
+
+        if order_response is None:
+            return "", {}
+
+        return str(order_response).strip(), {}
 
     def _ensure_symbol_subscription_for_order(self, symbol: str) -> None:
         """Subscribe order symbol immediately so paper/live flows get fresh ticks."""

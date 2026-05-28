@@ -150,7 +150,7 @@ class DatabaseWorker(QObject):
             timestamp,
             timestamp,
             order_data.get('tag', ''),
-            order_data.get('source', 'manual')
+            order_data.get('order_source') or order_data.get('source', 'manual')
         )
 
         cursor = conn.cursor()
@@ -288,9 +288,18 @@ class TradeLogger(QObject):
         if self._shutdown_requested:
             return
 
-        # Prepare data for background processing
-        log_data = order_data.copy()
-        log_data['order_id'] = order_id
+        # Prepare data for background processing.  IBKR clients may return a
+        # broker response dictionary; only the scalar order id belongs in the
+        # database order_id column.
+        log_data = dict(order_data or {})
+        if isinstance(order_id, dict):
+            raw_order_id = order_id.get('order_id') or order_id.get('orderId') or order_id.get('id')
+        else:
+            raw_order_id = order_id
+        log_data['order_id'] = str(raw_order_id or '').strip()
+        if not log_data['order_id']:
+            logger.warning("Cannot log order placement - missing order_id")
+            return
 
         # Add to background queue immediately
         self.db_worker.add_operation("log_order_placement", log_data)
