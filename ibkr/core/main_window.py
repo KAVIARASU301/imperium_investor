@@ -581,9 +581,6 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         settings_action = tools_menu.addAction("Settings", self._open_color_settings_dialog)
         settings_action.setShortcut(QKeySequence("Ctrl+,"))
         settings_action.setShortcutVisibleInContextMenu(True)
-        order_routing_action = tools_menu.addAction("Order Routing Settings", self._show_relay_settings_dialog)
-        order_routing_action.setShortcut(QKeySequence("Shift+R"))
-        order_routing_action.setShortcutVisibleInContextMenu(True)
 
         about_menu = menu_bar.addMenu("About")
         about_menu.addAction("Keyboard Shortcuts", lambda: show_keyboard_shortcuts_dialog(self))
@@ -991,45 +988,6 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 self.dual_chart_action.blockSignals(True)
                 self.dual_chart_action.setChecked(self.dual_chart_mode_enabled)
                 self.dual_chart_action.blockSignals(False)
-
-    def _show_relay_settings_dialog(self):
-        """Open relay settings and hot-reload an active RelayOrderRouter."""
-        from ibkr.core.relay_order_router import _HMACSigner
-        from ibkr.widgets.order_routing_settings import RelaySettingsDialog
-        from login_setup.token_manager import EnhancedTokenManager
-
-        dialog = RelaySettingsDialog(token_manager=EnhancedTokenManager(), parent=self)
-
-        def _resolve_active_relay_router():
-            if hasattr(self.trader, "_cfg"):
-                return self.trader
-            wrapped_client = getattr(self.trader, "client", None)
-            if wrapped_client and hasattr(wrapped_client, "_cfg"):
-                return wrapped_client
-            return None
-
-        def on_config_saved(new_cfg):
-            router = _resolve_active_relay_router()
-            if not router:
-                status.show_info("Relay config saved. It will be applied on next login/session.")
-                return
-
-            if new_cfg:
-                router._cfg = new_cfg
-                if hasattr(router, "_signer"):
-                    router._signer = _HMACSigner(new_cfg.secret)
-                try:
-                    router.check_health()
-                    status.show_info(f"Relay updated and connected: {new_cfg.url}")
-                except Exception as e:
-                    show_error(f"Relay saved but health check failed: {e}")
-            else:
-                if hasattr(router, "_cfg") and router._cfg:
-                    router._cfg.enabled = False
-                status.show_info("Relay routing disabled. Orders will route directly.")
-
-        dialog.config_saved.connect(on_config_saved)
-        dialog.exec()
 
     def _init_alert_system(self):
         try:
