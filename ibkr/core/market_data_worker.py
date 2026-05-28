@@ -14,6 +14,7 @@ import logging
 import math
 import os
 import queue
+import random
 import threading
 import time
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
@@ -90,7 +91,14 @@ class MarketDataWorker(QThread):
 
     def __init__(self, ib_client: IB):
         super().__init__()
+        self._source_ib = ib_client
         self.ib = ib_client
+        self._owns_ib_connection = False
+        (
+            self._connection_host,
+            self._connection_port,
+            self._connection_client_id,
+        ) = self._connection_params_from_client(ib_client)
         self._is_running = True
         self._commands: "queue.Queue[Tuple[str, list]]" = queue.Queue()
         self._subscribed_contracts: Dict[str, Contract] = {}
@@ -105,6 +113,95 @@ class MarketDataWorker(QThread):
         self._last_live_retry_monotonic = 0.0
         self._lock = threading.RLock()
 
+    def _connection_params_from_client(self, ib_client: IB) -> Tuple[str, int, int]:
+        """Extract TWS/Gateway endpoint details from the authenticated IB client."""
+        client = getattr(ib_client, "client", None)
+        host = str(
+            getattr(client, "host", "")
+            or os.environ.get("IBKR_HOST", "127.0.0.1")
+        )
+        try:
+            port = int(getattr(client, "port", 0) or os.environ.get("IBKR_PORT", "7497"))
+        except (TypeError, ValueError):
+            port = 7497
+        try:
+            base_client_id = int(getattr(client, "clientId", 1) or 1)
+        except (TypeError, ValueError):
+            base_client_id = 1
+        configured = os.environ.get("IBKR_MARKET_DATA_CLIENT_ID", "").strip()
+        if configured:
+            try:
+                return host, port, int(configured)
+            except ValueError:
+                logger.warning(
+                    "Invalid IBKR_MARKET_DATA_CLIENT_ID=%r; deriving a client id",
+                    configured,
+                )
+        return host, port, base_client_id + 7000
+
+    def _ensure_worker_connection(self) -> bool:
+        """Use a thread-owned IB connection for streaming market data.
+
+        ib_insync sockets and asyncio events are tied to the thread/event loop
+        where the IB object is driven.  The login client is created elsewhere,
+        so the market-data worker opens a lightweight, read-only API session on
+        the same TWS/Gateway endpoint instead of driving that shared object from
+        this QThread.
+        """
+        if self._owns_ib_connection and self.ib and self.ib.isConnected():
+            return True
+
+        host = self._connection_host
+        port = self._connection_port
+        preferred_client_id = self._connection_client_id
+        candidate_ids = [preferred_client_id]
+        candidate_ids.extend(preferred_client_id + offset for offset in range(1, 4))
+        candidate_ids.append(random.randint(9000, 9999))
+
+        last_error: Optional[Exception] = None
+        for client_id in candidate_ids:
+            dedicated = IB()
+            try:
+                dedicated.connect(host, port, clientId=int(client_id), timeout=8, readonly=True)
+            except Exception as exc:
+                last_error = exc
+                try:
+                    dedicated.disconnect()
+                except Exception:
+                    pass
+                logger.warning(
+                    "Dedicated IBKR market-data connection failed on %s:%s clientId=%s: %s",
+                    host,
+                    port,
+                    client_id,
+                    exc,
+                )
+                continue
+
+            if dedicated.isConnected():
+                self.ib = dedicated
+                self._owns_ib_connection = True
+                logger.info(
+                    "Dedicated IBKR market-data connection established on %s:%s clientId=%s",
+                    host,
+                    port,
+                    client_id,
+                )
+                return True
+
+        # Fall back only if the shared client is still connected. This keeps the
+        # app usable in unusual setups while the warning points at the safer fix.
+        if self._source_ib and self._source_ib.isConnected():
+            self.ib = self._source_ib
+            self._owns_ib_connection = False
+            logger.warning(
+                "Using shared IBKR client for market data because dedicated connection failed: %s",
+                last_error,
+            )
+            return True
+        logger.error("Unable to establish IBKR market-data connection: %s", last_error)
+        return False
+
     # ------------------------------------------------------------------
     # QThread lifecycle
     # ------------------------------------------------------------------
@@ -112,8 +209,8 @@ class MarketDataWorker(QThread):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
-        if not self.ib or not self.ib.isConnected():
-            self.connection_error.emit("IB client is not connected.")
+        if not self._ensure_worker_connection():
+            self.connection_error.emit("IB market-data client is not connected.")
             asyncio.set_event_loop(None)
             loop.close()
             return
@@ -166,6 +263,11 @@ class MarketDataWorker(QThread):
                 self.ib.orderStatusEvent -= self._on_order_status
             except Exception:
                 pass
+            if self._owns_ib_connection and self.ib and self.ib.isConnected():
+                try:
+                    self.ib.disconnect()
+                except Exception:
+                    logger.debug("Failed to disconnect dedicated IBKR market-data client", exc_info=True)
             asyncio.set_event_loop(None)
             loop.close()
             self.connection_closed.emit()

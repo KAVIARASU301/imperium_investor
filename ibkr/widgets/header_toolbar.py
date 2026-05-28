@@ -987,6 +987,16 @@ class HeaderToolbar(QToolBar):
         self.info_button.style().polish(self.info_button)
         self.info_button.update()
 
+    def set_data_status(self, text: str, live: bool | None = None) -> None:
+        """Compatibility hook for IBKR live/delayed data status updates.
+
+        The persistent data badge lives in the bottom StatusBar; the header has
+        no dedicated data-status label in this compact layout. Keeping this
+        method prevents cross-thread Qt slot errors when the market-data worker
+        announces live or delayed mode.
+        """
+        logger.debug("Header data status update: %s (live=%s)", text, live)
+
     def set_watchlist_symbols(self, symbols: List[str]) -> None:
         pass  # search index handles this now
 
