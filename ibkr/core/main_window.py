@@ -433,7 +433,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.positions_table.setMinimumHeight(100)
 
         # Keep side panels compact while preserving readability.
-        self.chartink_scanner.setMinimumWidth(220)
+        self.chartink_scanner.setMinimumWidth(0)
         right_panel_splitter.setMinimumWidth(220)
         self.candlestick_chart.setMinimumWidth(460)
         self.candlestick_chart_secondary.setMinimumWidth(460)
@@ -445,6 +445,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.main_splitter.addWidget(right_panel_splitter)
 
         self.main_splitter.setChildrenCollapsible(False)
+        self.main_splitter.setCollapsible(0, True)
         self.main_splitter.setHandleWidth(1)
         self.main_splitter.setStretchFactor(0, 1)
         self.main_splitter.setStretchFactor(1, 4)
@@ -641,7 +642,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         left_visible = self.chartink_scanner.isVisible()
         right_visible = self.right_panel_splitter.isVisible()
 
-        left_min = 200 if left_visible else 0
+        left_min = 0 if left_visible else 0
         right_min = 220 if right_visible else 0
         center_min = max(460, int(splitter_width * 0.45))
 
@@ -719,10 +720,10 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             sizes = self.main_splitter.sizes()
             if len(sizes) == 4:
                 total = max(1, sum(sizes))
-                left = max(200, int(self._saved_scanner_panel_width))
+                left = max(0, int(self._saved_scanner_panel_width))
                 right = sizes[3]
                 chart_total = max(520, total - left - right)
-                left = max(200, total - chart_total - right)
+                left = max(0, total - chart_total - right)
                 primary = chart_total if not self.dual_chart_mode_enabled else max(520, chart_total // 2)
                 secondary = 0 if not self.dual_chart_mode_enabled else max(520, chart_total - primary)
                 self.main_splitter.setSizes([left, primary, secondary, right])

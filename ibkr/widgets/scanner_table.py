@@ -1357,9 +1357,9 @@ class ChartinkScannerTable(QWidget):
         self.table.horizontalHeader().setVisible(True)
         header = self.table.horizontalHeader()
 
-        # THE FIX: Native Qt sizing for ultimate density
-        # Symbol absorbs empty space and shrinks first. Data columns perfectly fit contents.
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+        # Fill any trailing viewport gap by letting SYMBOL absorb remaining width.
+        # Other columns stay content/fixed sized for stable numeric alignment.
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
