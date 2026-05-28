@@ -23,6 +23,8 @@ _CLIENT_ID_COUNTER = itertools.count(1)
 _RECENT_REQUEST_LOCK = threading.Lock()
 _RECENT_REQUESTS: "OrderedDict[str, float]" = OrderedDict()
 _PACING_DELAY_S = 0.2
+_INFLIGHT_REQUEST_LOCK = threading.Lock()
+_INFLIGHT_REQUESTS: Dict[str, Tuple[asyncio.AbstractEventLoop, asyncio.Task]] = {}
 
 # Shared Async Connection State
 _SHARED_HISTORY_IB: Optional[Any] = None
@@ -228,16 +230,10 @@ class IBKRDataFetcher(BrokerDataFetcher):
             except Exception as e:
                 raise ValueError(f"Could not qualify contract for {symbol}: {e}") from e
 
-        logger.info(
-            "Requesting IBKR historical data: %s conId=%s bar=%s duration=%s end=%s",
-            symbol, getattr(contract, "conId", con_id) or con_id or "symbol-lookup",
-            bar_size, duration_str, end_dt_str or "latest",
-        )
-
         try:
             bars = await self._request_historical_bars_async(
                 ib=ib, contract=contract, end_dt_str=end_dt_str,
-                duration_str=duration_str, bar_size=bar_size,
+                duration_str=duration_str, bar_size=bar_size, request_symbol=symbol,
             )
         except Exception:
             if con_id > 0 and not qualified_once:
@@ -245,7 +241,7 @@ class IBKRDataFetcher(BrokerDataFetcher):
                 self._cache_contract_aliases(symbol, contract, preferred_key=cache_key)
                 bars = await self._request_historical_bars_async(
                     ib=ib, contract=contract, end_dt_str=end_dt_str,
-                    duration_str=duration_str, bar_size=bar_size,
+                    duration_str=duration_str, bar_size=bar_size, request_symbol=symbol,
                 )
             else:
                 raise
@@ -255,7 +251,7 @@ class IBKRDataFetcher(BrokerDataFetcher):
             self._cache_contract_aliases(symbol, contract, preferred_key=cache_key)
             bars = await self._request_historical_bars_async(
                 ib=ib, contract=contract, end_dt_str=end_dt_str,
-                duration_str=duration_str, bar_size=bar_size,
+                duration_str=duration_str, bar_size=bar_size, request_symbol=symbol,
             )
 
         if not bars:
@@ -267,9 +263,74 @@ class IBKRDataFetcher(BrokerDataFetcher):
         return [self._bar_to_bardata(b) for b in bars]
 
     async def _request_historical_bars_async(
-            self, ib, contract, end_dt_str: str, duration_str: str, bar_size: str, max_retries: int = 4
+            self,
+            ib,
+            contract,
+            end_dt_str: str,
+            duration_str: str,
+            bar_size: str,
+            max_retries: int = 4,
+            request_symbol: str = "",
     ):
         pacing_key = f"{getattr(contract, 'conId', '')}_{bar_size}_{duration_str}_{end_dt_str}"
+        loop = asyncio.get_running_loop()
+
+        with _INFLIGHT_REQUEST_LOCK:
+            existing = _INFLIGHT_REQUESTS.get(pacing_key)
+            if existing is not None:
+                existing_loop, existing_task = existing
+                if existing_loop is loop and not existing_task.done():
+                    logger.debug("Joining in-flight IBKR historical request: %s", pacing_key)
+                    task = existing_task
+                else:
+                    _INFLIGHT_REQUESTS.pop(pacing_key, None)
+                    task = None
+            else:
+                task = None
+
+            if task is None:
+                task = loop.create_task(
+                    self._execute_historical_request_async(
+                        ib=ib,
+                        contract=contract,
+                        end_dt_str=end_dt_str,
+                        duration_str=duration_str,
+                        bar_size=bar_size,
+                        max_retries=max_retries,
+                        pacing_key=pacing_key,
+                        request_symbol=request_symbol,
+                    )
+                )
+                _INFLIGHT_REQUESTS[pacing_key] = (loop, task)
+
+        try:
+            return await asyncio.shield(task)
+        finally:
+            if task.done():
+                with _INFLIGHT_REQUEST_LOCK:
+                    current = _INFLIGHT_REQUESTS.get(pacing_key)
+                    if current is not None and current[1] is task:
+                        _INFLIGHT_REQUESTS.pop(pacing_key, None)
+
+    async def _execute_historical_request_async(
+            self,
+            ib,
+            contract,
+            end_dt_str: str,
+            duration_str: str,
+            bar_size: str,
+            max_retries: int,
+            pacing_key: str,
+            request_symbol: str,
+    ):
+        logger.info(
+            "Requesting IBKR historical data: %s conId=%s bar=%s duration=%s end=%s",
+            request_symbol or getattr(contract, "symbol", "?"),
+            getattr(contract, "conId", None) or "symbol-lookup",
+            bar_size,
+            duration_str,
+            end_dt_str or "latest",
+        )
 
         # 1. Pacing Delay (Applied ONLY to identical symbols/timeframes to prevent TWS soft-bans)
         with _RECENT_REQUEST_LOCK:
