@@ -763,7 +763,6 @@ class OrderDialog(QDialog):
         ), "GTC"), self)
         self._exchange_seg = _DropdownField(EXCHANGES, self._exchange, self)
         self._route_seg = _DropdownField(ROUTES, "AUTO", self)
-        self._currency_seg = _DropdownField(CURRENCIES, self._currency, self)
         self._primary_exchange_input = _TextInput(self._primary_exchange, "optional", self)
         self._account_input = _TextInput(str(self._order_details.get("account") or ""), "optional", self)
 
@@ -1093,7 +1092,6 @@ class OrderDialog(QDialog):
 
     def _seed_defaults(self) -> None:
         self._exchange_seg.add_missing_and_select(self._exchange)
-        self._currency_seg.add_missing_and_select(self._currency)
         self._contract_label.setText(self._contract_text())
 
     def _connect_signals(self) -> None:
@@ -1102,7 +1100,6 @@ class OrderDialog(QDialog):
         self._tif_seg.currentChanged.connect(self._on_order_option_changed)
         self._exchange_seg.currentChanged.connect(self._on_order_option_changed)
         self._route_seg.currentChanged.connect(self._on_order_option_changed)
-        self._currency_seg.currentChanged.connect(self._on_order_option_changed)
         self._primary_exchange_input.textChanged.connect(lambda *_: self._on_order_option_changed())
         self._account_input.textChanged.connect(lambda *_: self._on_order_option_changed())
         self._outside_rth_chk.toggled.connect(self._on_order_option_changed)
@@ -1310,7 +1307,7 @@ class OrderDialog(QDialog):
     def _contract_text(self) -> str:
         primary = self._primary_exchange_input.text().strip().upper() if hasattr(self, "_primary_exchange_input") else self._primary_exchange
         exchange = self._exchange_seg.current() if hasattr(self, "_exchange_seg") else self._exchange
-        currency = self._currency_seg.current() if hasattr(self, "_currency_seg") else self._currency
+        currency = self._currency
         bits = [self._sec_type, exchange, currency]
         if primary:
             bits.append(f"PRIMARY {primary}")
@@ -1406,7 +1403,7 @@ class OrderDialog(QDialog):
         side = self._side_group.current()
         qty = int(self._qty_spin.value())
         exchange = self._exchange_seg.current()
-        currency = self._currency_seg.current()
+        currency = self._currency
         tif = self._tif_seg.current()
         route = self._route_seg.current()
         primary_exchange = self._primary_exchange_input.text().strip().upper()
