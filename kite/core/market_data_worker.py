@@ -88,34 +88,15 @@ class MarketDataWorker(QObject):
             logger.error(f"MarketDataWorker start failed: {e}")
             self._safe_emit(self.connection_error, str(e))
 
-    def stop(self):
-        """Clean shutdown — unsubscribe then close WS."""
-        logger.info("MarketDataWorker stopping…")
-        self._shutdown_requested = True
-        self.is_running = False
-
-        # KiteTicker logs close callbacks as errors when websocket closes with
-        # empty code/reason during an intentional app shutdown. Temporarily
-        # suppress those expected close-noise logs.
-        if self._ticker_log_level_before_shutdown is None:
-            self._ticker_log_level_before_shutdown = ticker_logger.level
-        ticker_logger.setLevel(logging.CRITICAL)
-
-        if self.kws:
-            try:
-                tokens = list(self.subscribed_tokens)
-                if tokens:
-                    self.kws.unsubscribe(tokens)
-                    logger.info(f"Unsubscribed {len(tokens)} tokens")
-            except Exception as e:
-                logger.warning(f"Unsubscribe on stop failed: {e}")
-
-            try:
-                self.kws.close()
-            except Exception as e:
-                logger.warning(f"KiteTicker.close() raised: {e}")
-
-        logger.info("MarketDataWorker stopped")
+    def stop(self) -> None:
+        logger.info("Stopping IBKR MarketDataWorker…")
+        self._is_running = False
+        self._commands.put(("stop", []))
+        self.quit()
+        if not self.wait(3000):
+            logger.warning("MarketDataWorker did not stop in 3s — terminating")
+            self.terminate()
+            self.wait(1000)
 
     def is_connected(self) -> bool:
         """Compatibility helper for UI checks."""

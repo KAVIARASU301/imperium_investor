@@ -171,29 +171,21 @@ class ShutdownManager:
 
         mdw = w.market_data_worker
 
-        # 1. Set shutdown flag FIRST — prevents reconnection on close callback
-        if hasattr(mdw, "_shutdown_requested"):
-            mdw._shutdown_requested = True
+        # Signal shutdown before anything else
+        if hasattr(mdw, "_is_running"):
+            mdw._is_running = False
 
-        # 2. Unsubscribe all tokens before disconnecting
-        #    (avoids ghost subscriptions on Kite's end consuming API quota)
+        # Cancel all IB market data subscriptions
         try:
-            if hasattr(mdw, "kws") and mdw.kws:
-                tokens = list(getattr(mdw, "subscribed_tokens", set()))
-                if tokens:
-                    try:
-                        mdw.kws.unsubscribe(tokens)
-                        logger.info(f"Unsubscribed {len(tokens)} tokens before WS close")
-                    except Exception as e:
-                        logger.warning(f"Unsubscribe failed (non-critical): {e}")
+            mdw._cancel_all_subscriptions()
         except Exception as e:
-            logger.warning(f"Pre-unsubscribe step failed: {e}")
+            logger.warning("Cancel subscriptions failed (non-critical): %s", e)
 
-        # 3. Stop the worker
+        # Stop the QThread and wait for it to exit
         try:
-            mdw.stop()
+            mdw.stop()  # calls quit() + wait() internally now
         except Exception as e:
-            logger.error(f"MarketDataWorker.stop() raised: {e}")
+            logger.error("MarketDataWorker.stop() raised: %s", e)
 
     def _stop_all_timers(self) -> None:
         """Stop any QTimer children that are still active."""
