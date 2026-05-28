@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import os
 import queue
 import threading
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
@@ -20,6 +21,45 @@ from PySide6.QtCore import QThread, Signal
 from ib_insync import IB, Contract, Stock, Ticker
 
 logger = logging.getLogger(__name__)
+
+_MARKET_DATA_TYPE_NAMES = {
+    1: "live",
+    2: "frozen",
+    3: "delayed",
+    4: "delayed-frozen",
+}
+_SUBSCRIPTION_ERROR_CODES = {354, 10186}
+_DELAYED_NOTICE_CODES = {10167, 10168}
+
+
+def _configured_market_data_type() -> int:
+    raw = os.environ.get("IBKR_MARKET_DATA_TYPE", "1").strip().lower()
+    aliases = {
+        "live": 1,
+        "realtime": 1,
+        "real-time": 1,
+        "frozen": 2,
+        "delayed": 3,
+        "delay": 3,
+        "delayed-frozen": 4,
+        "delayed_frozen": 4,
+    }
+    if raw in aliases:
+        return aliases[raw]
+    try:
+        value = int(raw)
+    except ValueError:
+        logger.warning("Unknown IBKR_MARKET_DATA_TYPE=%r; using live market data type", raw)
+        return 1
+    if value not in _MARKET_DATA_TYPE_NAMES:
+        logger.warning("Unsupported IBKR_MARKET_DATA_TYPE=%r; using live market data type", raw)
+        return 1
+    return value
+
+
+def _delayed_fallback_enabled() -> bool:
+    raw = os.environ.get("IBKR_MARKET_DATA_FALLBACK_DELAYED", "1").strip().lower()
+    return raw not in {"0", "false", "no", "off"}
 
 
 def _clean_float(value: Any, default: float = 0.0) -> float:
@@ -54,6 +94,10 @@ class MarketDataWorker(QThread):
         self._symbol_to_key: Dict[str, str] = {}
         self._contract_cache: Dict[str, Contract] = {}
         self._latest_ticks: Dict[str, Dict[str, Any]] = {}
+        self._req_id_to_key: Dict[int, str] = {}
+        self._market_data_type = _configured_market_data_type()
+        self._allow_delayed_fallback = _delayed_fallback_enabled()
+        self._tried_delayed_fallback = self._market_data_type == 3
         self._lock = threading.RLock()
 
     # ------------------------------------------------------------------
@@ -74,11 +118,21 @@ class MarketDataWorker(QThread):
             # Prefer real-time streaming data when the account has live market
             # data permissions. Closed-market LTP is handled separately by
             # snapshot requests, which can use frozen/close fields from IBKR.
-            self.ib.reqMarketDataType(1)
+            self.ib.reqMarketDataType(self._market_data_type)
+            logger.info(
+                "Requested IBKR %s market data type (%s); delayed fallback=%s",
+                _MARKET_DATA_TYPE_NAMES.get(self._market_data_type, str(self._market_data_type)),
+                self._market_data_type,
+                self._allow_delayed_fallback,
+            )
         except Exception:
-            logger.debug("Could not request live IBKR market data type", exc_info=True)
+            logger.debug("Could not request configured IBKR market data type", exc_info=True)
         self.connection_established.emit()
         self.ib.pendingTickersEvent += self._on_pending_tickers
+        try:
+            self.ib.errorEvent += self._on_ib_error
+        except Exception:
+            logger.debug("Could not attach IBKR errorEvent", exc_info=True)
         try:
             self.ib.orderStatusEvent += self._on_order_status
         except Exception:
@@ -95,6 +149,10 @@ class MarketDataWorker(QThread):
             self._cancel_all_subscriptions()
             try:
                 self.ib.pendingTickersEvent -= self._on_pending_tickers
+            except Exception:
+                pass
+            try:
+                self.ib.errorEvent -= self._on_ib_error
             except Exception:
                 pass
             try:
@@ -264,8 +322,11 @@ class MarketDataWorker(QThread):
             if key in self._subscribed_contracts:
                 return
         try:
-            self.ib.reqMktData(contract, "", False, False)
+            ticker = self.ib.reqMktData(contract, "", False, False)
+            req_id = self._ticker_req_id(ticker)
             with self._lock:
+                if req_id is not None:
+                    self._req_id_to_key[req_id] = key
                 self._subscribed_contracts[key] = contract
                 self._contract_cache[key] = contract
                 if alias_key:
@@ -273,7 +334,12 @@ class MarketDataWorker(QThread):
                 if symbol:
                     self._symbol_to_key[symbol] = key
                     self._contract_cache[symbol] = contract
-            logger.info("Subscribed IBKR market data: %s", symbol or key)
+            logger.info(
+                "Subscribed IBKR market data: %s key=%s type=%s",
+                symbol or key,
+                key,
+                _MARKET_DATA_TYPE_NAMES.get(self._market_data_type, self._market_data_type),
+            )
         except Exception as exc:
             logger.error("IBKR market data subscribe failed for %s: %s", symbol or key, exc)
 
@@ -316,9 +382,9 @@ class MarketDataWorker(QThread):
                 logger.debug("IBKR snapshot failed for %s: %s", key, exc)
             finally:
                 try:
-                    self.ib.reqMarketDataType(1)
+                    self.ib.reqMarketDataType(self._market_data_type)
                 except Exception:
-                    logger.debug("Could not restore IBKR live market data type", exc_info=True)
+                    logger.debug("Could not restore configured IBKR market data type", exc_info=True)
         if ticks:
             self.data_received.emit(ticks)
 
@@ -348,6 +414,7 @@ class MarketDataWorker(QThread):
             self._subscribed_contracts.clear()
             self._symbol_to_key.clear()
             self._latest_ticks.clear()
+            self._req_id_to_key.clear()
         for key, contract in contracts:
             try:
                 self.ib.cancelMktData(contract)
@@ -376,6 +443,56 @@ class MarketDataWorker(QThread):
         if con_id:
             return str(con_id)
         return (getattr(contract, "symbol", "") or "").strip().upper()
+
+    def _ticker_req_id(self, ticker: Any) -> Optional[int]:
+        for attr in ("tickerId", "reqId"):
+            value = getattr(ticker, attr, None)
+            try:
+                if value is not None:
+                    return int(value)
+            except Exception:
+                continue
+        return None
+
+    def _switch_market_data_type(self, market_data_type: int, reason: str, resubscribe: bool = False) -> None:
+        if market_data_type == self._market_data_type:
+            return
+        old_type = self._market_data_type
+        try:
+            self.ib.reqMarketDataType(market_data_type)
+            self._market_data_type = market_data_type
+            logger.warning(
+                "Switched IBKR market data type from %s (%s) to %s (%s): %s",
+                _MARKET_DATA_TYPE_NAMES.get(old_type, old_type),
+                old_type,
+                _MARKET_DATA_TYPE_NAMES.get(market_data_type, market_data_type),
+                market_data_type,
+                reason,
+            )
+        except Exception as exc:
+            logger.error("Failed to switch IBKR market data type to %s: %s", market_data_type, exc)
+            return
+
+        if not resubscribe:
+            return
+
+        with self._lock:
+            subscriptions = list(self._subscribed_contracts.items())
+            self._req_id_to_key.clear()
+        for key, contract in subscriptions:
+            try:
+                self.ib.cancelMktData(contract)
+            except Exception:
+                logger.debug("Failed to cancel %s before delayed resubscribe", key, exc_info=True)
+            try:
+                ticker = self.ib.reqMktData(contract, "", False, False)
+                req_id = self._ticker_req_id(ticker)
+                if req_id is not None:
+                    with self._lock:
+                        self._req_id_to_key[req_id] = key
+                logger.info("Resubscribed IBKR market data after type switch: %s", getattr(contract, "symbol", key))
+            except Exception as exc:
+                logger.error("Failed to resubscribe %s after market data type switch: %s", key, exc)
 
     def _contract_from_item(self, item: Any) -> Optional[Contract]:
         if isinstance(item, Contract):
@@ -481,6 +598,37 @@ class MarketDataWorker(QThread):
 
         if ticks_data:
             self.data_received.emit(ticks_data)
+
+    def _on_ib_error(self, req_id: int, error_code: int, error_string: str, contract: Any = None) -> None:
+        symbol = (getattr(contract, "symbol", "") or "").strip().upper() if contract is not None else ""
+        with self._lock:
+            key = self._req_id_to_key.get(int(req_id)) if req_id not in (None, -1) else None
+        label = symbol or key or f"reqId={req_id}"
+
+        if error_code in _DELAYED_NOTICE_CODES:
+            logger.warning("IBKR market data notice for %s: %s (%s)", label, error_string, error_code)
+            return
+
+        if error_code in _SUBSCRIPTION_ERROR_CODES:
+            logger.error(
+                "IBKR market data subscription problem for %s: %s (%s). "
+                "This usually means the account lacks live market-data permissions for the exchange, "
+                "or delayed market data is not enabled in TWS/Gateway API settings.",
+                label,
+                error_string,
+                error_code,
+            )
+            if self._allow_delayed_fallback and self._market_data_type != 3 and not self._tried_delayed_fallback:
+                self._tried_delayed_fallback = True
+                self._switch_market_data_type(
+                    3,
+                    f"IBKR returned market-data subscription error {error_code} for {label}",
+                    resubscribe=True,
+                )
+            return
+
+        if 10000 <= int(error_code) < 11000 or int(error_code) in {200, 300, 321, 322}:
+            logger.warning("IBKR API error for %s: %s (%s)", label, error_string, error_code)
 
     def _on_order_status(self, trade: Any) -> None:
         try:
