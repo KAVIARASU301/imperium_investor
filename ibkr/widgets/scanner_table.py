@@ -1,4 +1,4 @@
-# kite/widgets/scanner_table.py
+# ibkr/widgets/scanner_table.py
 import logging
 import json
 import os
@@ -1104,9 +1104,11 @@ class ChartinkScannerTable(QWidget):
         self.table = QTableWidget()
         self._configure_table()
         main_layout.addWidget(self.table)
+        self._sync_header_controls_to_table_width()
 
         self.table.cellClicked.connect(self._on_cell_clicked)
         self.table.horizontalHeader().sectionClicked.connect(self._on_header_clicked)
+        self.table.horizontalHeader().sectionResized.connect(lambda *_: self._sync_header_controls_to_table_width())
         self.table.setItemDelegateForColumn(2, VolumeStrengthDelegate(self.table))
         self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.table.setFocus()
@@ -1132,6 +1134,7 @@ class ChartinkScannerTable(QWidget):
         self._apply_enhanced_styles()
         self.table.setShowGrid(bool(self._color_theme.get("show_table_vertical_lines", False)))
         self.table.setColumnHidden(2, not bool(self._color_theme.get("show_scanner_volume_column", True)))
+        self._sync_header_controls_to_table_width()
         for symbol, row in self._symbol_to_row.items():
             data = self._symbol_data.get(symbol)
             if data is not None:
@@ -1193,8 +1196,12 @@ class ChartinkScannerTable(QWidget):
         header_container.setFixedHeight(CHART_TOOLBAR_HEIGHT)
 
         header_layout = QHBoxLayout(header_container)
-        header_layout.setContentsMargins(4, 0, 4, 0)
+        # Keep toolbar controls packed from the left so the header span matches
+        # the actual table columns instead of spreading across the whole panel.
+        header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(4)
+        header_layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self._header_layout = header_layout
 
         # Subtle refresh button replacing static scan label
         self.scan_refresh_btn = QPushButton("RUN")
@@ -1210,11 +1217,11 @@ class ChartinkScannerTable(QWidget):
         self.scan_dropdown.setObjectName("minimalDropdown")
         self.scan_dropdown.setFixedHeight(CHART_TOOLBAR_CONTROL_HEIGHT)
         self.scan_dropdown.setMinimumWidth(0)
-        self.scan_dropdown.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.scan_dropdown.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.scan_dropdown.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.scan_dropdown.setMinimumContentsLength(1)
         self.scan_dropdown.currentIndexChanged.connect(self._on_scan_selection_changed)
-        header_layout.addWidget(self.scan_dropdown, 1)
+        header_layout.addWidget(self.scan_dropdown)
 
         # Settings button
         self.manage_btn = QPushButton()
@@ -1227,9 +1234,51 @@ class ChartinkScannerTable(QWidget):
             self.manage_btn.setIconSize(QSize(14, 14))
         self.manage_btn.clicked.connect(self._manage_scans)
         header_layout.addWidget(self.manage_btn)
+        header_layout.addStretch(1)
 
         self._update_scan_dropdown()
+        self._sync_header_controls_to_table_width()
         return header_container
+
+    def _sync_header_controls_to_table_width(self) -> None:
+        """Pack toolbar controls into the same span as the visible table columns."""
+        if not hasattr(self, "scan_dropdown") or not hasattr(self, "table"):
+            return
+
+        header = self.table.horizontalHeader()
+        first_visible = None
+        last_visible = None
+        columns_width = 0
+
+        for col in range(self.table.columnCount()):
+            if self.table.isColumnHidden(col):
+                continue
+            first_visible = col if first_visible is None else first_visible
+            last_visible = col
+            columns_width += max(0, header.sectionSize(col))
+
+        if first_visible is None or last_visible is None or columns_width <= 0:
+            return
+
+        # Use real widget/layout metrics instead of guessed padding. This keeps
+        # RUN + dropdown + settings exactly packed over the table header span.
+        spacing = self._header_layout.spacing() if hasattr(self, "_header_layout") else 4
+        run_w = self.scan_refresh_btn.width() or self.scan_refresh_btn.sizeHint().width()
+        settings_w = self.manage_btn.width() or self.manage_btn.sizeHint().width()
+        dropdown_w = max(0, columns_width - run_w - settings_w - (spacing * 2))
+
+        # Do not let the combo's internal size policy create extra visual gaps.
+        self.scan_dropdown.setMinimumWidth(dropdown_w)
+        self.scan_dropdown.setMaximumWidth(dropdown_w)
+        self.scan_dropdown.setFixedWidth(dropdown_w)
+
+        # Keep the whole header content left-packed and no wider than columns.
+        if hasattr(self, "_header_layout"):
+            self._header_layout.invalidate()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._sync_header_controls_to_table_width()
 
     def _normalize_scan_tag(self, tag: Optional[str]) -> str:
         """Normalize user-entered scan tags into known scan sections."""
@@ -1342,6 +1391,7 @@ class ChartinkScannerTable(QWidget):
 
         self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.table.setColumnHidden(2, not bool(self._color_theme.get("show_scanner_volume_column", True)))
+        QTimer.singleShot(0, self._sync_header_controls_to_table_width)
 
     def _on_header_clicked(self, section: int) -> None:
         """Toggle tri-state sorting for %CHG column when header is clicked."""
