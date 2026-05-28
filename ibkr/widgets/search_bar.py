@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
+from math import isnan
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from PySide6.QtCore import (
@@ -76,9 +77,25 @@ class SymbolIndex:
         self._name_words: Dict[str, List[str]] = defaultdict(list)
         # Compact flat list for short-query iteration (symbol, display_name, exchange)
         self._all_sorted: List[Tuple[str, str, str]] = []
+        # Symbol → score; lower is better.
+        self._symbol_rank: Dict[str, Tuple[int, int, float, int]] = {}
+        self._symbol_market_cap: Dict[str, float] = {}
+
+    @staticmethod
+    def _safe_market_cap(inst: Dict[str, Any]) -> float:
+        try:
+            value = float(inst.get("market_cap_value") or 0.0)
+            if isnan(value) or value < 0:
+                return 0.0
+            return value
+        except Exception:
+            return 0.0
 
     def build(self, instruments: Sequence[Dict[str, Any]]) -> None:
         """Build index from instrument list. Call once after instruments load."""
+        self._by_symbol.clear()
+        self._symbol_rank.clear()
+        self._symbol_market_cap.clear()
         by_symbol: Dict[str, List[Dict]] = defaultdict(list)
         for inst in instruments:
             sym = (inst.get("tradingsymbol") or "").strip().upper()
@@ -98,6 +115,7 @@ class SymbolIndex:
             )
             processed[sym] = best
             self._by_symbol[sym] = insts  # keep all for fallback
+            self._symbol_market_cap[sym] = max(self._safe_market_cap(i) for i in insts)
 
         # Build prefix trie (character-by-character) and compact flat list
         self._prefix.clear()
@@ -126,6 +144,10 @@ class SymbolIndex:
         # Sort compact list by (exchange_rank, symbol length, symbol alpha)
         flat.sort(key=lambda t: (t[3], len(t[0]), t[0]))
         self._all_sorted = [(sym, name, exch) for sym, name, exch, _ in flat]
+        self._symbol_rank = {
+            sym: (idx, len(sym), -self._symbol_market_cap.get(sym, 0.0), idx)
+            for idx, (sym, _name, _exch) in enumerate(self._all_sorted)
+        }
 
     def search(self, query: str, max_results: int = MAX_RESULTS) -> List[Dict[str, Any]]:
         """
@@ -158,13 +180,13 @@ class SymbolIndex:
         # 2. Prefix hits (fast trie lookup)
         prefix_hits = self._prefix.get(query, [])
         # Sort: shorter symbols first (NIFTY before NIFTYBANK), then alpha
-        for sym in sorted(prefix_hits, key=lambda s: (len(s), s)):
+        for sym in sorted(prefix_hits, key=lambda s: self._symbol_rank.get(s, (999999, len(s), 0.0, 999999))):
             _add(sym)
 
         # 3. Name-word hits if we still have room
         if len(results) < max_results:
             name_hits = self._name_words.get(query, [])
-            for sym in sorted(name_hits, key=lambda s: (len(s), s)):
+            for sym in sorted(name_hits, key=lambda s: self._symbol_rank.get(s, (999999, len(s), 0.0, 999999))):
                 _add(sym)
 
         # 4. Substring fallback for short queries (1-2 chars) — scan compact list

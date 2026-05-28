@@ -2,7 +2,7 @@ import os
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from app_paths import get_user_data_dir
 
@@ -151,3 +151,29 @@ class SymbolInfoDatabase:
             info.get("market_cap_text") or "",
         ]
         return " · ".join([p for p in parts if p]).strip()
+
+    def list_for_search_index(self, limit: int = 10000) -> List[Dict[str, Any]]:
+        """Return symbol metadata rows suitable for local search indexing."""
+        safe_limit = max(100, min(int(limit or 10000), 100000))
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    symbol,
+                    company_name,
+                    market_cap_text,
+                    market_cap_value,
+                    country,
+                    sector,
+                    industry
+                FROM symbol_info
+                WHERE symbol IS NOT NULL AND TRIM(symbol) != ''
+                ORDER BY
+                    CASE WHEN market_cap_value IS NULL THEN 1 ELSE 0 END,
+                    market_cap_value DESC,
+                    symbol ASC
+                LIMIT ?
+                """,
+                (safe_limit,),
+            ).fetchall()
+        return [dict(row) for row in rows]

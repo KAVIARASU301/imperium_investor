@@ -19,6 +19,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from PySide6.QtCore import QThread, Signal
+from ibkr.core.symbol_info_db import SymbolInfoDatabase
 
 try:
     from ibkr.widgets.search_bar import SymbolIndex
@@ -123,12 +124,48 @@ class IBKRInstrumentLoader(QThread):
             if self._stop_requested:
                 return
 
-            self.instruments_loaded.emit(self._build_payload(instruments))
+            merged = self._merge_with_symbol_info_db(instruments)
+            self.instruments_loaded.emit(self._build_payload(merged))
         except Exception as exc:
             logger.error("IBKRInstrumentLoader failed: %s", exc, exc_info=True)
             self.error_occurred.emit(str(exc))
             # Last-resort seed means the UI/search bar still opens instantly.
             self.instruments_loaded.emit(self._build_payload(_seed_instruments()))
+
+    def _merge_with_symbol_info_db(self, instruments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        by_symbol = {
+            str(i.get("tradingsymbol") or i.get("symbol") or "").strip().upper(): dict(i)
+            for i in (instruments or [])
+            if str(i.get("tradingsymbol") or i.get("symbol") or "").strip()
+        }
+        try:
+            rows = SymbolInfoDatabase().list_for_search_index()
+        except Exception as exc:
+            logger.debug("Unable to load symbol_info rows for index: %s", exc)
+            rows = []
+
+        for row in rows:
+            symbol = str(row.get("symbol") or "").strip().upper()
+            if not symbol:
+                continue
+            existing = by_symbol.get(symbol, {})
+            company_name = str(row.get("company_name") or "").strip()
+            merged = {
+                **existing,
+                "tradingsymbol": symbol,
+                "symbol": symbol,
+                "name": company_name or existing.get("name") or symbol,
+                "exchange": existing.get("exchange") or existing.get("primaryExchange") or "SMART",
+                "primaryExchange": existing.get("primaryExchange") or existing.get("exchange") or "SMART",
+                "instrument_token": existing.get("instrument_token") or existing.get("conId") or existing.get("conid") or 0,
+                "conId": existing.get("conId") or existing.get("conid") or existing.get("instrument_token") or 0,
+                "currency": existing.get("currency") or "USD",
+                "secType": existing.get("secType") or "STK",
+                "market_cap_text": row.get("market_cap_text"),
+                "market_cap_value": row.get("market_cap_value"),
+            }
+            by_symbol[symbol] = merged
+        return list(by_symbol.values())
 
     def merge_and_cache(self, instruments: List[Dict[str, Any]]) -> None:
         """Optional helper used by live search code to persist resolved conIds."""
