@@ -1120,7 +1120,6 @@ class FinvizScannerTable(QWidget):
         self.table.cellClicked.connect(self._on_cell_clicked)
         self.table.horizontalHeader().sectionClicked.connect(self._on_header_clicked)
         self.table.horizontalHeader().sectionResized.connect(lambda *_: self._sync_header_controls_to_table_width())
-        self.table.horizontalHeader().sectionResized.connect(self._save_table_layout_settings)
         self.table.setItemDelegateForColumn(2, VolumeStrengthDelegate(self.table))
         self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.table.setFocus()
@@ -1369,10 +1368,17 @@ class FinvizScannerTable(QWidget):
         self.table.horizontalHeader().setVisible(True)
         header = self.table.horizontalHeader()
 
-        # Fixed/interactive compact columns. Avoid Stretch here: if SYMBOL stretches,
-        # the scanner table asks for excessive width and pushes the main splitter.
-        self._apply_compact_column_policy()
-        self._set_compact_column_widths()
+        # Match Kite scanner behavior: symbol flexes to absorb spare width,
+        # value columns fit content, and CHG% stays fixed for stable alignment.
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(3, 64)
+
+        # Prevent columns from disappearing entirely if crushed
+        header.setMinimumSectionSize(35)
+        header.setStretchLastSection(False)
 
         self.table.verticalHeader().setVisible(False)
 
@@ -1395,63 +1401,7 @@ class FinvizScannerTable(QWidget):
 
         self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.table.setColumnHidden(2, not bool(self._color_theme.get("show_scanner_volume_column", True)))
-        QTimer.singleShot(0, self._restore_table_layout_settings)
         QTimer.singleShot(0, self._sync_header_controls_to_table_width)
-
-    def _clamp_scanner_column_widths(self, widths: Optional[List[int]] = None) -> List[int]:
-        """Clamp persisted column widths so old Stretch states cannot return."""
-        source = list(widths or _SCANNER_COL_DEFAULTS)
-        if len(source) != len(_SCANNER_COL_DEFAULTS):
-            source = list(_SCANNER_COL_DEFAULTS)
-
-        clamped: List[int] = []
-        for index, default in enumerate(_SCANNER_COL_DEFAULTS):
-            try:
-                value = int(source[index])
-            except (TypeError, ValueError, IndexError):
-                value = default
-            low, high = _SCANNER_COL_LIMITS[index]
-            clamped.append(max(low, min(value, high)))
-        return clamped
-
-    def _apply_compact_column_policy(self) -> None:
-        """Use bounded, user-resizable columns instead of width-hungry Stretch."""
-        header = self.table.horizontalHeader()
-        header.setStretchLastSection(False)
-        header.setMinimumSectionSize(36)
-        for col in range(4):
-            mode = QHeaderView.ResizeMode.Fixed if col == 3 else QHeaderView.ResizeMode.Interactive
-            header.setSectionResizeMode(col, mode)
-
-    def _set_compact_column_widths(self, widths: Optional[List[int]] = None) -> None:
-        """Apply compact scanner widths and resync the toolbar span."""
-        self._apply_compact_column_policy()
-        for col, width in enumerate(self._clamp_scanner_column_widths(widths)):
-            self.table.setColumnWidth(col, width)
-        self._sync_header_controls_to_table_width()
-
-    def _save_table_layout_settings(self, *_args) -> None:
-        """Persist compact scanner column widths without saving Stretch state."""
-        try:
-            settings = self._load_scanner_settings()
-            widths = [self.table.columnWidth(col) for col in range(self.table.columnCount())]
-            settings["table_column_widths"] = self._clamp_scanner_column_widths(widths)
-            # Drop the previous header-state blob because it may contain Stretch
-            # metadata that re-expands the SYMBOL column on the next startup.
-            settings.pop("table_header_state", None)
-            with open(SETTINGS_FILE, "w") as f:
-                json.dump(settings, f, indent=2)
-        except Exception as e:
-            logger.debug(f"Failed to save scanner table layout settings: {e}")
-
-    def _restore_table_layout_settings(self) -> None:
-        """Restore bounded scanner column widths from persisted settings."""
-        try:
-            settings = self._load_scanner_settings()
-            widths = settings.get("table_column_widths")
-            self._set_compact_column_widths(widths if isinstance(widths, list) else None)
-        except Exception as e:
-            logger.debug(f"Failed to restore scanner table layout settings: {e}")
 
     def _on_header_clicked(self, section: int) -> None:
         """Toggle tri-state sorting for %CHG column when header is clicked."""
