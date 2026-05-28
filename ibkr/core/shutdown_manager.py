@@ -128,6 +128,12 @@ class ShutdownManager:
                 timeout_ms=2_000,
                 critical=True,
             ),
+            ShutdownStep(
+                name="force_exit",
+                fn=self._force_exit,
+                timeout_ms=1_000,
+                critical=True,
+            ),
         ]
 
     def execute(self) -> None:
@@ -188,29 +194,18 @@ class ShutdownManager:
 
         mdw = w.market_data_worker
 
-        # 1. Set shutdown flag FIRST — prevents reconnection on close callback
-        if hasattr(mdw, "_shutdown_requested"):
-            mdw._shutdown_requested = True
+        if hasattr(mdw, "_is_running"):
+            mdw._is_running = False
 
-        # 2. Unsubscribe all tokens before disconnecting
-        #    (avoids ghost subscriptions on Kite's end consuming API quota)
         try:
-            if hasattr(mdw, "kws") and mdw.kws:
-                tokens = list(getattr(mdw, "subscribed_tokens", set()))
-                if tokens:
-                    try:
-                        mdw.kws.unsubscribe(tokens)
-                        logger.info(f"Unsubscribed {len(tokens)} tokens before WS close")
-                    except Exception as e:
-                        logger.warning(f"Unsubscribe failed (non-critical): {e}")
+            mdw._cancel_all_subscriptions()
         except Exception as e:
-            logger.warning(f"Pre-unsubscribe step failed: {e}")
+            logger.warning("Cancel subscriptions failed (non-critical): %s", e)
 
-        # 3. Stop the worker
         try:
             mdw.stop()
         except Exception as e:
-            logger.error(f"MarketDataWorker.stop() raised: {e}")
+            logger.error("MarketDataWorker.stop() raised: %s", e)
 
 
     def _stop_network_resilience(self) -> None:
@@ -253,13 +248,33 @@ class ShutdownManager:
             return
         try:
             if hasattr(ib_client, "isConnected") and ib_client.isConnected():
+                try:
+                    loop = getattr(ib_client, "_loop", None)
+                    if loop and not loop.is_closed():
+                        loop.call_soon_threadsafe(loop.stop)
+                except Exception:
+                    pass
+
+                import time
+                time.sleep(0.5)
+
                 ib_client.disconnect()
                 logger.info("IBKR client disconnected")
+
+            conn = getattr(ib_client, "client", None)
+            run_thread = getattr(conn, "_thread", None)
+            if run_thread and run_thread.is_alive():
+                run_thread.join(timeout=2.0)
+                if run_thread.is_alive():
+                    logger.warning("ib_insync run thread still alive after 2s")
+
         except RuntimeError as e:
             if "Event loop is closed" in str(e):
-                logger.info("IBKR client disconnect skipped because event loop is already closed")
+                logger.info("IBKR disconnect skipped: event loop already closed")
             else:
-                raise
+                logger.error("IBKR disconnect error: %s", e)
+        except Exception as e:
+            logger.error("IBKR disconnect error: %s", e)
 
     def _close_ibkr_history_connections(self) -> None:
         """
@@ -287,6 +302,21 @@ class ShutdownManager:
 
         if closed_any:
             logger.info("Closed IBKR dedicated chart history connections")
+
+
+    def _force_exit(self) -> None:
+        """
+        Last resort: force the process to exit after a short delay.
+        This kills any remaining ib_insync background threads without waiting
+        for Python's normal shutdown sequence to join non-daemon threads.
+        """
+        import os
+
+        def _do_exit():
+            logger.info("Force exit triggered (os._exit(0))")
+            os._exit(0)
+
+        QTimer.singleShot(400, _do_exit)
 
     def _stop_all_timers(self) -> None:
         """Stop any QTimer children that are still active."""
@@ -345,15 +375,15 @@ class CleanShutdownMixin:
     """
 
     def closeEvent(self, event):
-        """
-        Accept the event immediately so Qt doesn't block, then run
-        our ordered shutdown sequence.
-        """
         logger.info("closeEvent received — beginning graceful shutdown")
         event.accept()
+
+        app = QApplication.instance()
 
         try:
             ShutdownManager(self).execute()
         except Exception as e:
-            # Last-resort: if ShutdownManager itself explodes, log it
-            logger.critical(f"ShutdownManager failed catastrophically: {e}", exc_info=True)
+            logger.critical("ShutdownManager failed: %s", e, exc_info=True)
+        finally:
+            if app:
+                app.quit()

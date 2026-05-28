@@ -137,8 +137,7 @@ class Application:
 
                 # 3. --- Event Loop ---
                 logger.info("Starting application event loop.")
-                exit_code = self.app.exec()
-                sys.exit(exit_code)
+                return self.app.exec()
 
             except Exception as e:
                 if self._should_force_relogin(e):
@@ -153,7 +152,7 @@ class Application:
 
                 logger.critical(f"An unhandled error occurred: {e}", exc_info=True)
                 self._show_critical_error(str(e))
-                sys.exit(1)
+                return 1
 
     def _load_resume_auth_data_if_requested(self) -> Optional[dict]:
         """Build auth payload from persisted Kite session when resume flag is present."""
@@ -344,4 +343,19 @@ if __name__ == "__main__":
 
     # Run the main application
     main_app = Application()
-    main_app.run()
+    exit_code = 1
+    try:
+        exit_code = main_app.run()
+    except SystemExit as exc:
+        code = exc.code
+        exit_code = code if isinstance(code, int) else 1
+    finally:
+        logger.info("Shutting down and cleaning up resources...")
+        try:
+            main_app._cleanup()
+            logger.info("Cleanup complete.")
+        except Exception as e:
+            logger.error("Cleanup error: %s", e)
+        finally:
+            import os
+            os._exit(exit_code or 0)

@@ -104,7 +104,10 @@ class MarketDataWorker(QThread):
         self._is_running = False
         self._commands.put(("stop", []))
         self.quit()
-        self.wait(3000)
+        if not self.wait(3000):
+            logger.warning("MarketDataWorker did not stop in 3s — terminating")
+            self.terminate()
+            self.wait(1000)
 
     # ------------------------------------------------------------------
     # Public API called from UI/main thread. These never call IB directly.
