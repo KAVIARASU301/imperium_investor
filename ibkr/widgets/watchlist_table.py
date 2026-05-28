@@ -37,7 +37,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
     QPushButton, QToolButton, QComboBox, QStackedWidget, QMenu,
-    QDialog, QLineEdit, QDialogButtonBox, QMessageBox, QApplication
+    QDialog, QLineEdit, QDialogButtonBox, QMessageBox, QApplication, QSizePolicy
 )
 from app_paths import get_asset_path, get_user_data_dir
 
@@ -1437,6 +1437,9 @@ class TabbedWatchlistWidget(QWidget):
         self._dropdown = QComboBox()
         self._dropdown.setObjectName("wlDropdown")
         self._dropdown.setFixedHeight(CHART_TOOLBAR_CONTROL_HEIGHT)
+        self._dropdown.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self._dropdown.setMinimumContentsLength(1)
+        self._dropdown.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         self._dropdown.currentIndexChanged.connect(self._on_dropdown_change)
         self._dropdown.installEventFilter(self)
         h.addWidget(self._dropdown, 1)
