@@ -1065,6 +1065,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             self.market_data_worker = MarketDataWorker(self.real_kite_client)
             self.market_data_worker.data_received.connect(self._enqueue_market_data)
             self.market_data_worker.connection_established.connect(self._on_websocket_connect)
+            self.market_data_worker.market_data_type_changed.connect(self._on_market_data_type_changed)
             self.market_data_worker.start()
         else:
             logger.warning("IB client not connected — market data worker not started")
@@ -1076,6 +1077,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             self.market_data_worker = MarketDataWorker(self.real_kite_client)
             self.market_data_worker.data_received.connect(self._enqueue_market_data)
             self.market_data_worker.connection_established.connect(self._on_websocket_connect)
+            self.market_data_worker.market_data_type_changed.connect(self._on_market_data_type_changed)
             self.market_data_worker.start()
         else:
             logger.error("IB still not connected after retry")
@@ -1170,6 +1172,20 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             except Exception as e:
                 logger.error(f"Failed to subscribe to chart: {e}")
         self._schedule_subscription_rebuild()
+
+    @Slot(str, bool)
+    def _on_market_data_type_changed(self, data_type: str, live: bool):
+        """Reflect IBKR live/delayed market-data mode in persistent UI status."""
+        label = "LIVE" if live else "DELAYED"
+        if hasattr(self, "app_status_bar"):
+            self.app_status_bar.set_data_status(label, live)
+        if hasattr(self, "header_toolbar"):
+            self.header_toolbar.set_data_status(label, live)
+        status.set_data_indicator(label, live)
+        if not live:
+            logger.warning("IBKR market data is delayed (%s); live subscription is unavailable.", data_type)
+        else:
+            logger.info("IBKR market data is live (%s).", data_type)
 
     def _connect_chart_signals(self):
         """Connect chart signals"""

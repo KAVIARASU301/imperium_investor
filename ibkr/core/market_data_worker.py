@@ -15,6 +15,7 @@ import math
 import os
 import queue
 import threading
+import time
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from PySide6.QtCore import QThread, Signal
@@ -28,8 +29,9 @@ _MARKET_DATA_TYPE_NAMES = {
     3: "delayed",
     4: "delayed-frozen",
 }
-_SUBSCRIPTION_ERROR_CODES = {354, 10186}
+_SUBSCRIPTION_ERROR_CODES = {354, 10089, 10186}
 _DELAYED_NOTICE_CODES = {10167, 10168}
+_LIVE_RETRY_SECONDS = 300.0
 
 
 def _configured_market_data_type() -> int:
@@ -84,6 +86,7 @@ class MarketDataWorker(QThread):
     connection_established = Signal()
     connection_closed = Signal()
     order_update = Signal(dict)
+    market_data_type_changed = Signal(str, bool)
 
     def __init__(self, ib_client: IB):
         super().__init__()
@@ -95,9 +98,11 @@ class MarketDataWorker(QThread):
         self._contract_cache: Dict[str, Contract] = {}
         self._latest_ticks: Dict[str, Dict[str, Any]] = {}
         self._req_id_to_key: Dict[int, str] = {}
-        self._market_data_type = _configured_market_data_type()
+        self._preferred_market_data_type = _configured_market_data_type()
+        self._market_data_type = self._preferred_market_data_type
         self._allow_delayed_fallback = _delayed_fallback_enabled()
         self._tried_delayed_fallback = self._market_data_type == 3
+        self._last_live_retry_monotonic = 0.0
         self._lock = threading.RLock()
 
     # ------------------------------------------------------------------
@@ -119,6 +124,7 @@ class MarketDataWorker(QThread):
             # data permissions. Closed-market LTP is handled separately by
             # snapshot requests, which can use frozen/close fields from IBKR.
             self.ib.reqMarketDataType(self._market_data_type)
+            self._emit_market_data_type()
             logger.info(
                 "Requested IBKR %s market data type (%s); delayed fallback=%s",
                 _MARKET_DATA_TYPE_NAMES.get(self._market_data_type, str(self._market_data_type)),
@@ -141,6 +147,7 @@ class MarketDataWorker(QThread):
         try:
             while self._is_running and self.ib.isConnected():
                 self._drain_commands(max_commands=25)
+                self._maybe_retry_live_market_data()
                 self.ib.waitOnUpdate(timeout=0.05)
         except Exception as exc:
             logger.error("MarketDataWorker loop error: %s", exc, exc_info=True)
@@ -361,7 +368,8 @@ class MarketDataWorker(QThread):
                     if qualified:
                         contract = qualified[0]
                 try:
-                    self.ib.reqMarketDataType(2)
+                    snapshot_type = 4 if self._market_data_type in {3, 4} else 2
+                    self.ib.reqMarketDataType(snapshot_type)
                 except Exception:
                     logger.debug("Could not request IBKR frozen snapshot data type", exc_info=True)
                 ticker = self.ib.reqMktData(contract, "", True, False)
@@ -454,6 +462,39 @@ class MarketDataWorker(QThread):
                 continue
         return None
 
+    def _emit_market_data_type(self) -> None:
+        type_name = _MARKET_DATA_TYPE_NAMES.get(self._market_data_type, str(self._market_data_type))
+        self.market_data_type_changed.emit(type_name, self._market_data_type in {1, 2})
+
+    def _maybe_retry_live_market_data(self) -> None:
+        """Periodically probe live data after delayed fallback is active.
+
+        IBKR does not push a separate event when the user adds live market-data
+        entitlements while the application is running.  If the preferred mode is
+        live but we fell back to delayed, periodically resubscribe in live mode;
+        a subscription error will immediately fall back to delayed again.
+        """
+        if (
+            not self._allow_delayed_fallback
+            or self._preferred_market_data_type != 1
+            or self._market_data_type != 3
+        ):
+            return
+        with self._lock:
+            has_subscriptions = bool(self._subscribed_contracts)
+        if not has_subscriptions:
+            return
+        now = time.monotonic()
+        if now - self._last_live_retry_monotonic < _LIVE_RETRY_SECONDS:
+            return
+        self._last_live_retry_monotonic = now
+        self._tried_delayed_fallback = False
+        self._switch_market_data_type(
+            1,
+            "periodic live-market-data retry after delayed fallback",
+            resubscribe=True,
+        )
+
     def _switch_market_data_type(self, market_data_type: int, reason: str, resubscribe: bool = False) -> None:
         if market_data_type == self._market_data_type:
             return
@@ -461,6 +502,9 @@ class MarketDataWorker(QThread):
         try:
             self.ib.reqMarketDataType(market_data_type)
             self._market_data_type = market_data_type
+            if market_data_type == 3:
+                self._last_live_retry_monotonic = time.monotonic()
+            self._emit_market_data_type()
             logger.warning(
                 "Switched IBKR market data type from %s (%s) to %s (%s): %s",
                 _MARKET_DATA_TYPE_NAMES.get(old_type, old_type),
@@ -607,6 +651,11 @@ class MarketDataWorker(QThread):
 
         if error_code in _DELAYED_NOTICE_CODES:
             logger.warning("IBKR market data notice for %s: %s (%s)", label, error_string, error_code)
+            if "delayed" in str(error_string or "").lower() and self._market_data_type not in {3, 4}:
+                self._market_data_type = 3
+                self._tried_delayed_fallback = True
+                self._last_live_retry_monotonic = time.monotonic()
+                self._emit_market_data_type()
             return
 
         if error_code in _SUBSCRIPTION_ERROR_CODES:

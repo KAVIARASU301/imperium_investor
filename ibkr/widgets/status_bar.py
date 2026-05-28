@@ -85,6 +85,7 @@ class StatusBar(QWidget):
 
         self.market_label = QLabel("MARKET: --", self.content)
         self.api_label = QLabel('API <span style="color:#6f7a8c;">●</span>', self.content)
+        self.data_label = QLabel("DATA: --", self.content)
         self.day_mtm_label = QLabel("DAY MTM: --", self.content)
         self.day_realized_label = QLabel("REALIZED: --", self.content)
         self.exposure_label = QLabel("EXPOSURE: --", self.content)
@@ -98,6 +99,7 @@ class StatusBar(QWidget):
         min_widths = {
             self.market_label: 82,
             self.api_label: 44,
+            self.data_label: 86,
             self.day_mtm_label: 120,
             self.day_realized_label: 110,
             self.exposure_label: 112,
@@ -177,7 +179,7 @@ class StatusBar(QWidget):
         try:
             self._clear_layout()
 
-            base_labels = (self.market_label, self.api_label)
+            base_labels = (self.market_label, self.api_label, self.data_label)
             metric_labels = (self.day_mtm_label, self.day_realized_label, self.exposure_label)
 
             if self._metrics_on_right:
@@ -317,6 +319,23 @@ class StatusBar(QWidget):
         self._set_label_text(
             self.api_label,
             f'API <span style="color:{dot_color}; font-size:10px;">●</span>',
+        )
+
+    def set_data_status(self, text: str, live: bool | None = None) -> None:
+        status = self._normalize_status(text)
+        is_live = bool(live) if live is not None else status in {"LIVE", "REALTIME", "REAL-TIME"}
+        if "DELAY" in status:
+            color = self.COLOR_AMBER
+            label = "DELAYED"
+        elif is_live:
+            color = self.COLOR_GREEN
+            label = "LIVE"
+        else:
+            color = self.COLOR_TEXT_MUTED
+            label = status
+        self._set_label_text(
+            self.data_label,
+            f'DATA: <span style="color:{color}; font-weight:700;">{label}</span>',
         )
 
 
@@ -530,6 +549,10 @@ class GlobalStatusManager(QObject):
     def set_api_indicator(self, status_text: str) -> None:
         if getattr(self, "_status_bar", None):
             self._status_bar.set_api_status(status_text)
+
+    def set_data_indicator(self, status_text: str, live: bool | None = None) -> None:
+        if getattr(self, "_status_bar", None):
+            self._status_bar.set_data_status(status_text, live)
 
     def set_ready(self) -> None:
         # We removed the "Ready" label, so this method safely does nothing.
