@@ -30,7 +30,7 @@ python tools/ibkr_market_data_probe.py --symbols NVDA --primary-exchange NASDAQ
 
 ## Interpreting results
 
-- Live has errors such as `354` or `10186`, but delayed has prices: the account/session probably lacks live market-data subscriptions for that exchange, but delayed data works.
+- Live has errors such as `354`, `10089`, or `10186`, but delayed has prices: the account/session probably lacks live market-data subscriptions for that exchange, but delayed data works.
 - Both live and delayed produce subscription errors: check TWS/Gateway market-data permissions and delayed-data settings for the logged-in user/account.
 - The probe receives streaming ticks but the GUI does not: inspect the app's `MarketDataWorker` logs for subscription payloads, market data type switches, and emitted ticks.
 - No ticks and no errors during closed markets can be normal for streaming type `1`/`3`; retry with `--types 2,4` or during regular market hours.

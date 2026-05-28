@@ -62,8 +62,17 @@ def _configured_market_data_type() -> int:
 
 
 def _delayed_fallback_enabled() -> bool:
-    raw = os.environ.get("IBKR_MARKET_DATA_FALLBACK_DELAYED", "0").strip().lower()
+    # Default to a delayed fallback because many IBKR accounts do not have live
+    # market-data entitlements, while TWS can still stream delayed quotes.
+    raw = os.environ.get("IBKR_MARKET_DATA_FALLBACK_DELAYED", "1").strip().lower()
     return raw not in {"0", "false", "no", "off"}
+
+
+def _generic_tick_list() -> str:
+    # 233 = RTVolume. It gives trade/volume updates when permitted and is ignored
+    # gracefully by IBKR when unavailable, while still keeping normal top-of-book
+    # streaming active. Operators can override/disable via environment.
+    return os.environ.get("IBKR_GENERIC_TICKS", "233").strip()
 
 
 def _clean_float(value: Any, default: float = 0.0) -> float:
@@ -423,6 +432,22 @@ class MarketDataWorker(QThread):
             for contract, alias in zip(qualified, aliases):
                 self._subscribe_contract(contract, alias_key=alias)
 
+
+    def _request_market_data(self, contract: Contract, *, snapshot: bool) -> Ticker:
+        generic_ticks = _generic_tick_list()
+        try:
+            return self.ib.reqMktData(contract, generic_ticks, snapshot, False)
+        except Exception:
+            if not generic_ticks:
+                raise
+            logger.warning(
+                "IBKR reqMktData failed with generic ticks %r for %s; retrying without generic ticks",
+                generic_ticks,
+                getattr(contract, "symbol", contract),
+                exc_info=True,
+            )
+            return self.ib.reqMktData(contract, "", snapshot, False)
+
     def _subscribe_contract(self, contract: Contract, alias_key: str = "") -> None:
         key = self._contract_key(contract) or alias_key
         symbol = (getattr(contract, "symbol", "") or alias_key).strip().upper()
@@ -432,7 +457,7 @@ class MarketDataWorker(QThread):
             if key in self._subscribed_contracts:
                 return
         try:
-            ticker = self.ib.reqMktData(contract, "", False, False)
+            ticker = self._request_market_data(contract, snapshot=False)
             req_id = self._ticker_req_id(ticker)
             with self._lock:
                 if req_id is not None:
@@ -475,7 +500,7 @@ class MarketDataWorker(QThread):
                     self.ib.reqMarketDataType(snapshot_type)
                 except Exception:
                     logger.debug("Could not request IBKR frozen snapshot data type", exc_info=True)
-                ticker = self.ib.reqMktData(contract, "", True, False)
+                ticker = self._request_market_data(contract, snapshot=True)
                 # Snapshot delivery is asynchronous; wait briefly inside the
                 # worker only. The UI remains responsive.
                 for _ in range(5):
@@ -632,7 +657,7 @@ class MarketDataWorker(QThread):
             except Exception:
                 logger.debug("Failed to cancel %s before delayed resubscribe", key, exc_info=True)
             try:
-                ticker = self.ib.reqMktData(contract, "", False, False)
+                ticker = self._request_market_data(contract, snapshot=False)
                 req_id = self._ticker_req_id(ticker)
                 if req_id is not None:
                     with self._lock:
@@ -695,16 +720,36 @@ class MarketDataWorker(QThread):
             return None
 
         market_price = _clean_float(ticker.marketPrice() if hasattr(ticker, "marketPrice") else 0.0, 0.0)
-        last_price = _positive_price(market_price, getattr(ticker, "last", 0.0), getattr(ticker, "close", 0.0), getattr(ticker, "bid", 0.0), getattr(ticker, "ask", 0.0))
+        last_price = _positive_price(
+            market_price,
+            getattr(ticker, "last", 0.0),
+            getattr(ticker, "delayedLast", 0.0),
+            getattr(ticker, "close", 0.0),
+            getattr(ticker, "delayedClose", 0.0),
+            getattr(ticker, "bid", 0.0),
+            getattr(ticker, "delayedBid", 0.0),
+            getattr(ticker, "ask", 0.0),
+            getattr(ticker, "delayedAsk", 0.0),
+        )
+        latest_trade_time = None
+        latest_trade_size = 0.0
+        for tick_data in reversed(list(getattr(ticker, "ticks", []) or [])):
+            tick_price = _clean_float(getattr(tick_data, "price", 0.0), 0.0)
+            if tick_price > 0:
+                last_price = tick_price
+                latest_trade_time = getattr(tick_data, "time", None)
+                latest_trade_size = _clean_float(getattr(tick_data, "size", 0.0), 0.0)
+                break
         if last_price <= 0:
             return None
 
         prev_close = _positive_price(
             getattr(ticker, "prevClose", 0.0),
             getattr(ticker, "close", 0.0),
+            getattr(ticker, "delayedClose", 0.0),
         )
         change_pct = ((last_price - prev_close) / prev_close * 100.0) if prev_close > 0 else 0.0
-        ticker_time = getattr(ticker, "time", None)
+        ticker_time = latest_trade_time or getattr(ticker, "time", None)
         if isinstance(ticker_time, datetime) and ticker_time.tzinfo is None:
             ticker_time = ticker_time.replace(tzinfo=timezone.utc)
 
@@ -717,6 +762,8 @@ class MarketDataWorker(QThread):
             "timestamp": ticker_time,
             "exchange_timestamp": ticker_time,
             "volume": int(_clean_float(getattr(ticker, "volume", 0.0), 0.0)),
+            "last_size": latest_trade_size,
+            "tick_count": len(list(getattr(ticker, "ticks", []) or [])),
             "close": prev_close,
             "prev_close": prev_close,
             "change_percent": change_pct,

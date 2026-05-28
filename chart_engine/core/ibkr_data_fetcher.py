@@ -534,12 +534,17 @@ class IBKRDataFetcher(BrokerDataFetcher):
     def _bar_to_bardata(bar) -> BarData:
         raw_date = bar.date
         if isinstance(raw_date, str):
+            # IBKR daily bars are exchange *calendar* dates (YYYYMMDD), not
+            # UTC instants.  Treat date-only values as timezone-naive calendar
+            # keys so the loader does not convert UTC midnight to the previous
+            # America/New_York date.  Intraday strings include a time component
+            # and remain timestamp-like values for normal exchange conversion.
             fmt = "%Y%m%d %H:%M:%S" if " " in raw_date else "%Y%m%d"
-            dt = datetime.strptime(raw_date, fmt).replace(tzinfo=timezone.utc)
+            dt = datetime.strptime(raw_date, fmt)
         elif isinstance(raw_date, datetime):
-            dt = raw_date.replace(tzinfo=timezone.utc) if raw_date.tzinfo is None else raw_date
+            dt = raw_date
         elif isinstance(raw_date, date_cls):
-            dt = datetime.combine(raw_date, dt_time.min, tzinfo=timezone.utc)
+            dt = datetime.combine(raw_date, dt_time.min)
         else:
             dt = raw_date
 
