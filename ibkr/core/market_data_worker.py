@@ -116,6 +116,7 @@ class MarketDataWorker(QThread):
         self._commands: "queue.Queue[Tuple[str, list]]" = queue.Queue()
         self._subscribed_contracts: Dict[str, Contract] = {}
         self._symbol_to_key: Dict[str, str] = {}
+        self._key_to_symbol: Dict[str, str] = {}
         self._contract_cache: Dict[str, Contract] = {}
         self._latest_ticks: Dict[str, Dict[str, Any]] = {}
         self._req_id_to_key: Dict[int, str] = {}
@@ -409,6 +410,7 @@ class MarketDataWorker(QThread):
     def _subscribe_items(self, items: List[Any]) -> None:
         contracts_to_qualify: List[Contract] = []
         original_keys: List[str] = []
+        original_symbols: List[str] = []
 
         for item in items:
             key = self._key_from_item(item)
@@ -426,10 +428,15 @@ class MarketDataWorker(QThread):
                 continue
             contracts_to_qualify.append(contract)
             original_keys.append(key)
+            original_symbols.append(
+                self._symbol_from_item(item)
+                or (getattr(contract, "symbol", "") or "").strip().upper()
+            )
 
         for chunk_start in range(0, len(contracts_to_qualify), 25):
             chunk = contracts_to_qualify[chunk_start:chunk_start + 25]
             aliases = original_keys[chunk_start:chunk_start + 25]
+            alias_symbols = original_symbols[chunk_start:chunk_start + 25]
             try:
                 qualified = self.ib.qualifyContracts(*chunk)
             except Exception as exc:
@@ -451,8 +458,8 @@ class MarketDataWorker(QThread):
                 by_conid = {str(getattr(c, "conId", 0) or ""): c for c in qualified}
                 qualified = [by_conid.get(str(getattr(c, "conId", 0) or "")) or by_symbol.get(getattr(c, "symbol", "")) or c for c in chunk]
 
-            for contract, alias in zip(qualified, aliases):
-                self._subscribe_contract(contract, alias_key=alias)
+            for contract, alias, alias_symbol in zip(qualified, aliases, alias_symbols):
+                self._subscribe_contract(contract, alias_key=alias, alias_symbol=alias_symbol)
 
 
     def _request_market_data(self, contract: Contract, *, snapshot: bool) -> Ticker:
@@ -472,9 +479,9 @@ class MarketDataWorker(QThread):
             self._tried_without_generic_ticks = True
             return self.ib.reqMktData(contract, "", snapshot, False)
 
-    def _subscribe_contract(self, contract: Contract, alias_key: str = "") -> None:
+    def _subscribe_contract(self, contract: Contract, alias_key: str = "", alias_symbol: str = "") -> None:
         key = self._contract_key(contract) or alias_key
-        symbol = (getattr(contract, "symbol", "") or alias_key).strip().upper()
+        symbol = (getattr(contract, "symbol", "") or alias_symbol or alias_key).strip().upper()
         if not key:
             return
         with self._lock:
@@ -492,6 +499,7 @@ class MarketDataWorker(QThread):
                     self._contract_cache[alias_key] = contract
                 if symbol:
                     self._symbol_to_key[symbol] = key
+                    self._key_to_symbol[key] = symbol
                     self._contract_cache[symbol] = contract
             logger.info(
                 "Subscribed IBKR market data: %s key=%s type=%s",
@@ -559,6 +567,7 @@ class MarketDataWorker(QThread):
                 symbols = [s for s, k in self._symbol_to_key.items() if k == key]
                 for symbol in symbols:
                     self._symbol_to_key.pop(symbol, None)
+                self._key_to_symbol.pop(key, None)
                 self._latest_ticks.pop(key, None)
             if contract is None:
                 continue
@@ -573,6 +582,7 @@ class MarketDataWorker(QThread):
             contracts = list(self._subscribed_contracts.items())
             self._subscribed_contracts.clear()
             self._symbol_to_key.clear()
+            self._key_to_symbol.clear()
             self._latest_ticks.clear()
             self._req_id_to_key.clear()
         for key, contract in contracts:
@@ -603,6 +613,15 @@ class MarketDataWorker(QThread):
         if con_id:
             return str(con_id)
         return (getattr(contract, "symbol", "") or "").strip().upper()
+
+    def _symbol_from_item(self, item: Any) -> str:
+        if isinstance(item, Contract):
+            return (getattr(item, "symbol", "") or "").strip().upper()
+        if isinstance(item, dict):
+            return str(item.get("tradingsymbol") or item.get("symbol") or item.get("name") or "").strip().upper()
+        if isinstance(item, str) and not item.strip().isdigit():
+            return item.strip().upper()
+        return ""
 
     def _ticker_req_id(self, ticker: Any) -> Optional[int]:
         for attr in ("tickerId", "reqId"):
@@ -784,6 +803,9 @@ class MarketDataWorker(QThread):
         key = str(con_id) if con_id else symbol
         if not key:
             return None
+        if not symbol:
+            with self._lock:
+                symbol = self._key_to_symbol.get(key, "")
 
         market_price = _clean_float(ticker.marketPrice() if hasattr(ticker, "marketPrice") else 0.0, 0.0)
 

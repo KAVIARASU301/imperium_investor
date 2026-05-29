@@ -1898,38 +1898,20 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         for tick in ticks:
             token = tick.get("instrument_token")
 
-            # Chart ticks go into a separate deque for low-latency rendering, but
-            # they must still flow through the coalesced path so watchlist,
-            # scanners, positions, alerts, and paper orders update for the same
-            # symbol.  Match both primary and secondary charts by token or symbol
-            # because IBKR may emit symbol-qualified ticks before a chart has a
-            # conId, and secondary charts have their own active token.
-            if self._tick_matches_any_chart(tick):
-                self._chart_tick_queue.append(tick)
+            # Feed every incoming tick to the chart queue and let each chart do
+            # its own symbol/token filter.  IBKR can stream ticks before the GUI
+            # has resolved the chart conId, or with token-only contracts whose
+            # symbol alias is filled slightly later; pre-filtering here can drop
+            # the exact live tick the active chart needs.  The coalesced path
+            # below is still used for watchlists, scanners, positions, alerts,
+            # and paper orders.
+            self._chart_tick_queue.append(tick)
 
             if token is None:
                 self._tick_buffer_without_token.append(tick)
             else:
                 self._tick_buffer_by_token[token] = tick
 
-
-    def _tick_matches_any_chart(self, tick: Dict[str, Any]) -> bool:
-        tick_symbol = str(tick.get("tradingsymbol") or tick.get("symbol") or "").strip().upper()
-        tick_token = tick.get("instrument_token")
-        for chart in (getattr(self, "candlestick_chart", None), getattr(self, "candlestick_chart_secondary", None)):
-            if not chart:
-                continue
-            chart_symbol = str(getattr(chart, "current_symbol", "") or "").strip().upper()
-            if tick_symbol and chart_symbol and tick_symbol == chart_symbol:
-                return True
-            chart_token = getattr(chart, "current_instrument_token", None)
-            if tick_token not in (None, "") and chart_token not in (None, "", 0, "0"):
-                try:
-                    if int(tick_token) == int(chart_token):
-                        return True
-                except (TypeError, ValueError):
-                    continue
-        return False
 
     @Slot()
     def _flush_market_data_ticks(self):
