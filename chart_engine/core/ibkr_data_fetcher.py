@@ -10,6 +10,7 @@ import time
 from collections import OrderedDict
 from datetime import date as date_cls
 from datetime import datetime, time as dt_time, timezone
+from math import ceil
 from typing import Any, Dict, List, Optional, Tuple
 
 from chart_engine.core.broker_protocol import BarData, BrokerCapabilities, BrokerDataFetcher
@@ -565,14 +566,14 @@ class IBKRDataFetcher(BrokerDataFetcher):
     @staticmethod
     def _format_end_datetime(to_date: datetime) -> str:
         end_utc = to_date.replace(tzinfo=timezone.utc) if to_date.tzinfo is None else to_date.astimezone(timezone.utc)
-        return "" if end_utc >= datetime.now(timezone.utc) else end_utc.strftime("%Y%m%d %H:%M:%S UTC")
+        now_utc = datetime.now(timezone.utc)
+        return "" if end_utc.date() >= now_utc.date() else end_utc.strftime("%Y%m%d %H:%M:%S UTC")
 
     @staticmethod
     def _compute_duration(from_date: datetime, to_date: datetime, bar_size: str) -> str:
-        days = max(1, (to_date - from_date).days + 1)
-        if bar_size in ("1 week", "1 month"):
-            return f"{max(1, min(10, (days // 365) + 1))} Y"
-        return f"{min(days, 365)} D" if bar_size == "1 day" else f"{min(days, 30)} D"
+        total_seconds = max(0.0, (to_date - from_date).total_seconds())
+        days = max(1, int(ceil(total_seconds / 86400.0)))
+        return f"{days} D"
 
 
 def _shutdown_history_resources() -> None:

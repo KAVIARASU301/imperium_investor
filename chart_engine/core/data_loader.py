@@ -211,12 +211,18 @@ class ChartDataLoaderThread(QThread):
         exchange_tz = ZoneInfo(caps.exchange_tz)
         now_exchange = datetime.now(tz=exchange_tz)
 
-        to_date = self._effective_to_date(now_exchange)
+        broker_name = str(getattr(caps, "name", "")).lower()
+        to_date = self._effective_to_date(now_exchange, broker_name)
         days_back = resolve_days_back(self.interval, self.days_back_overrides)
-        if str(getattr(caps, "name", "")).lower() == "ibkr":
+        if broker_name == "ibkr":
             days_back = int(self.days_back_overrides.get(self.interval, IBKR_DYNAMIC_DAYS_BACK.get(self.interval, days_back)))
-        from_date = to_date.date() - timedelta(days=days_back)
-        from_date_dt = datetime.combine(from_date, dt_time.min, tzinfo=exchange_tz)
+            # IBKR historical requests are duration-based from endDateTime.
+            # Use a true rolling window ending at the current exchange timestamp
+            # so "100 days" means now back 100 days and always includes today.
+            from_date_dt = to_date - timedelta(days=days_back)
+        else:
+            from_date = to_date.date() - timedelta(days=days_back)
+            from_date_dt = datetime.combine(from_date, dt_time.min, tzinfo=exchange_tz)
         scoped_cache_key = self._build_cache_key(to_date)
 
         # ── Cache hit ─────────────────────────────────────────────────────
@@ -292,7 +298,9 @@ class ChartDataLoaderThread(QThread):
             self.data_loaded.emit(df, self.cache_key)
 
 
-    def _effective_to_date(self, now_exchange: datetime) -> datetime:
+    def _effective_to_date(self, now_exchange: datetime, broker_name: str = "") -> datetime:
+        if broker_name == "ibkr":
+            return now_exchange
         if self.interval == "day":
             return datetime.combine(now_exchange.date(), dt_time(23, 59, 59), tzinfo=now_exchange.tzinfo)
         if self.interval in {"week", "month"}:

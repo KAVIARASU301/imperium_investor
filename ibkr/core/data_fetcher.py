@@ -12,6 +12,7 @@ import logging
 import math
 import asyncio
 from datetime import datetime, timedelta, timezone, time, date
+from math import ceil
 from typing import Any, Dict, List, Optional, Tuple
 
 from chart_engine.core.broker_protocol import BarData, BrokerCapabilities
@@ -53,10 +54,7 @@ def _today_et() -> date:
 
 def _effective_to_date(interval: str) -> date:
     """Stable chart end-date for US equities."""
-    now_et = datetime.now(tz=_NY_TZ)
-    if str(interval or "day") in {"day", "week", "month"} and now_et.time() < _MARKET_OPEN_ET:
-        return now_et.date() - timedelta(days=1)
-    return now_et.date()
+    return datetime.now(tz=_NY_TZ).date()
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -270,20 +268,15 @@ class DataFetcher:
     @staticmethod
     def _ibkr_duration(from_date, to_date, interval: str) -> str:
         try:
-            days = max(1, int((to_date - from_date).days) + 1)
+            if not isinstance(from_date, datetime):
+                from_date = datetime.combine(from_date, time.min, tzinfo=_NY_TZ)
+            if not isinstance(to_date, datetime):
+                to_date = datetime.combine(to_date, time.max, tzinfo=_NY_TZ)
+            total_seconds = max(0.0, (to_date - from_date).total_seconds())
+            days = max(1, int(ceil(total_seconds / 86400.0)))
         except Exception:
             days = 365 if interval == "day" else 5
-
-        interval = str(interval or "day")
-        if interval in {"minute", "3minute", "5minute", "10minute"}:
-            return f"{min(days, 5)} D"
-        if interval in {"15minute", "30minute", "60minute"}:
-            return f"{min(days, 30)} D"
-        if interval == "week":
-            return f"{min(max(days, 365), 3650)} D"
-        if interval == "month":
-            return f"{min(max(days, 365), 3650)} D"
-        return f"{min(max(days, 30), 730)} D"
+        return f"{days} D"
 
     @staticmethod
     def _ibkr_end_datetime(to_date) -> str:
@@ -291,6 +284,8 @@ class DataFetcher:
             dt = to_date.astimezone(_NY_TZ) if to_date.tzinfo else to_date.replace(tzinfo=_NY_TZ)
         else:
             dt = datetime.combine(to_date, time(16, 0), tzinfo=_NY_TZ)
+        if dt.date() >= datetime.now(tz=_NY_TZ).date():
+            return ""
         return dt.strftime("%Y%m%d %H:%M:%S US/Eastern")
 
     @staticmethod
