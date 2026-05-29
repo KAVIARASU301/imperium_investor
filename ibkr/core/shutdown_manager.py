@@ -58,6 +58,11 @@ class ShutdownManager:
                 timeout_ms=1_000,
             ),
             ShutdownStep(
+                name="save_chart_state",
+                fn=self._save_chart_state,
+                timeout_ms=2_500,
+            ),
+            ShutdownStep(
                 name="stop_alert_system",
                 fn=lambda: w.alert_system.stop_engine()
                            if hasattr(w, "alert_system") and w.alert_system else None,
@@ -186,6 +191,19 @@ class ShutdownManager:
     # ─────────────────────────────────────────────────────────────────────────
     # SPECIFIC STEP IMPLEMENTATIONS
     # ─────────────────────────────────────────────────────────────────────────
+
+
+    def _save_chart_state(self) -> None:
+        """Persist primary/secondary chart viewports before IBKR force-exit."""
+        for chart in (
+            getattr(self.window, "candlestick_chart", None),
+            getattr(self.window, "candlestick_chart_secondary", None),
+        ):
+            if not chart:
+                continue
+            save_fn = getattr(chart, "save_current_state_for_shutdown", None)
+            if callable(save_fn):
+                save_fn()
 
     def _stop_market_data_worker(self) -> None:
         w = self.window

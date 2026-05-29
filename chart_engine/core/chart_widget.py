@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 import pandas as pd
-from PySide6.QtCore import QEvent, QTimer, Signal, Slot, Qt
+from PySide6.QtCore import QEvent, QEventLoop, QTimer, Signal, Slot, Qt
 from PySide6.QtGui import QColor, QShortcut, QKeySequence, QGuiApplication
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineWidgets import QWebEngineView
@@ -822,6 +822,7 @@ class CandlestickChart(QWidget):
                 "chartType":                self.toolbar.get_chart_type(),
                 "priceScaleCurrency":       price_scale_currency,
                 "rightBufferCandles":       self._right_buffer_candles,
+                "viewportRightOffset":     saved_state.get("viewport_right_offset"),
                 "showTimeSlider":         self._show_time_slider,
                 "movingAverageConfigs":      self._moving_average_configs,
                 "initialIndicatorVisibility": self._indicator_visibility,
@@ -857,6 +858,7 @@ class CandlestickChart(QWidget):
             candle_width                = self._current_candle_width,
             candle_spacing              = self._current_candle_spacing,
             right_buffer_candles        = self._right_buffer_candles,
+            viewport_right_offset       = saved_state.get("viewport_right_offset"),
             up_candle_color             = self._current_up_color,
             down_candle_color           = self._current_down_color,
             up_volume_color             = up_volume_color,
@@ -1029,6 +1031,7 @@ class CandlestickChart(QWidget):
         self.chart_bridge.chart_ready.connect(self._on_chart_ready)
         self.chart_bridge.drawings_changed.connect(self._on_drawings_changed)
         self.chart_bridge.visible_candle_count_changed.connect(self._on_zoom_changed)
+        self.chart_bridge.zoom_preferences_changed.connect(self._on_zoom_preferences_changed)
         self.chart_bridge.text_note_requested.connect(self._open_text_note_dialog)
         self.chart_bridge.text_note_edit_requested.connect(self._open_text_note_edit_dialog)
         self.chart_bridge.drawing_tool_cleared.connect(self._clear_active_tool_ui)
@@ -1285,6 +1288,19 @@ class CandlestickChart(QWidget):
                 self._persist_candle_slot_preferences,
             )
 
+
+    @Slot(int, int, int)
+    def _on_zoom_preferences_changed(self, count: int, candle_width: int, candle_spacing: int) -> None:
+        """Persist exact JS candle slot dimensions as soon as zoom settles."""
+        patch: Dict[str, Any] = {"default_visible_candles": int(count)}
+        if isinstance(candle_width, (int, float)):
+            self._current_candle_width = float(candle_width)
+            patch["candle_width"] = self._current_candle_width
+        if isinstance(candle_spacing, (int, float)):
+            self._current_candle_spacing = float(candle_spacing)
+            patch["candle_spacing"] = self._current_candle_spacing
+        self.current_visible_candle_count = int(count)
+        self._save_global_settings_patch(patch)
 
     def _persist_candle_slot_preferences(self, payload: Any) -> None:
         if not isinstance(payload, dict):
@@ -1809,25 +1825,52 @@ class CandlestickChart(QWidget):
 
     # ── Save state helper ─────────────────────────────────────────────────
 
-    def _save_current_state_sync(self) -> None:
-        """Best-effort synchronous state save (used before symbol/interval switch)."""
+    def _save_current_state_sync(self, blocking: bool = False, timeout_ms: int = 1200) -> None:
+        """Best-effort state save used before symbol/interval switches and shutdown.
+
+        QWebEngine's JavaScript bridge is asynchronous; during normal UI changes we
+        let the callback persist state later, but shutdown needs a short nested
+        event loop so the callback can write the final zoom before IBKR forces the
+        process to exit.
+        """
         if not (self.chart_view and self.current_symbol):
             return
 
         symbol = self.current_symbol
         interval = self.current_interval
+        completed = {"done": False}
 
         def _cb(data):
-            self._persist_state_snapshot(symbol, interval, data)
+            try:
+                self._persist_state_snapshot(symbol, interval, data)
+            finally:
+                completed["done"] = True
+                loop = completed.get("loop")
+                if loop is not None:
+                    loop.quit()
 
         self.chart_view.page().runJavaScript(
             "(function(){ if(!window.chart) return null;"
+            "const vp = window.chart.getViewportState ? window.chart.getViewportState() : {};"
             "return { drawings: window.chart.getAllDrawings(),"
             "         visible_candle_count: window.chart.getVisibleCandleCount(),"
             "         candle_width: window.chart.getCandleWidth(),"
             "         candle_spacing: window.chart.getCandleSpacing(),"
+            "         viewport_right_offset: vp.viewportRightOffset,"
+            "         view_port_start: vp.viewPortStart,"
+            "         view_port_end: vp.viewPortEnd,"
             "         indicator_visibility: window.chart.getIndicatorVisibility() }; })()", _cb
         )
+
+        if blocking and not completed["done"]:
+            loop = QEventLoop(self)
+            completed["loop"] = loop
+            QTimer.singleShot(max(100, int(timeout_ms)), loop.quit)
+            loop.exec()
+
+    def save_current_state_for_shutdown(self) -> None:
+        """Persist the final chart viewport before application shutdown."""
+        self._save_current_state_sync(blocking=True)
 
     def _persist_state_snapshot(self, symbol: str, interval: str, snapshot: Any) -> None:
         """Persist chart snapshot for a specific symbol/interval without cross-symbol bleed."""
@@ -1839,6 +1882,12 @@ class CandlestickChart(QWidget):
             state["drawings"] = snapshot["drawings"]
         if "visible_candle_count" in snapshot:
             state["visible_candle_count"] = snapshot["visible_candle_count"]
+        if "viewport_right_offset" in snapshot and isinstance(snapshot["viewport_right_offset"], (int, float)):
+            state["viewport_right_offset"] = max(0, float(snapshot["viewport_right_offset"]))
+        if "view_port_start" in snapshot and isinstance(snapshot["view_port_start"], (int, float)):
+            state["view_port_start"] = int(snapshot["view_port_start"])
+        if "view_port_end" in snapshot and isinstance(snapshot["view_port_end"], (int, float)):
+            state["view_port_end"] = int(snapshot["view_port_end"])
         if "candle_width" in snapshot and isinstance(snapshot["candle_width"], (int, float)):
             self._current_candle_width = float(snapshot["candle_width"])
         if "candle_spacing" in snapshot and isinstance(snapshot["candle_spacing"], (int, float)):

@@ -133,7 +133,7 @@ class FixedTradingChart {
         this.candleWidth   = cfg.initialCandleWidth   || 8;   // body+wick pixel width — user control
         this.candleSpacing = cfg.initialCandleSpacing || 2;   // gap between candles in px
         this.visibleCandleCount = 100;                         // computed — don't use cfg value
-        this.viewPortEnd   = Math.max(0, this.data.length - 1 + this.rightBufferCandles);
+        this.viewPortEnd   = this._viewportEndFromRightOffset(cfg.viewportRightOffset);
         this.viewPortStart = 0;                                // recalculated in _updateViewport()
 
         // ── Bounds ──
@@ -401,6 +401,18 @@ class FixedTradingChart {
         const vis   = Math.max(1, Math.floor(this.chartArea.width / slotW));
         this.visibleCandleCount = vis;
         this.viewPortStart = Math.max(0, this.viewPortEnd - vis + 1);
+    }
+
+    _viewportEndFromRightOffset(offset) {
+        const maxEnd = Math.max(0, this.data.length - 1 + this.rightBufferCandles);
+        const numeric = Number(offset);
+        if (!Number.isFinite(numeric) || numeric < 0) return maxEnd;
+        return Math.max(0, Math.min(maxEnd, Math.round(maxEnd - numeric)));
+    }
+
+    _viewportRightOffset() {
+        const maxEnd = Math.max(0, this.data.length - 1 + this.rightBufferCandles);
+        return Math.max(0, maxEnd - this.viewPortEnd);
     }
 
     _computeRightAxisWidth() {
@@ -3565,7 +3577,7 @@ const US_AFTER_HOURS_CLOSE_MINUTES = 20 * 60;
         // visibleCandleCount is computed from the correct chartArea.width.
         // Previously _updateViewport() was called before _updateChartAreas(),
         // so chartArea could still have the previous symbol's geometry.
-        this.viewPortEnd = Math.max(0, this.data.length - 1 + this.rightBufferCandles);
+        this.viewPortEnd = this._viewportEndFromRightOffset(cfg.viewportRightOffset);
 
         // Recompute chart geometry with fresh data length / indicator visibility.
         this._updateChartAreas();           // ← must come BEFORE _updateViewport
@@ -3848,6 +3860,13 @@ const US_AFTER_HOURS_CLOSE_MINUTES = 20 * 60;
     getVisibleCandleCount() { return this.visibleCandleCount; }
     getCandleWidth() { return this.candleWidth; }
     getCandleSpacing() { return this.candleSpacing; }
+    getViewportState() {
+        return {
+            viewPortStart: Math.round(this.viewPortStart),
+            viewPortEnd: Math.round(this.viewPortEnd),
+            viewportRightOffset: this._viewportRightOffset(),
+        };
+    }
 
     // ═══════════════════════════════════════════════════════════════════════
     // NOTIFICATIONS TO PYTHON

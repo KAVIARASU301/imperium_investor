@@ -46,7 +46,7 @@ CSV_FIELDS = [
 # Words that can appear as page controls/actions near Finviz tables but are not
 # tradeable tickers. Keep this deny-list close to symbol validation so every
 # scanner entry point filters them consistently.
-EXCLUDED_SYMBOL_TOKENS = {"EXPORT"}
+EXCLUDED_SYMBOL_TOKENS = {"BLOG", "EXPORT", "HELP", "OFF"}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
