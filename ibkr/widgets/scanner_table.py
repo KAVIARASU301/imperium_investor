@@ -12,7 +12,7 @@ from PySide6.QtCore import Signal, Slot, Qt, QThread, QTimer, QSize, QByteArray
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem, QHeaderView,
     QAbstractItemView, QPushButton, QHBoxLayout, QLabel, QComboBox, QMessageBox,
-    QDialog, QLineEdit, QGroupBox, QTextEdit,
+    QDialog, QLineEdit, QGroupBox, QTextEdit, QListView,
     QStyledItemDelegate, QStyleOptionViewItem, QApplication, QStyle, QSizePolicy
 )
 from PySide6.QtGui import QColor, QFont, QBrush, QCursor, QFontMetrics, QIcon
@@ -140,11 +140,21 @@ def _mono_font(point_size: int = 9, weight: QFont.Weight = QFont.Weight.Normal) 
 
 
 class ScannerDropdown(QComboBox):
-    """Combo box whose popup stays aligned to the compact scanner header."""
+    """Compact scan selector whose popup never expands to long scan names."""
+
+    _MAX_FALLBACK_WIDTH = 180
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMaxVisibleItems(18)
+        # Force a Qt-owned list view instead of the platform/native combo popup.
+        # Some Linux styles expand native popups to the longest item text, which
+        # is why long Finviz scan names can open a huge menu.
+        popup_view = QListView(self)
+        popup_view.setObjectName("minimalDropdownPopup")
+        self.setView(popup_view)
+        self.setMaxVisibleItems(14)
+        self.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.setMinimumContentsLength(1)
         self._configure_popup_view()
 
     def _configure_popup_view(self) -> None:
@@ -152,18 +162,104 @@ class ScannerDropdown(QComboBox):
         view.setTextElideMode(Qt.TextElideMode.ElideRight)
         view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         view.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        view.setUniformItemSizes(True)
+        view.setMouseTracking(True)
+        view.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+        if hasattr(view, "setWordWrap"):
+            view.setWordWrap(False)
+        self._apply_popup_style()
+
+    def _apply_popup_style(self) -> None:
+        self.view().setStyleSheet(f"""
+            QListView#minimalDropdownPopup {{
+                background-color: {_BG1};
+                color: {_T0};
+                border: 1px solid {_BG4};
+                border-radius: 2px;
+                outline: none;
+                padding: 2px;
+                font-family: {_SANS};
+                font-size: 10px;
+                selection-background-color: {_SEL};
+                selection-color: {_T0};
+            }}
+            QListView#minimalDropdownPopup::item {{
+                min-height: 20px;
+                padding: 1px 7px;
+                border: 1px solid transparent;
+                border-radius: 2px;
+            }}
+            QListView#minimalDropdownPopup::item:hover {{
+                background-color: {_BG3};
+                border-color: rgba(90,112,144,0.18);
+            }}
+            QListView#minimalDropdownPopup::item:selected {{
+                background-color: {_SEL};
+                color: {_T0};
+                border-color: rgba(0,212,255,0.20);
+            }}
+            QListView#minimalDropdownPopup::item:disabled {{
+                color: {_AMBER};
+                background-color: {_BG0};
+                font-weight: 700;
+            }}
+            QListView#minimalDropdownPopup QScrollBar:vertical {{
+                background: transparent;
+                width: 4px;
+                margin: 2px 0 2px 0;
+            }}
+            QListView#minimalDropdownPopup QScrollBar::handle:vertical {{
+                background: {_BG4};
+                border-radius: 2px;
+                min-height: 18px;
+            }}
+            QListView#minimalDropdownPopup QScrollBar::handle:vertical:hover {{
+                background: {_BG5};
+            }}
+            QListView#minimalDropdownPopup QScrollBar::add-line:vertical,
+            QListView#minimalDropdownPopup QScrollBar::sub-line:vertical {{
+                height: 0;
+                border: none;
+                background: transparent;
+            }}
+            QListView#minimalDropdownPopup QScrollBar::add-page:vertical,
+            QListView#minimalDropdownPopup QScrollBar::sub-page:vertical {{
+                background: transparent;
+            }}
+        """)
+
+    def _popup_width(self) -> int:
+        # Prefer the actual closed-combo width. The fallback prevents a giant
+        # first popup before the header-width sync runs during initial layout.
+        return max(80, min(self.width() or self._MAX_FALLBACK_WIDTH, self._MAX_FALLBACK_WIDTH))
 
     def _sync_popup_width(self) -> None:
-        """Keep the popup the same width as the closed dropdown control."""
-        popup_width = max(1, self.width())
+        """Lock popup/list width to the compact scanner header control."""
+        popup_width = self._popup_width()
         view = self.view()
         view.setMinimumWidth(popup_width)
         view.setMaximumWidth(popup_width)
         view.setFixedWidth(popup_width)
-        if view.window():
-            view.window().setMinimumWidth(popup_width)
-            view.window().setMaximumWidth(popup_width)
-            view.window().setFixedWidth(popup_width)
+        viewport = view.viewport()
+        if viewport:
+            viewport.setMinimumWidth(popup_width)
+            viewport.setMaximumWidth(popup_width)
+        popup_window = view.window()
+        if popup_window:
+            popup_window.setMinimumWidth(popup_width)
+            popup_window.setMaximumWidth(popup_width)
+            popup_window.setFixedWidth(popup_width)
+            popup_window.resize(popup_width, popup_window.height())
+
+    def sizeHint(self):
+        hint = super().sizeHint()
+        hint.setWidth(min(hint.width(), self._MAX_FALLBACK_WIDTH))
+        return hint
+
+    def minimumSizeHint(self):
+        hint = super().minimumSizeHint()
+        hint.setWidth(min(hint.width(), self._MAX_FALLBACK_WIDTH))
+        return hint
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -172,6 +268,10 @@ class ScannerDropdown(QComboBox):
     def showPopup(self):
         self._sync_popup_width()
         super().showPopup()
+        # The popup frame is created/resized by Qt during showPopup(); re-apply
+        # immediately and once more on the event loop so styles cannot expand it.
+        self._sync_popup_width()
+        QTimer.singleShot(0, self._sync_popup_width)
 
 
 class VolumeStrengthDelegate(QStyledItemDelegate):
@@ -1376,11 +1476,21 @@ class FinvizScannerTable(QWidget):
                 tag = self._normalize_scan_tag(scan.get("tag"))
                 if tag != current_group:
                     self.scan_dropdown.addItem(f"── {tag} ──")
-                    self.scan_dropdown.setItemData(self.scan_dropdown.count() - 1, False, Qt.ItemDataRole.UserRole - 1)
+                    header_idx = self.scan_dropdown.count() - 1
+                    self.scan_dropdown.setItemData(header_idx, False, Qt.ItemDataRole.UserRole - 1)
+                    self.scan_dropdown.setItemData(header_idx, QBrush(QColor(_AMBER)), Qt.ItemDataRole.ForegroundRole)
+                    self.scan_dropdown.setItemData(header_idx, _ui_font(8, QFont.Weight.Bold), Qt.ItemDataRole.FontRole)
+                    header_item = self.scan_dropdown.model().item(header_idx)
+                    if header_item is not None:
+                        header_item.setEnabled(False)
+                        header_item.setSelectable(False)
                     current_group = tag
 
                 display_name = scan.get("name", f"Scan {scan_index + 1}")
                 self.scan_dropdown.addItem(display_name)
+                item_idx = self.scan_dropdown.count() - 1
+                self.scan_dropdown.setItemData(item_idx, display_name, Qt.ItemDataRole.ToolTipRole)
+                self.scan_dropdown.setItemData(item_idx, _ui_font(9, QFont.Weight.Medium), Qt.ItemDataRole.FontRole)
                 self._dropdown_scan_indices.append(scan_index)
 
             self.scan_dropdown.setEnabled(True)
