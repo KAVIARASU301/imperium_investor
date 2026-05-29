@@ -1426,35 +1426,75 @@ class FixedTradingChart {
         }
 
 
-        let lastRight = this.chartArea.x - 9999;
+        const labelEdgePad = 20;
+        const labelGap = 6;
+        const axisLabelLeft = this.chartArea.x + labelEdgePad;
+        const axisLabelRight = this.chartArea.x + this.chartArea.width - labelEdgePad;
+        const axisLabelWidth = Math.max(0, axisLabelRight - axisLabelLeft);
+        if (axisLabelWidth <= 0) return;
+
+        const reservedLabelBounds = [];
+        const pendingLabels = [];
         let todayMarker = null;
 
-        for (const pt of candidates) {
-            const x = this._timeToX(pt.time);
-            if (x < this.chartArea.x + 20 || x > this.chartArea.x + this.chartArea.width - 20) continue;
-            const w = ctx.measureText(pt.label).width + 8;
-            if (pt.isToday) {
-                todayMarker = { ...pt, x, w };
-                continue;
-            }
-            if (x - w / 2 < lastRight + 6) continue;
+        const clampLabelX = (x, width) => {
+            const half = Math.min(width / 2, axisLabelWidth / 2);
+            return Math.max(axisLabelLeft + half, Math.min(x, axisLabelRight - half));
+        };
+        const boundsFor = (x, width) => ({
+            left: x - (width / 2) - labelGap,
+            right: x + (width / 2) + labelGap,
+        });
+        const overlapsReserved = (bounds) => reservedLabelBounds.some((used) => (
+            bounds.left < used.right && bounds.right > used.left
+        ));
+        const reserveBounds = (bounds) => {
+            reservedLabelBounds.push(bounds);
+            reservedLabelBounds.sort((a, b) => a.left - b.left);
+        };
 
+        // Reserve today's highlighted date before placing regular ticks. This keeps
+        // neighbouring labels from being drawn under the orange marker when the
+        // time axis gets compressed by zooming out or resizing the chart.
+        ctx.font = this._axisFont(10, 700);
+        for (const pt of candidates) {
+            if (!pt.isToday) continue;
+            const rawX = this._timeToX(pt.time);
+            const width = Math.min(ctx.measureText(pt.label).width + 10, axisLabelWidth);
+            const x = clampLabelX(rawX, width);
+            todayMarker = { ...pt, x, width };
+            reserveBounds(boundsFor(x, width));
+            break;
+        }
+
+        ctx.font = this._axisFont(10, 500);
+        for (const pt of candidates) {
+            if (pt.isToday) continue;
+            const x = this._timeToX(pt.time);
+            if (x < axisLabelLeft || x > axisLabelRight) continue;
+            const width = Math.min(ctx.measureText(pt.label).width + 8, axisLabelWidth);
+            const bounds = boundsFor(x, width);
+            if (overlapsReserved(bounds)) continue;
+
+            reserveBounds(bounds);
+            pendingLabels.push({ ...pt, x, width });
+        }
+
+        for (const pt of pendingLabels) {
             ctx.strokeStyle = 'rgba(26,32,48,0.48)';
             ctx.lineWidth   = 0.5;
             ctx.beginPath();
-            ctx.moveTo(x, this.chartArea.y);
-            ctx.lineTo(x, this._paneBottom());
+            ctx.moveTo(pt.x, this.chartArea.y);
+            ctx.lineTo(pt.x, this._paneBottom());
             ctx.stroke();
 
-            ctx.fillText(pt.label, x, timeAxisMidY);
-            lastRight = x + w / 2;
+            ctx.fillText(pt.label, pt.x, timeAxisMidY, pt.width);
         }
 
         if (todayMarker) {
-            const x = Math.max(this.chartArea.x + 20, Math.min(todayMarker.x, this.chartArea.x + this.chartArea.width - 20));
             ctx.fillStyle = '#F59E0B';
             ctx.font = this._axisFont(10, 700);
-            ctx.fillText(todayMarker.label, x, timeAxisMidY);
+            ctx.fillText(todayMarker.label, todayMarker.x, timeAxisMidY, todayMarker.width);
             ctx.fillStyle = this.colors.text;
             ctx.font = this._axisFont(10, 500);
         }

@@ -90,7 +90,7 @@ def _is_pending_or_open_status(status: Any) -> bool:
 
 def _normalize_order_type(order_type: Any) -> str:
     text = str(order_type or "MKT").replace(" ", "_").replace("-", "_").upper()
-    return {"MARKET": "MARKET", "MKT": "MARKET", "LIMIT": "LIMIT", "LMT": "LIMIT", "STP": "STOP", "STOP": "STOP", "STP_LMT": "STOP_LIMIT"}.get(text, text)
+    return {"MARKET": "MARKET", "MKT": "MARKET", "LIMIT": "LIMIT", "LMT": "LIMIT", "STP": "STOP", "STOP": "STOP", "SLM": "STOP", "SL_M": "STOP", "STP_LMT": "STOP_LIMIT", "SL": "STOP_LIMIT"}.get(text, text)
 
 
 def _convert_position(pos: Any) -> Dict[str, Any]:
@@ -154,7 +154,11 @@ def _convert_trade(trade: Any) -> Dict[str, Any]:
     contract = getattr(trade, "contract", None)
     symbol = str(getattr(contract, "symbol", "") or "").upper()
     order_type = _normalize_order_type(getattr(order, "orderType", ""))
-    price = _first_price(getattr(order, "lmtPrice", 0.0), getattr(order, "auxPrice", 0.0), getattr(status, "avgFillPrice", 0.0))
+    price = _first_price(getattr(order, "lmtPrice", 0.0), getattr(status, "avgFillPrice", 0.0))
+    trigger_price = _safe_float(getattr(order, "auxPrice", 0.0), 0.0)
+    quantity = int(_safe_float(getattr(order, "totalQuantity", 0), 0.0))
+    filled_quantity = int(_safe_float(getattr(status, "filled", 0), 0.0)) if status else 0
+    remaining_quantity = int(_safe_float(getattr(status, "remaining", max(quantity - filled_quantity, 0)), 0.0)) if status else max(quantity - filled_quantity, 0)
     return {
         "order_id": str(getattr(order, "orderId", "") or getattr(order, "permId", "")),
         "perm_id": str(getattr(order, "permId", "") or ""),
@@ -164,12 +168,14 @@ def _convert_trade(trade: Any) -> Dict[str, Any]:
         "instrument_token": int(getattr(contract, "conId", 0) or 0) if contract else 0,
         "transaction_type": str(getattr(order, "action", "") or "").upper(),
         "order_type": order_type,
-        "quantity": int(_safe_float(getattr(order, "totalQuantity", 0), 0.0)),
+        "quantity": quantity,
         "price": price,
+        "trigger_price": trigger_price,
         "status": _normalize_status(getattr(status, "status", "UNKNOWN") if status else "UNKNOWN"),
         "raw_status": str(getattr(status, "status", "UNKNOWN") if status else "UNKNOWN"),
         "status_message": _extract_trade_message(trade),
-        "filled_quantity": int(_safe_float(getattr(status, "filled", 0), 0.0)) if status else 0,
+        "filled_quantity": filled_quantity,
+        "pending_quantity": remaining_quantity,
         "average_price": _safe_float(getattr(status, "avgFillPrice", 0.0), 0.0) if status else 0.0,
         "timestamp": market_isoformat(),
         "product": "IBKR",
@@ -448,7 +454,8 @@ class IBKRTradingClient(QObject):
             logger.error("Error placing IBKR order: %s", exc, exc_info=True)
             return self._order_failure_response(params or kwargs, self._compact_exception(exc))
 
-    def cancel_order(self, order_id: Any) -> Dict[str, Any]:
+    def cancel_order(self, order_id: Any = None, **kwargs) -> Dict[str, Any]:
+        order_id = order_id if order_id is not None else kwargs.get("order_id")
         try:
             oid = int(order_id)
             for trade in self.ib.trades():
@@ -460,15 +467,37 @@ class IBKRTradingClient(QObject):
             logger.error("Error cancelling IBKR order %s: %s", order_id, exc)
             return {"error": str(exc)}
 
-    def modify_order(self, order_id: Any, **kwargs) -> Dict[str, Any]:
+    def modify_order(self, order_id: Any = None, **kwargs) -> Dict[str, Any]:
+        order_id = order_id if order_id is not None else kwargs.get("order_id")
         try:
             oid = int(order_id)
             for trade in self.ib.trades():
                 if int(getattr(trade.order, "orderId", 0) or 0) == oid:
-                    if "quantity" in kwargs:
-                        trade.order.totalQuantity = int(kwargs["quantity"])
-                    if "price" in kwargs and hasattr(trade.order, "lmtPrice"):
-                        trade.order.lmtPrice = float(kwargs["price"])
+                    quantity = kwargs.get("quantity")
+                    price = kwargs.get("price")
+                    trigger_price = kwargs.get("trigger_price")
+                    order_type = kwargs.get("order_type")
+                    validity = kwargs.get("validity")
+
+                    if quantity is not None:
+                        trade.order.totalQuantity = int(quantity)
+                    if order_type:
+                        normalized_type = _normalize_order_type(order_type)
+                        trade.order.orderType = {
+                            "MARKET": "MKT",
+                            "LIMIT": "LMT",
+                            "STOP": "STP",
+                            "STOP_LIMIT": "STP LMT",
+                            "SL": "STP LMT",
+                            "SL-M": "STP",
+                        }.get(normalized_type, str(order_type).upper())
+                    if price is not None and hasattr(trade.order, "lmtPrice"):
+                        trade.order.lmtPrice = float(price)
+                    if trigger_price is not None and hasattr(trade.order, "auxPrice"):
+                        trade.order.auxPrice = float(trigger_price)
+                    if validity:
+                        trade.order.tif = str(validity).upper()
+
                     self.ib.placeOrder(trade.contract, trade.order)
                     return {"status": "MODIFIED", "order_id": str(order_id)}
             return {"error": f"Order {order_id} not found"}

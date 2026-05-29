@@ -1,3 +1,5 @@
+import asyncio
+import inspect
 import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -34,7 +36,13 @@ logger = logging.getLogger(__name__)
 
 PENDING_STATUSES = {
     "OPEN",
+    "SUBMITTED",
+    "PRESUBMITTED",
     "PENDING",
+    "PENDING_SUBMIT",
+    "PENDINGSUBMIT",
+    "API_PENDING",
+    "APIPENDING",
     "PENDING_EXECUTION",
     "TRIGGER PENDING",
     "VALIDATION PENDING",
@@ -43,6 +51,115 @@ PENDING_STATUSES = {
     "MODIFY PENDING",
     "AMO REQ RECEIVED",
 }
+
+
+def _ensure_thread_event_loop() -> None:
+    """Ensure ib_insync synchronous calls have an asyncio loop in worker threads."""
+    try:
+        asyncio.get_running_loop()
+        return
+    except RuntimeError:
+        pass
+
+    try:
+        asyncio.get_event_loop()
+    except RuntimeError:
+        asyncio.set_event_loop(asyncio.new_event_loop())
+
+
+def _normalize_status(status: Any) -> str:
+    text = str(status or "UNKNOWN").replace(" ", "").replace("_", "").upper()
+    return {
+        "SUBMITTED": "OPEN",
+        "PRESUBMITTED": "OPEN",
+        "PENDINGSUBMIT": "PENDING",
+        "APIPENDING": "PENDING",
+        "PENDINGCANCEL": "CANCEL_PENDING",
+        "APICANCELLED": "CANCELLED",
+        "FILLED": "COMPLETE",
+        "INACTIVE": "REJECTED",
+    }.get(text, str(status or "UNKNOWN").replace(" ", "_").upper())
+
+
+def _normalize_order_type(order_type: Any) -> str:
+    text = str(order_type or "").replace(" ", "_").replace("-", "_").upper()
+    return {
+        "MKT": "MARKET",
+        "MARKET": "MARKET",
+        "LMT": "LIMIT",
+        "LIMIT": "LIMIT",
+        "STP": "SL-M",
+        "STOP": "SL-M",
+        "STP_LMT": "SL",
+        "STOP_LIMIT": "SL",
+    }.get(text, text or "MARKET")
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(float(value or 0))
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value or 0.0)
+    except (TypeError, ValueError):
+        return default
+
+
+def _normalize_order_row(order: Dict[str, Any]) -> Dict[str, Any]:
+    """Make Kite-style, IBKRTradingClient, and wrapper rows render consistently."""
+    row = dict(order or {})
+    raw_status = row.get("raw_status") or row.get("status")
+    row["status"] = _normalize_status(raw_status)
+    row["order_type"] = _normalize_order_type(row.get("order_type"))
+
+    quantity = _safe_int(row.get("quantity") or row.get("total_quantity") or row.get("totalQuantity"))
+    filled = _safe_int(row.get("filled_quantity") or row.get("filled") or row.get("filledQuantity"))
+    pending = _safe_int(row.get("pending_quantity") or row.get("remaining") or row.get("remainingQuantity"))
+    if quantity <= 0 and (filled or pending):
+        quantity = filled + pending
+    if pending <= 0 and quantity > filled and row["status"] in PENDING_STATUSES:
+        pending = quantity - filled
+
+    row["quantity"] = quantity
+    row["filled_quantity"] = filled
+    row["pending_quantity"] = pending
+    row["tradingsymbol"] = str(row.get("tradingsymbol") or row.get("symbol") or "").upper()
+    row["transaction_type"] = str(row.get("transaction_type") or row.get("action") or "").upper()
+    row["price"] = _safe_float(row.get("price") or row.get("limit_price") or row.get("lmtPrice"))
+    row["trigger_price"] = _safe_float(row.get("trigger_price") or row.get("stop_price") or row.get("auxPrice"))
+    row["order_timestamp"] = str(row.get("order_timestamp") or row.get("timestamp") or row.get("time") or "")
+    row["variety"] = row.get("variety") or "regular"
+    return row
+
+
+def _convert_raw_ibkr_trade(trade: Any) -> Dict[str, Any]:
+    order = getattr(trade, "order", None)
+    status = getattr(trade, "orderStatus", None)
+    contract = getattr(trade, "contract", None)
+    total_qty = _safe_int(getattr(order, "totalQuantity", 0))
+    filled = _safe_int(getattr(status, "filled", 0))
+    remaining = _safe_int(getattr(status, "remaining", max(total_qty - filled, 0)))
+    return _normalize_order_row({
+        "order_id": str(getattr(order, "orderId", "") or getattr(order, "permId", "")),
+        "perm_id": str(getattr(order, "permId", "") or ""),
+        "tradingsymbol": getattr(contract, "symbol", ""),
+        "exchange": getattr(contract, "exchange", "SMART") if contract else "SMART",
+        "transaction_type": getattr(order, "action", ""),
+        "order_type": getattr(order, "orderType", ""),
+        "quantity": total_qty,
+        "filled_quantity": filled,
+        "pending_quantity": remaining,
+        "price": getattr(order, "lmtPrice", 0.0),
+        "trigger_price": getattr(order, "auxPrice", 0.0),
+        "status": getattr(status, "status", "UNKNOWN") if status else "UNKNOWN",
+        "average_price": getattr(status, "avgFillPrice", 0.0) if status else 0.0,
+        "order_timestamp": market_strftime("%Y-%m-%d %H:%M:%S"),
+        "_ibkr_trade": trade,
+    })
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -923,11 +1040,28 @@ class PendingOrdersDialog(QDialog):
 
         self._refresh_inflight = True
         self.status_label.setText("Syncing with IBKR...")
-        worker = Worker(self.trader.orders)
+        worker = Worker(self._fetch_orders_from_api)
         worker.signals.result.connect(self._handle_orders_result)
         worker.signals.error.connect(lambda err: self._handle_orders_error(err[1]))
         worker.signals.finished.connect(self._on_refresh_finished)
         self._thread_pool.start(worker)
+
+    def _fetch_orders_from_api(self) -> List[Dict[str, Any]]:
+        """Pull the latest pending/order list from the active IBKR client surface."""
+        _ensure_thread_event_loop()
+
+        if hasattr(self.trader, "orders") and callable(self.trader.orders):
+            orders = self.trader.orders()
+        elif hasattr(self.trader, "get_orders") and callable(self.trader.get_orders):
+            orders = self.trader.get_orders()
+        elif hasattr(getattr(self.trader, "client", None), "trades"):
+            orders = [_convert_raw_ibkr_trade(trade) for trade in (self.trader.client.trades() or [])]
+        elif hasattr(getattr(self.trader, "ib", None), "trades"):
+            orders = [_convert_raw_ibkr_trade(trade) for trade in (self.trader.ib.trades() or [])]
+        else:
+            raise RuntimeError("Active IBKR client does not expose an orders API")
+
+        return [_normalize_order_row(order) for order in (orders or []) if isinstance(order, dict)]
 
     def _handle_orders_result(self, all_orders):
         pending = [order for order in (all_orders or []) if (order.get("status", "").upper() in PENDING_STATUSES)]
@@ -1120,15 +1254,47 @@ class PendingOrdersDialog(QDialog):
         modify_act.triggered.connect(self.edit_selected_order)
         menu.exec(self.table.viewport().mapToGlobal(pos))
 
+
+    def _call_cancel_order(self, order: Dict[str, Any]):
+        order_id = order.get("order_id")
+        cancel_order = getattr(self.trader, "cancel_order", None)
+        if callable(cancel_order):
+            params = inspect.signature(cancel_order).parameters
+            if "variety" in params:
+                return cancel_order(variety=order.get("variety") or "regular", order_id=order_id)
+            return cancel_order(order_id)
+
+        raw_trade = order.get("_ibkr_trade")
+        client = getattr(self.trader, "client", None) or getattr(self.trader, "ib", None)
+        if raw_trade is not None and hasattr(client, "cancelOrder"):
+            return client.cancelOrder(raw_trade.order)
+        raise RuntimeError("Active IBKR client does not expose cancel_order")
+
+    def _call_modify_order(self, order: Dict[str, Any], payload: Dict[str, Any]):
+        order_id = order.get("order_id")
+        modify_order = getattr(self.trader, "modify_order", None)
+        kwargs = {
+            "quantity": payload.get("quantity"),
+            "price": payload.get("price"),
+            "order_type": payload.get("order_type"),
+            "trigger_price": payload.get("trigger_price"),
+            "validity": payload.get("validity"),
+        }
+        if callable(modify_order):
+            params = inspect.signature(modify_order).parameters
+            if "variety" in params:
+                return modify_order(variety=order.get("variety") or "regular", order_id=order_id, **kwargs)
+            return modify_order(order_id, **kwargs)
+        raise RuntimeError("Active IBKR client does not expose modify_order")
+
     def _cancel_remaining(self, order):
         """Cancel the unfilled portion of a partially-filled order."""
         order_id = order.get("order_id")
-        variety = order.get("variety") or "regular"
         symbol = order.get("tradingsymbol", "")
         pending = int(order.get("pending_quantity") or 0)
 
         try:
-            self.trader.cancel_order(variety=variety, order_id=order_id)
+            self._call_cancel_order(order)
             show_info(f"Cancelled remaining {pending} shares of {symbol}")
             logger.info("Cancelled remaining quantity for partially-filled order %s", order_id)
             self.refresh_orders()
@@ -1144,10 +1310,8 @@ class PendingOrdersDialog(QDialog):
 
         order_id = order.get("order_id")
         symbol = order.get("tradingsymbol", "")
-        variety = order.get("variety") or "regular"
-
         try:
-            self.trader.cancel_order(variety=variety, order_id=order_id)
+            self._call_cancel_order(order)
             show_order_cancelled(symbol)
             show_info(f"Cancelled order {order_id}")
             logger.info("Cancelled pending order %s", order_id)
@@ -1163,7 +1327,6 @@ class PendingOrdersDialog(QDialog):
             return
 
         order_id = order.get("order_id")
-        variety = order.get("variety") or "regular"
         edit_dialog = EditPendingOrderDialog(order, parent=self)
 
         if edit_dialog.exec() != QDialog.DialogCode.Accepted:
@@ -1174,15 +1337,7 @@ class PendingOrdersDialog(QDialog):
             return
 
         try:
-            self.trader.modify_order(
-                variety=variety,
-                order_id=order_id,
-                quantity=payload.get("quantity"),
-                price=payload.get("price"),
-                order_type=payload.get("order_type"),
-                trigger_price=payload.get("trigger_price"),
-                validity=payload.get("validity"),
-            )
+            self._call_modify_order(order, payload)
             show_info(f"Modified order {order_id}")
             logger.info("Modified pending order %s", order_id)
             self.refresh_orders()

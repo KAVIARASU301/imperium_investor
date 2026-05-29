@@ -194,29 +194,38 @@ class IBKRClientWrapper(BrokerClientInterface):
             return {'error': str(e), 'status': 'FAILED'}
 
     def get_orders(self) -> list:
-        """Get order history"""
+        """Get order history in the Kite-compatible shape expected by the UI."""
         try:
             trades = self.client.trades()
             orders = []
 
             for trade in trades:
+                order = getattr(trade, 'order', None)
+                status = getattr(trade, 'orderStatus', None)
+                contract = getattr(trade, 'contract', None)
+                quantity = int(float(getattr(order, 'totalQuantity', 0) or 0)) if order else 0
+                filled = int(float(getattr(status, 'filled', 0) or 0)) if status else 0
+                pending = int(float(getattr(status, 'remaining', max(quantity - filled, 0)) or 0)) if status else max(quantity - filled, 0)
                 order_data = {
-                    'order_id': trade.order.orderId,
-                    'tradingsymbol': trade.contract.symbol,
-                    'exchange': trade.contract.exchange,
-                    'order_type': trade.order.orderType,
-                    'quantity': trade.order.totalQuantity,
-                    'status': trade.orderStatus.status if trade.orderStatus else 'UNKNOWN'
+                    'order_id': str(getattr(order, 'orderId', '') or getattr(order, 'permId', '')),
+                    'perm_id': str(getattr(order, 'permId', '') or ''),
+                    'tradingsymbol': str(getattr(contract, 'symbol', '') or '').upper(),
+                    'exchange': getattr(contract, 'exchange', 'SMART') if contract else 'SMART',
+                    'transaction_type': str(getattr(order, 'action', '') or '').upper(),
+                    'order_type': getattr(order, 'orderType', ''),
+                    'quantity': quantity,
+                    'filled_quantity': filled,
+                    'pending_quantity': pending,
+                    'price': float(getattr(order, 'lmtPrice', 0) or 0) if order else 0.0,
+                    'trigger_price': float(getattr(order, 'auxPrice', 0) or 0) if order else 0.0,
+                    'average_price': float(getattr(status, 'avgFillPrice', 0) or 0) if status else 0.0,
+                    'status': getattr(status, 'status', 'UNKNOWN') if status else 'UNKNOWN',
+                    'product': 'IBKR',
                 }
 
-                # Add fill information if available
-                if trade.fills:
-                    fill = trade.fills[-1]  # Latest fill
-                    order_data.update({
-                        'filled_quantity': fill.execution.shares,
-                        'average_price': fill.execution.price,
-                        'fill_time': fill.time
-                    })
+                if getattr(trade, 'fills', None):
+                    fill = trade.fills[-1]
+                    order_data['fill_time'] = getattr(fill, 'time', '')
 
                 orders.append(order_data)
 
@@ -224,6 +233,64 @@ class IBKRClientWrapper(BrokerClientInterface):
         except Exception as e:
             logger.error(f"Error getting IBKR orders: {e}")
             return []
+
+    def orders(self) -> list:
+        """Kite-compatible alias used by shared order dialogs."""
+        return self.get_orders()
+
+    def cancel_order(self, order_id: Any = None, **kwargs) -> Dict[str, Any]:
+        """Cancel an IBKR order by order id through ib_insync."""
+        order_id = order_id if order_id is not None else kwargs.get('order_id')
+        try:
+            oid = int(order_id)
+            for trade in self.client.trades():
+                order = getattr(trade, 'order', None)
+                if int(getattr(order, 'orderId', 0) or 0) == oid:
+                    self.client.cancelOrder(order)
+                    return {'status': 'CANCELLED', 'order_id': str(order_id)}
+            return {'error': f'Order {order_id} not found'}
+        except Exception as e:
+            logger.error(f"Error cancelling IBKR order {order_id}: {e}")
+            return {'error': str(e)}
+
+    def modify_order(self, order_id: Any = None, **kwargs) -> Dict[str, Any]:
+        """Modify an IBKR order by resubmitting the same order id."""
+        order_id = order_id if order_id is not None else kwargs.get('order_id')
+        try:
+            oid = int(order_id)
+            for trade in self.client.trades():
+                order = getattr(trade, 'order', None)
+                if int(getattr(order, 'orderId', 0) or 0) == oid:
+                    quantity = kwargs.get('quantity')
+                    price = kwargs.get('price')
+                    trigger_price = kwargs.get('trigger_price')
+                    order_type = str(kwargs.get('order_type') or '').replace('-', '_').upper()
+                    validity = kwargs.get('validity')
+
+                    if quantity is not None:
+                        order.totalQuantity = int(quantity)
+                    if order_type:
+                        order.orderType = {
+                            'MARKET': 'MKT',
+                            'LIMIT': 'LMT',
+                            'SL': 'STP LMT',
+                            'SL_M': 'STP',
+                            'STOP': 'STP',
+                            'STOP_LIMIT': 'STP LMT',
+                        }.get(order_type, order_type)
+                    if price is not None and hasattr(order, 'lmtPrice'):
+                        order.lmtPrice = float(price)
+                    if trigger_price is not None and hasattr(order, 'auxPrice'):
+                        order.auxPrice = float(trigger_price)
+                    if validity:
+                        order.tif = str(validity).upper()
+
+                    self.client.placeOrder(trade.contract, order)
+                    return {'status': 'MODIFIED', 'order_id': str(order_id)}
+            return {'error': f'Order {order_id} not found'}
+        except Exception as e:
+            logger.error(f"Error modifying IBKR order {order_id}: {e}")
+            return {'error': str(e)}
 
     def get_instruments(self) -> list:
         """Get tradeable instruments (IBKR-specific implementation)"""
