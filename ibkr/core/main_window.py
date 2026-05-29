@@ -192,6 +192,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self._tick_flush_timer.timeout.connect(self._flush_market_data_ticks)
         self._tick_flush_timer.start()
         self._pending_contract_preload_symbols = set()
+        self._preloaded_hover_symbols = set()
         self._contract_preload_timer = QTimer(self)
         self._contract_preload_timer.setSingleShot(True)
         self._contract_preload_timer.setInterval(250)
@@ -1441,6 +1442,50 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 scrollbar.valueChanged.connect(lambda _value: self._schedule_visible_contract_preload())
                 scrollbar._contract_preload_bound = True
 
+    def _bind_watchlist_hover_preload_tracking(self) -> None:
+        """Warm contracts when the user moves selection through watchlist rows."""
+        watchlist = getattr(self, "watchlist", None)
+        if watchlist is None:
+            return
+
+        for table in getattr(watchlist, "_tables", {}).values():
+            if getattr(table, "_hover_contract_preload_bound", False):
+                continue
+            table.currentCellChanged.connect(
+                lambda row, *_args, table=table: self._on_watchlist_row_hovered(row, table)
+            )
+            table._hover_contract_preload_bound = True
+
+    def _on_symbol_hovered(self, symbol: str) -> None:
+        """Pre-qualify IBKR contract when user hovers over scanner/watchlist rows."""
+        symbol = str(symbol or "").strip().upper()
+        if not symbol:
+            return
+
+        preloaded = getattr(self, "_preloaded_hover_symbols", None)
+        if preloaded is None:
+            self._preloaded_hover_symbols = set()
+            preloaded = self._preloaded_hover_symbols
+        if symbol in preloaded:
+            return
+
+        preloaded.add(symbol)
+        self._queue_contract_preload([symbol])
+
+    def _on_watchlist_row_hovered(self, row: int, table=None) -> None:
+        if row < 0:
+            return
+        if table is None:
+            table_getter = getattr(getattr(self, "watchlist", None), "_current_table", None)
+            table = table_getter() if callable(table_getter) else None
+        if table is None:
+            return
+
+        symbol_getter = getattr(table, "_symbol_at_row", None)
+        symbol = symbol_getter(row) if callable(symbol_getter) else None
+        if symbol:
+            self._on_symbol_hovered(symbol)
+
     def _queue_contract_preload(self, symbols: List[str]) -> None:
         clean_symbols = {str(symbol or "").strip().upper() for symbol in symbols or []}
         clean_symbols.discard("")
@@ -1743,6 +1788,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.finviz_scanner.scan_results_changed.connect(self._schedule_visible_contract_preload)
         self.finviz_scanner.visible_rows_changed.connect(self._schedule_subscription_rebuild)
         self.finviz_scanner.visible_rows_changed.connect(self._schedule_visible_contract_preload)
+        self.finviz_scanner.symbol_hovered.connect(self._on_symbol_hovered)
         self.watchlist.symbol_selected.connect(self.candlestick_chart.on_search)
         self.watchlist.symbol_selected.connect(self.candlestick_chart_secondary.on_search)
         self.watchlist.subscribe_tokens_requested.connect(self._subscribe_to_tokens)
@@ -1750,9 +1796,11 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.watchlist.watchlist_changed.connect(self._schedule_subscription_rebuild)
         self.watchlist.watchlist_changed.connect(self._schedule_visible_contract_preload)
         self.watchlist.watchlist_changed.connect(self._bind_watchlist_contract_preload_tracking)
+        self.watchlist.watchlist_changed.connect(self._bind_watchlist_hover_preload_tracking)
         self.watchlist.watchlist_changed.connect(self._sync_floating_watchlist_dialog)
         self.watchlist.watchlist_changed.connect(self._bind_spacebar_context_tracking)
         self._bind_watchlist_contract_preload_tracking()
+        self._bind_watchlist_hover_preload_tracking()
         self._bind_spacebar_context_tracking()
 
         # Header Toolbar → Main Window

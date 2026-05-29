@@ -1205,6 +1205,7 @@ class ScanWorker(QThread):
 class FinvizScannerTable(QWidget):
     """FIXED EOD scanner table with proper row selection and highlighting."""
     symbol_selected     = Signal(str)
+    symbol_hovered      = Signal(str)
     scan_results_changed = Signal()   # emitted when scan completes → triggers re-subscription
     visible_rows_changed = Signal()   # emitted when scroll changes visible rows
 
@@ -1257,6 +1258,9 @@ class FinvizScannerTable(QWidget):
 
         self.table.cellClicked.connect(self._on_cell_clicked)
         self.table.horizontalHeader().sectionClicked.connect(self._on_header_clicked)
+        self.table.cellEntered.connect(self._on_cell_entered)
+        self.setMouseTracking(True)
+        self.table.setMouseTracking(True)
         self.table.setItemDelegateForColumn(2, VolumeStrengthDelegate(self.table))
         self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.table.setFocus()
@@ -1978,15 +1982,35 @@ class FinvizScannerTable(QWidget):
     def _on_cell_clicked(self, row: int, column: int):
         """Handle cell clicks and emit symbol selection."""
         try:
+            symbol_text = self._symbol_at_row(row)
             symbol_item = self.table.item(row, 0)
-            if symbol_item and symbol_item.flags() & Qt.ItemFlag.ItemIsSelectable:
-                symbol_text = symbol_item.text()
+            if symbol_text and symbol_item and symbol_item.flags() & Qt.ItemFlag.ItemIsSelectable:
                 if symbol_text and not symbol_text.startswith(("Error:", "Loading", "No symbols", "No scans")):
                     # Update current index when manually clicking
                     self._current_symbol_index = row
                     self.symbol_selected.emit(symbol_text)
         except Exception as e:
             logger.warning(f"Could not get symbol from clicked row {row}: {e}")
+
+    def _on_cell_entered(self, row: int, column: int):
+        """Emit the symbol under the mouse so callers can warm caches."""
+        symbol = self._symbol_at_row(row)
+        if symbol:
+            self.symbol_hovered.emit(symbol)
+
+    def _symbol_at_row(self, row: int) -> Optional[str]:
+        """Return the valid scanner symbol displayed at the given table row."""
+        if row < 0 or row >= self.table.rowCount():
+            return None
+        item = self.table.item(row, 0)
+        if item is None:
+            return None
+        symbol = item.text().strip().upper()
+        if not symbol or symbol.startswith(("ERROR:", "LOADING", "NO SYMBOLS", "NO SCANS")):
+            return None
+        if self._symbol_data and symbol not in self._symbol_data:
+            return None
+        return symbol
 
     # ─────────────────────────────────────────────────────────────────────
     # VIEWPORT-AWARE SYMBOL ACCESS  (institutional grade: subscribe only
@@ -2516,4 +2540,3 @@ class FinvizScannerTable(QWidget):
 
 # Backward-compatible name for older main_window imports.
 ChartinkScannerTable = FinvizScannerTable
-
