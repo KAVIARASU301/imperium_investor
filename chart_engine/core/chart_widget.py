@@ -160,6 +160,7 @@ class CandlestickChart(QWidget):
         self._indicator_scale_labels_enabled = self.global_chart_settings.get("indicator_scale_labels_enabled", False)
         self._crosshair_snap_enabled    = self.global_chart_settings.get("crosshair_snap_enabled", False)
         self._show_time_slider         = self.global_chart_settings.get("show_time_slider", True)
+        self._show_premarket_candles   = self.global_chart_settings.get("show_premarket_candles", True)
         self._tool_selection_mode       = self.global_chart_settings.get("tool_selection_mode", "single_use")
         self._toolbar_symbol_display    = self.global_chart_settings.get("toolbar_symbol_display", "description")
         self.current_visible_candle_count = self.global_chart_settings.get("default_visible_candles", 100)
@@ -754,7 +755,8 @@ class CandlestickChart(QWidget):
             return
 
         self.last_df = df
-        metrics = calculate_metrics(df, self._moving_average_configs)
+        display_df = self._filter_premarket_candles(df)
+        metrics = calculate_metrics(display_df, self._moving_average_configs)
 
         # ── Build candle + volume arrays ──────────────────────────────────
         # Production charting packages (TradingView/lightweight-charts, etc.)
@@ -764,7 +766,7 @@ class CandlestickChart(QWidget):
         # NSE daily candle from (for example) May 13 to May 12.  Intraday bars
         # remain true broker timestamps.
         calendar_interval = self.current_interval in {"day", "week", "month"}
-        candles, volumes = self._build_chart_payload(df, calendar_interval)
+        candles, volumes = self._build_chart_payload(display_df, calendar_interval)
 
         # ── Load saved state for THIS symbol/interval ─────────────────────
         saved_state = self.drawing_storage.load_state(self.current_symbol, self.current_interval)
@@ -816,6 +818,7 @@ class CandlestickChart(QWidget):
                 "movingAverageConfigs":      self._moving_average_configs,
                 "initialIndicatorVisibility": self._indicator_visibility,
                 "brokerName":                self._broker_caps.name,
+                "showPremarketCandles":      self._show_premarket_candles,
             }
             loader_method = "refreshHistoricalData" if self._is_periodic_historical_refresh else "loadNewData"
             self._inject_chart_payload(loader_method, payload_dict)
@@ -864,6 +867,7 @@ class CandlestickChart(QWidget):
             price_scale_currency       = self._resolve_price_scale_currency(),
             moving_average_configs     = self._moving_average_configs,
             broker_name                = self._broker_caps.name,
+            show_premarket_candles      = self._show_premarket_candles,
         )
 
         self._render_html(cfg)
@@ -874,6 +878,41 @@ class CandlestickChart(QWidget):
         logger.info("Chart HTML loaded: %s (%d candles)", self.current_symbol, len(candles))
         self._restart_historical_sync_timer()
         self._is_periodic_historical_refresh = False
+
+
+    def _filter_premarket_candles(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Return chart data with IBKR premarket bars removed when disabled."""
+        if (
+            df is None
+            or df.empty
+            or self._show_premarket_candles
+            or str(self._broker_caps.name).lower() != "ibkr"
+            or self.current_interval not in INTRADAY_INTERVALS
+            or "time" not in df.columns
+        ):
+            return df
+
+        times = pd.to_datetime(df["time"], errors="coerce")
+        if times.empty:
+            return df
+
+        try:
+            if getattr(times.dt, "tz", None) is not None:
+                if ZoneInfo is not None:
+                    exchange_times = times.dt.tz_convert(ZoneInfo("America/New_York"))
+                else:
+                    exchange_times = times.dt.tz_convert("America/New_York")
+            else:
+                exchange_times = times
+        except Exception as exc:
+            logger.warning("Unable to filter IBKR premarket candles: %s", exc)
+            return df
+
+        minutes = exchange_times.dt.hour * 60 + exchange_times.dt.minute
+        premarket_open = 4 * 60
+        rth_open = 9 * 60 + 30
+        keep_mask = times.notna() & ~((minutes >= premarket_open) & (minutes < rth_open))
+        return df.loc[keep_mask].copy()
 
 
     def _build_chart_payload(self, df: pd.DataFrame, calendar_interval: bool) -> tuple[list[dict], list[dict]]:
@@ -1546,6 +1585,8 @@ class CandlestickChart(QWidget):
             "indicator_scale_labels_enabled": self._indicator_scale_labels_enabled,
             "crosshair_snap_enabled": self._crosshair_snap_enabled,
             "show_time_slider": self._show_time_slider,
+            "show_premarket_candles": self._show_premarket_candles,
+            "broker_name": self._broker_caps.name,
             "tool_selection_mode": self._tool_selection_mode,
             "toolbar_symbol_display": self._toolbar_symbol_display,
             "history_days_by_interval": dict(self._history_days_by_interval),
@@ -1579,6 +1620,7 @@ class CandlestickChart(QWidget):
         self._indicator_scale_labels_enabled = s.get("indicator_scale_labels_enabled", self._indicator_scale_labels_enabled)
         self._crosshair_snap_enabled     = s.get("crosshair_snap_enabled", self._crosshair_snap_enabled)
         self._show_time_slider          = s.get("show_time_slider", self._show_time_slider)
+        self._show_premarket_candles    = s.get("show_premarket_candles", self._show_premarket_candles)
         self._tool_selection_mode        = s.get("tool_selection_mode", self._tool_selection_mode)
         self._toolbar_symbol_display     = s.get("toolbar_symbol_display", self._toolbar_symbol_display)
         if self.toolbar:
@@ -1622,6 +1664,7 @@ class CandlestickChart(QWidget):
                 "indicatorScaleLabelsEnabled": self._indicator_scale_labels_enabled,
                 "crosshairSnapEnabled": self._crosshair_snap_enabled,
                 "showTimeSlider": self._show_time_slider,
+                "showPremarketCandles": self._show_premarket_candles,
                 "toolSelectionMode": self._tool_selection_mode,
                 "infoVisibility": dict(self._chart_info_visibility),
             })

@@ -51,6 +51,7 @@ class ChartSettingsDialog(QDialog):
         self.setWindowTitle("Chart Settings")
         self.setMinimumSize(680, 560)
         self._s = dict(current_settings)          # working copy
+        self._broker_name = str(self._s.get("broker_name", "")).lower()
         self._color_btns: Dict[str, QPushButton] = {}
         self._build_ui()
         self._apply_styles()
@@ -220,6 +221,16 @@ class ChartSettingsDialog(QDialog):
         self.right_buffer_candles.setValue(int(self._s.get("right_buffer_candles", 20)))
         self.right_buffer_candles.setToolTip("Empty candles space between latest candle and price scale.")
         chart_layout.addRow("Right Empty Space:", self.right_buffer_candles)
+
+        self.show_premarket_candles = QCheckBox("Show IBKR premarket candles")
+        self.show_premarket_candles.setChecked(self._s.get("show_premarket_candles", True))
+        self.show_premarket_candles.setToolTip("IBKR intraday charts only: include 04:00-09:29 America/New_York premarket bars.")
+        chart_layout.addRow("Premarket Candles:", self.show_premarket_candles)
+        if self._broker_name != "ibkr":
+            self.show_premarket_candles.hide()
+            label = chart_layout.labelForField(self.show_premarket_candles)
+            if label is not None:
+                label.hide()
         tabs.addTab(chart_tab, "Chart")
 
         toggles_tab = QWidget()
@@ -315,6 +326,7 @@ class ChartSettingsDialog(QDialog):
                 for interval, spin in self.history_days_inputs.items()
             },
             "right_buffer_candles": self.right_buffer_candles.value(),
+            "show_premarket_candles": self.show_premarket_candles.isChecked(),
             **{key: cb.isChecked() for key, cb in self.chart_info_toggles.items()},
         }
         self.settings_changed.emit(new)
