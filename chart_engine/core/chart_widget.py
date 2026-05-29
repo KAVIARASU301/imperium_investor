@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
 from chart_engine.core.chart_bridge import ChartBridge
 from chart_engine.core.data_loader import (
     DEFAULT_DAYS_BACK,
+    IBKR_FAST_SWITCH_DAYS_BACK,
     ChartDataLoaderThread,
     DataCache,
     resolve_days_back,
@@ -681,6 +682,9 @@ class CandlestickChart(QWidget):
             return
 
         load_key = f"{self.current_symbol}_{self.current_interval}"
+        use_fast_ibkr_window = bool(broker_name == "ibkr" and not force_refresh)
+        days_back_overrides = self._history_days_by_interval
+        cache_scope = ""
 
         if not force_refresh:
             cached_df = self._get_cached_chart_frame(load_key)
@@ -691,6 +695,22 @@ class CandlestickChart(QWidget):
                 logger.debug("Rendering cached chart data immediately: %s", load_key)
                 self._on_data_loaded(cached_df, load_key)
                 return
+
+            if use_fast_ibkr_window:
+                days_back_overrides = IBKR_FAST_SWITCH_DAYS_BACK
+                cache_scope = "fast"
+                cached_df = self._get_cached_chart_frame(
+                    load_key,
+                    days_back_overrides=days_back_overrides,
+                    cache_scope=cache_scope,
+                )
+                if cached_df is not None and not cached_df.empty:
+                    self._stop_loader()
+                    self.progress_bar.hide()
+                    self._active_load_key = load_key
+                    logger.debug("Rendering cached fast IBKR chart data immediately: %s", load_key)
+                    self._on_data_loaded(cached_df, load_key, start_full_refresh=True)
+                    return
 
         self._stop_loader()
         is_background_refresh = bool(
@@ -725,10 +745,11 @@ class CandlestickChart(QWidget):
             instrument_token=(token or None),
             interval=self.current_interval,
             force_refresh=force_refresh,
-            days_back_overrides=self._history_days_by_interval,
+            days_back_overrides=days_back_overrides,
+            cache_scope=cache_scope,
         )
         self.data_loader_thread.data_loaded.connect(
-            lambda df, key: self._on_data_loaded(df, key)
+            lambda df, key: self._on_data_loaded(df, key, start_full_refresh=use_fast_ibkr_window)
         )
         self.data_loader_thread.load_error.connect(
             lambda msg: self._on_load_error(msg, load_key)
@@ -738,7 +759,12 @@ class CandlestickChart(QWidget):
         self.data_loader_thread.start()
 
 
-    def _get_cached_chart_frame(self, load_key: str) -> Optional[pd.DataFrame]:
+    def _get_cached_chart_frame(
+        self,
+        load_key: str,
+        days_back_overrides: Optional[Dict[str, int]] = None,
+        cache_scope: str = "",
+    ) -> Optional[pd.DataFrame]:
         """Return an immediately renderable cached frame for the current request.
 
         Starting a QThread just to discover an IBKR cache hit still creates a
@@ -751,7 +777,8 @@ class CandlestickChart(QWidget):
                 caps=self.data_fetcher.capabilities,
                 symbol=self.current_symbol,
                 interval=self.current_interval,
-                days_back_overrides=self._history_days_by_interval,
+                days_back_overrides=days_back_overrides or self._history_days_by_interval,
+                cache_scope=cache_scope,
             )
             cached = self.data_cache.get(scoped_cache_key)
         except Exception as exc:
@@ -759,8 +786,39 @@ class CandlestickChart(QWidget):
             return None
         return cached if cached is not None and not cached.empty else None
 
+    def _load_key_matches_current(self, key: str) -> bool:
+        """Return True only when a loader result still targets the visible chart."""
+        current_key = f"{self.current_symbol}_{self.current_interval}"
+        return bool(key and key == self._active_load_key and key == current_key)
+
+    def _schedule_progressive_full_refresh(self, key: str) -> None:
+        """Start the full IBKR history refresh after the fast dataset paints."""
+        QTimer.singleShot(0, lambda load_key=key: self._start_progressive_full_refresh(load_key))
+
+    def _start_progressive_full_refresh(self, key: str) -> None:
+        if not self._load_key_matches_current(key):
+            logger.debug(
+                "Skipping progressive full refresh for stale key %s (active: %s, current: %s_%s)",
+                key,
+                self._active_load_key,
+                self.current_symbol,
+                self.current_interval,
+            )
+            return
+
+        # Let the fast loader's finished signal clean itself up before replacing
+        # it.  This keeps the background full refresh on the normal
+        # force_refresh/refreshHistoricalData path without racing thread cleanup.
+        if self.data_loader_thread and self.data_loader_thread.isRunning():
+            QTimer.singleShot(25, lambda load_key=key: self._start_progressive_full_refresh(load_key))
+            return
+
+        logger.debug("Starting progressive full IBKR history refresh: %s", key)
+        self._is_periodic_historical_refresh = True
+        self._load_chart_data(force_refresh=True)
+
     @Slot(object, str)
-    def _on_data_loaded(self, df: pd.DataFrame, key: str) -> None:
+    def _on_data_loaded(self, df: pd.DataFrame, key: str, start_full_refresh: bool = False) -> None:
         """
         Called by ChartDataLoaderThread when data is ready.
 
@@ -779,7 +837,7 @@ class CandlestickChart(QWidget):
             defence against the race window.
         """
         # ── Primary stale-data guard ──────────────────────────────────────
-        if key != self._active_load_key:
+        if not self._load_key_matches_current(key):
             logger.debug("Discarding stale data for %s (active: %s)", key, self._active_load_key)
             self._is_periodic_historical_refresh = False
             return
@@ -819,9 +877,9 @@ class CandlestickChart(QWidget):
 
         initial_indicator_visibility = self.drawing_storage.load_global_indicator_visibility()
         for cfg in self._moving_average_configs:
-            key = str(cfg.get("id") or "").strip()
-            if key and key not in initial_indicator_visibility:
-                initial_indicator_visibility[key] = True
+            indicator_key = str(cfg.get("id") or "").strip()
+            if indicator_key and indicator_key not in initial_indicator_visibility:
+                initial_indicator_visibility[indicator_key] = True
         has_volume_indicator = any(
             str(cfg.get("type") or "").lower() == "volume"
             for cfg in self._moving_average_configs
@@ -872,6 +930,8 @@ class CandlestickChart(QWidget):
             logger.info("Chart seamlessly updated: %s (%d candles)", self.current_symbol, len(candles))
             self._restart_historical_sync_timer()
             self._is_periodic_historical_refresh = False
+            if start_full_refresh:
+                self._schedule_progressive_full_refresh(key)
             return
 
         # ── Path B: first render — build full HTML ────────────────────────
@@ -923,6 +983,8 @@ class CandlestickChart(QWidget):
         logger.info("Chart HTML loaded: %s (%d candles)", self.current_symbol, len(candles))
         self._restart_historical_sync_timer()
         self._is_periodic_historical_refresh = False
+        if start_full_refresh:
+            self._schedule_progressive_full_refresh(key)
 
 
     def _filter_extended_session_candles(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -1830,6 +1892,14 @@ class CandlestickChart(QWidget):
         self._show_error(msg)
 
     def _on_thread_finished(self) -> None:
+        sender = self.sender()
+        if sender is not None and sender is not self.data_loader_thread:
+            try:
+                sender.deleteLater()
+            except Exception:
+                pass
+            return
+
         self._is_periodic_historical_refresh = False
         self.progress_bar.hide()
         if self.data_loader_thread:

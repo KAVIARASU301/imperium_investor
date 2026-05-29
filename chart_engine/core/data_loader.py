@@ -51,6 +51,20 @@ IBKR_DYNAMIC_DAYS_BACK: Dict[str, int] = {
     "day": 365,
 }
 
+# Short IBKR windows used while rapidly navigating between symbols.  These
+# render quickly, then the chart widget follows up with a force-refresh full
+# history request once the first paint has completed.
+IBKR_FAST_SWITCH_DAYS_BACK: Dict[str, int] = {
+    "minute": 2,
+    "3minute": 3,
+    "5minute": 5,
+    "10minute": 5,
+    "15minute": 5,
+    "30minute": 10,
+    "60minute": 30,
+    "day": 180,
+}
+
 
 def resolve_days_back(interval: str, overrides: Optional[Dict[str, int]] = None) -> int:
     base = int(DEFAULT_DAYS_BACK.get(interval, 365))
@@ -168,6 +182,7 @@ class ChartDataLoaderThread(QThread):
         force_refresh: bool = False,
         parent=None,
         days_back_overrides: Optional[Dict[str, int]] = None,
+        cache_scope: str = "",
     ):
         super().__init__(parent)
         self.data_fetcher     = data_fetcher
@@ -179,6 +194,7 @@ class ChartDataLoaderThread(QThread):
         self.cache_key        = f"{symbol}_{interval}"
         self._stop_requested  = False
         self.days_back_overrides = dict(days_back_overrides or {})
+        self.cache_scope = str(cache_scope or "")
 
     def stop(self) -> None:
         """
@@ -213,6 +229,7 @@ class ChartDataLoaderThread(QThread):
             symbol=self.symbol,
             interval=self.interval,
             days_back_overrides=self.days_back_overrides,
+            cache_scope=self.cache_scope,
         )
 
         # ── Cache hit ─────────────────────────────────────────────────────
@@ -299,6 +316,7 @@ class ChartDataLoaderThread(QThread):
         symbol: str,
         interval: str,
         days_back_overrides: Optional[Dict[str, int]] = None,
+        cache_scope: str = "",
     ) -> tuple[Any, datetime, datetime, str]:
         """Return exchange timezone, date window, and scoped cache key for a chart request.
 
@@ -322,6 +340,9 @@ class ChartDataLoaderThread(QThread):
             from_date = to_date.date() - timedelta(days=days_back)
             from_date_dt = datetime.combine(from_date, dt_time.min, tzinfo=exchange_tz)
         scoped_cache_key = cls._build_cache_key_for_interval(cache_key, interval, to_date)
+        cache_scope = str(cache_scope or "").strip()
+        if cache_scope:
+            scoped_cache_key = f"{scoped_cache_key}_{cache_scope}"
         return exchange_tz, from_date_dt, to_date, scoped_cache_key
 
     @staticmethod
