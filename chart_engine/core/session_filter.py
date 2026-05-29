@@ -12,6 +12,8 @@ logger = logging.getLogger(__name__)
 INTRADAY_INTERVALS = {"minute", "3minute", "5minute", "10minute", "15minute", "30minute", "60minute"}
 US_PREMARKET_OPEN_MINUTES = 4 * 60
 US_RTH_OPEN_MINUTES = 9 * 60 + 30
+US_RTH_CLOSE_MINUTES = 16 * 60
+US_AFTER_HOURS_CLOSE_MINUTES = 20 * 60
 
 
 def is_intraday_interval(interval: Any) -> bool:
@@ -24,8 +26,9 @@ def filter_ibkr_premarket_candles(
     show_premarket_candles: bool,
     broker_name: Any,
     interval: Any,
+    show_postmarket_candles: bool = True,
 ) -> pd.DataFrame:
-    """Return IBKR intraday chart data with premarket bars removed when disabled.
+    """Return IBKR intraday chart data with hidden extended-session bars removed.
 
     IBKR historical intraday bars can arrive either as exchange-local naive
     datetimes or as timezone-aware instants.  Naive values are already the
@@ -35,7 +38,7 @@ def filter_ibkr_premarket_candles(
     if (
         df is None
         or df.empty
-        or bool(show_premarket_candles)
+        or (bool(show_premarket_candles) and bool(show_postmarket_candles))
         or str(broker_name or "").strip().lower() != "ibkr"
         or not is_intraday_interval(interval)
         or "time" not in df.columns
@@ -52,10 +55,15 @@ def filter_ibkr_premarket_candles(
         else:
             exchange_times = times
     except Exception as exc:
-        logger.warning("Unable to filter IBKR premarket candles: %s", exc)
+        logger.warning("Unable to filter IBKR extended-session candles: %s", exc)
         return df
 
     minutes = exchange_times.dt.hour * 60 + exchange_times.dt.minute
-    is_premarket = (minutes >= US_PREMARKET_OPEN_MINUTES) & (minutes < US_RTH_OPEN_MINUTES)
-    keep_mask = times.notna() & ~is_premarket
+    hide_mask = pd.Series(False, index=df.index)
+    if not bool(show_premarket_candles):
+        hide_mask |= (minutes >= US_PREMARKET_OPEN_MINUTES) & (minutes < US_RTH_OPEN_MINUTES)
+    if not bool(show_postmarket_candles):
+        hide_mask |= (minutes > US_RTH_CLOSE_MINUTES) & (minutes <= US_AFTER_HOURS_CLOSE_MINUTES)
+
+    keep_mask = times.notna() & ~hide_mask
     return df.loc[keep_mask].copy()

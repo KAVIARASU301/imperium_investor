@@ -226,11 +226,17 @@ class ChartSettingsDialog(QDialog):
         self.show_premarket_candles.setChecked(self._s.get("show_premarket_candles", True))
         self.show_premarket_candles.setToolTip("IBKR intraday charts only: include 04:00-09:29 America/New_York premarket bars.")
         chart_layout.addRow("Premarket Candles:", self.show_premarket_candles)
+
+        self.show_postmarket_candles = QCheckBox("Show IBKR post market candles")
+        self.show_postmarket_candles.setChecked(self._s.get("show_postmarket_candles", True))
+        self.show_postmarket_candles.setToolTip("IBKR intraday charts only: include 16:01-20:00 America/New_York post market bars.")
+        chart_layout.addRow("Post Market Candles:", self.show_postmarket_candles)
         if self._broker_name != "ibkr":
-            self.show_premarket_candles.hide()
-            label = chart_layout.labelForField(self.show_premarket_candles)
-            if label is not None:
-                label.hide()
+            for checkbox in (self.show_premarket_candles, self.show_postmarket_candles):
+                checkbox.hide()
+                label = chart_layout.labelForField(checkbox)
+                if label is not None:
+                    label.hide()
         tabs.addTab(chart_tab, "Chart")
 
         toggles_tab = QWidget()
@@ -327,6 +333,7 @@ class ChartSettingsDialog(QDialog):
             },
             "right_buffer_candles": self.right_buffer_candles.value(),
             "show_premarket_candles": self.show_premarket_candles.isChecked(),
+            "show_postmarket_candles": self.show_postmarket_candles.isChecked(),
             **{key: cb.isChecked() for key, cb in self.chart_info_toggles.items()},
         }
         self.settings_changed.emit(new)

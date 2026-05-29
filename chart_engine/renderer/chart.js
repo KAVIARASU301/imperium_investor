@@ -91,6 +91,7 @@ class FixedTradingChart {
         this.currentInterval = cfg.currentInterval || 'day';
         this.brokerName = String(cfg.brokerName || '').toLowerCase();
         this.showPremarketCandles = cfg.showPremarketCandles !== false;
+        this.showPostmarketCandles = cfg.showPostmarketCandles !== false;
         this._chartType = cfg.chartType === 'renko' ? 'candle' : (cfg.chartType || 'candle');
         this.heikinAshiData = [];
         this._renkoBoxPctIntraday = cfg.renkoBoxPctIntraday || 0.5;
@@ -3346,7 +3347,10 @@ const US_AFTER_HOURS_CLOSE_MINUTES = 20 * 60;
             ? this._ibkrWallClockMsFromUtc(rawNowMs)
             : rawNowMs;
 
-        if (!this.showPremarketCandles && this._isIbkrPremarketTime(nowMs)) {
+        if (
+            (!this.showPremarketCandles && this._isIbkrPremarketTime(nowMs)) ||
+            (!this.showPostmarketCandles && this._isIbkrPostmarketTime(nowMs))
+        ) {
             this.livePrice = null;
             this._hasLiveTicks = false;
             this.requestDraw();
@@ -3488,6 +3492,9 @@ const US_AFTER_HOURS_CLOSE_MINUTES = 20 * 60;
         this.brokerName = String(cfg.brokerName || this.brokerName || '').toLowerCase();
         if (cfg.showPremarketCandles !== undefined) {
             this.showPremarketCandles = cfg.showPremarketCandles === true;
+        }
+        if (cfg.showPostmarketCandles !== undefined) {
+            this.showPostmarketCandles = cfg.showPostmarketCandles === true;
         }
         if (cfg.chartType !== undefined) {
             this._chartType = cfg.chartType;
@@ -3675,6 +3682,9 @@ const US_AFTER_HOURS_CLOSE_MINUTES = 20 * 60;
         }
         if (cfg.showPremarketCandles !== undefined) {
             this.showPremarketCandles = cfg.showPremarketCandles === true;
+        }
+        if (cfg.showPostmarketCandles !== undefined) {
+            this.showPostmarketCandles = cfg.showPostmarketCandles === true;
         }
         if (cfg.chartType !== undefined) {
             this._chartType = cfg.chartType === 'renko' ? 'candle' : cfg.chartType;
@@ -4025,14 +4035,20 @@ const US_AFTER_HOURS_CLOSE_MINUTES = 20 * 60;
         return minutes !== null && minutes >= US_PREMARKET_OPEN_MINUTES && minutes < US_RTH_OPEN_MINUTES;
     }
 
+    _isIbkrPostmarketTime(epochMs) {
+        const minutes = this._ibkrSessionMinutes(Number(epochMs));
+        return minutes !== null && minutes > US_RTH_CLOSE_MINUTES && minutes <= US_AFTER_HOURS_CLOSE_MINUTES;
+    }
+
     _isIbkrExtendedHoursCandle(candle) {
         if (!candle || this.brokerName !== 'ibkr' || !String(this.currentInterval || '').includes('minute')) return false;
         const minutes = this._ibkrSessionMinutes(Number(candle.time));
         if (minutes === null) return false;
         const isPremarket = minutes >= US_PREMARKET_OPEN_MINUTES && minutes < US_RTH_OPEN_MINUTES;
+        const isPostmarket = minutes > US_RTH_CLOSE_MINUTES && minutes <= US_AFTER_HOURS_CLOSE_MINUTES;
         if (isPremarket && !this.showPremarketCandles) return false;
-        return isPremarket ||
-               (minutes > US_RTH_CLOSE_MINUTES && minutes <= US_AFTER_HOURS_CLOSE_MINUTES);
+        if (isPostmarket && !this.showPostmarketCandles) return false;
+        return isPremarket || isPostmarket;
     }
 
     _fmtExchangeTime(d) {

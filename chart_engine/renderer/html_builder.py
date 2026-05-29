@@ -77,6 +77,7 @@ class ChartHtmlConfig:
     moving_average_configs:  List[Dict] = field(default_factory=list)
     broker_name:             str  = ""
     show_premarket_candles: bool = True
+    show_postmarket_candles: bool = True
     qwebchannel_src:         str   = "qrc:///qtwebchannel/qwebchannel.js"
 
 
@@ -142,6 +143,7 @@ def build_chart_html(cfg: ChartHtmlConfig) -> str:
         "movingAverageConfigs":       cfg.moving_average_configs,
         "brokerName":                 (cfg.broker_name or "").lower(),
         "showPremarketCandles":       bool(cfg.show_premarket_candles),
+        "showPostmarketCandles":      bool(cfg.show_postmarket_candles),
     }
 
     data_json = json.dumps(data_obj)

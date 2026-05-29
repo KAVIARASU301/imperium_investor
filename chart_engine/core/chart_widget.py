@@ -161,6 +161,7 @@ class CandlestickChart(QWidget):
         self._crosshair_snap_enabled    = self.global_chart_settings.get("crosshair_snap_enabled", False)
         self._show_time_slider         = self.global_chart_settings.get("show_time_slider", True)
         self._show_premarket_candles   = self.global_chart_settings.get("show_premarket_candles", True)
+        self._show_postmarket_candles  = self.global_chart_settings.get("show_postmarket_candles", True)
         self._tool_selection_mode       = self.global_chart_settings.get("tool_selection_mode", "single_use")
         self._toolbar_symbol_display    = self.global_chart_settings.get("toolbar_symbol_display", "description")
         self.current_visible_candle_count = self.global_chart_settings.get("default_visible_candles", 100)
@@ -762,7 +763,7 @@ class CandlestickChart(QWidget):
             return
 
         self.last_df = df
-        display_df = self._filter_premarket_candles(df)
+        display_df = self._filter_extended_session_candles(df)
         metrics = calculate_metrics(display_df, self._moving_average_configs)
 
         # ── Build candle + volume arrays ──────────────────────────────────
@@ -826,6 +827,7 @@ class CandlestickChart(QWidget):
                 "initialIndicatorVisibility": self._indicator_visibility,
                 "brokerName":                self._broker_caps.name,
                 "showPremarketCandles":      self._show_premarket_candles,
+                "showPostmarketCandles":     self._show_postmarket_candles,
             }
             loader_method = "refreshHistoricalData" if self._is_periodic_historical_refresh else "loadNewData"
             self._inject_chart_payload(loader_method, payload_dict)
@@ -877,6 +879,7 @@ class CandlestickChart(QWidget):
             moving_average_configs     = self._moving_average_configs,
             broker_name                = self._broker_caps.name,
             show_premarket_candles      = self._show_premarket_candles,
+            show_postmarket_candles     = self._show_postmarket_candles,
         )
 
         self._render_html(cfg)
@@ -889,11 +892,12 @@ class CandlestickChart(QWidget):
         self._is_periodic_historical_refresh = False
 
 
-    def _filter_premarket_candles(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Return chart data with IBKR premarket bars removed when disabled."""
+    def _filter_extended_session_candles(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Return chart data with hidden IBKR extended-session bars removed."""
         return filter_ibkr_premarket_candles(
             df,
             show_premarket_candles=self._show_premarket_candles,
+            show_postmarket_candles=self._show_postmarket_candles,
             broker_name=self._broker_caps.name,
             interval=self.current_interval,
         )
@@ -1570,6 +1574,7 @@ class CandlestickChart(QWidget):
             "crosshair_snap_enabled": self._crosshair_snap_enabled,
             "show_time_slider": self._show_time_slider,
             "show_premarket_candles": self._show_premarket_candles,
+            "show_postmarket_candles": self._show_postmarket_candles,
             "broker_name": self._broker_caps.name,
             "tool_selection_mode": self._tool_selection_mode,
             "toolbar_symbol_display": self._toolbar_symbol_display,
@@ -1605,8 +1610,13 @@ class CandlestickChart(QWidget):
         self._crosshair_snap_enabled     = s.get("crosshair_snap_enabled", self._crosshair_snap_enabled)
         self._show_time_slider          = s.get("show_time_slider", self._show_time_slider)
         previous_show_premarket_candles = bool(self._show_premarket_candles)
+        previous_show_postmarket_candles = bool(self._show_postmarket_candles)
         self._show_premarket_candles    = bool(s.get("show_premarket_candles", self._show_premarket_candles))
-        premarket_visibility_changed    = previous_show_premarket_candles != self._show_premarket_candles
+        self._show_postmarket_candles   = bool(s.get("show_postmarket_candles", self._show_postmarket_candles))
+        extended_session_visibility_changed = (
+            previous_show_premarket_candles != self._show_premarket_candles
+            or previous_show_postmarket_candles != self._show_postmarket_candles
+        )
         self._tool_selection_mode        = s.get("tool_selection_mode", self._tool_selection_mode)
         self._toolbar_symbol_display     = s.get("toolbar_symbol_display", self._toolbar_symbol_display)
         if self.toolbar:
@@ -1651,6 +1661,7 @@ class CandlestickChart(QWidget):
                 "crosshairSnapEnabled": self._crosshair_snap_enabled,
                 "showTimeSlider": self._show_time_slider,
                 "showPremarketCandles": self._show_premarket_candles,
+                "showPostmarketCandles": self._show_postmarket_candles,
                 "toolSelectionMode": self._tool_selection_mode,
                 "infoVisibility": dict(self._chart_info_visibility),
             })
@@ -1665,11 +1676,11 @@ class CandlestickChart(QWidget):
 
             # Rebuild/reload the current chart immediately so settings that are
             # only consumed during chart initialization are applied without
-            # requiring an app restart.  The IBKR premarket toggle is a data-level
-            # filter, so re-apply the last loaded frame synchronously when possible
+            # requiring an app restart.  The IBKR extended-session toggles are data-level
+            # filters, so re-apply the last loaded frame synchronously when possible
             # instead of waiting for an async cache/API round trip.
             if self.current_symbol:
-                if premarket_visibility_changed and self.last_df is not None and not self.last_df.empty:
+                if extended_session_visibility_changed and self.last_df is not None and not self.last_df.empty:
                     self._on_data_loaded(self.last_df.copy(), f"{self.current_symbol}_{self.current_interval}")
                 else:
                     self._load_chart_data()

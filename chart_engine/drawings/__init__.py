@@ -35,6 +35,7 @@ _DEFAULT_GLOBAL_SETTINGS: Dict[str, Any] = {
     "crosshair_snap_enabled": False,
     "show_time_slider": True,
     "show_premarket_candles": True,
+    "show_postmarket_candles": True,
     "tool_selection_mode": "single_use",
     "toolbar_symbol_display": "description",
     "show_watermark_description": True,
