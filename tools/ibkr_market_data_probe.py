@@ -7,6 +7,7 @@ app's MarketDataWorker subscription path.
 
 Examples:
     python tools/ibkr_market_data_probe.py --symbols NVDA AAPL --port 7496
+    python tools/ibkr_market_data_probe.py --symbols NVDA --types 1
     python tools/ibkr_market_data_probe.py --symbols NVDA --types 1,3 --timeout 20
 """
 
@@ -27,7 +28,7 @@ MARKET_DATA_TYPES = {
     3: "delayed",
     4: "delayed-frozen",
 }
-SUBSCRIPTION_ERRORS = {354, 10186}
+SUBSCRIPTION_ERRORS = {354, 10089, 10186}
 DELAYED_NOTICES = {10167, 10168}
 
 
@@ -45,6 +46,8 @@ class ProbeResult:
     ticks_by_symbol: Dict[str, int] = field(default_factory=dict)
     last_prices: Dict[str, float] = field(default_factory=dict)
     errors: List[ProbeError] = field(default_factory=list)
+    stopped_by_user: bool = False
+    live_unavailable: bool = False
 
 
 def _positive_number(*values: Any) -> float:
@@ -72,6 +75,40 @@ def _ticker_price(ticker: Ticker) -> float:
         getattr(ticker, "bid", 0.0),
         getattr(ticker, "ask", 0.0),
     )
+
+
+def _format_number(value: Any) -> str:
+    try:
+        number = float(value)
+    except Exception:
+        return "-"
+    if not math.isfinite(number):
+        return "-"
+    return f"{number:g}"
+
+
+def _format_size(value: Any) -> str:
+    try:
+        number = float(value)
+    except Exception:
+        return "-"
+    if not math.isfinite(number) or number < 0:
+        return "-"
+    return f"{number:g}"
+
+
+def _format_ticker_snapshot(ticker: Ticker) -> str:
+    fields = {
+        "bid": _format_number(getattr(ticker, "bid", float("nan"))),
+        "bidSize": _format_size(getattr(ticker, "bidSize", float("nan"))),
+        "ask": _format_number(getattr(ticker, "ask", float("nan"))),
+        "askSize": _format_size(getattr(ticker, "askSize", float("nan"))),
+        "last": _format_number(getattr(ticker, "last", float("nan"))),
+        "lastSize": _format_size(getattr(ticker, "lastSize", float("nan"))),
+        "close": _format_number(getattr(ticker, "close", float("nan"))),
+        "volume": _format_size(getattr(ticker, "volume", float("nan"))),
+    }
+    return " ".join(f"{name}={value}" for name, value in fields.items())
 
 
 def _parse_types(raw: str) -> List[int]:
@@ -109,7 +146,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--currency", default="USD", help="Contract currency (default: USD)")
     parser.add_argument("--primary-exchange", default="", help="Optional primary exchange, e.g. NASDAQ or NYSE")
     parser.add_argument("--types", type=_parse_types, default=[1, 3], help="Comma-separated market data types: 1/live, 2/frozen, 3/delayed, 4/delayed-frozen")
-    parser.add_argument("--timeout", type=float, default=15.0, help="Seconds to listen per market data type")
+    parser.add_argument("--timeout", type=float, default=0.0, help="Seconds to listen per market data type; 0 means stream until Ctrl-C (default: 0)")
     parser.add_argument("--readonly", action="store_true", help="Connect with readonly=True")
     parser.add_argument("--log-api", action="store_true", help="Enable ib_insync API logging to stderr")
     return parser
@@ -140,7 +177,9 @@ def run_stream_probe(ib: IB, contracts: List[Any], market_data_type: int, timeou
     def on_error(req_id: int, code: int, message: str, contract: Any = None) -> None:
         symbol = (getattr(contract, "symbol", "") or req_id_to_symbol.get(req_id, "")).upper()
         result.errors.append(ProbeError(req_id=req_id, code=code, message=message, symbol=symbol))
-        print(f"  ERROR type={market_data_type} symbol={symbol or '?'} reqId={req_id} code={code}: {message}")
+        if market_data_type == 1 and code in SUBSCRIPTION_ERRORS:
+            result.live_unavailable = True
+        print(f"  ERROR type={market_data_type} symbol={symbol or '?'} reqId={req_id} code={code}: {message}", flush=True)
 
     def on_pending(pending_tickers: List[Ticker]) -> None:
         for ticker in pending_tickers:
@@ -148,12 +187,19 @@ def run_stream_probe(ib: IB, contracts: List[Any], market_data_type: int, timeou
             if not symbol:
                 continue
             price = _ticker_price(ticker)
-            result.ticks_by_symbol[symbol] = result.ticks_by_symbol.get(symbol, 0) + 1
+            tick_count = result.ticks_by_symbol.get(symbol, 0) + 1
+            result.ticks_by_symbol[symbol] = tick_count
             if price > 0:
                 result.last_prices[symbol] = price
-                print(f"  TICK type={market_data_type} symbol={symbol} price={price:g}")
+            timestamp = getattr(ticker, "time", None) or time.strftime("%Y-%m-%d %H:%M:%S")
+            print(
+                f"  TICK #{tick_count} type={market_data_type} symbol={symbol} "
+                f"time={timestamp} marketPrice={_format_number(price)} {_format_ticker_snapshot(ticker)}",
+                flush=True,
+            )
 
-    print(f"\nRequesting {MARKET_DATA_TYPES[market_data_type]} market data type ({market_data_type}) for {timeout:g}s...")
+    duration_text = f"for {timeout:g}s" if timeout > 0 else "until Ctrl-C"
+    print(f"\nRequesting {MARKET_DATA_TYPES[market_data_type]} market data type ({market_data_type}) {duration_text}...")
     ib.errorEvent += on_error
     ib.pendingTickersEvent += on_pending
     try:
@@ -165,14 +211,20 @@ def run_stream_probe(ib: IB, contracts: List[Any], market_data_type: int, timeou
             if req_id is not None:
                 req_id_to_symbol[int(req_id)] = getattr(contract, "symbol", "").upper()
 
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
+        deadline = time.monotonic() + timeout if timeout > 0 else None
+        while deadline is None or time.monotonic() < deadline:
             ib.waitOnUpdate(timeout=0.25)
+            if result.live_unavailable:
+                print("  Live market data is unavailable for this request; falling back to delayed data.", flush=True)
+                break
             for ticker in tickers:
                 symbol = _ticker_symbol(ticker)
                 price = _ticker_price(ticker)
                 if symbol and price > 0:
                     result.last_prices[symbol] = price
+    except KeyboardInterrupt:
+        result.stopped_by_user = True
+        print("\nStop requested by user; cancelling market data subscriptions...")
     finally:
         for ticker in tickers:
             contract = getattr(ticker, "contract", None)
@@ -239,7 +291,28 @@ def main(argv: Optional[List[str]] = None) -> int:
         contracts = qualify_contracts(ib, args.symbols, args.exchange, args.currency, args.primary_exchange)
         if not contracts:
             return 1
-        results = [run_stream_probe(ib, contracts, data_type, args.timeout) for data_type in args.types]
+        if args.timeout <= 0 and len(args.types) > 1:
+            type_names = ", ".join(f"{MARKET_DATA_TYPES[data_type]} ({data_type})" for data_type in args.types)
+            print(
+                "Streaming without a timeout runs until Ctrl-C. "
+                f"Requested types will be probed sequentially: {type_names}. "
+                "If live data is unavailable, the probe automatically falls back to delayed data. "
+                "Use --timeout N to sample each type automatically."
+            )
+
+        results = []
+        data_types_to_probe = list(args.types)
+        while data_types_to_probe:
+            data_type = data_types_to_probe.pop(0)
+            result = run_stream_probe(ib, contracts, data_type, args.timeout)
+            results.append(result)
+            if result.stopped_by_user:
+                break
+            if result.live_unavailable and 3 not in data_types_to_probe and not any(
+                existing.market_data_type == 3 for existing in results
+            ):
+                print("\nSwitching to delayed market data type (3) because live data is unavailable...")
+                data_types_to_probe.insert(0, 3)
         return print_diagnosis(results, args.symbols)
     finally:
         ib.disconnect()

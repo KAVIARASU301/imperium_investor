@@ -1161,15 +1161,24 @@ class CandlestickChart(QWidget):
 
         # FIX: guard on LOADED state — do not touch JS chart during load.
         if self.chart_view and self.current_state == ChartState.LOADED:
-            # Extract today's OHLC from the tick so the JS chart can keep the
-            # active live candle aligned with broker-provided session values.
-            ohlc = tick.get("ohlc") or {}
-            tick_open = float(ohlc.get("open", 0) or 0)
-            tick_high = float(ohlc.get("high", 0) or 0)
-            tick_low = float(ohlc.get("low", 0) or 0)
+            broker_name = str(getattr(self._broker_caps, "name", "") or "").strip().lower()
+
+            # IBKR reqMktData is a Level-1 tick stream (last/bid/ask/size).  Its
+            # Ticker.open/high/low fields are session/day statistics, not the
+            # active chart timeframe candle.  Never pass those daily OHLC values
+            # into updateLivePrice(), otherwise a 1m/5m candle can be stretched to
+            # the full day's range.  Kite full-mode ticks do carry useful session
+            # OHLC for daily candles, so keep that path unchanged.
+            tick_open = tick_high = tick_low = 0.0
+            if broker_name != "ibkr":
+                ohlc = tick.get("ohlc") or {}
+                tick_open = float(ohlc.get("open", 0) or 0)
+                tick_high = float(ohlc.get("high", 0) or 0)
+                tick_low = float(ohlc.get("low", 0) or 0)
 
             tick_volume = None
-            for volume_key in ("volume_traded", "volume", "day_volume"):
+            volume_keys = ("last_size", "last_traded_quantity", "volume_traded", "volume", "day_volume")
+            for volume_key in volume_keys:
                 raw_volume = tick.get(volume_key)
                 if raw_volume in (None, ""):
                     continue

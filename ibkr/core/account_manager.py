@@ -5,7 +5,11 @@ from typing import Any, Dict, Optional
 from PySide6.QtCore import QObject, QThreadPool, Signal, Slot
 
 from ibkr.utils.worker import Worker
-from ibkr.widgets.header_toolbar import _extract_available_balance_from_data, DEFAULT_PAPER_BALANCE
+from ibkr.widgets.header_toolbar import (
+    _extract_account_user_id_from_data,
+    _extract_available_balance_from_data,
+    DEFAULT_PAPER_BALANCE,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +64,7 @@ class AccountManager(QObject):
         profile = self._get_profile_data()
         margins = self._get_margins_data()
         return {
-            "user_id": profile.get("user_id", profile.get("user_name", "DEMO")),
+            "user_id": _extract_account_user_id_from_data(self.trader, profile),
             "available_balance": _extract_available_balance_from_data(self.trader, profile, margins),
         }
 

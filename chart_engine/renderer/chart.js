@@ -3266,8 +3266,15 @@ class FixedTradingChart {
             return nowDay > lastDay;
         }
 
-        // Intraday: use IST-aligned session buckets.
+        // Intraday: Kite historical candles are anchored to the NSE/IST session
+        // grid, while IBKR historical candles are already broker/exchange-time
+        // aligned.  Do not force IBKR live ticks through the IST bucket helper;
+        // just advance from the last loaded historical bar.
         if (!Number.isFinite(intervalMs) || intervalMs <= 0) return false;
+        if (this.brokerName === 'ibkr') {
+            return Number.isFinite(this._nextAlignedIntradayCandleTimeMs(lastTimeMs, nowMs, intervalMs));
+        }
+
         const lastBucket = this._istBucketStartMs(lastTimeMs, intervalMs);
         const nowBucket  = this._istBucketStartMs(nowMs, intervalMs);
         if (!Number.isFinite(lastBucket) || !Number.isFinite(nowBucket)) return false;
@@ -3338,8 +3345,15 @@ class FixedTradingChart {
                         _d.getUTCDate()
                     );
                 } else {
-                    // Intraday: IST-aligned bucket start, anchored at 09:15 IST.
-                    newCandleTime = this._istBucketStartMs(nowMs, intervalMs);
+                    if (this.brokerName === 'ibkr') {
+                        // IBKR streams LTP ticks, not timeframe OHLC bars.  Keep
+                        // live candle boundaries on the same cadence as the
+                        // historical IBKR bars that were loaded first.
+                        newCandleTime = this._nextAlignedIntradayCandleTimeMs(lastTimeMs, nowMs, intervalMs);
+                    } else {
+                        // Kite intraday bars are IST/NSE-session aligned.
+                        newCandleTime = this._istBucketStartMs(nowMs, intervalMs);
+                    }
                     // Sanity: never create a candle at a negative or zero timestamp.
                     if (!Number.isFinite(newCandleTime) || newCandleTime <= 0) {
                         // Fall back — don't append.
@@ -3410,6 +3424,15 @@ class FixedTradingChart {
             // bar spanning the entire day's wick, hiding all other bars visually.
             active.high = Math.max(active.high, price);
             active.low  = Math.min(active.low,  price);
+
+            const parsedTickVolume = Number(tickVolume);
+            if (Number.isFinite(parsedTickVolume) && parsedTickVolume > 0) {
+                active.volume = (Number(active.volume) || 0) + parsedTickVolume;
+                if (this.volumeData.length > 0) {
+                    this.volumeData[this.volumeData.length - 1] = { time: active.time, value: active.volume };
+                }
+                this._volVpKey = null;
+            }
         }
 
         this.requestDraw();

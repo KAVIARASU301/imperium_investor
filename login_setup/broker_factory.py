@@ -12,6 +12,7 @@ from abc import ABC, abstractmethod
 
 from login_setup.broker_modes import BrokerMode, TradingMode, get_broker_config, get_module_path
 from login_setup.token_manager import EnhancedTokenManager
+from ibkr.utils.account_display import extract_account_display_name
 from kite.core.relay_integration import build_relay_client
 
 logger = logging.getLogger(__name__)
@@ -123,19 +124,24 @@ class IBKRClientWrapper(BrokerClientInterface):
             accounts = self.client.managedAccounts()
             account_summary = self.client.accountSummary()
 
+            account_summary_map = {item.tag: item.value for item in account_summary}
+            connection_info = {
+                'host': self.connection_info.get('host', 'unknown'),
+                'port': self.connection_info.get('port', 'unknown'),
+                'client_id': self.connection_info.get('client_id', 'unknown'),
+                'address_family': self.connection_info.get('address_family', 'unknown'),
+                'managed_accounts': self.connection_info.get('managed_accounts', accounts),
+            }
+
             # Enhanced profile with connection info
             profile = {
-                'user_name': accounts[0] if accounts else 'IBKR User',
                 'broker': 'Interactive Brokers',
                 'accounts': accounts,
-                'account_summary': {item.tag: item.value for item in account_summary},
-                'connection_info': {
-                    'host': self.connection_info.get('host', 'unknown'),
-                    'port': self.connection_info.get('port', 'unknown'),
-                    'client_id': self.connection_info.get('client_id', 'unknown'),
-                    'address_family': self.connection_info.get('address_family', 'unknown')
-                }
+                'account_summary': account_summary_map,
+                'connection_info': connection_info,
             }
+            profile['user_id'] = extract_account_display_name(self, profile) or 'IBKR User'
+            profile['user_name'] = profile['user_id']
             return profile
         except Exception as e:
             logger.error(f"Error getting IBKR profile: {e}")

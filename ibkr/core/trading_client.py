@@ -18,6 +18,8 @@ from typing import Any, Dict, List, Optional
 
 from PySide6.QtCore import QObject, Signal, QTimer
 
+from ibkr.utils.account_display import extract_account_display_name
+
 try:
     from ib_insync import IB, Contract, Stock, MarketOrder, LimitOrder, StopOrder, StopLimitOrder, Trade, Position, Ticker
     IBKR_AVAILABLE = True
@@ -257,14 +259,16 @@ class IBKRTradingClient(QObject):
         try:
             accounts = self.ib.managedAccounts() if self.ib else []
             summary = self.get_account_summary()
-            return {
-                "user_name": accounts[0] if accounts else "Unknown",
+            profile = {
                 "broker": "Interactive Brokers",
                 "trading_mode": _mode_value(self.trading_mode),
                 "accounts": accounts,
                 "account_summary": summary,
                 "connection_status": self.is_connected(),
             }
+            profile["user_id"] = extract_account_display_name(self, profile) or "Unknown"
+            profile["user_name"] = profile["user_id"]
+            return profile
         except Exception as exc:
             logger.error("Error getting IBKR profile: %s", exc)
             return {"error": str(exc)}

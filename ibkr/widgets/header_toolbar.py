@@ -94,6 +94,74 @@ _PRIMARY_ACTION_ICON = 12  # BUY / SELL / INFO use visually smaller normal icons
 
 # ── Data helpers ─────────────────────────────────────────────────────────────
 
+def _extract_account_user_id_from_data(trader: Any, profile: Dict[str, Any]) -> str:
+    """Return the most useful account/user identifier for the header chip.
+
+    IBKR live mode often passes the raw ``ib_insync.IB`` instance into the
+    toolbar/account manager.  That object does not expose the Kite-style
+    ``profile()``/``get_profile()`` methods, but it does expose
+    ``managedAccounts()`` (the same API used by the tools probe).  Prefer the
+    actual managed account id whenever profile data is missing or contains a
+    placeholder.
+    """
+    placeholders = {"", "N/A", "NA", "NONE", "NULL", "DEMO", "IBKR USER"}
+
+    def _clean(value: Any) -> str:
+        text = str(value or "").strip()
+        return "" if text.upper() in placeholders else text
+
+    for key in ("user_id", "user_name", "account", "account_id"):
+        candidate = _clean(profile.get(key))
+        if candidate:
+            return candidate
+
+    for accounts_key in ("accounts", "managed_accounts"):
+        accounts = profile.get(accounts_key)
+        if isinstance(accounts, (list, tuple)):
+            for account in accounts:
+                candidate = _clean(account)
+                if candidate:
+                    return candidate
+        elif accounts:
+            candidate = _clean(accounts)
+            if candidate:
+                return candidate
+
+    for attr_name in ("managedAccounts", "managed_accounts"):
+        attr = getattr(trader, attr_name, None)
+        if callable(attr):
+            try:
+                managed_accounts = attr() or []
+            except Exception as exc:
+                logger.warning("Unable to fetch IBKR managed accounts: %s", exc)
+                continue
+            if isinstance(managed_accounts, str):
+                managed_accounts = [managed_accounts]
+            for account in managed_accounts:
+                candidate = _clean(account)
+                if candidate:
+                    return candidate
+
+    connection_info = profile.get("connection_info")
+    if isinstance(connection_info, dict):
+        for key in ("account", "account_id", "user_id"):
+            candidate = _clean(connection_info.get(key))
+            if candidate:
+                return candidate
+        managed_accounts = connection_info.get("managed_accounts")
+        if isinstance(managed_accounts, (list, tuple)):
+            for account in managed_accounts:
+                candidate = _clean(account)
+                if candidate:
+                    return candidate
+        elif managed_accounts:
+            candidate = _clean(managed_accounts)
+            if candidate:
+                return candidate
+
+    return "DEMO"
+
+
 def _extract_available_balance_from_data(
     trader: Any,
     profile: Dict[str, Any],
@@ -1017,7 +1085,7 @@ class HeaderToolbar(QToolBar):
         profile = self._get_profile_data()
         margins = self._get_margins_data()
         return {
-            "user_id": profile.get("user_id", profile.get("user_name", "DEMO")),
+            "user_id": _extract_account_user_id_from_data(self.trader, profile),
             "available_balance": self._extract_available_balance(profile, margins),
         }
 
@@ -1065,7 +1133,7 @@ class HeaderToolbar(QToolBar):
         return _extract_available_balance_from_data(self.trader, profile, margins)
 
     def _update_account_display(self):
-        profile_user_id = str(self._account_info.get("user_id", "DEMO")).strip() or "DEMO"
+        profile_user_id = _extract_account_user_id_from_data(self.trader, self._account_info)
         display_name = self._preferred_username if self._preferred_username else profile_user_id
         self.user_id_label.setText(display_name)
         balance = self._account_info.get("available_balance", 0.0)

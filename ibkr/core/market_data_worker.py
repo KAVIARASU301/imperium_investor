@@ -770,26 +770,45 @@ class MarketDataWorker(QThread):
             return None
 
         market_price = _clean_float(ticker.marketPrice() if hasattr(ticker, "marketPrice") else 0.0, 0.0)
+
+        # reqMktData delivers Level-1 fields.  For charting we want the last
+        # traded price (or delayed last) first; marketPrice() can fall back to a
+        # bid/ask midpoint, which is useful for watchlists but must not override
+        # an actual LTP.
         last_price = _positive_price(
-            market_price,
             getattr(ticker, "last", 0.0),
             getattr(ticker, "delayedLast", 0.0),
-            getattr(ticker, "close", 0.0),
-            getattr(ticker, "delayedClose", 0.0),
-            getattr(ticker, "bid", 0.0),
-            getattr(ticker, "delayedBid", 0.0),
-            getattr(ticker, "ask", 0.0),
-            getattr(ticker, "delayedAsk", 0.0),
         )
         latest_trade_time = None
-        latest_trade_size = 0.0
+        latest_trade_size = _positive_price(
+            getattr(ticker, "lastSize", 0.0),
+            getattr(ticker, "delayedLastSize", 0.0),
+        )
+
+        # ib_insync keeps recent low-level TickData in ticker.ticks.  Only tick
+        # types 4/68 are Last/DelayedLast prices; bid/ask ticks must not become
+        # chart LTP updates.
         for tick_data in reversed(list(getattr(ticker, "ticks", []) or [])):
+            tick_type = int(getattr(tick_data, "tickType", -1) or -1)
+            if tick_type not in {4, 68}:
+                continue
             tick_price = _clean_float(getattr(tick_data, "price", 0.0), 0.0)
             if tick_price > 0:
                 last_price = tick_price
                 latest_trade_time = getattr(tick_data, "time", None)
-                latest_trade_size = _clean_float(getattr(tick_data, "size", 0.0), 0.0)
+                latest_trade_size = _clean_float(getattr(tick_data, "size", 0.0), latest_trade_size)
                 break
+
+        if last_price <= 0:
+            last_price = _positive_price(
+                market_price,
+                getattr(ticker, "close", 0.0),
+                getattr(ticker, "delayedClose", 0.0),
+                getattr(ticker, "bid", 0.0),
+                getattr(ticker, "delayedBid", 0.0),
+                getattr(ticker, "ask", 0.0),
+                getattr(ticker, "delayedAsk", 0.0),
+            )
         if last_price <= 0:
             return None
 
