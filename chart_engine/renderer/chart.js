@@ -135,7 +135,6 @@ class FixedTradingChart {
         this.visibleCandleCount = 100;                         // computed — don't use cfg value
         this.viewPortEnd   = Math.max(0, this.data.length - 1 + this.rightBufferCandles);
         this.viewPortStart = 0;                                // recalculated in _updateViewport()
-        this._leftBoundaryOverscrollPx = 0;
 
         // ── Bounds ──
         this.minPrice = 0; this.maxPrice = 0;
@@ -394,41 +393,14 @@ class FixedTradingChart {
         return this.candleWidth + this.candleSpacing;
     }
 
-    _maxViewportEnd() {
-        return Math.max(0, this.data.length - 1 + this.rightBufferCandles);
-    }
-
-    _rightAlignedViewportStart(vis = this.visibleCandleCount) {
-        return this._maxViewportEnd() - Math.max(1, vis) + 1;
-    }
-
-    _clampViewportStart(start, vis = this.visibleCandleCount) {
-        const maxStart = Math.max(0, this._rightAlignedViewportStart(vis));
-        return Math.max(0, Math.min(maxStart, start));
-    }
-
-    _setViewportFromStart(start, vis = this.visibleCandleCount) {
-        const safeVis = Math.max(1, vis);
-        this.visibleCandleCount = safeVis;
-        this.viewPortStart = this._clampViewportStart(start, safeVis);
-        this.viewPortEnd = this.viewPortStart + safeVis - 1;
-    }
-
-    _alignViewportToLatest() {
-        this._setViewportFromStart(this._rightAlignedViewportStart(this.visibleCandleCount), this.visibleCandleCount);
-    }
-
     _updateViewport() {
         // Derive how many candles fit given the current chartArea width and slot size.
         // viewPortEnd is the anchor (panned position); viewPortStart follows.
-        // Clamp the start at zero: when there are fewer candles than the visible
-        // slots, extra empty space on the right is expected and preferable to
-        // inventing negative candle slots before the loaded history.
         if (!this.chartArea) return;
         const slotW = this._slotW();
         const vis   = Math.max(1, Math.floor(this.chartArea.width / slotW));
-        const anchoredStart = this.viewPortEnd - vis + 1;
-        this._setViewportFromStart(anchoredStart, vis);
+        this.visibleCandleCount = vis;
+        this.viewPortStart = Math.max(0, this.viewPortEnd - vis + 1);
     }
 
     _computeRightAxisWidth() {
@@ -2290,40 +2262,40 @@ class FixedTradingChart {
             const slotW = this._slotW();
 
             if (Math.abs(this.panOffsetPx) >= slotW) {
-                // Math.floor() over-shoots for negative values (e.g. -1.1 -> -2),
-                // which made left/right drag feel jumpy.  Truncating moves exactly
-                // the number of complete candle slots covered by this drag delta.
-                const shift = Math.trunc(this.panOffsetPx / slotW);
+                const shift = Math.floor(this.panOffsetPx / slotW);
                 this.panOffsetPx -= shift * slotW;
 
                 const vis = this.visibleCandleCount;
-                this._setViewportFromStart(this.viewPortStart - shift, vis);
+                let newStart = this.viewPortStart - shift;
+                let newEnd = newStart + vis - 1;
+
+                const maxEnd = this.data.length - 1 + this.rightBufferCandles;
+
+                if (newStart < 0) {
+                    newStart = 0;
+                    newEnd = newStart + vis - 1;
+                } else if (newEnd > maxEnd) {
+                    newEnd = maxEnd;
+                    newStart = newEnd - vis + 1;
+                }
+
+                this.viewPortStart = newStart;
+                this.viewPortEnd = newEnd;
                 this.updateSlider();
                 if (engine) engine.rebuildSpatialHash();
             }
 
-            // Hard boundaries to stop panning past edges.  Lazy-load older history
-            // only after an intentional overscroll at the true oldest candle; this
-            // avoids IBKR charts jumping to the oldest candle on a normal click-drag.
-            const newestStart = Math.max(0, this._rightAlignedViewportStart(this.visibleCandleCount));
-            const oldestStart = 0;
-            if (this.viewPortStart <= oldestStart && this.panOffsetPx > 0) {
-                this._leftBoundaryOverscrollPx = (this._leftBoundaryOverscrollPx || 0) + this.panOffsetPx;
-                if (this._leftBoundaryOverscrollPx > slotW * 6 &&
-                    !this._olderDataRequestPending &&
-                    this.chartBridge && typeof this.chartBridge.notify_older_data_requested === 'function') {
+            // Hard boundaries to stop panning past edges
+            const maxEnd = this.data.length - 1 + this.rightBufferCandles;
+            if (this.viewPortStart <= 0 && this.panOffsetPx > 0) {
+                if (!this._olderDataRequestPending && this.chartBridge && typeof this.chartBridge.notify_older_data_requested === 'function') {
                     this._olderDataRequestPending = true;
                     try { this.chartBridge.notify_older_data_requested(); } catch (err) { console.error("notify_older_data_requested error:", err); }
                     setTimeout(() => { this._olderDataRequestPending = false; }, 1200);
-                    this._leftBoundaryOverscrollPx = 0;
                 }
                 this.panOffsetPx = 0;
-            } else if (this.viewPortStart >= newestStart && this.panOffsetPx < 0) {
-                this.panOffsetPx = 0;
-                this._leftBoundaryOverscrollPx = 0;
-            } else if (dx <= 0) {
-                this._leftBoundaryOverscrollPx = 0;
             }
+            if (this.viewPortEnd >= maxEnd && this.panOffsetPx < 0) this.panOffsetPx = 0;
 
             // Automatically unlock Auto-Scale on intentional vertical drag.
             // A tiny threshold prevents accidental unlocks on pure horizontal pan.
@@ -2517,7 +2489,10 @@ class FixedTradingChart {
         // anchorCandle stays at anchorFrac of the chart width.
         const vis      = Math.max(1, Math.floor(this.chartArea.width / this._slotW()));
         const newStart = Math.round(anchorCandle - anchorFrac * vis);
-        this._setViewportFromStart(newStart, vis);
+        this.viewPortStart      = Math.max(0, Math.min(newStart,
+                                    this.data.length + this.rightBufferCandles - vis));
+        this.viewPortEnd        = this.viewPortStart + vis - 1;
+        this.visibleCandleCount = vis;
 
         this.calculateBounds();
         this.requestDraw();
@@ -2735,10 +2710,11 @@ class FixedTradingChart {
             const ratio   = trackW > thumbW ? newLeft / (trackW - thumbW) : 0;
             this.sliderThumb.style.left = newLeft + 'px';
 
+            const total   = this.data.length + this.rightBufferCandles;
             const visCount = this.viewPortEnd - this.viewPortStart + 1;
-            const minStart = 0;
-            const maxStart = Math.max(0, this._rightAlignedViewportStart(visCount));
-            this._setViewportFromStart(Math.round(minStart + ratio * (maxStart - minStart)), visCount);
+            const maxStart = Math.max(0, total - visCount);
+            this.viewPortStart = Math.round(ratio * maxStart);
+            this.viewPortEnd   = this.viewPortStart + visCount - 1;
             this.panOffsetPx   = 0;
             this.calculateBounds();
             this.requestDraw();
@@ -2757,10 +2733,9 @@ class FixedTradingChart {
         if (!this.showTimeSlider || !this.sliderThumb || !this.sliderTrack) return;
         const total  = Math.max(1, this.data.length + this.rightBufferCandles);
         const vis    = this.viewPortEnd - this.viewPortStart + 1;
-        const thumbW = Math.max(40, Math.round((Math.min(vis, total) / total) * this.sliderTrack.clientWidth));
-        const minStart = 0;
-        const maxStart = Math.max(0, this._rightAlignedViewportStart(vis));
-        const ratio  = maxStart > minStart ? (this.viewPortStart - minStart) / (maxStart - minStart) : 1;
+        const thumbW = Math.max(40, Math.round((vis / total) * this.sliderTrack.clientWidth));
+        const maxStart = Math.max(0, total - vis);
+        const ratio  = maxStart > 0 ? this.viewPortStart / maxStart : 1;
         const trackW = this.sliderTrack.clientWidth;
         const maxLeft= Math.max(0, trackW - thumbW);
         this.sliderThumb.style.width = thumbW + 'px';
@@ -3581,7 +3556,6 @@ const US_AFTER_HOURS_CLOSE_MINUTES = 20 * 60;
 
         // Reset viewport state.
         this.panOffsetPx = 0;
-        this._leftBoundaryOverscrollPx = 0;
         this.isUserYRange = false;          // always reset auto-scale on symbol switch
         this._volVpKey = null;
         this._cachedMaxVolume = 1;
@@ -3591,7 +3565,7 @@ const US_AFTER_HOURS_CLOSE_MINUTES = 20 * 60;
         // visibleCandleCount is computed from the correct chartArea.width.
         // Previously _updateViewport() was called before _updateChartAreas(),
         // so chartArea could still have the previous symbol's geometry.
-        this.viewPortEnd = this._maxViewportEnd();
+        this.viewPortEnd = Math.max(0, this.data.length - 1 + this.rightBufferCandles);
 
         // Recompute chart geometry with fresh data length / indicator visibility.
         this._updateChartAreas();           // ← must come BEFORE _updateViewport
@@ -3639,7 +3613,6 @@ const US_AFTER_HOURS_CLOSE_MINUTES = 20 * 60;
         // Minute-boundary historical refresh should NOT reset user's viewport
         // or y-axis range. Preserve current navigation context and reuse the
         // common load path, then restore.
-        const prevMaxEnd = this._maxViewportEnd();
         const prev = {
             viewPortStart: this.viewPortStart,
             viewPortEnd: this.viewPortEnd,
@@ -3647,25 +3620,14 @@ const US_AFTER_HOURS_CLOSE_MINUTES = 20 * 60;
             maxPrice: this.maxPrice,
             isUserYRange: this.isUserYRange,
             panOffsetPx: this.panOffsetPx,
-            wasAtLatest: this.viewPortEnd >= prevMaxEnd - 1,
         };
 
         this.loadNewData(cfg);
 
-        const maxEnd = this._maxViewportEnd();
-        const vis = Math.max(1, prev.viewPortEnd - prev.viewPortStart + 1);
-        if (prev.wasAtLatest) {
-            // IBKR symbol switches paint a short fast-history window first, then
-            // replace it with the full history a moment later.  Preserving the
-            // fast window's absolute start index against the longer dataset
-            // jumps the user to the oldest candles; keep latest-anchored views
-            // latest-anchored across that replacement.
-            this._setViewportFromStart(this._rightAlignedViewportStart(vis), vis);
-        } else {
-            this._setViewportFromStart(prev.viewPortStart, vis);
-            if (this.viewPortEnd > maxEnd) this._alignViewportToLatest();
-        }
-        this.panOffsetPx = prev.wasAtLatest ? 0 : (prev.panOffsetPx || 0);
+        const maxEnd = Math.max(0, this.data.length - 1 + this.rightBufferCandles);
+        this.viewPortEnd = Math.max(0, Math.min(maxEnd, prev.viewPortEnd));
+        this.viewPortStart = Math.max(0, Math.min(this.viewPortEnd, prev.viewPortStart));
+        this.panOffsetPx = prev.panOffsetPx || 0;
 
         this.isUserYRange = !!prev.isUserYRange;
         if (this.isUserYRange && Number.isFinite(prev.minPrice) && Number.isFinite(prev.maxPrice) && prev.maxPrice > prev.minPrice) {
@@ -3722,7 +3684,7 @@ const US_AFTER_HOURS_CLOSE_MINUTES = 20 * 60;
             const targetW = Math.max(2, Math.floor(this.chartArea.width / count) - this.candleSpacing);
             this.candleWidth = Math.max(2, Math.min(60, targetW));
         }
-        this.viewPortEnd = this._maxViewportEnd();
+        this.viewPortEnd = Math.max(0, this.data.length - 1 + this.rightBufferCandles);
         this._updateViewport();
         this.calculateBounds();
         this.requestDraw();
@@ -3784,7 +3746,7 @@ const US_AFTER_HOURS_CLOSE_MINUTES = 20 * 60;
         }
         // If slot dimensions changed, recalculate how many candles fit.
         if (slotChanged || cfg.rightBufferCandles !== undefined) {
-            this.viewPortEnd = this._maxViewportEnd();
+            this.viewPortEnd = Math.max(0, this.data.length - 1 + this.rightBufferCandles);
             this._updateViewport();
             this.calculateBounds();
         }
@@ -3852,7 +3814,7 @@ const US_AFTER_HOURS_CLOSE_MINUTES = 20 * 60;
     }
 
     autoScale() {
-        this.viewPortEnd = this._maxViewportEnd();
+        this.viewPortEnd = Math.max(0, this.data.length - 1 + this.rightBufferCandles);
         this._updateViewport();
         this.calculateBounds();
         this.requestDraw();

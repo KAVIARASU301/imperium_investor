@@ -51,20 +51,6 @@ IBKR_DYNAMIC_DAYS_BACK: Dict[str, int] = {
     "day": 365,
 }
 
-# Short IBKR windows used while rapidly navigating between symbols.  These
-# render quickly, then the chart widget follows up with a force-refresh full
-# history request once the first paint has completed.
-IBKR_FAST_SWITCH_DAYS_BACK: Dict[str, int] = {
-    "minute": 2,
-    "3minute": 3,
-    "5minute": 5,
-    "10minute": 5,
-    "15minute": 5,
-    "30minute": 10,
-    "60minute": 30,
-    "day": 180,
-}
-
 
 def resolve_days_back(interval: str, overrides: Optional[Dict[str, int]] = None) -> int:
     base = int(DEFAULT_DAYS_BACK.get(interval, 365))
@@ -182,7 +168,6 @@ class ChartDataLoaderThread(QThread):
         force_refresh: bool = False,
         parent=None,
         days_back_overrides: Optional[Dict[str, int]] = None,
-        cache_scope: str = "",
     ):
         super().__init__(parent)
         self.data_fetcher     = data_fetcher
@@ -194,7 +179,6 @@ class ChartDataLoaderThread(QThread):
         self.cache_key        = f"{symbol}_{interval}"
         self._stop_requested  = False
         self.days_back_overrides = dict(days_back_overrides or {})
-        self.cache_scope = str(cache_scope or "")
 
     def stop(self) -> None:
         """
@@ -224,13 +208,22 @@ class ChartDataLoaderThread(QThread):
         # be reused for the wrong session and make the latest completed candle
         # appear/disappear until the TTL expires.
         caps = self.data_fetcher.capabilities
-        exchange_tz, from_date_dt, to_date, scoped_cache_key = self.build_request_context(
-            caps=caps,
-            symbol=self.symbol,
-            interval=self.interval,
-            days_back_overrides=self.days_back_overrides,
-            cache_scope=self.cache_scope,
-        )
+        exchange_tz = ZoneInfo(caps.exchange_tz)
+        now_exchange = datetime.now(tz=exchange_tz)
+
+        broker_name = str(getattr(caps, "name", "")).lower()
+        to_date = self._effective_to_date(now_exchange, broker_name)
+        days_back = resolve_days_back(self.interval, self.days_back_overrides)
+        if broker_name == "ibkr":
+            days_back = int(self.days_back_overrides.get(self.interval, IBKR_DYNAMIC_DAYS_BACK.get(self.interval, days_back)))
+            # IBKR historical requests are duration-based from endDateTime.
+            # Use a true rolling window ending at the current exchange timestamp
+            # so "100 days" means now back 100 days and always includes today.
+            from_date_dt = to_date - timedelta(days=days_back)
+        else:
+            from_date = to_date.date() - timedelta(days=days_back)
+            from_date_dt = datetime.combine(from_date, dt_time.min, tzinfo=exchange_tz)
+        scoped_cache_key = self._build_cache_key(to_date)
 
         # ── Cache hit ─────────────────────────────────────────────────────
         if not self.force_refresh:
@@ -297,10 +290,7 @@ class ChartDataLoaderThread(QThread):
         self._emit_progress(90)
 
         # ── Cache and emit ────────────────────────────────────────────────
-        try:
-            self.cache.set(scoped_cache_key, df, interval=self.interval)
-        except TypeError:
-            self.cache.set(scoped_cache_key, df)
+        self.cache.set(scoped_cache_key, df)
 
         self._emit_progress(100)
 
@@ -308,68 +298,22 @@ class ChartDataLoaderThread(QThread):
             self.data_loaded.emit(df, self.cache_key)
 
 
-
-    @classmethod
-    def build_request_context(
-        cls,
-        caps: BrokerCapabilities,
-        symbol: str,
-        interval: str,
-        days_back_overrides: Optional[Dict[str, int]] = None,
-        cache_scope: str = "",
-    ) -> tuple[Any, datetime, datetime, str]:
-        """Return exchange timezone, date window, and scoped cache key for a chart request.
-
-        The chart widget uses this before creating a worker thread so cached
-        symbol switches can render immediately on the GUI thread.  The worker
-        uses the same helper to guarantee the cache key and request window stay
-        identical between the fast path and background fetch path.
-        """
-        interval = str(interval or "day")
-        cache_key = f"{symbol}_{interval}"
-        overrides = dict(days_back_overrides or {})
-        exchange_tz = ZoneInfo(caps.exchange_tz)
-        now_exchange = datetime.now(tz=exchange_tz)
-        broker_name = str(getattr(caps, "name", "")).lower()
-        to_date = cls._effective_to_date_for_interval(now_exchange, interval, broker_name)
-        days_back = resolve_days_back(interval, overrides)
-        if broker_name == "ibkr":
-            days_back = int(overrides.get(interval, IBKR_DYNAMIC_DAYS_BACK.get(interval, days_back)))
-            from_date_dt = to_date - timedelta(days=days_back)
-        else:
-            from_date = to_date.date() - timedelta(days=days_back)
-            from_date_dt = datetime.combine(from_date, dt_time.min, tzinfo=exchange_tz)
-        scoped_cache_key = cls._build_cache_key_for_interval(cache_key, interval, to_date)
-        cache_scope = str(cache_scope or "").strip()
-        if cache_scope:
-            scoped_cache_key = f"{scoped_cache_key}_{cache_scope}"
-        return exchange_tz, from_date_dt, to_date, scoped_cache_key
-
-    @staticmethod
-    def _effective_to_date_for_interval(now_exchange: datetime, interval: str, broker_name: str = "") -> datetime:
+    def _effective_to_date(self, now_exchange: datetime, broker_name: str = "") -> datetime:
         if broker_name == "ibkr":
             return now_exchange
-        if interval == "day":
+        if self.interval == "day":
             return datetime.combine(now_exchange.date(), dt_time(23, 59, 59), tzinfo=now_exchange.tzinfo)
-        if interval in {"week", "month"}:
+        if self.interval in {"week", "month"}:
             d = now_exchange.date()
             if now_exchange.time() < dt_time(16, 0):
                 d = d - timedelta(days=1)
             return datetime.combine(d, dt_time(23, 59, 59), tzinfo=now_exchange.tzinfo)
         return now_exchange
 
-    @staticmethod
-    def _build_cache_key_for_interval(cache_key: str, interval: str, to_date: datetime) -> str:
-        if interval in {"day", "week", "month"}:
-            return f"{cache_key}_{to_date.strftime('%Y%m%d')}"
-        return cache_key
-
-
-    def _effective_to_date(self, now_exchange: datetime, broker_name: str = "") -> datetime:
-        return self._effective_to_date_for_interval(now_exchange, self.interval, broker_name)
-
     def _build_cache_key(self, to_date: datetime) -> str:
-        return self._build_cache_key_for_interval(self.cache_key, self.interval, to_date)
+        if self.interval in {"day", "week", "month"}:
+            return f"{self.cache_key}_{to_date.strftime('%Y%m%d')}"
+        return self.cache_key
 
     def _emit_progress(self, value: int) -> None:
         try:
