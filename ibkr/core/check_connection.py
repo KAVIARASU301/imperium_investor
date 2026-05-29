@@ -40,7 +40,7 @@ def print_ohlc_bars(symbol: str, bars) -> None:
 def check():
     ib = IB()
     hosts = ["127.0.0.1", "::1"]
-    ports = [4002,4001,7497,7496 ]  # 7497=TWS paper, 7496=TWS live, 4002=Gateway paper
+    ports = [7496]  # IBKR mode connects to local TWS/Gateway on 7496
 
     for host in hosts:
         for port in ports:

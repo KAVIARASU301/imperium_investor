@@ -70,7 +70,7 @@ BROKER_CONFIGS = {
         auth_type="tws_connection",
         module_path="ibkr",
         default_ports={
-            "paper": 7497,
+            "paper": 7496,
             "live": 7496
         },
         supported_trading_modes=[TradingMode.LIVE, TradingMode.PAPER],

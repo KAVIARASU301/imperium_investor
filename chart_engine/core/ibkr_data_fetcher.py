@@ -199,8 +199,6 @@ class IBKRDataFetcher(BrokerDataFetcher):
             to_date: datetime,
             interval: str,
     ) -> List[BarData]:
-        from ib_insync import Contract, Stock
-
         bar_size = IBKR_INTERVAL_MAP.get(interval, "1 day")
         duration_str = self._compute_duration(from_date, to_date, bar_size)
         end_dt_str = self._format_end_datetime(to_date)
@@ -212,23 +210,19 @@ class IBKRDataFetcher(BrokerDataFetcher):
         qualified_once = contract is not None
 
         if contract is None and con_id > 0:
-            contract = Contract()
-            contract.conId = con_id
-            contract.symbol = symbol
-            contract.secType = "STK"
-            contract.exchange = "SMART"
-            contract.currency = "USD"
+            contract = await self._qualify_by_con_id_async(ib, symbol, con_id)
+            qualified_once = True
+            self._cache_contract_aliases(symbol, contract, preferred_key=cache_key)
         elif contract is None:
-            stock = Stock(symbol, "SMART", "USD")
-            try:
-                qualified = await ib.qualifyContractsAsync(stock)
-                if not qualified:
-                    raise ValueError(f"Could not qualify contract for {symbol}")
-                contract = qualified[0]
-                qualified_once = True
-                self._cache_contract_aliases(symbol, contract, preferred_key=cache_key)
-            except Exception as e:
-                raise ValueError(f"Could not qualify contract for {symbol}: {e}") from e
+            contract = await self._qualify_by_symbol_async(ib, symbol)
+            qualified_once = True
+            self._cache_contract_aliases(symbol, contract, preferred_key=cache_key)
+        elif getattr(contract, "conId", 0):
+            qualified_once = True
+        else:
+            contract = await self._qualify_by_symbol_async(ib, symbol)
+            qualified_once = True
+            self._cache_contract_aliases(symbol, contract, preferred_key=cache_key)
 
         try:
             bars = await self._request_historical_bars_async(
@@ -379,6 +373,17 @@ class IBKRDataFetcher(BrokerDataFetcher):
 
         return last_bars
 
+    async def _qualify_by_symbol_async(self, ib, symbol: str):
+        from ib_insync import Stock
+        stock = Stock(symbol, "SMART", "USD")
+        try:
+            qualified = await ib.qualifyContractsAsync(stock)
+            if not qualified:
+                raise ValueError(f"Could not qualify contract for {symbol}")
+            return qualified[0]
+        except Exception as e:
+            raise ValueError(f"Could not qualify contract for {symbol}: {e}") from e
+
     async def _qualify_by_con_id_async(self, ib, symbol: str, con_id: int):
         from ib_insync import Contract
         contract = Contract()
@@ -448,6 +453,11 @@ class IBKRDataFetcher(BrokerDataFetcher):
         if self._last_history_endpoint:
             add(*self._last_history_endpoint)
 
+        # IBKR mode is intentionally live-TWS/Gateway first: resolve/qualify and
+        # historical candles come from the local API endpoint before streaming
+        # reqMktData() is used for LTP-style updates.
+        add(os.environ.get("IBKR_HOST", "127.0.0.1"), os.environ.get("IBKR_PORT", "7496"))
+
         client = getattr(self._ib, "client", None)
         for obj in (client, getattr(client, "conn", None), self._ib):
             if obj is None: continue
@@ -455,9 +465,8 @@ class IBKRDataFetcher(BrokerDataFetcher):
             p = getattr(obj, "port", None) or getattr(obj, "_port", None)
             if h and p: add(h, p)
 
-        for host in ("127.0.0.1", "localhost", "::1"):
-            for port in (7496, 4001, 7497, 4002):
-                add(host, port)
+        add("localhost", 7496)
+        add("::1", 7496)
         return candidates
 
     def resolve_instrument(self, symbol: str):

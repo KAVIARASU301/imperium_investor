@@ -133,9 +133,9 @@ class MarketDataWorker(QThread):
         """Extract TWS/Gateway endpoint details from the authenticated IB client.
 
         The market-data worker opens its own IBKR API session.  It must connect
-        to the same TWS/Gateway endpoint as login; otherwise live sessions on
-        7496 accidentally try the paper default 7497, fall back to the shared
-        cross-thread IB object, and no pending ticker events reach the watchlist.
+        to the same TWS/Gateway endpoint as login; the IBKR architecture defaults
+        to 127.0.0.1:7496 so secondary sessions do not guess a paper endpoint,
+        fall back to the shared cross-thread IB object, and stall watchlist ticks.
         """
         client = getattr(ib_client, "client", None)
 
@@ -148,10 +148,10 @@ class MarketDataWorker(QThread):
             port = int(
                 getattr(ib_client, "_qullamaggie_port", 0)
                 or getattr(client, "port", 0)
-                or os.environ.get("IBKR_PORT", "7497")
+                or os.environ.get("IBKR_PORT", "7496")
             )
         except (TypeError, ValueError):
-            port = 7497
+            port = 7496
         try:
             base_client_id = int(
                 getattr(ib_client, "_qullamaggie_client_id", 0)
@@ -807,12 +807,11 @@ class MarketDataWorker(QThread):
             with self._lock:
                 symbol = self._key_to_symbol.get(key, "")
 
-        market_price = _clean_float(ticker.marketPrice() if hasattr(ticker, "marketPrice") else 0.0, 0.0)
-
-        # reqMktData delivers Level-1 fields.  For charting we want the last
-        # traded price (or delayed last) first; marketPrice() can fall back to a
-        # bid/ask midpoint, which is useful for watchlists but must not override
-        # an actual LTP.
+        # reqMktData delivers Level-1 fields.  Per the IBKR data architecture,
+        # stream ticks may feed only LTP-style fields: last/delayedLast first,
+        # then close/delayedClose as a non-trading-session fallback.  Never let
+        # bid/ask/marketPrice update chart candles, watchlist prices, or scanner
+        # prices.
         last_price = _positive_price(
             getattr(ticker, "last", 0.0),
             getattr(ticker, "delayedLast", 0.0),
@@ -839,13 +838,8 @@ class MarketDataWorker(QThread):
 
         if last_price <= 0:
             last_price = _positive_price(
-                market_price,
                 getattr(ticker, "close", 0.0),
                 getattr(ticker, "delayedClose", 0.0),
-                getattr(ticker, "bid", 0.0),
-                getattr(ticker, "delayedBid", 0.0),
-                getattr(ticker, "ask", 0.0),
-                getattr(ticker, "delayedAsk", 0.0),
             )
         if last_price <= 0:
             return None

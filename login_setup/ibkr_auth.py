@@ -8,7 +8,7 @@ PySide6's own event loop).
 
 Ports:
   Live trading:  7496
-  Paper trading: 7497
+  IBKR mode default: 7496
 """
 
 import asyncio
@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class IBKRConnectionParams:
     host: str = "127.0.0.1"
-    port: int = 7497
+    port: int = 7496
     client_id: int = 1
     timeout: float = 30.0
     trading_mode: TradingMode = TradingMode.PAPER
@@ -226,7 +226,7 @@ class IBKRConnectionWorker(QThread):
             "Checklist:\n"
             "1. Is IB Gateway or TWS running?\n"
             "2. Are you logged into your IBKR account in Gateway?\n"
-            f"3. Is the port correct?  Paper → 7497 | Live → 7496\n"
+            f"3. Is the port set to the IBKR mode endpoint 7496?\n"
             "4. Is a firewall blocking the port?"
         )
 
@@ -270,7 +270,7 @@ class IBKRAuth(QObject):
         self._cleanup_worker()
 
         config = get_broker_config(BrokerMode.AMERICA)
-        port = config.default_ports.get(trading_mode.value, 7497)
+        port = config.default_ports.get(trading_mode.value, 7496)
 
         params = IBKRConnectionParams(
             host=host,

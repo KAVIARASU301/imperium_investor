@@ -176,3 +176,81 @@ def test_ibkr_place_order_returns_rejection_with_reason(monkeypatch):
     assert result["status"] == "REJECTED"
     assert "insufficient buying power" in result["error"].lower()
     assert result["order_id"] == "77"
+
+
+def test_ibkr_ticker_price_uses_only_last_or_close(monkeypatch):
+    module, _Event = load_client(monkeypatch)
+    ticker = SimpleNamespace(
+        contract=SimpleNamespace(symbol="AAPL", conId=123),
+        last=0,
+        delayedLast=0,
+        close=0,
+        delayedClose=0,
+        bid=199.5,
+        ask=200.5,
+        open=198,
+        high=201,
+        low=197,
+        volume=1000,
+    )
+
+    data = module._convert_ticker(ticker)
+
+    assert data["last_price"] == 0.0
+
+    ticker.close = 198.75
+    data = module._convert_ticker(ticker)
+
+    assert data["last_price"] == 198.75
+
+
+def test_ibkr_history_connection_prefers_local_7496(monkeypatch):
+    import importlib.util
+    from dataclasses import dataclass
+    from pathlib import Path
+
+    broker_protocol = types.ModuleType("chart_engine.core.broker_protocol")
+
+    @dataclass
+    class BarData:
+        time: object
+        open: float
+        high: float
+        low: float
+        close: float
+        volume: float
+
+    @dataclass
+    class BrokerCapabilities:
+        name: str
+        exchange_tz: str
+        currency: str
+        supports_options: bool
+        supports_greeks: bool
+        supports_level2: bool
+
+    class BrokerDataFetcher:
+        pass
+
+    broker_protocol.BarData = BarData
+    broker_protocol.BrokerCapabilities = BrokerCapabilities
+    broker_protocol.BrokerDataFetcher = BrokerDataFetcher
+    monkeypatch.setitem(sys.modules, "chart_engine", types.ModuleType("chart_engine"))
+    monkeypatch.setitem(sys.modules, "chart_engine.core", types.ModuleType("chart_engine.core"))
+    monkeypatch.setitem(sys.modules, "chart_engine.core.broker_protocol", broker_protocol)
+
+    spec = importlib.util.spec_from_file_location(
+        "chart_engine.core.ibkr_data_fetcher",
+        Path(__file__).resolve().parents[1] / "chart_engine/core/ibkr_data_fetcher.py",
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    monkeypatch.delenv("IBKR_HOST", raising=False)
+    monkeypatch.delenv("IBKR_PORT", raising=False)
+    fetcher = module.IBKRDataFetcher.__new__(module.IBKRDataFetcher)
+    fetcher._last_history_endpoint = None
+    fetcher._ib = SimpleNamespace(client=SimpleNamespace())
+
+    assert fetcher._connection_candidates()[0] == ("127.0.0.1", 7496)

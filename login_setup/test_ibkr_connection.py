@@ -25,7 +25,7 @@ class IBKRConnectionTester:
     def __init__(self):
         self.results = {}
 
-    def run_full_diagnosis(self, port: int = 7497) -> Dict[str, Any]:
+    def run_full_diagnosis(self, port: int = 7496) -> Dict[str, Any]:
         """Run complete diagnosis and return results"""
         print(f"🔍 IBKR Connection Diagnosis (Port {port})")
         print("=" * 50)
@@ -246,7 +246,7 @@ class IBKRConnectionTester:
             recommendations.extend([
                 "🚀 Start IB Gateway or TWS",
                 "🔑 Login to your IBKR account in Gateway",
-                "📍 Verify correct port (Paper: 7497, Live: 7496)",
+                "📍 Verify the IBKR mode port is 7496",
                 "🔥 Check firewall settings",
                 "🔄 Try restarting Gateway completely"
             ])
@@ -255,7 +255,7 @@ class IBKRConnectionTester:
                 "⚙️ **Configure API in IB Gateway (This is your likely problem!)**",
                 "   • Go to: File -> Global Configuration -> API -> Settings",
                 "   • ✅ **CHECK** 'Enable ActiveX and Socket Clients'",
-                "   • 🔢 Make sure 'Socket port' is set to 7497 (for paper)",
+                "   • 🔢 Make sure 'Socket port' is set to 7496",
                 "   • 🌐 Under 'Trusted IP Addresses', click 'Create' and add `::1` and `127.0.0.1`",
                 "   • 🔄 Click OK and restart Gateway completely",
                 "💬 Dismiss any popup dialogs in the Gateway application"
@@ -294,7 +294,7 @@ class IBKRConnectionTester:
         💡 Troubleshooting Connectivity:
         1.  **Is IB Gateway or TWS Running?** - Make sure the application is open.
         2.  **Are You Logged In?** - You must be fully logged into your IBKR account within the Gateway.
-        3.  **Correct Port?** - Paper trading is usually 7497. Live trading is 7496.
+        3.  **Correct Port?** - IBKR mode expects the local API socket on 7496.
         4.  **Firewall?** - Check if your system's firewall is blocking the connection on that port.
         5.  **Restart** - When in doubt, completely close and restart the IB Gateway application.
         ----------------------------------------------------
@@ -313,7 +313,7 @@ class IBKRConnectionTester:
         1.  In IB Gateway, go to **File -> Global Configuration**.
         2.  On the left, go to **API -> Settings**.
         3.  **CHECK THE BOX** for "Enable ActiveX and Socket Clients". This is required.
-        4.  Make sure the "Socket port" number matches the port in the script (7497 for paper).
+        4.  Make sure the "Socket port" number matches the port in the script (7496).
         5.  Under "Trusted IP Addresses", click "Create" and add `::1` and then `127.0.0.1`. This explicitly allows local connections.
         6.  Click **Apply** and **OK**.
         7.  **Completely restart the IB Gateway application** for the settings to take effect.
@@ -342,7 +342,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="IBKR Connection Test Utility")
-    parser.add_argument("--port", type=int, default=7497, help="Port to test (default: 7497)")
+    parser.add_argument("--port", type=int, default=7496, help="Port to test (default: 7496)")
 
     args = parser.parse_args()
 

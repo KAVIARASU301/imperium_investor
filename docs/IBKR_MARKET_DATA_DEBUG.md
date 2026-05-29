@@ -10,10 +10,9 @@ The probe connects directly to TWS/Gateway with `ib_insync`, qualifies the contr
 python tools/ibkr_market_data_probe.py --symbols NVDA --port 7496 --timeout 20
 ```
 
-Common ports:
+Common port:
 
-- `7496`: TWS live trading session.
-- `7497`: TWS paper trading session.
+- `7496`: IBKR mode local TWS/Gateway endpoint.
 - Gateway ports depend on your local Gateway settings.
 
 Force delayed-only testing:

@@ -179,17 +179,14 @@ def _convert_ticker(ticker: Any) -> Dict[str, Any]:
     contract = getattr(ticker, "contract", None)
     symbol = str(getattr(contract, "symbol", "") or "").upper()
     con_id = int(getattr(contract, "conId", 0) or 0) if contract else 0
-    market_price = _safe_float(ticker.marketPrice() if hasattr(ticker, "marketPrice") else 0.0, 0.0)
-
-    # FIX: Add getattr for delayedLast and delayedClose
+    # IBKR architecture: streaming reqMktData() fields are only used as
+    # last/close prices for LTP-style UI updates; bid/ask/marketPrice must not
+    # feed chart candles or scanner/watchlist prices.
     last_price = _first_price(
-        market_price,
         getattr(ticker, "last", 0.0),
         getattr(ticker, "delayedLast", 0.0),
         getattr(ticker, "close", 0.0),
         getattr(ticker, "delayedClose", 0.0),
-        getattr(ticker, "bid", 0.0),
-        getattr(ticker, "ask", 0.0)
     )
 
     return {

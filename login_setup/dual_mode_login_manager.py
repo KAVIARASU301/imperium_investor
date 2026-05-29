@@ -933,7 +933,7 @@ class DualModeLoginManager(QDialog):
             "1) Login to TWS (or IB Gateway)\n"
             "2) Enable API: Configure → API → Settings → Enable ActiveX and Socket Clients\n"
             "3) Allow localhost in Trusted IPs: 127.0.0.1\n"
-            "4) Match port to mode: Paper 7497, Live 7496"
+            "4) Set the IBKR API socket port to 7496"
         )
 
         self.connect_ibkr_btn = QPushButton("CONNECT")
