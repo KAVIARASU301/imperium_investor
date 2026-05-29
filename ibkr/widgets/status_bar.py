@@ -98,7 +98,10 @@ class StatusBar(QWidget):
         self.group_separator.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
 
         min_widths = {
-            self.market_label: 170,
+            # Let the market label size itself to the current session text so
+            # short values like "Premarket" do not reserve space for longer
+            # values like "Regular Trading Hours" forever.
+            self.market_label: 0,
             self.clock_label: 104,
             self.api_label: 44,
             self.data_label: 86,
