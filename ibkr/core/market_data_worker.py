@@ -100,6 +100,7 @@ class MarketDataWorker(QThread):
     connection_established = Signal()
     connection_closed = Signal()
     order_update = Signal(dict)
+    position_update = Signal(dict)
     market_data_type_changed = Signal(str, bool)
 
     def __init__(self, ib_client: IB):
@@ -273,6 +274,10 @@ class MarketDataWorker(QThread):
             self.ib.orderStatusEvent += self._on_order_status
         except Exception:
             logger.debug("Could not attach IBKR orderStatusEvent", exc_info=True)
+        try:
+            self.ib.positionEvent += self._on_position_update
+        except Exception:
+            logger.debug("Could not attach IBKR positionEvent", exc_info=True)
 
         try:
             while self._is_running and self.ib.isConnected():
@@ -294,6 +299,10 @@ class MarketDataWorker(QThread):
                 pass
             try:
                 self.ib.orderStatusEvent -= self._on_order_status
+            except Exception:
+                pass
+            try:
+                self.ib.positionEvent -= self._on_position_update
             except Exception:
                 pass
             if self._owns_ib_connection and self.ib and self.ib.isConnected():
@@ -961,3 +970,19 @@ class MarketDataWorker(QThread):
             })
         except Exception:
             logger.debug("Failed to emit order status update", exc_info=True)
+
+    def _on_position_update(self, position: Any) -> None:
+        try:
+            contract = getattr(position, "contract", None)
+            self.position_update.emit({
+                "tradingsymbol": getattr(contract, "symbol", ""),
+                "symbol": getattr(contract, "symbol", ""),
+                "instrument_token": int(getattr(contract, "conId", 0) or 0),
+                "conId": int(getattr(contract, "conId", 0) or 0),
+                "quantity": int(_clean_float(getattr(position, "position", 0), 0.0)),
+                "average_price": _clean_float(getattr(position, "avgCost", 0.0), 0.0),
+                "avg_price": _clean_float(getattr(position, "avgCost", 0.0), 0.0),
+                "product": getattr(contract, "secType", "IBKR") if contract is not None else "IBKR",
+            })
+        except Exception:
+            logger.debug("Failed to emit position update", exc_info=True)

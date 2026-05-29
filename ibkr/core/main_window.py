@@ -1065,6 +1065,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             self.market_data_worker.data_received.connect(self._enqueue_market_data)
             self.market_data_worker.connection_established.connect(self._on_websocket_connect)
             self.market_data_worker.market_data_type_changed.connect(self._on_market_data_type_changed)
+            self._connect_position_worker_signals()
             self.market_data_worker.start()
         else:
             logger.warning("IB client not connected — market data worker not started")
@@ -1077,9 +1078,32 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             self.market_data_worker.data_received.connect(self._enqueue_market_data)
             self.market_data_worker.connection_established.connect(self._on_websocket_connect)
             self.market_data_worker.market_data_type_changed.connect(self._on_market_data_type_changed)
+            self._connect_position_worker_signals()
             self.market_data_worker.start()
         else:
             logger.error("IB still not connected after retry")
+
+    def _connect_position_worker_signals(self):
+        """Wire IBKR worker position/order events into the table reconciliation path."""
+        worker = getattr(self, "market_data_worker", None)
+        if not worker or getattr(worker, "_positions_sync_connected", False):
+            return
+        try:
+            worker.order_update.connect(self.position_manager.on_ws_order_update)
+        except Exception:
+            logger.debug("IBKR order update signal was already connected", exc_info=True)
+        if hasattr(worker, "position_update"):
+            try:
+                worker.position_update.connect(self.position_manager.on_ws_position_update)
+            except Exception:
+                logger.debug("IBKR position update signal was already connected", exc_info=True)
+        try:
+            worker.connection_established.connect(self.position_manager.on_ws_connected)
+            worker.connection_closed.connect(self.position_manager.on_ws_disconnected)
+        except Exception:
+            logger.debug("IBKR connection signals were already connected", exc_info=True)
+        worker._positions_sync_connected = True
+
 
 
     def _initialize_ibkr_instruments(self):
@@ -1598,10 +1622,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.position_manager.positions_updated.connect(self._update_floating_positions_dialog)
         self.position_manager.day_pnl_updated.connect(self._on_day_pnl_updated)
         self.position_manager.show_notification.connect(self._show_position_manager_notification)
-        if hasattr(self, 'market_data_worker') and self.market_data_worker:
-            self.market_data_worker.order_update.connect(self.position_manager.on_ws_order_update)
-            self.market_data_worker.connection_established.connect(self.position_manager.on_ws_connected)
-            self.market_data_worker.connection_closed.connect(self.position_manager.on_ws_disconnected)
+        self._connect_position_worker_signals()
+        self.position_manager.start_live_sync(interval_seconds=5)
         # Position manager notifications route through the Qt signal so WS callbacks stay visible/audible.
 
         # SIMPLIFIED: Positions Table → Main Window

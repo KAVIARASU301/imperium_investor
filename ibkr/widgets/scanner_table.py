@@ -139,6 +139,41 @@ def _mono_font(point_size: int = 9, weight: QFont.Weight = QFont.Weight.Normal) 
     return font
 
 
+class ScannerDropdown(QComboBox):
+    """Combo box whose popup stays aligned to the compact scanner header."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMaxVisibleItems(18)
+        self._configure_popup_view()
+
+    def _configure_popup_view(self) -> None:
+        view = self.view()
+        view.setTextElideMode(Qt.TextElideMode.ElideRight)
+        view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        view.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+
+    def _sync_popup_width(self) -> None:
+        """Keep the popup the same width as the closed dropdown control."""
+        popup_width = max(1, self.width())
+        view = self.view()
+        view.setMinimumWidth(popup_width)
+        view.setMaximumWidth(popup_width)
+        view.setFixedWidth(popup_width)
+        if view.window():
+            view.window().setMinimumWidth(popup_width)
+            view.window().setMaximumWidth(popup_width)
+            view.window().setFixedWidth(popup_width)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._sync_popup_width()
+
+    def showPopup(self):
+        self._sync_popup_width()
+        super().showPopup()
+
+
 class VolumeStrengthDelegate(QStyledItemDelegate):
     """Paint scanner volume strength as a compact TC2000-style progress bar."""
 
@@ -1225,7 +1260,7 @@ class FinvizScannerTable(QWidget):
         header_layout.addWidget(self.scan_refresh_btn)
 
         # Dropdown
-        self.scan_dropdown = QComboBox()
+        self.scan_dropdown = ScannerDropdown()
         self.scan_dropdown.setObjectName("minimalDropdown")
         self.scan_dropdown.setFixedHeight(CHART_TOOLBAR_CONTROL_HEIGHT)
         self.scan_dropdown.setMinimumWidth(0)

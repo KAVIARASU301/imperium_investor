@@ -43,6 +43,11 @@ class PositionManager(QObject):
         self.order_check_timer.setInterval(1000)
         self.order_check_timer.timeout.connect(self._check_pending_orders)
         self.safety_timer: Optional[QTimer] = None
+        self.live_sync_timer: Optional[QTimer] = None
+        self._pending_position_refresh_reason = "broker_position_update"
+        self._position_refresh_timer = QTimer(self)
+        self._position_refresh_timer.setSingleShot(True)
+        self._position_refresh_timer.timeout.connect(self._flush_scheduled_position_refresh)
 
     # ------------------------------------------------------------------
     # Positions
@@ -298,11 +303,32 @@ class PositionManager(QObject):
             self.order_check_timer.stop()
         self.tracking_orders.clear()
 
+    def _schedule_position_refresh(self, reason: str = "broker_position_update", delay_ms: int = 350) -> None:
+        """Debounce broker position refreshes caused by IBKR events/order fills."""
+        self._pending_position_refresh_reason = reason
+        if self._position_refresh_timer.isActive():
+            return
+        self._position_refresh_timer.start(max(0, int(delay_ms)))
+
+    def _flush_scheduled_position_refresh(self) -> None:
+        self.fetch_positions_from_broker(self._pending_position_refresh_reason)
+
     def start_safety_refresh(self, interval_minutes: int = 5) -> None:
         if self.safety_timer is None:
             self.safety_timer = QTimer(self)
             self.safety_timer.timeout.connect(lambda: self.fetch_positions_from_broker("safety_refresh"))
         self.safety_timer.start(max(1, int(interval_minutes)) * 60 * 1000)
+
+    def start_live_sync(self, interval_seconds: int = 5) -> None:
+        """Continuously reconcile UI positions with the broker's latest position snapshot."""
+        if self.live_sync_timer is None:
+            self.live_sync_timer = QTimer(self)
+            self.live_sync_timer.timeout.connect(lambda: self.fetch_positions_from_broker("ibkr_live_sync"))
+        self.live_sync_timer.start(max(1, int(interval_seconds)) * 1000)
+
+    def stop_live_sync(self) -> None:
+        if self.live_sync_timer and self.live_sync_timer.isActive():
+            self.live_sync_timer.stop()
 
     # ------------------------------------------------------------------
     # Real-time order update signal handlers
@@ -312,16 +338,29 @@ class PositionManager(QObject):
             return
         order = self._normalize_order(update)
         order_id = str(order.get("order_id", ""))
-        if order_id and order_id in self.tracking_orders:
-            status = str(order.get("status", "UNKNOWN")).upper()
-            if status in {"COMPLETE", "FILLED", "CANCELLED", "REJECTED", "FAILED", "INACTIVE"}:
+        status = str(order.get("status", "UNKNOWN")).upper()
+        terminal_status = status in {"COMPLETE", "FILLED", "CANCELLED", "REJECTED", "FAILED", "INACTIVE"}
+
+        if terminal_status:
+            if order_id and order_id in self.tracking_orders:
                 self._handle_order_completion(order_id, order, status)
                 self.tracking_orders.pop(order_id, None)
                 if not self.tracking_orders:
                     self.order_check_timer.stop()
+            else:
+                # Orders can fill outside this UI (TWS, mobile, bracket legs, or an
+                # order that was submitted before this app started).  A terminal
+                # IBKR order event must still reconcile both position tables.
+                self._schedule_position_refresh("ibkr_order_update")
+
+    def on_ws_position_update(self, update: Any = None, *_args, **_kwargs) -> None:
+        # IBKR positionEvent is per-position and may carry zero quantity for a
+        # closed symbol. Fetch the full broker snapshot so removed rows disappear
+        # from both embedded and floating tables together.
+        self._schedule_position_refresh("ibkr_position_event")
 
     def on_ws_connected(self, *_args, **_kwargs) -> None:
-        return
+        self.fetch_positions_from_broker("ibkr_connected")
 
     def on_ws_disconnected(self, *_args, **_kwargs) -> None:
         return

@@ -158,15 +158,20 @@ class IBKRClientWrapper(BrokerClientInterface):
             return [
                 {
                     'tradingsymbol': pos.contract.symbol,
+                    'symbol': pos.contract.symbol,
                     'exchange': pos.contract.exchange,
+                    'instrument_token': getattr(pos.contract, 'conId', 0),
+                    'conId': getattr(pos.contract, 'conId', 0),
                     'quantity': pos.position,
                     'average_price': pos.avgCost,
-                    'pnl': pos.unrealizedPNL,
-                    'product': 'IBKR',
+                    'avg_price': pos.avgCost,
+                    'pnl': getattr(pos, 'unrealizedPNL', 0.0),
+                    'product': getattr(pos.contract, 'secType', 'IBKR'),
                     'contract_details': {
                         'secType': pos.contract.secType,
                         'currency': pos.contract.currency,
-                        'localSymbol': pos.contract.localSymbol
+                        'localSymbol': pos.contract.localSymbol,
+                        'conId': getattr(pos.contract, 'conId', 0),
                     }
                 }
                 for pos in positions if pos.position != 0
