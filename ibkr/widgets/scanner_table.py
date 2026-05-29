@@ -5,7 +5,7 @@ import os
 import requests
 from bs4 import BeautifulSoup as bs
 from typing import List, Dict, Optional, Any
-from ibkr.scanner.run_finviz_scan import quick_scrape
+from ibkr.scanner.run_finviz_scan import is_valid_finviz_symbol, quick_scrape
 from ibkr.core.symbol_info_db import SymbolInfoDatabase
 
 from PySide6.QtCore import Signal, Slot, Qt, QThread, QTimer, QSize, QByteArray
@@ -1046,7 +1046,7 @@ class ScanWorker(QThread):
                     change_pct = 0.0
                     volume = 0
 
-                if not symbol:
+                if not is_valid_finviz_symbol(symbol):
                     continue
                 self._symbol_info_db.upsert_row(row if isinstance(row, dict) else {'symbol': symbol}, source='finviz_scan')
                 symbol_data = {

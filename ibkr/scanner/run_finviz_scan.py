@@ -26,7 +26,6 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
-import requests
 
 
 Row = Dict[str, Any]
@@ -43,6 +42,11 @@ CSV_FIELDS = [
     "symbol", "company", "sector", "industry", "country", "market_cap", "pe",
     "price", "change_pct", "change", "change_raw", "volume", "_source",
 ]
+
+# Words that can appear as page controls/actions near Finviz tables but are not
+# tradeable tickers. Keep this deny-list close to symbol validation so every
+# scanner entry point filters them consistently.
+EXCLUDED_SYMBOL_TOKENS = {"EXPORT"}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -90,6 +94,8 @@ def fetch_single_page_tickers(
     save_html_dir: Optional[str] = None,
 ) -> List[Row]:
     """Fetch one Finviz page and extract rows from it."""
+    import requests
+
     response = requests.get(url, headers=headers, timeout=30)
     response.raise_for_status()
 
@@ -437,9 +443,16 @@ def _symbol_from_row(row: Any) -> str:
     return str(row).strip().upper()
 
 
-def _valid_symbol(symbol: str) -> bool:
+def is_valid_finviz_symbol(symbol: str) -> bool:
+    """Return True only for ticker-like symbols accepted by the IBKR scanner."""
     symbol = str(symbol).strip().upper()
+    if symbol in EXCLUDED_SYMBOL_TOKENS:
+        return False
     return bool(re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,9}", symbol))
+
+
+def _valid_symbol(symbol: str) -> bool:
+    return is_valid_finviz_symbol(symbol)
 
 
 def _parse_float(value: Any) -> float:
@@ -652,7 +665,11 @@ def quick_scrape(url: str, *, debug: bool = False) -> List[Row]:
 
 def quick_symbols(url: str, *, debug: bool = False) -> List[str]:
     """Quick function to get only ticker symbols."""
-    return [_symbol_from_row(row) for row in get_finviz_tickers(url, debug=debug)]
+    return [
+        symbol
+        for row in get_finviz_tickers(url, debug=debug)
+        if (symbol := _symbol_from_row(row)) and is_valid_finviz_symbol(symbol)
+    ]
 
 
 if __name__ == "__main__":
