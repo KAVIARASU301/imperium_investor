@@ -3639,6 +3639,7 @@ const US_AFTER_HOURS_CLOSE_MINUTES = 20 * 60;
         // Minute-boundary historical refresh should NOT reset user's viewport
         // or y-axis range. Preserve current navigation context and reuse the
         // common load path, then restore.
+        const prevMaxEnd = this._maxViewportEnd();
         const prev = {
             viewPortStart: this.viewPortStart,
             viewPortEnd: this.viewPortEnd,
@@ -3646,15 +3647,25 @@ const US_AFTER_HOURS_CLOSE_MINUTES = 20 * 60;
             maxPrice: this.maxPrice,
             isUserYRange: this.isUserYRange,
             panOffsetPx: this.panOffsetPx,
+            wasAtLatest: this.viewPortEnd >= prevMaxEnd - 1,
         };
 
         this.loadNewData(cfg);
 
         const maxEnd = this._maxViewportEnd();
         const vis = Math.max(1, prev.viewPortEnd - prev.viewPortStart + 1);
-        this._setViewportFromStart(prev.viewPortStart, vis);
-        if (this.viewPortEnd > maxEnd) this._alignViewportToLatest();
-        this.panOffsetPx = prev.panOffsetPx || 0;
+        if (prev.wasAtLatest) {
+            // IBKR symbol switches paint a short fast-history window first, then
+            // replace it with the full history a moment later.  Preserving the
+            // fast window's absolute start index against the longer dataset
+            // jumps the user to the oldest candles; keep latest-anchored views
+            // latest-anchored across that replacement.
+            this._setViewportFromStart(this._rightAlignedViewportStart(vis), vis);
+        } else {
+            this._setViewportFromStart(prev.viewPortStart, vis);
+            if (this.viewPortEnd > maxEnd) this._alignViewportToLatest();
+        }
+        this.panOffsetPx = prev.wasAtLatest ? 0 : (prev.panOffsetPx || 0);
 
         this.isUserYRange = !!prev.isUserYRange;
         if (this.isUserYRange && Number.isFinite(prev.minPrice) && Number.isFinite(prev.maxPrice) && prev.maxPrice > prev.minPrice) {
