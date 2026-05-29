@@ -128,6 +128,101 @@ class IBKRDataFetcher(BrokerDataFetcher):
         # pay the dedicated history-socket cold-start cost.
         self.prewarm_connection()
 
+    def preload_contracts(self, symbols: list[str]) -> Optional[concurrent.futures.Future]:
+        """Warm the IBKR contract cache for the supplied symbols without blocking callers."""
+        clean_symbols: List[str] = []
+        seen = set()
+        for raw_symbol in symbols or []:
+            symbol = str(raw_symbol or "").strip().upper()
+            if not symbol or symbol in seen:
+                continue
+            if self._get_cached_contract(self._contract_cache_key(symbol, 0)) is not None:
+                continue
+            seen.add(symbol)
+            clean_symbols.append(symbol)
+
+        if not clean_symbols:
+            return None
+
+        executor = _get_history_executor()
+        return executor.submit_async(self._preload_contracts_async(clean_symbols))
+
+    async def _preload_contracts_async(
+            self,
+            symbols: List[str],
+            batch_size: int = 12,
+            batch_delay: float = 0.35,
+    ) -> None:
+        """Qualify/cache contracts in small paced batches on the history loop."""
+        from ib_insync import Stock
+
+        try:
+            ib = await self._get_or_create_history_connection_async()
+        except Exception as exc:
+            logger.debug("IBKR contract preload skipped; history connection unavailable: %s", exc)
+            return
+
+        warmed = 0
+        for start in range(0, len(symbols), max(1, int(batch_size))):
+            batch = [
+                symbol
+                for symbol in symbols[start:start + batch_size]
+                if self._get_cached_contract(self._contract_cache_key(symbol, 0)) is None
+            ]
+            if not batch:
+                continue
+
+            contracts = [Stock(symbol, "SMART", "USD") for symbol in batch]
+            try:
+                qualified = await asyncio.wait_for(
+                    ib.qualifyContractsAsync(*contracts),
+                    timeout=max(8.0, 1.5 * len(batch)),
+                )
+            except Exception as exc:
+                logger.debug("IBKR batched contract preload failed for %s: %s", batch, exc)
+                qualified = []
+
+            qualified_by_symbol = {
+                str(getattr(contract, "symbol", "") or "").strip().upper(): contract
+                for contract in qualified or []
+            }
+
+            for symbol in batch:
+                contract = qualified_by_symbol.get(symbol)
+                if contract is None:
+                    contract = await self._preload_contract_details_fallback_async(ib, symbol)
+                if contract is None:
+                    continue
+                self._cache_contract_aliases(
+                    symbol,
+                    contract,
+                    preferred_key=self._contract_cache_key(symbol, 0),
+                )
+                warmed += 1
+
+            if start + batch_size < len(symbols):
+                await asyncio.sleep(batch_delay)
+
+        if warmed:
+            logger.debug("Preloaded %d IBKR contracts", warmed)
+
+    async def _preload_contract_details_fallback_async(self, ib, symbol: str):
+        """Fallback single-symbol contract-details lookup used when batch qualification misses."""
+        from ib_insync import Stock
+
+        try:
+            details = await asyncio.wait_for(
+                ib.reqContractDetailsAsync(Stock(symbol, "SMART", "USD")),
+                timeout=8.0,
+            )
+            if details:
+                return details[0].contract
+        except Exception as exc:
+            logger.debug("IBKR contract-details preload failed for %s: %s", symbol, exc)
+        finally:
+            await asyncio.sleep(0.05)
+        return None
+
     @property
     def capabilities(self) -> BrokerCapabilities:
         return BrokerCapabilities(

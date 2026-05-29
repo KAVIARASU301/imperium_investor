@@ -191,6 +191,11 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self._tick_flush_timer.setInterval(30)
         self._tick_flush_timer.timeout.connect(self._flush_market_data_ticks)
         self._tick_flush_timer.start()
+        self._pending_contract_preload_symbols = set()
+        self._contract_preload_timer = QTimer(self)
+        self._contract_preload_timer.setSingleShot(True)
+        self._contract_preload_timer.setInterval(250)
+        self._contract_preload_timer.timeout.connect(self._flush_contract_preload_queue)
         self._subscription_rebuild_timer = QTimer(self)
         self._subscription_rebuild_timer.setSingleShot(True)
         self._subscription_rebuild_timer.setInterval(300)
@@ -329,6 +334,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         # Create components
         self.finviz_scanner = FinvizScannerTable()
         chart_data_fetcher = self._create_chart_data_fetcher()
+        self.chart_data_fetcher = chart_data_fetcher
         self.candlestick_chart = ChartWindow(
             chart_data_fetcher,
             storage_dir=self.chart_drawings_dir,
@@ -441,6 +447,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self._apply_intelligent_main_splitter_layout()
         self._apply_panel_elevation()
         QTimer.singleShot(0, self._prewarm_webengine)
+        QTimer.singleShot(1000, self._schedule_visible_contract_preload)
 
 
     def _prewarm_webengine(self):
@@ -664,6 +671,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         # Rebuild immediately so scanner tokens subscribe/unsubscribe exactly
         # when the user toggles visibility from View → Scanner.
         self._rebuild_subscription_universe()
+        if visible:
+            self._schedule_visible_contract_preload()
         self._queue_window_state_save()
 
     def _set_watchlist_visible(self, visible: bool):
@@ -672,6 +681,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         # Rebuild immediately so watchlist tokens subscribe/unsubscribe exactly
         # when the user toggles visibility from View → Watchlist.
         self._rebuild_subscription_universe()
+        if visible:
+            self._schedule_visible_contract_preload()
         self._queue_window_state_save()
 
     def _set_positions_visible(self, visible: bool):
@@ -1399,6 +1410,154 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         except Exception as exc:
             logger.error(f"Failed to configure header ticker subscriptions: {exc}")
 
+    def _schedule_visible_contract_preload(self) -> None:
+        """Queue visible scanner/watchlist contracts for async cache warming."""
+        symbols = []
+        symbols.extend(self._get_visible_watchlist_symbols())
+        symbols.extend(self._get_visible_scanner_symbols())
+        self._queue_contract_preload(symbols)
+
+    def _bind_watchlist_contract_preload_tracking(self) -> None:
+        """Track active watchlist tab/scroll changes so visible rows stay warm."""
+        watchlist = getattr(self, "watchlist", None)
+        if watchlist is None:
+            return
+
+        dropdown = getattr(watchlist, "_dropdown", None)
+        if dropdown is not None and not getattr(dropdown, "_contract_preload_bound", False):
+            dropdown.currentIndexChanged.connect(lambda _idx: self._schedule_visible_contract_preload())
+            dropdown._contract_preload_bound = True
+
+        for table in getattr(watchlist, "_tables", {}).values():
+            scrollbar = table.verticalScrollBar() if hasattr(table, "verticalScrollBar") else None
+            if scrollbar is not None and not getattr(scrollbar, "_contract_preload_bound", False):
+                scrollbar.valueChanged.connect(lambda _value: self._schedule_visible_contract_preload())
+                scrollbar._contract_preload_bound = True
+
+    def _queue_contract_preload(self, symbols: List[str]) -> None:
+        clean_symbols = {str(symbol or "").strip().upper() for symbol in symbols or []}
+        clean_symbols.discard("")
+        if not clean_symbols:
+            return
+
+        pending = getattr(self, "_pending_contract_preload_symbols", None)
+        if pending is None:
+            self._pending_contract_preload_symbols = set()
+            pending = self._pending_contract_preload_symbols
+        pending.update(clean_symbols)
+
+        timer = getattr(self, "_contract_preload_timer", None)
+        if timer is not None:
+            timer.start()
+        else:
+            self._flush_contract_preload_queue()
+
+    def _flush_contract_preload_queue(self) -> None:
+        pending = getattr(self, "_pending_contract_preload_symbols", set())
+        if not pending:
+            return
+        symbols = sorted(pending)
+        pending.clear()
+
+        fetcher = getattr(self, "chart_data_fetcher", None)
+        preload = getattr(fetcher, "preload_contracts", None)
+        if not callable(preload):
+            return
+        try:
+            preload(symbols)
+        except Exception as exc:
+            logger.debug("Failed to queue IBKR contract preload for %s: %s", symbols, exc)
+
+    def _get_visible_scanner_symbols(self) -> List[str]:
+        scanner = getattr(self, "finviz_scanner", None)
+        if scanner is None or not scanner.isVisible():
+            return []
+        getter = getattr(scanner, "get_visible_symbols", None)
+        if callable(getter):
+            try:
+                return [str(symbol).strip().upper() for symbol in getter() if str(symbol).strip()]
+            except Exception as exc:
+                logger.debug("Could not collect visible scanner symbols for preload: %s", exc)
+        return []
+
+    def _get_visible_watchlist_symbols(self, buffer: int = 5) -> List[str]:
+        watchlist = getattr(self, "watchlist", None)
+        if watchlist is None or not watchlist.isVisible():
+            return []
+
+        table_getter = getattr(watchlist, "_current_table", None)
+        table = table_getter() if callable(table_getter) else None
+        if table is None:
+            return []
+
+        try:
+            row_count = table.rowCount()
+            if row_count <= 0:
+                return []
+
+            viewport = table.viewport() if hasattr(table, "viewport") else None
+            if viewport is not None and viewport.height() > 0:
+                top_row = table.rowAt(0)
+                bottom_row = table.rowAt(viewport.height() - 1)
+                if top_row < 0:
+                    top_row = 0
+                if bottom_row < 0:
+                    bottom_row = row_count - 1
+                first = max(0, top_row - buffer)
+                last = min(row_count - 1, bottom_row + buffer)
+            else:
+                first, last = 0, row_count - 1
+
+            symbols = []
+            for row in range(first, last + 1):
+                symbol = table._symbol_at_row(row) if hasattr(table, "_symbol_at_row") else None
+                if not symbol:
+                    item = table.item(row, 1) if hasattr(table, "item") else None
+                    symbol = item.text().strip() if item else None
+                symbol = str(symbol or "").strip().upper()
+                if symbol and symbol != "N/A" and not symbol.startswith("─"):
+                    symbols.append(symbol)
+            return symbols
+        except Exception as exc:
+            logger.debug("Could not collect visible watchlist symbols for preload: %s", exc)
+            return []
+
+    def _preload_nearby_table_symbols(self, table, center_row: int, radius: int = 3) -> None:
+        if table is None:
+            return
+        try:
+            row_count = table.rowCount()
+            symbols = []
+            for row in range(max(0, center_row - radius), min(row_count - 1, center_row + radius) + 1):
+                symbol = table._symbol_at_row(row) if hasattr(table, "_symbol_at_row") else None
+                if not symbol:
+                    item = table.item(row, 1) if hasattr(table, "item") else None
+                    symbol = item.text().strip() if item else None
+                if symbol:
+                    symbols.append(symbol)
+            self._queue_contract_preload(symbols)
+        except Exception as exc:
+            logger.debug("Could not queue nearby table contract preload: %s", exc)
+
+    def _preload_nearby_scanner_symbols(self, direction: str = "next", radius: int = 3) -> None:
+        scanner = getattr(self, "finviz_scanner", None)
+        if scanner is None:
+            return
+        getter = getattr(scanner, "get_current_symbols", None)
+        if not callable(getter):
+            return
+        try:
+            symbols = getter() or []
+            if not symbols:
+                return
+            current = int(getattr(scanner, "_current_symbol_index", 0) or 0)
+            step = -1 if direction == "previous" else 1
+            center = (current + step) % len(symbols)
+            nearby = [symbols[(center + offset) % len(symbols)] for offset in range(-radius, radius + 1)]
+            self._queue_contract_preload(nearby)
+        except Exception as exc:
+            logger.debug("Could not queue nearby scanner contract preload: %s", exc)
+
     def _refresh_chart_drawings(self):
         """Refresh chart drawings when lines are updated"""
         try:
@@ -1558,14 +1717,19 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.finviz_scanner.symbol_selected.connect(self._on_scanner_symbol_selected)
         # Re-evaluate subscription universe whenever scan results refresh or user scrolls
         self.finviz_scanner.scan_results_changed.connect(self._schedule_subscription_rebuild)
+        self.finviz_scanner.scan_results_changed.connect(self._schedule_visible_contract_preload)
         self.finviz_scanner.visible_rows_changed.connect(self._schedule_subscription_rebuild)
+        self.finviz_scanner.visible_rows_changed.connect(self._schedule_visible_contract_preload)
         self.watchlist.symbol_selected.connect(self.candlestick_chart.on_search)
         self.watchlist.symbol_selected.connect(self.candlestick_chart_secondary.on_search)
         self.watchlist.subscribe_tokens_requested.connect(self._subscribe_to_tokens)
         self.watchlist.place_order_requested.connect(self._show_order_dialog_from_dict)
         self.watchlist.watchlist_changed.connect(self._schedule_subscription_rebuild)
+        self.watchlist.watchlist_changed.connect(self._schedule_visible_contract_preload)
+        self.watchlist.watchlist_changed.connect(self._bind_watchlist_contract_preload_tracking)
         self.watchlist.watchlist_changed.connect(self._sync_floating_watchlist_dialog)
         self.watchlist.watchlist_changed.connect(self._bind_spacebar_context_tracking)
+        self._bind_watchlist_contract_preload_tracking()
         self._bind_spacebar_context_tracking()
 
         # Header Toolbar → Main Window
@@ -3379,6 +3543,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         if context == "scanner" or self._is_scanner_focused(focused_widget):
             self._set_last_spacebar_context("scanner")
             if hasattr(self.finviz_scanner, '_next_symbol'):
+                self._preload_nearby_scanner_symbols(direction='next')
                 self.finviz_scanner._next_symbol()
                 return
 
@@ -3440,6 +3605,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         if context == "scanner" or self._is_scanner_focused(focused_widget):
             self._set_last_spacebar_context("scanner")
             if hasattr(self.finviz_scanner, '_previous_symbol'):
+                self._preload_nearby_scanner_symbols(direction='previous')
                 self.finviz_scanner._previous_symbol()
                 return
 
@@ -3720,6 +3886,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 symbol = item.text().strip() if item else None
 
             if symbol and symbol != 'N/A' and not symbol.startswith('─'):
+                self._preload_nearby_table_symbols(table, next_row)
                 table.symbol_selected.emit(symbol)
                 logger.debug(f"Watchlist navigation: Selected {symbol}")
         except Exception as e:
