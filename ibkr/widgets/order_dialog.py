@@ -693,10 +693,6 @@ class OrderDialog(QDialog):
         layout.setContentsMargins(10, 0, 6, 0)
         layout.setSpacing(8)
 
-        badge = _Label("IBKR SWING", P.AMBER, 9, True)
-        badge.setObjectName("ticketBadge")
-        layout.addWidget(badge)
-
         self._sym_label = _Label(self.symbol or "—", P.T0, 15, True)
         self._sym_label.setObjectName("symbolTitle")
         layout.addWidget(self._sym_label)

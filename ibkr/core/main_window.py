@@ -1351,7 +1351,14 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
     @Slot(str)
     def _on_chart_symbol_changed(self, symbol: str):
-        """Handle chart symbol changes"""
+        """Handle chart symbol changes and warm IBKR caches early."""
+        symbol = str(symbol or "").strip().upper()
+        if not symbol:
+            return
+
+        self._queue_contract_preload([symbol])
+        self._prefetch_chart_data_background(symbol)
+
         self._chart_tick_queue.clear()
         logger.info(f"Chart symbol changed to: {symbol}")
         try:
@@ -1451,6 +1458,22 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             timer.start()
         else:
             self._flush_contract_preload_queue()
+
+    def _prefetch_chart_data_background(self, symbol: str) -> None:
+        """Start warming chart dependencies before the foreground chart load blocks."""
+        symbol = str(symbol or "").strip().upper()
+        if not symbol:
+            return
+
+        fetcher = getattr(self, "chart_data_fetcher", None)
+        preload = getattr(fetcher, "preload_contracts", None)
+        if callable(preload):
+            try:
+                # IBKRDataFetcher schedules this on the dedicated history executor,
+                # so callers can fire-and-forget from the UI thread.
+                preload([symbol])
+            except Exception as exc:
+                logger.debug("Failed to prefetch chart data for %s: %s", symbol, exc)
 
     def _flush_contract_preload_queue(self) -> None:
         pending = getattr(self, "_pending_contract_preload_symbols", set())
@@ -2074,61 +2097,24 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
     @Slot(str)
     def _on_scanner_symbol_selected(self, symbol: str):
-        """Ensure scanner-selected symbols are resolved and subscribed."""
-        symbol = symbol.strip().upper()
-        instrument = self.instrument_map.get(symbol)
-
-        if instrument and instrument.get("instrument_token"):
-            # Already known — subscribe and load
-            token = instrument["instrument_token"]
-            self._subscribe_to_tokens([self._build_subscription_item(symbol, token=token) or token])
-            self.candlestick_chart.on_search(symbol)
-            self.candlestick_chart_secondary.on_search(symbol)
+        """Pre-qualify scanner-selected contracts and start chart loading."""
+        symbol = str(symbol or "").strip().upper()
+        if not symbol:
             return
 
-        # Unknown scanner symbols can still render immediately in IBKR mode:
-        # IBKRDataFetcher qualifies on-demand during the history request.  Keep
-        # contract lookup in the background only for live subscription metadata.
+        # Start IBKR contract qualification before the chart history request needs it.
+        self._queue_contract_preload([symbol])
+
+        # Kick the history executor immediately so contract/data warm-up races the UI load.
+        self._prefetch_chart_data_background(symbol)
+
+        instrument = self.instrument_map.get(symbol)
+        if instrument and instrument.get("instrument_token"):
+            token = instrument["instrument_token"]
+            self._subscribe_to_tokens([self._build_subscription_item(symbol, token=token) or token])
+
         self.candlestick_chart.on_search(symbol)
         self.candlestick_chart_secondary.on_search(symbol)
-
-        def _on_qualified(contract):
-            if contract:
-                self.instrument_map[symbol] = {
-                    "tradingsymbol": symbol,
-                    "name": symbol,
-                    "exchange": contract.exchange or "SMART",
-                    "instrument_token": contract.conId,
-                    "currency": "USD",
-                    "instrument_type": "EQ",
-                }
-                self._token_to_symbol[contract.conId] = symbol
-                self._subscribe_to_tokens([self._build_subscription_item(symbol, token=contract.conId) or contract.conId])
-
-        # Run qualification in background
-        from ibkr.utils.ibkr_symbol_resolver import IBKRSymbolSearchWorker
-        worker = IBKRSymbolSearchWorker(self.real_kite_client, symbol)
-
-        def _handle_results(results):
-            contract_obj = None
-            if results:
-                # Use first exact match
-                for r in results:
-                    if r.get("tradingsymbol") == symbol:
-                        from ib_insync import Stock
-                        c = Stock(symbol, "SMART", "USD")
-                        c.conId = r.get("instrument_token", 0)
-                        c.exchange = r.get("exchange", "SMART")
-                        contract_obj = c
-                        break
-            _on_qualified(contract_obj)
-
-        worker.results_ready.connect(_handle_results)
-        worker.search_failed.connect(lambda _: _on_qualified(None))
-        worker.start()
-        # Keep reference so it's not GC'd
-        self._pending_workers = getattr(self, "_pending_workers", [])
-        self._pending_workers.append(worker)
 
     def _filter_ticks_by_exchange_preference(self, ticks: List[Dict]) -> List[Dict]:
         """Filter ticks to prefer NSE over BSE for same symbols"""

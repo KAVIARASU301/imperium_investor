@@ -309,22 +309,16 @@ class IBKRDataFetcher(BrokerDataFetcher):
         con_id = self._coerce_con_id(instrument_token)
         cache_key = self._contract_cache_key(symbol, con_id)
         symbol_cache_key = self._contract_cache_key(symbol, 0)
+        # Fast path: cached contracts are already usable for historical data, so
+        # avoid spending another round-trip re-qualifying them on repeated chart
+        # loads.  Only qualify when the contract is absent from both aliases.
         contract = self._get_cached_contract(cache_key) or self._get_cached_contract(symbol_cache_key)
-        qualified_once = contract is not None
 
-        if contract is None and con_id > 0:
-            contract = await self._qualify_by_con_id_async(ib, symbol, con_id)
-            qualified_once = True
-            self._cache_contract_aliases(symbol, contract, preferred_key=cache_key)
-        elif contract is None:
-            contract = await self._qualify_by_symbol_async(ib, symbol)
-            qualified_once = True
-            self._cache_contract_aliases(symbol, contract, preferred_key=cache_key)
-        elif getattr(contract, "conId", 0):
-            qualified_once = True
-        else:
-            contract = await self._qualify_by_symbol_async(ib, symbol)
-            qualified_once = True
+        if contract is None:
+            if con_id > 0:
+                contract = await self._qualify_by_con_id_async(ib, symbol, con_id)
+            else:
+                contract = await self._qualify_by_symbol_async(ib, symbol)
             self._cache_contract_aliases(symbol, contract, preferred_key=cache_key)
 
         try:
@@ -332,31 +326,14 @@ class IBKRDataFetcher(BrokerDataFetcher):
                 ib=ib, contract=contract, end_dt_str=end_dt_str,
                 duration_str=duration_str, bar_size=request_bar_size, request_symbol=symbol,
             )
-        except Exception:
-            if con_id > 0 and not qualified_once:
-                contract = await self._qualify_by_con_id_async(ib, symbol, con_id)
-                self._cache_contract_aliases(symbol, contract, preferred_key=cache_key)
-                bars = await self._request_historical_bars_async(
-                    ib=ib, contract=contract, end_dt_str=end_dt_str,
-                    duration_str=duration_str, bar_size=request_bar_size, request_symbol=symbol,
-                )
-            else:
-                raise
-
-        if not bars and con_id > 0 and not qualified_once:
-            contract = await self._qualify_by_con_id_async(ib, symbol, con_id)
-            self._cache_contract_aliases(symbol, contract, preferred_key=cache_key)
-            bars = await self._request_historical_bars_async(
-                ib=ib, contract=contract, end_dt_str=end_dt_str,
-                duration_str=duration_str, bar_size=request_bar_size, request_symbol=symbol,
-            )
+        except Exception as exc:
+            logger.error("Historical request failed for %s: %s", symbol, exc)
+            raise
 
         if not bars:
             raise ValueError(f"No data returned for {symbol} [{request_bar_size}]")
 
-        if getattr(contract, "conId", 0):
-            self._cache_contract_aliases(symbol, contract, preferred_key=cache_key)
-
+        self._cache_contract_aliases(symbol, contract, preferred_key=cache_key)
         bars = self._filter_bars_to_window(bars, from_date, to_date, request_bar_size)
         if aggregate_rth_hourly:
             return self._aggregate_rth_hourly_bars(bars)
