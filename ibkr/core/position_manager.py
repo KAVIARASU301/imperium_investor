@@ -9,8 +9,9 @@ from typing import Any, Dict, Iterable, List, Optional, Set
 
 from PySide6.QtCore import QObject, Signal, QTimer
 
-from ibkr.widgets.status_bar import show_order_completed, show_order_failed
+from ibkr.utils.ibkr_price import first_positive_ibkr_price, safe_ibkr_price
 from ibkr.utils.sounds import play_entry_exit
+from ibkr.widgets.status_bar import show_order_completed, show_order_failed
 
 logger = logging.getLogger(__name__)
 
@@ -234,7 +235,7 @@ class PositionManager(QObject):
                 "order_id": str(getattr(order_obj, "orderId", "") or getattr(order_obj, "permId", "") or ""),
                 "tradingsymbol": str(symbol or "").upper(),
                 "quantity": int(float(getattr(order_obj, "totalQuantity", 0) or 0)),
-                "price": float(getattr(order_obj, "lmtPrice", 0) or getattr(order_obj, "auxPrice", 0) or 0),
+                "price": first_positive_ibkr_price(getattr(order_obj, "lmtPrice", 0), getattr(order_obj, "auxPrice", 0)),
                 "transaction_type": str(getattr(order_obj, "action", "") or "").upper(),
                 "status": self._normalize_status(getattr(status_obj, "status", "UNKNOWN") if status_obj else "UNKNOWN"),
                 "filled_quantity": int(float(getattr(status_obj, "filled", 0) or 0)) if status_obj else 0,
@@ -245,7 +246,7 @@ class PositionManager(QObject):
             "order_id": str(self._field(order_data, "order_id", "id", "permId", default="") or ""),
             "tradingsymbol": str(self._field(order_data, "tradingsymbol", "symbol", default="") or "").upper(),
             "quantity": int(float(self._field(order_data, "quantity", "totalQuantity", "filled_quantity", default=0) or 0)),
-            "price": float(self._field(order_data, "price", "limit_price", "lmtPrice", "avgFillPrice", default=0) or 0),
+            "price": safe_ibkr_price(self._field(order_data, "price", "limit_price", "lmtPrice", "avgFillPrice", default=0), 0.0),
             "transaction_type": str(self._field(order_data, "transaction_type", "action", "side", default="") or "").upper(),
             "status": self._normalize_status(self._field(order_data, "status", "orderStatus", default="UNKNOWN")),
             "filled_quantity": int(float(self._field(order_data, "filled_quantity", "filled", default=0) or 0)),

@@ -5,10 +5,12 @@ Handles conversion between IBKR-specific data structures and unified application
 """
 
 import logging
-from typing import Dict, List, Any, Union, Optional
-from datetime import datetime
-from ibkr.utils.market_time import market_isoformat
 import math
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Union
+
+from ibkr.utils.ibkr_price import first_positive_ibkr_price, safe_ibkr_price
+from ibkr.utils.market_time import market_isoformat
 
 logger = logging.getLogger(__name__)
 
@@ -32,9 +34,7 @@ class IBKRDataConverter:
     @staticmethod
     def safe_float(value: Any, default: float = 0.0) -> float:
         """Safely convert value to float, handling NaN and None"""
-        if IBKRDataConverter.is_valid_number(value):
-            return float(value)
-        return default
+        return safe_ibkr_price(value, default)
 
     @staticmethod
     def safe_int(value: Any, default: int = 0) -> int:
@@ -167,8 +167,10 @@ class IBKRDataConverter:
                 'quantity': IBKRDataConverter.safe_int(order.totalQuantity),
                 'filled_quantity': IBKRDataConverter.safe_int(status.filled),
                 'remaining_quantity': IBKRDataConverter.safe_int(status.remaining),
-                'price': IBKRDataConverter.safe_float(getattr(order, 'lmtPrice', None)) or \
-                         IBKRDataConverter.safe_float(getattr(order, 'auxPrice', None)) or 0.0,
+                'price': first_positive_ibkr_price(
+                    getattr(order, 'lmtPrice', None),
+                    getattr(order, 'auxPrice', None),
+                ),
                 'average_price': IBKRDataConverter.safe_float(status.avgFillPrice),
                 'status': status.status,
                 'order_type': order.orderType,

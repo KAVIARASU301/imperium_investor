@@ -22,7 +22,6 @@ This file is intentionally self-contained and pure PySide6.
 from __future__ import annotations
 
 import logging
-import math
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from typing import Any, Callable, Dict, List, Optional
 
@@ -56,6 +55,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from ibkr.utils.ibkr_price import safe_ibkr_price
 
 log = logging.getLogger(__name__)
 
@@ -130,15 +131,7 @@ DEFAULT_TICK = 0.01
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _as_float(value: Any, default: float = 0.0) -> float:
-    try:
-        if value is None or value == "":
-            return default
-        val = float(value)
-        if math.isnan(val) or math.isinf(val):
-            return default
-        return val
-    except Exception:
-        return default
+    return safe_ibkr_price(value, default)
 
 
 def _as_int(value: Any, default: int = 1) -> int:

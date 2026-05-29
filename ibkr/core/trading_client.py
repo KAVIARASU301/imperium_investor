@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from PySide6.QtCore import QObject, Signal, QTimer
 
 from ibkr.utils.account_display import extract_account_display_name
+from ibkr.utils.ibkr_price import first_positive_ibkr_price, safe_ibkr_price
 from ibkr.utils.market_time import market_isoformat
 
 try:
@@ -47,11 +48,7 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
 
 
 def _first_price(*values: Any) -> float:
-    for value in values:
-        number = _safe_float(value, 0.0)
-        if number > 0:
-            return number
-    return 0.0
+    return first_positive_ibkr_price(*values)
 
 
 def _mode_value(mode: Any) -> str:
@@ -155,7 +152,7 @@ def _convert_trade(trade: Any) -> Dict[str, Any]:
     symbol = str(getattr(contract, "symbol", "") or "").upper()
     order_type = _normalize_order_type(getattr(order, "orderType", ""))
     price = _first_price(getattr(order, "lmtPrice", 0.0), getattr(status, "avgFillPrice", 0.0))
-    trigger_price = _safe_float(getattr(order, "auxPrice", 0.0), 0.0)
+    trigger_price = safe_ibkr_price(getattr(order, "auxPrice", 0.0), 0.0)
     quantity = int(_safe_float(getattr(order, "totalQuantity", 0), 0.0))
     filled_quantity = int(_safe_float(getattr(status, "filled", 0), 0.0)) if status else 0
     remaining_quantity = int(_safe_float(getattr(status, "remaining", max(quantity - filled_quantity, 0)), 0.0)) if status else max(quantity - filled_quantity, 0)

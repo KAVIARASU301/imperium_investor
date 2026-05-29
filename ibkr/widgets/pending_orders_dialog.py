@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
 )
 
+from ibkr.utils.ibkr_price import first_positive_ibkr_price, safe_ibkr_price
 from ibkr.utils.market_time import market_strftime
 from ibkr.widgets.status_bar import show_error, show_info, show_order_cancelled
 from ibkr.utils.worker import Worker
@@ -103,10 +104,7 @@ def _safe_int(value: Any, default: int = 0) -> int:
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
-    try:
-        return float(value or 0.0)
-    except (TypeError, ValueError):
-        return default
+    return safe_ibkr_price(value, default)
 
 
 def _normalize_order_row(order: Dict[str, Any]) -> Dict[str, Any]:
@@ -129,8 +127,8 @@ def _normalize_order_row(order: Dict[str, Any]) -> Dict[str, Any]:
     row["pending_quantity"] = pending
     row["tradingsymbol"] = str(row.get("tradingsymbol") or row.get("symbol") or "").upper()
     row["transaction_type"] = str(row.get("transaction_type") or row.get("action") or "").upper()
-    row["price"] = _safe_float(row.get("price") or row.get("limit_price") or row.get("lmtPrice"))
-    row["trigger_price"] = _safe_float(row.get("trigger_price") or row.get("stop_price") or row.get("auxPrice"))
+    row["price"] = first_positive_ibkr_price(row.get("price"), row.get("limit_price"), row.get("lmtPrice"))
+    row["trigger_price"] = first_positive_ibkr_price(row.get("trigger_price"), row.get("stop_price"), row.get("auxPrice"))
     row["order_timestamp"] = str(row.get("order_timestamp") or row.get("timestamp") or row.get("time") or "")
     row["variety"] = row.get("variety") or "regular"
     return row
@@ -153,8 +151,8 @@ def _convert_raw_ibkr_trade(trade: Any) -> Dict[str, Any]:
         "quantity": total_qty,
         "filled_quantity": filled,
         "pending_quantity": remaining,
-        "price": getattr(order, "lmtPrice", 0.0),
-        "trigger_price": getattr(order, "auxPrice", 0.0),
+        "price": safe_ibkr_price(getattr(order, "lmtPrice", 0.0), 0.0),
+        "trigger_price": safe_ibkr_price(getattr(order, "auxPrice", 0.0), 0.0),
         "status": getattr(status, "status", "UNKNOWN") if status else "UNKNOWN",
         "average_price": getattr(status, "avgFillPrice", 0.0) if status else 0.0,
         "order_timestamp": market_strftime("%Y-%m-%d %H:%M:%S"),
