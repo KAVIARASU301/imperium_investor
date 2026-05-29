@@ -276,6 +276,8 @@ class DataFetcher:
             days = max(1, int(ceil(total_seconds / 86400.0)))
         except Exception:
             days = 365 if interval == "day" else 5
+        if str(interval or "").lower() in {"day", "1d", "week", "1w", "month", "1m"} and days > 365:
+            return f"{max(1, int(ceil(days / 365.0)))} Y"
         return f"{days} D"
 
     @staticmethod

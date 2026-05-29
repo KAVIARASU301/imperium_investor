@@ -255,6 +255,7 @@ class IBKRDataFetcher(BrokerDataFetcher):
         if getattr(contract, "conId", 0):
             self._cache_contract_aliases(symbol, contract, preferred_key=cache_key)
 
+        bars = self._filter_bars_to_window(bars, from_date, to_date, bar_size)
         return [self._bar_to_bardata(b) for b in bars]
 
     async def _request_historical_bars_async(
@@ -541,8 +542,7 @@ class IBKRDataFetcher(BrokerDataFetcher):
             self._cache_contract(self._contract_cache_key(symbol, con_id), contract)
 
     @staticmethod
-    def _bar_to_bardata(bar) -> BarData:
-        raw_date = bar.date
+    def _parse_bar_datetime(raw_date):
         if isinstance(raw_date, str):
             # IBKR daily bars are exchange *calendar* dates (YYYYMMDD), not
             # UTC instants.  Treat date-only values as timezone-naive calendar
@@ -550,13 +550,35 @@ class IBKRDataFetcher(BrokerDataFetcher):
             # America/New_York date.  Intraday strings include a time component
             # and remain timestamp-like values for normal exchange conversion.
             fmt = "%Y%m%d %H:%M:%S" if " " in raw_date else "%Y%m%d"
-            dt = datetime.strptime(raw_date, fmt)
-        elif isinstance(raw_date, datetime):
-            dt = raw_date
-        elif isinstance(raw_date, date_cls):
-            dt = datetime.combine(raw_date, dt_time.min)
-        else:
-            dt = raw_date
+            return datetime.strptime(raw_date, fmt)
+        if isinstance(raw_date, datetime):
+            return raw_date
+        if isinstance(raw_date, date_cls):
+            return datetime.combine(raw_date, dt_time.min)
+        return raw_date
+
+    @classmethod
+    def _filter_bars_to_window(cls, bars, from_date: datetime, to_date: datetime, bar_size: str):
+        # Year-based IBKR duration strings are required for >365-day requests,
+        # but they round up (for example 600 calendar days -> 2 Y).  Trim the
+        # over-fetched higher-timeframe bars back to the requested chart window
+        # so the UI keeps honoring its days-back settings.
+        if bar_size not in {"1 day", "1 week", "1 month"}:
+            return bars
+
+        start_date = from_date.date() if isinstance(from_date, datetime) else from_date
+        end_date = to_date.date() if isinstance(to_date, datetime) else to_date
+        filtered = []
+        for bar in bars or []:
+            parsed = cls._parse_bar_datetime(getattr(bar, "date", None))
+            bar_date = parsed.date() if isinstance(parsed, datetime) else parsed
+            if bar_date is None or start_date <= bar_date <= end_date:
+                filtered.append(bar)
+        return filtered
+
+    @staticmethod
+    def _bar_to_bardata(bar) -> BarData:
+        dt = IBKRDataFetcher._parse_bar_datetime(bar.date)
 
         return BarData(
             time=dt, open=float(bar.open), high=float(bar.high), low=float(bar.low),
@@ -573,6 +595,8 @@ class IBKRDataFetcher(BrokerDataFetcher):
     def _compute_duration(from_date: datetime, to_date: datetime, bar_size: str) -> str:
         total_seconds = max(0.0, (to_date - from_date).total_seconds())
         days = max(1, int(ceil(total_seconds / 86400.0)))
+        if bar_size in {"1 day", "1 week", "1 month"} and days > 365:
+            return f"{max(1, int(ceil(days / 365.0)))} Y"
         return f"{days} D"
 
 

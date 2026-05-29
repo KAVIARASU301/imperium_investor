@@ -2,6 +2,7 @@ import importlib.util
 import sys
 import types
 from dataclasses import dataclass
+from types import SimpleNamespace
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -110,7 +111,7 @@ def test_ibkr_effective_to_date_uses_current_timestamp_for_all_intervals(monkeyp
     assert kite_to_date.date() == (now_et.date() - timedelta(days=1))
 
 
-def test_ibkr_duration_is_exact_rolling_day_window_for_any_bar_size(monkeypatch):
+def test_ibkr_duration_is_exact_rolling_day_window_for_short_ranges(monkeypatch):
     module = _load_module(monkeypatch, "chart_engine.core.ibkr_data_fetcher", "chart_engine/core/ibkr_data_fetcher.py")
     end = datetime(2026, 5, 29, 10, 15, 30, tzinfo=ZoneInfo("America/New_York"))
     start = end - timedelta(days=100)
@@ -120,6 +121,33 @@ def test_ibkr_duration_is_exact_rolling_day_window_for_any_bar_size(monkeypatch)
     assert module.IBKRDataFetcher._compute_duration(start, end, "1 week") == "100 D"
 
 
+def test_ibkr_duration_uses_years_for_long_higher_timeframe_ranges(monkeypatch):
+    module = _load_module(monkeypatch, "chart_engine.core.ibkr_data_fetcher", "chart_engine/core/ibkr_data_fetcher.py")
+    end = datetime(2026, 5, 29, 10, 15, 30, tzinfo=ZoneInfo("America/New_York"))
+    start = end - timedelta(days=600)
+
+    assert module.IBKRDataFetcher._compute_duration(start, end, "1 day") == "2 Y"
+    assert module.IBKRDataFetcher._compute_duration(start, end, "1 week") == "2 Y"
+    assert module.IBKRDataFetcher._compute_duration(start, end, "1 month") == "2 Y"
+    assert module.IBKRDataFetcher._compute_duration(start, end, "1 hour") == "600 D"
+
+
+def test_ibkr_year_duration_overfetch_is_trimmed_to_requested_window(monkeypatch):
+    module = _load_module(monkeypatch, "chart_engine.core.ibkr_data_fetcher", "chart_engine/core/ibkr_data_fetcher.py")
+    start = datetime(2024, 10, 6, 7, 21, 46, tzinfo=ZoneInfo("America/New_York"))
+    end = datetime(2026, 5, 29, 7, 21, 46, tzinfo=ZoneInfo("America/New_York"))
+    bars = [
+        SimpleNamespace(date="20241004", open=1, high=1, low=1, close=1, volume=1),
+        SimpleNamespace(date="20241006", open=2, high=2, low=2, close=2, volume=2),
+        SimpleNamespace(date="20260529", open=3, high=3, low=3, close=3, volume=3),
+        SimpleNamespace(date="20260601", open=4, high=4, low=4, close=4, volume=4),
+    ]
+
+    trimmed = module.IBKRDataFetcher._filter_bars_to_window(bars, start, end, "1 day")
+
+    assert [bar.date for bar in trimmed] == ["20241006", "20260529"]
+
+
 def test_legacy_ibkr_duration_and_today_end_datetime_are_now_based(monkeypatch):
     module = _load_module(monkeypatch, "ibkr.core.data_fetcher", "ibkr/core/data_fetcher.py")
     end = datetime.now(tz=ZoneInfo("America/New_York"))
@@ -127,4 +155,5 @@ def test_legacy_ibkr_duration_and_today_end_datetime_are_now_based(monkeypatch):
 
     assert module.DataFetcher._ibkr_duration(start, end, "5minute") == "100 D"
     assert module.DataFetcher._ibkr_duration(start, end, "day") == "100 D"
+    assert module.DataFetcher._ibkr_duration(end - timedelta(days=600), end, "day") == "2 Y"
     assert module.DataFetcher._ibkr_end_datetime(end) == ""
