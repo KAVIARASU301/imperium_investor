@@ -19,7 +19,7 @@ Wired in main_window:
 
 import logging
 from datetime import datetime, time
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 from PySide6.QtCore import QObject, Signal, Slot, QMutex, QMutexLocker, QTimer
@@ -488,15 +488,20 @@ class StopLossManager(QObject):
                 order_params["price"] = rec.sl_price
 
             try:
-                order_id = self.trader.place_order(**order_params)
+                order_response = self.trader.place_order(**order_params)
             except Exception as e:
                 logger.error("SL exit order FAILED for %s: %s", rec.symbol, e)
                 self.show_notification.emit(f"SL order FAILED: {rec.symbol} — {e}", "error")
                 return  # Leave SL active; will retry on next tick
 
+            order_id, broker_order = self._normalize_order_response(order_response)
             if not order_id:
-                logger.error("SL exit returned no order_id for %s — leaving SL active", rec.symbol)
+                reason = broker_order.get("error") or broker_order.get("status_message") or "no order ID returned"
+                logger.error("SL exit returned no accepted order_id for %s: %s", rec.symbol, reason)
+                self.show_notification.emit(f"SL order FAILED: {rec.symbol} — {reason}", "error")
                 return
+
+            order_params.update(broker_order)
 
             # Only remove from active AFTER confirmed order placement
             with QMutexLocker(self._mutex):
@@ -514,7 +519,7 @@ class StopLossManager(QObject):
 
             # Let PositionManager handle tracking via the same pipeline
             order_params["order_id"] = order_id
-            order_params["status"]   = "ROUTED"
+            order_params["status"] = str(order_params.get("status") or "ROUTED").upper()
             self.position_manager.start_tracking_order(order_id, order_params)
 
         except Exception as e:
@@ -525,6 +530,22 @@ class StopLossManager(QObject):
         finally:
             # Always remove from inflight so future ticks aren't blocked
             self._execution_inflight.discard(pid)
+
+    @staticmethod
+    def _normalize_order_response(order_response: Any) -> tuple[str, Dict[str, Any]]:
+        if isinstance(order_response, dict):
+            data = dict(order_response)
+            status_text = str(data.get("status") or "").upper()
+            failed_statuses = {"REJECTED", "FAILED", "CANCELLED", "CANCELED", "INACTIVE"}
+            if data.get("error") or data.get("accepted") is False or status_text in failed_statuses:
+                if not data.get("error"):
+                    data["error"] = data.get("status_message") or f"Order {status_text.lower() or 'failed'}"
+                return "", data
+            raw_order_id = data.get("order_id") or data.get("orderId") or data.get("id")
+            return str(raw_order_id).strip() if raw_order_id is not None else "", data
+        if order_response is None:
+            return "", {}
+        return str(order_response).strip(), {}
 
     # ═════════════════════════════════════════════════════════════════════
     # POSITION SYNC (auto-cancel ghost SLs)

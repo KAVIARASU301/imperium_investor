@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import math
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from PySide6.QtCore import QObject, Signal, QTimer
 
@@ -57,18 +57,34 @@ def _mode_value(mode: Any) -> str:
     return str(getattr(mode, "value", mode) or "paper")
 
 
+IBKR_FAILURE_STATUSES = {"REJECTED", "FAILED", "INACTIVE", "CANCELLED", "API_CANCELLED", "APICANCELLED"}
+IBKR_PENDING_STATUSES = {"PENDING", "PENDING_SUBMIT", "PENDINGSUBMIT", "API_PENDING", "APIPENDING"}
+IBKR_OPEN_STATUSES = {"OPEN", "SUBMITTED", "PRESUBMITTED"}
+IBKR_SUCCESS_STATUSES = {"COMPLETE", "FILLED"}
+
+
 def _normalize_status(status: Any) -> str:
-    text = str(status or "UNKNOWN").replace(" ", "").upper()
+    text = str(status or "UNKNOWN").replace(" ", "").replace("_", "").upper()
     mapping = {
         "FILLED": "COMPLETE",
         "SUBMITTED": "OPEN",
         "PRESUBMITTED": "OPEN",
         "PENDINGSUBMIT": "PENDING",
         "APIPENDING": "PENDING",
+        "PENDINGCANCEL": "CANCEL_PENDING",
+        "APICANCELLED": "CANCELLED",
         "CANCELLED": "CANCELLED",
         "INACTIVE": "REJECTED",
     }
     return mapping.get(text, text)
+
+
+def _is_failure_status(status: Any) -> bool:
+    return _normalize_status(status) in IBKR_FAILURE_STATUSES
+
+
+def _is_pending_or_open_status(status: Any) -> bool:
+    return _normalize_status(status) in (IBKR_PENDING_STATUSES | IBKR_OPEN_STATUSES | {"CANCEL_PENDING"})
 
 
 def _normalize_order_type(order_type: Any) -> str:
@@ -98,6 +114,39 @@ def _convert_position(pos: Any) -> Dict[str, Any]:
     }
 
 
+def _extract_trade_message(trade: Any) -> str:
+    messages: List[str] = []
+    for attr in ("advancedError", "advancedErrorOverride"):
+        value = getattr(trade, attr, None)
+        if value:
+            messages.append(str(value))
+
+    for entry in list(getattr(trade, "log", []) or [])[-5:]:
+        message = getattr(entry, "message", None)
+        if message:
+            messages.append(str(message))
+        error_code = getattr(entry, "errorCode", None)
+        if error_code not in (None, 0, "0"):
+            messages.append(f"IBKR error {error_code}")
+
+    # Preserve order while removing duplicates/blank fragments.
+    seen = set()
+    unique: List[str] = []
+    for message in messages:
+        message = " ".join(str(message).split())
+        if message and message not in seen:
+            unique.append(message)
+            seen.add(message)
+    return "; ".join(unique)
+
+
+def _extract_order_identity(trade: Any) -> Tuple[str, str]:
+    order = getattr(trade, "order", None)
+    order_id = str(getattr(order, "orderId", "") or "").strip() if order else ""
+    perm_id = str(getattr(order, "permId", "") or "").strip() if order else ""
+    return order_id, perm_id
+
+
 def _convert_trade(trade: Any) -> Dict[str, Any]:
     order = getattr(trade, "order", None)
     status = getattr(trade, "orderStatus", None)
@@ -107,6 +156,7 @@ def _convert_trade(trade: Any) -> Dict[str, Any]:
     price = _first_price(getattr(order, "lmtPrice", 0.0), getattr(order, "auxPrice", 0.0), getattr(status, "avgFillPrice", 0.0))
     return {
         "order_id": str(getattr(order, "orderId", "") or getattr(order, "permId", "")),
+        "perm_id": str(getattr(order, "permId", "") or ""),
         "tradingsymbol": symbol,
         "symbol": symbol,
         "exchange": getattr(contract, "exchange", "SMART") if contract else "SMART",
@@ -116,6 +166,8 @@ def _convert_trade(trade: Any) -> Dict[str, Any]:
         "quantity": int(_safe_float(getattr(order, "totalQuantity", 0), 0.0)),
         "price": price,
         "status": _normalize_status(getattr(status, "status", "UNKNOWN") if status else "UNKNOWN"),
+        "raw_status": str(getattr(status, "status", "UNKNOWN") if status else "UNKNOWN"),
+        "status_message": _extract_trade_message(trade),
         "filled_quantity": int(_safe_float(getattr(status, "filled", 0), 0.0)) if status else 0,
         "average_price": _safe_float(getattr(status, "avgFillPrice", 0.0), 0.0) if status else 0.0,
         "timestamp": datetime.now().isoformat(),
@@ -175,6 +227,7 @@ class IBKRTradingClient(QObject):
         self._contract_cache: Dict[str, Any] = {}
         self._market_data_subscriptions: Dict[str, Dict[str, Any]] = {}
         self._subscribed_symbols: set[str] = set()
+        self._recent_order_errors: Dict[str, str] = {}
         self._events_attached = False
 
         self._setup_event_handlers()
@@ -194,6 +247,8 @@ class IBKRTradingClient(QObject):
             self.ib.accountValueEvent += self._on_account_update
             self.ib.pendingTickersEvent += self._on_market_data_update
             self.ib.disconnectedEvent += self._on_disconnected
+            if hasattr(self.ib, "errorEvent"):
+                self.ib.errorEvent += self._on_ib_error
             self._events_attached = True
         except Exception as exc:
             logger.warning("Failed to attach IBKR event handlers: %s", exc)
@@ -207,6 +262,7 @@ class IBKRTradingClient(QObject):
             ("accountValueEvent", self._on_account_update),
             ("pendingTickersEvent", self._on_market_data_update),
             ("disconnectedEvent", self._on_disconnected),
+            ("errorEvent", self._on_ib_error),
         ):
             try:
                 event = getattr(self.ib, event_name)
@@ -245,6 +301,20 @@ class IBKRTradingClient(QObject):
     def _on_disconnected(self) -> None:
         self._connected = False
         self.connection_status_changed.emit(False)
+
+    def _on_ib_error(self, req_id: Any = None, error_code: Any = None, error_string: Any = None, contract: Any = None) -> None:
+        message = " ".join(str(error_string or "").split())
+        if not message:
+            return
+
+        key = str(req_id or "").strip()
+        if key and key != "-1":
+            self._recent_order_errors[key] = message
+
+        symbol = str(getattr(contract, "symbol", "") or "").upper() if contract is not None else ""
+        full_message = f"{symbol}: {message}" if symbol else message
+        logger.warning("IBKR error %s for request %s: %s", error_code, req_id, full_message)
+        self.error_occurred.emit(full_message)
 
     def _check_connection(self) -> None:
         connected = bool(self.ib and self.ib.isConnected())
@@ -302,19 +372,20 @@ class IBKRTradingClient(QObject):
         return self.get_orders()
 
     def place_order(self, **kwargs) -> Dict[str, Any]:
+        params: Dict[str, Any] = {}
         try:
             if not self.is_connected():
-                return {"error": "IBKR client is not connected"}
+                return self._order_failure_response(kwargs, "IBKR client is not connected")
 
             params = self._prepare_order_params(kwargs)
             symbol = params["symbol"]
             quantity = int(params["quantity"])
             if not symbol or quantity <= 0:
-                return {"error": "Invalid symbol or quantity"}
+                return self._order_failure_response(params or kwargs, "Invalid symbol or quantity")
 
             contract = self._resolve_stock_contract(symbol, params.get("exchange", "SMART"), params.get("currency", "USD"))
             if contract is None:
-                return {"error": f"Unable to resolve IBKR contract for {symbol}"}
+                return self._order_failure_response(params, f"Unable to resolve IBKR contract for {symbol}")
 
             order_type = params["order_type"]
             action = params["action"]
@@ -323,54 +394,61 @@ class IBKRTradingClient(QObject):
             elif order_type == "LIMIT":
                 limit_price = _safe_float(params.get("limit_price"), 0.0)
                 if limit_price <= 0:
-                    return {"error": "Limit price required for limit orders"}
+                    return self._order_failure_response(params, "Limit price required for limit orders")
                 order = LimitOrder(action, quantity, limit_price)
             elif order_type == "STOP":
                 stop_price = _safe_float(params.get("stop_price"), 0.0)
                 if stop_price <= 0:
-                    return {"error": "Stop price required for stop orders"}
+                    return self._order_failure_response(params, "Stop price required for stop orders")
                 order = StopOrder(action, quantity, stop_price)
             elif order_type == "STOP_LIMIT":
                 limit_price = _safe_float(params.get("limit_price"), 0.0)
                 stop_price = _safe_float(params.get("stop_price"), 0.0)
                 if limit_price <= 0 or stop_price <= 0:
-                    return {"error": "Both stop and limit price are required for stop-limit orders"}
+                    return self._order_failure_response(params, "Both stop and limit price are required for stop-limit orders")
                 order = StopLimitOrder(action, quantity, limit_price, stop_price)
             else:
-                return {"error": f"Unsupported order type: {order_type}"}
+                return self._order_failure_response(params, f"Unsupported order type: {order_type}")
 
             order.tif = params.get("time_in_force", "DAY")
             order.outsideRth = bool(params.get("outside_rth", False))
 
             trade = self.ib.placeOrder(contract, order)
             if not trade:
-                return {"error": "IBKR did not return a Trade object"}
+                return self._order_failure_response(params, "IBKR did not return a Trade object")
 
-            # Pump briefly so orderId/status is populated without creating a long UI stall.
-            try:
-                self.ib.waitOnUpdate(timeout=0.05)
-            except Exception:
-                pass
+            self._pump_order_updates(trade)
+            result = self._build_order_result(trade, params, contract)
+            order_id = str(result.get("order_id") or "").strip()
+            if order_id:
+                error_message = self._recent_order_errors.pop(order_id, "")
+                if error_message and not result.get("status_message"):
+                    result["status_message"] = error_message
 
-            result = _convert_trade(trade)
-            result.update({
-                "accepted": True,
-                "order_id": str(result.get("order_id") or getattr(trade.order, "orderId", "")),
-                "symbol": symbol,
-                "tradingsymbol": symbol,
-                "quantity": quantity,
-                "transaction_type": action,
-                "order_type": order_type,
-                "exchange": getattr(contract, "exchange", "SMART"),
-                "product": "IBKR",
-                "timestamp": datetime.now().isoformat(),
-            })
-            if result.get("order_id"):
-                self._orders[str(result["order_id"])] = result
+            status_text = str(result.get("status") or "UNKNOWN").upper()
+            status_message = str(result.get("status_message") or "").strip()
+
+            if _is_failure_status(status_text):
+                reason = status_message or f"IBKR marked order {status_text.lower()}"
+                result.update({"accepted": False, "error": reason})
+                logger.warning("IBKR order rejected/failed for %s: %s", symbol, reason)
+            elif _is_pending_or_open_status(status_text) or status_text in IBKR_SUCCESS_STATUSES:
+                result["accepted"] = True
+            else:
+                # Some IBKR responses have an order id before a status arrives. Treat
+                # that as accepted-but-pending so the normal polling/event flow can
+                # resolve it instead of showing a false failure to the user.
+                result.update({"accepted": bool(order_id), "status": "PENDING" if order_id else status_text})
+                if not order_id:
+                    result.update({"accepted": False, "error": "IBKR did not provide an order id yet"})
+
+            if order_id:
+                self._orders[order_id] = result
+                self.order_status_updated.emit(result)
             return result
         except Exception as exc:
             logger.error("Error placing IBKR order: %s", exc, exc_info=True)
-            return {"error": str(exc)}
+            return self._order_failure_response(params or kwargs, self._compact_exception(exc))
 
     def cancel_order(self, order_id: Any) -> Dict[str, Any]:
         try:
@@ -549,6 +627,62 @@ class IBKRTradingClient(QObject):
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+    def _pump_order_updates(self, trade: Any, attempts: int = 5, timeout: float = 0.1) -> None:
+        for _ in range(max(1, attempts)):
+            status = _normalize_status(getattr(getattr(trade, "orderStatus", None), "status", ""))
+            order_id, _ = _extract_order_identity(trade)
+            if status in {"OPEN", "PENDING", "COMPLETE", "REJECTED", "CANCELLED"} and order_id:
+                return
+            try:
+                self.ib.waitOnUpdate(timeout=timeout)
+            except Exception as exc:
+                logger.debug("IBKR waitOnUpdate during order placement failed: %s", exc)
+                return
+
+    def _build_order_result(self, trade: Any, params: Dict[str, Any], contract: Any) -> Dict[str, Any]:
+        symbol = params.get("symbol", "")
+        quantity = int(params.get("quantity") or 0)
+        action = params.get("action", "BUY")
+        order_type = params.get("order_type", "MARKET")
+        result = _convert_trade(trade)
+        order_id, perm_id = _extract_order_identity(trade)
+        result.update({
+            "order_id": str(result.get("order_id") or order_id or perm_id),
+            "perm_id": str(result.get("perm_id") or perm_id),
+            "symbol": symbol,
+            "tradingsymbol": symbol,
+            "quantity": quantity,
+            "transaction_type": action,
+            "order_type": order_type,
+            "exchange": getattr(contract, "exchange", "SMART"),
+            "product": "IBKR",
+            "timestamp": datetime.now().isoformat(),
+        })
+        return result
+
+    def _order_failure_response(self, source: Dict[str, Any], message: str) -> Dict[str, Any]:
+        params = source if isinstance(source, dict) else {}
+        symbol = str(params.get("symbol") or params.get("tradingsymbol") or "").strip().upper()
+        response = {
+            "accepted": False,
+            "error": str(message or "IBKR order placement failed"),
+            "status": "REJECTED",
+            "status_message": str(message or "IBKR order placement failed"),
+            "symbol": symbol,
+            "tradingsymbol": symbol,
+            "quantity": int(_safe_float(params.get("quantity") or params.get("qty") or 0, 0.0)),
+            "transaction_type": str(params.get("action") or params.get("transaction_type") or "").upper(),
+            "order_type": _normalize_order_type(params.get("order_type") or params.get("orderType") or "MARKET"),
+            "product": "IBKR",
+            "timestamp": datetime.now().isoformat(),
+        }
+        return response
+
+    @staticmethod
+    def _compact_exception(exc: Exception) -> str:
+        text = " ".join(str(exc or "").split())
+        return text or exc.__class__.__name__
+
     def _prepare_order_params(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
         symbol = str(kwargs.get("symbol") or kwargs.get("tradingsymbol") or "").strip().upper()
         action = str(kwargs.get("action") or kwargs.get("transaction_type") or "BUY").strip().upper()

@@ -2875,7 +2875,11 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         """Return a scalar order id plus broker metadata from broker-specific responses."""
         if isinstance(order_response, dict):
             data = dict(order_response)
-            if data.get("error"):
+            status_text = str(data.get("status") or "").upper()
+            failed_statuses = {"REJECTED", "FAILED", "CANCELLED", "CANCELED", "INACTIVE"}
+            if data.get("error") or data.get("accepted") is False or status_text in failed_statuses:
+                if not data.get("error"):
+                    data["error"] = data.get("status_message") or f"Order {status_text.lower() or 'failed'}"
                 return "", data
             raw_order_id = data.get("order_id") or data.get("orderId") or data.get("id")
             return str(raw_order_id).strip() if raw_order_id is not None else "", data
