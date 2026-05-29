@@ -80,7 +80,6 @@ SHORTCUT_SECTIONS: tuple[ShortcutSection, ...] = (
             ("Ctrl + I", "Open stock information", "CYAN"),
             ("Shift + I", "Open stock information", "CYAN"),
             ("Ctrl + ,", "Open settings", "CYAN"),
-            ("Shift + R", "Open order routing settings", "CYAN"),
         ),
     ),
     (

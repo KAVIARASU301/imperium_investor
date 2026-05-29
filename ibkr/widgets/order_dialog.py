@@ -861,7 +861,7 @@ class OrderDialog(QDialog):
         )))
         self._transmit_chk = _Toggle("TRANSMIT", self)
         self._transmit_chk.setChecked(bool(_first_value(self._order_details.get("transmit"), default=True)))
-        self._transmit_chk.setToolTip("Unchecked sends a held/non-transmitted order only if your order router supports it.")
+        self._transmit_chk.setToolTip("Unchecked sends a held/non-transmitted order only if your broker session supports it.")
 
         layout.addWidget(self._outside_rth_chk)
         layout.addWidget(self._transmit_chk)
