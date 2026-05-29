@@ -44,6 +44,7 @@ from chart_engine.core.data_loader import (
 )
 from chart_engine.core.broker_protocol import BrokerDataFetcher
 from chart_engine.core.metrics import calculate_metrics
+from chart_engine.core.session_filter import INTRADAY_INTERVALS, filter_ibkr_premarket_candles
 from chart_engine.drawings import DrawingStorage
 from chart_engine.renderer.html_builder import ChartHtmlConfig, build_chart_html
 from chart_engine.settings.chart_settings_dialog import ChartSettingsDialog
@@ -67,7 +68,6 @@ DEFAULT_INDICATOR_VISIBILITY = {}
 
 POLL_MS_INTRADAY = 60_000
 MINUTE_BOUNDARY_POLL_OFFSET_MS = 5000
-INTRADAY_INTERVALS = {"minute", "3minute", "5minute", "10minute", "15minute", "30minute", "60minute"}
 
 # ChartState is used internally to manage the stacked-widget visibility.
 from enum import Enum
@@ -882,37 +882,12 @@ class CandlestickChart(QWidget):
 
     def _filter_premarket_candles(self, df: pd.DataFrame) -> pd.DataFrame:
         """Return chart data with IBKR premarket bars removed when disabled."""
-        if (
-            df is None
-            or df.empty
-            or self._show_premarket_candles
-            or str(self._broker_caps.name).lower() != "ibkr"
-            or self.current_interval not in INTRADAY_INTERVALS
-            or "time" not in df.columns
-        ):
-            return df
-
-        times = pd.to_datetime(df["time"], errors="coerce")
-        if times.empty:
-            return df
-
-        try:
-            if getattr(times.dt, "tz", None) is not None:
-                if ZoneInfo is not None:
-                    exchange_times = times.dt.tz_convert(ZoneInfo("America/New_York"))
-                else:
-                    exchange_times = times.dt.tz_convert("America/New_York")
-            else:
-                exchange_times = times
-        except Exception as exc:
-            logger.warning("Unable to filter IBKR premarket candles: %s", exc)
-            return df
-
-        minutes = exchange_times.dt.hour * 60 + exchange_times.dt.minute
-        premarket_open = 4 * 60
-        rth_open = 9 * 60 + 30
-        keep_mask = times.notna() & ~((minutes >= premarket_open) & (minutes < rth_open))
-        return df.loc[keep_mask].copy()
+        return filter_ibkr_premarket_candles(
+            df,
+            show_premarket_candles=self._show_premarket_candles,
+            broker_name=self._broker_caps.name,
+            interval=self.current_interval,
+        )
 
 
     def _build_chart_payload(self, df: pd.DataFrame, calendar_interval: bool) -> tuple[list[dict], list[dict]]:
@@ -1620,7 +1595,9 @@ class CandlestickChart(QWidget):
         self._indicator_scale_labels_enabled = s.get("indicator_scale_labels_enabled", self._indicator_scale_labels_enabled)
         self._crosshair_snap_enabled     = s.get("crosshair_snap_enabled", self._crosshair_snap_enabled)
         self._show_time_slider          = s.get("show_time_slider", self._show_time_slider)
-        self._show_premarket_candles    = s.get("show_premarket_candles", self._show_premarket_candles)
+        previous_show_premarket_candles = bool(self._show_premarket_candles)
+        self._show_premarket_candles    = bool(s.get("show_premarket_candles", self._show_premarket_candles))
+        premarket_visibility_changed    = previous_show_premarket_candles != self._show_premarket_candles
         self._tool_selection_mode        = s.get("tool_selection_mode", self._tool_selection_mode)
         self._toolbar_symbol_display     = s.get("toolbar_symbol_display", self._toolbar_symbol_display)
         if self.toolbar:
@@ -1679,9 +1656,14 @@ class CandlestickChart(QWidget):
 
             # Rebuild/reload the current chart immediately so settings that are
             # only consumed during chart initialization are applied without
-            # requiring an app restart.
+            # requiring an app restart.  The IBKR premarket toggle is a data-level
+            # filter, so re-apply the last loaded frame synchronously when possible
+            # instead of waiting for an async cache/API round trip.
             if self.current_symbol:
-                self._load_chart_data()
+                if premarket_visibility_changed and self.last_df is not None and not self.last_df.empty:
+                    self._on_data_loaded(self.last_df.copy(), f"{self.current_symbol}_{self.current_interval}")
+                else:
+                    self._load_chart_data()
 
     def _save_global_settings_patch(self, patch: Dict[str, Any]) -> None:
         settings = self.drawing_storage.load_global_settings()
