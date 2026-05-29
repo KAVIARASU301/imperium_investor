@@ -337,10 +337,12 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             chart_data_fetcher,
             storage_dir=self.chart_drawings_dir,
         )
-        self.candlestick_chart.data_cache = MarketAwareDataCache(parent=self.candlestick_chart)
+        shared_chart_cache = MarketAwareDataCache(parent=self)
+        self.candlestick_chart.data_cache = shared_chart_cache
+        self.candlestick_chart_secondary.data_cache = shared_chart_cache
         # Backward-compat for force-refresh path still using `_cache`.
-        if not hasattr(self.candlestick_chart.data_cache, '_cache'):
-            self.candlestick_chart.data_cache._cache = self.candlestick_chart.data_cache._store
+        if not hasattr(shared_chart_cache, '_cache'):
+            shared_chart_cache._cache = shared_chart_cache._store
         self.watchlist = TabbedWatchlistWidget()
         self.watchlist.set_quote_client(self.real_kite_client)
         self.positions_table = PositionsTable(parent=self)
@@ -1549,8 +1551,10 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             self.candlestick_chart_secondary.alert_creation_requested.connect(self.alert_system.create_alert_from_chart)
 
         # Scanner & Watchlist → Chart
-        self.finviz_scanner.symbol_selected.connect(self.candlestick_chart.on_search)
-        self.finviz_scanner.symbol_selected.connect(self.candlestick_chart_secondary.on_search)
+        # Scanner selections route through _on_scanner_symbol_selected so IBKR
+        # qualification/subscription and chart loading happen once.  Directly
+        # wiring scanner rows to both charts as well caused duplicate loader
+        # churn and extra IBKR historical requests on every row change.
         self.finviz_scanner.symbol_selected.connect(self._on_scanner_symbol_selected)
         # Re-evaluate subscription universe whenever scan results refresh or user scrolls
         self.finviz_scanner.scan_results_changed.connect(self._schedule_subscription_rebuild)
@@ -1918,7 +1922,12 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             self.candlestick_chart_secondary.on_search(symbol)
             return
 
-        # Unknown symbol — qualify it first
+        # Unknown scanner symbols can still render immediately in IBKR mode:
+        # IBKRDataFetcher qualifies on-demand during the history request.  Keep
+        # contract lookup in the background only for live subscription metadata.
+        self.candlestick_chart.on_search(symbol)
+        self.candlestick_chart_secondary.on_search(symbol)
+
         def _on_qualified(contract):
             if contract:
                 self.instrument_map[symbol] = {
@@ -1931,9 +1940,6 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 }
                 self._token_to_symbol[contract.conId] = symbol
                 self._subscribe_to_tokens([self._build_subscription_item(symbol, token=contract.conId) or contract.conId])
-            # Load chart regardless — IBKRDataFetcher can resolve without conId
-            self.candlestick_chart.on_search(symbol)
-            self.candlestick_chart_secondary.on_search(symbol)
 
         # Run qualification in background
         from ibkr.utils.ibkr_symbol_resolver import IBKRSymbolSearchWorker

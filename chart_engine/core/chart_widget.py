@@ -680,6 +680,18 @@ class CandlestickChart(QWidget):
             self._show_error(f"Instrument token unavailable for {self.current_symbol}")
             return
 
+        load_key = f"{self.current_symbol}_{self.current_interval}"
+
+        if not force_refresh:
+            cached_df = self._get_cached_chart_frame(load_key)
+            if cached_df is not None and not cached_df.empty:
+                self._stop_loader()
+                self.progress_bar.hide()
+                self._active_load_key = load_key
+                logger.debug("Rendering cached chart data immediately: %s", load_key)
+                self._on_data_loaded(cached_df, load_key)
+                return
+
         self._stop_loader()
         is_background_refresh = bool(
             force_refresh
@@ -704,7 +716,6 @@ class CandlestickChart(QWidget):
             self.progress_bar.show()
         self.loading_label.setText(f"Loading {self.current_symbol}…")
 
-        load_key = f"{self.current_symbol}_{self.current_interval}"
         self._active_load_key = load_key
 
         self.data_loader_thread = ChartDataLoaderThread(
@@ -725,6 +736,28 @@ class CandlestickChart(QWidget):
         self.data_loader_thread.load_progress.connect(self.progress_bar.setValue)
         self.data_loader_thread.finished.connect(self._on_thread_finished)
         self.data_loader_thread.start()
+
+
+    def _get_cached_chart_frame(self, load_key: str) -> Optional[pd.DataFrame]:
+        """Return an immediately renderable cached frame for the current request.
+
+        Starting a QThread just to discover an IBKR cache hit still creates a
+        perceptible pause during keyboard/row-by-row symbol navigation.  This
+        fast path uses the exact worker cache-key helper and skips both the
+        worker startup and the IBKR API call when the frame is already warm.
+        """
+        try:
+            _exchange_tz, _from_date, _to_date, scoped_cache_key = ChartDataLoaderThread.build_request_context(
+                caps=self.data_fetcher.capabilities,
+                symbol=self.current_symbol,
+                interval=self.current_interval,
+                days_back_overrides=self._history_days_by_interval,
+            )
+            cached = self.data_cache.get(scoped_cache_key)
+        except Exception as exc:
+            logger.debug("Chart cache fast-path miss for %s: %s", load_key, exc)
+            return None
+        return cached if cached is not None and not cached.empty else None
 
     @Slot(object, str)
     def _on_data_loaded(self, df: pd.DataFrame, key: str) -> None:
