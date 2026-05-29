@@ -129,18 +129,34 @@ class MarketDataWorker(QThread):
         self._lock = threading.RLock()
 
     def _connection_params_from_client(self, ib_client: IB) -> Tuple[str, int, int]:
-        """Extract TWS/Gateway endpoint details from the authenticated IB client."""
+        """Extract TWS/Gateway endpoint details from the authenticated IB client.
+
+        The market-data worker opens its own IBKR API session.  It must connect
+        to the same TWS/Gateway endpoint as login; otherwise live sessions on
+        7496 accidentally try the paper default 7497, fall back to the shared
+        cross-thread IB object, and no pending ticker events reach the watchlist.
+        """
         client = getattr(ib_client, "client", None)
+
         host = str(
-            getattr(client, "host", "")
+            getattr(ib_client, "_qullamaggie_host", "")
+            or getattr(client, "host", "")
             or os.environ.get("IBKR_HOST", "127.0.0.1")
         )
         try:
-            port = int(getattr(client, "port", 0) or os.environ.get("IBKR_PORT", "7497"))
+            port = int(
+                getattr(ib_client, "_qullamaggie_port", 0)
+                or getattr(client, "port", 0)
+                or os.environ.get("IBKR_PORT", "7497")
+            )
         except (TypeError, ValueError):
             port = 7497
         try:
-            base_client_id = int(getattr(client, "clientId", 1) or 1)
+            base_client_id = int(
+                getattr(ib_client, "_qullamaggie_client_id", 0)
+                or getattr(client, "clientId", 1)
+                or 1
+            )
         except (TypeError, ValueError):
             base_client_id = 1
         configured = os.environ.get("IBKR_MARKET_DATA_CLIENT_ID", "").strip()

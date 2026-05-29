@@ -138,6 +138,13 @@ class IBKRConnectionWorker(QThread):
             if self.ib.isConnected():
                 self.connection_progress.emit("✅ Connected. Verifying API...")
                 await self.ib.reqCurrentTimeAsync()
+                # ib_insync does not expose the endpoint consistently across
+                # versions after connectAsync().  Persist the exact endpoint we
+                # probed so secondary workers (market data, history, etc.) do
+                # not guess the paper port while the primary login is live.
+                setattr(self.ib, "_qullamaggie_host", host)
+                setattr(self.ib, "_qullamaggie_port", int(port))
+                setattr(self.ib, "_qullamaggie_client_id", int(self.params.client_id))
                 connected = True
                 self.connection_success.emit(self.ib)
                 # IB object is now owned by the caller — do NOT disconnect here.
