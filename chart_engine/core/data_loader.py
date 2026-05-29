@@ -1,3 +1,5 @@
+import calendar
+import json
 import logging
 import threading
 from datetime import datetime, time as dt_time, timedelta
@@ -149,12 +151,12 @@ class ChartDataLoaderThread(QThread):
         After stop() is called, NO signals will be emitted.
 
     Signal contract:
-        data_loaded(DataFrame, cache_key)   — only emitted on success AND not stopped
+        data_loaded(DataFrame, cache_key, payload_json) — only emitted on success AND not stopped
         load_error(str)                     — only emitted on failure AND not stopped
         load_progress(int)                  — 0-100, emitted freely (UI progress bar)
     """
 
-    data_loaded   = Signal(object, str)   # (DataFrame, cache_key)
+    data_loaded   = Signal(object, str, str)   # (DataFrame, cache_key, payload_json)
     load_error    = Signal(str)
     load_progress = Signal(int)           # 0-100
 
@@ -229,9 +231,10 @@ class ChartDataLoaderThread(QThread):
         if not self.force_refresh:
             cached = self.cache.get(scoped_cache_key)
             if cached is not None and not cached.empty:
+                pre_serialized = self._safe_pre_serialize_for_chart(cached)
                 self._emit_progress(100)
                 if not self._stop_requested:
-                    self.data_loaded.emit(cached, self.cache_key)
+                    self.data_loaded.emit(cached, self.cache_key, pre_serialized)
                 return
 
         if self._stop_requested:
@@ -292,11 +295,65 @@ class ChartDataLoaderThread(QThread):
         # ── Cache and emit ────────────────────────────────────────────────
         self.cache.set(scoped_cache_key, df)
 
+        # Pre-serialize the largest JS payload component before returning to
+        # the Qt GUI thread.  On large intraday datasets this keeps the
+        # expensive candle-array json.dumps() work out of _inject_chart_payload.
+        pre_serialized = self._safe_pre_serialize_for_chart(df)
+
         self._emit_progress(100)
 
         if not self._stop_requested:
-            self.data_loaded.emit(df, self.cache_key)
+            self.data_loaded.emit(df, self.cache_key, pre_serialized)
 
+
+    def _safe_pre_serialize_for_chart(self, df: pd.DataFrame) -> str:
+        try:
+            return self._pre_serialize_for_chart(df)
+        except Exception:
+            logger.debug("Pre-serializing chart payload failed for %s", self.symbol, exc_info=True)
+            return ""
+
+    def _pre_serialize_for_chart(self, df: pd.DataFrame) -> str:
+        """Pre-compute the candle array JSON on the worker thread."""
+        if df is None or df.empty:
+            return ""
+
+        calendar_interval = self.interval in {"day", "week", "month"}
+        cols = ["time", "open", "high", "low", "close", "volume"]
+        work = df.loc[:, [c for c in cols if c in df.columns]].copy()
+        work["time"] = pd.to_datetime(work["time"], errors="coerce")
+        work = work.dropna(subset=["time", "open", "high", "low", "close"])
+        if work.empty:
+            return ""
+
+        if calendar_interval:
+            times = [
+                calendar.timegm(pd.Timestamp(ts).date().timetuple()) * 1000
+                for ts in work["time"].tolist()
+            ]
+        else:
+            times = (work["time"].astype("int64") // 1_000_000).astype("int64").tolist()
+
+        volume = work.get("volume", pd.Series([0] * len(work), index=work.index))
+        candles = [
+            {
+                "time": int(t),
+                "open": float(o),
+                "high": float(h),
+                "low": float(l),
+                "close": float(c),
+                "volume": float(v),
+            }
+            for t, o, h, l, c, v in zip(
+                times,
+                pd.to_numeric(work["open"], errors="coerce").astype(float).tolist(),
+                pd.to_numeric(work["high"], errors="coerce").astype(float).tolist(),
+                pd.to_numeric(work["low"], errors="coerce").astype(float).tolist(),
+                pd.to_numeric(work["close"], errors="coerce").astype(float).tolist(),
+                pd.to_numeric(volume, errors="coerce").fillna(0.0).astype(float).tolist(),
+            )
+        ]
+        return json.dumps(candles)
 
     def _effective_to_date(self, now_exchange: datetime, broker_name: str = "") -> datetime:
         if broker_name == "ibkr":

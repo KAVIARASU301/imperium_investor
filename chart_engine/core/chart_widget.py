@@ -717,7 +717,7 @@ class CandlestickChart(QWidget):
             days_back_overrides=self._history_days_by_interval,
         )
         self.data_loader_thread.data_loaded.connect(
-            lambda df, key: self._on_data_loaded(df, key)
+            lambda df, key, payload_json: self._on_data_loaded(df, key, payload_json)
         )
         self.data_loader_thread.load_error.connect(
             lambda msg: self._on_load_error(msg, load_key)
@@ -726,8 +726,8 @@ class CandlestickChart(QWidget):
         self.data_loader_thread.finished.connect(self._on_thread_finished)
         self.data_loader_thread.start()
 
-    @Slot(object, str)
-    def _on_data_loaded(self, df: pd.DataFrame, key: str) -> None:
+    @Slot(object, str, str)
+    def _on_data_loaded(self, df: pd.DataFrame, key: str, pre_serialized_payload: str = "") -> None:
         """
         Called by ChartDataLoaderThread when data is ready.
 
@@ -769,12 +769,14 @@ class CandlestickChart(QWidget):
         # ── Build candle + volume arrays ──────────────────────────────────
         # Production charting packages (TradingView/lightweight-charts, etc.)
         # treat day/week/month bars as exchange calendar dates, not as absolute
-        # intraday instants.  Serialize those higher timeframes at UTC midnight
-        # for their trading date so a host/browser timezone can never shift an
-        # NSE daily candle from (for example) May 13 to May 12.  Intraday bars
-        # remain true broker timestamps.
+        # intraday instants.  The loader pre-serializes the unfiltered candle
+        # array off the GUI thread; use it only when the display DataFrame is
+        # exactly the loader DataFrame.  If UI session filters removed candles,
+        # fall back to building matching candle/volume arrays here.
         calendar_interval = self.current_interval in {"day", "week", "month"}
-        candles, volumes = self._build_chart_payload(display_df, calendar_interval)
+        use_pre_serialized_payload = bool(pre_serialized_payload) and display_df is df
+        candles: list[dict[str, Any]] = []
+        volumes: list[dict[str, Any]] = []
 
         # ── Load saved state for THIS symbol/interval ─────────────────────
         saved_state = self.drawing_storage.load_state(self.current_symbol, self.current_interval)
@@ -804,9 +806,15 @@ class CandlestickChart(QWidget):
         # ── Path A: seamless reload on existing chart ─────────────────────
         if self.chart_view and self._html_bootstrapped:
             price_scale_currency = self._resolve_price_scale_currency()
-            payload_dict = {
-                "candlestickData":          candles,
-                "volumeData":               volumes,
+            if use_pre_serialized_payload:
+                payload_dict = {}
+            else:
+                candles, volumes = self._build_chart_payload(display_df, calendar_interval)
+                payload_dict = {
+                    "candlestickData":      candles,
+                    "volumeData":           volumes,
+                }
+            payload_dict.update({
                 "emaData":                  metrics.ema_data,
                 "initialADR":               metrics.adr,
                 "percentageChanges":        metrics.pct_changes,
@@ -829,20 +837,25 @@ class CandlestickChart(QWidget):
                 "brokerName":                self._broker_caps.name,
                 "showPremarketCandles":      self._show_premarket_candles,
                 "showPostmarketCandles":     self._show_postmarket_candles,
-            }
+            })
             loader_method = "refreshHistoricalData" if self._is_periodic_historical_refresh else "loadNewData"
-            self._inject_chart_payload(loader_method, payload_dict)
+            self._inject_chart_payload(
+                loader_method,
+                payload_dict,
+                candlestick_json=pre_serialized_payload if use_pre_serialized_payload else None,
+            )
             if not self._is_periodic_historical_refresh:
                 self._set_state(ChartState.LOADED)
             self._update_symbol_info(df)
             self.symbol_loaded.emit(self.current_symbol)
             self.data_request_for_symbol.emit(self.current_symbol)
-            logger.info("Chart seamlessly updated: %s (%d candles)", self.current_symbol, len(candles))
+            logger.info("Chart seamlessly updated: %s (%d candles)", self.current_symbol, len(display_df))
             self._restart_historical_sync_timer()
             self._is_periodic_historical_refresh = False
             return
 
         # ── Path B: first render — build full HTML ────────────────────────
+        candles, volumes = self._build_chart_payload(display_df, calendar_interval)
         cfg = ChartHtmlConfig(
             candlestick_data            = candles,
             volume_data                 = volumes,
@@ -996,9 +1009,20 @@ class CandlestickChart(QWidget):
         self.chart_view.setHtml(html)
         self._html_bootstrapped = True
 
-    def _inject_chart_payload(self, loader_method: str, payload_dict: Dict[str, Any]) -> None:
+    def _inject_chart_payload(
+        self,
+        loader_method: str,
+        payload_dict: Dict[str, Any],
+        candlestick_json: Optional[str] = None,
+    ) -> None:
         """Push fresh symbol payload directly into live JS memory without rebuilding DOM."""
         payload_json = json.dumps(payload_dict)
+        if candlestick_json:
+            # candlestick_json was produced by ChartDataLoaderThread. Splice it
+            # into the small GUI-thread payload without re-serializing the large
+            # candle list on the Qt main thread. JS derives volumeData from each
+            # candle's embedded volume when volumeData is omitted.
+            payload_json = payload_json[:-1] + ',"candlestickData":' + candlestick_json + "}"
         self._js(
             "(function injectChartPayload(method,payload,attempt){"
             "attempt=attempt||0;"

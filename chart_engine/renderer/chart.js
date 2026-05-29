@@ -82,7 +82,7 @@ class FixedTradingChart {
 
         // ── Data ──
         this.data = cfg.candlestickData || [];
-        this.volumeData = cfg.volumeData || [];
+        this.volumeData = cfg.volumeData || this.data.map(c => ({ time: c.time, value: Number(c.volume) || 0 }));
         this.emaData = cfg.emaData || {};
         this.movingAverageConfigs = cfg.movingAverageConfigs || this.movingAverageConfigs || [];
         this.movingAverageConfigs = cfg.movingAverageConfigs || [];
@@ -3528,7 +3528,7 @@ const US_AFTER_HOURS_CLOSE_MINUTES = 20 * 60;
 
         this.data = cfg.candlestickData || [];
         this._rebuildHeikinAshiData();
-        this.volumeData = cfg.volumeData || [];
+        this.volumeData = cfg.volumeData || this.data.map(c => ({ time: c.time, value: Number(c.volume) || 0 }));
         this.emaData = cfg.emaData || {};
         this.movingAverageConfigs = cfg.movingAverageConfigs || [];
         if (cfg.initialIndicatorVisibility && typeof cfg.initialIndicatorVisibility === 'object') {
