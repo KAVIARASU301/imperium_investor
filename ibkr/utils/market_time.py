@@ -22,6 +22,10 @@ US_MARKET_OPEN = time(9, 30)
 US_MARKET_CLOSE = time(16, 0)
 US_PRE_MARKET_OPEN = time(4, 0)
 US_AFTER_HOURS_CLOSE = time(20, 0)
+US_MARKET_SESSION_PREMARKET = "Premarket"
+US_MARKET_SESSION_RTH = "Regular Trading Hours"
+US_MARKET_SESSION_POSTMARKET = "Post Market"
+US_MARKET_SESSION_CLOSED = "Closed"
 
 
 def market_now() -> datetime:
@@ -85,6 +89,22 @@ def is_regular_market_open(moment: datetime | None = None) -> bool:
     """Return whether the supplied/current market-time moment is during US RTH."""
     now = to_market_time(moment) if moment is not None else market_now()
     return now.weekday() < 5 and US_MARKET_OPEN <= now.time() <= US_MARKET_CLOSE
+
+
+def market_session_label(moment: datetime | None = None) -> str:
+    """Return the named US equities session for the supplied/current market time."""
+    now = to_market_time(moment) if moment is not None else market_now()
+    if now.weekday() >= 5:
+        return US_MARKET_SESSION_CLOSED
+
+    now_time = now.time()
+    if US_PRE_MARKET_OPEN <= now_time < US_MARKET_OPEN:
+        return US_MARKET_SESSION_PREMARKET
+    if US_MARKET_OPEN <= now_time <= US_MARKET_CLOSE:
+        return US_MARKET_SESSION_RTH
+    if US_MARKET_CLOSE < now_time <= US_AFTER_HOURS_CLOSE:
+        return US_MARKET_SESSION_POSTMARKET
+    return US_MARKET_SESSION_CLOSED
 
 
 def utc_now() -> datetime:

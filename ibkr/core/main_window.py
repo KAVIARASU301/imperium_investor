@@ -48,7 +48,7 @@ from ibkr.core.chart_lines_manager import ChartLinesManager
 from ibkr.core.data_cache import MarketAwareDataCache
 from ibkr.core.account_manager import AccountManager
 from ibkr.utils.ibkr_symbol_resolver import IBKRSymbolResolver
-from ibkr.utils.market_time import is_regular_market_open, market_now, market_strftime
+from ibkr.utils.market_time import market_now, market_session_label, market_strftime
 
 from ibkr.core.position_manager import PositionManager
 from ibkr.core.stop_loss_manager import StopLossManager
@@ -607,7 +607,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         """Drive subtle bottom-bar operational indicators."""
         self._market_status_timer = QTimer(self)
         self._market_status_timer.timeout.connect(self._refresh_market_status)
-        self._market_status_timer.start(60_000)
+        self._market_status_timer.start(1_000)
         self._refresh_market_status()
         self._setup_isp_ip_monitor()
 
@@ -625,8 +625,10 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
     def _refresh_market_status(self) -> None:
         """Update bottom status bar from the US stock-market clock (America/New_York)."""
-        market_status = "OPEN" if is_regular_market_open(market_now()) else "CLOSED"
-        status.set_market_indicator(market_status)
+        now = market_now()
+        status.set_market_indicator(market_session_label(now))
+        if hasattr(self, "app_status_bar"):
+            self.app_status_bar.set_market_clock(now.strftime("%H:%M:%S ET"))
 
     def _clamp_scanner_panel_width(self, width: Any = None) -> int:
         """Return a safe, compact scanner width for persisted/splitter values."""

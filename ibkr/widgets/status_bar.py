@@ -84,6 +84,7 @@ class StatusBar(QWidget):
         root_layout.addWidget(self.content)
 
         self.market_label = QLabel("MARKET: --", self.content)
+        self.clock_label = QLabel("US CLOCK: --", self.content)
         self.api_label = QLabel('API <span style="color:#6f7a8c;">●</span>', self.content)
         self.data_label = QLabel("DATA: --", self.content)
         self.day_mtm_label = QLabel("DAY MTM: --", self.content)
@@ -97,7 +98,8 @@ class StatusBar(QWidget):
         self.group_separator.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
 
         min_widths = {
-            self.market_label: 82,
+            self.market_label: 170,
+            self.clock_label: 104,
             self.api_label: 44,
             self.data_label: 86,
             self.day_mtm_label: 120,
@@ -179,7 +181,7 @@ class StatusBar(QWidget):
         try:
             self._clear_layout()
 
-            base_labels = (self.market_label, self.api_label, self.data_label)
+            base_labels = (self.market_label, self.clock_label, self.api_label, self.data_label)
             metric_labels = (self.day_mtm_label, self.day_realized_label, self.exposure_label)
 
             if self._metrics_on_right:
@@ -294,14 +296,40 @@ class StatusBar(QWidget):
             "OPEN": self.COLOR_GREEN,
             "LIVE": self.COLOR_GREEN,
             "CLOSED": self.COLOR_CLOSED,
+            "PREMARKET": self.COLOR_AMBER,
             "PREOPEN": self.COLOR_AMBER,
             "PRE-OPEN": self.COLOR_AMBER,
+            "REGULAR TRADING HOURS": self.COLOR_GREEN,
+            "POST MARKET": self.COLOR_BLUE,
+            "POSTMARKET": self.COLOR_BLUE,
+            "POST-MARKET": self.COLOR_BLUE,
             "HALTED": self.COLOR_RED,
         }
+        display_map = {
+            "OPEN": "Open",
+            "LIVE": "Live",
+            "CLOSED": "Closed",
+            "PREMARKET": "Premarket",
+            "PREOPEN": "Preopen",
+            "PRE-OPEN": "Pre-Open",
+            "REGULAR TRADING HOURS": "Regular Trading Hours",
+            "POST MARKET": "Post Market",
+            "POSTMARKET": "Post Market",
+            "POST-MARKET": "Post-Market",
+            "HALTED": "Halted",
+        }
         color = market_color_map.get(status, self.COLOR_TEXT_MUTED)
+        display_status = display_map.get(status, status)
         self._set_label_text(
             self.market_label,
-            f'MARKET: <span style="color:{color}; font-weight:700;">{status}</span>',
+            f'MARKET: <span style="color:{color}; font-weight:700;">{display_status}</span>',
+        )
+
+    def set_market_clock(self, text: str) -> None:
+        clock_text = str(text or "--").strip() or "--"
+        self._set_label_text(
+            self.clock_label,
+            f'US CLOCK: <span style="color:{self.COLOR_TEXT_STRONG}; font-weight:700;">{clock_text}</span>',
         )
 
     def set_api_status(self, text: str) -> None:
@@ -367,6 +395,7 @@ class GlobalStatusManager(QObject):
         self._status_bar = dummy_bar
         if self._status_bar:
             self._status_bar.set_market_status("--")
+            self._status_bar.set_market_clock("--")
             self._status_bar.set_api_status("--")
             self._status_bar.set_isp_ip_status(None)
         logger.debug("GlobalStatusManager initialized")

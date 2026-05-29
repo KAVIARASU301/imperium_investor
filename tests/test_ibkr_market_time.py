@@ -5,6 +5,7 @@ from ibkr.utils.market_time import (
     US_MARKET_CLOSE,
     US_MARKET_OPEN,
     US_MARKET_TZ,
+    market_session_label,
     is_regular_market_open,
     to_market_date,
     to_market_time,
@@ -31,3 +32,17 @@ def test_regular_market_open_uses_us_equity_session():
     assert is_regular_market_open(open_moment)
     assert not is_regular_market_open(before_open)
     assert not is_regular_market_open(weekend)
+
+
+def test_market_session_label_names_extended_us_equity_sessions():
+    premarket = datetime(2026, 5, 29, 8, 0, tzinfo=US_MARKET_TZ)
+    regular = datetime(2026, 5, 29, 10, 0, tzinfo=US_MARKET_TZ)
+    postmarket = datetime(2026, 5, 29, 17, 0, tzinfo=US_MARKET_TZ)
+    closed = datetime(2026, 5, 29, 21, 0, tzinfo=US_MARKET_TZ)
+    weekend = datetime(2026, 5, 30, 10, 0, tzinfo=US_MARKET_TZ)
+
+    assert market_session_label(premarket) == "Premarket"
+    assert market_session_label(regular) == "Regular Trading Hours"
+    assert market_session_label(postmarket) == "Post Market"
+    assert market_session_label(closed) == "Closed"
+    assert market_session_label(weekend) == "Closed"
