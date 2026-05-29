@@ -338,9 +338,12 @@ class IBKRDataFetcher(BrokerDataFetcher):
             logger.info("TWS pacing: sleeping %.1fs before duplicate request %s", wait, pacing_key)
             await asyncio.sleep(wait)
 
+        # Intraday IBKR charts should include extended-hours bars so premarket
+        # moves are visible; higher timeframes keep the configured RTH policy.
+        use_rth = self._use_rth if bar_size in {"1 day", "1 week", "1 month"} else False
         request_kwargs = dict(
             endDateTime=end_dt_str, durationStr=duration_str, barSizeSetting=bar_size,
-            whatToShow=self._what_to_show, useRTH=self._use_rth, formatDate=1, keepUpToDate=False,
+            whatToShow=self._what_to_show, useRTH=use_rth, formatDate=1, keepUpToDate=False,
         )
 
         last_bars = []

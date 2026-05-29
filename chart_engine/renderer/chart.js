@@ -38,6 +38,10 @@ const FIB_LABELS = ['0%', '23.6%', '38.2%', '50%', '61.8%', '78.6%', '100%'];
 const IST_OFFSET_MS = 330 * 60 * 1000;
 const NSE_OPEN_MINUTES = 9 * 60 + 15;
 const NSE_CLOSE_MINUTES = 15 * 60 + 30;
+const US_PREMARKET_OPEN_MINUTES = 4 * 60;
+const US_RTH_OPEN_MINUTES = 9 * 60 + 30;
+const US_RTH_CLOSE_MINUTES = 16 * 60;
+const US_AFTER_HOURS_CLOSE_MINUTES = 20 * 60;
 
 // ─── Indicator persistence key (global — intentionally not per-symbol) ────────
 // User toggles apply across ALL symbols, timeframes, and sessions.
@@ -111,6 +115,8 @@ class FixedTradingChart {
             upCandle:    cfg.upCandleColor   || '#00D4A8',
             downCandle:  cfg.downCandleColor || '#FF4D6A',
             dojiCandle:  '#5A7090',
+            extendedHoursCandle: '#7A8492',
+            extendedHoursWick:   '#9AA4B2',
             upWick:      '#00A987',
             downWick:    '#CC3D56',
             upOhlc:      '#00D4A8',
@@ -645,7 +651,8 @@ class FixedTradingChart {
     _drawSessionSeparators() {
         if (!this.currentInterval.includes('minute') || this.currentInterval === '60minute') return;
         const ctx = this.ctx;
-        const MARKET_OPEN_HOUR = 9, MARKET_OPEN_MIN = 15;
+        const marketOpenHour = this.brokerName === 'ibkr' ? 9 : 9;
+        const marketOpenMin = this.brokerName === 'ibkr' ? 30 : 15;
 
         ctx.strokeStyle = 'rgba(90,112,144,0.34)';
         ctx.lineWidth = 1;
@@ -653,7 +660,7 @@ class FixedTradingChart {
 
         for (let i = Math.max(0, this.viewPortStart - 1); i <= this.viewPortEnd + 1 && i < this.data.length; i++) {
             const d = this._exchangeDate(this.data[i].time);
-            if (d.getUTCHours() === MARKET_OPEN_HOUR && d.getUTCMinutes() === MARKET_OPEN_MIN) {
+            if (d.getUTCHours() === marketOpenHour && d.getUTCMinutes() === marketOpenMin) {
                 const x = this._candleToX(i) + this.candleWidth / 2;
                 ctx.beginPath();
                 ctx.moveTo(x, this.chartArea.y);
@@ -722,8 +729,9 @@ class FixedTradingChart {
 
             const isDoji = Math.abs(c.close - c.open) < 1e-10;
             const isUp   = c.close > c.open;
-            const col    = isDoji ? this.colors.dojiCandle : (isUp ? this.colors.upCandle : this.colors.downCandle);
-            const wick   = isDoji ? this.colors.dojiCandle : (isUp ? this.colors.upWick : this.colors.downWick);
+            const isExtendedHours = this._isIbkrExtendedHoursCandle(c);
+            const col    = isExtendedHours ? this.colors.extendedHoursCandle : (isDoji ? this.colors.dojiCandle : (isUp ? this.colors.upCandle : this.colors.downCandle));
+            const wick   = isExtendedHours ? this.colors.extendedHoursWick : (isDoji ? this.colors.dojiCandle : (isUp ? this.colors.upWick : this.colors.downWick));
             const brdr   = wick;
             const cx    = x + this.candleWidth / 2;
 
@@ -765,8 +773,9 @@ class FixedTradingChart {
                 const loY   = this._priceToY(c.low);
                 const isDoji = Math.abs(c.close - c.open) < 1e-10;
                 const isUp   = c.close > c.open;
-                const col    = isDoji ? this.colors.dojiCandle : (isUp ? this.colors.upCandle : this.colors.downCandle);
-                const wick   = isDoji ? this.colors.dojiCandle : (isUp ? this.colors.upWick : this.colors.downWick);
+                const isExtendedHours = this._isIbkrExtendedHoursCandle(c);
+                const col    = isExtendedHours ? this.colors.extendedHoursCandle : (isDoji ? this.colors.dojiCandle : (isUp ? this.colors.upCandle : this.colors.downCandle));
+                const wick   = isExtendedHours ? this.colors.extendedHoursWick : (isDoji ? this.colors.dojiCandle : (isUp ? this.colors.upWick : this.colors.downWick));
                 const cx    = x + this.candleWidth / 2;
 
                 ctx.strokeStyle = wick; ctx.lineWidth = wickW;
@@ -800,7 +809,9 @@ class FixedTradingChart {
 
             const isDoji = Math.abs(c.close - c.open) < 1e-10;
             const isUp = c.close > c.open;
-            const col = isDoji ? '#7B6A45' : (isUp ? this.colors.upOhlc : this.colors.downOhlc);
+            const col = this._isIbkrExtendedHoursCandle(c)
+                ? this.colors.extendedHoursWick
+                : (isDoji ? '#7B6A45' : (isUp ? this.colors.upOhlc : this.colors.downOhlc));
 
             ctx.strokeStyle = col;
             ctx.lineWidth = stemW;
@@ -1069,7 +1080,7 @@ class FixedTradingChart {
             const h = Math.max(1, Math.round((vol / maxVol) * volumeBandHeight));
             const y = volumeBandBottom - h;
             const isUp = (Number(c.close) || 0) >= (Number(c.open) || 0);
-            const baseColor = isUp ? upColor : downColor;
+            const baseColor = this._isIbkrExtendedHoursCandle(c) ? this.colors.extendedHoursCandle : (isUp ? upColor : downColor);
             ctx.fillStyle = this._hexToRgba(baseColor, barOpacity);
             ctx.fillRect(x, y, Math.max(1, this.candleWidth), h);
         }
@@ -3211,6 +3222,10 @@ class FixedTradingChart {
         const minutes = d.getUTCHours() * 60 + d.getUTCMinutes();
         const NSE_OPEN_MINUTES = 9 * 60 + 15;
         const NSE_CLOSE_MINUTES = 15 * 60 + 30;
+const US_PREMARKET_OPEN_MINUTES = 4 * 60;
+const US_RTH_OPEN_MINUTES = 9 * 60 + 30;
+const US_RTH_CLOSE_MINUTES = 16 * 60;
+const US_AFTER_HOURS_CLOSE_MINUTES = 20 * 60;
         return minutes >= NSE_OPEN_MINUTES && minutes <= NSE_CLOSE_MINUTES;
     }
 
@@ -3325,7 +3340,10 @@ class FixedTradingChart {
         // Use tick timestamp when valid; fall back to current wall time.
         // IMPORTANT: if tickMs is NaN (bad/missing timestamp), use Date.now()
         // rather than 0 or lastTimeMs to avoid false "new candle" triggers.
-        const nowMs = Number.isFinite(tickMs) ? tickMs : Date.now();
+        const rawNowMs = Number.isFinite(tickMs) ? tickMs : Date.now();
+        const nowMs = (this.brokerName === 'ibkr' && !isDailyInterval)
+            ? this._ibkrWallClockMsFromUtc(rawNowMs)
+            : rawNowMs;
 
         if (intervalMs > 0 && Number.isFinite(lastTimeMs) && lastTimeMs > 0) {
             if (this._shouldAppendLiveCandle(lastTimeMs, nowMs, intervalMs)) {
@@ -3883,7 +3901,7 @@ class FixedTradingChart {
         if (this.currentInterval.includes('minute')) {
             const date = this._exchangeDate(epochMs);
             const time = this._fmtExchangeTime(date);
-            return this._exchangeDayKey(epochMs) === this._actualIstDayKey(Date.now())
+            return this._exchangeDayKey(epochMs) === this._todayExchangeDayKey()
                 ? time
                 : `${this._fmtExchangeDayMonth(date)} ${time}`;
         }
@@ -3912,6 +3930,7 @@ class FixedTradingChart {
 
     _exchangeDisplayMs(epochMs) {
         if (!String(this.currentInterval || '').includes('minute')) return epochMs;
+        if (this.brokerName === 'ibkr') return epochMs;
         return this._intradayDataUsesIstClock() ? epochMs : epochMs + IST_OFFSET_MS;
     }
 
@@ -3940,9 +3959,59 @@ class FixedTradingChart {
         return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
     }
 
+    _todayExchangeDayKey() {
+        if (this.brokerName === 'ibkr') {
+            return this._exchangeDayKey(this._ibkrWallClockMsFromUtc(Date.now()));
+        }
+        return this._actualIstDayKey(Date.now());
+    }
+
     _actualIstDayKey(epochMs) {
         const d = new Date(Number(epochMs) + IST_OFFSET_MS);
         return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+    }
+
+    _ibkrWallClockMsFromUtc(epochMs) {
+        const ms = Number(epochMs);
+        if (!Number.isFinite(ms)) return ms;
+
+        try {
+            const parts = new Intl.DateTimeFormat('en-US', {
+                timeZone: 'America/New_York',
+                year: 'numeric', month: '2-digit', day: '2-digit',
+                hour: '2-digit', minute: '2-digit', second: '2-digit',
+                hour12: false,
+            }).formatToParts(new Date(ms));
+            const get = (type) => parts.find(part => part.type === type)?.value || '0';
+            let hour = Number(get('hour'));
+            if (hour === 24) hour = 0;
+            return Date.UTC(
+                Number(get('year')),
+                Number(get('month')) - 1,
+                Number(get('day')),
+                hour,
+                Number(get('minute')),
+                Number(get('second')),
+            );
+        } catch (e) {
+            // Conservative US-market fallback if Intl timezone support is unavailable.
+            return ms - (4 * 60 * 60 * 1000);
+        }
+    }
+
+    _ibkrSessionMinutes(epochMs) {
+        if (this.brokerName !== 'ibkr' || !String(this.currentInterval || '').includes('minute')) return null;
+        const d = this._exchangeDate(epochMs);
+        if (!Number.isFinite(d.getTime())) return null;
+        return d.getUTCHours() * 60 + d.getUTCMinutes();
+    }
+
+    _isIbkrExtendedHoursCandle(candle) {
+        if (!candle || this.brokerName !== 'ibkr' || !String(this.currentInterval || '').includes('minute')) return false;
+        const minutes = this._ibkrSessionMinutes(Number(candle.time));
+        if (minutes === null) return false;
+        return (minutes >= US_PREMARKET_OPEN_MINUTES && minutes < US_RTH_OPEN_MINUTES) ||
+               (minutes > US_RTH_CLOSE_MINUTES && minutes <= US_AFTER_HOURS_CLOSE_MINUTES);
     }
 
     _fmtExchangeTime(d) {
@@ -3989,7 +4058,7 @@ class FixedTradingChart {
         const end   = Math.min(this.data.length - 1, this.viewPortEnd + 1);
 
         const todayKey = this.currentInterval.includes('minute')
-            ? this._actualIstDayKey(Date.now())
+            ? this._todayExchangeDayKey()
             : new Date().toISOString().slice(0, 10);
         let todayMarker = null;
 
@@ -4016,6 +4085,14 @@ class FixedTradingChart {
 
     _timeCandidateLabel(d, tf) {
         const m = d.getUTCMinutes(), h = d.getUTCHours(), dom = d.getUTCDate(), dow = d.getUTCDay(), mon = d.getUTCMonth();
+        if (this.brokerName === 'ibkr') {
+            if (tf === 'minute')   return m % 15 === 0 ? `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}` : null;
+            if (tf === '3minute')  return m % 30 === 0 ? `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}` : null;
+            if (tf === '5minute')  return m % 30 === 0 ? `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}` : null;
+            if (tf === '15minute') return h % 2 === 0 && m === 0 ? `${String(h).padStart(2,'0')}:00` : null;
+            if (tf === '30minute') return m === 0 ? `${String(h).padStart(2,'0')}:00` : null;
+            if (tf === '60minute') return h === 9 && m === 30 ? this._fmtExchangeDayMonth(d) : null;
+        }
         if (tf === 'minute')   return m % 15 === 0 ? `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}` : null;
         if (tf === '3minute')  return m % 30 === 0 ? `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}` : null;
         if (tf === '5minute')  return m % 30 === 0 ? `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}` : null;

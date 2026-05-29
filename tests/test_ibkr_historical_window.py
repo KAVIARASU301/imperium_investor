@@ -157,3 +157,61 @@ def test_legacy_ibkr_duration_and_today_end_datetime_are_now_based(monkeypatch):
     assert module.DataFetcher._ibkr_duration(start, end, "day") == "100 D"
     assert module.DataFetcher._ibkr_duration(end - timedelta(days=600), end, "day") == "2 Y"
     assert module.DataFetcher._ibkr_end_datetime(end) == ""
+
+
+def test_ibkr_intraday_history_requests_extended_hours(monkeypatch):
+    module = _load_module(monkeypatch, "chart_engine.core.ibkr_data_fetcher", "chart_engine/core/ibkr_data_fetcher.py")
+
+    class FakeIB:
+        def __init__(self):
+            self.requests = []
+
+        async def reqHistoricalDataAsync(self, contract, **kwargs):
+            self.requests.append(kwargs)
+            return [SimpleNamespace(date="20260529 08:00:00", open=1, high=2, low=1, close=2, volume=10)]
+
+    fetcher = module.IBKRDataFetcher.__new__(module.IBKRDataFetcher)
+    fetcher._what_to_show = "TRADES"
+    fetcher._use_rth = True
+    ib = FakeIB()
+
+    bars = module.asyncio.run(fetcher._request_historical_bars_async(
+        ib=ib,
+        contract=SimpleNamespace(symbol="AAPL", conId=123),
+        end_dt_str="",
+        duration_str="1 D",
+        bar_size="5 mins",
+        request_symbol="AAPL",
+    ))
+
+    assert bars
+    assert ib.requests[0]["useRTH"] is False
+
+
+def test_ibkr_daily_history_keeps_regular_hours(monkeypatch):
+    module = _load_module(monkeypatch, "chart_engine.core.ibkr_data_fetcher", "chart_engine/core/ibkr_data_fetcher.py")
+
+    class FakeIB:
+        def __init__(self):
+            self.requests = []
+
+        async def reqHistoricalDataAsync(self, contract, **kwargs):
+            self.requests.append(kwargs)
+            return [SimpleNamespace(date="20260529", open=1, high=2, low=1, close=2, volume=10)]
+
+    fetcher = module.IBKRDataFetcher.__new__(module.IBKRDataFetcher)
+    fetcher._what_to_show = "TRADES"
+    fetcher._use_rth = True
+    ib = FakeIB()
+
+    bars = module.asyncio.run(fetcher._request_historical_bars_async(
+        ib=ib,
+        contract=SimpleNamespace(symbol="AAPL", conId=123),
+        end_dt_str="",
+        duration_str="1 D",
+        bar_size="1 day",
+        request_symbol="AAPL",
+    ))
+
+    assert bars
+    assert ib.requests[0]["useRTH"] is True
