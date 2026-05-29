@@ -69,10 +69,13 @@ def _delayed_fallback_enabled() -> bool:
 
 
 def _generic_tick_list() -> str:
-    # 233 = RTVolume. It gives trade/volume updates when permitted and is ignored
-    # gracefully by IBKR when unavailable, while still keeping normal top-of-book
-    # streaming active. Operators can override/disable via environment.
-    return os.environ.get("IBKR_GENERIC_TICKS", "233").strip()
+    # Keep the default request identical to the standalone streaming probe: plain
+    # top-of-book market data with no generic tick add-ons.  Some IBKR accounts
+    # can stream bid/ask/last data but reject optional generic ticks such as 233
+    # (RTVolume), which prevents the GUI from receiving pendingTickersEvent even
+    # though tools/ibkr_market_data_probe.py succeeds. Operators that know their
+    # entitlements include optional streams can still opt in via the environment.
+    return os.environ.get("IBKR_GENERIC_TICKS", "").strip()
 
 
 def _clean_float(value: Any, default: float = 0.0) -> float:
@@ -119,6 +122,8 @@ class MarketDataWorker(QThread):
         self._preferred_market_data_type = _configured_market_data_type()
         self._market_data_type = self._preferred_market_data_type
         self._allow_delayed_fallback = _delayed_fallback_enabled()
+        self._generic_tick_list = _generic_tick_list()
+        self._tried_without_generic_ticks = not bool(self._generic_tick_list)
         self._tried_delayed_fallback = self._market_data_type == 3
         self._last_live_retry_monotonic = 0.0
         self._lock = threading.RLock()
@@ -233,10 +238,11 @@ class MarketDataWorker(QThread):
             self.ib.reqMarketDataType(self._market_data_type)
             self._emit_market_data_type()
             logger.info(
-                "Requested IBKR %s market data type (%s); delayed fallback=%s",
+                "Requested IBKR %s market data type (%s); delayed fallback=%s; generic ticks=%r",
                 _MARKET_DATA_TYPE_NAMES.get(self._market_data_type, str(self._market_data_type)),
                 self._market_data_type,
                 self._allow_delayed_fallback,
+                self._generic_tick_list,
             )
         except Exception:
             logger.debug("Could not request configured IBKR market data type", exc_info=True)
@@ -434,18 +440,20 @@ class MarketDataWorker(QThread):
 
 
     def _request_market_data(self, contract: Contract, *, snapshot: bool) -> Ticker:
-        generic_ticks = _generic_tick_list()
+        generic_ticks = self._generic_tick_list
         try:
             return self.ib.reqMktData(contract, generic_ticks, snapshot, False)
         except Exception:
             if not generic_ticks:
                 raise
             logger.warning(
-                "IBKR reqMktData failed with generic ticks %r for %s; retrying without generic ticks",
+                "IBKR reqMktData failed with generic ticks %r for %s; disabling optional generic ticks and retrying",
                 generic_ticks,
                 getattr(contract, "symbol", contract),
                 exc_info=True,
             )
+            self._generic_tick_list = ""
+            self._tried_without_generic_ticks = True
             return self.ib.reqMktData(contract, "", snapshot, False)
 
     def _subscribe_contract(self, contract: Contract, alias_key: str = "") -> None:
@@ -666,6 +674,48 @@ class MarketDataWorker(QThread):
             except Exception as exc:
                 logger.error("Failed to resubscribe %s after market data type switch: %s", key, exc)
 
+
+    def _disable_generic_ticks_and_resubscribe(self, reason: str) -> bool:
+        """Retry existing streams without optional generic ticks before changing data type.
+
+        The probe script intentionally requests an empty generic tick list.  If
+        the GUI has been configured with optional add-ons (for example RTVolume
+        233) and IBKR rejects them asynchronously, keeping the optional list on
+        every resubscription can make all widgets look stalled even though plain
+        streaming works.
+        """
+        if not self._generic_tick_list or self._tried_without_generic_ticks:
+            return False
+
+        disabled_ticks = self._generic_tick_list
+        self._generic_tick_list = ""
+        self._tried_without_generic_ticks = True
+        logger.warning(
+            "Disabling IBKR optional generic ticks %r and resubscribing market data: %s",
+            disabled_ticks,
+            reason,
+        )
+
+        with self._lock:
+            subscriptions = list(self._subscribed_contracts.items())
+            self._req_id_to_key.clear()
+
+        for key, contract in subscriptions:
+            try:
+                self.ib.cancelMktData(contract)
+            except Exception:
+                logger.debug("Failed to cancel %s before generic-tick retry", key, exc_info=True)
+            try:
+                ticker = self._request_market_data(contract, snapshot=False)
+                req_id = self._ticker_req_id(ticker)
+                if req_id is not None:
+                    with self._lock:
+                        self._req_id_to_key[req_id] = key
+                logger.info("Resubscribed IBKR market data without generic ticks: %s", getattr(contract, "symbol", key))
+            except Exception as exc:
+                logger.error("Failed to resubscribe %s without generic ticks: %s", key, exc)
+        return True
+
     def _contract_from_item(self, item: Any) -> Optional[Contract]:
         if isinstance(item, Contract):
             return item
@@ -827,6 +877,10 @@ class MarketDataWorker(QThread):
                 error_string,
                 error_code,
             )
+            if self._disable_generic_ticks_and_resubscribe(
+                f"IBKR returned market-data subscription error {error_code} for {label}"
+            ):
+                return
             if self._allow_delayed_fallback and self._market_data_type != 3 and not self._tried_delayed_fallback:
                 self._tried_delayed_fallback = True
                 self._switch_market_data_type(
