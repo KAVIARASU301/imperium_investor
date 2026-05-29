@@ -215,3 +215,58 @@ def test_ibkr_daily_history_keeps_regular_hours(monkeypatch):
 
     assert bars
     assert ib.requests[0]["useRTH"] is True
+
+
+def test_ibkr_sixty_minute_aggregates_regular_session_from_930(monkeypatch):
+    module = _load_module(monkeypatch, "chart_engine.core.ibkr_data_fetcher", "chart_engine/core/ibkr_data_fetcher.py")
+    bars = [
+        SimpleNamespace(date="20260529 08:00:00", open=1, high=9, low=1, close=9, volume=99),
+        SimpleNamespace(date="20260529 09:30:00", open=10, high=12, low=9, close=11, volume=100),
+        SimpleNamespace(date="20260529 10:00:00", open=11, high=14, low=10, close=13, volume=150),
+        SimpleNamespace(date="20260529 10:30:00", open=13, high=15, low=12, close=14, volume=200),
+        SimpleNamespace(date="20260529 15:30:00", open=20, high=22, low=19, close=21, volume=300),
+        SimpleNamespace(date="20260529 16:00:00", open=21, high=25, low=20, close=24, volume=400),
+    ]
+
+    aggregated = module.IBKRDataFetcher._aggregate_rth_hourly_bars(bars)
+
+    assert [bar.time.strftime("%H:%M") for bar in aggregated] == ["09:30", "10:30", "15:30"]
+    first = aggregated[0]
+    assert (first.open, first.high, first.low, first.close, first.volume) == (10.0, 14.0, 9.0, 13.0, 250.0)
+    last = aggregated[-1]
+    assert (last.open, last.high, last.low, last.close, last.volume) == (20.0, 22.0, 19.0, 21.0, 300.0)
+
+
+def test_ibkr_sixty_minute_fetch_requests_thirty_minute_bars(monkeypatch):
+    module = _load_module(monkeypatch, "chart_engine.core.ibkr_data_fetcher", "chart_engine/core/ibkr_data_fetcher.py")
+    fetcher = module.IBKRDataFetcher.__new__(module.IBKRDataFetcher)
+    fetcher._contract_cache = {}
+    fetcher._contract_cache_lock = module.threading.Lock()
+    requested = {}
+
+    async def fake_request(**kwargs):
+        requested["bar_size"] = kwargs["bar_size"]
+        return [
+            SimpleNamespace(date="20260529 09:30:00", open=10, high=11, low=9, close=10.5, volume=100),
+            SimpleNamespace(date="20260529 10:00:00", open=10.5, high=12, low=10, close=11.5, volume=100),
+            SimpleNamespace(date="20260529 15:30:00", open=20, high=21, low=19, close=20.5, volume=100),
+        ]
+
+    fetcher._request_historical_bars_async = fake_request
+
+    async def fake_qualify(ib, symbol):
+        return SimpleNamespace(symbol=symbol, conId=123)
+
+    fetcher._qualify_by_symbol_async = fake_qualify
+
+    result = module.asyncio.run(fetcher._fetch_with_ib_async(
+        ib=object(),
+        symbol="AAPL",
+        instrument_token=None,
+        from_date=datetime(2026, 5, 28, 9, 30),
+        to_date=datetime(2026, 5, 29, 16, 0),
+        interval="60minute",
+    ))
+
+    assert requested["bar_size"] == "30 mins"
+    assert [bar.time.strftime("%H:%M") for bar in result] == ["09:30", "15:30"]

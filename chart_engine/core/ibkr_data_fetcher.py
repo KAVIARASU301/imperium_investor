@@ -12,6 +12,7 @@ from datetime import date as date_cls
 from datetime import datetime, time as dt_time, timezone
 from math import ceil
 from typing import Any, Dict, List, Optional, Tuple
+from zoneinfo import ZoneInfo
 
 from chart_engine.core.broker_protocol import BarData, BrokerCapabilities, BrokerDataFetcher
 
@@ -84,6 +85,10 @@ def _next_history_client_id(base: int) -> int:
         n = next(_CLIENT_ID_COUNTER)
     return int(base) + (os.getpid() % 1000) + (n % 500)
 
+
+_NY_TZ = ZoneInfo("America/New_York")
+_US_RTH_OPEN_MINUTES = 9 * 60 + 30
+_US_RTH_CLOSE_MINUTES = 16 * 60
 
 IBKR_INTERVAL_MAP: Dict[str, str] = {
     "1min": "1 min", "minute": "1 min",
@@ -201,7 +206,9 @@ class IBKRDataFetcher(BrokerDataFetcher):
             interval: str,
     ) -> List[BarData]:
         bar_size = IBKR_INTERVAL_MAP.get(interval, "1 day")
-        duration_str = self._compute_duration(from_date, to_date, bar_size)
+        aggregate_rth_hourly = str(interval or "").strip().lower() in {"60minute", "60min", "1h"}
+        request_bar_size = "30 mins" if aggregate_rth_hourly else bar_size
+        duration_str = self._compute_duration(from_date, to_date, request_bar_size)
         end_dt_str = self._format_end_datetime(to_date)
 
         con_id = self._coerce_con_id(instrument_token)
@@ -228,7 +235,7 @@ class IBKRDataFetcher(BrokerDataFetcher):
         try:
             bars = await self._request_historical_bars_async(
                 ib=ib, contract=contract, end_dt_str=end_dt_str,
-                duration_str=duration_str, bar_size=bar_size, request_symbol=symbol,
+                duration_str=duration_str, bar_size=request_bar_size, request_symbol=symbol,
             )
         except Exception:
             if con_id > 0 and not qualified_once:
@@ -236,7 +243,7 @@ class IBKRDataFetcher(BrokerDataFetcher):
                 self._cache_contract_aliases(symbol, contract, preferred_key=cache_key)
                 bars = await self._request_historical_bars_async(
                     ib=ib, contract=contract, end_dt_str=end_dt_str,
-                    duration_str=duration_str, bar_size=bar_size, request_symbol=symbol,
+                    duration_str=duration_str, bar_size=request_bar_size, request_symbol=symbol,
                 )
             else:
                 raise
@@ -246,17 +253,83 @@ class IBKRDataFetcher(BrokerDataFetcher):
             self._cache_contract_aliases(symbol, contract, preferred_key=cache_key)
             bars = await self._request_historical_bars_async(
                 ib=ib, contract=contract, end_dt_str=end_dt_str,
-                duration_str=duration_str, bar_size=bar_size, request_symbol=symbol,
+                duration_str=duration_str, bar_size=request_bar_size, request_symbol=symbol,
             )
 
         if not bars:
-            raise ValueError(f"No data returned for {symbol} [{bar_size}]")
+            raise ValueError(f"No data returned for {symbol} [{request_bar_size}]")
 
         if getattr(contract, "conId", 0):
             self._cache_contract_aliases(symbol, contract, preferred_key=cache_key)
 
-        bars = self._filter_bars_to_window(bars, from_date, to_date, bar_size)
+        bars = self._filter_bars_to_window(bars, from_date, to_date, request_bar_size)
+        if aggregate_rth_hourly:
+            return self._aggregate_rth_hourly_bars(bars)
         return [self._bar_to_bardata(b) for b in bars]
+
+    @classmethod
+    def _aggregate_rth_hourly_bars(cls, bars) -> List[BarData]:
+        """Build IBKR 1H candles on US regular-session boundaries.
+
+        IBKR's native ``1 hour`` historical bars are not guaranteed to align to
+        the US equity open.  Build the chart's 1H view from smaller bars so each
+        session starts at 09:30 ET, advances in one-hour buckets, and keeps the
+        final 15:30-16:00 ET bucket as a 30-minute candle.
+        """
+        buckets: "OrderedDict[datetime, Dict[str, float]]" = OrderedDict()
+
+        for bar in bars or []:
+            raw_dt = cls._parse_bar_datetime(getattr(bar, "date", None))
+            if not isinstance(raw_dt, datetime):
+                continue
+
+            if raw_dt.tzinfo is not None:
+                bar_dt = raw_dt.astimezone(_NY_TZ).replace(tzinfo=None)
+            else:
+                bar_dt = raw_dt
+
+            minutes = bar_dt.hour * 60 + bar_dt.minute
+            if minutes < _US_RTH_OPEN_MINUTES or minutes >= _US_RTH_CLOSE_MINUTES:
+                continue
+
+            bucket_offset = ((minutes - _US_RTH_OPEN_MINUTES) // 60) * 60
+            bucket_minutes = _US_RTH_OPEN_MINUTES + bucket_offset
+            bucket_start = datetime.combine(
+                bar_dt.date(),
+                dt_time(bucket_minutes // 60, bucket_minutes % 60),
+            )
+
+            volume = float(getattr(bar, "volume", 0) or 0)
+            high = float(getattr(bar, "high"))
+            low = float(getattr(bar, "low"))
+            close = float(getattr(bar, "close"))
+
+            bucket = buckets.get(bucket_start)
+            if bucket is None:
+                buckets[bucket_start] = {
+                    "open": float(getattr(bar, "open")),
+                    "high": high,
+                    "low": low,
+                    "close": close,
+                    "volume": volume,
+                }
+            else:
+                bucket["high"] = max(bucket["high"], high)
+                bucket["low"] = min(bucket["low"], low)
+                bucket["close"] = close
+                bucket["volume"] += volume
+
+        return [
+            BarData(
+                time=start,
+                open=values["open"],
+                high=values["high"],
+                low=values["low"],
+                close=values["close"],
+                volume=values["volume"],
+            )
+            for start, values in buckets.items()
+        ]
 
     async def _request_historical_bars_async(
             self,
