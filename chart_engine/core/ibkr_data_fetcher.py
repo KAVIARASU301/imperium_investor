@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
-import itertools
 import logging
 import os
 import threading
@@ -17,9 +16,6 @@ from zoneinfo import ZoneInfo
 from chart_engine.core.broker_protocol import BarData, BrokerCapabilities, BrokerDataFetcher
 
 logger = logging.getLogger(__name__)
-
-_CLIENT_ID_LOCK = threading.Lock()
-_CLIENT_ID_COUNTER = itertools.count(1)
 
 # Pacing and Caching
 _RECENT_REQUEST_LOCK = threading.Lock()
@@ -80,10 +76,21 @@ def _ensure_event_loop() -> None:
         asyncio.set_event_loop(asyncio.new_event_loop())
 
 
-def _next_history_client_id(base: int) -> int:
-    with _CLIENT_ID_LOCK:
-        n = next(_CLIENT_ID_COUNTER)
-    return int(base) + (os.getpid() % 1000) + (n % 500)
+def _get_history_client_id(base: int) -> int:
+    """Return the stable client id used by the chart-history IBKR session.
+
+    Reusing one deterministic client id prevents reconnect attempts from
+    registering an ever-growing list of ephemeral API clients in TWS/Gateway.
+    The ``base`` argument is retained for backwards-compatible constructor
+    signatures, but the default slot is intentionally fixed at 102 and can be
+    overridden with ``IBKR_HISTORY_CLIENT_ID``.
+    """
+    raw = os.environ.get("IBKR_HISTORY_CLIENT_ID", "102").strip()
+    try:
+        return int(raw)
+    except ValueError:
+        logger.warning("Invalid IBKR_HISTORY_CLIENT_ID=%r; using fixed history client id 102", raw)
+        return 102
 
 
 _NY_TZ = ZoneInfo("America/New_York")
@@ -571,23 +578,52 @@ class IBKRDataFetcher(BrokerDataFetcher):
 
     async def _connect_dedicated_ib_async(self):
         from ib_insync import IB
+
+        candidates = self._connection_candidates()
+        if not candidates:
+            raise ConnectionError("Could not determine an IBKR history endpoint")
+
+        host, port = candidates[0]
+        client_id = _get_history_client_id(self._history_client_id_base)
         last_error = None
-        for host, port in self._connection_candidates():
+        for attempt in range(3):
             ib = IB()
-            client_id = _next_history_client_id(self._history_client_id_base)
             try:
-                await ib.connectAsync(host=host, port=int(port), clientId=client_id, timeout=self._connect_timeout)
+                await ib.connectAsync(
+                    host=host,
+                    port=int(port),
+                    clientId=client_id,
+                    timeout=self._connect_timeout,
+                )
                 if ib.isConnected():
                     self._last_history_endpoint = (str(host), int(port))
-                    logger.info("IBKR chart history connected on %s:%s clientId=%s", host, port, client_id)
+                    logger.info(
+                        "IBKR chart history connected on %s:%s clientId=%s",
+                        host,
+                        port,
+                        client_id,
+                    )
                     return ib
+                last_error = RuntimeError("IBKR history connection did not report connected")
             except Exception as exc:
                 last_error = exc
-                try:
-                    ib.disconnect()
-                except Exception:
-                    pass
-        raise ConnectionError(f"Could not open dedicated IBKR history connection: {last_error}")
+                logger.warning(
+                    "Retry %d/3 for IBKR chart-history connection on %s:%s clientId=%s: %s",
+                    attempt + 1,
+                    host,
+                    port,
+                    client_id,
+                    exc,
+                )
+            try:
+                ib.disconnect()
+            except Exception:
+                pass
+            if attempt < 2:
+                await asyncio.sleep(1)
+        raise ConnectionError(
+            f"Could not connect history client {client_id} to {host}:{port}: {last_error}"
+        )
 
     def close_history_connections(self) -> None:
         """Close dedicated HMDS connection and stop background async executor."""

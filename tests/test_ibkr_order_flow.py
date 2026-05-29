@@ -34,9 +34,23 @@ def install_broker_stubs(monkeypatch):
         def stop(self):
             pass
 
+    class QThread:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def quit(self):
+            pass
+
+        def wait(self, *args, **kwargs):
+            return True
+
+        def terminate(self):
+            pass
+
     qtcore.QObject = QObject
     qtcore.Signal = SignalStub
     qtcore.QTimer = QTimer
+    qtcore.QThread = QThread
 
     pyside = types.ModuleType("PySide6")
     pyside.QtCore = qtcore
@@ -254,3 +268,90 @@ def test_ibkr_history_connection_prefers_local_7496(monkeypatch):
     fetcher._ib = SimpleNamespace(client=SimpleNamespace())
 
     assert fetcher._connection_candidates()[0] == ("127.0.0.1", 7496)
+
+
+def test_ibkr_history_client_id_is_stable_and_configurable(monkeypatch):
+    import importlib.util
+    from dataclasses import dataclass
+    from pathlib import Path
+
+    broker_protocol = types.ModuleType("chart_engine.core.broker_protocol")
+
+    @dataclass
+    class BarData:
+        time: object
+        open: float
+        high: float
+        low: float
+        close: float
+        volume: float
+
+    @dataclass
+    class BrokerCapabilities:
+        name: str
+        exchange_tz: str
+        currency: str
+        supports_options: bool
+        supports_greeks: bool
+        supports_level2: bool
+
+    class BrokerDataFetcher:
+        pass
+
+    broker_protocol.BarData = BarData
+    broker_protocol.BrokerCapabilities = BrokerCapabilities
+    broker_protocol.BrokerDataFetcher = BrokerDataFetcher
+    monkeypatch.setitem(sys.modules, "chart_engine", types.ModuleType("chart_engine"))
+    monkeypatch.setitem(sys.modules, "chart_engine.core", types.ModuleType("chart_engine.core"))
+    monkeypatch.setitem(sys.modules, "chart_engine.core.broker_protocol", broker_protocol)
+
+    spec = importlib.util.spec_from_file_location(
+        "chart_engine.core.ibkr_data_fetcher",
+        Path(__file__).resolve().parents[1] / "chart_engine/core/ibkr_data_fetcher.py",
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    monkeypatch.delenv("IBKR_HISTORY_CLIENT_ID", raising=False)
+    assert [module._get_history_client_id(9000) for _ in range(3)] == [102, 102, 102]
+
+    monkeypatch.setenv("IBKR_HISTORY_CLIENT_ID", "777")
+    assert [module._get_history_client_id(9000) for _ in range(3)] == [777, 777, 777]
+
+
+def test_market_data_worker_retries_one_stable_client_id(monkeypatch):
+    install_broker_stubs(monkeypatch)
+    sys.modules.pop("ibkr.core.market_data_worker", None)
+    module = importlib.import_module("ibkr.core.market_data_worker")
+
+    monkeypatch.delenv("IBKR_MARKET_DATA_CLIENT_ID", raising=False)
+    host, port, client_id = module.MarketDataWorker._connection_params_from_client(
+        SimpleNamespace(),
+        SimpleNamespace(client=SimpleNamespace(host="127.0.0.1", port=7496, clientId=1)),
+    )
+    assert (host, port, client_id) == ("127.0.0.1", 7496, 101)
+
+    attempted_ids = []
+
+    class FailingIB:
+        def connect(self, host, port, clientId, timeout, readonly):
+            attempted_ids.append(clientId)
+            raise RuntimeError("connection refused")
+
+        def disconnect(self):
+            pass
+
+    worker = module.MarketDataWorker.__new__(module.MarketDataWorker)
+    worker._owns_ib_connection = False
+    worker.ib = None
+    worker._connection_host = host
+    worker._connection_port = port
+    worker._connection_client_id = client_id
+    worker._source_ib = SimpleNamespace(isConnected=lambda: False)
+
+    monkeypatch.setattr(module, "IB", FailingIB)
+    monkeypatch.setattr(module.time, "sleep", lambda seconds: None)
+
+    assert module.MarketDataWorker._ensure_worker_connection(worker) is False
+    assert attempted_ids == [101, 101, 101]

@@ -14,7 +14,6 @@ import logging
 import math
 import os
 import queue
-import random
 import threading
 import time
 from datetime import datetime, timezone
@@ -153,24 +152,15 @@ class MarketDataWorker(QThread):
             )
         except (TypeError, ValueError):
             port = 7496
+        configured = os.environ.get("IBKR_MARKET_DATA_CLIENT_ID", "101").strip()
         try:
-            base_client_id = int(
-                getattr(ib_client, "_qullamaggie_client_id", 0)
-                or getattr(client, "clientId", 1)
-                or 1
+            return host, port, int(configured)
+        except ValueError:
+            logger.warning(
+                "Invalid IBKR_MARKET_DATA_CLIENT_ID=%r; using fixed market-data client id 101",
+                configured,
             )
-        except (TypeError, ValueError):
-            base_client_id = 1
-        configured = os.environ.get("IBKR_MARKET_DATA_CLIENT_ID", "").strip()
-        if configured:
-            try:
-                return host, port, int(configured)
-            except ValueError:
-                logger.warning(
-                    "Invalid IBKR_MARKET_DATA_CLIENT_ID=%r; deriving a client id",
-                    configured,
-                )
-        return host, port, base_client_id + 7000
+            return host, port, 101
 
     def _ensure_worker_connection(self) -> bool:
         """Use a thread-owned IB connection for streaming market data.
@@ -186,41 +176,40 @@ class MarketDataWorker(QThread):
 
         host = self._connection_host
         port = self._connection_port
-        preferred_client_id = self._connection_client_id
-        candidate_ids = [preferred_client_id]
-        candidate_ids.extend(preferred_client_id + offset for offset in range(1, 4))
-        candidate_ids.append(random.randint(9000, 9999))
+        preferred_client_id = int(self._connection_client_id)
 
         last_error: Optional[Exception] = None
-        for client_id in candidate_ids:
+        for attempt in range(3):
             dedicated = IB()
             try:
-                dedicated.connect(host, port, clientId=int(client_id), timeout=8, readonly=True)
+                dedicated.connect(host, port, clientId=preferred_client_id, timeout=8, readonly=True)
+                if dedicated.isConnected():
+                    self.ib = dedicated
+                    self._owns_ib_connection = True
+                    logger.info(
+                        "Dedicated IBKR market-data connection established on %s:%s clientId=%s",
+                        host,
+                        port,
+                        preferred_client_id,
+                    )
+                    return True
+                last_error = RuntimeError("IBKR market-data connection did not report connected")
             except Exception as exc:
                 last_error = exc
-                try:
-                    dedicated.disconnect()
-                except Exception:
-                    pass
                 logger.warning(
-                    "Dedicated IBKR market-data connection failed on %s:%s clientId=%s: %s",
+                    "Retry %d/3 for IBKR market-data connection on %s:%s clientId=%s: %s",
+                    attempt + 1,
                     host,
                     port,
-                    client_id,
+                    preferred_client_id,
                     exc,
                 )
-                continue
-
-            if dedicated.isConnected():
-                self.ib = dedicated
-                self._owns_ib_connection = True
-                logger.info(
-                    "Dedicated IBKR market-data connection established on %s:%s clientId=%s",
-                    host,
-                    port,
-                    client_id,
-                )
-                return True
+            try:
+                dedicated.disconnect()
+            except Exception:
+                pass
+            if attempt < 2:
+                time.sleep(1)
 
         # Fall back only if the shared client is still connected. This keeps the
         # app usable in unusual setups while the warning points at the safer fix.
