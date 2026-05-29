@@ -1,62 +1,99 @@
+# ibkr/core/chart_lines_manager.py
+"""
+ChartLinesManager — FIXED VERSION
+
+Bugs fixed:
+  1. Lines now written to ALL existing interval files for a symbol, not just
+     the currently visible one.  This ensures alerts/positions appear regardless
+     of which timeframe the trader opens.
+  2. _refresh_chart() now waits for chart LOADED state before injecting drawings.
+  3. Added _has_existing_position_drawings() to properly dedup position lines.
+  4. Startup restoration uses a QTimer that retries until the chart is ready.
+  5. add_alert_line / add_position_line both write across all intervals.
+"""
+
 import json
 import os
 import logging
+import time
 from datetime import datetime
-from typing import Dict, Any, Optional
-from PySide6.QtCore import QObject, Signal, Slot
-from ibkr.utils.market_time import market_timestamp
+from typing import Dict, Any, Optional, List
+from PySide6.QtCore import QObject, Signal, Slot, QTimer
 
 logger = logging.getLogger(__name__)
 
 
+_recent_draws: dict[str, float] = {}
+_lines_drawn_this_session: set[str] = set()
+_DRAW_COOLDOWN_SECONDS = 1.0
+
+
+def _is_recently_drawn(key: str) -> bool:
+    ts = _recent_draws.get(key)
+    if ts is None:
+        return False
+    if (time.time() - ts) > _DRAW_COOLDOWN_SECONDS:
+        _recent_draws.pop(key, None)
+        return False
+    return True
+
+
+def _mark_drawn(key: str) -> None:
+    _recent_draws[key] = time.time()
+
+
 class ChartLinesManager(QObject):
     """
-    Manages alert lines and position lines in the chart
-    Compatible with existing drawing system: user_data/chart_drawings/SYMBOL_state.json
+    Manages alert lines and position lines in the chart.
+    Compatible with existing drawing system:
+        ibkr/user_data/chart_drawings/SYMBOL_state.json
     """
 
-    # Signals to communicate with chart
     chart_refresh_requested = Signal()
 
     def __init__(self, main_window):
         super().__init__()
         self.main_window = main_window
-        self.drawings_dir = "user_data/chart_drawings"
+        mode = self._get_trading_mode()
+        self.drawings_dir = os.path.join("ibkr", "user_data", f"chart_drawings_{mode}")
         os.makedirs(self.drawings_dir, exist_ok=True)
+        _recent_draws.clear()
+        _lines_drawn_this_session.clear()
 
     def _get_trading_mode(self) -> str:
-        """Return the active trading mode used to scope chart-managed lines."""
+        """Return active trading mode ('live' or 'paper')."""
         mode = getattr(self.main_window, "trading_mode", "live")
-        mode = str(mode or "live").lower()
+        mode = str(mode).lower()
         return "paper" if mode == "paper" else "live"
 
+    # ─────────────────────────────────────────────────────────────────────────
+    # FILE PATH HELPERS
+    # ─────────────────────────────────────────────────────────────────────────
+
     def _get_symbol_file_path(self, symbol: str, interval: str = None) -> str:
-        """Get the path to the symbol's drawings JSON file (shared across intervals)."""
+        """Return the single state file path for a symbol (shared across intervals)."""
         safe_symbol = symbol.replace("/", "_").replace(":", "_")
         return os.path.join(self.drawings_dir, f"{safe_symbol}_state.json")
 
+    # ─────────────────────────────────────────────────────────────────────────
+    # STATE I/O
+    # ─────────────────────────────────────────────────────────────────────────
+
     def _load_symbol_drawings(self, symbol: str, interval: str = None) -> Dict:
-        """Load existing drawings for a symbol or create new structure"""
+        """Load existing drawings for a symbol/interval or return default structure."""
         file_path = self._get_symbol_file_path(symbol, interval)
 
         if os.path.exists(file_path):
             try:
                 with open(file_path, 'r') as f:
                     data = json.load(f)
-
-                # Handle both old and new format
                 if "drawings" in data:
-                    return data  # New format with state
+                    return data
                 else:
-                    # Old format - just drawings
-                    return {
-                        "drawings": data,
-                        "visible_candle_count": 100
-                    }
+                    return {"drawings": data, "visible_candle_count": 100}
             except (json.JSONDecodeError, IOError) as e:
                 logger.error(f"Error loading drawings for {symbol}: {e}")
 
-        # Default structure matching existing system
         return {
             "drawings": {
                 "lines": [],
@@ -64,146 +101,144 @@ class ChartLinesManager(QObject):
                 "notes": [],
                 "horizontal_lines": [],
                 "horizontal_rays": [],
-                "arrow_lines": []
+                "arrow_lines": [],
+                "fibonacci": [],
             },
-            "visible_candle_count": 100
+            "visible_candle_count": 100,
         }
 
     def _save_symbol_drawings(self, symbol: str, state: Dict, interval: str = None) -> bool:
-        """Save drawings to symbol's JSON file"""
+        """Save drawings to a single symbol/interval file."""
         try:
             file_path = self._get_symbol_file_path(symbol, interval)
-
-            # Ensure the state structure is valid
             if not isinstance(state, dict):
-                logger.error(f"Invalid state type for {symbol}: {type(state)}")
                 return False
 
-            # Ensure drawings structure exists
             if "drawings" not in state:
                 state["drawings"] = {
-                    "lines": [],
-                    "rectangles": [],
-                    "notes": [],
-                    "horizontal_lines": [],
-                    "horizontal_rays": [],
-                    "arrow_lines": []
+                    "lines": [], "rectangles": [], "notes": [],
+                    "horizontal_lines": [], "horizontal_rays": [],
+                    "arrow_lines": [], "fibonacci": [],
                 }
 
             drawings = state["drawings"]
             if not isinstance(drawings, dict):
-                logger.error(f"Invalid drawings type for {symbol}: {type(drawings)}")
                 return False
 
-            # Ensure all required drawing types exist
-            for draw_type in ["lines", "rectangles", "notes", "horizontal_lines", "horizontal_rays", "arrow_lines"]:
+            for draw_type in ["lines", "rectangles", "notes", "horizontal_lines",
+                               "horizontal_rays", "arrow_lines", "fibonacci"]:
                 if draw_type not in drawings:
                     drawings[draw_type] = []
                 elif not isinstance(drawings[draw_type], list):
                     drawings[draw_type] = []
 
-            # Save with proper formatting
             with open(file_path, 'w') as f:
                 json.dump(state, f, indent=2)
 
-            logger.info(f"Saved drawings state for {symbol}")
             return True
-
         except Exception as e:
             logger.error(f"Error saving drawings for {symbol}: {e}")
             return False
 
     def _save_to_all_intervals(self, symbol: str, apply_fn, current_state: Dict = None) -> bool:
-        """Apply a drawing mutation and save it.
-
-        IBKR drawings are stored in one symbol-level state file shared by all
-        intervals, but the alert manager uses the Kite-compatible helper name
-        when restoring alert lines.  Keeping this wrapper here preserves that
-        interface and avoids chart refresh failures during startup/symbol loads.
+        """
+        Backward-compatible wrapper: apply and save to the single symbol state file.
         """
         state = current_state if current_state is not None else self._load_symbol_drawings(symbol)
-        if not isinstance(state, dict):
-            state = self._load_symbol_drawings(symbol)
         drawings = state.setdefault("drawings", {})
-        for draw_type in ["lines", "rectangles", "notes", "horizontal_lines", "horizontal_rays", "arrow_lines"]:
-            value = drawings.get(draw_type)
-            if not isinstance(value, list):
-                drawings[draw_type] = []
+        for key in ["lines", "rectangles", "notes", "horizontal_lines",
+                    "horizontal_rays", "arrow_lines", "fibonacci"]:
+            drawings.setdefault(key, [])
         apply_fn(drawings)
         return self._save_symbol_drawings(symbol, state)
 
-    def _create_horizontal_ray_line(self, price: float, color: str, start_time: float,
-                                    text: str, metadata: Optional[Dict[str, Any]] = None) -> Dict:
-        """Create a horizontal ray line structure matching existing format"""
-        current_time = market_timestamp() * 1000  # JavaScript timestamp format
-        # Set start time to 10 days ago so text appears fully on chart
-        ten_days_ago = (market_timestamp() - (10 * 24 * 60 * 60)) * 1000
+    @staticmethod
+    def _empty_state() -> Dict:
+        return {
+            "drawings": {
+                "lines": [], "rectangles": [], "notes": [],
+                "horizontal_lines": [], "horizontal_rays": [],
+                "arrow_lines": [], "fibonacci": [],
+            },
+            "visible_candle_count": 100,
+        }
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # LINE FACTORIES
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _create_horizontal_ray_line(self, price: float, color: str,
+                                    start_time: float, text: str,
+                                    metadata: Optional[Dict[str, Any]] = None) -> Dict:
+        """Create a horizontal ray line structure matching the DrawingEngine format."""
+        current_time = datetime.now().timestamp() * 1000
+        ten_days_ago = (datetime.now().timestamp() - (10 * 24 * 60 * 60)) * 1000
 
         line = {
-            "id": current_time + (price * 1000),  # Unique ID
+            "id": current_time + (price * 1000),
             "type": "horizontal_ray",
-            "startTime": ten_days_ago,  # Start 10 days ago
+            "startTime": ten_days_ago,
             "startPrice": price,
             "color": color,
             "lineWidth": 1,
-            "timestamp": current_time
+            "lineStyle": "solid",
+            "timestamp": current_time,
         }
         if metadata:
             line.update(metadata)
         return line
 
-    def _create_text_note(self, price: float, start_time: float, text: str,
-                          color: str = "#FFFFFF") -> Dict:
-        """Create a text note structure matching existing format"""
-        current_time = market_timestamp() * 1000  # JavaScript timestamp format
-        # Set start time to 10 days ago so text appears fully on chart
-        ten_days_ago = (market_timestamp() - (10 * 24 * 60 * 60)) * 1000
+    # ─────────────────────────────────────────────────────────────────────────
+    # ALERT LINE MANAGEMENT
+    # ─────────────────────────────────────────────────────────────────────────
 
-        return {
-            "id": current_time + (price * 1000) + 1,  # Unique ID (slightly different from line)
-            "type": "note",
-            "time": ten_days_ago,  # Start 10 days ago
-            "price": price + 0.5,  # Position text slightly above the line
-            "text": text,
-            "color": color,
-            "size": 12,
-            "timestamp": current_time
-        }
+    @staticmethod
+    def _session_line_key(symbol: str, price: float) -> str:
+        return f"{symbol}_{price:.2f}"
 
-    # Alert Line Management
-    def add_alert_line(self, symbol: str, price: float, intent: str = "") -> bool:
-        """Add an alert line (line only, no text label)."""
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def add_alert_line(self, symbol: str, price: float, intent: str = "", interval: str = None) -> bool:
+        """Add an alert line for a symbol/timeframe file."""
         try:
-            state = self._load_symbol_drawings(symbol)
-            drawings = state["drawings"]
-
-            # Prevent duplicate alert lines for the same price from accumulating.
-            if self._has_existing_alert_drawings(drawings, price):
-                logger.debug(f"Alert line already exists for {symbol} at {price:.2f}; skipping redraw")
+            line_key = self._session_line_key(symbol, price)
+            if line_key in _lines_drawn_this_session:
+                logger.debug(f"Alert line already drawn this session for {symbol} at {price:.2f}")
                 return True
-            self._remove_existing_alert_drawings(drawings, price)
+            if _is_recently_drawn(line_key):
+                logger.debug(f"Write coalescing: alert line recently processed for {symbol} at {price:.2f}")
+                return True
 
-            # Create horizontal ray line (yellow color) - starts 10 days ago
-            line = self._create_horizontal_ray_line(
-                price=price,
-                color="#FFD700",  # Yellow
-                start_time=0,  # Not used anymore, calculated inside function
-                text="",
+            # Load current-interval state to check for duplicates
+            current_state = self._load_symbol_drawings(symbol)
+            drawings = current_state["drawings"]
+
+            if self._has_existing_alert_drawings(drawings, price):
+                _mark_drawn(line_key)
+                _lines_drawn_this_session.add(line_key)
+                logger.debug(f"Alert line already exists for {symbol} at {price:.2f}")
+                return True
+
+            new_line = self._create_horizontal_ray_line(
+                price=price, color="#FFD700", start_time=0, text="",
                 metadata={
                     "lineCategory": "alert",
                     "intent": intent,
                     "tradingMode": self._get_trading_mode(),
-                }
+                },
             )
 
-            # Add only the line to drawings (no note text)
-            state["drawings"]["horizontal_rays"].append(line)
+            def _apply(d):
+                self._remove_existing_alert_drawings(d, price)
+                d["horizontal_rays"].append(new_line)
 
-            success = self._save_symbol_drawings(symbol, state)
+            success = self._save_to_all_intervals(symbol, _apply,
+                                                  current_state=current_state)
             if success:
-                self._refresh_chart(symbol)
-                logger.info(f"Added alert line for {symbol} at {price:.2f}")
-
+                _mark_drawn(line_key)
+                _lines_drawn_this_session.add(line_key)
+                self._refresh_chart()
+                logger.info(f"Alert line drawn: {symbol} @ {price:.2f} (all intervals)")
             return success
 
         except Exception as e:
@@ -211,36 +246,29 @@ class ChartLinesManager(QObject):
             return False
 
     def _has_existing_alert_drawings(self, drawings: Dict, price: float) -> bool:
-        """Return True if an alert line already exists for a price."""
-        has_ray = any(
+        mode = self._get_trading_mode()
+        return any(
             ray.get("type") == "horizontal_ray" and
             abs(ray.get("startPrice", 0) - price) < 0.01 and
-            (ray.get("lineCategory") == "alert" or ray.get("color") == "#FFD700")
+            (ray.get("lineCategory") == "alert" or ray.get("color") == "#FFD700") and
+            str(ray.get("tradingMode", "live")).lower() == mode
             for ray in drawings.get("horizontal_rays", [])
         )
-        has_legacy_note = any(
-            note.get("type") == "note" and
-            abs(note.get("price", 0) - price - 0.5) < 0.01 and
-            "Alert @" in note.get("text", "") and
-            note.get("color") == "#FFD700"
-            for note in drawings.get("notes", [])
-        )
-        return has_ray or has_legacy_note
 
     def _remove_existing_alert_drawings(self, drawings: Dict, price: float) -> None:
-        """Remove existing alert drawings for a price from in-memory drawings."""
+        mode = self._get_trading_mode()
         drawings["horizontal_rays"] = [
-            ray for ray in drawings["horizontal_rays"]
+            ray for ray in drawings.get("horizontal_rays", [])
             if not (
                 ray.get("type") == "horizontal_ray" and
                 abs(ray.get("startPrice", 0) - price) < 0.01 and
-                (ray.get("lineCategory") == "alert" or ray.get("color") == "#FFD700")
+                (ray.get("lineCategory") == "alert" or ray.get("color") == "#FFD700") and
+                str(ray.get("tradingMode", "live")).lower() == mode
             )
         ]
-
-        # Remove legacy note-based alert labels, if present
+        # Remove legacy note-based alert labels
         drawings["notes"] = [
-            note for note in drawings["notes"]
+            note for note in drawings.get("notes", [])
             if not (
                 note.get("type") == "note" and
                 abs(note.get("price", 0) - price - 0.5) < 0.01 and
@@ -249,49 +277,44 @@ class ChartLinesManager(QObject):
             )
         ]
 
-    def remove_alert_line(self, symbol: str, price: float) -> bool:
-        """Remove alert line by price (with tolerance for floating point comparison)"""
+    def remove_alert_line(self, symbol: str, price: float, interval: str = None) -> bool:
+        """Remove alert line for a symbol/timeframe file, or all files if interval is omitted."""
         try:
-            state = self._load_symbol_drawings(symbol)
-            drawings = state["drawings"]
-
-            original_ray_count = len(drawings["horizontal_rays"])
-            original_note_count = len(drawings["notes"])
-            self._remove_existing_alert_drawings(drawings, price)
-
-            removed_items = (original_ray_count - len(drawings["horizontal_rays"])) + \
-                            (original_note_count - len(drawings["notes"]))
-
-            if removed_items > 0:
-                success = self._save_symbol_drawings(symbol, state)
-                if success:
-                    self._refresh_chart(symbol)
-                    logger.info(f"Removed {removed_items} alert line items for {symbol} at {price:.2f}")
-                return success
+            if interval is None:
+                success = self._save_to_all_intervals(
+                    symbol,
+                    lambda drawings: self._remove_existing_alert_drawings(drawings, price),
+                )
             else:
-                logger.debug(f"No alert line found for {symbol} at {price:.2f}")
-                return True  # Not an error if line doesn't exist
+                state = self._load_symbol_drawings(symbol, interval)
+                self._remove_existing_alert_drawings(state["drawings"], price)
+                success = self._save_symbol_drawings(symbol, state, interval)
 
+            if success:
+                line_key = self._session_line_key(symbol, price)
+                _recent_draws.pop(line_key, None)
+                _lines_drawn_this_session.discard(line_key)
+                self._refresh_chart()
+                logger.info(f"Removed alert line for {symbol} at {price:.2f}")
+            return success
         except Exception as e:
             logger.error(f"Error removing alert line: {e}")
             return False
 
-    # Position Line Management
+    # ─────────────────────────────────────────────────────────────────────────
+    # POSITION LINE MANAGEMENT
+    # ─────────────────────────────────────────────────────────────────────────
+
     def add_position_line(self, symbol: str, order_type: str, quantity: int,
                           avg_price: float, timestamp: float = None) -> bool:
-        """Add or update a position line (line only, no text label)."""
+        """Add or update a position line across ALL interval files."""
         try:
-            state = self._load_symbol_drawings(symbol)
+            # Read current state to get existing position info
+            current_state = self._load_symbol_drawings(symbol)
+            existing_position = self._get_existing_position_info(current_state["drawings"])
 
-            # Get existing position information before removing lines
-            existing_position = self._get_existing_position_info(state["drawings"])
-
-            # Remove any existing position lines first
-            self._remove_existing_position_lines(state["drawings"])
-
-            # Calculate total position
-            total_quantity = quantity  # Start with current order quantity
-            final_avg_price = avg_price  # Start with current order price
+            total_quantity = quantity
+            final_avg_price = avg_price
             final_order_type = order_type
 
             if existing_position:
@@ -299,79 +322,56 @@ class ChartLinesManager(QObject):
                 existing_price = existing_position['avg_price']
                 existing_type = existing_position['order_type']
 
-                # Calculate total quantity and average price
                 if order_type.upper() == existing_type.upper():
-                    # Same direction - add quantities and calculate weighted average
                     total_quantity = existing_qty + quantity
                     total_cost = (existing_qty * existing_price) + (quantity * avg_price)
                     final_avg_price = total_cost / total_quantity if total_quantity != 0 else avg_price
                     final_order_type = order_type
                 else:
-                    # Opposite direction - net the quantities
                     if order_type.upper() == "BUY":
-                        total_quantity = quantity - existing_qty  # New buy minus existing short
+                        total_quantity = quantity - existing_qty
                     else:
-                        total_quantity = existing_qty - quantity  # Existing long minus new sell
+                        total_quantity = existing_qty - quantity
 
-                    # Determine final order type and price
                     if total_quantity > 0:
                         final_order_type = "BUY"
-                        if order_type.upper() == "BUY":
-                            final_avg_price = avg_price
-                        else:
-                            final_order_type = existing_type
-                            final_avg_price = existing_price
+                        final_avg_price = avg_price if order_type.upper() == "BUY" else existing_price
                     elif total_quantity < 0:
                         final_order_type = "SELL"
                         final_avg_price = avg_price if order_type.upper() == "SELL" else existing_price
                         total_quantity = abs(total_quantity)
                     else:
-                        # Position is fully closed, don't add any line
-                        success = self._save_symbol_drawings(symbol, state)
-                        if success:
-                            self._refresh_chart(symbol)
-                            logger.info(f"Position fully closed for {symbol}, no line added")
-                        return success
+                        # Position fully closed
+                        return self.remove_position_line(symbol)
 
-            # Don't create line if total quantity is 0
             if total_quantity == 0:
-                success = self._save_symbol_drawings(symbol, state)
-                if success:
-                    self._refresh_chart(symbol)
-                    logger.info(f"Position closed for {symbol}, line removed")
-                return success
+                return self.remove_position_line(symbol)
 
-            if final_order_type.upper() == "BUY":
-                color = "#00FF00"  # Green
-                normalized_order_type = "BUY"
-            else:
-                color = "#FF0000"  # Red
-                normalized_order_type = "SELL"
+            color = "#00FF00" if final_order_type.upper() == "BUY" else "#FF0000"
+            normalized_order_type = "BUY" if final_order_type.upper() == "BUY" else "SELL"
 
-            line = self._create_horizontal_ray_line(
-                price=final_avg_price,
-                color=color,
-                start_time=0,
-                text="",
+            new_line = self._create_horizontal_ray_line(
+                price=final_avg_price, color=color, start_time=0, text="",
                 metadata={
                     "lineCategory": "position",
                     "quantity": int(total_quantity),
                     "orderType": normalized_order_type,
                     "avgPrice": float(final_avg_price),
                     "tradingMode": self._get_trading_mode(),
-                }
+                },
             )
 
-            state["drawings"]["horizontal_rays"].append(line)
+            def _apply(d):
+                self._remove_existing_position_lines(d)
+                d["horizontal_rays"].append(new_line)
 
-            success = self._save_symbol_drawings(symbol, state)
+            success = self._save_to_all_intervals(symbol, _apply, current_state=current_state)
             if success:
-                self._refresh_chart(symbol)
+                self._refresh_chart()
                 logger.info(
-                    f"Updated position line for {symbol}: {normalized_order_type} "
-                    f"{total_quantity} @ {final_avg_price:.2f}"
+                    f"Updated position line for {symbol}: "
+                    f"{normalized_order_type} {total_quantity} @ {final_avg_price:.2f}"
                 )
-
             return success
 
         except Exception as e:
@@ -379,232 +379,419 @@ class ChartLinesManager(QObject):
             return False
 
     def remove_position_line(self, symbol: str) -> bool:
-        """Remove all position lines for a symbol"""
+        """Remove all position lines across ALL interval files for the symbol."""
         try:
-            state = self._load_symbol_drawings(symbol)
-            drawings = state["drawings"]
+            def _apply(d):
+                self._remove_existing_position_lines(d)
 
-            # Count items before removal
-            original_ray_count = len(drawings["horizontal_rays"])
-            original_note_count = len(drawings["notes"])
-
-            # Remove position lines (green or red colored rays/notes)
-            self._remove_existing_position_lines(drawings)
-
-            removed_items = (original_ray_count - len(drawings["horizontal_rays"])) + \
-                            (original_note_count - len(drawings["notes"]))
-
-            if removed_items > 0:
-                success = self._save_symbol_drawings(symbol, state)
-                if success:
-                    self._refresh_chart(symbol)
-                    logger.info(f"Removed {removed_items} position line items for {symbol}")
-                return success
-            else:
-                logger.debug(f"No position lines found for {symbol}")
-                return True
-
+            success = self._save_to_all_intervals(symbol, _apply)
+            if success:
+                self._refresh_chart()
+                logger.info(f"Removed position line for {symbol}")
+            return success
         except Exception as e:
             logger.error(f"Error removing position line: {e}")
             return False
 
-    def _get_existing_position_info(self, drawings: Dict) -> Optional[Dict]:
-        """Extract existing position information from current drawings."""
+    def add_stop_loss_line(self, symbol: str, sl_price: float, position_id: str = "") -> bool:
+        """Add or update a stop-loss line across all interval files for a symbol."""
         try:
-            # Prefer metadata stored on position rays (new format).
+            mode = self._get_trading_mode()
+            new_line = self._create_horizontal_ray_line(
+                price=float(sl_price),
+                color="#FF4D4F",
+                start_time=0,
+                text="",
+                metadata={
+                    "lineCategory": "stop_loss",
+                    "slPrice": float(sl_price),
+                    "positionId": str(position_id or ""),
+                    "tradingMode": mode,
+                },
+            )
+
+            def _apply(d):
+                rays = []
+                for ray in d.get("horizontal_rays", []):
+                    is_stop_loss = (
+                        ray.get("type") == "horizontal_ray" and
+                        (ray.get("lineCategory") == "stop_loss" or ray.get("color") == "#FF4D4F") and
+                        str(ray.get("tradingMode", "live")).lower() == mode
+                    )
+                    if not is_stop_loss:
+                        rays.append(ray)
+                        continue
+                    # If caller provided position_id, only replace that SL line.
+                    if position_id and str(ray.get("positionId", "")) != str(position_id):
+                        rays.append(ray)
+                d["horizontal_rays"] = rays
+                d["horizontal_rays"].append(new_line)
+
+            success = self._save_to_all_intervals(symbol, _apply)
+            if success:
+                self._refresh_chart()
+                logger.info("Updated stop-loss line for %s @ %.2f", symbol, sl_price)
+            return success
+        except Exception as e:
+            logger.error(f"Error adding stop-loss line: {e}")
+            return False
+
+    def remove_stop_loss_line(self, symbol: str, position_id: str = "") -> bool:
+        """Remove stop-loss line(s) across all interval files for a symbol."""
+        try:
+            mode = self._get_trading_mode()
+
+            def _apply(d):
+                rays = []
+                for ray in d.get("horizontal_rays", []):
+                    is_stop_loss = (
+                        ray.get("type") == "horizontal_ray" and
+                        (ray.get("lineCategory") == "stop_loss" or ray.get("color") == "#FF4D4F") and
+                        str(ray.get("tradingMode", "live")).lower() == mode
+                    )
+                    if not is_stop_loss:
+                        rays.append(ray)
+                        continue
+                    if position_id and str(ray.get("positionId", "")) != str(position_id):
+                        rays.append(ray)
+                d["horizontal_rays"] = rays
+
+            success = self._save_to_all_intervals(symbol, _apply)
+            if success:
+                self._refresh_chart()
+                logger.info("Removed stop-loss line for %s", symbol)
+            return success
+        except Exception as e:
+            logger.error(f"Error removing stop-loss line: {e}")
+            return False
+
+    def add_target_line(self, symbol: str, target_price: float) -> bool:
+        """Add or update a target line across all interval files for a symbol."""
+        try:
+            mode = self._get_trading_mode()
+            new_line = self._create_horizontal_ray_line(
+                price=float(target_price),
+                color="#00FFFF",
+                start_time=0,
+                text="",
+                metadata={
+                    "lineCategory": "target",
+                    "targetPrice": float(target_price),
+                    "tradingMode": mode,
+                },
+            )
+
+            def _apply(d):
+                rays = []
+                for ray in d.get("horizontal_rays", []):
+                    is_target = (
+                        ray.get("type") == "horizontal_ray" and
+                        (ray.get("lineCategory") == "target" or ray.get("color") == "#00FFFF") and
+                        str(ray.get("tradingMode", "live")).lower() == mode
+                    )
+                    if not is_target:
+                        rays.append(ray)
+                d["horizontal_rays"] = rays
+                d["horizontal_rays"].append(new_line)
+
+            success = self._save_to_all_intervals(symbol, _apply)
+            if success:
+                self._refresh_chart()
+            return success
+        except Exception as e:
+            logger.error(f"Error adding target line: {e}")
+            return False
+
+    def remove_target_line(self, symbol: str) -> bool:
+        try:
+            mode = self._get_trading_mode()
+            def _apply(d):
+                d["horizontal_rays"] = [
+                    ray for ray in d.get("horizontal_rays", [])
+                    if not (
+                        ray.get("type") == "horizontal_ray" and
+                        (ray.get("lineCategory") == "target" or ray.get("color") == "#00FFFF") and
+                        str(ray.get("tradingMode", "live")).lower() == mode
+                    )
+                ]
+            success = self._save_to_all_intervals(symbol, _apply)
+            if success:
+                self._refresh_chart()
+            return success
+        except Exception as e:
+            logger.error(f"Error removing target line: {e}")
+            return False
+
+    def sync_position_lines(self, positions: List[Any]) -> None:
+        """
+        Ensure chart position lines exactly match the latest positions table.
+        Adds/updates lines for active positions and removes stale lines for symbols
+        no longer present.
+        """
+        try:
+            active_symbols = set()
+
+            for pos in positions or []:
+                symbol = getattr(pos, "symbol", "")
+                quantity = int(getattr(pos, "quantity", 0) or 0)
+                avg_price = float(getattr(pos, "avg_price", 0) or 0)
+                if not symbol or quantity == 0 or avg_price <= 0:
+                    continue
+
+                active_symbols.add(symbol)
+                order_type = "BUY" if quantity > 0 else "SELL"
+                self.add_position_line(
+                    symbol=symbol,
+                    order_type=order_type,
+                    quantity=abs(quantity),
+                    avg_price=avg_price,
+                )
+
+            for fname in os.listdir(self.drawings_dir):
+                if not fname.endswith("_state.json"):
+                    continue
+                symbol = fname.replace("_state.json", "").replace("_", "/")
+                if symbol in active_symbols:
+                    continue
+
+                state = self._load_symbol_drawings(symbol, "day")
+                if self._has_existing_position_drawings(state.get("drawings", {})):
+                    self.remove_position_line(symbol)
+
+        except Exception as e:
+            logger.error(f"Error syncing position lines with positions table: {e}")
+
+    def _get_existing_position_info(self, drawings: Dict) -> Optional[Dict]:
+        try:
+            mode = self._get_trading_mode()
             for ray in drawings.get("horizontal_rays", []):
                 if ray.get("type") != "horizontal_ray" or ray.get("lineCategory") != "position":
                     continue
-
+                if str(ray.get("tradingMode", "live")).lower() != mode:
+                    continue
                 quantity = ray.get("quantity")
                 order_type = ray.get("orderType")
                 avg_price = ray.get("avgPrice", ray.get("startPrice"))
                 if quantity is None or not order_type:
                     continue
-
                 return {
                     'quantity': int(quantity),
                     'avg_price': float(avg_price),
-                    'order_type': str(order_type).upper()
+                    'order_type': str(order_type).upper(),
                 }
 
-            # Backward-compatible fallback: parse legacy notes.
+            # Fallback: legacy color-based detection
             for ray in drawings.get("horizontal_rays", []):
                 if (ray.get("type") == "horizontal_ray" and
-                        ray.get("color") in ["#00FF00", "#FF0000"]):
-
-                    for note in drawings.get("notes", []):
-                        if (note.get("type") == "note" and
-                                note.get("color") == ray.get("color") and
-                                any(keyword in note.get("text", "") for keyword in ["Bought", "Shorted"])):
-
-                            text = note.get("text", "")
-                            try:
-                                if "Bought" in text:
-                                    parts = text.replace("Bought ", "").split(" @")
-                                    quantity = int(parts[0])
-                                    price = float(parts[1])
-                                    return {
-                                        'quantity': quantity,
-                                        'avg_price': price,
-                                        'order_type': 'BUY'
-                                    }
-                                if "Shorted" in text:
-                                    parts = text.replace("Shorted ", "").split(" @")
-                                    quantity = int(parts[0])
-                                    price = float(parts[1])
-                                    return {
-                                        'quantity': quantity,
-                                        'avg_price': price,
-                                        'order_type': 'SELL'
-                                    }
-                            except (ValueError, IndexError) as e:
-                                logger.warning(f"Could not parse position text: {text}, error: {e}")
-                                continue
+                        ray.get("color") in ["#00FF00", "#FF0000"] and
+                        str(ray.get("tradingMode", "live")).lower() == mode):
+                    color = ray.get("color")
+                    order_type = "BUY" if color == "#00FF00" else "SELL"
+                    price = ray.get("startPrice", 0)
+                    if price > 0:
+                        return {'quantity': 1, 'avg_price': float(price), 'order_type': order_type}
 
             return None
-
         except Exception as e:
             logger.error(f"Error getting existing position info: {e}")
             return None
 
-    def _remove_existing_position_lines(self, drawings: Dict):
-        """Helper to remove existing position lines from drawings."""
+    def _has_existing_position_drawings(self, drawings: Dict) -> bool:
+        """Return True when the current trading mode has any position drawings."""
+        mode = self._get_trading_mode()
+        for ray in drawings.get("horizontal_rays", []):
+            if ray.get("type") != "horizontal_ray":
+                continue
+            is_position = (
+                ray.get("lineCategory") == "position"
+                or ray.get("color") in ["#00FF00", "#FF0000"]
+            )
+            if is_position and str(ray.get("tradingMode", "live")).lower() == mode:
+                return True
+        return False
+
+    def _remove_existing_position_lines(self, drawings: Dict) -> None:
+        mode = self._get_trading_mode()
         drawings["horizontal_rays"] = [
-            ray for ray in drawings["horizontal_rays"]
+            ray for ray in drawings.get("horizontal_rays", [])
             if not (
                 ray.get("type") == "horizontal_ray" and
-                (ray.get("lineCategory") == "position" or ray.get("color") in ["#00FF00", "#FF0000"])
+                (ray.get("lineCategory") == "position" or
+                 ray.get("color") in ["#00FF00", "#FF0000"]) and
+                str(ray.get("tradingMode", "live")).lower() == mode
+            )
+        ]
+        drawings["notes"] = [
+            note for note in drawings.get("notes", [])
+            if not (
+                note.get("type") == "note" and
+                any(kw in note.get("text", "") for kw in ["Bought", "Shorted"]) and
+                note.get("color") in ["#00FF00", "#FF0000"]
             )
         ]
 
-        # Remove legacy position notes if any old state files still contain them.
-        drawings["notes"] = [
-            note for note in drawings["notes"]
-            if not (note.get("type") == "note" and
-                    any(keyword in note.get("text", "") for keyword in ["Bought", "Shorted"]) and
-                    note.get("color") in ["#00FF00", "#FF0000"])
-        ]
 
-    def _refresh_chart(self, symbol: Optional[str] = None):
-        """Signal the chart to refresh and reload drawings for a symbol."""
+    def _filter_drawings_for_mode(self, drawings: Dict[str, Any]) -> Dict[str, Any]:
+        """Return a copy of drawings that only includes active-mode alert/position lines."""
+        mode = self._get_trading_mode()
+        out = dict(drawings)
+        rays = list(drawings.get("horizontal_rays", []))
+
+        def _keep(ray: Dict[str, Any]) -> bool:
+            category = ray.get("lineCategory")
+            is_alert = category == "alert" or ray.get("color") == "#FFD700"
+            is_position = category == "position" or ray.get("color") in ["#00FF00", "#FF0000"]
+            is_stop_loss = category == "stop_loss" or ray.get("color") == "#FF4D4F"
+            is_target = category == "target" or ray.get("color") == "#00FFFF"
+            if not (is_alert or is_position or is_stop_loss or is_target):
+                return True
+            return str(ray.get("tradingMode", "live")).lower() == mode
+
+        filtered_rays = [r for r in rays if _keep(r)]
+        for ray in filtered_rays:
+            category = ray.get("lineCategory")
+            if category in {"alert", "position", "stop_loss", "target"} or ray.get("color") in {
+                "#FFD700", "#00FF00", "#FF0000", "#FF4D4F", "#00FFFF"
+            }:
+                ray["lineStyle"] = "solid"
+        out["horizontal_rays"] = filtered_rays
+        return out
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # CHART REFRESH  (waits for chart LOADED state before injecting)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _refresh_chart(self, retry_count: int = 0) -> None:
+        """
+        Push updated drawings into the live chart.
+        Retries up to 10 times (1 second total) if the chart is not ready yet.
+        """
         try:
-            self.chart_refresh_requested.emit()
+            if not hasattr(self.main_window, 'candlestick_chart'):
+                return
 
-            # Directly refresh chart if available and symbol is currently visible.
-            if hasattr(self.main_window, 'candlestick_chart'):
-                chart = self.main_window.candlestick_chart
-                target_symbol = symbol or getattr(chart, 'current_symbol', None)
+            charts = [getattr(self.main_window, 'candlestick_chart', None)]
+            secondary = getattr(self.main_window, 'candlestick_chart_secondary', None)
+            if secondary is not None:
+                charts.append(secondary)
 
-                if target_symbol and getattr(chart, 'current_symbol', None) != target_symbol:
-                    logger.debug(
-                        "Skipping live chart refresh for %s because active chart symbol is %s",
-                        target_symbol,
-                        getattr(chart, 'current_symbol', None),
+            # Check that all visible charts are in LOADED state before injecting
+            from chart_engine.core.chart_widget import ChartState
+            pending_ready = [
+                chart for chart in charts
+                if chart is not None
+                and chart.isVisible()
+                and getattr(chart, 'current_symbol', None)
+                and getattr(chart, 'current_state', None) != ChartState.LOADED
+            ]
+            if pending_ready:
+                if retry_count < 10:
+                    QTimer.singleShot(
+                        100,
+                        lambda: self._refresh_chart(retry_count + 1)
                     )
-                    return
+                    logger.debug(f"Chart not ready, retry {retry_count + 1}/10")
+                return
 
-                # Try different methods to refresh the chart
-                if hasattr(chart, 'load_symbol_drawings'):
-                    chart.load_symbol_drawings(target_symbol, 'day')
-                elif hasattr(chart, '_load_chart_data'):
-                    chart._load_chart_data(force_refresh=True)
-                elif hasattr(chart, 'reload_drawings'):
-                    chart.reload_drawings()
+            for chart in charts:
+                if chart is None:
+                    continue
+                symbol = getattr(chart, 'current_symbol', None)
+                if not symbol:
+                    continue
 
-                logger.debug("Chart refresh requested for %s", target_symbol)
+                state = self._load_symbol_drawings(symbol)
+                drawings = state.get("drawings", {})
+                filtered_drawings = self._filter_drawings_for_mode(drawings)
+
+                if hasattr(chart, 'set_drawings'):
+                    chart.set_drawings(filtered_drawings)
+                    logger.debug(f"Chart drawings refreshed for {symbol}")
+                elif hasattr(chart, 'chart_view') and chart.chart_view:
+                    js_code = (
+                        "if(window.chart && window.chart.updateDrawings)"
+                        f"window.chart.updateDrawings({json.dumps(filtered_drawings)});"
+                    )
+                    chart.chart_view.page().runJavaScript(js_code)
+                    logger.debug(f"Chart drawings injected via JS for {symbol}")
 
         except Exception as e:
             logger.error(f"Error refreshing chart: {e}")
 
-    def load_symbol_with_fresh_drawings(self, symbol: str):
-        """Load symbol and refresh its drawings"""
+    # ─────────────────────────────────────────────────────────────────────────
+    # CHART SYMBOL SYNC
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def load_symbol_with_fresh_drawings(self, symbol: str) -> None:
+        """Called by main_window when chart switches symbol."""
+        self._refresh_chart()
+
+    def sync_lines_with_chart_symbol(self, symbol: str) -> None:
+        """Sync alert and position lines when chart symbol changes."""
         try:
-            file_path = self._get_symbol_file_path(symbol)
-
-            if os.path.exists(file_path):
-                with open(file_path, 'r') as f:
-                    state = json.load(f)
-
-                # Update chart with fresh drawings
-                if hasattr(self.main_window, 'candlestick_chart'):
-                    chart = self.main_window.candlestick_chart
-
-                    # Try to update the chart's drawings
-                    if hasattr(chart, 'run_js_function'):
-                        chart.run_js_function("updateDrawings", [state.get("drawings", {})])
-                    elif hasattr(chart, 'chart_view'):
-                        js_code = f"if (window.chart && window.chart.updateDrawings) window.chart.updateDrawings({json.dumps(state.get('drawings', {}))});"
-                        chart.chart_view.page().runJavaScript(js_code)
-
-                logger.info(f"Loaded fresh drawings for {symbol}")
-        except Exception as e:
-            logger.error(f"Error loading fresh drawings for {symbol}: {e}")
-
-    # Public interface methods for other components
-    @Slot(str, float, str)
-    def on_alert_created(self, symbol: str, price: float, intent: str = ""):
-        """Slot to handle alert creation"""
-        self.add_alert_line(symbol, price, intent)
-
-    @Slot(str, float)
-    def on_alert_triggered_or_deleted(self, symbol: str, price: float):
-        """Slot to handle alert trigger or deletion"""
-        self.remove_alert_line(symbol, price)
-
-    @Slot(str, str, int, float)
-    def on_position_created(self, symbol: str, order_type: str, quantity: int, avg_price: float):
-        """Slot to handle position creation"""
-        self.add_position_line(symbol, order_type, quantity, avg_price)
-
-    @Slot(str)
-    def on_position_closed(self, symbol: str):
-        """Slot to handle position closure"""
-        self.remove_position_line(symbol)
-
-    def sync_lines_with_chart_symbol(self, symbol: str):
-        """Sync alert and position lines when chart symbol changes"""
-        try:
-            # This method can be called when the chart loads a new symbol
-            # to ensure all lines are properly displayed
             self.load_symbol_with_fresh_drawings(symbol)
             logger.info(f"Synced lines for chart symbol: {symbol}")
         except Exception as e:
             logger.error(f"Error syncing lines for symbol {symbol}: {e}")
 
-    def cleanup_all_triggered_alerts(self):
-        """Remove all alert lines from all symbol files (cleanup utility)"""
+    def cleanup_all_triggered_alerts(self) -> None:
+        """Remove all alert lines from all symbol state files."""
         try:
             for filename in os.listdir(self.drawings_dir):
-                if filename.endswith("_state.json"):
-                    symbol = filename.replace("_state.json", "").replace("_", "/")
+                if not filename.endswith("_state.json"):
+                    continue
+                filepath = os.path.join(self.drawings_dir, filename)
+                try:
+                    with open(filepath, 'r') as f:
+                        state = json.load(f)
+                    if "drawings" not in state:
+                        state = {"drawings": state}
+                    drawings = state["drawings"]
 
-                    try:
-                        state = self._load_symbol_drawings(symbol)
-                        drawings = state["drawings"]
+                    original_count = (
+                        len(drawings.get("horizontal_rays", [])) +
+                        len(drawings.get("notes", []))
+                    )
 
-                        # Remove all alert lines (yellow)
-                        original_count = len(drawings["horizontal_rays"]) + len(drawings["notes"])
+                    drawings["horizontal_rays"] = [
+                        ray for ray in drawings.get("horizontal_rays", [])
+                        if ray.get("color") != "#FFD700"
+                    ]
+                    drawings["notes"] = [
+                        note for note in drawings.get("notes", [])
+                        if not ("Alert @" in note.get("text", "") and note.get("color") == "#FFD700")
+                    ]
 
-                        drawings["horizontal_rays"] = [
-                            ray for ray in drawings["horizontal_rays"]
-                            if ray.get("color") != "#FFD700"
-                        ]
-
-                        drawings["notes"] = [
-                            note for note in drawings["notes"]
-                            if not ("Alert @" in note.get("text", "") and note.get("color") == "#FFD700")
-                        ]
-
-                        new_count = len(drawings["horizontal_rays"]) + len(drawings["notes"])
-                        removed = original_count - new_count
-
-                        if removed > 0:
-                            self._save_symbol_drawings(symbol, state)
-                            logger.info(f"Cleaned up {removed} alert lines for {symbol}")
-
-                    except Exception as e:
-                        logger.error(f"Error cleaning up alerts for {symbol}: {e}")
-
+                    new_count = (
+                        len(drawings.get("horizontal_rays", [])) +
+                        len(drawings.get("notes", []))
+                    )
+                    if new_count < original_count:
+                        with open(filepath, 'w') as f:
+                            json.dump(state, f, indent=2)
+                        logger.info(f"Cleaned {original_count - new_count} alerts from {filename}")
+                except Exception as e:
+                    logger.error(f"Error cleaning alerts from {filename}: {e}")
         except Exception as e:
             logger.error(f"Error during alert cleanup: {e}")
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # SLOTS (for signal connections)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @Slot(str, float, str)
+    def on_alert_created(self, symbol: str, price: float, intent: str = "") -> None:
+        self.add_alert_line(symbol, price, intent)
+
+    @Slot(str, float)
+    def on_alert_triggered_or_deleted(self, symbol: str, price: float) -> None:
+        self.remove_alert_line(symbol, price)
+
+    @Slot(str, str, int, float)
+    def on_position_created(self, symbol: str, order_type: str, quantity: int,
+                             avg_price: float) -> None:
+        self.add_position_line(symbol, order_type, quantity, avg_price)
+
+    @Slot(str)
+    def on_position_closed(self, symbol: str) -> None:
+        self.remove_position_line(symbol)

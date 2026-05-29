@@ -2522,32 +2522,85 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     # SIMPLIFIED ORDER HANDLING WITH STATUS BAR
     # ==============================================================================
 
+    def _instrument_for_order(self, symbol: str) -> Dict[str, Any]:
+        """Return an order-ready instrument, with an IBKR on-demand fallback."""
+        instrument = dict(getattr(self, "instrument_map", {}).get(symbol, {}) or {})
+        if instrument:
+            return instrument
+
+        # IBKR mode can chart/order raw US symbols after TWS qualifies them.
+        # Header buttons should not fail just because the static startup symbol
+        # file did not contain the symbol selected via live search.
+        if self.trading_mode == "ibkr" or hasattr(getattr(self, "real_kite_client", None), "reqContractDetails"):
+            instrument = {
+                "tradingsymbol": symbol,
+                "symbol": symbol,
+                "name": symbol,
+                "exchange": "SMART",
+                "primaryExch": "",
+                "instrument_token": 0,
+                "conId": 0,
+                "segment": "STK",
+                "secType": "STK",
+                "currency": "USD",
+                "instrument_type": "EQ",
+            }
+            self.instrument_map[symbol] = instrument
+            if hasattr(self, "header_toolbar"):
+                self.header_toolbar._instrument_map[symbol] = instrument
+            return instrument
+
+        return {}
+
+    def _remember_order_dialog(self, dialog: OrderDialog) -> None:
+        """Keep modeless order tickets alive until Qt destroys them."""
+        dialogs = getattr(self, "_active_order_dialogs", None)
+        if dialogs is None:
+            dialogs = []
+            self._active_order_dialogs = dialogs
+        dialogs.append(dialog)
+        dialog.destroyed.connect(lambda *_: dialogs.remove(dialog) if dialog in dialogs else None)
+
     @Slot(str, float)
-    def _show_order_dialog(self, symbol: str = "", ltp_from_chart: float = 0.0):
-        """Show order dialog - simplified"""
+    def _show_order_dialog(self, symbol: str = "", ltp_from_chart: float = 0.0, side: str = "BUY"):
+        """Show a BUY/SELL order dialog without crashing the Qt slot on errors."""
         symbol = (symbol or "").strip().upper()
+        side = "SELL" if str(side or "").upper() == "SELL" else "BUY"
         if not symbol:
             symbol = self._get_active_symbol_for_shortcuts()
         if not symbol:
             show_info("Select a symbol on chart before placing an order")
             return
 
-        ltp = ltp_from_chart if ltp_from_chart > 0.0 else self._get_fresh_ltp(symbol)
-        if ltp == 0.0:
-            show_error(f"Could not fetch LTP for {symbol}")
-            return
-        if symbol not in self.instrument_map:
-            show_error(f"Symbol {symbol} not found")
-            return
+        try:
+            instrument = self._instrument_for_order(symbol)
+            if not instrument:
+                show_error(f"Symbol {symbol} not found")
+                return
 
-        default_qty = self.config_manager.load_settings().get('default_quantity', 1)
-        order_details = {'tradingsymbol': symbol, 'ltp': ltp, 'transaction_type': 'BUY', 'quantity': default_qty}
-        order_details = self._build_order_details_with_account(order_details)
+            ltp = ltp_from_chart if ltp_from_chart > 0.0 else self._get_fresh_ltp(symbol)
+            if ltp <= 0.0:
+                show_error(f"Could not fetch LTP for {symbol}")
+                return
 
-        instrument = self.instrument_map.get(symbol, {})
-        dialog = OrderDialog(self, symbol, ltp, order_details, instrument=instrument, ltp_fetcher=self._get_fresh_ltp)
-        dialog.order_placed.connect(self._handle_order_placement)
-        dialog.show()
+            default_qty = self.config_manager.load_settings().get('default_quantity', 1)
+            order_details = {
+                'tradingsymbol': symbol,
+                'ltp': ltp,
+                'transaction_type': side,
+                'quantity': default_qty,
+                'order_type': 'LIMIT',
+                'price': ltp,
+            }
+            order_details = self._build_order_details_with_account(order_details)
+
+            dialog = OrderDialog(self, symbol, ltp, order_details, instrument=instrument, ltp_fetcher=self._get_fresh_ltp)
+            dialog.order_placed.connect(self._handle_order_placement)
+            self._remember_order_dialog(dialog)
+            dialog.show()
+        except Exception as exc:
+            logger.exception("Failed to open %s order dialog for %s", side, symbol)
+            show_error(f"Could not open {side} order ticket for {symbol}: {exc}")
 
     def _show_order_dialog_from_dict(self, order_data: Dict[str, Any]):
         """Show order dialog from watchlist"""
@@ -2615,24 +2668,12 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         dialog.show()
 
     def _on_header_buy_order(self, symbol: str):
-        """Handle buy order from header"""
-        self._show_order_dialog(symbol)
+        """Handle buy order from header."""
+        self._show_order_dialog(symbol, side="BUY")
 
     def _on_header_sell_order(self, symbol: str):
-        """Handle sell order from header"""
-        ltp = self._get_fresh_ltp(symbol)
-        if ltp == 0.0:
-            show_error(f"Could not fetch LTP for {symbol}")
-            return
-
-        default_qty = self.config_manager.load_settings().get('default_quantity', 1)
-        order_details = {'tradingsymbol': symbol, 'ltp': ltp, 'transaction_type': 'SELL', 'quantity': default_qty}
-        order_details = self._build_order_details_with_account(order_details)
-
-        instrument = self.instrument_map.get(symbol, {})
-        dialog = OrderDialog(self, symbol, ltp, order_details, instrument=instrument, ltp_fetcher=self._get_fresh_ltp)
-        dialog.order_placed.connect(self._handle_order_placement)
-        dialog.show()
+        """Handle sell order from header."""
+        self._show_order_dialog(symbol, side="SELL")
 
     def _resolve_position_product(self, symbol: str, fallback: str = "MIS") -> str:
         """Resolve product from latest broker positions with a safe fallback."""
@@ -3223,6 +3264,20 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         for table in self.watchlist._tables.values():
             if hasattr(table, '_watchlist_data') and symbol in table._watchlist_data:
                 ltp = table._watchlist_data[symbol].get('ltp', 0.0)
+                if ltp > 0:
+                    return ltp
+
+        # Check active charts before the blocking broker fallback.  The chart
+        # order button uses this same value, so header BUY/SELL should be able
+        # to open the ticket for the currently displayed symbol even when the
+        # static instrument map has no last_price yet.
+        for chart in (getattr(self, "candlestick_chart", None), getattr(self, "candlestick_chart_secondary", None)):
+            chart_symbol = str(getattr(chart, "current_symbol", "") or "").strip().upper()
+            if chart_symbol == symbol:
+                try:
+                    ltp = float(getattr(chart, "current_ltp", 0.0) or 0.0)
+                except (TypeError, ValueError):
+                    ltp = 0.0
                 if ltp > 0:
                     return ltp
 

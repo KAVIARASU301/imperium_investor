@@ -798,18 +798,39 @@ class HeaderToolbar(QToolBar):
         self._remember_recent_symbol(symbol)
         self.symbol_selected.emit(symbol)
 
+    def _current_order_symbol(self) -> str:
+        """Return the symbol the user actually committed in the search box.
+
+        In IBKR mode the visible text can momentarily contain a partial typed
+        query while the live resolver is still updating.  BUY/SELL should use
+        the last committed chart/search symbol first, then fall back to the raw
+        text.  Do not gate on the static instrument map here: IBKR can resolve
+        symbols on demand and many valid US symbols are not present in the
+        initial instrument payload.
+        """
+        committed = ""
+        getter = getattr(self.search_input, "get_committed_symbol", None)
+        if callable(getter):
+            committed = getter()
+        text = self.search_input.text().upper().strip()
+        return (committed or text).upper().strip()
+
     def _on_buy_clicked(self):
-        sym = self.search_input.text().upper().strip()
-        if sym and sym in self._instrument_map:
+        sym = self._current_order_symbol()
+        if sym:
             self.buy_order_requested.emit(sym)
+        elif hasattr(self.search_input, "flash_invalid"):
+            self.search_input.flash_invalid()
 
     def _on_sell_clicked(self):
-        sym = self.search_input.text().upper().strip()
-        if sym and sym in self._instrument_map:
+        sym = self._current_order_symbol()
+        if sym:
             self.sell_order_requested.emit(sym)
+        elif hasattr(self.search_input, "flash_invalid"):
+            self.search_input.flash_invalid()
 
     def _on_info_clicked(self):
-        sym = self.search_input.text().upper().strip()
+        sym = self._current_order_symbol()
         if sym:
             self.stock_info_requested.emit(sym)
 
