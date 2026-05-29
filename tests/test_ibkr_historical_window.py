@@ -44,6 +44,7 @@ def _install_broker_protocol(monkeypatch):
 
 def _load_module(monkeypatch, module_name, relative_path):
     _install_broker_protocol(monkeypatch)
+    monkeypatch.syspath_prepend(str(ROOT))
     spec = importlib.util.spec_from_file_location(module_name, ROOT / relative_path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
@@ -215,6 +216,47 @@ def test_ibkr_daily_history_keeps_regular_hours(monkeypatch):
 
     assert bars
     assert ib.requests[0]["useRTH"] is True
+
+
+def test_ibkr_historical_request_uses_aggressive_timeouts_and_backoff(monkeypatch):
+    module = _load_module(monkeypatch, "chart_engine.core.ibkr_data_fetcher", "chart_engine/core/ibkr_data_fetcher.py")
+
+    timeouts = []
+    sleeps = []
+
+    async def fake_wait_for(coro, timeout):
+        timeouts.append(timeout)
+        await coro
+        return []
+
+    async def fake_sleep(delay):
+        sleeps.append(delay)
+
+    monkeypatch.setattr(module.asyncio, "wait_for", fake_wait_for)
+    monkeypatch.setattr(module.asyncio, "sleep", fake_sleep)
+
+    class FakeIB:
+        async def reqHistoricalDataAsync(self, contract, **kwargs):
+            return []
+
+    fetcher = module.IBKRDataFetcher.__new__(module.IBKRDataFetcher)
+    fetcher._what_to_show = "TRADES"
+    fetcher._use_rth = True
+
+    bars = module.asyncio.run(fetcher._execute_historical_request_async(
+        ib=FakeIB(),
+        contract=SimpleNamespace(symbol="AAPL", conId=123),
+        end_dt_str="",
+        duration_str="1 D",
+        bar_size="5 mins",
+        max_retries=4,
+        pacing_key="test_aggressive_timeout",
+        request_symbol="AAPL",
+    ))
+
+    assert bars == []
+    assert timeouts == [8.0, 12.0, 20.0, 20.0]
+    assert sleeps == [0.5, 1.0, 2.0]
 
 
 def test_ibkr_sixty_minute_aggregates_regular_session_from_930(monkeypatch):

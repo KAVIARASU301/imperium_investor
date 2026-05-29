@@ -492,21 +492,30 @@ class IBKRDataFetcher(BrokerDataFetcher):
         )
 
         last_bars = []
+        # Aggressive timeout schedule: 8s, 12s, 20s.
+        timeout_schedule = (8.0, 12.0, 20.0)
         for attempt in range(1, max_retries + 1):
             with _RECENT_REQUEST_LOCK:
                 _RECENT_REQUESTS[pacing_key] = time.monotonic()
                 if len(_RECENT_REQUESTS) > 200:
                     _RECENT_REQUESTS.popitem(last=False)
 
+            timeout = timeout_schedule[min(attempt - 1, len(timeout_schedule) - 1)]
             try:
                 # 2. Asynchronous TWS Request (No Semaphore! Allows Parallel Chart Loading)
                 coro = ib.reqHistoricalDataAsync(contract, **request_kwargs)
-                bars = await asyncio.wait_for(coro, timeout=60.0)
+                bars = await asyncio.wait_for(coro, timeout=timeout)
             except asyncio.TimeoutError:
-                logger.warning("reqHistoricalDataAsync timed out on attempt %d/%d", attempt, max_retries)
+                logger.warning(
+                    "reqHistoricalDataAsync timed out after %.0fs on attempt %d/%d for %s",
+                    timeout,
+                    attempt,
+                    max_retries,
+                    request_symbol,
+                )
                 bars = []
             except Exception as exc:
-                logger.warning("reqHistoricalDataAsync raised on attempt %d/%d: %s", attempt, max_retries, exc)
+                logger.warning("reqHistoricalDataAsync error attempt %d/%d: %s", attempt, max_retries, exc)
                 bars = []
 
             last_bars = bars or []
@@ -514,12 +523,9 @@ class IBKRDataFetcher(BrokerDataFetcher):
                 return last_bars
 
             if attempt < max_retries:
-                # Fast aggressive retry: 1s, 2s, 3s
-                backoff_schedule = (1.0, 2.0, 3.0)
-                back_off = backoff_schedule[min(attempt - 1, len(backoff_schedule) - 1)]
-                logger.warning("Empty bars for %s on attempt %d/%d; retrying in %.1fs...",
-                               getattr(contract, "symbol", "?"), attempt, max_retries, back_off)
-                await asyncio.sleep(back_off)
+                backoff = (0.5, 1.0, 2.0)[min(attempt - 1, 2)]
+                logger.warning("Empty bars attempt %d/%d, retrying in %.1fs", attempt, max_retries, backoff)
+                await asyncio.sleep(backoff)
 
         return last_bars
 

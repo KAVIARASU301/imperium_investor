@@ -7,13 +7,14 @@ Why this version is faster and safer for IBKR mode:
   • Keeps daily/weekly/monthly bars across calendar rollovers until TTL expires.
   • Flushes only intraday bars at the US market open.
   • Uses a monotonic access counter so max-size eviction is true LRU.
-  • Returns copies at the API boundary to avoid accidental UI-side mutation.
+  • Keeps a tiny lock-free hot cache for repeated chart renders.
 """
 
 from __future__ import annotations
 
 import logging
 import threading
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime, time, date, timedelta, timezone
 from typing import Any, Dict, Optional
@@ -124,6 +125,11 @@ class MarketAwareDataCache(QObject):
         self._maxsize = max(1, int(maxsize))
         self._last_flush_date: Optional[date] = None
         self._access_seq = 0
+        # Hot path for repeated renders of the same recently viewed symbols.
+        # Values are shallow copies from the backing cache so callers avoid the
+        # lock and copy overhead on immediate repeat lookups.
+        self._hot_cache: "OrderedDict[str, pd.DataFrame]" = OrderedDict()
+        self._hot_cache_max = 5
 
         self._open_flush_timer = QTimer(self)
         self._open_flush_timer.timeout.connect(self._check_market_open_flush)
@@ -132,6 +138,10 @@ class MarketAwareDataCache(QObject):
         logger.info("MarketAwareDataCache initialised for IBKR/US market time")
 
     def get(self, key: str) -> Optional[pd.DataFrame]:
+        if key in self._hot_cache:
+            self._hot_cache.move_to_end(key)
+            return self._hot_cache[key]
+
         with self._lock:
             entry = self._store.get(key)
             if entry is None:
@@ -139,28 +149,38 @@ class MarketAwareDataCache(QObject):
 
             if entry.is_previous_intraday_session():
                 self._store.pop(key, None)
+                self._hot_cache.pop(key, None)
                 logger.debug("Cache miss previous US intraday session: %s", key)
                 return None
 
             if entry.is_premarket_intraday() and _is_market_hours():
                 self._store.pop(key, None)
+                self._hot_cache.pop(key, None)
                 logger.debug("Cache miss premarket intraday after open: %s", key)
                 return None
 
             ttl = _ttl_for(entry.interval)
             if entry.is_stale(ttl):
                 self._store.pop(key, None)
+                self._hot_cache.pop(key, None)
                 logger.debug("Cache miss TTL expired (%ss): %s", ttl, key)
                 return None
 
             self._access_seq += 1
             entry.last_access_seq = self._access_seq
-            return entry.data.copy(deep=False)
+            df = entry.data.copy(deep=False)
+
+        self._hot_cache[key] = df
+        self._hot_cache.move_to_end(key)
+        if len(self._hot_cache) > self._hot_cache_max:
+            self._hot_cache.popitem(last=False)
+        return df
 
     def set(self, key: str, data: pd.DataFrame, interval: str = "day") -> None:
         if data is None or data.empty:
             return
 
+        self._hot_cache.pop(key, None)
         with self._lock:
             if len(self._store) >= self._maxsize and key not in self._store:
                 self._evict_one()
@@ -175,6 +195,15 @@ class MarketAwareDataCache(QObject):
 
     def invalidate(self, symbol: str, interval: Optional[str] = None) -> int:
         symbol = str(symbol or "").strip().upper()
+        if interval:
+            for key in (f"{symbol}_{interval}", f"{symbol}:{interval}"):
+                self._hot_cache.pop(key, None)
+        else:
+            prefixes = (f"{symbol}_", f"{symbol}:")
+            hot_keys = [key for key in self._hot_cache if key.upper().startswith(prefixes)]
+            for key in hot_keys:
+                self._hot_cache.pop(key, None)
+
         with self._lock:
             if interval:
                 candidates = [f"{symbol}_{interval}", f"{symbol}:{interval}"]
@@ -190,6 +219,7 @@ class MarketAwareDataCache(QObject):
             return len(keys)
 
     def clear(self) -> None:
+        self._hot_cache.clear()
         with self._lock:
             count = len(self._store)
             self._store.clear()
@@ -200,7 +230,10 @@ class MarketAwareDataCache(QObject):
             return {
                 "entries": len(self._store),
                 "capacity": self._maxsize,
+                "hot_entries": len(self._hot_cache),
+                "hot_capacity": self._hot_cache_max,
                 "keys": list(self._store.keys()),
+                "hot_keys": list(self._hot_cache.keys()),
                 "market_tz": str(_MARKET_TZ),
                 "market_now": _now_market().isoformat(),
                 "market_date": str(_today_market()),
@@ -221,6 +254,7 @@ class MarketAwareDataCache(QObject):
             keys = [key for key, entry in self._store.items() if _is_intraday(entry.interval)]
             for key in keys:
                 self._store.pop(key, None)
+                self._hot_cache.pop(key, None)
         if keys:
             logger.debug("Flushed %d intraday cache entries", len(keys))
 
@@ -229,6 +263,7 @@ class MarketAwareDataCache(QObject):
             return
         victim = min(self._store, key=lambda k: self._store[k].last_access_seq)
         self._store.pop(victim, None)
+        self._hot_cache.pop(victim, None)
         logger.debug("Cache evicted LRU entry: %s", victim)
 
     @property
