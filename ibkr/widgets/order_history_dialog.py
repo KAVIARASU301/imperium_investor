@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QFormLayout, QAbstractButton, QAbstractSpinBox, QAbstractItemView, QFrame
 )
 
+from ibkr.utils.market_time import market_isoformat, market_qdate, market_strftime
 from ibkr.utils.worker import Worker
 
 try:
@@ -156,7 +157,7 @@ class FilterWidget(QWidget):
 
         self.date_from = QDateEdit()
         self.date_from.setObjectName("terminalDate")
-        self.date_from.setDate(QDate.currentDate().addDays(-30))
+        self.date_from.setDate(market_qdate().addDays(-30))
         self.date_from.setCalendarPopup(True)
         self.date_from.dateChanged.connect(self.filter_changed.emit)
         form_layout.addRow(self._field_label("FROM"), self.date_from)
@@ -192,7 +193,7 @@ class FilterWidget(QWidget):
         self.symbol_filter.clear()
         self.status_filter.setCurrentIndex(0)
         self.type_filter.setCurrentIndex(0)
-        self.date_from.setDate(QDate.currentDate().addDays(-30))
+        self.date_from.setDate(market_qdate().addDays(-30))
         self.today_only.setChecked(False)
         self.filter_changed.emit()
 
@@ -283,7 +284,7 @@ class OrderHistoryTable(QTableWidget):
         filtered = list(orders or [])
 
         if filters.get('today_only'):
-            today = datetime.now().strftime('%Y-%m-%d')
+            today = market_strftime('%Y-%m-%d')
             filtered = [o for o in filtered if str(o.get('order_timestamp', '')).startswith(today)]
 
         if filters.get('symbol'):
@@ -751,7 +752,7 @@ class OrderHistoryDialog(QDialog):
         self._orders_data = orders or []
         self._apply_filters()
 
-        self.status_label.setText(f"UPDATED {datetime.now().strftime('%H:%M:%S')}")
+        self.status_label.setText(f"UPDATED {market_strftime('%H:%M:%S')}")
         self.status_label.setProperty("state", "ok")
         self.status_label.style().unpolish(self.status_label)
         self.status_label.style().polish(self.status_label)
@@ -804,7 +805,7 @@ class OrderHistoryDialog(QDialog):
             'filters': filters,
             'statistics': stats,
             'orders': self.orders_table.get_displayed_orders(),
-            'export_timestamp': datetime.now().isoformat()
+            'export_timestamp': market_isoformat()
         }
 
         self.export_requested.emit(export_data)

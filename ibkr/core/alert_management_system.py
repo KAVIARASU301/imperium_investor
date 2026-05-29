@@ -39,6 +39,7 @@ from ibkr.utils.sounds import play_alert
 from ibkr.widgets.notifications import ToastNotification
 from ibkr.core import chart_lines_manager as clm_module
 
+from ibkr.utils.market_time import market_isoformat, market_now_naive, market_today
 logger = logging.getLogger(__name__)
 
 
@@ -98,7 +99,7 @@ class Alert:
     note:                str  = ""
     repeat:              bool = False    # re-arm after triggering
     notify_telegram:     bool = False
-    created_at:          str  = field(default_factory=lambda: datetime.now().isoformat())
+    created_at:          str  = field(default_factory=lambda: market_isoformat())
     triggered_at:        Optional[str] = None
     # Runtime state (not persisted)
     _prev_price:         float = field(default=0.0, repr=False, compare=False)
@@ -175,7 +176,7 @@ class AlertStore:
             with sqlite3.connect(self._path, timeout=5.0) as conn:
                 conn.execute("BEGIN IMMEDIATE")
                 conn.execute("UPDATE alerts_store SET payload_json = ?, updated_at = ? WHERE id = 1",
-                             (payload, datetime.now().isoformat()))
+                             (payload, market_isoformat()))
                 conn.commit()
             self._last_save_at = now
             if self._dirty:
@@ -229,7 +230,7 @@ class AlertStore:
                     VALUES (1, '[]', ?)
                     ON CONFLICT(id) DO NOTHING
                     """,
-                    (datetime.now().isoformat(),),
+                    (market_isoformat(),),
                 )
                 conn.commit()
         except Exception as e:
@@ -255,7 +256,7 @@ class AlertStore:
             with sqlite3.connect(self._path, timeout=5.0) as conn:
                 conn.execute(
                     "UPDATE alerts_store SET payload_json = ?, updated_at = ? WHERE id = 1",
-                    (payload, datetime.now().isoformat()),
+                    (payload, market_isoformat()),
                 )
                 conn.commit()
             logger.info(f"Migrated {len(legacy_data)} alert(s) from alerts.json to alerts.db")
@@ -500,8 +501,8 @@ class AlertEngine(QObject):
 
         # ── Time-based ──
         if cond == AlertCondition.TIME_BASED.value:
-            # target_value is stored as HHMM int (e.g. 915 = 09:15)
-            now = datetime.now()
+            # target_value is stored as HHMM int (e.g. 930 = 09:30 US market time)
+            now = market_now_naive()
             now_hhmm = now.hour * 100 + now.minute
             return now_hhmm == int(target)
 
@@ -509,7 +510,7 @@ class AlertEngine(QObject):
 
     def _fire(self, alert: Alert):
         """Mark alert as triggered and emit signal."""
-        now = datetime.now()
+        now = market_now_naive()
         now_epoch = time.time()
         # Prevent alert storms for repeat alerts on noisy ticks.
         if alert.repeat and (now_epoch - alert._last_trigger_epoch) < self._repeat_cooldown_seconds:
@@ -683,7 +684,7 @@ class AlertSystemManager(QObject):
         # on next tick if the condition still holds)
         if alert.repeat:
             alert.status = AlertStatus.ACTIVE.value
-            alert.triggered_at = datetime.now().isoformat()
+            alert.triggered_at = market_isoformat()
             self.store.update(alert)
         # else leave as TRIGGERED — do not re-draw line
 
@@ -1283,7 +1284,7 @@ class AlertSystemManager(QObject):
     def get_notification_counts(self) -> tuple:
         alerts = self.store.all()
         active = sum(1 for a in alerts if a.status == AlertStatus.ACTIVE.value)
-        today = datetime.now().date()
+        today = market_today()
         triggered = sum(
             1
             for a in alerts

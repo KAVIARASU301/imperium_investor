@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
 )
 
+from ibkr.utils.market_time import market_strftime
 from ibkr.widgets.status_bar import show_error, show_info, show_order_cancelled
 from ibkr.utils.worker import Worker
 
@@ -941,7 +942,7 @@ class PendingOrdersDialog(QDialog):
         self._render_table()
 
         self.count_label.setText(f"{len(self._orders)} pending")
-        now = datetime.now().strftime("%H:%M:%S")
+        now = market_strftime("%H:%M:%S")
         self.status_label.setText(f"Synced with IBKR at {now}")
         self.pending_orders_updated.emit(len(self._orders))
 

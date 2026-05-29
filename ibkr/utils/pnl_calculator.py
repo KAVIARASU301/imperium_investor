@@ -14,6 +14,7 @@ Now every component imports from here.  Zero duplication.
 import math
 import logging
 from datetime import datetime, timedelta, date
+from ibkr.utils.market_time import market_today
 from typing import List, Dict, Any, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -253,7 +254,7 @@ class PnLCalculator:
         if not closed:
             return []
 
-        cutoff = date.today() - timedelta(days=days)
+        cutoff = market_today() - timedelta(days=days)
         daily: Dict[str, float] = {}
 
         for trade in closed:

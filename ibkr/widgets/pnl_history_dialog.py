@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ibkr.utils.market_time import market_now_naive, market_today
 logger = logging.getLogger(__name__)
 
 
@@ -60,7 +61,7 @@ class PnlHistoryDialog(QDialog):
     def __init__(self, trade_logger, parent=None):
         super().__init__(parent)
         self.trade_logger = trade_logger
-        self.current_date = datetime.today()
+        self.current_date = market_now_naive()
         self.pnl_data: Dict[str, float] = {}
         self._drag_active = False
         self._drag_offset = None
@@ -268,7 +269,7 @@ class PnlHistoryDialog(QDialog):
         top.addWidget(day_label)
         top.addStretch(1)
 
-        today = date.today()
+        today = market_today()
         if day.date() == today:
             today_badge = QLabel("TODAY")
             today_badge.setObjectName("todayBadge")
@@ -325,7 +326,7 @@ class PnlHistoryDialog(QDialog):
         start_date = datetime(year, month, 1).date()
         end_date = datetime(year + (1 if month == 12 else 0), 1 if month == 12 else month + 1, 1).date()
 
-        today = date.today()
+        today = market_today()
         if today < start_date:
             start_date = today
         if today >= end_date:
@@ -623,7 +624,7 @@ class PnlHistoryDialog(QDialog):
 
     def showEvent(self, event):
         super().showEvent(event)
-        self.current_date = datetime.today()
+        self.current_date = market_now_naive()
         self._populate_calendar()
         self._center_on_parent()
 

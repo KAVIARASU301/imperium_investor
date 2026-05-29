@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from PySide6.QtCore import QObject, Signal, QTimer
 
 from ibkr.utils.account_display import extract_account_display_name
+from ibkr.utils.market_time import market_isoformat
 
 try:
     from ib_insync import IB, Contract, Stock, MarketOrder, LimitOrder, StopOrder, StopLimitOrder, Trade, Position, Ticker
@@ -170,7 +171,7 @@ def _convert_trade(trade: Any) -> Dict[str, Any]:
         "status_message": _extract_trade_message(trade),
         "filled_quantity": int(_safe_float(getattr(status, "filled", 0), 0.0)) if status else 0,
         "average_price": _safe_float(getattr(status, "avgFillPrice", 0.0), 0.0) if status else 0.0,
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": market_isoformat(),
         "product": "IBKR",
     }
 
@@ -653,7 +654,7 @@ class IBKRTradingClient(QObject):
             "order_type": order_type,
             "exchange": getattr(contract, "exchange", "SMART"),
             "product": "IBKR",
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": market_isoformat(),
         })
         return result
 
@@ -671,7 +672,7 @@ class IBKRTradingClient(QObject):
             "transaction_type": str(params.get("action") or params.get("transaction_type") or "").upper(),
             "order_type": _normalize_order_type(params.get("order_type") or params.get("orderType") or "MARKET"),
             "product": "IBKR",
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": market_isoformat(),
         }
         return response
 

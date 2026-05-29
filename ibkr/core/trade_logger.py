@@ -9,6 +9,7 @@ import threading
 import queue
 from concurrent.futures import ThreadPoolExecutor
 from PySide6.QtCore import QObject, Signal, QThread, QTimer
+from ibkr.utils.market_time import market_now_naive, market_strftime, market_today
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +132,7 @@ class DatabaseWorker(QObject):
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
 
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        timestamp = market_strftime('%Y-%m-%d %H:%M:%S')
         order_id = order_data.get('order_id')
 
         params = (
@@ -167,7 +168,7 @@ class DatabaseWorker(QObject):
             WHERE order_id = ?
         """
 
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        timestamp = market_strftime('%Y-%m-%d %H:%M:%S')
 
         params = (
             order_data.get('status'),
@@ -471,7 +472,7 @@ class TradeLogger(QObject):
 
             # Convert to list format and filter by days
             result = []
-            cutoff_date = datetime.now().date() - timedelta(days=days)
+            cutoff_date = market_today() - timedelta(days=days)
 
             cumulative_pnl = 0
             for date_str in sorted(daily_pnl.keys()):
@@ -670,7 +671,7 @@ class TradeLogger(QObject):
 
             if days:
                 # Filter by days
-                cutoff_date = datetime.now() - timedelta(days=days)
+                cutoff_date = market_now_naive() - timedelta(days=days)
                 trades = [
                     t for t in trades
                     if t.get('execution_timestamp') and

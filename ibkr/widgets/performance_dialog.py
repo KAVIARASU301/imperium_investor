@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
+from ibkr.utils.market_time import market_strftime
 logger = logging.getLogger(__name__)
 
 # ── Institutional Dark Trading Terminal UI tokens ────────────────────────────
@@ -386,7 +387,7 @@ class PerformanceDialog(QDialog):
         setv("worst_day", f"${worst_day:,.0f}", _BEAR)
 
         if hasattr(self, "status_label"):
-            self.status_label.setText(f"Updated {datetime.now().strftime('%H:%M:%S')}  ·  {total_trades} trades")
+            self.status_label.setText(f"Updated {market_strftime('%H:%M:%S')}  ·  {total_trades} trades")
 
     def _plot_equity(self, pnl_by_day: dict):
         dates = sorted(pnl_by_day.keys())

@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional
 
 from PySide6.QtCore import QThread, Signal
 from ibkr.core.symbol_info_db import SymbolInfoDatabase
+from ibkr.utils.market_time import market_now_naive
 
 try:
     from ibkr.widgets.search_bar import SymbolIndex
@@ -184,7 +185,7 @@ class IBKRInstrumentLoader(QThread):
             with open(self.cache_info_file, "rb") as fh:
                 info = pickle.load(fh)
             timestamp = info.get("timestamp")
-            if not timestamp or datetime.now() - timestamp > self.cache_ttl:
+            if not timestamp or market_now_naive() - timestamp > self.cache_ttl:
                 return None
             return self._load_cache_any_age()
         except Exception as exc:
@@ -206,7 +207,7 @@ class IBKRInstrumentLoader(QThread):
             with open(self.cache_file, "wb") as fh:
                 pickle.dump(instruments, fh, protocol=pickle.HIGHEST_PROTOCOL)
             with open(self.cache_info_file, "wb") as fh:
-                pickle.dump({"timestamp": datetime.now(), "count": len(instruments)}, fh, protocol=pickle.HIGHEST_PROTOCOL)
+                pickle.dump({"timestamp": market_now_naive(), "count": len(instruments)}, fh, protocol=pickle.HIGHEST_PROTOCOL)
         except Exception as exc:
             logger.warning("Failed to save IBKR instrument cache: %s", exc)
 

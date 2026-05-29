@@ -13,6 +13,7 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal, QTimer
+from ibkr.utils.market_time import market_isoformat, market_now_naive
 
 logger = logging.getLogger(__name__)
 
@@ -139,7 +140,7 @@ class IBKRPaperTradingManager(QObject):
                 'positions': [asdict(pos) for pos in self.positions.values()],
                 'orders': [order.to_dict() for order in self.orders.values()],
                 'order_counter': self.order_counter,
-                'last_updated': datetime.now().isoformat()
+                'last_updated': market_isoformat()
             }
 
             with open(self.data_file, 'w') as f:
@@ -157,7 +158,7 @@ class IBKRPaperTradingManager(QObject):
         base_price = random.uniform(10, 500)  # Random price between $10-$500
         self.market_data[symbol] = {
             'price': base_price,
-            'last_update': datetime.now().isoformat()
+            'last_update': market_isoformat()
         }
         return base_price
 
@@ -172,7 +173,7 @@ class IBKRPaperTradingManager(QObject):
             new_price = max(0.01, new_price)  # Minimum price $0.01
 
             self.market_data[symbol]['price'] = new_price
-            self.market_data[symbol]['last_update'] = datetime.now().isoformat()
+            self.market_data[symbol]['last_update'] = market_isoformat()
 
         # Update position current prices
         for position in self.positions.values():
@@ -236,7 +237,7 @@ class IBKRPaperTradingManager(QObject):
             order.status = "FILLED"
             order.filled_quantity = order.quantity
             order.average_fill_price = fill_price
-            order.fill_time = datetime.now().isoformat()
+            order.fill_time = market_isoformat()
 
             # Update positions
             self._update_position(order.symbol, order.action, order.quantity, fill_price)
@@ -275,7 +276,7 @@ class IBKRPaperTradingManager(QObject):
                     quantity=quantity,
                     average_price=price,
                     current_price=price,
-                    entry_time=datetime.now().isoformat()
+                    entry_time=market_isoformat()
                 )
             else:
                 # Short position
@@ -284,7 +285,7 @@ class IBKRPaperTradingManager(QObject):
                     quantity=-quantity,
                     average_price=price,
                     current_price=price,
-                    entry_time=datetime.now().isoformat()
+                    entry_time=market_isoformat()
                 )
         else:
             # Existing position
@@ -348,7 +349,7 @@ class IBKRPaperTradingManager(QObject):
                 status="SUBMITTED",
                 limit_price=price if order_type.upper() == "LMT" else None,
                 stop_price=price if order_type.upper() == "STP" else None,
-                order_time=datetime.now().isoformat()
+                order_time=market_isoformat()
             )
 
             self.orders[order_id] = order
@@ -498,7 +499,7 @@ class IBKRPaperTradingManager(QObject):
         """Manually set market price for a symbol (for testing)"""
         self.market_data[symbol] = {
             'price': price,
-            'last_update': datetime.now().isoformat()
+            'last_update': market_isoformat()
         }
 
     def get_market_data(self, symbol: str) -> Dict[str, Any]:
@@ -521,7 +522,7 @@ class IBKRPaperTradingManager(QObject):
             'high': price * random.uniform(1.0, 1.03),  # Simulate high
             'low': price * random.uniform(0.97, 1.0),  # Simulate low
             'close': price * random.uniform(0.99, 1.01),  # Simulate previous close
-            'timestamp': datetime.now().isoformat()
+            'timestamp': market_isoformat()
         }
 
     def get_historical_data(self, symbol: str, duration: str = "1 D",
@@ -542,7 +543,7 @@ class IBKRPaperTradingManager(QObject):
             low_price = min(open_price, close_price) * random.uniform(0.99, 1.0)
 
             bars.append({
-                'date': (datetime.now() - timedelta(minutes=5 * (num_bars - i))).isoformat(),
+                'date': (market_now_naive() - timedelta(minutes=5 * (num_bars - i))).isoformat(),
                 'open': round(open_price, 2),
                 'high': round(high_price, 2),
                 'low': round(low_price, 2),

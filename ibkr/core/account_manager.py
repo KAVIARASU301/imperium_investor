@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime, timedelta
+from ibkr.utils.market_time import utc_now
 from typing import Any, Dict, Optional
 
 from PySide6.QtCore import QObject, QThreadPool, Signal, Slot
@@ -40,7 +41,7 @@ class AccountManager(QObject):
     def is_cache_stale(self) -> bool:
         if self._last_updated is None:
             return True
-        return (datetime.utcnow() - self._last_updated) > self._ttl
+        return (utc_now().replace(tzinfo=None) - self._last_updated) > self._ttl
 
     def refresh_if_stale(self) -> None:
         if self.is_cache_stale():
@@ -96,7 +97,7 @@ class AccountManager(QObject):
             "user_id": "DEMO",
             "available_balance": DEFAULT_PAPER_BALANCE,
         }
-        self._last_updated = datetime.utcnow()
+        self._last_updated = utc_now().replace(tzinfo=None)
         self.margins_updated.emit(dict(self._account_cache))
 
     @Slot(tuple)

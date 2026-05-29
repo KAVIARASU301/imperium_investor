@@ -18,19 +18,18 @@ Wired in main_window:
 """
 
 import logging
-from datetime import datetime, time
+from datetime import time
 from typing import Any, Dict, List, Optional
-from zoneinfo import ZoneInfo
 
 from PySide6.QtCore import QObject, Signal, Slot, QMutex, QMutexLocker, QTimer
 
 from ibkr.core.stop_loss_store import StopLossRecord, StopLossStore
+from ibkr.utils.market_time import US_MARKET_OPEN, market_now
 
 logger = logging.getLogger(__name__)
 
-IST = ZoneInfo("Asia/Kolkata")
-MARKET_OPEN_TIME = time(9, 15)
-MARKET_OPEN_GAP_CHECK_END = time(9, 20)
+MARKET_OPEN_TIME = US_MARKET_OPEN
+MARKET_OPEN_GAP_CHECK_END = time(9, 35)
 
 
 class StopLossManager(QObject):
@@ -65,10 +64,10 @@ class StopLossManager(QObject):
         self._trailing_persist_timer.timeout.connect(self._flush_trailing_updates)
         self._trailing_persist_timer.start(2000)        # write every 2s, not every tick
         self._token_to_positions: Dict[int, set] = {}    # instrument_token -> {position_id}
-        self._open_gap_checked_date = None                # IST date once opening gap scan succeeds
+        self._open_gap_checked_date = None                # US market date once opening gap scan succeeds
         self._open_gap_timer = QTimer(self)
         self._open_gap_timer.timeout.connect(self._check_opening_gap)
-        self._open_gap_timer.start(1000)                  # critical 09:15 gap scan
+        self._open_gap_timer.start(1000)                  # critical US market-open gap scan
 
         # Load persisted active SLs on startup
         self._load_active_from_db()
@@ -336,11 +335,11 @@ class StopLossManager(QObject):
             subscribe([token])
 
     def _check_opening_gap(self) -> None:
-        """Actively verify stops at/after NSE 09:15 to catch gap ups/downs."""
+        """Actively verify stops at/after the US regular-market open to catch gap ups/downs."""
         if not self._active:
             return
 
-        now = datetime.now(IST)
+        now = market_now()
         today = now.date()
         if self._open_gap_checked_date == today:
             return
@@ -378,7 +377,7 @@ class StopLossManager(QObject):
         instrument_map = getattr(main_window, "instrument_map", None)
         inst = instrument_map.get(symbol) if isinstance(instrument_map, dict) else {}
 
-        # Prefer a live broker quote for the 09:15 gap check. Cached watchlist or
+        # Prefer a live broker quote for the US market-open gap check. Cached watchlist or
         # instrument-map prices can still be yesterday's close before first tick.
         client = getattr(main_window, "real_kite_client", None)
         if client is not None:

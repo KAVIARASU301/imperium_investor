@@ -4,6 +4,7 @@ import logging
 from datetime import datetime
 from typing import Dict, Any, Optional
 from PySide6.QtCore import QObject, Signal, Slot
+from ibkr.utils.market_time import market_timestamp
 
 logger = logging.getLogger(__name__)
 
@@ -134,9 +135,9 @@ class ChartLinesManager(QObject):
     def _create_horizontal_ray_line(self, price: float, color: str, start_time: float,
                                     text: str, metadata: Optional[Dict[str, Any]] = None) -> Dict:
         """Create a horizontal ray line structure matching existing format"""
-        current_time = datetime.now().timestamp() * 1000  # JavaScript timestamp format
+        current_time = market_timestamp() * 1000  # JavaScript timestamp format
         # Set start time to 10 days ago so text appears fully on chart
-        ten_days_ago = (datetime.now().timestamp() - (10 * 24 * 60 * 60)) * 1000
+        ten_days_ago = (market_timestamp() - (10 * 24 * 60 * 60)) * 1000
 
         line = {
             "id": current_time + (price * 1000),  # Unique ID
@@ -154,9 +155,9 @@ class ChartLinesManager(QObject):
     def _create_text_note(self, price: float, start_time: float, text: str,
                           color: str = "#FFFFFF") -> Dict:
         """Create a text note structure matching existing format"""
-        current_time = datetime.now().timestamp() * 1000  # JavaScript timestamp format
+        current_time = market_timestamp() * 1000  # JavaScript timestamp format
         # Set start time to 10 days ago so text appears fully on chart
-        ten_days_ago = (datetime.now().timestamp() - (10 * 24 * 60 * 60)) * 1000
+        ten_days_ago = (market_timestamp() - (10 * 24 * 60 * 60)) * 1000
 
         return {
             "id": current_time + (price * 1000) + 1,  # Unique ID (slightly different from line)

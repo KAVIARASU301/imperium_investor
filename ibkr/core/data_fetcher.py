@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from chart_engine.core.broker_protocol import BarData, BrokerCapabilities
 from zoneinfo import ZoneInfo
+from ibkr.utils.market_time import US_MARKET_TZ, market_today
 
 logger = logging.getLogger(__name__)
 
@@ -40,21 +41,18 @@ except Exception:  # pragma: no cover - optional at import time
     Contract = None
     Stock = None
 
-try:
-    _NY_TZ = ZoneInfo("America/New_York")
-except Exception:  # pragma: no cover
-    _NY_TZ = timezone(timedelta(hours=-5))
+_NY_TZ = US_MARKET_TZ
 
 _MARKET_OPEN_ET = time(9, 30)
 
 
 def _today_et() -> date:
-    return datetime.now(tz=_NY_TZ).date()
+    return market_today()
 
 
 def _effective_to_date(interval: str) -> date:
     """Stable chart end-date for US equities."""
-    return datetime.now(tz=_NY_TZ).date()
+    return market_today()
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -286,7 +284,7 @@ class DataFetcher:
             dt = to_date.astimezone(_NY_TZ) if to_date.tzinfo else to_date.replace(tzinfo=_NY_TZ)
         else:
             dt = datetime.combine(to_date, time(16, 0), tzinfo=_NY_TZ)
-        if dt.date() >= datetime.now(tz=_NY_TZ).date():
+        if dt.date() >= market_today():
             return ""
         return dt.strftime("%Y%m%d %H:%M:%S US/Eastern")
 

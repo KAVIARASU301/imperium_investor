@@ -50,6 +50,7 @@ from chart_engine.settings.chart_settings_dialog import ChartSettingsDialog
 from chart_engine.settings.text_note_dialog import TextNoteDialog
 from chart_engine.settings.indicator_library_dialog import IndicatorLibraryDialog
 from chart_engine.toolbar.chart_toolbar import ChartToolbar
+from ibkr.utils.market_time import market_strftime
 
 try:
     from ibkr.core.symbol_info_db import SymbolInfoDatabase
@@ -1494,7 +1495,8 @@ class CandlestickChart(QWidget):
     def _snapshot_output_path(self) -> Path:
         safe_symbol = re.sub(r"[^A-Za-z0-9._-]+", "_", self.current_symbol or "chart").strip("._-") or "chart"
         safe_interval = re.sub(r"[^A-Za-z0-9._-]+", "_", self.current_interval or "interval").strip("._-") or "interval"
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        broker_name = str(getattr(self._broker_caps, "name", "") or "").strip().lower()
+        timestamp = market_strftime("%Y%m%d_%H%M%S") if broker_name == "ibkr" else datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"{safe_symbol}_{safe_interval}_{timestamp}.png"
         pictures_dir = Path(os.path.expanduser("~/Pictures"))
         return pictures_dir / "qullamaggie Snapshots" / filename

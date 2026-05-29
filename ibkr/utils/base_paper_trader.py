@@ -17,6 +17,7 @@ from datetime import datetime
 from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Optional, Any, Tuple
 from PySide6.QtCore import QObject, QTimer, Signal
+from ibkr.utils.market_time import market_isoformat
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,7 @@ class PaperPosition:
     avg_price: float
     exchange: str = "NSE"
     currency: str = "INR"
-    entry_time: str = field(default_factory=lambda: datetime.now().isoformat())
+    entry_time: str = field(default_factory=lambda: market_isoformat())
     product: str = "MIS"
 
     @property
@@ -84,7 +85,7 @@ class PaperOrder:
     filled_quantity: int = 0
     pending_quantity: int = 0
     average_price: float = 0.0
-    order_timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
+    order_timestamp: str = field(default_factory=lambda: market_isoformat())
     execution_timestamp: Optional[str] = None
     tag: str = ""
 
@@ -500,7 +501,7 @@ class BasePaperTrader(QObject, ABC, metaclass=QObjectABCMeta):
         )
 
         # Finalise order
-        now = datetime.now().isoformat()
+        now = market_isoformat()
         order.status             = "COMPLETE"
         order.average_price      = execution_price
         order.filled_quantity    = qty
@@ -655,7 +656,7 @@ class BasePaperTrader(QObject, ABC, metaclass=QObjectABCMeta):
                 "balance": self.balance,
                 "daily_pnl": self._daily_pnl,
                 "positions": {sym: asdict(pos) for sym, pos in self._positions.items()},
-                "last_updated": datetime.now().isoformat(),
+                "last_updated": market_isoformat(),
             }
             with open(self._state_path, "w") as f:
                 json.dump(state, f, indent=2)

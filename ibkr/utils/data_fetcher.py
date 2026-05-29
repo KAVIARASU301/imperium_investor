@@ -3,7 +3,8 @@
 
 import logging
 from typing import Dict, List, Any, Optional
-from datetime import datetime, timedelta
+from datetime import timedelta
+from ibkr.utils.market_time import market_now
 from ib_insync import Contract, Stock, Option, Future, Forex, MarketOrder, LimitOrder, util as ib_util
 import pandas as pd
 
@@ -45,7 +46,7 @@ class IBKRDataFetcher:
                 'high': ticker.high,
                 'low': ticker.low,
                 'close': ticker.close,
-                'timestamp': datetime.now()
+                'timestamp': market_now()
             }
         except Exception as e:
             logger.error(f"Error fetching quote for {symbol}: {e}")

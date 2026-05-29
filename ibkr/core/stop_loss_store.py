@@ -11,6 +11,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional
+from ibkr.utils.market_time import market_isoformat
 
 logger = logging.getLogger(__name__)
 
@@ -57,8 +58,8 @@ class StopLossRecord:
     peak_price:      Optional[float] = None
     status:          str   = "ACTIVE"
     triggered_at:    Optional[str] = None
-    created_at:      str   = field(default_factory=lambda: datetime.now().isoformat())
-    updated_at:      str   = field(default_factory=lambda: datetime.now().isoformat())
+    created_at:      str   = field(default_factory=lambda: market_isoformat())
+    updated_at:      str   = field(default_factory=lambda: market_isoformat())
     notes:           str   = ""
 
     @property
@@ -127,7 +128,7 @@ class StopLossStore:
     # ── CRUD ──────────────────────────────────────────────────────────────
 
     def upsert(self, rec: StopLossRecord) -> bool:
-        rec.updated_at = datetime.now().isoformat()
+        rec.updated_at = market_isoformat()
         try:
             with self._conn() as conn:
                 conn.execute("""
@@ -191,7 +192,7 @@ class StopLossStore:
             with self._conn() as conn:
                 conn.execute(
                     "UPDATE stop_losses SET status='CANCELLED', updated_at=? WHERE position_id=?",
-                    (datetime.now().isoformat(), position_id)
+                    (market_isoformat(), position_id)
                 )
                 conn.commit()
             return True
@@ -201,7 +202,7 @@ class StopLossStore:
 
     def mark_triggered(self, position_id: str) -> bool:
         try:
-            now = datetime.now().isoformat()
+            now = market_isoformat()
             with self._conn() as conn:
                 conn.execute(
                     "UPDATE stop_losses SET status='TRIGGERED', triggered_at=?, updated_at=? WHERE position_id=?",

@@ -48,6 +48,7 @@ from ibkr.core.chart_lines_manager import ChartLinesManager
 from ibkr.core.data_cache import MarketAwareDataCache
 from ibkr.core.account_manager import AccountManager
 from ibkr.utils.ibkr_symbol_resolver import IBKRSymbolResolver
+from ibkr.utils.market_time import is_regular_market_open, market_now, market_strftime
 
 from ibkr.core.position_manager import PositionManager
 from ibkr.core.stop_loss_manager import StopLossManager
@@ -623,12 +624,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             self.app_status_bar.set_isp_ip_status(changed)
 
     def _refresh_market_status(self) -> None:
-        """Update bottom status bar with NSE session status based on IST."""
-        now_ist = datetime.utcnow() + timedelta(hours=5, minutes=30)
-        is_weekend = now_ist.weekday() >= 5
-        time_tuple = (now_ist.hour, now_ist.minute)
-        is_open_time = (9, 15) <= time_tuple <= (15, 30)
-        market_status = "OPEN" if (not is_weekend and is_open_time) else "CLOSED"
+        """Update bottom status bar from the US stock-market clock (America/New_York)."""
+        market_status = "OPEN" if is_regular_market_open(market_now()) else "CLOSED"
         status.set_market_indicator(market_status)
 
     def _clamp_scanner_panel_width(self, width: Any = None) -> int:
@@ -3159,7 +3156,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             os.makedirs(exports_dir, exist_ok=True)
 
             # Generate filename with timestamp
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = market_strftime("%Y%m%d_%H%M%S")
             filename = f"order_history_export_{timestamp}.json"
             filepath = os.path.join(exports_dir, filename)
 

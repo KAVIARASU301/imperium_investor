@@ -7,6 +7,7 @@ Handles conversion between IBKR-specific data structures and unified application
 import logging
 from typing import Dict, List, Any, Union, Optional
 from datetime import datetime
+from ibkr.utils.market_time import market_isoformat
 import math
 
 logger = logging.getLogger(__name__)
@@ -67,7 +68,7 @@ class IBKRDataConverter:
                 'close': IBKRDataConverter.safe_float(ticker.close),
                 'exchange': ticker.contract.exchange if ticker.contract else 'SMART',
                 'currency': getattr(ticker.contract, 'currency', 'USD') if ticker.contract else 'USD',
-                'timestamp': datetime.now().isoformat(),
+                'timestamp': market_isoformat(),
                 # Additional IBKR-specific fields
                 'bid_size': IBKRDataConverter.safe_int(ticker.bidSize),
                 'ask_size': IBKRDataConverter.safe_int(ticker.askSize),
@@ -94,7 +95,7 @@ class IBKRDataConverter:
                 'bid': 0.0,
                 'ask': 0.0,
                 'volume': 0,
-                'timestamp': datetime.now().isoformat()
+                'timestamp': market_isoformat()
             }
 
     @staticmethod
@@ -175,7 +176,7 @@ class IBKRDataConverter:
                 'product': 'IBKR',
                 'validity': getattr(order, 'tif', 'DAY'),
                 'tag': getattr(order, 'orderRef', ''),
-                'order_timestamp': trade.log[0].time.isoformat() if trade.log else datetime.now().isoformat(),
+                'order_timestamp': trade.log[0].time.isoformat() if trade.log else market_isoformat(),
                 'exchange_timestamp': status.lastFillTime.isoformat() if hasattr(status,
                                                                                  'lastFillTime') and status.lastFillTime else '',
                 # Additional IBKR-specific fields

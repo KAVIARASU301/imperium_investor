@@ -1,5 +1,13 @@
 """Constants specific to Interactive Brokers trading"""
 
+from ibkr.utils.market_time import (
+    US_AFTER_HOURS_CLOSE,
+    US_MARKET_CLOSE,
+    US_MARKET_OPEN,
+    US_MARKET_TZ_NAME,
+    US_PRE_MARKET_OPEN,
+)
+
 # Exchange mappings
 EXCHANGE_MAPPING = {
     "NYSE": "SMART",
@@ -70,10 +78,16 @@ COLORS = {
 }
 
 
-# Market hours (ET)
+# Market hours (US stock-market time / America-New_York)
+MARKET_TIMEZONE = US_MARKET_TZ_NAME
+MARKET_OPEN_HOUR = US_MARKET_OPEN.hour
+MARKET_OPEN_MINUTE = US_MARKET_OPEN.minute
+MARKET_CLOSE_HOUR = US_MARKET_CLOSE.hour
+MARKET_CLOSE_MINUTE = US_MARKET_CLOSE.minute
 MARKET_HOURS = {
-    "pre_market_start": "04:00",
-    "market_open": "09:30",
-    "market_close": "16:00",
-    "after_hours_end": "20:00"
+    "timezone": MARKET_TIMEZONE,
+    "pre_market_start": US_PRE_MARKET_OPEN.strftime("%H:%M"),
+    "market_open": US_MARKET_OPEN.strftime("%H:%M"),
+    "market_close": US_MARKET_CLOSE.strftime("%H:%M"),
+    "after_hours_end": US_AFTER_HOURS_CLOSE.strftime("%H:%M"),
 }
