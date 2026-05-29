@@ -686,7 +686,14 @@ class CandlestickChart(QWidget):
             and self.chart_view
             and self.current_state == ChartState.LOADED
         )
-        if not is_background_refresh and (not self.chart_view or self.current_state != ChartState.LOADED):
+        if not is_background_refresh:
+            # A symbol/timeframe change keeps the existing canvas visible while
+            # the replacement history is fetched, but it must still leave the
+            # live-update state. Otherwise IBKR ticks for the newly selected
+            # symbol can be applied to the old symbol's final candle before
+            # loadNewData() swaps the dataset, stretching that candle to the
+            # chart border. _set_state(LOADING) intentionally keeps the chart
+            # page visible when chart_view already exists.
             self._set_state(ChartState.LOADING)
         self.progress_bar.setValue(0)
         self.progress_bar.setGeometry(0, 0, self.width(), 2)
@@ -822,6 +829,8 @@ class CandlestickChart(QWidget):
             }
             loader_method = "refreshHistoricalData" if self._is_periodic_historical_refresh else "loadNewData"
             self._inject_chart_payload(loader_method, payload_dict)
+            if not self._is_periodic_historical_refresh:
+                self._set_state(ChartState.LOADED)
             self._update_symbol_info(df)
             self.symbol_loaded.emit(self.current_symbol)
             self.data_request_for_symbol.emit(self.current_symbol)
