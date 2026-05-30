@@ -667,9 +667,12 @@ class PositionsTable(QWidget):
             )
             return
 
+        # MTM in the app status bar should mean *current open/unrealized P&L*.
+        # Use the locally refreshed P&L so live ticks update MTM immediately instead
+        # of reusing broker day_unrealized fields from the last REST refresh.
         total_pnl = sum(p.pnl for p in self.positions_data.values())
         exposure = sum(abs(p.quantity) * p.avg_price for p in self.positions_data.values())
-        day_unrealized = sum(getattr(p, "day_unrealized", p.pnl) for p in self.positions_data.values())
+        day_unrealized = total_pnl
         day_realized = sum(getattr(p, "day_realized", 0.0) for p in self.positions_data.values())
 
         pnl_color = _GREEN if total_pnl >= 0 else _RED

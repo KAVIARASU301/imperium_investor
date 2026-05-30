@@ -86,7 +86,7 @@ class StatusBar(QWidget):
         self.market_label = QLabel("MARKET: --", self.content)
         self.api_label = QLabel('API <span style="color:#6f7a8c;">●</span>', self.content)
         self.isp_ip_label = QLabel('ISP IP <span style="color:#6f7a8c;">●</span>', self.content)
-        self.day_mtm_label = QLabel("DAY MTM: --", self.content)
+        self.day_mtm_label = QLabel("MTM: --", self.content)
         self.day_realized_label = QLabel("REALIZED: --", self.content)
         self.exposure_label = QLabel("EXPOSURE: --", self.content)
 
@@ -100,7 +100,7 @@ class StatusBar(QWidget):
             self.market_label: 82,
             self.api_label: 44,
             self.isp_ip_label: 66,
-            self.day_mtm_label: 120,
+            self.day_mtm_label: 88,
             self.day_realized_label: 110,
             self.exposure_label: 112,
         }
@@ -212,7 +212,7 @@ class StatusBar(QWidget):
         self._last_exposure = float(exposure or 0.0)
 
         if not has_data:
-            self._set_label_text(self.day_mtm_label, "DAY MTM: --")
+            self._set_label_text(self.day_mtm_label, "MTM: --")
             self._set_label_text(self.day_realized_label, "REALIZED: --")
             self._set_label_text(self.exposure_label, "EXPOSURE: --")
             return
@@ -223,7 +223,7 @@ class StatusBar(QWidget):
         mtm_sign = "+" if mtm_positive else ""
         self._set_label_text(
             self.day_mtm_label,
-            f'DAY MTM: <span style="color:{mtm_color}; font-weight:700;">{mtm_sign}{mtm_value}</span>',
+            f'MTM: <span style="color:{mtm_color}; font-weight:700;">{mtm_sign}{mtm_value}</span>',
         )
 
         realized_value = self._format_number(day_realized)
@@ -244,7 +244,7 @@ class StatusBar(QWidget):
 
     @property
     def open_pnl_label(self):
-        """Backward compat shim: OPEN P&L now maps to DAY MTM label."""
+        """Backward compat shim: OPEN P&L now maps to the MTM label."""
         return self.day_mtm_label
 
     def _apply_styles(self) -> None:

@@ -490,6 +490,9 @@ class PositionManager(QObject):
     @Slot(object)
     def _handle_positions_result(self, payload):
         positions: List[Position] = []
+        # MTM/unrealized is the live open-position P&L shown to the user.
+        # Realized is the booked P&L reported by the broker for today's trades,
+        # including rows that now have quantity == 0 after a full exit.
         total_day_unrealized = 0.0
         total_day_realized = 0.0
         kite_positions = payload.get("positions", {}) if isinstance(payload, dict) else (payload or {})
@@ -497,17 +500,20 @@ class PositionManager(QObject):
 
         for pos_data in (kite_positions or {}).get("net", []):
             quantity = int(pos_data.get("quantity") or 0)
+            product = str(pos_data.get("product") or pos_data.get("product_type") or "MIS").upper()
+            day_realized = float(pos_data.get("realised") or pos_data.get("realized") or 0.0)
+            total_day_realized += day_realized
+
+            # Quantity-zero rows are where fully exited trades usually live.
+            # Count their realized P&L above, but do not show them as active positions.
             if quantity == 0:
                 continue
 
-            product = str(pos_data.get("product") or pos_data.get("product_type") or "MIS").upper()
             # Kite can report same-day CNC exits as negative quantity (greyed out in Kite UI).
-            # These are not active short positions and should not appear in active positions table.
+            # These are not active short positions and should not appear in active positions table,
+            # but any realized P&L from them has already been counted above.
             if product == "CNC" and quantity < 0:
                 continue
-
-            day_unrealized = float(pos_data.get("unrealised") or pos_data.get("unrealized") or 0.0)
-            day_realized = float(pos_data.get("realised") or pos_data.get("realized") or 0.0)
 
             pos = Position(
                 symbol   = pos_data.get("tradingsymbol", ""),
@@ -516,7 +522,6 @@ class PositionManager(QObject):
                 token    = int(pos_data.get("instrument_token") or 0),
                 ltp      = float(pos_data.get("last_price") or 0.0),
                 product  = product,
-                day_unrealized=day_unrealized,
                 day_realized=day_realized,
             )
             for tracked in self._tracked.values():
@@ -525,8 +530,8 @@ class PositionManager(QObject):
                     pos.is_partial_building = True
                     break
             pos.pnl = (pos.ltp - pos.avg_price) * pos.quantity
-            total_day_unrealized += day_unrealized
-            total_day_realized += day_realized
+            pos.day_unrealized = pos.pnl
+            total_day_unrealized += pos.pnl
             positions.append(pos)
 
         existing_symbols = {p.symbol for p in positions}
@@ -549,6 +554,8 @@ class PositionManager(QObject):
                 product=str(hold.get("product") or "CNC"),
             )
             pos.pnl = (pos.ltp - pos.avg_price) * pos.quantity
+            pos.day_unrealized = pos.pnl
+            total_day_unrealized += pos.pnl
             positions.append(pos)
 
         # Paper traders track realized P&L at account/session level, not per-open-position.
