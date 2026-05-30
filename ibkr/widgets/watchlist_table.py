@@ -317,7 +317,7 @@ class _RenameDialog(QDialog):
         self._drag_pos = None
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
+        root.setContentsMargins(1, 1, 1, 1)
         root.setSpacing(0)
 
         container = QFrame()
@@ -507,7 +507,7 @@ class _AddWatchlistDialog(QDialog):
         self._drag_pos = None
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
+        root.setContentsMargins(1, 1, 1, 1)
         root.setSpacing(0)
 
         container = QFrame()

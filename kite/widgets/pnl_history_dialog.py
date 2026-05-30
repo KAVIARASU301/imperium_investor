@@ -79,7 +79,7 @@ class PnlHistoryDialog(QDialog):
 
     def _setup_ui(self):
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setContentsMargins(1, 1, 1, 1)
         main_layout.setSpacing(0)
 
         self.title_bar = QWidget(self)
@@ -363,7 +363,7 @@ class PnlHistoryDialog(QDialog):
                 font-family: {_SANS};
             }}
             QDialog {{
-                background: {_BG1};
+                background: {_BG0};
                 border: 1px solid {_BG4};
                 border-radius: 2px;
             }}

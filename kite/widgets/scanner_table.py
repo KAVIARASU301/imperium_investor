@@ -221,7 +221,7 @@ class ModernAddScanDialog(QDialog):
         main_container.setObjectName("dialogContainer")
 
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setContentsMargins(1, 1, 1, 1)
         main_layout.addWidget(main_container)
 
         container_layout = QVBoxLayout(main_container)
@@ -561,7 +561,7 @@ class ModernManageScansDialog(QDialog):
         main_container.setObjectName("dialogContainer")
 
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setContentsMargins(1, 1, 1, 1)
         main_layout.addWidget(main_container)
 
         container_layout = QVBoxLayout(main_container)

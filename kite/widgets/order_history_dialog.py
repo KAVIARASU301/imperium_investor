@@ -604,7 +604,7 @@ class OrderHistoryDialog(QDialog):
         container.setObjectName("mainContainer")
 
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setContentsMargins(1, 1, 1, 1)
         main_layout.addWidget(container)
 
         container_layout = QVBoxLayout(container)
