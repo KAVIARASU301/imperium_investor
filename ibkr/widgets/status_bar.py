@@ -42,6 +42,11 @@ class StatusBar(QWidget):
     COLOR_CLOSED = "#2A3A50"
     COLOR_BLUE = "#00D4FF"
 
+    # Only the clock keeps a reserved slot. It changes every second, so
+    # buffering it prevents constant left/right jitter. Other labels stay
+    # content-sized so the status bar remains tightly packed.
+    WIDTH_CLOCK = 138
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("bottomStatusBar")
@@ -78,15 +83,16 @@ class StatusBar(QWidget):
         layout = QHBoxLayout(self.content)
         self._layout = layout
         layout.setContentsMargins(8, 0, 8, 1)
-        layout.setSpacing(8)
+        layout.setSpacing(6)
 
         root_layout.addWidget(self.top_edge)
         root_layout.addWidget(self.content)
 
         self.market_label = QLabel("MARKET: --", self.content)
-        self.clock_label = QLabel("US CLOCK: --", self.content)
         self.api_label = QLabel('API <span style="color:#6f7a8c;">●</span>', self.content)
         self.data_label = QLabel("DATA: --", self.content)
+        self.ip_label = QLabel("IP: --", self.content)
+        self.clock_label = QLabel("US CLOCK: --:--:--", self.content)
         self.day_mtm_label = QLabel("MTM: --", self.content)
         self.day_realized_label = QLabel("REALIZED: --", self.content)
         self.exposure_label = QLabel("EXPOSURE: --", self.content)
@@ -97,28 +103,40 @@ class StatusBar(QWidget):
         self.group_separator.setFrameShape(QFrame.NoFrame)
         self.group_separator.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
 
-        min_widths = {
-            # Let the market label size itself to the current session text so
-            # short values like "Premarket" do not reserve space for longer
-            # values like "Regular Trading Hours" forever.
-            self.market_label: 0,
-            self.clock_label: 104,
-            self.api_label: 44,
-            self.data_label: 86,
-            self.day_mtm_label: 92,
-            self.day_realized_label: 110,
-            self.exposure_label: 112,
+        self._minor_separators = {
+            "market_api": self._make_separator("statusMinorSeparator", height=10),
+            "api_data": self._make_separator("statusMinorSeparator", height=10),
+            "data_ip": self._make_separator("statusMinorSeparator", height=10),
+            "ip_clock": self._make_separator("statusMinorSeparator", height=10),
+            "mtm_realized": self._make_separator("statusMinorSeparator", height=10),
+            "realized_exposure": self._make_separator("statusMinorSeparator", height=10),
         }
 
-        for label in min_widths:
+        labels = (
+            self.market_label,
+            self.api_label,
+            self.data_label,
+            self.ip_label,
+            self.clock_label,
+            self.day_mtm_label,
+            self.day_realized_label,
+            self.exposure_label,
+        )
+
+        for label in labels:
             label.setObjectName("statusLabel")
             label.setTextFormat(Qt.RichText)
             label.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
-            label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+            # Fixed policy here means "use the current content width", not
+            # "reserve a large artificial slot". Only the clock gets a hard
+            # width below because it updates every second.
+            label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
             label.setMinimumHeight(self.CONTENT_HEIGHT - 2)
-            label.setMinimumWidth(min_widths[label])
+            label.setMinimumWidth(0)
             label.setContentsMargins(0, 0, 0, 0)
             label.setTextInteractionFlags(Qt.NoTextInteraction)
+
+        self.clock_label.setFixedWidth(self.WIDTH_CLOCK)
 
         self._rebuild_layout()
 
@@ -138,9 +156,13 @@ class StatusBar(QWidget):
 
     @staticmethod
     def _set_label_text(label: QLabel, text: str) -> None:
-        """Avoid unnecessary QLabel repaints when repeated status events arrive."""
+        """Avoid unnecessary QLabel repaints and refresh compact label geometry."""
         if label.text() != text:
             label.setText(text)
+            # Most labels are content-sized for tight packing.  Refresh the
+            # layout width only when the text actually changes.  The clock has
+            # a fixed width, so this does not reintroduce clock jitter.
+            label.updateGeometry()
 
     @staticmethod
     def _format_number(value: float) -> str:
@@ -160,6 +182,14 @@ class StatusBar(QWidget):
     def _normalize_status(text: str) -> str:
         return str(text or "--").strip().upper() or "--"
 
+    def _make_separator(self, object_name: str, height: int = 10) -> QFrame:
+        separator = QFrame(self.content)
+        separator.setObjectName(object_name)
+        separator.setFixedSize(1, height)
+        separator.setFrameShape(QFrame.NoFrame)
+        separator.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        return separator
+
     def _clear_layout(self) -> None:
         if not self._layout:
             return
@@ -176,6 +206,14 @@ class StatusBar(QWidget):
         for widget in widgets:
             self._layout.addWidget(widget, 0, Qt.AlignVCenter)
 
+    def _add_compact_group(self, widgets: tuple[QWidget, ...], separators: tuple[QWidget, ...]) -> None:
+        if not self._layout:
+            return
+        for index, widget in enumerate(widgets):
+            self._layout.addWidget(widget, 0, Qt.AlignVCenter)
+            if index < len(separators):
+                self._layout.addWidget(separators[index], 0, Qt.AlignVCenter)
+
     def _rebuild_layout(self) -> None:
         if not self._layout:
             return
@@ -184,25 +222,50 @@ class StatusBar(QWidget):
         try:
             self._clear_layout()
 
-            base_labels = (self.market_label, self.clock_label, self.api_label, self.data_label)
+            # Practical scan order:
+            # system/session health on the left, clock at the end of that group,
+            # and account-risk metrics anchored on the right.
+            base_labels = (
+                self.market_label,
+                self.api_label,
+                self.data_label,
+                self.ip_label,
+                self.clock_label,
+            )
+            base_separators = (
+                self._minor_separators["market_api"],
+                self._minor_separators["api_data"],
+                self._minor_separators["data_ip"],
+                self._minor_separators["ip_clock"],
+            )
             metric_labels = (self.day_mtm_label, self.day_realized_label, self.exposure_label)
+            metric_separators = (
+                self._minor_separators["mtm_realized"],
+                self._minor_separators["realized_exposure"],
+            )
 
             if self._metrics_on_right:
                 left_group = base_labels
+                left_separators = base_separators
                 right_group = metric_labels
+                right_separators = metric_separators
             else:
                 left_group = metric_labels
+                left_separators = metric_separators
                 right_group = base_labels
+                right_separators = base_separators
 
             if self._status_alignment == "right":
                 self._layout.addStretch(1)
-                self._add_status_widgets((*left_group, self.group_separator, *right_group))
+                self._add_compact_group(left_group, left_separators)
+                self._layout.addWidget(self.group_separator, 0, Qt.AlignVCenter)
+                self._add_compact_group(right_group, right_separators)
                 return
 
-            self._add_status_widgets(left_group)
+            self._add_compact_group(left_group, left_separators)
             self._layout.addStretch(1)
             self._layout.addWidget(self.group_separator, 0, Qt.AlignVCenter)
-            self._add_status_widgets(right_group)
+            self._add_compact_group(right_group, right_separators)
         finally:
             self.content.setUpdatesEnabled(True)
 
@@ -284,6 +347,11 @@ class StatusBar(QWidget):
                 border: none;
             }}
 
+            QFrame#statusMinorSeparator {{
+                background-color: rgba(90, 112, 144, 0.28);
+                border: none;
+            }}
+
             QLabel#statusLabel {{
                 background: transparent;
                 border: none;
@@ -334,10 +402,20 @@ class StatusBar(QWidget):
         )
 
     def set_market_clock(self, text: str) -> None:
-        clock_text = str(text or "--").strip() or "--"
+        clock_text = str(text or "").strip()
+        if not clock_text or clock_text == "--":
+            clock_text = "--:--:--"
         self._set_label_text(
             self.clock_label,
             f'US CLOCK: <span style="color:{self.COLOR_TEXT_STRONG}; font-weight:700;">{clock_text}</span>',
+        )
+
+    def set_isp_ip_status(self, changed: bool) -> None:
+        color = self.COLOR_AMBER if changed else self.COLOR_GREEN
+        label = "CHANGED" if changed else "OK"
+        self._set_label_text(
+            self.ip_label,
+            f'IP: <span style="color:{color}; font-weight:700;">{label}</span>',
         )
 
     def set_api_status(self, text: str) -> None:
@@ -348,6 +426,7 @@ class StatusBar(QWidget):
             "ERROR": self.COLOR_RED,
             "FAILED": self.COLOR_RED,
             "DISCONNECTED": self.COLOR_AMBER,
+            "OFFLINE": self.COLOR_RED,
             "RECONNECTING": self.COLOR_AMBER,
             "CONNECTING": self.COLOR_BLUE,
         }
@@ -398,6 +477,8 @@ class GlobalStatusManager(QObject):
             self._status_bar.set_market_status("--")
             self._status_bar.set_market_clock("--")
             self._status_bar.set_api_status("--")
+            self._status_bar.set_data_status("--")
+            self._status_bar.set_isp_ip_status(False)
         logger.debug("GlobalStatusManager initialized")
 
     def is_initialized(self) -> bool:

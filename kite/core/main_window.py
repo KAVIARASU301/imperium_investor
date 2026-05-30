@@ -220,6 +220,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.pnl_history_dialog = None
         self.floating_positions_dialog = None
         self._target_prices: Dict[str, float] = {}
+        self._status_day_realized_total = 0.0
         self.floating_watchlist_dialog = None
         self._last_spacebar_context = None
         self._start_maximized = True
@@ -946,18 +947,22 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             open_pnl=float(payload.get("open_pnl", 0.0) or 0.0),
             exposure=float(payload.get("exposure", 0.0) or 0.0),
             day_unrealized=float(payload.get("day_unrealized", 0.0) or 0.0),
-            day_realized=float(payload.get("day_realized", 0.0) or 0.0),
+            day_realized=self._status_day_realized_total,
         )
 
     @Slot(dict)
     def _on_day_pnl_updated(self, pnl_data: Dict[str, Any]):
         """Fast-path status metrics update using broker-reported day P&L aggregates."""
+        realized = float(pnl_data.get("realized", 0.0) or 0.0)
+        self._status_day_realized_total = realized
+
         if not self.positions_action.isChecked():
             return
+
         self.app_status_bar.set_positions_metrics(
             has_data=True,
             day_unrealized=float(pnl_data.get("unrealized", 0.0) or 0.0),
-            day_realized=float(pnl_data.get("realized", 0.0) or 0.0),
+            day_realized=realized,
             exposure=getattr(self.app_status_bar, "_last_exposure", 0.0) or 0.0,
         )
 

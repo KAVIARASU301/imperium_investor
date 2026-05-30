@@ -203,6 +203,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self._subscription_rebuild_timer.timeout.connect(self._rebuild_subscription_universe)
         self._pending_fresh_restart = False
         self._charts_revealed = False
+        self._status_day_realized_total = 0.0
         self._reconnect_overlay = ReconnectingOverlay(self)
 
         # --- Setup Sequence ---
@@ -896,28 +897,34 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     @Slot(dict)
     def _on_positions_footer_metrics_changed(self, payload: Dict[str, Any]):
         has_data = bool(payload.get("has_data", False)) and self.positions_action.isChecked()
+        open_pnl = float(payload.get("open_pnl", 0.0) or 0.0)
+        live_mtm = float(payload.get("day_unrealized", open_pnl) or 0.0)
         self.app_status_bar.set_positions_metrics(
             has_data=has_data,
-            open_pnl=float(payload.get("open_pnl", 0.0) or 0.0),
+            open_pnl=open_pnl,
             exposure=float(payload.get("exposure", 0.0) or 0.0),
-            day_unrealized=float(payload.get("day_unrealized", 0.0) or 0.0),
-            day_realized=float(payload.get("day_realized", 0.0) or 0.0),
+            day_unrealized=live_mtm,
+            day_realized=float(getattr(self, "_status_day_realized_total", 0.0) or 0.0),
         )
 
     @Slot(object)
     def _on_day_pnl_updated(self, pnl_data: Any):
         """Fast-path status metrics update using broker-reported day P&L aggregates."""
-        if not self.positions_action.isChecked():
-            return
-
         unrealized = 0.0
-        realized = 0.0
+        realized = float(getattr(self, "_status_day_realized_total", 0.0) or 0.0)
         if isinstance(pnl_data, dict):
             unrealized = float(pnl_data.get("unrealized", 0.0) or 0.0)
-            realized = float(pnl_data.get("realized", 0.0) or 0.0)
+            for realized_key in ("realized", "realised", "day_realized", "day_realised"):
+                if realized_key in pnl_data:
+                    realized = float(pnl_data.get(realized_key, 0.0) or 0.0)
+                    self._status_day_realized_total = realized
+                    break
         elif isinstance(pnl_data, (int, float)):
-            # PositionManager currently emits a float aggregate for unrealized day P&L.
+            # PositionManager can emit a float aggregate for unrealized day P&L.
             unrealized = float(pnl_data)
+
+        if not self.positions_action.isChecked():
+            return
 
         self.app_status_bar.set_positions_metrics(
             has_data=True,
