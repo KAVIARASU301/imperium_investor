@@ -35,6 +35,10 @@ SETTINGS_FILE = os.path.join(_APP_DIR, "scanner_settings.json")
 SCAN_GROUP_ORDER = ["Momentum Breakouts", "Episodic Pivot", "Parabolic", "Intraday", "Others"]
 CHART_TOOLBAR_HEIGHT = 26
 CHART_TOOLBAR_CONTROL_HEIGHT = 22
+SCAN_RUN_BUTTON_WIDTH = 36
+SCAN_SETTINGS_BUTTON_WIDTH = 24
+SCAN_HEADER_CONTROL_SPACING = 3
+SCAN_HEADER_VERTICAL_MARGIN = max(0, (CHART_TOOLBAR_HEIGHT - CHART_TOOLBAR_CONTROL_HEIGHT) // 2)
 
 VOLUME_STRENGTH_ENABLED_ROLE = Qt.ItemDataRole.UserRole + 101
 VOLUME_STRENGTH_LEVEL_ROLE = Qt.ItemDataRole.UserRole + 102
@@ -1349,8 +1353,11 @@ class FinvizScannerTable(QWidget):
         header_layout = QHBoxLayout(header_container)
         # Keep toolbar controls packed from the left so the header span matches
         # the actual table columns instead of spreading across the whole panel.
-        header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.setSpacing(4)
+        # Vertical insets center the 22px controls inside the 26px table-toolbar
+        # row, and fixed spacing prevents combo focus/on borders from painting
+        # into the adjacent manage-scan button.
+        header_layout.setContentsMargins(0, SCAN_HEADER_VERTICAL_MARGIN, 0, SCAN_HEADER_VERTICAL_MARGIN)
+        header_layout.setSpacing(SCAN_HEADER_CONTROL_SPACING)
         header_layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self._header_layout = header_layout
 
@@ -1359,7 +1366,8 @@ class FinvizScannerTable(QWidget):
         self.scan_refresh_btn.setObjectName("scanRefreshButton")
         self.scan_refresh_btn.setToolTip("Refresh current scan")
         self.scan_refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.scan_refresh_btn.setFixedSize(44, CHART_TOOLBAR_CONTROL_HEIGHT)
+        self.scan_refresh_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.scan_refresh_btn.setFixedSize(SCAN_RUN_BUTTON_WIDTH, CHART_TOOLBAR_CONTROL_HEIGHT)
         self.scan_refresh_btn.clicked.connect(self._run_current_scan)
         header_layout.addWidget(self.scan_refresh_btn)
 
@@ -1368,6 +1376,7 @@ class FinvizScannerTable(QWidget):
         self.scan_dropdown.setObjectName("minimalDropdown")
         self.scan_dropdown.setFixedHeight(CHART_TOOLBAR_CONTROL_HEIGHT)
         self.scan_dropdown.setMinimumWidth(0)
+        self.scan_dropdown.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.scan_dropdown.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.scan_dropdown.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.scan_dropdown.setMinimumContentsLength(0)
@@ -1378,7 +1387,8 @@ class FinvizScannerTable(QWidget):
         self.manage_btn = QPushButton()
         self.manage_btn.setObjectName("settingsMinimalButton")
         self.manage_btn.setToolTip("Manage Scans")
-        self.manage_btn.setFixedSize(24, CHART_TOOLBAR_CONTROL_HEIGHT)
+        self.manage_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.manage_btn.setFixedSize(SCAN_SETTINGS_BUTTON_WIDTH, CHART_TOOLBAR_CONTROL_HEIGHT)
         gear_icon_path = get_asset_path("icons", "gear_setting.svg", required=True)
         if gear_icon_path is not None:
             self.manage_btn.setIcon(QIcon(str(gear_icon_path)))
@@ -1410,10 +1420,17 @@ class FinvizScannerTable(QWidget):
 
         # Use real widget/layout metrics instead of guessed padding. This keeps
         # RUN + dropdown + settings exactly packed over the table header span.
-        spacing = self._header_layout.spacing() if hasattr(self, "_header_layout") else 4
+        spacing = (
+            self._header_layout.spacing()
+            if hasattr(self, "_header_layout")
+            else SCAN_HEADER_CONTROL_SPACING
+        )
+        margins = self._header_layout.contentsMargins() if hasattr(self, "_header_layout") else None
+        horizontal_margins = (margins.left() + margins.right()) if margins is not None else 0
         run_w = self.scan_refresh_btn.width() or self.scan_refresh_btn.sizeHint().width()
         settings_w = self.manage_btn.width() or self.manage_btn.sizeHint().width()
-        dropdown_w = max(0, columns_width - run_w - settings_w - (spacing * 2))
+        available_width = max(0, columns_width - horizontal_margins)
+        dropdown_w = max(0, available_width - run_w - settings_w - (spacing * 2))
 
         # Do not let the combo's internal size policy create extra visual gaps.
         self.scan_dropdown.setMinimumWidth(dropdown_w)
@@ -2316,8 +2333,8 @@ class FinvizScannerTable(QWidget):
                 letter-spacing: 0.7px;
                 padding: 0px;
                 text-align: center;
-                min-width: 44px;
-                max-width: 44px;
+                min-width: {SCAN_RUN_BUTTON_WIDTH}px;
+                max-width: {SCAN_RUN_BUTTON_WIDTH}px;
                 min-height: {CHART_TOOLBAR_CONTROL_HEIGHT}px;
                 max-height: {CHART_TOOLBAR_CONTROL_HEIGHT}px;
             }}
@@ -2346,18 +2363,20 @@ class FinvizScannerTable(QWidget):
                 font-weight: 650;
                 min-height: {CHART_TOOLBAR_CONTROL_HEIGHT}px;
                 max-height: {CHART_TOOLBAR_CONTROL_HEIGHT}px;
-                padding: 0px 20px 0px 7px;
+                padding: 0px 19px 0px 7px;
                 selection-background-color: {_SEL};
                 selection-color: {_T0};
+                outline: 0;
             }}
             QComboBox#minimalDropdown:hover {{
                 border-color: {_BG5};
                 background-color: {_BG2};
             }}
-            QComboBox#minimalDropdown:focus {{
-                border-color: {_CYAN};
+            QComboBox#minimalDropdown:focus,
+            QComboBox#minimalDropdown:on {{
+                border: 1px solid {_CYAN};
                 background-color: {_BG2};
-                outline: none;
+                outline: 0;
             }}
             QComboBox#minimalDropdown:disabled {{
                 background-color: {_BG1};
@@ -2365,8 +2384,15 @@ class FinvizScannerTable(QWidget):
                 border-color: {_BG4};
             }}
             QComboBox#minimalDropdown::drop-down {{
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
                 border: none;
-                width: 18px;
+                width: 17px;
+                background: transparent;
+            }}
+            QComboBox#minimalDropdown::drop-down:on,
+            QComboBox#minimalDropdown::drop-down:focus {{
+                border: none;
                 background: transparent;
             }}
             QComboBox#minimalDropdown::down-arrow {{
@@ -2400,8 +2426,8 @@ class FinvizScannerTable(QWidget):
                 color: {_T2};
                 border: 1px solid {_BG4};
                 border-radius: 2px;
-                min-width: 24px;
-                max-width: 24px;
+                min-width: {SCAN_SETTINGS_BUTTON_WIDTH}px;
+                max-width: {SCAN_SETTINGS_BUTTON_WIDTH}px;
                 min-height: {CHART_TOOLBAR_CONTROL_HEIGHT}px;
                 max-height: {CHART_TOOLBAR_CONTROL_HEIGHT}px;
                 padding: 0px;
