@@ -67,6 +67,8 @@ class _C:
     BG4      = "#070a0f"   # title/footer hard chrome
     BORDER   = "#1a2030"   # primary separator / grid
     BORDER2  = "#25344a"   # active separator / grip / scrollbar
+    DIALOG_BORDER = "#3f4e66"  # bright outer dialog border, matching IBKR shell dialogs
+    DIALOG_OUTLINE = "#0a0f18"
     SELECT   = "#1a2840"   # selected row
 
     # Market semantics
@@ -1007,8 +1009,9 @@ class FloatingPositionsDialog(QDialog):
             /* Dialog shell */
             FloatingPositionsDialog {{
                 background: {_C.BG0};
-                border: 1px solid {_C.BORDER};
+                border: 1px solid {_C.DIALOG_BORDER};
                 border-radius: 2px;
+                outline: 1px solid {_C.DIALOG_OUTLINE};
             }}
 
             QWidget {{

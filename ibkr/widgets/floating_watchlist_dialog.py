@@ -78,6 +78,8 @@ class _C:
 
     BORDER  = "#1a2030"
     BORDER2 = "#2a3a50"
+    DIALOG_BORDER = "#3f4e66"
+    DIALOG_OUTLINE = "#0a0f18"
 
     # Market semantics
     BULL     = "#00d4a8"
@@ -981,8 +983,9 @@ class FloatingWatchlistDialog(QDialog):
             /* Dialog shell */
             FloatingWatchlistDialog {{
                 background: {_C.BG0};
-                border: 1px solid {_C.BORDER};
+                border: 1px solid {_C.DIALOG_BORDER};
                 border-radius: 2px;
+                outline: 1px solid {_C.DIALOG_OUTLINE};
             }}
 
             /* Title bar */
