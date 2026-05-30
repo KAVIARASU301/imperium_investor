@@ -1270,7 +1270,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         if self.sl_manager.modify_stop_loss(symbol, new_price, rec.product):
             self.chart_lines_manager.add_stop_loss_line(symbol, float(new_price), rec.position_id)
             self._refresh_floating_positions_sl_values(symbol)
-            show_info(f"Stop-loss updated: {symbol} @ ₹{new_price:.2f}")
+            show_info(f"Stop-loss updated: {symbol} @ ${new_price:.2f}")
             return
 
         # Validation failed (for example, dragged beyond entry). Restore the persisted SL line.
@@ -2795,7 +2795,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         """Handle sell order from header."""
         self._show_order_dialog(symbol, side="SELL")
 
-    def _resolve_position_product(self, symbol: str, fallback: str = "MIS") -> str:
+    def _resolve_position_product(self, symbol: str, fallback: str = "STK") -> str:
         """Resolve product from latest broker positions with a safe fallback."""
         position = self.positions_table.get_position_by_symbol(symbol)
         if position and getattr(position, "product", None):

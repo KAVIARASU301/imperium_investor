@@ -1,4 +1,4 @@
-# kite/core/stop_loss_manager.py
+# ibkr/core/stop_loss_manager.py
 """
 StopLossManager — event-driven SL engine.
 
@@ -88,20 +88,58 @@ class StopLossManager(QObject):
         with QMutexLocker(self._mutex):
             self._token_to_positions = token_map
 
-    def _resolve_token(self, symbol: str) -> Optional[int]:
-        """Best-effort symbol -> instrument token lookup from main window state."""
+    def _instrument_info(self, symbol: str) -> Dict[str, Any]:
+        """Return instrument metadata for an IBKR symbol, case-insensitively."""
         main_window = self.parent()
         instrument_map = getattr(main_window, "instrument_map", None)
         if not isinstance(instrument_map, dict):
-            return None
-        info = instrument_map.get(symbol) or {}
-        token = info.get("instrument_token")
-        if token is None:
+            return {}
+        symbol = str(symbol or "").strip().upper()
+        info = instrument_map.get(symbol)
+        if isinstance(info, dict):
+            return info
+        for key, value in instrument_map.items():
+            if str(key).strip().upper() == symbol and isinstance(value, dict):
+                return value
+        return {}
+
+    def _resolve_token(self, symbol: str) -> Optional[int]:
+        """Best-effort symbol -> instrument token lookup from main window state."""
+        info = self._instrument_info(symbol)
+        token = info.get("instrument_token") or info.get("conId") or info.get("conid")
+        if token in (None, "", 0, "0"):
             return None
         try:
             return int(token)
         except (TypeError, ValueError):
             return None
+
+    def _subscription_item_for_symbol(self, symbol: str) -> Dict[str, Any]:
+        """Build a rich IBKR market-data subscription item for a stop-loss symbol."""
+        symbol = str(symbol or "").strip().upper()
+        info = self._instrument_info(symbol)
+        return {
+            "symbol": symbol,
+            "tradingsymbol": symbol,
+            "instrument_token": info.get("instrument_token") or info.get("conId") or info.get("conid") or 0,
+            "conId": info.get("conId") or info.get("instrument_token") or info.get("conid") or 0,
+            "exchange": self._exchange_for_symbol(symbol),
+            "currency": self._currency_for_symbol(symbol),
+        }
+
+    def _exchange_for_symbol(self, symbol: str) -> str:
+        """Return a safe IBKR routing exchange for stop-loss subscriptions/orders."""
+        exchange = str(self._instrument_info(symbol).get("exchange") or "SMART").strip().upper()
+        # Route US stocks smartly; primary exchanges like NASDAQ/NYSE are metadata,
+        # not the safest routing venue for stop-loss exits.
+        if not exchange or exchange in {"NASDAQ", "NYSE", "ARCA", "AMEX", "BATS", "IEX"}:
+            return "SMART"
+        return exchange
+
+    def _currency_for_symbol(self, symbol: str) -> str:
+        """Return IBKR currency metadata, defaulting to USD for US equities."""
+        currency = str(self._instrument_info(symbol).get("currency") or "USD").strip().upper()
+        return currency or "USD"
 
     # ═════════════════════════════════════════════════════════════════════
     # PUBLIC API (called by UI / context menu)
@@ -113,7 +151,7 @@ class StopLossManager(QObject):
         sl_price:        float,
         quantity:        int,          # signed (positive = long, negative = short)
         avg_price:       float,
-        product:         str   = "MIS",
+        product:         str   = "STK",
         sl_quantity:     str   = "FULL",  # FULL | HALF | CUSTOM
         custom_qty:      Optional[int] = None,
         sl_type:         str   = "MARKET",
@@ -125,6 +163,10 @@ class StopLossManager(QObject):
         Returns True on success.
         """
         # ── Validation ────────────────────────────────────────────────────
+        symbol = str(symbol or "").strip().upper()
+        product = str(product or "STK").strip().upper()
+        sl_quantity = str(sl_quantity or "FULL").strip().upper()
+        sl_type = str(sl_type or "MARKET").strip().upper()
         if not symbol or quantity == 0:
             return False
 
@@ -133,12 +175,12 @@ class StopLossManager(QObject):
         # SL must be BELOW entry for longs, ABOVE entry for shorts
         if is_long and sl_price >= avg_price:
             self.show_notification.emit(
-                f"SL must be below avg price ₹{avg_price:.2f} for a long position", "error"
+                f"SL must be below avg price ${avg_price:.2f} for a long position", "error"
             )
             return False
         if not is_long and sl_price <= avg_price:
             self.show_notification.emit(
-                f"SL must be above avg price ₹{avg_price:.2f} for a short position", "error"
+                f"SL must be above avg price ${avg_price:.2f} for a short position", "error"
             )
             return False
 
@@ -175,19 +217,21 @@ class StopLossManager(QObject):
         self.sl_set.emit(symbol, sl_price)
         dist_pct = rec.distance_pct
         logger.info(
-            "SL set: %s @ ₹%.2f (%s, %.2f%% from avg ₹%.2f)",
+            "SL set: %s @ $%.2f (%s, %.2f%% from avg $%.2f)",
             symbol, sl_price, sl_quantity, dist_pct, avg_price,
         )
         self.show_notification.emit(
-            f"SL set: {symbol} @ ₹{sl_price:.2f} "
+            f"SL set: {symbol} @ ${sl_price:.2f} "
             f"({sl_quantity.lower()}, {dist_pct:.2f}% from entry)",
             "info",
         )
         return True
 
     def modify_stop_loss(self, symbol: str, new_sl_price: float,
-                         product: str = "MIS") -> bool:
+                         product: str = "STK") -> bool:
         """Move an existing SL to a new price level."""
+        symbol = str(symbol or "").strip().upper()
+        product = str(product or "STK").strip().upper()
         position_id = f"{symbol}:{product}"
         with QMutexLocker(self._mutex):
             rec = self._active.get(position_id)
@@ -210,11 +254,13 @@ class StopLossManager(QObject):
 
         self.store.upsert(rec)
         self.sl_updated.emit(symbol, new_sl_price)
-        logger.info("SL modified: %s → ₹%.2f", symbol, new_sl_price)
+        logger.info("SL modified: %s → $%.2f", symbol, new_sl_price)
         return True
 
-    def cancel_stop_loss(self, symbol: str, product: str = "MIS") -> bool:
+    def cancel_stop_loss(self, symbol: str, product: str = "STK") -> bool:
         """Remove an active SL record without firing an order."""
+        symbol = str(symbol or "").strip().upper()
+        product = str(product or "STK").strip().upper()
         position_id = f"{symbol}:{product}"
         with QMutexLocker(self._mutex):
             removed = self._active.pop(position_id, None)
@@ -226,7 +272,9 @@ class StopLossManager(QObject):
             logger.info("SL cancelled: %s", symbol)
         return bool(removed)
 
-    def get_sl_for(self, symbol: str, product: str = "MIS") -> Optional[StopLossRecord]:
+    def get_sl_for(self, symbol: str, product: str = "STK") -> Optional[StopLossRecord]:
+        symbol = str(symbol or "").strip().upper()
+        product = str(product or "STK").strip().upper()
         position_id = f"{symbol}:{product}"
         with QMutexLocker(self._mutex):
             return self._active.get(position_id)
@@ -251,7 +299,7 @@ class StopLossManager(QObject):
         with QMutexLocker(self._mutex):
             records = list(self._active.values())
 
-        # Live Kite ticks generally carry only instrument_token + last_price.
+        # IBKR ticks can carry either conId/instrument_token or symbol + last_price.
         # Resolve both symbol and token routes so gap-open ticks are not missed.
         symbol_to_positions: Dict[str, set] = {}
         with QMutexLocker(self._mutex):
@@ -276,7 +324,7 @@ class StopLossManager(QObject):
             if ltp <= 0:
                 continue
 
-            sym = tick.get("tradingsymbol") or tick.get("symbol")
+            sym = str(tick.get("tradingsymbol") or tick.get("symbol") or "").strip().upper()
             if sym:
                 for pid in symbol_to_positions.get(sym, ()):
                     ltp_by_position[pid] = ltp
@@ -310,7 +358,7 @@ class StopLossManager(QObject):
         if triggered:
             direction = "below" if rec.is_long else "above"
             logger.warning(
-                "SL breach detected for %s: current ₹%.2f is %s SL ₹%.2f",
+                "SL breach detected for %s: current $%.2f is %s SL $%.2f",
                 rec.symbol, ltp, direction, rec.sl_price,
             )
             self._fire_exit(rec, ltp)
@@ -326,13 +374,10 @@ class StopLossManager(QObject):
 
     def _subscribe_record_token(self, rec: StopLossRecord) -> None:
         """Keep SL symbols subscribed so opening-gap ticks reach this manager."""
-        token = self._resolve_token(rec.symbol)
-        if token is None:
-            return
         main_window = self.parent()
         subscribe = getattr(main_window, "_subscribe_to_tokens", None)
         if callable(subscribe):
-            subscribe([token])
+            subscribe([self._subscription_item_for_symbol(rec.symbol)])
 
     def _check_opening_gap(self) -> None:
         """Actively verify stops at/after the US regular-market open to catch gap ups/downs."""
@@ -366,7 +411,7 @@ class StopLossManager(QObject):
             self._evaluate_record(rec, ltp)
 
         # During the first five minutes keep retrying until every active SL has
-        # a current price. After 09:20, stop the one-shot opening scan and let
+        # a current price. After 09:35 ET, stop the one-shot opening scan and let
         # normal ticks continue enforcing the stop.
         if evaluated_count >= len(records) or now.time() >= MARKET_OPEN_GAP_CHECK_END:
             self._open_gap_checked_date = today
@@ -377,16 +422,26 @@ class StopLossManager(QObject):
         instrument_map = getattr(main_window, "instrument_map", None)
         inst = instrument_map.get(symbol) if isinstance(instrument_map, dict) else {}
 
-        # Prefer a live broker quote for the US market-open gap check. Cached watchlist or
-        # instrument-map prices can still be yesterday's close before first tick.
-        client = getattr(main_window, "real_kite_client", None)
-        if client is not None:
-            exchange = (inst or {}).get("exchange", "NSE")
+        # Prefer an already-running IBKR market-data worker value, then the broker
+        # client. Cached instrument-map prices can still be yesterday's close before
+        # the first regular-session tick.
+        worker = getattr(main_window, "market_data_worker", None)
+        if worker is not None and hasattr(worker, "get_last_price"):
             try:
-                quote = client.quote([f"{exchange}:{symbol}"])
-                return float(quote[f"{exchange}:{symbol}"].get("last_price") or 0.0)
+                ltp = float(worker.get_last_price(symbol) or worker.get_last_price(self._resolve_token(symbol)) or 0.0)
+                if ltp > 0:
+                    return ltp
             except Exception as e:
-                logger.warning("Opening-gap quote fetch failed for %s: %s", symbol, e)
+                logger.warning("Opening-gap worker LTP fetch failed for %s: %s", symbol, e)
+
+        trader_get_ltp = getattr(self.trader, "get_ltp", None)
+        if callable(trader_get_ltp):
+            try:
+                ltp = float(trader_get_ltp(symbol) or 0.0)
+                if ltp > 0:
+                    return ltp
+            except Exception as e:
+                logger.warning("Opening-gap broker LTP fetch failed for %s: %s", symbol, e)
 
         getter = getattr(main_window, "_get_fresh_ltp", None)
         if callable(getter):
@@ -414,7 +469,7 @@ class StopLossManager(QObject):
                     self._trailing_dirty.add(rec.position_id)
                     self.sl_updated.emit(rec.symbol, new_sl)
                     logger.info(
-                        "Trailing SL raised: %s ₹%.2f → ₹%.2f (LTP ₹%.2f)",
+                        "Trailing SL raised: %s $%.2f → $%.2f (LTP $%.2f)",
                         rec.symbol, old_sl, new_sl, ltp,
                     )
         else:
@@ -427,7 +482,7 @@ class StopLossManager(QObject):
                     self._trailing_dirty.add(rec.position_id)
                     self.sl_updated.emit(rec.symbol, new_sl)
                     logger.info(
-                        "Trailing SL lowered: %s ₹%.2f → ₹%.2f (LTP ₹%.2f)",
+                        "Trailing SL lowered: %s $%.2f → $%.2f (LTP $%.2f)",
                         rec.symbol, old_sl, new_sl, ltp,
                     )
 
@@ -464,14 +519,15 @@ class StopLossManager(QObject):
             exit_side = "SELL" if rec.is_long else "BUY"
 
             logger.info(
-                "SL TRIGGERED: %s @ ₹%.2f (LTP ₹%.2f) → %s %d [%s]",
+                "SL TRIGGERED: %s @ $%.2f (LTP $%.2f) → %s %d [%s]",
                 rec.symbol, rec.sl_price, trigger_ltp,
                 exit_side, exit_qty, rec.sl_type,
             )
 
             order_params = dict(
                 variety          = "regular",
-                exchange         = "NSE",
+                exchange         = self._exchange_for_symbol(rec.symbol),
+                currency         = self._currency_for_symbol(rec.symbol),
                 tradingsymbol    = rec.symbol,
                 transaction_type = exit_side,
                 quantity         = exit_qty,
@@ -511,7 +567,7 @@ class StopLossManager(QObject):
 
             self.sl_triggered.emit(rec.symbol, rec.sl_price)
             self.show_notification.emit(
-                f"🛑 SL triggered: {rec.symbol} @ ₹{trigger_ltp:.2f} "
+                f"🛑 SL triggered: {rec.symbol} @ ${trigger_ltp:.2f} "
                 f"→ {exit_side} {exit_qty} [{rec.sl_type}]",
                 "warning",
             )
@@ -559,9 +615,9 @@ class StopLossManager(QObject):
         """
         active_keys = set()
         for pos in positions:
-            sym = getattr(pos, "symbol", "")
+            sym = str(getattr(pos, "symbol", "") or "").strip().upper()
             qty = int(getattr(pos, "quantity", 0) or 0)
-            prod = getattr(pos, "product", "MIS") or "MIS"
+            prod = str(getattr(pos, "product", "STK") or "STK").strip().upper()
             if sym and qty != 0:
                 active_keys.add(f"{sym}:{prod}")
 
@@ -572,7 +628,7 @@ class StopLossManager(QObject):
             # Safe split — never assume format
             parts = pid.split(":", 1)
             symbol = parts[0] if parts else pid
-            product = parts[1] if len(parts) > 1 else "MIS"
+            product = parts[1] if len(parts) > 1 else "STK"
             logger.info("Ghost SL removed (position closed externally): %s", symbol)
             self.cancel_stop_loss(symbol, product)
 

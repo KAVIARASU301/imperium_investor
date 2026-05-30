@@ -1,4 +1,4 @@
-# kite/core/stop_loss_store.py
+# ibkr/core/stop_loss_store.py
 """
 SQLite-backed persistence for stop-loss records.
 One record per open position. Survives app restarts.
@@ -18,9 +18,9 @@ logger = logging.getLogger(__name__)
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS stop_losses (
     id                   INTEGER PRIMARY KEY AUTOINCREMENT,
-    position_id          TEXT UNIQUE NOT NULL,  -- symbol:product e.g. "RELIANCE:MIS"
+    position_id          TEXT UNIQUE NOT NULL,  -- symbol:product e.g. "AAPL:STK"
     symbol               TEXT NOT NULL,
-    product              TEXT NOT NULL DEFAULT 'MIS',
+    product              TEXT NOT NULL DEFAULT 'STK',
     sl_price             REAL NOT NULL,
     sl_type              TEXT NOT NULL DEFAULT 'MARKET',  -- MARKET | LIMIT
     quantity             INTEGER NOT NULL,                -- current open qty (signed)
@@ -49,7 +49,7 @@ class StopLossRecord:
     sl_price:        float
     quantity:        int           # signed — negative for short
     avg_price:       float
-    product:         str   = "MIS"
+    product:         str   = "STK"
     sl_type:         str   = "MARKET"
     sl_quantity:     str   = "FULL"   # FULL | HALF | CUSTOM
     custom_qty:      Optional[int] = None
@@ -112,7 +112,7 @@ class StopLossStore:
     def __init__(self):
         db_dir = os.path.join(os.path.expanduser("~"), ".qullamaggie")
         os.makedirs(db_dir, exist_ok=True)
-        self._path = os.path.join(db_dir, "stop_losses.db")
+        self._path = os.path.join(db_dir, "ibkr_stop_losses.db")
         self._init_db()
 
     def _conn(self) -> sqlite3.Connection:

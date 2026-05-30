@@ -1,4 +1,4 @@
-# kite/widgets/stop_loss_dialog.py
+# ibkr/widgets/stop_loss_dialog.py
 """
 Stop-Loss configuration dialog.
 Opened from the Floating Positions context menu.
@@ -38,7 +38,7 @@ class StopLossDialog(QDialog):
         ltp:       float,
         avg_price: float,
         quantity:  int,        # signed
-        product:   str = "MIS",
+        product:   str = "STK",
         current_sl: Optional[float] = None,
         parent=None,
     ):
