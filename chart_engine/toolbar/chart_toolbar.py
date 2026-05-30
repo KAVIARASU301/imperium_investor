@@ -50,6 +50,13 @@ TIMEFRAMES: List[Tuple[str, str, str]] = [
     ("M",   "month",    "Monthly  [M]"),
 ]
 
+TOOLBAR_TIMEFRAME_LABELS: Dict[str, str] = {
+    # The 30-minute label is the only 3-character lowercase interval and can
+    # elide inside the compact toolbar button on some platforms/fonts.
+    # Keep the menu label descriptive, but render the toolbar chip as "30".
+    "30minute": "30",
+}
+
 INDICATORS: List[Tuple[str, str, str, str]] = []
 
 CHART_TYPES: List[Tuple[str, str, str]] = [
@@ -70,6 +77,11 @@ DRAWING_TOOLS: List[Tuple[str, str, str]] = [
 ]
 
 TOOL_DISPLAY: Dict[str, str] = {tid: label for tid, _, label in DRAWING_TOOLS}
+
+
+def _toolbar_timeframe_label(kite_interval: str, fallback: str) -> str:
+    """Return the compact label used by toolbar timeframe controls."""
+    return TOOLBAR_TIMEFRAME_LABELS.get(kite_interval, fallback)
 
 ICON_ASSETS: Dict[str, str] = {
     # Primary chart controls
@@ -767,6 +779,7 @@ class ChartToolbar(QFrame):
 
         action = self._tf_actions.get(self._active_tf)
         active_label = action.text() if action else str(self._active_tf or "D")
+        toolbar_label = _toolbar_timeframe_label(str(self._active_tf or ""), active_label)
         has_favorites = bool(self._favorite_timeframes)
 
         if has_favorites:
@@ -778,7 +791,7 @@ class ChartToolbar(QFrame):
             self._tf_menu_btn.setProperty("favoritesActive", True)
         else:
             # No favorites: the menu button itself must show the selected interval.
-            self._tf_menu_btn.setText(active_label)
+            self._tf_menu_btn.setText(toolbar_label)
             self._tf_menu_btn.setFixedSize(30, _CONTROL_H)
             self._tf_menu_btn.setToolTip("Select timeframe")
             self._tf_menu_btn.setProperty("favoritesActive", False)
@@ -838,7 +851,8 @@ class ChartToolbar(QFrame):
         for kite_iv in self._favorite_timeframes:
             if kite_iv not in self._tf_actions:
                 continue
-            btn = QPushButton(display_map.get(kite_iv, kite_iv))
+            display = display_map.get(kite_iv, kite_iv)
+            btn = QPushButton(_toolbar_timeframe_label(kite_iv, display))
             btn.setObjectName("toolBtn")
             btn.setCheckable(True)
             btn.setFixedSize(26, 18)
