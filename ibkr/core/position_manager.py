@@ -24,13 +24,15 @@ class Position:
     token: int
     ltp: float = 0.0
     pnl: float = 0.0
+    day_unrealized: float = 0.0
+    day_realized: float = 0.0
     product: str = "IBKR"
 
 
 class PositionManager(QObject):
     positions_updated = Signal(list)
     partial_fill_symbols_updated = Signal(object)
-    day_pnl_updated = Signal(float)
+    day_pnl_updated = Signal(object)
     show_notification = Signal(str, str)
 
     def __init__(self, trader: Any, main_window=None, trade_logger=None):
@@ -64,10 +66,17 @@ class PositionManager(QObject):
                 if position.quantity != 0:
                     positions.append(position)
 
+            day_pnl = self._build_day_pnl_snapshot(raw_payload, positions)
+
             self.positions_updated.emit(positions)
             self.partial_fill_symbols_updated.emit(set())
-            self.day_pnl_updated.emit(sum(p.pnl for p in positions))
-            logger.info("Sent %d positions to table", len(positions))
+            self.day_pnl_updated.emit(day_pnl)
+            logger.info(
+                "Sent %d positions to table | open MTM %.2f | realized %.2f",
+                len(positions),
+                day_pnl.get("unrealized", 0.0),
+                day_pnl.get("realized", 0.0),
+            )
         except Exception as exc:
             logger.error("Failed to fetch positions: %s", exc, exc_info=True)
             self.show_notification.emit(f"Failed to fetch positions: {exc}", "error")
@@ -206,6 +215,72 @@ class PositionManager(QObject):
                     return value
         return default
 
+    @classmethod
+    def _first_float(cls, data: Any, *keys: str, default=None):
+        value = cls._field(data, *keys, default=None)
+        if value is None:
+            return default
+        try:
+            return float(value or 0.0)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _extract_day_position_rows(payload: Any) -> List[Any]:
+        """Rows used for booked/realized P&L; includes closed intraday rows."""
+        if isinstance(payload, dict):
+            rows = payload.get("day")
+            if rows is None:
+                rows = payload.get("positions")
+            if rows is None:
+                rows = payload.get("net")
+            if isinstance(rows, list):
+                return rows
+            if isinstance(rows, tuple):
+                return list(rows)
+            return []
+        if isinstance(payload, list):
+            return payload
+        if isinstance(payload, tuple):
+            return list(payload)
+        return []
+
+    def _build_day_pnl_snapshot(self, raw_payload: Any, positions: List[Position]) -> Dict[str, float]:
+        """Return clean status-bar P&L buckets.
+
+        MTM/unrealized is only the current open position P&L. Realized is the
+        booked P&L for today's trades, including symbols already closed and no
+        longer present in the open positions table.
+        """
+        open_unrealized = sum(float(getattr(p, "day_unrealized", p.pnl) or 0.0) for p in positions)
+
+        top_level_realized = self._first_float(
+            raw_payload,
+            "realised", "realized", "day_realised", "day_realized",
+            "realised_pnl", "realized_pnl", "realizedPNL", "realizedPnL",
+            default=None,
+        )
+        if top_level_realized is not None:
+            realized = top_level_realized
+        else:
+            realized = 0.0
+            for row in self._extract_day_position_rows(raw_payload):
+                row_realized = self._first_float(
+                    row,
+                    "realised", "realized", "day_realised", "day_realized",
+                    "realised_pnl", "realized_pnl", "realizedPNL", "realizedPnL",
+                    default=None,
+                )
+                if row_realized is not None:
+                    realized += row_realized
+
+        return {
+            "open_pnl": open_unrealized,
+            "unrealized": open_unrealized,
+            "realized": realized,
+        }
+
+
     def _normalize_position(self, pos_data: Any) -> Position:
         contract = self._field(pos_data, "contract")
         symbol = str(self._field(pos_data, "tradingsymbol", "symbol", default="") or "").strip().upper()
@@ -225,9 +300,36 @@ class PositionManager(QObject):
                 ltp = float(worker.get_last_price(token or symbol) or 0.0)
 
         product = str(self._field(pos_data, "product", "product_type", "secType", default="IBKR") or "IBKR")
-        pnl_default = (ltp - avg_price) * quantity if ltp and avg_price else 0.0
-        pnl = float(self._field(pos_data, "pnl", "unrealized_pnl", "unrealizedPNL", default=pnl_default) or 0.0)
-        return Position(symbol=symbol, quantity=quantity, avg_price=avg_price, token=token, ltp=ltp, pnl=pnl, product=product)
+        pnl_default = (ltp - avg_price) * quantity if ltp and avg_price and quantity else 0.0
+
+        open_unrealized = self._first_float(
+            pos_data,
+            "unrealised", "unrealized", "unrealised_pnl", "unrealized_pnl",
+            "unrealizedPNL", "unrealizedPnL", "day_unrealized",
+            default=None,
+        )
+        if open_unrealized is None:
+            broker_pnl = self._first_float(pos_data, "pnl", "m2m", "dailyPnL", default=None)
+            open_unrealized = pnl_default if pnl_default else float(broker_pnl or 0.0)
+
+        day_realized = self._first_float(
+            pos_data,
+            "realised", "realized", "realised_pnl", "realized_pnl",
+            "realizedPNL", "realizedPnL", "day_realized",
+            default=0.0,
+        )
+
+        return Position(
+            symbol=symbol,
+            quantity=quantity,
+            avg_price=avg_price,
+            token=token,
+            ltp=ltp,
+            pnl=open_unrealized,
+            day_unrealized=open_unrealized,
+            day_realized=day_realized,
+            product=product,
+        )
 
     def _normalize_order(self, order_data: Any) -> Dict[str, Any]:
         # ib_insync Trade support

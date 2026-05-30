@@ -87,7 +87,7 @@ class StatusBar(QWidget):
         self.clock_label = QLabel("US CLOCK: --", self.content)
         self.api_label = QLabel('API <span style="color:#6f7a8c;">●</span>', self.content)
         self.data_label = QLabel("DATA: --", self.content)
-        self.day_mtm_label = QLabel("DAY MTM: --", self.content)
+        self.day_mtm_label = QLabel("MTM: --", self.content)
         self.day_realized_label = QLabel("REALIZED: --", self.content)
         self.exposure_label = QLabel("EXPOSURE: --", self.content)
 
@@ -105,7 +105,7 @@ class StatusBar(QWidget):
             self.clock_label: 104,
             self.api_label: 44,
             self.data_label: 86,
-            self.day_mtm_label: 120,
+            self.day_mtm_label: 92,
             self.day_realized_label: 110,
             self.exposure_label: 112,
         }
@@ -209,26 +209,31 @@ class StatusBar(QWidget):
     def set_positions_metrics(
         self,
         has_data: bool,
-        open_pnl: float = 0.0,
+        open_pnl: Optional[float] = None,
         exposure: float = 0.0,
-        day_unrealized: float = 0.0,
+        day_unrealized: Optional[float] = None,
         day_realized: float = 0.0,
     ) -> None:
         self._last_exposure = float(exposure or 0.0)
 
         if not has_data:
-            self._set_label_text(self.day_mtm_label, "DAY MTM: --")
+            self._set_label_text(self.day_mtm_label, "MTM: --")
             self._set_label_text(self.day_realized_label, "REALIZED: --")
             self._set_label_text(self.exposure_label, "EXPOSURE: --")
             return
 
-        mtm_value = self._format_number(day_unrealized)
-        mtm_positive = self._is_non_negative(day_unrealized)
+        # MTM is the current open/unrealized P&L. Prefer the live positions-table
+        # aggregate; fall back to broker-reported unrealized only for direct broker
+        # fast-path updates that do not include open_pnl.
+        mtm_source = open_pnl if open_pnl is not None else day_unrealized
+        mtm_source = float(mtm_source or 0.0)
+        mtm_value = self._format_number(mtm_source)
+        mtm_positive = self._is_non_negative(mtm_source)
         mtm_color = self.COLOR_GREEN if mtm_positive else self.COLOR_RED
         mtm_sign = "+" if mtm_positive else ""
         self._set_label_text(
             self.day_mtm_label,
-            f'DAY MTM: <span style="color:{mtm_color}; font-weight:700;">{mtm_sign}{mtm_value}</span>',
+            f'MTM: <span style="color:{mtm_color}; font-weight:700;">{mtm_sign}{mtm_value}</span>',
         )
 
         realized_value = self._format_number(day_realized)
@@ -249,7 +254,7 @@ class StatusBar(QWidget):
 
     @property
     def open_pnl_label(self):
-        """Backward compat shim: OPEN P&L now maps to DAY MTM label."""
+        """Backward compat shim: OPEN P&L now maps to MTM label."""
         return self.day_mtm_label
 
     def _apply_styles(self) -> None:

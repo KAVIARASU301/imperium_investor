@@ -194,6 +194,8 @@ class Position:
     token: int
     ltp: float = 0.0
     pnl: float = 0.0
+    day_unrealized: float = 0.0
+    day_realized: float = 0.0
     product: str = "CNC"
     prev_close: float = 0.0
     is_partial_building: bool = False
@@ -206,6 +208,9 @@ class Position:
             avg_price=float(pos_data.get("average_price", pos_data.get("avg_price", 0)) or 0),
             token=int(pos_data.get("instrument_token", pos_data.get("conId", 0)) or 0),
             ltp=float(pos_data.get("last_price", pos_data.get("market_price", pos_data.get("current_price", 0))) or 0),
+            pnl=float(pos_data.get("pnl", pos_data.get("unrealised", pos_data.get("unrealized", 0))) or 0),
+            day_unrealized=float(pos_data.get("unrealised", pos_data.get("unrealized", pos_data.get("unrealized_pnl", pos_data.get("unrealizedPNL", pos_data.get("unrealizedPnL", 0))))) or 0),
+            day_realized=float(pos_data.get("realised", pos_data.get("realized", pos_data.get("realized_pnl", pos_data.get("realizedPNL", pos_data.get("realizedPnL", 0))))) or 0),
             product=pos_data.get("product") or pos_data.get("product_type") or pos_data.get("secType") or "CNC",
         )
 
@@ -421,12 +426,26 @@ class PositionsTable(QWidget):
             self.table.setItem(row, col, QTableWidgetItem())
         self._refresh_row(row, pos)
 
+    @staticmethod
+    def _current_open_pnl(pos: Position) -> float:
+        """Return current open/unrealized P&L for the remaining position."""
+        try:
+            ltp = float(getattr(pos, "ltp", 0.0) or 0.0)
+            avg_price = float(getattr(pos, "avg_price", 0.0) or 0.0)
+            quantity = int(float(getattr(pos, "quantity", 0) or 0))
+            if ltp > 0 and avg_price > 0 and quantity != 0:
+                return (ltp - avg_price) * quantity
+            return float(getattr(pos, "day_unrealized", getattr(pos, "pnl", 0.0)) or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+
     def _refresh_row(self, row: int, pos: Position):
         if row >= self.table.rowCount():
             return
 
-        pnl = (pos.ltp - pos.avg_price) * pos.quantity
+        pnl = self._current_open_pnl(pos)
         pos.pnl = pnl
+        pos.day_unrealized = pnl
         entry_change_pct = self._entry_change_pct(pos)
         is_long = pos.quantity > 0
         qty_sign = "+" if is_long else "−"
@@ -543,7 +562,7 @@ class PositionsTable(QWidget):
                 self._refresh_row(row, pos)
 
     def _sort_key(self, col: int, pos: Position):
-        pnl = (pos.ltp - pos.avg_price) * pos.quantity
+        pnl = self._current_open_pnl(pos)
         mapping = {
             COL_SYMBOL: pos.symbol,
             COL_QTY: pos.quantity,
@@ -580,7 +599,8 @@ class PositionsTable(QWidget):
             self._prev_ltps[symbol] = ltp
 
             pos.ltp = ltp
-            pos.pnl = (ltp - pos.avg_price) * pos.quantity
+            pos.pnl = self._current_open_pnl(pos)
+            pos.day_unrealized = pos.pnl
 
             if ltp > prev_ltp:
                 self._tick_dirs[symbol] = 1
@@ -667,9 +687,9 @@ class PositionsTable(QWidget):
             )
             return
 
-        total_pnl = sum(p.pnl for p in self.positions_data.values())
+        total_pnl = sum(self._current_open_pnl(p) for p in self.positions_data.values())
         exposure = sum(abs(p.quantity) * p.avg_price for p in self.positions_data.values())
-        day_unrealized = sum(getattr(p, "day_unrealized", p.pnl) for p in self.positions_data.values())
+        day_unrealized = total_pnl
         day_realized = sum(getattr(p, "day_realized", 0.0) for p in self.positions_data.values())
 
         pnl_color = _GREEN if total_pnl >= 0 else _RED
@@ -1014,7 +1034,7 @@ class PositionsTable(QWidget):
         self._update_footer()
 
     def get_total_pnl(self) -> float:
-        return sum(p.pnl for p in self.positions_data.values())
+        return sum(self._current_open_pnl(p) for p in self.positions_data.values())
 
     def has_positions(self) -> bool:
         return bool(self.positions_data)
