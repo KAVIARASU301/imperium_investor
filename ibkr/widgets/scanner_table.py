@@ -1258,7 +1258,6 @@ class FinvizScannerTable(QWidget):
         self.table = QTableWidget()
         self._configure_table()
         main_layout.addWidget(self.table)
-        self._sync_header_controls_to_table_width()
 
         self.table.cellClicked.connect(self._on_cell_clicked)
         self.table.horizontalHeader().sectionClicked.connect(self._on_header_clicked)
@@ -1345,23 +1344,20 @@ class FinvizScannerTable(QWidget):
             logger.debug(f"Error preserving selection on focus out: {e}")
 
     def _create_header(self) -> QWidget:
-        """Creates the header with scan selection."""
+        """Creates the header with scan selection — mirrors kite layout exactly."""
         header_container = QWidget()
         header_container.setObjectName("headerContainer")
         header_container.setFixedHeight(CHART_TOOLBAR_HEIGHT)
 
         header_layout = QHBoxLayout(header_container)
-        # Keep toolbar controls packed from the left so the header span matches
-        # the actual table columns instead of spreading across the whole panel.
-        # Vertical insets center the 22px controls inside the 26px table-toolbar
-        # row, and fixed spacing prevents combo focus/on borders from painting
-        # into the adjacent manage-scan button.
-        header_layout.setContentsMargins(0, SCAN_HEADER_VERTICAL_MARGIN, 0, SCAN_HEADER_VERTICAL_MARGIN)
-        header_layout.setSpacing(SCAN_HEADER_CONTROL_SPACING)
-        header_layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        # Use kite-style horizontal padding (4px each side) with zero vertical
+        # margins so Qt's default vertical centering handles control alignment.
+        # This prevents the dropdown and gear button from clipping into each other.
+        header_layout.setContentsMargins(4, 0, 4, 0)
+        header_layout.setSpacing(4)
         self._header_layout = header_layout
 
-        # Subtle refresh button replacing static scan label
+        # RUN button
         self.scan_refresh_btn = QPushButton("RUN")
         self.scan_refresh_btn.setObjectName("scanRefreshButton")
         self.scan_refresh_btn.setToolTip("Refresh current scan")
@@ -1371,19 +1367,21 @@ class FinvizScannerTable(QWidget):
         self.scan_refresh_btn.clicked.connect(self._run_current_scan)
         header_layout.addWidget(self.scan_refresh_btn)
 
-        # Dropdown
-        self.scan_dropdown = ScannerDropdown()
+        # Dropdown — plain QComboBox with Expanding policy, same as kite.
+        # The custom ScannerDropdown subclass width-sync fought the layout engine
+        # and pushed the gear button underneath the combo on some platform styles.
+        self.scan_dropdown = QComboBox()
         self.scan_dropdown.setObjectName("minimalDropdown")
         self.scan_dropdown.setFixedHeight(CHART_TOOLBAR_CONTROL_HEIGHT)
         self.scan_dropdown.setMinimumWidth(0)
-        self.scan_dropdown.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.scan_dropdown.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.scan_dropdown.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.scan_dropdown.setMinimumContentsLength(0)
+        self.scan_dropdown.setMaxVisibleItems(14)
         self.scan_dropdown.currentIndexChanged.connect(self._on_scan_selection_changed)
         header_layout.addWidget(self.scan_dropdown, 1)
 
-        # Settings button
+        # Gear / Manage Scans button
         self.manage_btn = QPushButton()
         self.manage_btn.setObjectName("settingsMinimalButton")
         self.manage_btn.setToolTip("Manage Scans")
@@ -1395,54 +1393,9 @@ class FinvizScannerTable(QWidget):
             self.manage_btn.setIconSize(QSize(14, 14))
         self.manage_btn.clicked.connect(self._manage_scans)
         header_layout.addWidget(self.manage_btn)
+
         self._update_scan_dropdown()
         return header_container
-
-    def _sync_header_controls_to_table_width(self) -> None:
-        """Pack toolbar controls into the same span as the visible table columns."""
-        if not hasattr(self, "scan_dropdown") or not hasattr(self, "table"):
-            return
-
-        header = self.table.horizontalHeader()
-        first_visible = None
-        last_visible = None
-        columns_width = 0
-
-        for col in range(self.table.columnCount()):
-            if self.table.isColumnHidden(col):
-                continue
-            first_visible = col if first_visible is None else first_visible
-            last_visible = col
-            columns_width += max(0, header.sectionSize(col))
-
-        if first_visible is None or last_visible is None or columns_width <= 0:
-            return
-
-        # Use real widget/layout metrics instead of guessed padding. This keeps
-        # RUN + dropdown + settings exactly packed over the table header span.
-        spacing = (
-            self._header_layout.spacing()
-            if hasattr(self, "_header_layout")
-            else SCAN_HEADER_CONTROL_SPACING
-        )
-        margins = self._header_layout.contentsMargins() if hasattr(self, "_header_layout") else None
-        horizontal_margins = (margins.left() + margins.right()) if margins is not None else 0
-        run_w = self.scan_refresh_btn.width() or self.scan_refresh_btn.sizeHint().width()
-        settings_w = self.manage_btn.width() or self.manage_btn.sizeHint().width()
-        available_width = max(0, columns_width - horizontal_margins)
-        dropdown_w = max(0, available_width - run_w - settings_w - (spacing * 2))
-
-        # Do not let the combo's internal size policy create extra visual gaps.
-        self.scan_dropdown.setMinimumWidth(dropdown_w)
-        self.scan_dropdown.setMaximumWidth(dropdown_w)
-        self.scan_dropdown.setFixedWidth(dropdown_w)
-
-        # Keep the whole header content left-packed and no wider than columns.
-        if hasattr(self, "_header_layout"):
-            self._header_layout.invalidate()
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
 
     def _normalize_scan_tag(self, tag: Optional[str]) -> str:
         """Normalize user-entered scan tags into known scan sections."""
@@ -2363,20 +2316,18 @@ class FinvizScannerTable(QWidget):
                 font-weight: 650;
                 min-height: {CHART_TOOLBAR_CONTROL_HEIGHT}px;
                 max-height: {CHART_TOOLBAR_CONTROL_HEIGHT}px;
-                padding: 0px 19px 0px 7px;
+                padding: 0px 20px 0px 7px;
                 selection-background-color: {_SEL};
                 selection-color: {_T0};
-                outline: 0;
             }}
             QComboBox#minimalDropdown:hover {{
                 border-color: {_BG5};
                 background-color: {_BG2};
             }}
-            QComboBox#minimalDropdown:focus,
-            QComboBox#minimalDropdown:on {{
-                border: 1px solid {_CYAN};
+            QComboBox#minimalDropdown:focus {{
+                border-color: {_CYAN};
                 background-color: {_BG2};
-                outline: 0;
+                outline: none;
             }}
             QComboBox#minimalDropdown:disabled {{
                 background-color: {_BG1};
@@ -2384,15 +2335,8 @@ class FinvizScannerTable(QWidget):
                 border-color: {_BG4};
             }}
             QComboBox#minimalDropdown::drop-down {{
-                subcontrol-origin: padding;
-                subcontrol-position: top right;
                 border: none;
-                width: 17px;
-                background: transparent;
-            }}
-            QComboBox#minimalDropdown::drop-down:on,
-            QComboBox#minimalDropdown::drop-down:focus {{
-                border: none;
+                width: 18px;
                 background: transparent;
             }}
             QComboBox#minimalDropdown::down-arrow {{
