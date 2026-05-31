@@ -1,4 +1,4 @@
-# kite/core/alert_management_system.py
+# ibkr/core/alert_management_system.py
 """
 AlertManagementSystem — Enhanced version.
 
@@ -16,7 +16,7 @@ Now adds:
 Architecture:
   AlertEngine  — runs in background QThread, evaluates conditions every 2s
   AlertStore   — thread-safe alert storage + JSON persistence
-  AlertManagementDialog — UI in kite/widgets/alert_management_dialog.py
+  AlertManagementDialog — UI in ibkr/widgets/alert_management_dialog.py
 """
 
 import logging
@@ -131,8 +131,11 @@ class AlertStore:
         self._mutex  = QMutex()
         app_dir = os.path.join(os.path.expanduser("~"), ".qullamaggie")
         os.makedirs(app_dir, exist_ok=True)
-        self._path = os.path.join(app_dir, "alerts.db")
-        self._legacy_json_path = os.path.join(app_dir, "alerts.json")
+        # Keep IBKR and Kite alert stores completely isolated.  The previous
+        # shared alerts.db made one broker mode show alerts/symbols created in
+        # the other mode.
+        self._path = os.path.join(app_dir, "ibkr_alerts.db")
+        self._legacy_json_path = os.path.join(app_dir, "ibkr_alerts.json")
         self._init_db()
         self._migrate_from_legacy_json_if_needed()
         self._load()
@@ -249,7 +252,7 @@ class AlertStore:
             with open(self._legacy_json_path, "r") as f:
                 legacy_data = json.load(f)
             if not isinstance(legacy_data, list):
-                logger.warning("Legacy alerts.json format invalid; skipping migration")
+                logger.warning("Legacy ibkr_alerts.json format invalid; skipping migration")
                 return
 
             payload = json.dumps(legacy_data)
@@ -259,7 +262,7 @@ class AlertStore:
                     (payload, market_isoformat()),
                 )
                 conn.commit()
-            logger.info(f"Migrated {len(legacy_data)} alert(s) from alerts.json to alerts.db")
+            logger.info(f"Migrated {len(legacy_data)} IBKR alert(s) from ibkr_alerts.json to ibkr_alerts.db")
         except Exception as e:
             logger.error(f"AlertStore legacy migration failed: {e}")
 

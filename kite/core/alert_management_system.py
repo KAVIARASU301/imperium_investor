@@ -130,8 +130,11 @@ class AlertStore:
         self._mutex  = QMutex()
         app_dir = os.path.join(os.path.expanduser("~"), ".qullamaggie")
         os.makedirs(app_dir, exist_ok=True)
-        self._path = os.path.join(app_dir, "alerts.db")
-        self._legacy_json_path = os.path.join(app_dir, "alerts.json")
+        # Keep Kite and IBKR alert stores completely isolated.  The previous
+        # shared alerts.db made one broker mode show alerts/symbols created in
+        # the other mode.
+        self._path = os.path.join(app_dir, "kite_alerts.db")
+        self._legacy_json_path = os.path.join(app_dir, "kite_alerts.json")
         self._init_db()
         self._migrate_from_legacy_json_if_needed()
         self._load()
@@ -248,7 +251,7 @@ class AlertStore:
             with open(self._legacy_json_path, "r") as f:
                 legacy_data = json.load(f)
             if not isinstance(legacy_data, list):
-                logger.warning("Legacy alerts.json format invalid; skipping migration")
+                logger.warning("Legacy kite_alerts.json format invalid; skipping migration")
                 return
 
             payload = json.dumps(legacy_data)
@@ -258,7 +261,7 @@ class AlertStore:
                     (payload, datetime.now().isoformat()),
                 )
                 conn.commit()
-            logger.info(f"Migrated {len(legacy_data)} alert(s) from alerts.json to alerts.db")
+            logger.info(f"Migrated {len(legacy_data)} Kite alert(s) from kite_alerts.json to kite_alerts.db")
         except Exception as e:
             logger.error(f"AlertStore legacy migration failed: {e}")
 

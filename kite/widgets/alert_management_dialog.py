@@ -242,7 +242,7 @@ class AlertManagementDialog(QDialog):
         - parent.config_manager load/save dialog state
     """
 
-    _STATE_KEY = "compact_alert_mgmt_dialog"
+    _STATE_KEY = "kite_compact_alert_mgmt_dialog"
 
     def __init__(self, manager: "AlertSystemManager", parent: Optional[QWidget] = None) -> None:
         flags = (
