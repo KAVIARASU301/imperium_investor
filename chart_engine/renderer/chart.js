@@ -1447,12 +1447,7 @@ class FixedTradingChart {
 
         const reservedLabelBounds = [];
         const pendingLabels = [];
-        let todayMarker = null;
 
-        const clampLabelX = (x, width) => {
-            const half = Math.min(width / 2, axisLabelWidth / 2);
-            return Math.max(axisLabelLeft + half, Math.min(x, axisLabelRight - half));
-        };
         const boundsFor = (x, width) => ({
             left: x - (width / 2) - labelGap,
             right: x + (width / 2) + labelGap,
@@ -1465,23 +1460,8 @@ class FixedTradingChart {
             reservedLabelBounds.sort((a, b) => a.left - b.left);
         };
 
-        // Reserve today's highlighted date before placing regular ticks. This keeps
-        // neighbouring labels from being drawn under the orange marker when the
-        // time axis gets compressed by zooming out or resizing the chart.
-        ctx.font = this._axisFont(10, 700);
-        for (const pt of candidates) {
-            if (!pt.isToday) continue;
-            const rawX = this._timeToX(pt.time);
-            const width = Math.min(ctx.measureText(pt.label).width + 10, axisLabelWidth);
-            const x = clampLabelX(rawX, width);
-            todayMarker = { ...pt, x, width };
-            reserveBounds(boundsFor(x, width));
-            break;
-        }
-
         ctx.font = this._axisFont(10, 500);
         for (const pt of candidates) {
-            if (pt.isToday) continue;
             const x = this._timeToX(pt.time);
             if (x < axisLabelLeft || x > axisLabelRight) continue;
             const width = Math.min(ctx.measureText(pt.label).width + 8, axisLabelWidth);
@@ -1503,13 +1483,6 @@ class FixedTradingChart {
             ctx.fillText(pt.label, pt.x, timeAxisMidY, pt.width);
         }
 
-        if (todayMarker) {
-            ctx.fillStyle = '#F59E0B';
-            ctx.font = this._axisFont(10, 700);
-            ctx.fillText(todayMarker.label, todayMarker.x, timeAxisMidY, todayMarker.width);
-            ctx.fillStyle = this.colors.text;
-            ctx.font = this._axisFont(10, 500);
-        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -4158,29 +4131,13 @@ const US_AFTER_HOURS_CLOSE_MINUTES = 20 * 60;
         const start = Math.max(0, this.viewPortStart - 1);
         const end   = Math.min(this.data.length - 1, this.viewPortEnd + 1);
 
-        const todayKey = this.currentInterval.includes('minute')
-            ? this._todayExchangeDayKey()
-            : new Date().toISOString().slice(0, 10);
-        let todayMarker = null;
-
         for (let i = start; i <= end; i++) {
             const t = this.data[i].time;
             const d = this._exchangeDate(t);
             const label = this._timeCandidateLabel(d, tf);
-            const isIntradayTodayCandle = this.currentInterval.includes('minute') && (this._exchangeDayKey(t) === todayKey);
-            if (label && !(tf === '60minute' && isIntradayTodayCandle)) {
-                candidates.push({ time: t, label });
-            }
-
-            const candleKey = this.currentInterval.includes('minute')
-                ? this._exchangeDayKey(t)
-                : new Date(Number(t)).toISOString().slice(0, 10);
-            if (candleKey === todayKey) {
-                todayMarker = { time: t, label: this.currentInterval.includes('minute') ? this._fmtExchangeDayMonth(d) : this._fmtDateLabel(t, false), isToday: true };
-            }
+            if (label) candidates.push({ time: t, label });
         }
 
-        if (todayMarker) candidates.push(todayMarker);
         return candidates;
     }
 

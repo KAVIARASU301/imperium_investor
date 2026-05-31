@@ -462,7 +462,11 @@ class CandlestickChart(QWidget):
         fallback_name = str(instrument.get("name", "") or "").strip()
         broker_name = str(getattr(self._broker_caps, "name", "") or "").strip().lower()
 
-        if SymbolInfoDatabase is None:
+        # The symbol_info database is populated from the IBKR/Finviz universe and
+        # can contain US ticker metadata that collides with Kite symbols.  In
+        # Kite mode, keep using the instrument long-name supplied by Kite instead
+        # of enriching from the IBKR-only database.
+        if "ibkr" not in broker_name or SymbolInfoDatabase is None:
             return fallback_name
 
         try:
@@ -472,13 +476,9 @@ class CandlestickChart(QWidget):
             sector = str(info.get("sector") or "").strip()
             industry = str(info.get("industry") or "").strip()
             market_cap = str(info.get("market_cap_text") or "").strip()
-            if "ibkr" in broker_name:
-                line1 = ", ".join([p for p in [company or fallback_name, country, market_cap] if p]).strip()
-                line2 = " - ".join([p for p in [sector, industry] if p]).strip()
-                desc = "\n".join([p for p in [line1, line2] if p]).strip()
-            else:
-                parts = [company or fallback_name, country, sector, industry, market_cap]
-                desc = " · ".join([p for p in parts if p]).strip()
+            line1 = ", ".join([p for p in [company or fallback_name, country, market_cap] if p]).strip()
+            line2 = " - ".join([p for p in [sector, industry] if p]).strip()
+            desc = "\n".join([p for p in [line1, line2] if p]).strip()
             return desc or fallback_name
         except Exception:
             return fallback_name
