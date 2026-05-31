@@ -397,6 +397,11 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.watchlist.setObjectName("watchlistPanel")
         self.positions_table.setObjectName("positionsPanel")
 
+        # Create the bottom status bar before applying the initial color theme,
+        # because theme application calls into the status bar directly.
+        self.app_status_bar = StatusBar(self)
+        self.app_status_bar.setObjectName("bottomAppStatusBar")
+
         initial_theme = self.color_theme_manager.get_theme()
         self.header_toolbar.apply_color_theme(initial_theme)
         self.chartink_scanner.apply_color_theme(initial_theme)
@@ -450,12 +455,10 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self._apply_chart_mode_layout()
 
         # Bottom status bar (quiet app-level health indicators)
-        self.app_status_bar = StatusBar(self)
-        self.app_status_bar.setObjectName("bottomAppStatusBar")
-        alignment = self.color_theme_manager.get_theme().get("status_bar_alignment", "left")
+        alignment = initial_theme.get("status_bar_alignment", "left")
         self.app_status_bar.set_elements_alignment(alignment)
         self.app_status_bar.set_metrics_alignment(
-            bool(self.color_theme_manager.get_theme().get("status_bar_metrics_right", True))
+            bool(initial_theme.get("status_bar_metrics_right", True))
         )
         self.positions_table.footer_metrics_changed.connect(self._on_positions_footer_metrics_changed)
         main_layout.addWidget(self.app_status_bar)
