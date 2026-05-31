@@ -11,6 +11,7 @@ Ticker board redesign:
 """
 
 import logging
+from html import escape
 from typing import Any, Dict, List, Optional, Union
 
 from PySide6.QtCore import QSize, QThreadPool, QTimer, Qt, Signal, Slot
@@ -150,23 +151,21 @@ class NotificationBadge(QLabel):
 
 class TickerPill(QFrame):
     """
-    TC2000-style inline ticker item for a single symbol.
+    IBKR-style compact quote cell for one symbol.
 
-    Design rules:
-      • no %Chg pill/badge/background
-      • symbol muted, price secondary, %Chg dominant through color + size
-      • thin vertical divider between ticker items
-      • fixed width after construction so live ticks never shift the toolbar
+    The visible tape is rendered as one rich-text label instead of three wide
+    columns. That keeps SYMBOL, LTP, and %Chg visually close together while
+    the outer pill width stays fixed, so live ticks do not shake the toolbar.
     """
 
     _PILL_H = 22
-    _PAD_L = 9
-    _PAD_R = 9
-    _GAP_SYM_PRICE = 4
-    _GAP_PRICE_CHG = 8
-    _SYM_MIN_W = 48
-    _PRICE_W = 72
-    _CHG_W = 56
+    _PAD_L = 6
+    _PAD_R = 6
+    _TEXT_GAP = "&nbsp;&nbsp;"   # compact terminal-style two-space separation
+    _PRICE_SAMPLE = "88,888.88"
+    _CHG_SAMPLE = "+88.88%"
+    _MIN_W = 112
+    _MAX_W = 178
 
     def __init__(self, symbol: str, parent=None):
         super().__init__(parent)
@@ -174,6 +173,8 @@ class TickerPill(QFrame):
         self._bull_color = _BULL
         self._bear_color = _BEAR
         self._neutral_color = _TEXT_BUTTON
+        self._price_text = "--"
+        self._chg_text = "--%"
 
         self.setObjectName("tickerPill")
         self.setFixedHeight(self._PILL_H)
@@ -183,32 +184,14 @@ class TickerPill(QFrame):
         inner.setContentsMargins(self._PAD_L, 0, self._PAD_R, 0)
         inner.setSpacing(0)
 
-        self._sym_label = QLabel(self._symbol)
-        self._sym_label.setObjectName("tickerPillSymbol")
-        self._sym_label.setFont(_modern_font(7, QFont.Weight.Normal))
-        self._sym_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        self._sym_label.setMinimumWidth(self._SYM_MIN_W)
-        self._sym_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-
-        self._price_label = QLabel("--")
-        self._price_label.setObjectName("tickerPillPrice")
-        self._price_label.setFont(_modern_font(8, QFont.Weight.Normal))
-        self._price_label.setFixedWidth(self._PRICE_W)
-        self._price_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self._price_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-
-        self._chg_label = QLabel("--%")
-        self._chg_label.setObjectName("tickerPillChange")
-        self._chg_label.setFont(_modern_font(9, QFont.Weight.Medium))
-        self._chg_label.setFixedWidth(self._CHG_W)
-        self._chg_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self._chg_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-
-        inner.addWidget(self._sym_label)
-        inner.addSpacing(self._GAP_SYM_PRICE)
-        inner.addWidget(self._price_label)
-        inner.addSpacing(self._GAP_PRICE_CHG)
-        inner.addWidget(self._chg_label)
+        self._quote_label = QLabel(self)
+        self._quote_label.setObjectName("tickerPillQuote")
+        self._quote_label.setTextFormat(Qt.TextFormat.RichText)
+        self._quote_label.setFont(_modern_font(8, QFont.Weight.Medium))
+        self._quote_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self._quote_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self._quote_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        inner.addWidget(self._quote_label)
 
         self._compute_fixed_width()
 
@@ -223,53 +206,65 @@ class TickerPill(QFrame):
         self._apply_style(self._last_state)
 
     def update_data(self, price: Optional[float], change_pct: Optional[float]) -> None:
-        """Update displayed values. Only setText() is called — zero layout impact."""
+        """Update displayed values. Only QLabel.setText() is used on ticks."""
         if isinstance(price, (int, float)):
-            self._price_label.setText(f"{float(price):,.2f}")
+            self._price_text = f"{float(price):,.2f}"
         else:
-            self._price_label.setText("--")
+            self._price_text = "--"
 
         if isinstance(change_pct, (int, float)):
             chg = float(change_pct)
             sign = "+" if chg > 0 else ""
-            self._chg_label.setText(f"{sign}{chg:.2f}%")
+            self._chg_text = f"{sign}{chg:.2f}%"
             new_state = "bull" if chg > 0 else ("bear" if chg < 0 else "flat")
         else:
-            self._chg_label.setText("--%")
+            self._chg_text = "--%"
             new_state = None
 
         if new_state != self._last_state:
             self._last_state = new_state
             self._apply_style(state=new_state)
+        else:
+            self._render_quote(self._color_for_state(new_state))
 
     def _compute_fixed_width(self) -> None:
-        """Lock item width once, using rendered font metrics to prevent jitter."""
-        sym_fm = QFontMetrics(self._sym_label.font())
-        sym_w = max(self._SYM_MIN_W, sym_fm.horizontalAdvance(self._symbol))
-        self._sym_label.setFixedWidth(sym_w)
+        """Lock width once using a compact terminal-style text tape estimate."""
+        fm = QFontMetrics(self._quote_label.font())
+        sample = f"{self._symbol}  {self._PRICE_SAMPLE}  {self._CHG_SAMPLE}"
+        quote_w = fm.horizontalAdvance(sample)
+        total = max(self._MIN_W, min(self._MAX_W, self._PAD_L + quote_w + self._PAD_R))
 
-        total = (
-            self._PAD_L
-            + sym_w
-            + self._GAP_SYM_PRICE
-            + self._PRICE_W
-            + self._GAP_PRICE_CHG
-            + self._CHG_W
-            + self._PAD_R
-        )
+        self._quote_label.setFixedWidth(max(1, total - self._PAD_L - self._PAD_R))
         self.setFixedWidth(total)
 
-    def _apply_style(self, state: Optional[str]) -> None:
-        """Apply inline market-tape styling. %Chg is text-only, never a badge."""
+    def _color_for_state(self, state: Optional[str]) -> str:
         if state == "bull":
-            chg_color = self._bull_color
-        elif state == "bear":
-            chg_color = self._bear_color
-        elif state == "flat":
-            chg_color = self._neutral_color
-        else:
-            chg_color = _TEXT_MUTED
+            return self._bull_color
+        if state == "bear":
+            return self._bear_color
+        if state == "flat":
+            return self._neutral_color
+        return _TEXT_MUTED
 
+    def _render_quote(self, chg_color: str) -> None:
+        """Render one compact rich-text quote: SYMBOL  LTP  %Chg."""
+        symbol = escape(self._symbol)
+        price = escape(self._price_text)
+        change = escape(self._chg_text)
+        self._quote_label.setText(
+            f"<span style='color:{_TEXT_MUTED}; font-size:8px; "
+            f"font-weight:650; letter-spacing:0.25px;'>{symbol}</span>"
+            f"{self._TEXT_GAP}"
+            f"<span style='color:{_TEXT_SOFT}; font-size:9px; "
+            f"font-weight:520;'>{price}</span>"
+            f"{self._TEXT_GAP}"
+            f"<span style='color:{chg_color}; font-size:9px; "
+            f"font-weight:700;'>{change}</span>"
+        )
+
+    def _apply_style(self, state: Optional[str]) -> None:
+        """Apply compact market-tape styling. %Chg remains text-only."""
+        chg_color = self._color_for_state(state)
         self.setStyleSheet(f"""
             QFrame#tickerPill {{
                 background: transparent;
@@ -277,34 +272,15 @@ class TickerPill(QFrame):
                 border-left: 1px solid {_BG_BORDER_HI};
                 border-radius: 0px;
             }}
-            QLabel#tickerPillSymbol {{
-                color: {_TEXT_MUTED};
-                background: transparent;
-                font-size: 8px;
-                font-weight: 500;
-                letter-spacing: 0.45px;
-                border: none;
-                padding: 0px;
-            }}
-            QLabel#tickerPillPrice {{
+            QLabel#tickerPillQuote {{
                 color: {_TEXT_SOFT};
                 background: transparent;
-                font-size: 9px;
-                font-weight: 450;
                 border: none;
                 padding: 0px;
-            }}
-            QLabel#tickerPillChange {{
-                color: {chg_color};
-                background: transparent;
-                border: none;
-                border-radius: 0px;
-                font-size: 10px;
-                font-weight: 650;
-                letter-spacing: 0.12px;
-                padding: 0px;
+                margin: 0px;
             }}
         """)
+        self._render_quote(chg_color)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -329,7 +305,7 @@ class TickerBoard(QFrame):
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 
         self._layout = QHBoxLayout(self)
-        self._layout.setContentsMargins(3, 0, 3, 0)
+        self._layout.setContentsMargins(1, 0, 1, 0)
         self._layout.setSpacing(self._PILL_GAP)
 
         self._pills: Dict[str, TickerPill] = {}
@@ -395,7 +371,7 @@ class TickerBoard(QFrame):
         n = len(self._pills)
         pill_total = sum(p.width() for p in self._pills.values())
         gap_total = self._PILL_GAP * max(0, n - 1)
-        margins_total = 3 + 3   # left + right contentsMargins
+        margins_total = 1 + 1   # left + right contentsMargins
         self.setFixedWidth(pill_total + gap_total + margins_total)
 
 
