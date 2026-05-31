@@ -345,6 +345,7 @@ class EnhancedTokenManager:
                 'trading_mode': TradingMode.PAPER.value,
                 'default_exchange': 'SMART',
                 'tws_host': '127.0.0.1',
+                'tws_port': 7496,
                 'auto_reconnect': True
             }
         }

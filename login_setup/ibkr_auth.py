@@ -7,8 +7,7 @@ QThread with its own asyncio event loop (required to avoid conflicts with
 PySide6's own event loop).
 
 Ports:
-  Live trading:  7496
-  IBKR mode default: 7496
+  Default IBKR socket port: 7496 (editable in the login UI)
 """
 
 import asyncio
@@ -26,7 +25,7 @@ except ImportError:
     IBKR_AVAILABLE = False
     IB = None
 
-from login_setup.broker_modes import BrokerMode, TradingMode, get_broker_config
+from login_setup.broker_modes import TradingMode
 
 logger = logging.getLogger(__name__)
 
@@ -45,8 +44,17 @@ class IBKRConnectionParams:
     fallback_hosts: List[str] = field(default_factory=lambda: ["127.0.0.1", "::1"])
 
     def candidate_hosts(self) -> List[str]:
-        """Return ordered, de-duplicated hosts to probe for TWS/Gateway."""
-        ordered = [self.host, *self.fallback_hosts]
+        """Return ordered, de-duplicated hosts to probe for TWS/Gateway.
+
+        Fallback localhost aliases are only tried when the user keeps a local
+        host.  A custom remote host should not silently connect somewhere else.
+        """
+        primary = (self.host or "").strip()
+        primary_key = primary.lower()
+        ordered = [primary]
+        if primary_key in {"127.0.0.1", "localhost", "::1"}:
+            ordered.extend(self.fallback_hosts)
+
         seen = set()
         candidates: List[str] = []
 
@@ -226,7 +234,8 @@ class IBKRConnectionWorker(QThread):
             "Checklist:\n"
             "1. Is IB Gateway or TWS running?\n"
             "2. Are you logged into your IBKR account in Gateway?\n"
-            f"3. Is the port set to the IBKR mode endpoint 7496?\n"
+            "3. Does the login socket port match your TWS / "
+            f"IB Gateway API socket port ({self.params.port})?\n"
             "4. Is a firewall blocking the port?"
         )
 
@@ -261,16 +270,19 @@ class IBKRAuth(QObject):
         self.worker: Optional[IBKRConnectionWorker] = None
         self.ib_client: Optional[IB] = None
 
-    def connect_to_tws(self, trading_mode: TradingMode, host: str, client_id: int):
+    def connect_to_tws(
+        self,
+        trading_mode: TradingMode,
+        host: str,
+        port: int,
+        client_id: int,
+    ):
         """Start a fresh connection attempt.  Cancels any ongoing attempt first."""
         if self.worker and self.worker.isRunning():
             self.status_updated.emit("Connection attempt already in progress.")
             return
 
         self._cleanup_worker()
-
-        config = get_broker_config(BrokerMode.AMERICA)
-        port = config.default_ports.get(trading_mode.value, 7496)
 
         params = IBKRConnectionParams(
             host=host,

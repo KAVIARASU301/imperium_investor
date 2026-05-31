@@ -902,9 +902,22 @@ class DualModeLoginManager(QDialog):
         host_label.setObjectName("fieldLabel")
         self.ibkr_host_combo = QComboBox()
         self.ibkr_host_combo.setObjectName("terminalInput")
-        self.ibkr_host_combo.addItems(["127.0.0.1 (localhost)"])
+        self.ibkr_host_combo.setEditable(True)
+        self.ibkr_host_combo.addItems(["127.0.0.1", "localhost", "::1"])
+        self.ibkr_host_combo.setCurrentText("127.0.0.1")
         host_col.addWidget(host_label)
         host_col.addWidget(self.ibkr_host_combo)
+
+        port_col = QVBoxLayout()
+        port_col.setSpacing(4)
+        port_label = QLabel("SOCKET PORT")
+        port_label.setObjectName("fieldLabel")
+        self.ibkr_port_input = QSpinBox()
+        self.ibkr_port_input.setObjectName("terminalInput")
+        self.ibkr_port_input.setRange(1, 65535)
+        self.ibkr_port_input.setValue(7496)
+        port_col.addWidget(port_label)
+        port_col.addWidget(self.ibkr_port_input)
 
         client_id_col = QVBoxLayout()
         client_id_col.setSpacing(4)
@@ -918,6 +931,7 @@ class DualModeLoginManager(QDialog):
         client_id_col.addWidget(self.ibkr_client_id_input)
 
         settings_layout.addLayout(host_col, 2)
+        settings_layout.addLayout(port_col, 1)
         settings_layout.addLayout(client_id_col, 1)
 
         market_data_panel = self._create_ibkr_market_data_selector()
@@ -933,7 +947,7 @@ class DualModeLoginManager(QDialog):
             "1) Login to TWS (or IB Gateway)\n"
             "2) Enable API: Configure → API → Settings → Enable ActiveX and Socket Clients\n"
             "3) Allow localhost in Trusted IPs: 127.0.0.1\n"
-            "4) Set the IBKR API socket port to 7496"
+            "4) Enter the same API socket port configured in TWS / IB Gateway"
         )
 
         self.connect_ibkr_btn = QPushButton("CONNECT")
@@ -1000,18 +1014,25 @@ class DualModeLoginManager(QDialog):
             self.stacked_widget.setCurrentIndex(1)
             return
 
-        host = "127.0.0.1"
+        host = self.ibkr_host_combo.currentText().strip()
+        if not host:
+            QMessageBox.warning(self, "Host Required", "Please enter the TWS / IB Gateway host.")
+            return
+
+        port = self.ibkr_port_input.value()
         client_id = self.ibkr_client_id_input.value()
         self.selected_ibkr_market_data_type = "delayed" if self.ibkr_delayed_data_radio.isChecked() else "live"
         self.connect_ibkr_btn.setEnabled(False)
         self.connect_ibkr_btn.setText("CONNECTING…")
         self.ibkr_status_display.clear()
         self.ibkr_status_display.setPlainText(
-            f"Initiating connection...\nMarket data: {self.selected_ibkr_market_data_type.upper()} (no automatic fallback)"
+            f"Initiating connection to {host}:{port}...\n"
+            f"Market data: {self.selected_ibkr_market_data_type.upper()} (no automatic fallback)"
         )
         self.ibkr_auth.connect_to_tws(
             trading_mode=self.selected_trading_mode,
             host=host,
+            port=port,
             client_id=client_id
         )
 
@@ -1024,9 +1045,16 @@ class DualModeLoginManager(QDialog):
             self.connect_ibkr_btn.setText("CONNECT")
 
     def _on_ibkr_connection_success(self, ib_client):
-        host = "127.0.0.1"
+        host = self.ibkr_host_combo.currentText().strip()
+        if not host:
+            QMessageBox.warning(self, "Host Required", "Please enter the TWS / IB Gateway host.")
+            return
+
+        port = self.ibkr_port_input.value()
         client_id = self.ibkr_client_id_input.value()
         self.selected_ibkr_market_data_type = "delayed" if self.ibkr_delayed_data_radio.isChecked() else "live"
+        os.environ["IBKR_HOST"] = host
+        os.environ["IBKR_PORT"] = str(port)
         os.environ["IBKR_MARKET_DATA_TYPE"] = self.selected_ibkr_market_data_type
         os.environ["IBKR_MARKET_DATA_FALLBACK_DELAYED"] = "0"
         self.authentication_data = {
@@ -1034,10 +1062,12 @@ class DualModeLoginManager(QDialog):
             "trading_mode": self.selected_trading_mode,
             "ib_client": ib_client,
             "client_id": client_id,
+            "port": port,
             "market_data_type": self.selected_ibkr_market_data_type,
             "market_data_fallback_delayed": False,
             "connection_details": {
                 "host": host,
+                "port": port,
                 "client_id": client_id,
                 "market_data_type": self.selected_ibkr_market_data_type,
                 "market_data_fallback_delayed": False,
