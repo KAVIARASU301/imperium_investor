@@ -764,7 +764,6 @@ class CandlestickChart(QWidget):
 
         self.last_df = df
         display_df = self._filter_extended_session_candles(df)
-        metrics = calculate_metrics(display_df, self._moving_average_configs)
 
         # ── Build candle + volume arrays ──────────────────────────────────
         # Production charting packages (TradingView/lightweight-charts, etc.)
@@ -774,6 +773,11 @@ class CandlestickChart(QWidget):
         # exactly the loader DataFrame.  If UI session filters removed candles,
         # fall back to building matching candle/volume arrays here.
         calendar_interval = self.current_interval in {"day", "week", "month"}
+        metrics = calculate_metrics(
+            display_df,
+            self._moving_average_configs,
+            calendar_interval=calendar_interval,
+        )
         use_pre_serialized_payload = bool(pre_serialized_payload) and display_df is df
         candles: list[dict[str, Any]] = []
         volumes: list[dict[str, Any]] = []

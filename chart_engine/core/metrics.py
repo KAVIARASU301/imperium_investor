@@ -7,6 +7,7 @@
 #   calculate_metrics(df) → MetricsResult
 #   MetricsResult          — dataclass holding ema_data, adr, pct_changes
 
+import calendar
 import logging
 from dataclasses import dataclass, field
 from typing import Dict, List, Any
@@ -35,7 +36,11 @@ class MetricsResult:
 
 # ─── Main entry point ─────────────────────────────────────────────────────────
 
-def calculate_metrics(df: pd.DataFrame, moving_average_configs: List[Dict[str, Any]] | None = None) -> MetricsResult:
+def calculate_metrics(
+    df: pd.DataFrame,
+    moving_average_configs: List[Dict[str, Any]] | None = None,
+    calendar_interval: bool = False,
+) -> MetricsResult:
     """
     Compute all overlay metrics from a processed OHLCV DataFrame.
 
@@ -50,7 +55,15 @@ def calculate_metrics(df: pd.DataFrame, moving_average_configs: List[Dict[str, A
     try:
         # ── Unix-ms timestamps ─────────────────────────────────────────────
         df = df.copy()
-        df["time_ms"] = df["time"].apply(lambda x: int(x.timestamp() * 1000))
+        if calendar_interval:
+            # Daily/weekly/monthly candles are rendered as exchange calendar
+            # dates at UTC midnight.  Use the same keys for overlay points so
+            # moving averages align with candles regardless of the host timezone.
+            df["time_ms"] = df["time"].apply(
+                lambda x: calendar.timegm(pd.Timestamp(x).date().timetuple()) * 1000
+            )
+        else:
+            df["time_ms"] = df["time"].apply(lambda x: int(x.timestamp() * 1000))
 
         # ── Moving averages (config-driven) ───────────────────────────────
         ma_configs = moving_average_configs or []

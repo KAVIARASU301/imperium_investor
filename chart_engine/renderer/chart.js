@@ -133,6 +133,7 @@ class FixedTradingChart {
         this.candleWidth   = cfg.initialCandleWidth   || 8;   // body+wick pixel width — user control
         this.candleSpacing = cfg.initialCandleSpacing || 2;   // gap between candles in px
         this.visibleCandleCount = 100;                         // computed — don't use cfg value
+        this.initialVisibleCandleCount = Number(cfg.initialVisibleCandleCount || cfg.visibleCandleCount || 0);
         this.viewPortEnd   = this._viewportEndFromRightOffset(cfg.viewportRightOffset);
         this.viewPortStart = 0;                                // recalculated in _updateViewport()
 
@@ -233,6 +234,7 @@ class FixedTradingChart {
 
     async _init() {
         this._setupCanvas();
+        this._applyVisibleCandlePreference(this.initialVisibleCandleCount);
         this._updateViewport();   // derive visibleCount + viewPortStart from fixed slot width
         this._setupSlider();
         this.calculateBounds();
@@ -391,6 +393,22 @@ class FixedTradingChart {
         // Total pixels per candle slot: body + gap.  This is the ONE number that
         // controls density.  candleWidth is fixed; slotW drives everything else.
         return this.candleWidth + this.candleSpacing;
+    }
+
+
+    _applyVisibleCandlePreference(count) {
+        // First HTML render receives the persisted density as a candle count,
+        // while the renderer itself stores zoom as a fixed candleWidth. Convert
+        // the count to the same slot geometry used by loadNewData() so app
+        // startup and later symbol clicks open with identical density.
+        const desiredCount = Number(count);
+        if (!Number.isFinite(desiredCount) || desiredCount <= 0 || !this.chartArea) return;
+        const desiredW = Math.max(2, Math.min(60,
+            Math.floor(this.chartArea.width / desiredCount) - this.candleSpacing
+        ));
+        if (Math.abs(desiredW - this.candleWidth) > 1) {
+            this.candleWidth = desiredW;
+        }
     }
 
     _updateViewport() {
