@@ -655,6 +655,8 @@ class DrawingEngine {
         /* --- Start drawing --- */
         if (this.activeTool) {
             if (this.activeTool === 'note') {
+                e.preventDefault();
+                e.stopImmediatePropagation();
                 const createdId = this.addDrawing({
                     type: 'note',
                     startPrice: this.cs.yToPrice(snapY),
@@ -1463,9 +1465,12 @@ class DrawingEngine {
         wrapper.addEventListener('focusout', () => {
             setTimeout(() => {
                 if (!this._noteEditor) return;
-                if (!this._noteEditor.wrapper.contains(document.activeElement)) {
-                    this._teardownInlineNoteEditor(true);
+                if (this._noteEditor.wrapper.contains(document.activeElement)) return;
+                if (this._noteEditorJustCreated) {
+                    this._noteEditor.textarea.focus();
+                    return;
                 }
+                this._teardownInlineNoteEditor(true);
             }, 0);
         });
         ta.addEventListener('keydown', (e) => {
@@ -1478,6 +1483,9 @@ class DrawingEngine {
             }
         });
 
+        this._noteEditor = { wrapper, textarea: ta, noteId: d.id, isNew, sizeInput };
+        this._noteEditorJustCreated = true;
+
         this.canvas.parentElement.appendChild(wrapper);
         applyEditorColor(initialColor);
         ta.focus();
@@ -1486,9 +1494,10 @@ class DrawingEngine {
         } else {
             ta.select();
         }
-        this._noteEditor = { wrapper, textarea: ta, noteId: d.id, isNew, sizeInput };
-        this._noteEditorJustCreated = true;
-        setTimeout(() => { this._noteEditorJustCreated = false; }, 350);
+        setTimeout(() => {
+            if (this._noteEditor?.textarea === ta) ta.focus();
+        }, 0);
+        setTimeout(() => { this._noteEditorJustCreated = false; }, 500);
     }
 
     _teardownInlineNoteEditor(commit) {
