@@ -53,22 +53,41 @@ const US_AFTER_HOURS_CLOSE_MINUTES = 20 * 60;
 // Python-passed initialIndicatorVisibility is used ONLY when localStorage has
 // no record yet (i.e. first-ever launch).  After that, localStorage always wins.
 const _IND_STORE_KEY = 'tc2k_indicator_vis_v1';
+let _indicatorStateSingleton = null;
+let _indicatorStateLoaded = false;
 
 function _loadIndicatorState(pythonDefaults) {
+    if (_indicatorStateLoaded && _indicatorStateSingleton) {
+        return { ..._indicatorStateSingleton };
+    }
+
+    let state = null;
     try {
         const raw = localStorage.getItem(_IND_STORE_KEY);
         if (raw) {
             const stored = JSON.parse(raw);
-            // Merge: stored overrides python defaults, but any brand-new key
-            // not yet in storage falls back to pythonDefaults (then to true).
-            return { ...pythonDefaults, ...stored };
+            if (stored && typeof stored === 'object' && !Array.isArray(stored)) {
+                // Once user preferences exist, they are the only source of truth.
+                // Python defaults seed first launch only; they are not merged on
+                // each symbol load because that can resurrect disabled indicators.
+                state = { ...stored };
+            }
         }
     } catch (e) { /* corrupt storage — fall through to defaults */ }
-    return { ...pythonDefaults };
+
+    if (!state) {
+        state = { ...(pythonDefaults || {}) };
+        _saveIndicatorState(state);
+    }
+    _indicatorStateSingleton = state;
+    _indicatorStateLoaded = true;
+    return { ...state };
 }
 
 function _saveIndicatorState(state) {
-    try { localStorage.setItem(_IND_STORE_KEY, JSON.stringify(state)); }
+    _indicatorStateSingleton = { ...(state || {}) };
+    _indicatorStateLoaded = true;
+    try { localStorage.setItem(_IND_STORE_KEY, JSON.stringify(_indicatorStateSingleton)); }
     catch (e) { /* quota or security error — non-fatal */ }
 }
 
@@ -98,6 +117,13 @@ class FixedTradingChart {
         this._priceTickCache = null;
         this._volVpKey = null;
         this._cachedMaxVolume = 1;
+        this._rightAxisWidthCacheKey = '';
+        this._rightAxisWidthCache = null;
+        this._timeCandidateCacheKey = '';
+        this._timeCandidateCache = null;
+        this._staticLayerCanvas = null;
+        this._staticLayerValid = false;
+        this._dirtyRegion = 'full';
         this._rebuildTimeIndex();
         this.currentADR = cfg.initialADR || {};
         this.percentageChanges = cfg.percentageChanges || {};
@@ -455,6 +481,22 @@ class FixedTradingChart {
         const ticks = this._priceAxisTicks(26);
         if (!ticks || !ticks.values || ticks.values.length === 0) return fallbackWidth;
 
+        const chartHeight = Math.max(1, this.chartArea?.height || Math.max(120, this.height * 0.75));
+        const cacheKey = [
+            this.minPrice.toFixed(8),
+            this.maxPrice.toFixed(8),
+            Math.round(chartHeight),
+            ticks.decimals,
+            ticks.values.length,
+            ticks.values[0],
+            ticks.values[ticks.values.length - 1],
+            this.priceScaleCurrency || '',
+            this.fontStack || '',
+        ].join('|');
+        if (this._rightAxisWidthCacheKey === cacheKey && Number.isFinite(this._rightAxisWidthCache)) {
+            return this._rightAxisWidthCache;
+        }
+
         const prevFont = this.ctx.font;
         this.ctx.font = this._axisFont(10, 600);
 
@@ -468,7 +510,10 @@ class FixedTradingChart {
 
         // Tick + left padding + label + right padding. Wider minimum gives USD/INR labels breathing room.
         const dynamicWidth = Math.ceil(maxTextWidth + 22);
-        return Math.max(minAxisWidth, Math.min(maxAxisWidth, dynamicWidth));
+        const width = Math.max(minAxisWidth, Math.min(maxAxisWidth, dynamicWidth));
+        this._rightAxisWidthCacheKey = cacheKey;
+        this._rightAxisWidthCache = width;
+        return width;
     }
 
     _priceAxisTicks(minGapPx = 26) {
@@ -603,9 +648,14 @@ class FixedTradingChart {
         this._extendedHoursCache = new WeakMap();
         this._priceTickCacheKey = '';
         this._priceTickCache = null;
+        this._rightAxisWidthCacheKey = '';
+        this._rightAxisWidthCache = null;
+        this._timeCandidateCacheKey = '';
+        this._timeCandidateCache = null;
         this._volVpKey = null;
         this._cachedMaxVolume = 1;
         this._intradayTimestampsAlreadyIst = null;
+        this._staticLayerValid = false;
     }
 
     _initDrawings(json) {
@@ -730,18 +780,37 @@ class FixedTradingChart {
     // RENDER LOOP  (dirty-flag + rAF)
     // ═══════════════════════════════════════════════════════════════════════
 
-    requestDraw() {
+    requestDraw(region = 'full') {
+        if (region !== 'live') {
+            this._dirtyRegion = 'full';
+            this._staticLayerValid = false;
+        } else if (this._dirtyRegion !== 'full') {
+            this._dirtyRegion = 'live';
+        }
         this._dirty = true;
         if (this._rafPending) return;
         this._rafPending = true;
         requestAnimationFrame(() => {
             this._rafPending = false;
-            if (this._dirty) { this._dirty = false; this.draw(); }
+            if (this._dirty) {
+                const regionToDraw = this._dirtyRegion || 'full';
+                this._dirty = false;
+                this._dirtyRegion = null;
+                this.draw(regionToDraw);
+            }
         });
     }
 
-    draw() {
+    draw(region = 'full') {
         const ctx = this.ctx;
+        if (region === 'live' && this._restoreStaticLayer()) {
+            try {
+                this._drawLivePriceRay();
+                this._drawCrosshair();
+            } catch (e) { console.error('draw(live) error:', e); }
+            return;
+        }
+
         try {
             ctx.clearRect(0, 0, this.width, this.height);
 
@@ -752,6 +821,7 @@ class FixedTradingChart {
                 ctx.font = '14px "Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", sans-serif';
                 ctx.textAlign = 'center';
                 ctx.fillText('No data available', this.width / 2, this.height / 2);
+                this._captureStaticLayer();
                 return;
             }
 
@@ -772,13 +842,57 @@ class FixedTradingChart {
             this._drawVolumeBars();
             this._drawAwesomeOscillator();
             this._drawAxes();
-            this.drawingEngine.render();
+            this._renderDrawingEngineSafe();
             this._drawMeasureOverlay();
             this._drawWatermark();
+            this._captureStaticLayer();
             this._drawLivePriceRay();
             this._drawCrosshair();
 
         } catch (e) { console.error('draw() error:', e); }
+    }
+
+    _renderDrawingEngineSafe() {
+        if (!this.drawingEngine || typeof this.drawingEngine.render !== 'function') return;
+        try {
+            this.drawingEngine.render();
+        } catch (e) {
+            console.error('drawingEngine.render() error:', e);
+        }
+    }
+
+    _ensureStaticLayerCanvas() {
+        if (!this.canvas) return null;
+        const needsNew = !this._staticLayerCanvas ||
+            this._staticLayerCanvas.width !== this.canvas.width ||
+            this._staticLayerCanvas.height !== this.canvas.height;
+        if (needsNew) {
+            this._staticLayerCanvas = document.createElement('canvas');
+            this._staticLayerCanvas.width = this.canvas.width;
+            this._staticLayerCanvas.height = this.canvas.height;
+            this._staticLayerValid = false;
+        }
+        return this._staticLayerCanvas;
+    }
+
+    _captureStaticLayer() {
+        const layer = this._ensureStaticLayerCanvas();
+        if (!layer) return;
+        const layerCtx = layer.getContext('2d', { alpha: false }) || layer.getContext('2d');
+        layerCtx.setTransform(1, 0, 0, 1, 0, 0);
+        layerCtx.clearRect(0, 0, layer.width, layer.height);
+        layerCtx.drawImage(this.canvas, 0, 0);
+        this._staticLayerValid = true;
+    }
+
+    _restoreStaticLayer() {
+        const layer = this._ensureStaticLayerCanvas();
+        if (!layer || !this._staticLayerValid) return false;
+        this.ctx.save();
+        this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+        this.ctx.drawImage(layer, 0, 0);
+        this.ctx.restore();
+        return true;
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -3650,6 +3764,9 @@ class FixedTradingChart {
         }
 
         const last         = this.data[this.data.length - 1];
+        let activeCandleAppended = false;
+        let boundsRecalculated = false;
+        const lastVisibleBeforeUpdate = (this.data.length - 1) >= this.viewPortStart && (this.data.length - 1) <= this.viewPortEnd;
         const intervalMs   = this._intervalToMs(this.currentInterval);
         const key          = String(this.currentInterval || 'day').toLowerCase();
         const isDailyInterval = key === 'day';
@@ -3719,6 +3836,7 @@ class FixedTradingChart {
                     });
                     this.volumeData.push({ time: newCandleTime, value: 0 });
                     this._invalidateRenderCaches();
+                    activeCandleAppended = true;
 
                     this.viewPortEnd = Math.max(
                         this.viewPortEnd,
@@ -3726,6 +3844,7 @@ class FixedTradingChart {
                     );
                     this._updateViewport();
                     this.calculateBounds();
+                    boundsRecalculated = true;
                 }
             }
         }
@@ -3787,10 +3906,11 @@ class FixedTradingChart {
             const nearEdgePad = range * 0.035;
             if (active.high > this.maxPrice - nearEdgePad || active.low < this.minPrice + nearEdgePad) {
                 this.calculateBounds();
+                boundsRecalculated = true;
             }
         }
 
-        this.requestDraw();
+        this.requestDraw((!activeCandleAppended && !boundsRecalculated && !lastVisibleBeforeUpdate) ? 'live' : 'full');
     }
 
     loadNewData(cfg) {
@@ -3821,14 +3941,11 @@ class FixedTradingChart {
         this._rebuildHeikinAshiData();
         this.volumeData = cfg.volumeData || this.data.map(c => ({ time: c.time, value: Number(c.volume) || 0 }));
         this.emaData = cfg.emaData || {};
-        this.movingAverageConfigs = cfg.movingAverageConfigs || [];
-        if (cfg.initialIndicatorVisibility && typeof cfg.initialIndicatorVisibility === 'object') {
-            this.indicatorVisibility = {
-                ...this.indicatorVisibility,
-                ...cfg.initialIndicatorVisibility,
-            };
-            _saveIndicatorState(this.indicatorVisibility);
+        if (Array.isArray(cfg.movingAverageConfigs)) {
+            this.movingAverageConfigs = cfg.movingAverageConfigs;
         }
+        // Indicator visibility is owned by the module-level localStorage singleton.
+        // Python defaults seed first launch only and are not merged during symbol loads.
         this.currentADR = cfg.initialADR || {};
         this.percentageChanges = cfg.percentageChanges || {};
         this.currentInterval = cfg.interval || 'day';
@@ -4480,13 +4597,27 @@ class FixedTradingChart {
     // ═══════════════════════════════════════════════════════════════════════
 
     _buildTimeCandidates(tf) {
-        const candidates = [];
         const start = Math.max(0, this.viewPortStart - 1);
         const end   = Math.min(this.data.length - 1, this.viewPortEnd + 1);
-
         const todayKey = this.currentInterval.includes('minute')
             ? this._todayExchangeDayKey()
             : new Date().toISOString().slice(0, 10);
+        const cacheKey = [
+            tf,
+            start,
+            end,
+            this.currentInterval || '',
+            this.brokerName || '',
+            todayKey,
+            this.data.length,
+            this.data[start]?.time || '',
+            this.data[end]?.time || '',
+        ].join('|');
+        if (this._timeCandidateCacheKey === cacheKey && Array.isArray(this._timeCandidateCache)) {
+            return this._timeCandidateCache;
+        }
+
+        const candidates = [];
         let todayMarker = null;
 
         for (let i = start; i <= end; i++) {
@@ -4507,6 +4638,8 @@ class FixedTradingChart {
         }
 
         if (todayMarker) candidates.push(todayMarker);
+        this._timeCandidateCacheKey = cacheKey;
+        this._timeCandidateCache = candidates;
         return candidates;
     }
 

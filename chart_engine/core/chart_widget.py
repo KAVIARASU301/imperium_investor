@@ -183,6 +183,7 @@ class CandlestickChart(QWidget):
         }
         self._indicator_visibility = self.drawing_storage.load_global_indicator_visibility()
         self._moving_average_configs = self._load_moving_average_configs()
+        self._ma_configs_payload_pending = False
         self._current_watermark_description = ""
 
         self.data_fetcher = data_fetcher
@@ -640,6 +641,7 @@ class CandlestickChart(QWidget):
         self._moving_average_configs = [dict(item) for item in (configs or []) if isinstance(item, dict)]
         self.global_chart_settings["moving_average_configs"] = self._moving_average_configs
         self.drawing_storage.save_global_settings(self.global_chart_settings)
+        self._ma_configs_payload_pending = True
         if reload_current_symbol and self.current_symbol:
             self.load_symbol(
                 self.current_symbol,
@@ -853,7 +855,6 @@ class CandlestickChart(QWidget):
                 "rightBufferCandles":       self._right_buffer_candles,
                 "viewportRightOffset":     saved_state.get("viewport_right_offset"),
                 "showTimeSlider":         self._show_time_slider,
-                "movingAverageConfigs":      self._moving_average_configs,
                 "initialIndicatorVisibility": self._indicator_visibility,
                 "brokerName":                self._broker_caps.name,
                 "showPremarketCandles":      self._show_premarket_candles,
@@ -865,6 +866,10 @@ class CandlestickChart(QWidget):
                 "themePositiveColor":        self._current_up_color,
                 "themeNegativeColor":        self._current_down_color,
             })
+            if self._ma_configs_payload_pending:
+                payload_dict["movingAverageConfigs"] = self._moving_average_configs
+                self._ma_configs_payload_pending = False
+
             loader_method = "refreshHistoricalData" if self._is_periodic_historical_refresh else "loadNewData"
             self._inject_chart_payload(
                 loader_method,
@@ -1988,6 +1993,22 @@ class CandlestickChart(QWidget):
 
         self.data_loader_thread = None
 
+        # Detach callbacks before requesting stop.  A loader can finish while
+        # stop() is being called; disconnecting first prevents any queued stale
+        # data/error/progress signal from reaching the new chart.
+        for signal_name in ("data_loaded", "load_error", "load_progress", "finished"):
+            try:
+                getattr(thread, signal_name).disconnect()
+            except (TypeError, RuntimeError):
+                pass
+            except Exception:
+                pass
+
+        try:
+            thread.finished.connect(lambda t=thread: self._cleanup_retired_loader(t))
+        except Exception:
+            pass
+
         try:
             thread._stop_requested = True
             thread.stop()
@@ -2003,20 +2024,26 @@ class CandlestickChart(QWidget):
             thread.deleteLater()
             return
 
-        # Detach callbacks from retired work so an old IBKR response cannot
-        # touch the progress bar or error page after a newer load has started.
-        for signal_name in ("data_loaded", "load_error", "load_progress", "finished"):
-            try:
-                getattr(thread, signal_name).disconnect()
-            except (TypeError, RuntimeError):
-                pass
-            except Exception:
-                pass
-
         self._retired_loader_threads.append(thread)
-        thread.finished.connect(lambda t=thread: self._cleanup_retired_loader(t))
+        self._cap_retired_loader_threads()
         if not thread.isRunning():
             self._cleanup_retired_loader(thread)
+
+    def _cap_retired_loader_threads(self, max_retired: int = 8) -> None:
+        """Bound retired loader retention even if the Qt event loop is starved."""
+        retired = getattr(self, "_retired_loader_threads", [])
+        while len(retired) > max_retired:
+            old = retired.pop(0)
+            try:
+                old._stop_requested = True
+                old.stop()
+                old.quit()
+                if old.isRunning():
+                    old.terminate()
+                    old.wait(250)
+                old.deleteLater()
+            except Exception:
+                pass
 
     def _cleanup_retired_loader(self, thread: ChartDataLoaderThread) -> None:
         try:
