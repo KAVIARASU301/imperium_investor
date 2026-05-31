@@ -5,7 +5,6 @@ from PySide6.QtWidgets import (
     QDialog,
     QVBoxLayout,
     QHBoxLayout,
-    QFormLayout,
     QPushButton,
     QColorDialog,
     QDialogButtonBox,
@@ -121,8 +120,8 @@ class ColorSettingsDialog(QDialog):
         super().__init__(parent)
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.setMinimumWidth(500)
-        self.setMinimumHeight(520)
+        self.setMinimumWidth(560)
+        self.setMinimumHeight(540)
         self.setModal(True)
 
         self._theme = current_theme
@@ -160,32 +159,61 @@ class ColorSettingsDialog(QDialog):
         # --- TAB: COLORS ---
         colors_tab = QWidget()
         colors_layout = QVBoxLayout(colors_tab)
-        colors_layout.setContentsMargins(0, 6, 0, 0)
-        colors_layout.setSpacing(6)
+        colors_layout.setContentsMargins(10, 12, 10, 10)
+        colors_layout.setSpacing(10)
 
+        colors_layout.addWidget(self._build_color_intro())
+
+        self.table_color_toggle_checkbox = _Toggle("ENABLE DIRECTIONAL COLORS IN DATA TABLES")
+        self.table_color_toggle_checkbox.setChecked(
+            bool(self._theme.get("enable_table_directional_colors", False))
+        )
         colors_layout.addWidget(
-            _Label(
-                "Universal color code is used everywhere for up/positive and down/negative values. "
-                "Candle-only colors remain in chart settings.",
-                P.T1,
-                10,
-                bold=False,
+            self._build_toggle_card(
+                "TABLE COLOR BEHAVIOR",
+                "Apply the same up/down colors to scanner, watchlist, and positions table values.",
+                self.table_color_toggle_checkbox,
             )
         )
 
-        self.table_color_toggle_checkbox = _Toggle("ENABLE DIRECTIONAL COLORS IN DATA TABLES")
-        self.table_color_toggle_checkbox.setChecked(bool(self._theme.get("enable_table_directional_colors", False)))
-        colors_layout.addWidget(self.table_color_toggle_checkbox)
+        colors_layout.addWidget(self._build_color_section(
+            "Universal Color Code",
+            "Used everywhere for up / positive and down / negative market values.",
+            [
+                (
+                    "Up / Positive",
+                    "global.positive",
+                    self._theme["global"]["positive"],
+                    "Gains, advances, profits, and bullish price movement.",
+                ),
+                (
+                    "Down / Negative",
+                    "global.negative",
+                    self._theme["global"]["negative"],
+                    "Losses, declines, drawdowns, and bearish price movement.",
+                ),
+            ],
+        ))
 
-        colors_layout.addWidget(self._build_group("UNIVERSAL COLOR CODE", [
-            ("UP / POSITIVE", "global.positive", self._theme["global"]["positive"]),
-            ("DOWN / NEGATIVE", "global.negative", self._theme["global"]["negative"]),
-        ]))
-
-        colors_layout.addWidget(self._build_group("TABLE SUPPORT COLORS", [
-            ("NEUTRAL", "tables.neutral", self._theme["tables"]["neutral"]),
-            ("VOLUME TEXT", "tables.volume", self._theme["tables"]["volume"]),
-        ]))
+        colors_layout.addWidget(self._build_color_section(
+            "Table Support Colors",
+            "Secondary table text colors kept separate from candlestick chart settings.",
+            [
+                (
+                    "Neutral",
+                    "tables.neutral",
+                    self._theme["tables"]["neutral"],
+                    "Flat values, unchanged prices, muted labels, and fallback text.",
+                ),
+                (
+                    "Volume Text",
+                    "tables.volume",
+                    self._theme["tables"]["volume"],
+                    "Volume columns and liquidity-related values across data tables.",
+                ),
+            ],
+        ))
+        colors_layout.addStretch()
 
         self.tabs.addTab(colors_tab, "COLORS")
 
@@ -320,6 +348,94 @@ class ColorSettingsDialog(QDialog):
 
         root.addWidget(body_widget)
 
+    def _build_color_intro(self) -> QFrame:
+        card = QFrame()
+        card.setObjectName("colorIntroCard")
+        layout = QHBoxLayout(card)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(12)
+
+        text_stack = QVBoxLayout()
+        text_stack.setSpacing(3)
+        title = _Label("Color System", P.T0, 13, bold=True)
+        subtitle = _Label(
+            "Clean global colors for market direction. Candle-only styling stays in chart settings.",
+            P.T1,
+            10,
+        )
+        subtitle.setWordWrap(True)
+        text_stack.addWidget(title)
+        text_stack.addWidget(subtitle)
+        layout.addLayout(text_stack, 1)
+
+        badge = _Label("GLOBAL", P.BG0, 10, bold=True)
+        badge.setAlignment(Qt.AlignCenter)
+        badge.setFixedSize(72, 24)
+        badge.setObjectName("colorIntroBadge")
+        layout.addWidget(badge, 0, Qt.AlignTop)
+        return card
+
+    def _build_toggle_card(self, title: str, description: str, toggle: QCheckBox) -> QFrame:
+        card = QFrame()
+        card.setObjectName("settingCard")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(6)
+
+        title_label = _Label(title, P.AMBER, 9, bold=True)
+        title_label.setObjectName("sectionKicker")
+        description_label = _Label(description, P.T1, 10)
+        description_label.setWordWrap(True)
+
+        layout.addWidget(title_label)
+        layout.addWidget(description_label)
+        layout.addWidget(toggle)
+        return card
+
+    def _build_color_section(self, title: str, description: str, items: list) -> QFrame:
+        section = QFrame()
+        section.setObjectName("colorSection")
+        layout = QVBoxLayout(section)
+        layout.setContentsMargins(12, 10, 12, 12)
+        layout.setSpacing(8)
+
+        header = QVBoxLayout()
+        header.setSpacing(2)
+        title_label = _Label(title, P.T0, 11, bold=True)
+        description_label = _Label(description, P.T1, 10)
+        description_label.setWordWrap(True)
+        header.addWidget(title_label)
+        header.addWidget(description_label)
+        layout.addLayout(header)
+
+        for index, (label_text, key, initial_val, helper_text) in enumerate(items):
+            row = self._build_color_row(label_text, key, initial_val, helper_text)
+            if index == 0:
+                row.setProperty("firstRow", True)
+            layout.addWidget(row)
+
+        return section
+
+    def _build_color_row(self, label_text: str, key: str, initial_val: str, helper_text: str) -> QFrame:
+        row = QFrame()
+        row.setObjectName("colorRow")
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 8, 0, 0)
+        layout.setSpacing(12)
+
+        label_stack = QVBoxLayout()
+        label_stack.setSpacing(2)
+        label = _Label(label_text, P.T0, 10, bold=True)
+        helper = _Label(helper_text, P.T2, 9)
+        helper.setWordWrap(True)
+        label_stack.addWidget(label)
+        label_stack.addWidget(helper)
+        layout.addLayout(label_stack, 1)
+
+        btn = self._build_color_button(key, initial_val)
+        layout.addWidget(btn, 0, Qt.AlignVCenter)
+        return row
+
     def _build_header(self) -> QFrame:
         f = QFrame()
         f.setObjectName("header")
@@ -341,25 +457,12 @@ class ColorSettingsDialog(QDialog):
         h.addWidget(self._close_btn)
         return f
 
-    def _build_group(self, title: str, items: list) -> QGroupBox:
-        group = QGroupBox(title)
-        form = QFormLayout(group)
-        form.setContentsMargins(8, 9, 8, 8)
-        form.setVerticalSpacing(5)
-        form.setHorizontalSpacing(10)
-
-        for label_text, key, initial_val in items:
-            lbl = _Label(label_text, P.T1, 10, bold=True)
-            btn = self._build_color_button(key, initial_val)
-            form.addRow(lbl, btn)
-
-        return group
-
     def _build_color_button(self, key: str, value: str) -> QPushButton:
         btn = QPushButton()
+        btn.setObjectName("colorSwatchButton")
         btn.setCursor(QCursor(Qt.PointingHandCursor))
-        btn.setFixedHeight(22)
-        btn.setFixedWidth(92)
+        btn.setFixedHeight(30)
+        btn.setFixedWidth(122)
         btn.clicked.connect(lambda: self._pick_color(key))
         self._buttons[key] = btn
         self._set_button_color(btn, value)
@@ -376,13 +479,13 @@ class ColorSettingsDialog(QDialog):
             QPushButton {{
                 background-color: {color_hex};
                 color: {text_color};
-                border: 1px solid rgba(232,240,255,0.18);
-                border-radius: 2px;
+                border: 1px solid rgba(232,240,255,0.24);
+                border-radius: 4px;
                 font-family: {FONT_MONO};
                 font-size: 10px;
-                font-weight: 800;
-                letter-spacing: 0.2px;
-                padding: 0 4px;
+                font-weight: 850;
+                letter-spacing: 0.35px;
+                padding: 0 8px;
             }}
             QPushButton:hover {{
                 border: 1px solid {P.CYAN};
@@ -466,6 +569,41 @@ class ColorSettingsDialog(QDialog):
             QTabBar::tab:hover:!selected {{
                 background: {P.BG3};
                 color: {P.T1};
+            }}
+
+            QFrame#colorIntroCard {{
+                background: {P.BG2};
+                border: 1px solid {P.BG4};
+                border-radius: 4px;
+            }}
+            QLabel#colorIntroBadge {{
+                background: {P.AMBER};
+                color: {P.BG0};
+                border-radius: 3px;
+                font-family: {FONT_UI};
+                font-size: 9px;
+                font-weight: 900;
+                letter-spacing: 1.0px;
+            }}
+            QFrame#settingCard,
+            QFrame#colorSection {{
+                background: {P.BG2};
+                border: 1px solid {P.BG4};
+                border-radius: 4px;
+            }}
+            QFrame#settingCard:hover,
+            QFrame#colorSection:hover {{
+                border: 1px solid {P.BORDER2};
+            }}
+            QFrame#colorRow {{
+                background: transparent;
+                border-top: 1px solid {P.BORDER};
+            }}
+            QFrame#colorRow[firstRow="true"] {{
+                border-top: 1px solid transparent;
+            }}
+            QLabel#sectionKicker {{
+                letter-spacing: 1.0px;
             }}
 
             QGroupBox {{
