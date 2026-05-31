@@ -7,6 +7,7 @@
  *   - FixedTradingChart class (self-contained, no external deps)
  *   - HiDPI canvas setup (sharp on Retina / 4K displays)
  *   - requestAnimationFrame render loop with dirty-flag (no wasted redraws)
+ *   - Timestamp index cache + binary-search overlay rendering for large datasets
  *   - Candle rendering: TC2000-style body + wick + subtle border
  *   - Volume bars: max-visible normalised (no percentile clipping)
  *   - Overlays: EMA10/20/50/200 with right-edge price labels
@@ -29,6 +30,10 @@
  */
 
 'use strict';
+
+// Professional upgrade applied to the CURRENT uploaded renderer.
+// Build marker makes it easy to verify the right chart.js is loaded in QWebEngine devtools.
+const CHART_RENDERER_BUILD = 'professional-current-upload-v2-2026-05-31';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -73,7 +78,7 @@ class FixedTradingChart {
     constructor(cfg) {
         // ── Canvas ──
         this.canvas = document.getElementById(cfg.canvasId);
-        this.ctx = this.canvas.getContext('2d', { alpha: false, desynchronized: false });
+        this.ctx = this._createCanvasContext(this.canvas);
         this.dpr = 1;
         this.renderQualityMultiplier = Number.isFinite(cfg.renderQualityMultiplier)
             ? Math.min(Math.max(cfg.renderQualityMultiplier, 1), 2)
@@ -84,8 +89,16 @@ class FixedTradingChart {
         this.data = cfg.candlestickData || [];
         this.volumeData = cfg.volumeData || this.data.map(c => ({ time: c.time, value: Number(c.volume) || 0 }));
         this.emaData = cfg.emaData || {};
-        this.movingAverageConfigs = cfg.movingAverageConfigs || this.movingAverageConfigs || [];
         this.movingAverageConfigs = cfg.movingAverageConfigs || [];
+        this._timeIndex = [];
+        this._cachedAverageSpan = null;
+        this._timeRangeCache = new WeakMap();
+        this._extendedHoursCache = new WeakMap();
+        this._priceTickCacheKey = '';
+        this._priceTickCache = null;
+        this._volVpKey = null;
+        this._cachedMaxVolume = 1;
+        this._rebuildTimeIndex();
         this.currentADR = cfg.initialADR || {};
         this.percentageChanges = cfg.percentageChanges || {};
         this.currentInterval = cfg.currentInterval || 'day';
@@ -106,23 +119,25 @@ class FixedTradingChart {
         // ── Settings ──
         this.colors = {
             bg:          '#050709',
-            bgGradTop:   '#050709',
-            bgGradBot:   '#050709',
-            grid:        'rgba(26,32,48,0.72)',
-            gridMinor:   'rgba(26,32,48,0.42)',
+            bgGradTop:   '#05080C',
+            bgGradBot:   '#070B12',
+            paneBg:      '#060A10',
+            grid:        'rgba(26,32,48,0.66)',
+            gridMinor:   'rgba(38,50,71,0.34)',
+            frame:       'rgba(38,50,71,0.72)',
             text:        '#5A7090',
-            textBright:  '#A8BCD4',
-            crosshair:   'rgba(168,188,212,0.30)',
+            textBright:  '#B8C7DA',
+            crosshair:   'rgba(184,199,218,0.28)',
             livePrice:   '#E8F0FF',
             upCandle:    cfg.upCandleColor   || '#00D4A8',
             downCandle:  cfg.downCandleColor || '#FF4D6A',
-            dojiCandle:  '#5A7090',
-            extendedHoursCandle: '#7A8492',
-            extendedHoursWick:   '#9AA4B2',
-            upWick:      '#00A987',
-            downWick:    '#CC3D56',
-            upOhlc:      '#00D4A8',
-            downOhlc:    '#FF4D6A',
+            dojiCandle:  '#7A8798',
+            extendedHoursCandle: '#64748B',
+            extendedHoursWick:   '#94A3B8',
+            upWick:      cfg.upCandleColor   || '#00D4A8',
+            downWick:    cfg.downCandleColor || '#FF4D6A',
+            upOhlc:      cfg.upCandleColor   || '#00D4A8',
+            downOhlc:    cfg.downCandleColor || '#FF4D6A',
         };
 
         // ── Viewport ──
@@ -133,7 +148,6 @@ class FixedTradingChart {
         this.candleWidth   = cfg.initialCandleWidth   || 8;   // body+wick pixel width — user control
         this.candleSpacing = cfg.initialCandleSpacing || 2;   // gap between candles in px
         this.visibleCandleCount = 100;                         // computed — don't use cfg value
-        this.initialVisibleCandleCount = Number(cfg.initialVisibleCandleCount || cfg.visibleCandleCount || 0);
         this.viewPortEnd   = this._viewportEndFromRightOffset(cfg.viewportRightOffset);
         this.viewPortStart = 0;                                // recalculated in _updateViewport()
 
@@ -234,7 +248,6 @@ class FixedTradingChart {
 
     async _init() {
         this._setupCanvas();
-        this._applyVisibleCandlePreference(this.initialVisibleCandleCount);
         this._updateViewport();   // derive visibleCount + viewPortStart from fixed slot width
         this._setupSlider();
         this.calculateBounds();
@@ -242,11 +255,17 @@ class FixedTradingChart {
         this._setupEventListeners();
         this._setupWebChannel();
         this._rebuildHeikinAshiData();
-        this._rebuildHeikinAshiData();
         this.requestDraw();
         this.updateSlider();
         this._displayLatestCandleDetails();
         this._updateMetricsDisplay();
+    }
+
+    _createCanvasContext(canvas) {
+        // Low-latency canvas when Chromium supports it; reliable fallback for older QtWebEngine.
+        return canvas.getContext('2d', { alpha: false, desynchronized: true })
+            || canvas.getContext('2d', { alpha: false })
+            || canvas.getContext('2d');
     }
 
     _setupCanvas() {
@@ -266,9 +285,17 @@ class FixedTradingChart {
         this.height = h;
         this._updateChartAreas();
 
-        // Handle resize
-        const ro = new ResizeObserver(() => this._onResize());
-        ro.observe(this.canvas.parentElement || document.body);
+        // Handle resize — throttle ResizeObserver bursts to one render pass.
+        this._resizeQueued = false;
+        this._resizeObserver = new ResizeObserver(() => {
+            if (this._resizeQueued) return;
+            this._resizeQueued = true;
+            requestAnimationFrame(() => {
+                this._resizeQueued = false;
+                this._onResize();
+            });
+        });
+        this._resizeObserver.observe(this.canvas.parentElement || document.body);
     }
 
     _onResize() {
@@ -395,22 +422,6 @@ class FixedTradingChart {
         return this.candleWidth + this.candleSpacing;
     }
 
-
-    _applyVisibleCandlePreference(count) {
-        // First HTML render receives the persisted density as a candle count,
-        // while the renderer itself stores zoom as a fixed candleWidth. Convert
-        // the count to the same slot geometry used by loadNewData() so app
-        // startup and later symbol clicks open with identical density.
-        const desiredCount = Number(count);
-        if (!Number.isFinite(desiredCount) || desiredCount <= 0 || !this.chartArea) return;
-        const desiredW = Math.max(2, Math.min(60,
-            Math.floor(this.chartArea.width / desiredCount) - this.candleSpacing
-        ));
-        if (Math.abs(desiredW - this.candleWidth) > 1) {
-            this.candleWidth = desiredW;
-        }
-    }
-
     _updateViewport() {
         // Derive how many candles fit given the current chartArea width and slot size.
         // viewPortEnd is the anchor (panned position); viewPortStart follows.
@@ -434,36 +445,165 @@ class FixedTradingChart {
     }
 
     _computeRightAxisWidth() {
-        const minAxisWidth = 48;
-        const maxAxisWidth = 120;
-        const fallbackWidth = 82;
+        const minAxisWidth = 54;
+        const maxAxisWidth = 124;
+        const fallbackWidth = 86;
         if (!this.ctx) return fallbackWidth;
 
-        const priceRange = this.maxPrice - this.minPrice;
-        if (!Number.isFinite(priceRange) || priceRange <= 0) return fallbackWidth;
-
-        const minGapPx = 26;
-        const chartHeight = this.chartArea?.height || Math.max(120, this.height * 0.75);
-        const ticks = Math.max(6, Math.floor(chartHeight / minGapPx));
-        const step = this._niceStep(priceRange / ticks);
-        const minR = Math.floor(this.minPrice / step) * step;
-        const maxR = Math.ceil(this.maxPrice / step) * step;
-        const decimals = this._priceDecimals(step);
+        const ticks = this._priceAxisTicks(26);
+        if (!ticks || !ticks.values || ticks.values.length === 0) return fallbackWidth;
 
         const prevFont = this.ctx.font;
-        this.ctx.font = this._axisFont(10, 500);
+        this.ctx.font = this._axisFont(10, 600);
 
         let maxTextWidth = 0;
-        for (let p = minR; p <= maxR + step * 0.5; p += step) {
-            const label = p.toFixed(decimals);
+        for (const p of ticks.values) {
+            const label = this._formatAxisPrice(p, ticks.decimals);
             maxTextWidth = Math.max(maxTextWidth, this.ctx.measureText(label).width);
         }
 
         this.ctx.font = prevFont;
 
-        // 5px tick + 6px gap after tick + label + 6px right padding
-        const dynamicWidth = Math.ceil(maxTextWidth + 5 + 6 + 6);
+        // Tick + left padding + label + right padding. Wider minimum gives USD/INR labels breathing room.
+        const dynamicWidth = Math.ceil(maxTextWidth + 22);
         return Math.max(minAxisWidth, Math.min(maxAxisWidth, dynamicWidth));
+    }
+
+    _priceAxisTicks(minGapPx = 26) {
+        const priceRange = this.maxPrice - this.minPrice;
+        if (!Number.isFinite(priceRange) || priceRange <= 0) return null;
+
+        const chartHeight = Math.max(1, this.chartArea?.height || Math.max(120, this.height * 0.75));
+        const targetTicks = Math.max(6, Math.floor(chartHeight / Math.max(18, minGapPx)));
+        const cacheKey = [
+            this.minPrice.toFixed(8),
+            this.maxPrice.toFixed(8),
+            Math.round(chartHeight),
+            Math.round(minGapPx),
+            targetTicks,
+        ].join('|');
+
+        if (this._priceTickCacheKey === cacheKey && this._priceTickCache) {
+            return this._priceTickCache;
+        }
+
+        const step = this._niceStep(priceRange / targetTicks);
+        const minR = Math.floor(this.minPrice / step) * step;
+        const maxR = Math.ceil(this.maxPrice / step) * step;
+        const decimals = this._priceDecimals(step);
+        const values = [];
+        // Safety cap protects the render loop from pathological floating-point steps.
+        for (let p = minR, guard = 0; p <= maxR + step * 0.5 && guard < 100; p += step, guard++) {
+            values.push(Number(p.toFixed(Math.min(decimals + 2, 10))));
+        }
+
+        this._priceTickCacheKey = cacheKey;
+        this._priceTickCache = { values, step, decimals };
+        return this._priceTickCache;
+    }
+
+    _formatAxisPrice(value, decimals) {
+        const n = Number(value);
+        if (!Number.isFinite(n)) return '';
+        const d = Math.max(0, Math.min(8, Number(decimals) || 0));
+        return n.toFixed(d);
+    }
+
+    _rebuildTimeIndex() {
+        this._timeIndex = Array.isArray(this.data)
+            ? this.data.map(c => Number(c?.time)).map(t => Number.isFinite(t) ? t : 0)
+            : [];
+        this._cachedAverageSpan = null;
+        this._timeRangeCache = new WeakMap();
+    }
+
+    _ensureTimeIndex() {
+        if (!Array.isArray(this._timeIndex) || this._timeIndex.length !== (this.data?.length || 0)) {
+            this._rebuildTimeIndex();
+        }
+    }
+
+    _lowerBoundTime(time) {
+        this._ensureTimeIndex();
+        const target = Number(time);
+        if (!Number.isFinite(target)) return 0;
+        let lo = 0;
+        let hi = this._timeIndex.length;
+        while (lo < hi) {
+            const mid = (lo + hi) >> 1;
+            if (this._timeIndex[mid] < target) lo = mid + 1;
+            else hi = mid;
+        }
+        return lo;
+    }
+
+    _upperBoundTime(time) {
+        this._ensureTimeIndex();
+        const target = Number(time);
+        if (!Number.isFinite(target)) return 0;
+        let lo = 0;
+        let hi = this._timeIndex.length;
+        while (lo < hi) {
+            const mid = (lo + hi) >> 1;
+            if (this._timeIndex[mid] <= target) lo = mid + 1;
+            else hi = mid;
+        }
+        return lo;
+    }
+
+    _pointRangeByTime(points, firstTime, lastTime) {
+        if (!Array.isArray(points) || points.length === 0) return [0, -1];
+        const first = Number(firstTime);
+        const last = Number(lastTime);
+        if (!Number.isFinite(first) || !Number.isFinite(last)) return [0, -1];
+
+        // Cache the last visible range per indicator array. A WeakMap avoids
+        // retaining old arrays after a symbol reload.
+        const cached = this._timeRangeCache?.get(points);
+        if (cached && cached.first === first && cached.last === last) {
+            return [cached.start, cached.end];
+        }
+
+        let lo = 0;
+        let hi = points.length;
+        while (lo < hi) {
+            const mid = (lo + hi) >> 1;
+            const t = Number(points[mid]?.time);
+            if (!Number.isFinite(t) || t < first) lo = mid + 1;
+            else hi = mid;
+        }
+        const start = lo;
+
+        lo = start;
+        hi = points.length;
+        while (lo < hi) {
+            const mid = (lo + hi) >> 1;
+            const t = Number(points[mid]?.time);
+            if (Number.isFinite(t) && t <= last) lo = mid + 1;
+            else hi = mid;
+        }
+        const end = lo - 1;
+
+        if (this._timeRangeCache) {
+            this._timeRangeCache.set(points, { first, last, start, end });
+        }
+        return [start, end];
+    }
+
+    _visibleIndexRange(pad = 1) {
+        const start = Math.max(0, Math.floor(this.viewPortStart) - pad);
+        const end = Math.min((this.data?.length || 0) - 1, Math.ceil(this.viewPortEnd) + pad);
+        return { start, end };
+    }
+
+    _invalidateRenderCaches() {
+        this._rebuildTimeIndex();
+        this._extendedHoursCache = new WeakMap();
+        this._priceTickCacheKey = '';
+        this._priceTickCache = null;
+        this._volVpKey = null;
+        this._cachedMaxVolume = 1;
+        this._intradayTimestampsAlreadyIst = null;
     }
 
     _initDrawings(json) {
@@ -603,10 +743,7 @@ class FixedTradingChart {
         try {
             ctx.clearRect(0, 0, this.width, this.height);
 
-            // Flat background to avoid a raised/sunken seam illusion
-            // where the chart meets the embedded watchlist panel.
-            ctx.fillStyle = this.colors.bg;
-            ctx.fillRect(0, 0, this.width, this.height);
+            this._drawChartBackdrop();
 
             if (this.data.length === 0) {
                 ctx.fillStyle = this.colors.text;
@@ -646,23 +783,67 @@ class FixedTradingChart {
     // BACKGROUND / GRID
     // ═══════════════════════════════════════════════════════════════════════
 
+    _drawChartBackdrop() {
+        const ctx = this.ctx;
+        const g = ctx.createLinearGradient(0, 0, 0, Math.max(1, this.height));
+        g.addColorStop(0, this.colors.bgGradTop || this.colors.bg);
+        g.addColorStop(0.55, this.colors.bg || '#050709');
+        g.addColorStop(1, this.colors.bgGradBot || this.colors.bg);
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, this.width, this.height);
+
+        // Subtle pane polish: a calm top highlight and bottom weight, no glow.
+        ctx.fillStyle = 'rgba(255,255,255,0.012)';
+        ctx.fillRect(this.chartArea.x, this.chartArea.y, this.chartArea.width, 1);
+        ctx.fillStyle = 'rgba(0,0,0,0.20)';
+        ctx.fillRect(this.chartArea.x, this._paneBottom() - 1, this.chartArea.width, 1);
+
+        this._drawExtendedHoursBackground();
+    }
+
+    _drawExtendedHoursBackground() {
+        if (this.brokerName !== 'ibkr' || !String(this.currentInterval || '').includes('minute')) return;
+        if (!this.showPremarketCandles && !this.showPostmarketCandles) return;
+        const ctx = this.ctx;
+        const { start, end } = this._visibleIndexRange(1);
+        if (end < start) return;
+
+        ctx.save();
+        ctx.fillStyle = 'rgba(100,116,139,0.045)';
+        let segStart = null;
+        let segEnd = null;
+        const flush = () => {
+            if (segStart === null || segEnd === null || segEnd <= segStart) return;
+            ctx.fillRect(segStart, this.chartArea.y, segEnd - segStart, this.chartArea.height);
+            segStart = null;
+            segEnd = null;
+        };
+
+        for (let i = start; i <= end; i++) {
+            const c = this.data[i];
+            const isExt = this._isIbkrExtendedHoursCandle(c);
+            if (!isExt) { flush(); continue; }
+            const x1 = this._candleToX(i);
+            const x2 = x1 + this._slotW();
+            if (segStart === null) segStart = x1;
+            segEnd = x2;
+        }
+        flush();
+        ctx.restore();
+    }
+
     _drawGrid() {
         const ctx = this.ctx;
-        const priceRange = this.maxPrice - this.minPrice;
-        if (priceRange <= 0) return;
-
-        const minGapPx = 26;
-        const targetTicks = Math.max(6, Math.floor(this.chartArea.height / minGapPx));
-        const step = this._niceStep(priceRange / targetTicks);
-        const minR = Math.floor(this.minPrice / step) * step;
-        const maxR = Math.ceil(this.maxPrice  / step) * step;
+        const ticks = this._priceAxisTicks(26);
+        if (!ticks || !ticks.values.length) return;
 
         ctx.setLineDash([]);
-        for (let p = minR; p <= maxR + step * 0.5; p += step) {
-            const y = this._priceToY(p);
-            if (y < this.chartArea.y || y > this.chartArea.y + this.chartArea.height) continue;
+        for (const p of ticks.values) {
+            const yRaw = this._priceToY(p);
+            if (yRaw < this.chartArea.y || yRaw > this.chartArea.y + this.chartArea.height) continue;
+            const y = Math.round(yRaw) + 0.5;
 
-            // Minor grid line
+            // Calm institutional grid: visible enough for reading, never noisy.
             ctx.strokeStyle = this.colors.gridMinor;
             ctx.lineWidth = 0.5;
             ctx.beginPath();
@@ -675,8 +856,8 @@ class FixedTradingChart {
         ctx.strokeStyle = this.colors.grid;
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(this.chartArea.x + this.chartArea.width, this.chartArea.y);
-        ctx.lineTo(this.chartArea.x + this.chartArea.width, this._paneBottom());
+        ctx.moveTo(Math.round(this.chartArea.x + this.chartArea.width) + 0.5, this.chartArea.y);
+        ctx.lineTo(Math.round(this.chartArea.x + this.chartArea.width) + 0.5, this._paneBottom());
         ctx.stroke();
     }
 
@@ -690,7 +871,8 @@ class FixedTradingChart {
         ctx.lineWidth = 1;
         ctx.setLineDash([3, 5]);
 
-        for (let i = Math.max(0, this.viewPortStart - 1); i <= this.viewPortEnd + 1 && i < this.data.length; i++) {
+        const { start, end } = this._visibleIndexRange(1);
+        for (let i = start; i <= end; i++) {
             const d = this._exchangeDate(this.data[i].time);
             if (d.getUTCHours() === marketOpenHour && d.getUTCMinutes() === marketOpenMin) {
                 const x = this._candleToX(i) + this.candleWidth / 2;
@@ -707,7 +889,8 @@ class FixedTradingChart {
         if (this.currentInterval !== 'day' && this.currentInterval !== 'week') return;
         const ctx = this.ctx;
 
-        for (let i = Math.max(1, this.viewPortStart - 1); i <= this.viewPortEnd + 1 && i < this.data.length; i++) {
+        const { start, end } = this._visibleIndexRange(1);
+        for (let i = Math.max(1, start); i <= end; i++) {
             const cur  = this.data[i];
             const prev = this.data[i - 1];
             if (!prev) continue;
@@ -743,13 +926,14 @@ class FixedTradingChart {
         // candleWidth is user-fixed — never recalculate to fill space.
         const bodyInset = this.candleWidth >= 8 ? 0.5 : 0.25;
         const bodyW     = Math.max(1, this.candleWidth - bodyInset * 2);
-        const wickW     = this._snapStrokeWidth(this.candleWidth >= 7 ? 1.5 : 1);
-        const drawBorder = this.candleWidth >= 6;
+        const wickW     = this._snapStrokeWidth(this.candleWidth >= 7 ? 1.35 : 1);
+        const drawBorder = this.candleWidth >= 7;
+        const { start, end } = this._visibleIndexRange(1);
 
         ctx.lineJoin = 'miter';
         ctx.lineCap  = 'butt';
 
-        for (let i = Math.max(0, this.viewPortStart - 1); i < series.length && i <= this.viewPortEnd + 1; i++) {
+        for (let i = start; i < series.length && i <= end; i++) {
             if (i < 0) continue;
             const c = series[i];
             const x = this._candleToX(i);
@@ -764,7 +948,7 @@ class FixedTradingChart {
             const isExtendedHours = this._isIbkrExtendedHoursCandle(c);
             const col    = isExtendedHours ? this.colors.extendedHoursCandle : (isDoji ? this.colors.dojiCandle : (isUp ? this.colors.upCandle : this.colors.downCandle));
             const wick   = isExtendedHours ? this.colors.extendedHoursWick : (isDoji ? this.colors.dojiCandle : (isUp ? this.colors.upWick : this.colors.downWick));
-            const brdr   = wick;
+            const brdr   = isExtendedHours ? 'rgba(148,163,184,0.88)' : (isDoji ? 'rgba(122,135,152,0.90)' : col);
             const cx    = x + this.candleWidth / 2;
 
             // Wick
@@ -781,12 +965,12 @@ class FixedTradingChart {
             const bx     = x + bodyInset;
 
             ctx.fillStyle = col;
-            ctx.fillRect(bx, topY, bodyW, bodyH);
+            ctx.fillRect(Math.round(bx), Math.round(topY), Math.max(1, Math.round(bodyW)), Math.max(1, Math.round(bodyH)));
 
             if (drawBorder) {
                 ctx.strokeStyle = brdr;
-                ctx.lineWidth   = this._snapStrokeWidth(0.7);
-                ctx.strokeRect(bx + 0.5, topY + 0.5, Math.max(0, bodyW - 1), Math.max(0, bodyH - 1));
+                ctx.lineWidth   = this._snapStrokeWidth(0.65);
+                ctx.strokeRect(Math.round(bx) + 0.5, Math.round(topY) + 0.5, Math.max(0, Math.round(bodyW) - 1), Math.max(0, Math.round(bodyH) - 1));
             }
         }
 
@@ -816,7 +1000,7 @@ class FixedTradingChart {
                 const topY  = Math.min(openY, clY);
                 const bodyH = Math.max(1, Math.abs(clY - openY));
                 ctx.fillStyle = col;
-                ctx.fillRect(bx, topY, bodyW, bodyH);
+                ctx.fillRect(Math.round(bx), Math.round(topY), Math.max(1, Math.round(bodyW)), Math.max(1, Math.round(bodyH)));
             }
         }
     }
@@ -931,32 +1115,38 @@ class FixedTradingChart {
         if (!Number.isFinite(firstTime) || !Number.isFinite(lastTime)) return;
 
         const ctx = this.ctx;
+        ctx.save();
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
         for (const cfg of this.movingAverageConfigs) {
             const key = String(cfg?.id || '');
             if (!key || this.indicatorVisibility?.[key] !== true) continue;
-            if (String(cfg?.type || '').toLowerCase() === 'ao') continue;
+            const type = String(cfg?.type || '').toLowerCase();
+            if (type === 'ao' || type === 'volume') continue;
 
             const points = this.emaData[key];
             if (!Array.isArray(points) || points.length === 0) continue;
+
+            const [pStart, pEnd] = this._pointRangeByTime(points, firstTime, lastTime);
+            if (pEnd < pStart) continue;
 
             const thickness = Math.max(0.5, Number(cfg?.thickness) || 1.2);
             const style = String(cfg?.line_style || 'solid');
             const dash = style === 'dashed' ? [8, 4] : (style === 'dotted' ? [2, 4] : []);
 
-            ctx.save();
             ctx.strokeStyle = cfg?.color || '#00D4FF';
-            ctx.lineWidth = thickness;
+            ctx.lineWidth = this._snapStrokeWidth(thickness);
             ctx.setLineDash(dash);
             ctx.beginPath();
 
             let started = false;
-            for (const p of points) {
+            for (let j = pStart; j <= pEnd; j++) {
+                const p = points[j];
                 const t = Number(p?.time);
                 const v = Number(p?.value);
                 if (!Number.isFinite(t) || !Number.isFinite(v)) continue;
-                if (t < firstTime || t > lastTime) continue;
 
-                const x = this._timeToX(t);
+                const x = this._timeToX(t) + this.candleWidth / 2;
                 const y = this._priceToY(v);
                 if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
 
@@ -969,8 +1159,8 @@ class FixedTradingChart {
             }
 
             if (started) ctx.stroke();
-            ctx.restore();
         }
+        ctx.restore();
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -1081,10 +1271,16 @@ class FixedTradingChart {
         const end = Math.min(this.data.length - 1, this.viewPortEnd);
         if (end < start) return;
 
-        let maxVol = 0;
-        for (let i = start; i <= end; i++) {
-            const v = Number(this.data[i]?.volume) || 0;
-            if (v > maxVol) maxVol = v;
+        const vpKey = `${start}:${end}:${this.data.length}`;
+        let maxVol = this._cachedMaxVolume || 0;
+        if (this._volVpKey !== vpKey || maxVol <= 0) {
+            maxVol = 0;
+            for (let i = start; i <= end; i++) {
+                const v = Number(this.data[i]?.volume) || 0;
+                if (v > maxVol) maxVol = v;
+            }
+            this._volVpKey = vpKey;
+            this._cachedMaxVolume = maxVol;
         }
         if (maxVol <= 0) return;
 
@@ -1137,19 +1333,21 @@ class FixedTradingChart {
             if (!key || this.indicatorVisibility?.[key] !== true) continue;
             const points = this.emaData[key];
             if (!Array.isArray(points) || points.length === 0) continue;
-            const visible = points.filter((p) => {
-                const t = Number(p?.time);
-                return Number.isFinite(t) && t >= Number(this.data[start]?.time) && t <= Number(this.data[end]?.time);
-            });
-            if (visible.length === 0) continue;
+            const firstTime = Number(this.data[start]?.time);
+            const lastTime = Number(this.data[end]?.time);
+            const [pStart, pEnd] = this._pointRangeByTime(points, firstTime, lastTime);
+            if (pEnd < pStart) continue;
             let maxAbs = 0;
-            for (const p of visible) maxAbs = Math.max(maxAbs, Math.abs(Number(p?.value) || 0));
+            for (let j = pStart; j <= pEnd; j++) {
+                maxAbs = Math.max(maxAbs, Math.abs(Number(points[j]?.value) || 0));
+            }
             if (maxAbs <= 0) continue;
             const upColor = String(cfg?.ao_green_color || '#00D4A8');
             const downColor = String(cfg?.ao_red_color || '#FF4D6A');
             const zeroY = paneTop + paneHeight / 2;
 
-            for (const p of visible) {
+            for (let j = pStart; j <= pEnd; j++) {
+                const p = points[j];
                 const t = Number(p?.time);
                 const v = Number(p?.value);
                 const d = Number(p?.diff);
@@ -1256,11 +1454,9 @@ class FixedTradingChart {
 
         // ── Price ticks & labels ──────────────────────────────────────────
         const minGapPx = 28;
-        const ticks    = Math.max(6, Math.floor(this.chartArea.height / minGapPx));
-        const step     = this._niceStep(priceRange / ticks);
-        const minR     = Math.floor(this.minPrice / step) * step;
-        const maxR     = Math.ceil(this.maxPrice  / step) * step;
-        const decimals = this._priceDecimals(step);
+        const ticks = this._priceAxisTicks(minGapPx);
+        if (!ticks || !ticks.values.length) return;
+        const decimals = ticks.decimals;
 
         // Keep tick labels optically aligned and away from the hard right edge.
         const tickLabelPadLeft  = 10;
@@ -1290,11 +1486,12 @@ class FixedTradingChart {
         }
 
         let lastY = -Infinity;
-        for (let p = minR; p <= maxR + step * 0.5; p += step) {
-            const y = this._priceToY(p);
-            if (y < axisTop + 8 || y > priceChartBottom - 8) continue;
-            if (axisSplitY !== null && Math.abs(y - axisSplitY) < splitBufferPx) continue;
-            if (Math.abs(y - lastY) < minGapPx) continue;
+        for (const p of ticks.values) {
+            const rawY = this._priceToY(p);
+            if (rawY < axisTop + 8 || rawY > priceChartBottom - 8) continue;
+            if (axisSplitY !== null && Math.abs(rawY - axisSplitY) < splitBufferPx) continue;
+            if (Math.abs(rawY - lastY) < minGapPx) continue;
+            const y = Math.round(rawY) + 0.5;
 
             // Grid line echo — a very faint horizontal rule inside the axis panel
             ctx.strokeStyle = 'rgba(26,32,48,0.42)';
@@ -1314,8 +1511,8 @@ class FixedTradingChart {
 
             // Label — left-aligned inside the axis gutter for cleaner visual rhythm
             ctx.fillStyle = this.colors.textBright;
-            ctx.fillText(p.toFixed(decimals), tickLabelX, y, tickLabelMaxW);
-            lastY = y;
+            ctx.fillText(this._formatAxisPrice(p, decimals), tickLabelX, y, tickLabelMaxW);
+            lastY = rawY;
         }
 
         this._drawVolumeScaleOnPriceAxis(axisX, axisW, tickLabelX, tickLabelMaxW);
@@ -1465,7 +1662,12 @@ class FixedTradingChart {
 
         const reservedLabelBounds = [];
         const pendingLabels = [];
+        let todayMarker = null;
 
+        const clampLabelX = (x, width) => {
+            const half = Math.min(width / 2, axisLabelWidth / 2);
+            return Math.max(axisLabelLeft + half, Math.min(x, axisLabelRight - half));
+        };
         const boundsFor = (x, width) => ({
             left: x - (width / 2) - labelGap,
             right: x + (width / 2) + labelGap,
@@ -1478,8 +1680,23 @@ class FixedTradingChart {
             reservedLabelBounds.sort((a, b) => a.left - b.left);
         };
 
+        // Reserve today's highlighted date before placing regular ticks. This keeps
+        // neighbouring labels from being drawn under the orange marker when the
+        // time axis gets compressed by zooming out or resizing the chart.
+        ctx.font = this._axisFont(10, 700);
+        for (const pt of candidates) {
+            if (!pt.isToday) continue;
+            const rawX = this._timeToX(pt.time);
+            const width = Math.min(ctx.measureText(pt.label).width + 10, axisLabelWidth);
+            const x = clampLabelX(rawX, width);
+            todayMarker = { ...pt, x, width };
+            reserveBounds(boundsFor(x, width));
+            break;
+        }
+
         ctx.font = this._axisFont(10, 500);
         for (const pt of candidates) {
+            if (pt.isToday) continue;
             const x = this._timeToX(pt.time);
             if (x < axisLabelLeft || x > axisLabelRight) continue;
             const width = Math.min(ctx.measureText(pt.label).width + 8, axisLabelWidth);
@@ -1501,6 +1718,13 @@ class FixedTradingChart {
             ctx.fillText(pt.label, pt.x, timeAxisMidY, pt.width);
         }
 
+        if (todayMarker) {
+            ctx.fillStyle = '#F59E0B';
+            ctx.font = this._axisFont(10, 700);
+            ctx.fillText(todayMarker.label, todayMarker.x, timeAxisMidY, todayMarker.width);
+            ctx.fillStyle = this.colors.text;
+            ctx.font = this._axisFont(10, 500);
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -2165,7 +2389,7 @@ class FixedTradingChart {
         canvas.parentNode.replaceChild(fresh, canvas);
 
         this.canvas = fresh;
-        this.ctx = fresh.getContext('2d');
+        this.ctx = this._createCanvasContext(fresh);
         const dpr = this._getEffectiveDpr();
         this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         this.drawingEngine.canvas = fresh;
@@ -2194,7 +2418,10 @@ class FixedTradingChart {
         fresh.addEventListener('contextmenu', e => this._onRightClick(e));
         fresh.addEventListener('dblclick', e => this._onDoubleClick(e));
 
-        document.addEventListener('keydown', e => {
+        if (this._boundDocumentKeydown) {
+            document.removeEventListener('keydown', this._boundDocumentKeydown);
+        }
+        this._boundDocumentKeydown = e => {
             const tag = document.activeElement?.tagName;
             if (tag === 'INPUT' || tag === 'TEXTAREA') return;
             // Ctrl/Cmd+Z,Y handled by DrawingEngine
@@ -2205,7 +2432,8 @@ class FixedTradingChart {
                 if (selectedId) this.drawingEngine.deleteDrawing(selectedId);
             }
             if (e.key === 'F5') this._force_refresh?.();
-        });
+        };
+        document.addEventListener('keydown', this._boundDocumentKeydown);
     }
 
     _getEffectiveDpr() {
@@ -2288,13 +2516,16 @@ class FixedTradingChart {
                 if (engine) engine.rebuildSpatialHash();
             }
 
-            // Hard boundaries to stop panning past edges.  Do not request
-            // more history from inside a drag gesture: the chart should remain
-            // interactive with the candles it already received, and hitting
-            // the left edge must not trigger a reload that snaps back to the
-            // latest candles.
+            // Hard boundaries to stop panning past edges
             const maxEnd = this.data.length - 1 + this.rightBufferCandles;
-            if (this.viewPortStart <= 0 && this.panOffsetPx > 0) this.panOffsetPx = 0;
+            if (this.viewPortStart <= 0 && this.panOffsetPx > 0) {
+                if (!this._olderDataRequestPending && this.chartBridge && typeof this.chartBridge.notify_older_data_requested === 'function') {
+                    this._olderDataRequestPending = true;
+                    try { this.chartBridge.notify_older_data_requested(); } catch (err) { console.error("notify_older_data_requested error:", err); }
+                    setTimeout(() => { this._olderDataRequestPending = false; }, 1200);
+                }
+                this.panOffsetPx = 0;
+            }
             if (this.viewPortEnd >= maxEnd && this.panOffsetPx < 0) this.panOffsetPx = 0;
 
             // Automatically unlock Auto-Scale on intentional vertical drag.
@@ -2794,14 +3025,26 @@ class FixedTradingChart {
         this.minPrice = minPrice;
         this.maxPrice = maxPrice;
 
-        // Include EMA values in price range
+        // Include only visible, price-based overlays in price range.
+        // Binary-searching the visible time slice avoids scanning full MA arrays
+        // on every pan/zoom/mousemove frame.
         const firstT = series[start]?.time;
         const lastT  = series[end]?.time;
-        for (const emaList of Object.values(this.emaData)) {
-            for (const item of emaList) {
-                if (item.time >= firstT && item.time <= lastT) {
-                    this.minPrice = Math.min(this.minPrice, item.value);
-                    this.maxPrice = Math.max(this.maxPrice, item.value);
+        if (Number.isFinite(firstT) && Number.isFinite(lastT) && this.emaData) {
+            const configs = Array.isArray(this.movingAverageConfigs) ? this.movingAverageConfigs : [];
+            for (const cfg of configs) {
+                const key = String(cfg?.id || '');
+                const type = String(cfg?.type || '').toLowerCase();
+                if (!key || this.indicatorVisibility?.[key] !== true) continue;
+                if (type === 'ao' || type === 'volume') continue;
+                const emaList = this.emaData[key];
+                if (!Array.isArray(emaList) || emaList.length === 0) continue;
+                const [pStart, pEnd] = this._pointRangeByTime(emaList, firstT, lastT);
+                for (let j = pStart; j <= pEnd; j++) {
+                    const v = Number(emaList[j]?.value);
+                    if (!Number.isFinite(v)) continue;
+                    this.minPrice = Math.min(this.minPrice, v);
+                    this.maxPrice = Math.max(this.maxPrice, v);
                 }
             }
         }
@@ -2924,10 +3167,15 @@ class FixedTradingChart {
     }
 
     _averageCandleTimeSpan() {
-        if (this.data.length < 2) return 24 * 60 * 60 * 1000;
-        const first = this.data[0].time;
-        const last  = this.data[this.data.length - 1].time;
-        return Math.max(1, (last - first) / Math.max(1, this.data.length - 1));
+        if (this._cachedAverageSpan !== null) return this._cachedAverageSpan;
+        if (this.data.length < 2) {
+            this._cachedAverageSpan = 24 * 60 * 60 * 1000;
+            return this._cachedAverageSpan;
+        }
+        const first = Number(this.data[0].time);
+        const last  = Number(this.data[this.data.length - 1].time);
+        this._cachedAverageSpan = Math.max(1, (last - first) / Math.max(1, this.data.length - 1));
+        return this._cachedAverageSpan;
     }
 
     _candleIndexToTime(idx) {
@@ -2948,16 +3196,38 @@ class FixedTradingChart {
     }
 
     _timeToX(time) {
-        let idx = this.data.findIndex(d => d.time >= time);
-        if (idx === -1) {
-            const last = this.data.length - 1;
-            if (last < 0) return this.chartArea.x;
-            const avg = this._averageCandleTimeSpan();
-            const offset = Math.round((time - this.data[last].time) / avg);
-            idx = Math.min(this._maxFutureCandleIndex(), last + Math.max(0, offset));
+        const t = Number(time);
+        if (!Number.isFinite(t)) return this.chartArea.x;
+        this._ensureTimeIndex();
+        const n = this._timeIndex.length;
+        if (n <= 0) return this.chartArea.x;
+
+        const idxAtOrAfter = this._lowerBoundTime(t);
+        if (idxAtOrAfter < n && this._timeIndex[idxAtOrAfter] === t) {
+            return this._candleToX(idxAtOrAfter);
         }
-        if (idx === 0 && time < this.data[0].time) return this.chartArea.x;
-        return this._candleToX(idx);
+
+        // Smooth drawing anchors between candles instead of snapping every custom time to the next bar.
+        if (idxAtOrAfter > 0 && idxAtOrAfter < n) {
+            const prevIdx = idxAtOrAfter - 1;
+            const prevT = this._timeIndex[prevIdx];
+            const nextT = this._timeIndex[idxAtOrAfter];
+            const span = nextT - prevT;
+            if (Number.isFinite(span) && span > 0) {
+                const ratio = Math.max(0, Math.min(1, (t - prevT) / span));
+                return this._candleToX(prevIdx) + (ratio * this._slotW());
+            }
+        }
+
+        if (idxAtOrAfter >= n) {
+            const last = n - 1;
+            const avg = this._averageCandleTimeSpan();
+            const offset = Math.round((t - this._timeIndex[last]) / avg);
+            const idx = Math.min(this._maxFutureCandleIndex(), last + Math.max(0, offset));
+            return this._candleToX(idx);
+        }
+
+        return this.chartArea.x;
     }
 
     _xToTime(x) {
@@ -3075,11 +3345,10 @@ class FixedTradingChart {
 
         const sep = '<span style="color:#2A3A50;margin:0 5px;">•</span>';
         const dot = '<span style="color:#2A3A50;margin:0 5px;">•</span>';
-        const currencySymbol = this._priceCurrencySymbol();
         const adrPercent = Number(this.currentADR?.percent ?? 0);
         const adrPctColor = adrPercent > 4 ? '#00D4A8' : (adrPercent >= 2 ? '#E8F0FF' : '#FF4D6A');
         const adrStr = this.currentADR?.value > 0
-            ? `<span style="color:#A8BCD4;">ADR</span><span style="color:#E8F0FF;margin-left:2px;">${currencySymbol}${this.currentADR.value.toFixed(2)}</span><span style="color:${adrPctColor};margin-left:3px;font-weight:700;">(${adrPercent.toFixed(2)}%)</span>`
+            ? `<span style="color:#A8BCD4;">ADR</span><span style="color:#E8F0FF;margin-left:2px;">₹${this.currentADR.value.toFixed(2)}</span><span style="color:${adrPctColor};margin-left:3px;font-weight:700;">(${adrPercent.toFixed(2)}%)</span>`
             : '<span style="color:#5A7090;">ADR N/A</span>';
         const perfLabels = ['Monthly','3M','6M','1Y'];
         const perfToggles = ['show_perf_monthly','show_perf_3m','show_perf_6m','show_perf_1y'];
@@ -3098,11 +3367,11 @@ class FixedTradingChart {
 
         const priceItems = [];
         if (this.infoVisibility?.show_info_date) priceItems.push(`<span style="color:#5A7090;">${dateStr}</span>`);
-        if (this.infoVisibility?.show_info_open) priceItems.push(`<span style="color:#A8BCD4;">O</span><span style="color:#E8F0FF;margin-left:3px;">${currencySymbol}${c.open.toFixed(2)}</span>`);
-        if (this.infoVisibility?.show_info_high) priceItems.push(`<span style="color:#A8BCD4;">H</span><span style="color:#E8F0FF;margin-left:3px;">${currencySymbol}${c.high.toFixed(2)}</span>`);
-        if (this.infoVisibility?.show_info_low) priceItems.push(`<span style="color:#A8BCD4;">L</span><span style="color:#E8F0FF;margin-left:3px;">${currencySymbol}${c.low.toFixed(2)}</span>`);
-        if (this.infoVisibility?.show_info_close) priceItems.push(`<span style="color:#A8BCD4;">C</span><span style="color:#E8F0FF;margin-left:3px;">${currencySymbol}${c.close.toFixed(2)}</span>`);
-        if (this.infoVisibility?.show_info_pct_change) priceItems.push(`<span style="color:${dayColor};font-weight:700;">Chg ${daySign}${currencySymbol}${dayChange.toFixed(2)} (${daySign}${dayPct.toFixed(2)}%)</span>`);
+        if (this.infoVisibility?.show_info_open) priceItems.push(`<span style="color:#A8BCD4;">O</span><span style="color:#E8F0FF;margin-left:3px;">₹${c.open.toFixed(2)}</span>`);
+        if (this.infoVisibility?.show_info_high) priceItems.push(`<span style="color:#A8BCD4;">H</span><span style="color:#E8F0FF;margin-left:3px;">₹${c.high.toFixed(2)}</span>`);
+        if (this.infoVisibility?.show_info_low) priceItems.push(`<span style="color:#A8BCD4;">L</span><span style="color:#E8F0FF;margin-left:3px;">₹${c.low.toFixed(2)}</span>`);
+        if (this.infoVisibility?.show_info_close) priceItems.push(`<span style="color:#A8BCD4;">C</span><span style="color:#E8F0FF;margin-left:3px;">₹${c.close.toFixed(2)}</span>`);
+        if (this.infoVisibility?.show_info_pct_change) priceItems.push(`<span style="color:${dayColor};font-weight:700;">Chg ${daySign}₹${dayChange.toFixed(2)} (${daySign}${dayPct.toFixed(2)}%)</span>`);
         if (this.infoVisibility?.show_info_volume) priceItems.push(`<span style="color:#A8BCD4;">Vol</span><span style="color:#E8F0FF;margin-left:3px;">${Math.round(volume).toLocaleString('en-IN')}</span>`);
         const priceRow = priceItems.join(sep);
 
@@ -3265,10 +3534,6 @@ class FixedTradingChart {
         const minutes = d.getUTCHours() * 60 + d.getUTCMinutes();
         const NSE_OPEN_MINUTES = 9 * 60 + 15;
         const NSE_CLOSE_MINUTES = 15 * 60 + 30;
-const US_PREMARKET_OPEN_MINUTES = 4 * 60;
-const US_RTH_OPEN_MINUTES = 9 * 60 + 30;
-const US_RTH_CLOSE_MINUTES = 16 * 60;
-const US_AFTER_HOURS_CLOSE_MINUTES = 20 * 60;
         return minutes >= NSE_OPEN_MINUTES && minutes <= NSE_CLOSE_MINUTES;
     }
 
@@ -3442,7 +3707,7 @@ const US_AFTER_HOURS_CLOSE_MINUTES = 20 * 60;
                         volume: 0,
                     });
                     this.volumeData.push({ time: newCandleTime, value: 0 });
-                    this._volVpKey = null;
+                    this._invalidateRenderCaches();
 
                     this.viewPortEnd = Math.max(
                         this.viewPortEnd,
@@ -3506,6 +3771,14 @@ const US_AFTER_HOURS_CLOSE_MINUTES = 20 * 60;
             }
         }
 
+        if (!this.isUserYRange && !this._isHeikinAshiMode()) {
+            const range = Math.max(1e-8, this.maxPrice - this.minPrice);
+            const nearEdgePad = range * 0.035;
+            if (active.high > this.maxPrice - nearEdgePad || active.low < this.minPrice + nearEdgePad) {
+                this.calculateBounds();
+            }
+        }
+
         this.requestDraw();
     }
 
@@ -3516,6 +3789,7 @@ const US_AFTER_HOURS_CLOSE_MINUTES = 20 * 60;
         this._hasLiveTicks = false;
 
         this.data = cfg.candlestickData || [];
+        this._invalidateRenderCaches();
         this._rebuildHeikinAshiData();
         this.volumeData = cfg.volumeData || this.data.map(c => ({ time: c.time, value: Number(c.volume) || 0 }));
         this.emaData = cfg.emaData || {};
@@ -3531,11 +3805,19 @@ const US_AFTER_HOURS_CLOSE_MINUTES = 20 * 60;
         this.percentageChanges = cfg.percentageChanges || {};
         this.currentInterval = cfg.interval || 'day';
         this.brokerName = String(cfg.brokerName || this.brokerName || '').toLowerCase();
+        let extendedSessionSettingChanged = false;
         if (cfg.showPremarketCandles !== undefined) {
-            this.showPremarketCandles = cfg.showPremarketCandles === true;
+            const nextShowPre = cfg.showPremarketCandles === true;
+            extendedSessionSettingChanged = extendedSessionSettingChanged || nextShowPre !== this.showPremarketCandles;
+            this.showPremarketCandles = nextShowPre;
         }
         if (cfg.showPostmarketCandles !== undefined) {
-            this.showPostmarketCandles = cfg.showPostmarketCandles === true;
+            const nextShowPost = cfg.showPostmarketCandles === true;
+            extendedSessionSettingChanged = extendedSessionSettingChanged || nextShowPost !== this.showPostmarketCandles;
+            this.showPostmarketCandles = nextShowPost;
+        }
+        if (extendedSessionSettingChanged) {
+            this._extendedHoursCache = new WeakMap();
         }
         if (cfg.chartType !== undefined) {
             this._chartType = cfg.chartType;
@@ -3666,6 +3948,7 @@ const US_AFTER_HOURS_CLOSE_MINUTES = 20 * 60;
 
     addNewCandle(candle) {
         this.data.push(candle);
+        this._invalidateRenderCaches();
         // Keep viewport anchored to latest candle if user hasn't panned away.
         const wasAtEnd = this.viewPortEnd >= this.data.length - 2 + this.rightBufferCandles;
         if (wasAtEnd) {
@@ -3693,8 +3976,16 @@ const US_AFTER_HOURS_CLOSE_MINUTES = 20 * 60;
     }
 
     setChartSettings(cfg) {
-        if (cfg.upCandleColor)   this.colors.upCandle   = cfg.upCandleColor;
-        if (cfg.downCandleColor) this.colors.downCandle = cfg.downCandleColor;
+        if (cfg.upCandleColor) {
+            this.colors.upCandle = cfg.upCandleColor;
+            this.colors.upWick = cfg.upCandleColor;
+            this.colors.upOhlc = cfg.upCandleColor;
+        }
+        if (cfg.downCandleColor) {
+            this.colors.downCandle = cfg.downCandleColor;
+            this.colors.downWick = cfg.downCandleColor;
+            this.colors.downOhlc = cfg.downCandleColor;
+        }
         const slotChanged = (cfg.candleWidth && cfg.candleWidth !== this.candleWidth) ||
                             (cfg.candleSpacing !== undefined && cfg.candleSpacing !== this.candleSpacing);
         if (cfg.candleWidth)                    this.candleWidth   = cfg.candleWidth;
@@ -3721,11 +4012,19 @@ const US_AFTER_HOURS_CLOSE_MINUTES = 20 * 60;
             this.showTimeSlider = cfg.showTimeSlider === true;
             this._syncSliderVisibility();
         }
+        let extendedSessionSettingChanged = false;
         if (cfg.showPremarketCandles !== undefined) {
-            this.showPremarketCandles = cfg.showPremarketCandles === true;
+            const nextShowPre = cfg.showPremarketCandles === true;
+            extendedSessionSettingChanged = extendedSessionSettingChanged || nextShowPre !== this.showPremarketCandles;
+            this.showPremarketCandles = nextShowPre;
         }
         if (cfg.showPostmarketCandles !== undefined) {
-            this.showPostmarketCandles = cfg.showPostmarketCandles === true;
+            const nextShowPost = cfg.showPostmarketCandles === true;
+            extendedSessionSettingChanged = extendedSessionSettingChanged || nextShowPost !== this.showPostmarketCandles;
+            this.showPostmarketCandles = nextShowPost;
+        }
+        if (extendedSessionSettingChanged) {
+            this._extendedHoursCache = new WeakMap();
         }
         if (cfg.chartType !== undefined) {
             this._chartType = cfg.chartType === 'renko' ? 'candle' : cfg.chartType;
@@ -3957,10 +4256,6 @@ const US_AFTER_HOURS_CLOSE_MINUTES = 20 * 60;
         return 'USD';
     }
 
-    _priceCurrencySymbol() {
-        return this.priceScaleCurrency === 'USD' ? '$' : '₹';
-    }
-
     _fmtVol(vol) {
         if (vol >= 1e9) return (vol / 1e9).toFixed(2).replace(/\.00$/, '') + 'B';
         if (vol >= 1e6) return (vol / 1e6).toFixed(2).replace(/\.00$/, '') + 'M';
@@ -4094,13 +4389,19 @@ const US_AFTER_HOURS_CLOSE_MINUTES = 20 * 60;
 
     _isIbkrExtendedHoursCandle(candle) {
         if (!candle || this.brokerName !== 'ibkr' || !String(this.currentInterval || '').includes('minute')) return false;
+        const cacheKey = `${this.currentInterval}|${this.showPremarketCandles ? 1 : 0}|${this.showPostmarketCandles ? 1 : 0}`;
+        const cached = this._extendedHoursCache?.get(candle);
+        if (cached && cached.key === cacheKey) return cached.value;
+
         const minutes = this._ibkrSessionMinutes(Number(candle.time));
-        if (minutes === null) return false;
-        const isPremarket = minutes >= US_PREMARKET_OPEN_MINUTES && minutes < US_RTH_OPEN_MINUTES;
-        const isPostmarket = minutes > US_RTH_CLOSE_MINUTES && minutes <= US_AFTER_HOURS_CLOSE_MINUTES;
-        if (isPremarket && !this.showPremarketCandles) return false;
-        if (isPostmarket && !this.showPostmarketCandles) return false;
-        return isPremarket || isPostmarket;
+        let value = false;
+        if (minutes !== null) {
+            const isPremarket = minutes >= US_PREMARKET_OPEN_MINUTES && minutes < US_RTH_OPEN_MINUTES;
+            const isPostmarket = minutes > US_RTH_CLOSE_MINUTES && minutes <= US_AFTER_HOURS_CLOSE_MINUTES;
+            value = (isPremarket && this.showPremarketCandles) || (isPostmarket && this.showPostmarketCandles);
+        }
+        if (this._extendedHoursCache) this._extendedHoursCache.set(candle, { key: cacheKey, value });
+        return value;
     }
 
     _fmtExchangeTime(d) {
@@ -4146,13 +4447,29 @@ const US_AFTER_HOURS_CLOSE_MINUTES = 20 * 60;
         const start = Math.max(0, this.viewPortStart - 1);
         const end   = Math.min(this.data.length - 1, this.viewPortEnd + 1);
 
+        const todayKey = this.currentInterval.includes('minute')
+            ? this._todayExchangeDayKey()
+            : new Date().toISOString().slice(0, 10);
+        let todayMarker = null;
+
         for (let i = start; i <= end; i++) {
             const t = this.data[i].time;
             const d = this._exchangeDate(t);
             const label = this._timeCandidateLabel(d, tf);
-            if (label) candidates.push({ time: t, label });
+            const isIntradayTodayCandle = this.currentInterval.includes('minute') && (this._exchangeDayKey(t) === todayKey);
+            if (label && !(tf === '60minute' && isIntradayTodayCandle)) {
+                candidates.push({ time: t, label });
+            }
+
+            const candleKey = this.currentInterval.includes('minute')
+                ? this._exchangeDayKey(t)
+                : new Date(Number(t)).toISOString().slice(0, 10);
+            if (candleKey === todayKey) {
+                todayMarker = { time: t, label: this.currentInterval.includes('minute') ? this._fmtExchangeDayMonth(d) : this._fmtDateLabel(t, false), isToday: true };
+            }
         }
 
+        if (todayMarker) candidates.push(todayMarker);
         return candidates;
     }
 
