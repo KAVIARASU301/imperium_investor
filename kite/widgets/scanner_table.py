@@ -197,10 +197,11 @@ def _volume_strength_level(volume: int) -> int:
 class ModernAddScanDialog(QDialog):
     """Enhanced dialog for adding new Chartink scans with modern styling."""
 
-    def __init__(self, parent=None, initial_scan: Optional[Dict[str, str]] = None, is_edit: bool = False):
+    def __init__(self, parent=None, initial_scan: Optional[Dict[str, str]] = None, is_edit: bool = False, existing_tags: Optional[List[str]] = None):
         super().__init__(parent)
         self.initial_scan = initial_scan or {}
         self.is_edit = is_edit
+        self.existing_tags = existing_tags or []
 
         self.setWindowTitle("Edit Chartink Scan" if self.is_edit else "Add New Chartink Scan")
         self.setModal(True)
@@ -214,6 +215,21 @@ class ModernAddScanDialog(QDialog):
         # ADDED: Auto-focus to the Scan Name input field
         self.name_input.setFocus()
         self.name_input.selectAll()  # Optional: select all text if any exists
+
+    def _get_tag_options(self) -> List[str]:
+        """Return predefined groups plus any custom tags already used by saved scans."""
+        options: List[str] = []
+        seen = set()
+        for tag in [*SCAN_GROUP_ORDER, *self.existing_tags]:
+            clean_tag = (tag or "").strip()
+            if not clean_tag:
+                continue
+            key = clean_tag.lower()
+            if key in seen:
+                continue
+            options.append(clean_tag)
+            seen.add(key)
+        return options or ["Others"]
 
     def _setup_ui(self):
         # Main container
@@ -277,8 +293,15 @@ class ModernAddScanDialog(QDialog):
         tag_label.setObjectName("fieldLabel")
         self.tag_input = QComboBox()
         self.tag_input.setObjectName("minimalInput")
-        self.tag_input.addItems(SCAN_GROUP_ORDER)
+        self.tag_input.setEditable(True)
+        self.tag_input.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.tag_input.setDuplicatesEnabled(False)
+        self.tag_input.addItems(self._get_tag_options())
         self.tag_input.setCurrentText("Others")
+        tag_editor = self.tag_input.lineEdit()
+        if tag_editor is not None:
+            tag_editor.setPlaceholderText("Choose or type a new group tag")
+            tag_editor.setClearButtonEnabled(False)
 
         form_layout.addWidget(tag_label)
         form_layout.addWidget(self.tag_input)
@@ -467,6 +490,19 @@ class ModernAddScanDialog(QDialog):
                 border-right: 4px solid transparent;
                 border-top: 5px solid {_T2};
                 margin-right: 5px;
+            }}
+            QComboBox#minimalInput QLineEdit {{
+                background: transparent;
+                border: none;
+                color: {_T0};
+                padding: 0px;
+                font-size: 11px;
+                font-family: {_SANS};
+                selection-background-color: {_SEL};
+                selection-color: {_T0};
+            }}
+            QComboBox#minimalInput QLineEdit::placeholder {{
+                color: {_T3};
             }}
             QComboBox#minimalInput QAbstractItemView {{
                 background: {_BG1};
@@ -711,9 +747,24 @@ class ModernManageScansDialog(QDialog):
         for row in range(len(self.scans)):
             self.scans_table.setRowHeight(row, _DIALOG_ROW_H)
 
+    def _get_available_tags(self) -> List[str]:
+        """Collect predefined and already-saved custom scan tags for the add/edit dialog."""
+        tags: List[str] = []
+        seen = set()
+        for tag in [*SCAN_GROUP_ORDER, *[scan.get("tag", "") for scan in self.scans]]:
+            clean_tag = (tag or "").strip()
+            if not clean_tag:
+                continue
+            key = clean_tag.lower()
+            if key in seen:
+                continue
+            tags.append(clean_tag)
+            seen.add(key)
+        return tags or ["Others"]
+
     def _add_scan(self):
         """Add a new scan."""
-        dialog = ModernAddScanDialog(self)
+        dialog = ModernAddScanDialog(self, existing_tags=self._get_available_tags())
         if dialog.exec() == QDialog.DialogCode.Accepted:
             scan_data = dialog.get_scan_data()
             self.scans.append(scan_data)
@@ -728,7 +779,12 @@ class ModernManageScansDialog(QDialog):
         if not (0 <= row < len(self.scans)):
             return
 
-        dialog = ModernAddScanDialog(self, initial_scan=self.scans[row], is_edit=True)
+        dialog = ModernAddScanDialog(
+            self,
+            initial_scan=self.scans[row],
+            is_edit=True,
+            existing_tags=self._get_available_tags(),
+        )
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.scans[row] = dialog.get_scan_data()
             self._populate_scans()
