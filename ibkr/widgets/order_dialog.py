@@ -13,8 +13,8 @@ Goals
   `lmtPrice`, `auxPrice`, `tif`, `outsideRth`, `secType`, `currency`).
 - Remove India/Kite-specific concepts from the UI: MIS/CNC/NRML, AMO, GTT,
   BO, circuit limits, STT estimates.
-- Default to US swing-trading behavior: SMART routing, USD stock contract,
-  whole-share quantity, LIMIT order, GTC/DAY time-in-force, RTH-only by default.
+- Default to simple US stock behavior: SMART routing, USD stock contract,
+  whole-share quantity, visible price controls only when required, DAY/GTC time-in-force, and RTH-only orders.
 
 This file is intentionally self-contained and pure PySide6.
 """
@@ -40,7 +40,6 @@ from PySide6.QtWidgets import (
     QApplication,
     QAbstractButton,
     QAbstractSpinBox,
-    QCheckBox,
     QComboBox,
     QDialog,
     QDoubleSpinBox,
@@ -50,7 +49,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
-    QSizePolicy,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -92,7 +90,7 @@ FONT_NUM = "Inter"
 FONT_FALL = "'Segoe UI Variable', 'Segoe UI', Arial, sans-serif"
 
 
-UI_ORDER_TYPES = ["MARKET", "LIMIT", "STOP", "STOP LIMIT"]
+UI_ORDER_TYPES = ["MARKET", "LIMIT", "STOP"]
 IBKR_ORDER_TYPES = {
     "MARKET": "MKT",
     "MKT": "MKT",
@@ -100,12 +98,9 @@ IBKR_ORDER_TYPES = {
     "LMT": "LMT",
     "STOP": "STP",
     "STP": "STP",
-    "STOP LIMIT": "STP LMT",
-    "STOP-LIMIT": "STP LMT",
-    "STP LMT": "STP LMT",
     # Backward-compatible names from the older dialog:
     "SL-M": "STP",
-    "SL": "STP LMT",
+    "SL": "STP",
 }
 UI_FROM_ORDER_TYPE = {
     "MKT": "MARKET",
@@ -115,14 +110,13 @@ UI_FROM_ORDER_TYPE = {
     "STP": "STOP",
     "STOP": "STOP",
     "SL-M": "STOP",
-    "STP LMT": "STOP LIMIT",
-    "STOP LIMIT": "STOP LIMIT",
-    "SL": "STOP LIMIT",
+    "STP LMT": "STOP",
+    "STOP LIMIT": "STOP",
+    "SL": "STOP",
 }
 EXCHANGES = ["SMART", "NASDAQ", "NYSE", "ARCA", "AMEX", "IEX", "ISLAND", "BATS"]
-VALIDITY = ["DAY", "GTC", "IOC"]
+VALIDITY = ["DAY", "GTC"]
 CURRENCIES = ["USD"]
-ROUTES = ["AUTO", "ADAPTIVE", "DARK/SMART"]
 DEFAULT_TICK = 0.01
 
 
@@ -357,29 +351,6 @@ class _DropdownField(QWidget):
         self.set_current(value)
 
 
-class _TextInput(QLineEdit):
-    def __init__(self, text: str = "", placeholder: str = "", parent=None):
-        super().__init__(text, parent)
-        self.setPlaceholderText(placeholder)
-        self.setStyleSheet(f"""
-            QLineEdit {{
-                background:{P.BG3};
-                color:{P.T0};
-                border:1px solid {P.BORDER2};
-                border-radius:2px;
-                font-family:'{FONT_UI}',{FONT_FALL};
-                font-size:11px;
-                font-weight:650;
-                padding:5px 8px;
-                min-height:20px;
-            }}
-            QLineEdit:focus {{
-                background:{P.BG2};
-                border-color:{P.CYAN};
-            }}
-            QLineEdit::placeholder {{ color:{P.T3}; }}
-        """)
-
 
 class _IntInput(QSpinBox):
     def __init__(self, lo: int = 1, hi: int = 10_000_000, step: int = 1, parent=None):
@@ -460,35 +431,6 @@ class _StepButton(QPushButton):
         """)
 
 
-class _Toggle(QCheckBox):
-    def __init__(self, label: str, parent=None):
-        super().__init__(label, parent)
-        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.setStyleSheet(f"""
-            QCheckBox {{
-                color:{P.T1};
-                spacing:6px;
-                font-family:'{FONT_UI}',{FONT_FALL};
-                font-size:10px;
-                font-weight:800;
-                letter-spacing:0.6px;
-                background:transparent;
-            }}
-            QCheckBox:hover {{ color:{P.T0}; }}
-            QCheckBox::indicator {{
-                width:14px;
-                height:14px;
-                border-radius:2px;
-                background:{P.BG3};
-                border:1px solid {P.BORDER2};
-            }}
-            QCheckBox::indicator:checked {{
-                background:{P.CYAN};
-                border:1px solid {P.CYAN};
-            }}
-        """)
-
-
 class _LTPLabel(QLabel):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -548,8 +490,8 @@ class OrderDialog(QDialog):
         self.setModal(True)
         self.setWindowTitle("IBKR Order Ticket")
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
-        self.setMinimumWidth(500)
-        self.resize(500, 500)
+        self.setMinimumWidth(420)
+        self.resize(420, 360)
 
         self.symbol = str(symbol or "").strip().upper()
         self.instrument = instrument or {}
@@ -573,17 +515,11 @@ class OrderDialog(QDialog):
         self._confirm_stage = 0
         self._drag_active = False
         self._drag_offset = QPoint()
-        self._bid = _as_float(self._order_details.get("bid"), 0.0)
-        self._ask = _as_float(self._order_details.get("ask"), 0.0)
-        self._depth_buy: List[Dict[str, Any]] = []
-        self._depth_sell: List[Dict[str, Any]] = []
-
         self._setup_ui()
         self._apply_global_styles()
         self._seed_defaults()
         self._connect_signals()
         self._refresh_fields_visibility()
-        self._update_quote_strip()
         self._update_summary()
         self._refresh_confirm_btn()
         self._sync_dialog_height()
@@ -729,18 +665,16 @@ class OrderDialog(QDialog):
         self._side_group.set_button_accent("SELL", P.SELL)
         layout.addWidget(self._side_group)
 
-        layout.addWidget(self._build_route_grid())
+        layout.addWidget(self._build_order_basics())
         layout.addWidget(self._build_quantity_block())
         layout.addWidget(self._build_price_block())
-        layout.addWidget(self._build_execution_options())
-        layout.addWidget(self._build_quote_strip())
         layout.addWidget(self._build_summary_box())
         layout.addWidget(self._build_action_row())
         return frame
 
-    def _build_route_grid(self) -> QWidget:
+    def _build_order_basics(self) -> QWidget:
         wrap = QWidget(self)
-        wrap.setObjectName("routeGrid")
+        wrap.setObjectName("orderBasics")
         grid = QGridLayout(wrap)
         grid.setContentsMargins(0, 0, 0, 0)
         grid.setHorizontalSpacing(8)
@@ -748,22 +682,13 @@ class OrderDialog(QDialog):
 
         self._otype_seg = _DropdownField(UI_ORDER_TYPES, self._initial_order_type(), self)
         self._tif_seg = _DropdownField(VALIDITY, _normalize_upper(_first_value(
-            self._order_details.get("tif"), self._order_details.get("validity"), default="GTC"
-        ), "GTC"), self)
-        self._exchange_seg = _DropdownField(EXCHANGES, self._exchange, self)
-        self._route_seg = _DropdownField(ROUTES, "AUTO", self)
-        self._primary_exchange_input = _TextInput(self._primary_exchange, "optional", self)
-        self._account_input = _TextInput(str(self._order_details.get("account") or ""), "optional", self)
+            self._order_details.get("tif"), self._order_details.get("validity"), default="DAY"
+        ), "DAY"), self)
 
         grid.addWidget(self._labeled_block("ORDER TYPE", self._otype_seg), 0, 0)
-        grid.addWidget(self._labeled_block("TIF", self._tif_seg), 0, 1)
-        grid.addWidget(self._labeled_block("EXCHANGE", self._exchange_seg), 0, 2)
-        grid.addWidget(self._labeled_block("ALGO / ROUTE", self._route_seg), 1, 0)
-        grid.addWidget(self._labeled_block("PRIMARY EXCH", self._primary_exchange_input), 1, 1)
-        grid.addWidget(self._labeled_block("ACCOUNT", self._account_input), 1, 2)
+        grid.addWidget(self._labeled_block("TIME IN FORCE", self._tif_seg), 0, 1)
         grid.setColumnStretch(0, 2)
         grid.setColumnStretch(1, 1)
-        grid.setColumnStretch(2, 1)
         return wrap
 
     def _build_quantity_block(self) -> QWidget:
@@ -805,7 +730,6 @@ class OrderDialog(QDialog):
         header.setContentsMargins(0, 0, 0, 0)
         header.addWidget(self._section_label("PRICE"))
         header.addStretch()
-        header.addWidget(_Label(f"TICK: ${self._tick_size:g}", P.CYAN, 9, True))
         layout.addLayout(header)
 
         self._limit_row = QWidget(self)
@@ -816,15 +740,7 @@ class OrderDialog(QDialog):
         limit_layout.addWidget(_Label("LIMIT", P.T2, 9, True))
         self._price_spin = _NumInput(self._price_decimals, self._tick_size, 0.0, 9_999_999.0, self)
         self._price_spin.setValue(self._initial_limit_price())
-        self._snap_limit_btn = _MiniAction("SNAP", self)
-        self._mid_btn = _MiniAction("MID", self)
-        self._bid_btn = _MiniAction("BID", self)
-        self._ask_btn = _MiniAction("ASK", self)
         limit_layout.addWidget(self._price_spin, 1)
-        limit_layout.addWidget(self._snap_limit_btn)
-        limit_layout.addWidget(self._bid_btn)
-        limit_layout.addWidget(self._mid_btn)
-        limit_layout.addWidget(self._ask_btn)
         layout.addWidget(self._limit_row)
 
         self._stop_row = QWidget(self)
@@ -835,59 +751,12 @@ class OrderDialog(QDialog):
         stop_layout.addWidget(_Label("STOP", P.T2, 9, True))
         self._stop_spin = _NumInput(self._price_decimals, self._tick_size, 0.0, 9_999_999.0, self)
         self._stop_spin.setValue(self._initial_stop_price())
-        self._snap_stop_btn = _MiniAction("SNAP", self)
         stop_layout.addWidget(self._stop_spin, 1)
-        stop_layout.addWidget(self._snap_stop_btn)
         layout.addWidget(self._stop_row)
 
         # Backward-compatible alias used by older chart-context code.
         self._trig_spin = self._stop_spin
         return wrap
-
-    def _build_execution_options(self) -> QWidget:
-        wrap = QWidget(self)
-        wrap.setObjectName("executionOptions")
-        layout = QHBoxLayout(wrap)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
-
-        self._outside_rth_chk = _Toggle("ALLOW OUTSIDE RTH", self)
-        self._outside_rth_chk.setChecked(bool(_first_value(
-            self._order_details.get("outsideRth"), self._order_details.get("outside_rth"), default=False
-        )))
-        self._transmit_chk = _Toggle("TRANSMIT", self)
-        self._transmit_chk.setChecked(bool(_first_value(self._order_details.get("transmit"), default=True)))
-        self._transmit_chk.setToolTip("Unchecked sends a held/non-transmitted order only if your broker session supports it.")
-
-        layout.addWidget(self._outside_rth_chk)
-        layout.addWidget(self._transmit_chk)
-        layout.addStretch()
-        return wrap
-
-    def _build_quote_strip(self) -> QFrame:
-        frame = QFrame(self)
-        frame.setObjectName("quoteStrip")
-        grid = QGridLayout(frame)
-        grid.setContentsMargins(8, 6, 8, 6)
-        grid.setHorizontalSpacing(12)
-        grid.setVerticalSpacing(2)
-
-        self._bid_val = _Value("—", P.BUY, 12, self)
-        self._ask_val = _Value("—", P.SELL, 12, self)
-        self._spread_val = _Value("—", P.AMBER, 12, self)
-        self._mid_val = _Value("—", P.CYAN, 12, self)
-
-        grid.addWidget(_Label("BID", P.T2, 9, True), 0, 0)
-        grid.addWidget(_Label("ASK", P.T2, 9, True), 0, 1)
-        grid.addWidget(_Label("SPREAD", P.T2, 9, True), 0, 2)
-        grid.addWidget(_Label("MID", P.T2, 9, True), 0, 3)
-        grid.addWidget(self._bid_val, 1, 0)
-        grid.addWidget(self._ask_val, 1, 1)
-        grid.addWidget(self._spread_val, 1, 2)
-        grid.addWidget(self._mid_val, 1, 3)
-        for col in range(4):
-            grid.setColumnStretch(col, 1)
-        return frame
 
     def _build_summary_box(self) -> QFrame:
         frame = QFrame(self)
@@ -899,22 +768,16 @@ class OrderDialog(QDialog):
 
         self._est_price_val = _Value("—", P.T0, 12, self)
         self._ov_val = _Value("—", P.T0, 12, self)
-        self._risk_val = _Value("—", P.AMBER, 12, self)
-        self._route_val = _Value("—", P.CYAN, 12, self)
         self._warning_label = _Label("", P.AMBER, 9, True, self)
         self._warning_label.setObjectName("warningLabel")
         self._warning_label.setWordWrap(True)
 
         grid.addWidget(_Label("EST PRICE", P.T2, 9, True), 0, 0)
         grid.addWidget(_Label("ORDER VALUE", P.T2, 9, True), 0, 1)
-        grid.addWidget(_Label("1R RISK", P.T2, 9, True), 0, 2)
-        grid.addWidget(_Label("ROUTE", P.T2, 9, True), 0, 3)
         grid.addWidget(self._est_price_val, 1, 0)
         grid.addWidget(self._ov_val, 1, 1)
-        grid.addWidget(self._risk_val, 1, 2)
-        grid.addWidget(self._route_val, 1, 3)
-        grid.addWidget(self._warning_label, 2, 0, 1, 4)
-        for col in range(4):
+        grid.addWidget(self._warning_label, 2, 0, 1, 2)
+        for col in range(2):
             grid.setColumnStretch(col, 1)
         return frame
 
@@ -1017,15 +880,13 @@ class OrderDialog(QDialog):
                 border:1px solid rgba(255,77,106,0.35);
             }}
             QFrame#body {{ background:{P.BG1}; }}
-            QWidget#routeGrid,
+            QWidget#orderBasics,
             QWidget#quantityBlock,
             QWidget#priceBlock,
-            QWidget#executionOptions,
             QWidget#fieldBlock,
             QWidget#limitRow,
             QWidget#stopRow,
             QWidget#actionRow {{ background:transparent; }}
-            QFrame#quoteStrip,
             QFrame#summaryBox {{
                 background:{P.BG0};
                 border:1px solid {P.BORDER};
@@ -1080,32 +941,18 @@ class OrderDialog(QDialog):
     # ──────────────────────────────────────────────────────────────────────
 
     def _seed_defaults(self) -> None:
-        self._exchange_seg.add_missing_and_select(self._exchange)
         self._contract_label.setText(self._contract_text())
 
     def _connect_signals(self) -> None:
         self._side_group.currentChanged.connect(self._on_side_changed)
         self._otype_seg.currentChanged.connect(self._on_order_type_changed)
         self._tif_seg.currentChanged.connect(self._on_order_option_changed)
-        self._exchange_seg.currentChanged.connect(self._on_order_option_changed)
-        self._route_seg.currentChanged.connect(self._on_order_option_changed)
-        self._primary_exchange_input.textChanged.connect(lambda *_: self._on_order_option_changed())
-        self._account_input.textChanged.connect(lambda *_: self._on_order_option_changed())
-        self._outside_rth_chk.toggled.connect(self._on_order_option_changed)
-        self._transmit_chk.toggled.connect(self._on_order_option_changed)
-
         self._qty_spin.valueChanged.connect(self._on_value_changed)
         self._price_spin.valueChanged.connect(self._on_value_changed)
         self._stop_spin.valueChanged.connect(self._on_value_changed)
 
         self._qty_minus.clicked.connect(lambda: self._qty_spin.setValue(max(1, self._qty_spin.value() - 1)))
         self._qty_plus.clicked.connect(lambda: self._qty_spin.setValue(self._qty_spin.value() + 1))
-        self._snap_limit_btn.clicked.connect(lambda: self._snap_price_field(self._price_spin))
-        self._snap_stop_btn.clicked.connect(lambda: self._snap_price_field(self._stop_spin))
-        self._bid_btn.clicked.connect(lambda: self._set_limit_from_quote("bid"))
-        self._ask_btn.clicked.connect(lambda: self._set_limit_from_quote("ask"))
-        self._mid_btn.clicked.connect(lambda: self._set_limit_from_quote("mid"))
-
         self._cancel_btn.clicked.connect(self.reject)
         self._submit_btn.clicked.connect(self._handle_submit)
 
@@ -1141,19 +988,13 @@ class OrderDialog(QDialog):
     def update_tick(
         self,
         ltp: float,
-        bid: float = 0.0,
-        ask: float = 0.0,
-        depth: Optional[List[Dict[str, Any]]] = None,
+        _unused_quote_1: float = 0.0,
+        _unused_quote_2: float = 0.0,
+        _unused_depth: Optional[List[Dict[str, Any]]] = None,
     ) -> None:
         previous = self.ltp
         self.ltp = max(0.0, _as_float(ltp, self.ltp))
-        self._bid = max(0.0, _as_float(bid, self._bid))
-        self._ask = max(0.0, _as_float(ask, self._ask))
-        if depth:
-            self._depth_buy = list(depth[:5])
-            self._depth_sell = list(depth[5:10]) if len(depth) >= 10 else []
         self._update_ltp_header(previous)
-        self._update_quote_strip()
         self._update_summary()
 
     # ──────────────────────────────────────────────────────────────────────
@@ -1162,15 +1003,10 @@ class OrderDialog(QDialog):
 
     def _refresh_fields_visibility(self) -> None:
         order_type = self._otype_seg.current()
-        show_limit = order_type in ("LIMIT", "STOP LIMIT")
-        show_stop = order_type in ("STOP", "STOP LIMIT")
+        show_limit = order_type == "LIMIT"
+        show_stop = order_type == "STOP"
         self._limit_row.setVisible(show_limit)
         self._stop_row.setVisible(show_stop)
-        self._bid_btn.setVisible(show_limit)
-        self._ask_btn.setVisible(show_limit)
-        self._mid_btn.setVisible(show_limit)
-        self._snap_limit_btn.setVisible(show_limit)
-        self._snap_stop_btn.setVisible(show_stop)
         self._update_summary()
 
     def _sync_dialog_height(self) -> None:
@@ -1200,25 +1036,12 @@ class OrderDialog(QDialog):
             self._ltp_label.flash("up" if self.ltp > previous else "down")
         self._prev_ltp = self.ltp
 
-    def _update_quote_strip(self) -> None:
-        self._bid_val.setText(self._format_price(self._bid) if self._bid > 0 else "—")
-        self._ask_val.setText(self._format_price(self._ask) if self._ask > 0 else "—")
-        spread = self._spread()
-        mid = self._mid()
-        self._spread_val.setText(self._format_price(spread) if spread > 0 else "—")
-        self._mid_val.setText(self._format_price(mid) if mid > 0 else "—")
-
     def _update_summary(self) -> None:
         price = self._effective_price()
         qty = int(self._qty_spin.value())
         value = qty * price if price > 0 else 0.0
-        risk = self._risk_value(price, qty)
-        route_text = self._route_text()
-
         self._est_price_val.setText(self._format_price(price) if price > 0 else "—")
         self._ov_val.setText(f"${value:,.2f}" if value > 0 else "—")
-        self._risk_val.setText(f"${risk:,.2f}" if risk > 0 else "—")
-        self._route_val.setText(route_text)
 
         warnings = self._warnings()
         self._warning_label.setText("  ·  ".join(warnings))
@@ -1235,9 +1058,7 @@ class OrderDialog(QDialog):
             warnings.append("Market orders can slip; LIMIT is usually safer for swing entries")
         if tif == "GTC":
             warnings.append("GTC stays live until filled/cancelled by broker rules")
-        if self._outside_rth_chk.isChecked():
-            warnings.append("Outside-RTH liquidity can be thin and spreads can widen")
-        if order_type in ("STOP", "STOP LIMIT"):
+        if order_type == "STOP":
             stop = self._stop_spin.value()
             ref = self.ltp or self._price_spin.value()
             if stop > 0 and ref > 0:
@@ -1245,8 +1066,6 @@ class OrderDialog(QDialog):
                     warnings.append("BUY stop is usually above current price")
                 if side == "SELL" and stop >= ref:
                     warnings.append("SELL stop is usually below current price")
-        if order_type == "STOP LIMIT":
-            warnings.append("Stop-limit may not fill if price gaps through the limit")
         return warnings
 
     # ──────────────────────────────────────────────────────────────────────
@@ -1256,23 +1075,13 @@ class OrderDialog(QDialog):
     def _format_price(self, value: float) -> str:
         return f"${value:,.{self._price_decimals}f}"
 
-    def _spread(self) -> float:
-        if self._bid > 0 and self._ask > 0 and self._ask >= self._bid:
-            return self._ask - self._bid
-        return 0.0
-
-    def _mid(self) -> float:
-        if self._bid > 0 and self._ask > 0 and self._ask >= self._bid:
-            return _snap_to_tick((self._bid + self._ask) / 2.0, self._tick_size)
-        return 0.0
-
     def _effective_price(self) -> float:
         order_type = self._otype_seg.current()
-        if order_type in ("LIMIT", "STOP LIMIT"):
+        if order_type == "LIMIT":
             return float(self._price_spin.value())
         if order_type == "STOP":
             return float(self._stop_spin.value()) or self.ltp
-        return self.ltp or self._mid() or self._ask or self._bid
+        return self.ltp
 
     def _display_order_price_text(self) -> str:
         order_type = self._otype_seg.current()
@@ -1280,52 +1089,14 @@ class OrderDialog(QDialog):
             return "MKT"
         if order_type == "STOP":
             return f"STP {self._format_price(self._stop_spin.value())}"
-        if order_type == "STOP LIMIT":
-            return f"STP {self._format_price(self._stop_spin.value())} / LMT {self._format_price(self._price_spin.value())}"
         return self._format_price(self._price_spin.value())
 
-    def _risk_value(self, price: float, qty: int) -> float:
-        order_type = self._otype_seg.current()
-        if order_type not in ("STOP", "STOP LIMIT"):
-            return 0.0
-        stop = self._stop_spin.value()
-        if price <= 0 or stop <= 0:
-            return 0.0
-        return abs(price - stop) * qty
-
     def _contract_text(self) -> str:
-        primary = self._primary_exchange_input.text().strip().upper() if hasattr(self, "_primary_exchange_input") else self._primary_exchange
-        exchange = self._exchange_seg.current() if hasattr(self, "_exchange_seg") else self._exchange
-        currency = self._currency
-        bits = [self._sec_type, exchange, currency]
-        if primary:
-            bits.append(f"PRIMARY {primary}")
-        return " · ".join(bits)
-
-    def _route_text(self) -> str:
-        route = self._route_seg.current()
-        exchange = self._exchange_seg.current()
-        tif = self._tif_seg.current()
-        if route == "AUTO":
-            return f"{exchange}/{tif}"
-        return f"{exchange}/{route}/{tif}"
+        return " · ".join([self._sec_type, self._exchange, self._currency])
 
     def _snap_price_field(self, field: QDoubleSpinBox) -> None:
         field.setValue(_snap_to_tick(float(field.value()), self._tick_size))
         self._update_summary()
-
-    def _set_limit_from_quote(self, source: str) -> None:
-        value = 0.0
-        if source == "bid":
-            value = self._bid
-        elif source == "ask":
-            value = self._ask
-        elif source == "mid":
-            value = self._mid()
-        if value <= 0:
-            value = self.ltp
-        if value > 0:
-            self._price_spin.setValue(_snap_to_tick(value, self._tick_size))
 
     # ──────────────────────────────────────────────────────────────────────
     # Submit and validation
@@ -1343,27 +1114,18 @@ class OrderDialog(QDialog):
             return False
 
         order_type = self._otype_seg.current()
-        side = self._side_group.current()
         limit_price = float(self._price_spin.value())
         stop_price = float(self._stop_spin.value())
 
-        if order_type in ("LIMIT", "STOP LIMIT") and limit_price <= 0:
+        if order_type == "LIMIT" and limit_price <= 0:
             _show_error("Limit price is required")
             return False
-        if order_type in ("STOP", "STOP LIMIT") and stop_price <= 0:
+        if order_type == "STOP" and stop_price <= 0:
             _show_error("Stop price is required")
             return False
-        if order_type == "STOP LIMIT":
-            if side == "BUY" and limit_price < stop_price:
-                _show_error("For BUY stop-limit, limit price should be >= stop price")
-                return False
-            if side == "SELL" and limit_price > stop_price:
-                _show_error("For SELL stop-limit, limit price should be <= stop price")
-                return False
-
-        if order_type in ("LIMIT", "STOP LIMIT"):
+        if order_type == "LIMIT":
             self._snap_price_field(self._price_spin)
-        if order_type in ("STOP", "STOP LIMIT"):
+        if order_type == "STOP":
             self._snap_price_field(self._stop_spin)
         return True
 
@@ -1391,14 +1153,13 @@ class OrderDialog(QDialog):
         ibkr_order_type = IBKR_ORDER_TYPES.get(ui_order_type, "LMT")
         side = self._side_group.current()
         qty = int(self._qty_spin.value())
-        exchange = self._exchange_seg.current()
+        exchange = self._exchange
         currency = self._currency
         tif = self._tif_seg.current()
-        route = self._route_seg.current()
-        primary_exchange = self._primary_exchange_input.text().strip().upper()
-        account = self._account_input.text().strip()
-        outside_rth = bool(self._outside_rth_chk.isChecked())
-        transmit = bool(self._transmit_chk.isChecked())
+        primary_exchange = self._primary_exchange
+        account = str(self._order_details.get("account") or "").strip()
+        outside_rth = False
+        transmit = True
 
         data: Dict[str, Any] = {
             # Existing app/MainWindow compatibility:
@@ -1427,7 +1188,7 @@ class OrderDialog(QDialog):
             "currency": currency,
             "primaryExchange": primary_exchange,
             "primary_exchange": primary_exchange,
-            "route": route,
+            "route": "AUTO",
             "orderRef": f"QULL-SWING-{self.symbol}",
             "tag": "terminal-ibkr-swing",
         }
@@ -1435,28 +1196,20 @@ class OrderDialog(QDialog):
         if account:
             data["account"] = account
 
-        if ibkr_order_type in ("LMT", "STP LMT"):
+        if ibkr_order_type == "LMT":
             limit_price = _snap_to_tick(float(self._price_spin.value()), self._tick_size)
             data.update({
                 "price": limit_price,
                 "limit_price": limit_price,
                 "lmtPrice": limit_price,
             })
-        if ibkr_order_type in ("STP", "STP LMT"):
+        if ibkr_order_type == "STP":
             stop_price = _snap_to_tick(float(self._stop_spin.value()), self._tick_size)
             data.update({
                 "trigger_price": stop_price,
                 "stop_price": stop_price,
                 "auxPrice": stop_price,
             })
-
-        if route == "ADAPTIVE":
-            data["algoStrategy"] = "Adaptive"
-            data["algoParams"] = {"adaptivePriority": "Normal"}
-        elif route == "DARK/SMART":
-            # Kept as a lightweight hint for your broker wrapper; the safest default
-            # still routes through SMART unless the wrapper implements this hint.
-            data["smartComboRoutingParams"] = {"NonGuaranteed": "1"}
 
         return data
 
@@ -1515,29 +1268,3 @@ class OrderDialog(QDialog):
         if event.button() == Qt.MouseButton.LeftButton:
             self._drag_active = False
         super().mouseReleaseEvent(event)
-
-
-class _MiniAction(QPushButton):
-    def __init__(self, text: str, parent=None):
-        super().__init__(text, parent)
-        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.setFixedHeight(30)
-        self.setMinimumWidth(42)
-        self.setStyleSheet(f"""
-            QPushButton {{
-                background:{P.BG3};
-                color:{P.T1};
-                border:1px solid {P.BORDER2};
-                border-radius:2px;
-                font-family:'{FONT_UI}',{FONT_FALL};
-                font-size:9px;
-                font-weight:850;
-                letter-spacing:0.6px;
-                padding:0 6px;
-            }}
-            QPushButton:hover {{
-                background:{P.BG2};
-                color:{P.CYAN};
-                border-color:{P.CYAN};
-            }}
-        """)
