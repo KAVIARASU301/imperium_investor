@@ -1423,13 +1423,17 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
 
     def _refresh_header_ticker_ws_subscriptions(self) -> None:
-        """Subscribe websocket tokens needed by the header ticker board."""
-        if not hasattr(self, "header_toolbar") or not getattr(self, "instrument_map", None):
+        """Subscribe market-data items needed by the header ticker board."""
+        if not hasattr(self, "header_toolbar"):
             return
         try:
-            tokens = self.header_toolbar.configure_ticker_ws_tokens(self.instrument_map)
-            if tokens and self.market_data_worker:
-                self.market_data_worker.add_instruments(tokens)
+            if hasattr(self.header_toolbar, "configure_ticker_ws_subscriptions"):
+                items = self.header_toolbar.configure_ticker_ws_subscriptions(getattr(self, "instrument_map", {}) or {})
+            else:
+                items = self.header_toolbar.configure_ticker_ws_tokens(getattr(self, "instrument_map", {}) or {})
+            if items and self.market_data_worker:
+                self.market_data_worker.add_instruments(items)
+                self.market_data_worker.request_snapshots(items)
         except Exception as exc:
             logger.error(f"Failed to configure header ticker subscriptions: {exc}")
 
@@ -2540,17 +2544,22 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         for token in alert_tokens:
             add_subscription_item(token)
 
-        # Priority 6: Header ticker board tokens
+        # Priority 6: Header ticker board symbols
         # Keep these in the core subscription universe so they are not dropped
-        # when set_instruments() replaces the websocket subscriptions.
-        if hasattr(self, "header_toolbar") and getattr(self, "instrument_map", None):
+        # when set_instruments() replaces the websocket subscriptions.  IBKR may
+        # only know a symbol before conId qualification, so accept rich items or
+        # raw symbols instead of token-only subscriptions.
+        if hasattr(self, "header_toolbar"):
             try:
-                header_tokens = self.header_toolbar.configure_ticker_ws_tokens(self.instrument_map)
-                for token in header_tokens:
-                    add_subscription_item(token)
-                logger.info(f"Added {len(header_tokens)} header ticker tokens")
+                if hasattr(self.header_toolbar, "configure_ticker_ws_subscriptions"):
+                    header_items = self.header_toolbar.configure_ticker_ws_subscriptions(getattr(self, "instrument_map", {}) or {})
+                else:
+                    header_items = self.header_toolbar.configure_ticker_ws_tokens(getattr(self, "instrument_map", {}) or {})
+                for item in header_items:
+                    add_subscription_item(item)
+                logger.info(f"Added {len(header_items)} header ticker subscriptions")
             except Exception as exc:
-                logger.error(f"Failed to resolve header ticker tokens: {exc}")
+                logger.error(f"Failed to resolve header ticker subscriptions: {exc}")
 
         # Subscribe to all tokens/symbols (or clear when empty).  IBKR watchlist
         # rows can be raw symbols before conId qualification, so pass rich

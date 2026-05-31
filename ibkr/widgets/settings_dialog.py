@@ -291,9 +291,9 @@ class ColorSettingsDialog(QDialog):
         ticker_row = QHBoxLayout()
         ticker_label = _Label("TICKER SYMBOLS (MAX 5)", color=P.T1, size=10, bold=True)
         self.ticker_symbols_input = QLineEdit()
-        self.ticker_symbols_input.setPlaceholderText("NIFTY, SENSEX")
+        self.ticker_symbols_input.setPlaceholderText("SPY, QQQ")
         self.ticker_symbols_input.setFixedHeight(22)
-        default_symbols = self._theme.get("ticker_board_symbols", ["NIFTY", "SENSEX"])
+        default_symbols = self._theme.get("ticker_board_symbols", ["SPY", "QQQ"])
         if isinstance(default_symbols, list):
             self.ticker_symbols_input.setText(", ".join(str(sym).strip().upper() for sym in default_symbols[:5] if str(sym).strip()))
         self.ticker_symbols_input.setClearButtonEnabled(True)
@@ -741,7 +741,7 @@ class ColorSettingsDialog(QDialog):
         self._theme["show_ticker_board"] = self.show_ticker_board_checkbox.isChecked()
         raw_symbols = [part.strip().upper() for part in self.ticker_symbols_input.text().split(",")]
         symbols = [sym for sym in raw_symbols if sym][:5]
-        self._theme["ticker_board_symbols"] = symbols if symbols else ["NIFTY", "SENSEX"]
+        self._theme["ticker_board_symbols"] = symbols if symbols else ["SPY", "QQQ"]
         self._theme["dual_chart_mode"] = self.dual_chart_mode_checkbox.isChecked()
         return self._theme
 

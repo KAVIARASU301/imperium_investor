@@ -516,7 +516,7 @@ class HeaderToolbar(QToolBar):
         self._show_account_balance = True
         self._preferred_username = ""
         self._show_ticker_board = True
-        self._ticker_symbols: List[str] = ["NIFTY", "SENSEX"]
+        self._ticker_symbols: List[str] = ["SPY", "QQQ"]
         self._ticker_alias_map: Dict[str, str] = {
             "NIFTY": "NSE:NIFTY 50",
             "NIFTY50": "NSE:NIFTY 50",
@@ -528,6 +528,7 @@ class HeaderToolbar(QToolBar):
         # Snapshot still kept for REST-based fallback queries
         self._ticker_snapshot: Dict[str, Dict[str, Any]] = {}
         self._ticker_token_to_symbol: Dict[int, str] = {}
+        self._ticker_symbol_to_display: Dict[str, str] = {}
         self._symbol_index = SymbolIndex()
         self.threadpool = QThreadPool()
         self._enable_account_polling = bool(enable_account_polling)
@@ -916,11 +917,11 @@ class HeaderToolbar(QToolBar):
         self._show_account_balance = bool(theme.get("show_account_balance", True))
         self._preferred_username = str(theme.get("preferred_username", "")).strip()
         self._show_ticker_board = bool(theme.get("show_ticker_board", True))
-        raw_tickers = theme.get("ticker_board_symbols", ["NIFTY", "SENSEX"])
+        raw_tickers = theme.get("ticker_board_symbols", ["SPY", "QQQ"])
         if isinstance(raw_tickers, str):
             raw_tickers = [raw_tickers]
         cleaned = [str(sym).strip().upper() for sym in raw_tickers if str(sym).strip()]
-        new_symbols = cleaned[:5] if cleaned else ["NIFTY", "SENSEX"]
+        new_symbols = cleaned[:5] if cleaned else ["SPY", "QQQ"]
 
         # Only rebuild pills when symbol list actually changes (avoids layout thrash)
         if new_symbols != self._ticker_symbols:
@@ -980,17 +981,22 @@ class HeaderToolbar(QToolBar):
         ONLY updates label text on each TickerPill — zero layout, zero resize,
         zero jitter. The width of each pill was fixed at construction time.
         """
-        if not ticks or not self._ticker_token_to_symbol:
+        if not ticks:
             return
 
         for tick in ticks:
+            display_symbol = ""
             token = tick.get('instrument_token')
-            if token is None:
-                continue
-            try:
-                display_symbol = self._ticker_token_to_symbol.get(int(token))
-            except (TypeError, ValueError):
-                continue
+            if token is not None:
+                try:
+                    display_symbol = self._ticker_token_to_symbol.get(int(token), "")
+                except (TypeError, ValueError):
+                    display_symbol = ""
+
+            if not display_symbol:
+                tick_symbol = str(tick.get('tradingsymbol') or tick.get('symbol') or "").strip().upper()
+                display_symbol = self._ticker_symbol_to_display.get(tick_symbol, "")
+
             if not display_symbol:
                 continue
 
@@ -1018,22 +1024,65 @@ class HeaderToolbar(QToolBar):
                 change_pct=change_pct if change_pct is not None else existing.get('change_pct'),
             )
 
-    def configure_ticker_ws_tokens(self, instrument_map: Dict[str, Dict[str, Any]]) -> List[int]:
-        """Resolve ticker board symbols to instrument tokens for WS subscriptions."""
-        resolved: Dict[int, str] = {}
-        if not isinstance(instrument_map, dict):
-            self._ticker_token_to_symbol = {}
-            return []
+    def configure_ticker_ws_subscriptions(self, instrument_map: Dict[str, Dict[str, Any]]) -> List[Any]:
+        """Build IBKR market-data subscription items for header ticker symbols.
 
+        IBKR often starts with seed instruments whose ``instrument_token``/``conId``
+        is still zero.  Returning only numeric tokens silently skipped those
+        header tickers, so fall back to the raw symbol and let the
+        MarketDataWorker qualify the contract asynchronously.
+        """
+        resolved_tokens: Dict[int, str] = {}
+        resolved_symbols: Dict[str, str] = {}
+        items: List[Any] = []
+        seen: set[str] = set()
+
+        safe_map = instrument_map if isinstance(instrument_map, dict) else {}
         for display_symbol in self._ticker_symbols[:5]:
-            token = self._find_instrument_token_for_symbol(display_symbol, instrument_map)
-            if token is not None:
-                resolved[int(token)] = display_symbol.upper()
+            display = str(display_symbol or "").strip().upper()
+            if not display:
+                continue
 
-        self._ticker_token_to_symbol = resolved
-        return list(resolved.keys())
+            inst = self._find_instrument_for_symbol(display, safe_map)
+            resolved_symbol = (
+                str((inst or {}).get('tradingsymbol') or (inst or {}).get('symbol') or "").strip().upper()
+                or self._resolve_ticker_instrument(display)
+            )
+            token = self._instrument_token(inst)
 
-    def _find_instrument_token_for_symbol(self, symbol: str, instrument_map: Dict[str, Dict[str, Any]]) -> Optional[int]:
+            item: Any
+            if token:
+                item = {
+                    "instrument_token": token,
+                    "conId": token,
+                    "tradingsymbol": resolved_symbol,
+                    "symbol": resolved_symbol,
+                    "exchange": (inst or {}).get("exchange") or "SMART",
+                    "currency": (inst or {}).get("currency") or "USD",
+                }
+                resolved_tokens[token] = display
+                key = f"T:{token}"
+            else:
+                item = resolved_symbol
+                key = f"S:{resolved_symbol}"
+
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append(item)
+            resolved_symbols[resolved_symbol] = display
+            resolved_symbols[display] = display
+
+        self._ticker_token_to_symbol = resolved_tokens
+        self._ticker_symbol_to_display = resolved_symbols
+        return items
+
+    def configure_ticker_ws_tokens(self, instrument_map: Dict[str, Dict[str, Any]]) -> List[int]:
+        """Backward-compatible token resolver for older callers."""
+        items = self.configure_ticker_ws_subscriptions(instrument_map)
+        return [int(item.get("instrument_token")) for item in items if isinstance(item, dict) and item.get("instrument_token")]
+
+    def _find_instrument_for_symbol(self, symbol: str, instrument_map: Dict[str, Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         normalized = str(symbol or '').strip().upper().replace(' ', '')
         candidates = {normalized}
 
@@ -1042,24 +1091,35 @@ class HeaderToolbar(QToolBar):
         if alias_tail:
             candidates.add(alias_tail)
 
-        for inst in instrument_map.values():
+        for map_key, inst in instrument_map.items():
             keys = {
+                str(map_key or '').strip().upper().replace(' ', ''),
                 str(inst.get('tradingsymbol', '')).strip().upper().replace(' ', ''),
+                str(inst.get('symbol', '')).strip().upper().replace(' ', ''),
                 str(inst.get('name', '')).strip().upper().replace(' ', ''),
             }
             if keys & candidates:
-                token = inst.get('instrument_token')
-                try:
-                    return int(token)
-                except (TypeError, ValueError):
-                    return None
+                return inst
         return None
+
+    def _find_instrument_token_for_symbol(self, symbol: str, instrument_map: Dict[str, Dict[str, Any]]) -> Optional[int]:
+        return self._instrument_token(self._find_instrument_for_symbol(symbol, instrument_map)) or None
+
+    @staticmethod
+    def _instrument_token(inst: Optional[Dict[str, Any]]) -> int:
+        if not inst:
+            return 0
+        try:
+            token = int(float(inst.get('instrument_token') or inst.get('conId') or inst.get('conid') or 0))
+            return token if token > 0 else 0
+        except (TypeError, ValueError):
+            return 0
 
     def _resolve_ticker_instrument(self, symbol: str) -> str:
         key = str(symbol or "").strip().upper()
         if key in self._ticker_alias_map:
-            return self._ticker_alias_map[key]
-        return key if ":" in key else f"NSE:{key}"
+            return self._ticker_alias_map[key].split(":", 1)[-1].strip().upper()
+        return key.split(":", 1)[-1].strip().upper()
 
     # ── Legacy REST-based ticker update (fallback, rarely used) ──────────────
 

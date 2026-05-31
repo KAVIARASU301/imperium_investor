@@ -21,7 +21,7 @@ DEFAULT_COLOR_THEME: Dict[str, Any] = {
     "preferred_username": "",
     "dual_chart_mode": True,
     "show_ticker_board": True,
-    "ticker_board_symbols": ["NIFTY", "SENSEX"],
+    "ticker_board_symbols": ["SPY", "QQQ"],
     "global": {
         "positive": "#00d4a8",
         "negative": "#ff4d6a",
