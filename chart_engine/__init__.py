@@ -10,6 +10,12 @@
 #   chart = CandlestickChart(data_fetcher=KiteDataFetcher(kite), instrument_loader=loader)
 #   chart.load_symbol("RELIANCE", "NSE", 738561)
 
-from chart_engine.core.chart_widget import CandlestickChart
-
 __all__ = ["CandlestickChart"]
+
+
+def __getattr__(name: str):
+    if name == "CandlestickChart":
+        from chart_engine.core.chart_widget import CandlestickChart
+
+        return CandlestickChart
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

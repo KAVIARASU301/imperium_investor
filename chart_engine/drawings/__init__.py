@@ -8,6 +8,7 @@
 import json
 import logging
 import os
+import tempfile
 from datetime import datetime
 from typing import Any, Dict
 
@@ -141,8 +142,7 @@ class DrawingStorage:
 
         filepath = self._state_path(symbol, interval)
         try:
-            with open(filepath, "w") as f:
-                json.dump(state, f, indent=2)
+            self._write_json_atomic(filepath, state)
             logger.info(
                 "Saved state for %s (%s) — %d drawings",
                 symbol, interval, self._count_drawings(state["drawings"]),
@@ -179,6 +179,44 @@ class DrawingStorage:
         except Exception as exc:
             logger.error("Failed to load state for %s: %s", symbol, exc)
             return self._default_state()
+
+    def _write_json_atomic(self, filepath: str, payload: Dict[str, Any]) -> None:
+        """Write JSON via a same-directory temp file, then atomically replace."""
+        directory = os.path.dirname(filepath) or "."
+        fd, temp_path = tempfile.mkstemp(
+            dir=directory,
+            prefix=f".{os.path.basename(filepath)}.",
+            suffix=".tmp",
+            text=True,
+        )
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(payload, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temp_path, filepath)
+            self._fsync_directory(directory)
+        except Exception:
+            try:
+                os.unlink(temp_path)
+            except FileNotFoundError:
+                pass
+            raise
+
+    def _fsync_directory(self, directory: str) -> None:
+        """Best-effort directory fsync so atomic renames survive power loss."""
+        if not hasattr(os, "O_DIRECTORY"):
+            return
+        try:
+            dir_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+        except OSError:
+            return
+        try:
+            os.fsync(dir_fd)
+        except OSError:
+            return
+        finally:
+            os.close(dir_fd)
 
     def _default_state(self) -> Dict[str, Any]:
         return {
