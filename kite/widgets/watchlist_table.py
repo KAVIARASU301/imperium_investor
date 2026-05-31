@@ -915,6 +915,31 @@ class TradingTable(QTableWidget):
             if data:
                 self._update_row(row, data)
 
+
+    def _table_color(self, key: str, fallback: str) -> str:
+        tables = self._color_theme.get("tables", {}) if isinstance(self._color_theme, dict) else {}
+        color = tables.get(key, fallback)
+        return color if isinstance(color, str) and color.startswith("#") else fallback
+
+    def _change_colors(self, pct: float) -> Tuple[str, str]:
+        positive = self._table_color("positive", _C.BULL)
+        negative = self._table_color("negative", _C.BEAR)
+        neutral = self._table_color("neutral", _C.NEUTRAL)
+        if pct >= 3.0:
+            return positive, self._rgba_for_color(positive, 0.12)
+        if pct >= 1.0:
+            return positive, self._rgba_for_color(positive, 0.075)
+        if pct >= -0.5:
+            return neutral, ""
+        if pct >= -1.0:
+            return negative, self._rgba_for_color(negative, 0.07)
+        return negative, self._rgba_for_color(negative, 0.12)
+
+    @staticmethod
+    def _rgba_for_color(color_hex: str, alpha: float) -> str:
+        color = QColor(color_hex)
+        return f"rgba({color.red()},{color.green()},{color.blue()},{max(0.0, min(1.0, alpha))})"
+
     def update_data(self, ticks: List[Dict]) -> None:
         """Process WS ticks — O(1) per tick via pre-built token map."""
         import time
@@ -1071,7 +1096,7 @@ class TradingTable(QTableWidget):
 
         # ── Chg% with heat-map ──
         chg_text = f"{chg:+.2f}" if abs(chg) > 0.005 else "0.00"
-        fg, bg_rgba = _C.change_color(chg)
+        fg, bg_rgba = self._change_colors(chg)
         chg_item = self.item(row, _COL_CHG)
         if chg_item:
             chg_item.setText(chg_text)

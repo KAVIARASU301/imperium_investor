@@ -22,6 +22,10 @@ DEFAULT_COLOR_THEME: Dict[str, Any] = {
     "dual_chart_mode": True,
     "show_ticker_board": True,
     "ticker_board_symbols": ["NIFTY", "SENSEX"],
+    "global": {
+        "positive": "#00d4a8",
+        "negative": "#ff4d6a",
+    },
     "candles": {
         "up": "#00C896",
         "down": "#E84060",
@@ -112,6 +116,31 @@ class ColorThemeManager(QObject):
             cleaned = [str(sym).strip().upper() for sym in raw_symbols if str(sym).strip()]
             merged["ticker_board_symbols"] = cleaned[:5] if cleaned else merged["ticker_board_symbols"]
 
+        global_data = custom.get("global")
+        if isinstance(global_data, dict) and global_data:
+            for key in merged["global"].keys():
+                value = global_data.get(key)
+                if isinstance(value, str) and value.startswith("#"):
+                    merged["global"][key] = value
+        else:
+            # Backward compatibility for themes saved before universal color codes.
+            tables = custom.get("tables", {})
+            candles = custom.get("candles", {})
+            if isinstance(tables, dict):
+                pos = tables.get("positive")
+                neg = tables.get("negative")
+                if isinstance(pos, str) and pos.startswith("#"):
+                    merged["global"]["positive"] = pos
+                if isinstance(neg, str) and neg.startswith("#"):
+                    merged["global"]["negative"] = neg
+            elif isinstance(candles, dict):
+                pos = candles.get("up")
+                neg = candles.get("down")
+                if isinstance(pos, str) and pos.startswith("#"):
+                    merged["global"]["positive"] = pos
+                if isinstance(neg, str) and neg.startswith("#"):
+                    merged["global"]["negative"] = neg
+
         for section in ("candles", "volume", "tables"):
             section_data = custom.get(section, {})
             if isinstance(section_data, dict):
@@ -122,11 +151,10 @@ class ColorThemeManager(QObject):
         return merged
 
     def _normalize_linked_sections(self, theme: Dict[str, Any]) -> None:
-        if theme.get("link_all_sections"):
-            theme["volume"]["up"] = theme["candles"]["up"]
-            theme["volume"]["down"] = theme["candles"]["down"]
-            theme["tables"]["positive"] = theme["candles"]["up"]
-            theme["tables"]["negative"] = theme["candles"]["down"]
+        theme["volume"]["up"] = theme["global"]["positive"]
+        theme["volume"]["down"] = theme["global"]["negative"]
+        theme["tables"]["positive"] = theme["global"]["positive"]
+        theme["tables"]["negative"] = theme["global"]["negative"]
 
 
 _theme_manager: ColorThemeManager = None

@@ -114,8 +114,8 @@ class ColorSettingsDialog(QDialog):
     Strict TC2000 dark mode aesthetic, frameless drag, sharp borders.
     """
 
-    DEFAULT_BULL_CANDLE_COLOR = "#00C896"
-    DEFAULT_BEAR_CANDLE_COLOR = "#E84060"
+    DEFAULT_POSITIVE_COLOR = "#00d4a8"
+    DEFAULT_NEGATIVE_COLOR = "#ff4d6a"
 
     def __init__(self, current_theme: Dict[str, Any], parent=None):
         super().__init__(parent)
@@ -132,7 +132,6 @@ class ColorSettingsDialog(QDialog):
 
         self._setup_ui()
         self._apply_global_styles()
-        self._sync_linked_state(self.link_checkbox.isChecked())
 
     def _setup_ui(self):
         outer = QVBoxLayout(self)
@@ -164,30 +163,28 @@ class ColorSettingsDialog(QDialog):
         colors_layout.setContentsMargins(0, 6, 0, 0)
         colors_layout.setSpacing(6)
 
-        self.link_checkbox = _Toggle("LINK GREEN/RED ACROSS CANDLES, VOLUME, TABLES")
-        self.link_checkbox.setChecked(bool(self._theme.get("link_all_sections", True)))
-        self.link_checkbox.toggled.connect(self._sync_linked_state)
-        colors_layout.addWidget(self.link_checkbox)
+        colors_layout.addWidget(
+            _Label(
+                "Universal color code is used everywhere for up/positive and down/negative values. "
+                "Candle-only colors remain in chart settings.",
+                P.T1,
+                10,
+                bold=False,
+            )
+        )
 
         self.table_color_toggle_checkbox = _Toggle("ENABLE DIRECTIONAL COLORS IN DATA TABLES")
         self.table_color_toggle_checkbox.setChecked(bool(self._theme.get("enable_table_directional_colors", False)))
         colors_layout.addWidget(self.table_color_toggle_checkbox)
 
-        colors_layout.addWidget(self._build_group("CANDLES", [
-            ("GREEN CANDLE", "candles.up", self._theme["candles"]["up"]),
-            ("RED CANDLE", "candles.down", self._theme["candles"]["down"])
+        colors_layout.addWidget(self._build_group("UNIVERSAL COLOR CODE", [
+            ("UP / POSITIVE", "global.positive", self._theme["global"]["positive"]),
+            ("DOWN / NEGATIVE", "global.negative", self._theme["global"]["negative"]),
         ]))
 
-        colors_layout.addWidget(self._build_group("VOLUME", [
-            ("UP VOLUME", "volume.up", self._theme["volume"]["up"]),
-            ("DOWN VOLUME", "volume.down", self._theme["volume"]["down"])
-        ]))
-
-        colors_layout.addWidget(self._build_group("SCANNER / WATCHLIST / POSITIONS", [
-            ("POSITIVE", "tables.positive", self._theme["tables"]["positive"]),
-            ("NEGATIVE", "tables.negative", self._theme["tables"]["negative"]),
+        colors_layout.addWidget(self._build_group("TABLE SUPPORT COLORS", [
             ("NEUTRAL", "tables.neutral", self._theme["tables"]["neutral"]),
-            ("VOLUME TEXT", "tables.volume", self._theme["tables"]["volume"])
+            ("VOLUME TEXT", "tables.volume", self._theme["tables"]["volume"]),
         ]))
 
         self.tabs.addTab(colors_tab, "COLORS")
@@ -306,10 +303,10 @@ class ColorSettingsDialog(QDialog):
         cancel_btn.setCursor(QCursor(Qt.PointingHandCursor))
         cancel_btn.clicked.connect(self.reject)
 
-        reset_btn = QPushButton("RESET DEFAULT CANDLES")
+        reset_btn = QPushButton("RESET GLOBAL COLORS")
         reset_btn.setObjectName("actionBtnSecondary")
         reset_btn.setCursor(QCursor(Qt.PointingHandCursor))
-        reset_btn.clicked.connect(self._reset_default_candle_colors)
+        reset_btn.clicked.connect(self._reset_default_global_colors)
 
         save_btn = QPushButton("APPLY SETTINGS")
         save_btn.setObjectName("actionBtnPrimary")
@@ -580,25 +577,6 @@ class ColorSettingsDialog(QDialog):
         self._set_color(key, color_hex)
         self._set_button_color(self._buttons[key], color_hex)
 
-        if self.link_checkbox.isChecked() and key.startswith("candles."):
-            self._sync_linked_colors_from_candles()
-
-    def _sync_linked_state(self, is_linked: bool):
-        for key in ("volume.up", "volume.down", "tables.positive", "tables.negative"):
-            self._buttons[key].setEnabled(not is_linked)
-        if is_linked:
-            self._sync_linked_colors_from_candles()
-
-    def _sync_linked_colors_from_candles(self):
-        up = self._theme["candles"]["up"]
-        down = self._theme["candles"]["down"]
-        self._set_color("volume.up", up)
-        self._set_color("volume.down", down)
-        self._set_color("tables.positive", up)
-        self._set_color("tables.negative", down)
-        for key in ("volume.up", "volume.down", "tables.positive", "tables.negative"):
-            self._set_button_color(self._buttons[key], self._get_color(key))
-
     def _set_color(self, key: str, value: str):
         section, item = key.split(".")
         self._theme[section][item] = value
@@ -608,7 +586,7 @@ class ColorSettingsDialog(QDialog):
         return self._theme[section][item]
 
     def get_theme(self) -> Dict[str, Any]:
-        self._theme["link_all_sections"] = self.link_checkbox.isChecked()
+        self._theme["link_all_sections"] = True
         self._theme["enable_table_directional_colors"] = self.table_color_toggle_checkbox.isChecked()
         self._theme["enable_volume_strength_indicator"] = self.volume_strength_toggle_checkbox.isChecked()
         self._theme["show_table_vertical_lines"] = self.show_table_vertical_lines_checkbox.isChecked()
@@ -629,14 +607,11 @@ class ColorSettingsDialog(QDialog):
         self._theme["dual_chart_mode"] = self.dual_chart_mode_checkbox.isChecked()
         return self._theme
 
-    def _reset_default_candle_colors(self):
-        self._set_color("candles.up", self.DEFAULT_BULL_CANDLE_COLOR)
-        self._set_color("candles.down", self.DEFAULT_BEAR_CANDLE_COLOR)
-        self._set_button_color(self._buttons["candles.up"], self.DEFAULT_BULL_CANDLE_COLOR)
-        self._set_button_color(self._buttons["candles.down"], self.DEFAULT_BEAR_CANDLE_COLOR)
-
-        if self.link_checkbox.isChecked():
-            self._sync_linked_colors_from_candles()
+    def _reset_default_global_colors(self):
+        self._set_color("global.positive", self.DEFAULT_POSITIVE_COLOR)
+        self._set_color("global.negative", self.DEFAULT_NEGATIVE_COLOR)
+        self._set_button_color(self._buttons["global.positive"], self.DEFAULT_POSITIVE_COLOR)
+        self._set_button_color(self._buttons["global.negative"], self.DEFAULT_NEGATIVE_COLOR)
 
     # ─────────────────────────────────────────────────────────────────────────────
     #  FRAMELESS WINDOW DRAG SUPPORT

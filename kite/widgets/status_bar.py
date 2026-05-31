@@ -201,6 +201,16 @@ class StatusBar(QWidget):
         finally:
             self.content.setUpdatesEnabled(True)
 
+    def apply_color_theme(self, theme: dict) -> None:
+        tables = theme.get("tables", {}) if isinstance(theme, dict) and isinstance(theme.get("tables", {}), dict) else {}
+        positive = tables.get("positive")
+        negative = tables.get("negative")
+        if isinstance(positive, str) and positive.startswith("#"):
+            self.COLOR_GREEN = positive
+        if isinstance(negative, str) and negative.startswith("#"):
+            self.COLOR_RED = negative
+        self._apply_styles()
+
     def set_positions_metrics(
         self,
         has_data: bool,

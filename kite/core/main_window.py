@@ -405,6 +405,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         )
         self.watchlist.apply_color_theme(initial_theme)
         self.positions_table.apply_color_theme(initial_theme)
+        self.app_status_bar.apply_color_theme(initial_theme)
         self.positions_table.set_footer_metrics_visible(False)
         self.candlestick_chart.apply_color_theme(initial_theme)
         self.candlestick_chart_secondary.apply_color_theme(initial_theme)
@@ -927,6 +928,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.chartink_scanner.apply_color_theme(theme)
         self.watchlist.apply_color_theme(theme)
         self.positions_table.apply_color_theme(theme)
+        self.app_status_bar.apply_color_theme(theme)
         self.candlestick_chart.apply_color_theme(theme)
         self.candlestick_chart_secondary.apply_color_theme(theme)
         self.chartink_scanner.set_live_ticks_enabled(
