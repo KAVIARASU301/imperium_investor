@@ -934,6 +934,10 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.app_status_bar.apply_color_theme(theme)
         self.candlestick_chart.apply_color_theme(theme)
         self.candlestick_chart_secondary.apply_color_theme(theme)
+        if self.floating_watchlist_dialog is not None:
+            self.floating_watchlist_dialog.apply_color_theme(theme)
+        if self.floating_positions_dialog is not None:
+            self.floating_positions_dialog.apply_color_theme(theme)
         self.chartink_scanner.set_live_ticks_enabled(
             bool(theme.get("scanner_live_ticks", True))
         )
@@ -2629,6 +2633,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 self.floating_positions_dialog.exit_position_requested.connect(self._handle_exit_position_request)
                 self.floating_positions_dialog.exit_half_position_requested.connect(self._handle_exit_half_position_request)
                 self.floating_positions_dialog.subscribe_to_market_data.connect(self._subscribe_to_tokens)
+                self.floating_positions_dialog.apply_color_theme(self.color_theme_manager.get_theme())
 
             self._update_floating_positions_dialog(getattr(self.positions_table, 'positions_data', {}).values())
             self.floating_positions_dialog.show()
@@ -2647,6 +2652,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 self.floating_watchlist_dialog.table.cellClicked.connect(
                     lambda _r, _c: self._set_last_spacebar_context("floating_watchlist")
                 )
+                self.floating_watchlist_dialog.apply_color_theme(self.color_theme_manager.get_theme())
             self._sync_floating_watchlist_dialog()
             self.floating_watchlist_dialog.show()
             self.floating_watchlist_dialog.raise_()

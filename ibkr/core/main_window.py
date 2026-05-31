@@ -379,6 +379,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         )
         self.watchlist.apply_color_theme(initial_theme)
         self.positions_table.apply_color_theme(initial_theme)
+        self.app_status_bar.apply_color_theme(initial_theme)
         self.positions_table.set_footer_metrics_visible(False)
         self.candlestick_chart.apply_color_theme(initial_theme)
         self.candlestick_chart_secondary.apply_color_theme(initial_theme)
@@ -882,6 +883,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.finviz_scanner.apply_color_theme(theme)
         self.watchlist.apply_color_theme(theme)
         self.positions_table.apply_color_theme(theme)
+        self.app_status_bar.apply_color_theme(theme)
+        if self.floating_watchlist_dialog is not None:
+            self.floating_watchlist_dialog.apply_color_theme(theme)
         self.candlestick_chart.apply_color_theme(theme)
         self.candlestick_chart_secondary.apply_color_theme(theme)
         self.finviz_scanner.set_live_ticks_enabled(
@@ -3199,6 +3203,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         try:
             if self.floating_watchlist_dialog is None:
                 self.floating_watchlist_dialog = attach_floating_watchlist(self)
+                self.floating_watchlist_dialog.apply_color_theme(self.color_theme_manager.get_theme())
                 self.floating_watchlist_dialog.symbol_chart_requested.connect(self.candlestick_chart_secondary.on_search)
                 self.floating_watchlist_dialog.symbol_chart_requested.connect(self.header_toolbar.set_current_symbol)
                 self.floating_watchlist_dialog.symbol_chart_requested.connect(self._ensure_chart_subscription)

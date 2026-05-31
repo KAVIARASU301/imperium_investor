@@ -519,22 +519,37 @@ class PositionsTable(QWidget):
             return 0.0
         return ((pos.ltp - pos.avg_price) / pos.avg_price) * 100.0
 
+    def _table_color(self, key: str, fallback: str) -> str:
+        tables = self._color_theme.get("tables", {}) if isinstance(self._color_theme, dict) else {}
+        color = tables.get(key, fallback)
+        return color if isinstance(color, str) and color.startswith("#") else fallback
+
+    @staticmethod
+    def _tinted_brush(color_hex: str, alpha: int) -> QBrush:
+        color = QColor(color_hex)
+        if not color.isValid():
+            color = QColor(_BG2)
+        color.setAlpha(max(0, min(255, alpha)))
+        return QBrush(color)
+
     def _open_pnl_text_color(self, pnl: float) -> str:
         if pnl > 0:
-            return _OPEN_PROFIT
+            return self._table_color("positive", _OPEN_PROFIT)
         if pnl < 0:
-            return _OPEN_LOSS
-        return _OPEN_FLAT
+            return self._table_color("negative", _OPEN_LOSS)
+        return self._table_color("neutral", _OPEN_FLAT)
 
     def _apply_open_pnl_row_style(self, row: int, pnl: float) -> None:
         if pnl > 0:
-            fg = QColor(_OPEN_PROFIT)
-            bg = QBrush(QColor(0, 212, 168, 18))
+            profit = self._table_color("positive", _OPEN_PROFIT)
+            fg = QColor(profit)
+            bg = self._tinted_brush(profit, 18)
         elif pnl < 0:
-            fg = QColor(_OPEN_LOSS)
-            bg = QBrush(QColor(255, 77, 106, 18))
+            loss = self._table_color("negative", _OPEN_LOSS)
+            fg = QColor(loss)
+            bg = self._tinted_brush(loss, 18)
         else:
-            fg = QColor(_OPEN_FLAT)
+            fg = QColor(self._table_color("neutral", _OPEN_FLAT))
             bg = QBrush()
 
         pnl_item = self.table.item(row, COL_OPEN_PNL)
@@ -692,7 +707,7 @@ class PositionsTable(QWidget):
         day_unrealized = total_pnl
         day_realized = sum(getattr(p, "day_realized", 0.0) for p in self.positions_data.values())
 
-        pnl_color = _GREEN if total_pnl >= 0 else _RED
+        pnl_color = self._table_color("positive", _GREEN) if total_pnl >= 0 else self._table_color("negative", _RED)
         self._footer_open_pnl.setText(f"{'+' if total_pnl >= 0 else ''}{total_pnl:,.0f}")
         self._footer_open_pnl.setStyleSheet(
             f"color:{pnl_color}; font-family:{_NUM}; font-size:11px; font-weight:500; background:transparent;"

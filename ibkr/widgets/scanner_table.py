@@ -1294,6 +1294,20 @@ class FinvizScannerTable(QWidget):
             if data is not None:
                 self._update_row_data(row, data)
 
+
+    def _table_color(self, key: str, fallback: str) -> str:
+        tables = self._color_theme.get("tables", {}) if isinstance(self._color_theme, dict) else {}
+        color = tables.get(key, fallback)
+        return color if isinstance(color, str) and color.startswith("#") else fallback
+
+    @staticmethod
+    def _tinted_brush(color_hex: str, alpha: int) -> QBrush:
+        color = QColor(color_hex)
+        if not color.isValid():
+            color = QColor(_BG2)
+        color.setAlpha(max(0, min(255, alpha)))
+        return QBrush(color)
+
     def set_live_ticks_enabled(self, enabled: bool) -> None:
         self._live_ticks_enabled = enabled
         if not enabled:
@@ -1674,22 +1688,25 @@ class FinvizScannerTable(QWidget):
             self.table.setItem(row, 3, change_pct_item)
         change_pct_item.setText(f"{change_pct:+.2f}" if abs(change_pct) > 0.01 else "0.00")
 
-        # Watchlist-matched color coding
+        # Universal color code for up/positive and down/negative values.
+        positive_color = self._table_color("positive", _BULL)
+        negative_color = self._table_color("negative", _BEAR)
+        neutral_color = self._table_color("neutral", _T2)
         if change_pct >= 3.0:
-            chg_fg = QColor(_BULL)
-            chg_bg = QBrush(QColor(0, 212, 168, 26))
+            chg_fg = QColor(positive_color)
+            chg_bg = self._tinted_brush(positive_color, 26)
         elif change_pct >= 1.0:
-            chg_fg = QColor("#35e0bd")
-            chg_bg = QBrush(QColor(0, 212, 168, 16))
+            chg_fg = QColor(positive_color)
+            chg_bg = self._tinted_brush(positive_color, 16)
         elif change_pct >= -0.5:
-            chg_fg = QColor(_T2)
+            chg_fg = QColor(neutral_color)
             chg_bg = QBrush(QColor(_BG2))
         elif change_pct >= -1.0:
-            chg_fg = QColor("#ff8a9a")
-            chg_bg = QBrush(QColor(255, 77, 106, 16))
+            chg_fg = QColor(negative_color)
+            chg_bg = self._tinted_brush(negative_color, 16)
         else:
-            chg_fg = QColor(_BEAR)
-            chg_bg = QBrush(QColor(255, 77, 106, 26))
+            chg_fg = QColor(negative_color)
+            chg_bg = self._tinted_brush(negative_color, 26)
 
         # Match embedded watchlist column palette
         symbol_item.setForeground(QColor(_SYMBOL_TEXT))

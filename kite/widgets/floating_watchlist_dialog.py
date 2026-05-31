@@ -276,6 +276,14 @@ class FloatingWatchlistDialog(QDialog):
         self._sort_col = _COL_SYMBOL
         self._sort_asc = True
         self._selected_rows: set[int] = set()
+        self._color_theme: Dict = {
+            "show_watchlist_volume_column": True,
+            "tables": {
+                "positive": _C.BULL,
+                "negative": _C.BEAR,
+                "neutral": _C.FLAT,
+            },
+        }
 
         # ── Build ────────────────────────────────────────────────────────────
         self._build_ui()
@@ -672,8 +680,9 @@ class FloatingWatchlistDialog(QDialog):
         count = len(sorted_syms)
         self._sym_count_lbl.setText(f"{count} symbols")
         self._count_badge.setText(str(count) if count < 1000 else "999+")
+        active_color = self._table_color("positive", _C.BULL) if sorted_syms else _C.T3
         self._dot.setStyleSheet(
-            f"color: {_C.BULL if sorted_syms else _C.T3}; background: transparent;"
+            f"color: {active_color}; background: transparent;"
         )
 
     @staticmethod
@@ -733,7 +742,7 @@ class FloatingWatchlistDialog(QDialog):
         volume    = rec.get("volume", 0)
         chg_pct   = rec.get("change_pct", 0.0)
 
-        fg_chg, bg_chg = _C.change_color(chg_pct)
+        fg_chg, bg_chg = self._change_colors(chg_pct)
         row_bg = QColor(_C.BG1 if row % 2 == 0 else _C.BG2)
         selected = self._is_row_selected(row)
         cell_bg = QBrush() if selected else QBrush(row_bg)
@@ -819,6 +828,45 @@ class FloatingWatchlistDialog(QDialog):
                 self._write_row(row, sym, rec)
 
         self._dirty_symbols.clear()
+
+    def apply_color_theme(self, theme: Dict) -> None:
+        """Apply the shared terminal color theme to the floating watchlist."""
+        if isinstance(theme, dict):
+            self._color_theme = dict(theme)
+        self.table.setColumnHidden(
+            _COL_VOL,
+            not bool(self._color_theme.get("show_watchlist_volume_column", True)),
+        )
+        self._apply_styles()
+        self._repopulate()
+
+    def _table_color(self, key: str, fallback: str) -> str:
+        tables = (
+            self._color_theme.get("tables", {})
+            if isinstance(self._color_theme, dict)
+            else {}
+        )
+        color = tables.get(key, fallback)
+        return color if isinstance(color, str) and color.startswith("#") else fallback
+
+    def _change_colors(self, pct: float) -> Tuple[str, str]:
+        positive = self._table_color("positive", _C.BULL)
+        negative = self._table_color("negative", _C.BEAR)
+        neutral = self._table_color("neutral", _C.FLAT)
+        if pct >= 3.0:
+            return positive, self._rgba_for_color(positive, 0.12)
+        if pct >= 1.0:
+            return positive, self._rgba_for_color(positive, 0.075)
+        if pct >= -0.5:
+            return neutral, ""
+        if pct >= -1.0:
+            return negative, self._rgba_for_color(negative, 0.07)
+        return negative, self._rgba_for_color(negative, 0.12)
+
+    @staticmethod
+    def _rgba_for_color(color_hex: str, alpha: float) -> str:
+        color = QColor(color_hex)
+        return f"rgba({color.red()},{color.green()},{color.blue()},{max(0.0, min(1.0, alpha))})"
 
     # ═══════════════════════════════════════════════════════════════════════
     # SORTING

@@ -190,6 +190,20 @@ class _ExposureBar(QWidget):
         self.setFixedHeight(4)
         self.setMinimumWidth(120)
         self._pct = 0.5
+        self._positive_color = _C.BULL
+        self._negative_color = _C.BEAR
+
+    def apply_color_theme(self, theme: Dict) -> None:
+        tables = theme.get("tables", {}) if isinstance(theme, dict) else {}
+        positive = tables.get("positive", _C.BULL)
+        negative = tables.get("negative", _C.BEAR)
+        self._positive_color = (
+            positive if isinstance(positive, str) and positive.startswith("#") else _C.BULL
+        )
+        self._negative_color = (
+            negative if isinstance(negative, str) and negative.startswith("#") else _C.BEAR
+        )
+        self.update()
 
     def set_pct(self, v: float):
         self._pct = max(0.0, min(1.0, v))
@@ -205,9 +219,9 @@ class _ExposureBar(QWidget):
 
         end = int(w * self._pct)
         if end > mid:
-            p.fillRect(mid, 0, end - mid, h, QColor(_C.BULL))
+            p.fillRect(mid, 0, end - mid, h, QColor(self._positive_color))
         elif end < mid:
-            p.fillRect(end, 0, mid - end, h, QColor(_C.BEAR))
+            p.fillRect(end, 0, mid - end, h, QColor(self._negative_color))
         p.end()
 
 
@@ -305,6 +319,13 @@ class FloatingPositionsDialog(QDialog):
         self._subscribed: set = set()
         self._targets: Dict[str, float] = {}
         self._nav_idx = 0                              # keyboard nav index
+        self._color_theme: Dict = {
+            "tables": {
+                "positive": _C.BULL,
+                "negative": _C.BEAR,
+                "neutral": _C.FLAT,
+            },
+        }
 
         # ── Build ────────────────────────────────────────────────────────────
         self._build_ui()
@@ -691,8 +712,17 @@ class FloatingPositionsDialog(QDialog):
         is_long  = pos.quantity > 0
         pnl_pos  = pos.pnl > 0
         pnl_neg  = pos.pnl < 0
-        pnl_col  = _C.BULL if pnl_pos else (_C.BEAR if pnl_neg else _C.FLAT)
-        qty_col  = _C.BULL if is_long else _C.BEAR
+        if pnl_pos:
+            pnl_col = self._table_color("positive", _C.BULL)
+        elif pnl_neg:
+            pnl_col = self._table_color("negative", _C.BEAR)
+        else:
+            pnl_col = self._table_color("neutral", _C.FLAT)
+        qty_col = (
+            self._table_color("positive", _C.BULL)
+            if is_long
+            else self._table_color("negative", _C.BEAR)
+        )
         # Keep row backgrounds neutral and let value text/flash carry market state.
         # This prevents live P&L updates from fighting the selected-row style.
         if self.table.selectionModel() and self.table.selectionModel().isRowSelected(row, self.table.rootIndex()):
@@ -783,7 +813,11 @@ class FloatingPositionsDialog(QDialog):
         exposure   = sum(abs(p.quantity) * p.avg_price for p in self._positions.values())
         count      = len(self._positions)
 
-        pnl_col = _C.BULL if total_pnl >= 0 else _C.BEAR
+        pnl_col = (
+            self._table_color("positive", _C.BULL)
+            if total_pnl >= 0
+            else self._table_color("negative", _C.BEAR)
+        )
         sign    = "+" if total_pnl >= 0 else ""
 
         self._total_pnl_lbl.setText(f"{sign}{total_pnl:,.0f}")
@@ -798,6 +832,27 @@ class FloatingPositionsDialog(QDialog):
         total_invested = max(exposure, 1)
         bar_pct = 0.5 + (total_pnl / total_invested) * 0.5
         self._exposure_bar.set_pct(bar_pct)
+
+    def apply_color_theme(self, theme: Dict) -> None:
+        """Apply the shared terminal color theme to the floating positions view."""
+        if isinstance(theme, dict):
+            self._color_theme = dict(theme)
+        self._apply_styles()
+        self._exposure_bar.apply_color_theme(self._color_theme)
+        for sym, row in self._sym_to_row.items():
+            pos = self._positions.get(sym)
+            if pos:
+                self._write_row(row, pos)
+        self._update_footer()
+
+    def _table_color(self, key: str, fallback: str) -> str:
+        tables = (
+            self._color_theme.get("tables", {})
+            if isinstance(self._color_theme, dict)
+            else {}
+        )
+        color = tables.get(key, fallback)
+        return color if isinstance(color, str) and color.startswith("#") else fallback
 
     # ═══════════════════════════════════════════════════════════════════════
     # INTERNAL: WS SUBSCRIPTIONS

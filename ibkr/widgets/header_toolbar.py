@@ -282,6 +282,13 @@ class TickerPill(QFrame):
         self._last_state: Optional[str] = None
         self._apply_style(state=None)
 
+    def set_direction_colors(self, bull_color: str, bear_color: str) -> None:
+        if isinstance(bull_color, str) and bull_color.startswith("#"):
+            self._bull_color = bull_color
+        if isinstance(bear_color, str) and bear_color.startswith("#"):
+            self._bear_color = bear_color
+        self._apply_style(self._last_state)
+
     def update_data(self, price: Optional[float], change_pct: Optional[float]) -> None:
         """Update displayed values. Only setText() is called — zero layout impact."""
         if isinstance(price, (int, float)):
@@ -393,6 +400,8 @@ class TickerBoard(QFrame):
         self._layout.setSpacing(self._PILL_GAP)
 
         self._pills: Dict[str, TickerPill] = {}
+        self._bull_color = _BULL
+        self._bear_color = _BEAR
 
         self.setStyleSheet(f"""
             QFrame#tickerBoard {{
@@ -419,6 +428,7 @@ class TickerBoard(QFrame):
 
         for sym in symbols:
             pill = TickerPill(sym, self)
+            pill.set_direction_colors(self._bull_color, self._bear_color)
             self._layout.addWidget(pill)
             self._pills[sym.upper()] = pill
 
@@ -431,6 +441,14 @@ class TickerBoard(QFrame):
         pill = self._pills.get(symbol.upper())
         if pill:
             pill.update_data(price, change_pct)
+
+    def set_direction_colors(self, bull_color: str, bear_color: str) -> None:
+        if isinstance(bull_color, str) and bull_color.startswith("#"):
+            self._bull_color = bull_color
+        if isinstance(bear_color, str) and bear_color.startswith("#"):
+            self._bear_color = bear_color
+        for pill in self._pills.values():
+            pill.set_direction_colors(self._bull_color, self._bear_color)
 
     def is_empty(self) -> bool:
         return len(self._pills) == 0
@@ -514,6 +532,8 @@ class HeaderToolbar(QToolBar):
         self.threadpool = QThreadPool()
         self._enable_account_polling = bool(enable_account_polling)
         self._last_info_pnl_state: str | None = None
+        self._bull_color = _BULL
+        self._bear_color = _BEAR
 
         self._init_ui()
         self._apply_styles()
@@ -887,6 +907,11 @@ class HeaderToolbar(QToolBar):
 
     def apply_color_theme(self, theme: Dict[str, Any]) -> None:
         theme = theme or {}
+        tables = theme.get("tables", {}) if isinstance(theme.get("tables", {}), dict) else {}
+        self._bull_color = tables.get("positive", _BULL)
+        self._bear_color = tables.get("negative", _BEAR)
+        self._ticker_board.set_direction_colors(self._bull_color, self._bear_color)
+        self._apply_styles()
         self._show_account_name = bool(theme.get("show_account_name", True))
         self._show_account_balance = bool(theme.get("show_account_balance", True))
         self._preferred_username = str(theme.get("preferred_username", "")).strip()
@@ -1382,7 +1407,7 @@ class HeaderToolbar(QToolBar):
         }}
         QLabel#balanceLabel {{
             background-color: transparent;
-            color: {_BULL};
+            color: {self._bull_color};
             border: none;
             border-radius: 0px;
             padding: 1px 7px;
