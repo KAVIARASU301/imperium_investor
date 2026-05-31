@@ -295,6 +295,7 @@ function installPublicApiShims(chart) {
             fontFamily: 'ui',
             fontWeight: 650,
             anchor: 'top_left',
+            wrapWidth: 240,
         });
     };
 

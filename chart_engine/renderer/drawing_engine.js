@@ -283,9 +283,9 @@ class DrawingEngine {
      * Returns {id, which: 'start'|'end'|'body'} or null
      */
     _hitTest(mx, my) {
-        const candidates = this.spatialHash.query(mx, my, HANDLE_HIT + LINE_HIT_THRESH + 4);
+        const candidates = new Set(this.spatialHash.query(mx, my, HANDLE_HIT + LINE_HIT_THRESH + 4));
         for (const [id, d] of this.drawings) {
-            if (d && d.type === 'note' && !candidates.includes(id)) candidates.push(id);
+            if (d && d.type === 'note') candidates.add(id);
         }
 
         /* Test handles first (priority) */
@@ -294,6 +294,15 @@ class DrawingEngine {
             const d = this.drawings.get(id);
             if (!d) continue;
             const sx = this.cs.timeToX(d.startTime), sy = this.cs.priceToY(d.startPrice);
+            if (d.type === 'note') {
+                const b = d.noteBounds;
+                if (b) {
+                    const dResize = Math.hypot(mx - (b.x + b.w), my - (b.y + b.h));
+                    if (dResize < HANDLE_HIT && dResize < bestHandleDist) {
+                        bestHandleDist = dResize; bestHandle = { id, which: 'note_resize' };
+                    }
+                }
+            }
             const dSt = Math.hypot(mx - sx, my - sy);
             if (dSt < HANDLE_HIT && dSt < bestHandleDist) {
                 bestHandleDist = dSt; bestHandle = { id, which: 'start' };
@@ -591,7 +600,13 @@ class DrawingEngine {
             const d = this.drawings.get(id);
             if (d && !d.locked && !this.locked) {
                 this._hashRemove(d);
-                if (which === 'body') {
+                if (which === 'note_resize' && d.type === 'note') {
+                    const left = d.noteBounds?.x ?? this.cs.timeToX(d.startTime);
+                    d.wrapWidth = Math.max(70, Math.min(720, x - left));
+                    delete d.noteBounds;
+                    delete d.textWidth;
+                    delete d.textHeight;
+                } else if (which === 'body') {
                     /* translate whole drawing */
                     const dx = x - this._lastDragX;
                     const dy = y - this._lastDragY;
@@ -599,12 +614,22 @@ class DrawingEngine {
                     const dTime  = this.cs.xToTime(x) - this.cs.xToTime(x - dx);
                     d.startPrice += dPrice; d.startTime += dTime;
                     if (d.endTime != null) { d.endPrice += dPrice; d.endTime += dTime; }
+                    if (d.type === 'note') {
+                        delete d.noteBounds;
+                        delete d.textWidth;
+                        delete d.textHeight;
+                    }
                 } else {
                     const coord = this._pixToCoord(snapX, snapY);
                     if (which === 'start') {
                         d.startPrice = coord.price; d.startTime = coord.time;
                     } else {
                         d.endPrice = coord.price; d.endTime = coord.time;
+                    }
+                    if (d.type === 'note') {
+                        delete d.noteBounds;
+                        delete d.textWidth;
+                        delete d.textHeight;
                     }
                 }
                 this._hashInsert(d);
@@ -634,6 +659,7 @@ class DrawingEngine {
         } else if (hit) {
             const d = this.drawings.get(hit.id);
             if (d && d.locked) this.canvas.style.cursor = 'not-allowed';
+            else if (hit.which === 'note_resize') this.canvas.style.cursor = 'se-resize';
             else if (hit.which !== 'body') this.canvas.style.cursor = 'nw-resize';
             else this.canvas.style.cursor = 'grab';
         } else {
@@ -667,6 +693,7 @@ class DrawingEngine {
                     fontFamily: 'ui',
                     fontWeight: 650,
                     anchor: 'top_left',
+                    wrapWidth: this._defaultNoteWrapWidth(),
                 });
                 this.selectedId = createdId;
                 const created = this.drawings.get(createdId);
@@ -1264,6 +1291,60 @@ class DrawingEngine {
         ctx.quadraticCurveTo(x, y, x + rr, y);
     }
 
+    _defaultNoteWrapWidth() { return 240; }
+
+    _noteWrapWidth(d) {
+        const raw = Number(d.wrapWidth || d.boxWidth || this._defaultNoteWrapWidth());
+        return Math.max(70, Math.min(720, Number.isFinite(raw) ? raw : this._defaultNoteWrapWidth()));
+    }
+
+    _wrapNoteLine(ctx, text, maxWidth) {
+        if (!text) return [''];
+        const tokens = String(text).split(/(\s+)/).filter((token) => token.length > 0);
+        const lines = [];
+        let line = '';
+        const pushLongToken = (token) => {
+            let chunk = '';
+            for (const char of token) {
+                const test = chunk + char;
+                if (chunk && ctx.measureText(test).width > maxWidth) {
+                    lines.push(chunk);
+                    chunk = char;
+                } else {
+                    chunk = test;
+                }
+            }
+            return chunk;
+        };
+
+        for (const token of tokens) {
+            if (/^\s+$/.test(token)) {
+                if (line && !line.endsWith(' ')) line += ' ';
+                continue;
+            }
+            const separator = line && !line.endsWith(' ') ? ' ' : '';
+            const test = line + separator + token;
+            if (!line || ctx.measureText(test).width <= maxWidth) {
+                line = test;
+                continue;
+            }
+            lines.push(line.trimEnd());
+            if (ctx.measureText(token).width <= maxWidth) {
+                line = token;
+            } else {
+                line = pushLongToken(token);
+            }
+        }
+        if (line || lines.length === 0) lines.push(line.trimEnd());
+        return lines;
+    }
+
+    _wrapNoteText(ctx, text, maxWidth) {
+        return String(text || '')
+            .split('\n')
+            .flatMap((line) => this._wrapNoteLine(ctx, line, maxWidth));
+    }
+
     _computeNoteLayout(ctx, d) {
         const x = this.cs.timeToX(d.startTime);
         const y = this.cs.priceToY(d.startPrice);
@@ -1273,18 +1354,22 @@ class DrawingEngine {
         ctx.textAlign = 'left';
         ctx.textBaseline = 'top';
 
-        const lines = String(d.text || '').split('\n');
-        const lineHeight = Math.ceil(fs * 1.26);
-        const textWidth = Math.max(1, lines.reduce((m, line) => Math.max(m, ctx.measureText(line).width), 0));
+        const wrapWidth = this._noteWrapWidth(d);
+        const lines = this._wrapNoteText(ctx, d.text || '', wrapWidth);
+        const lineHeight = Math.ceil(fs * 1.28);
+        const measuredWidth = Math.max(1, lines.reduce((m, line) => Math.max(m, ctx.measureText(line).width), 0));
+        const hasExplicitWidth = d.wrapWidth != null || d.boxWidth != null;
+        const textWidth = Math.max(70, hasExplicitWidth ? wrapWidth : Math.min(wrapWidth, measuredWidth));
         const textHeight = Math.max(lineHeight, lines.length * lineHeight);
         const left = (d.anchor === 'top_left') ? x : x - (textWidth / 2);
         const top = (d.anchor === 'top_left') ? y : y - (textHeight / 2);
 
+        d.wrapWidth = wrapWidth;
         d.textWidth = textWidth;
         d.textHeight = textHeight;
         d.noteBounds = { x: left, y: top, w: textWidth, h: textHeight };
 
-        return { x, y, left, top, textWidth, textHeight, lines, lineHeight, fs, font };
+        return { x, y, left, top, textWidth, textHeight, lines, lineHeight, fs, font, wrapWidth };
     }
 
     _renderNote(ctx, d, sel, hov) {
@@ -1327,7 +1412,10 @@ class DrawingEngine {
         });
         ctx.restore();
 
-        if (sel || hov) this._renderHandle(ctx, layout.x, layout.y, sel, color);
+        if (sel || hov) {
+            this._renderHandle(ctx, layout.x, layout.y, sel, color);
+            this._renderNoteResizeHandle(ctx, layout.left + layout.textWidth, layout.top + layout.textHeight, sel, color);
+        }
     }
 
     _normalizeNoteText(raw) {
@@ -1337,6 +1425,19 @@ class DrawingEngine {
             .trim();
     }
 
+
+    _renderNoteResizeHandle(ctx, x, y, sel, color) {
+        ctx.save();
+        ctx.fillStyle = sel ? color : 'rgba(168, 188, 212, 0.85)';
+        ctx.strokeStyle = '#050709';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.rect(x - 4, y - 4, 8, 8);
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+    }
+
     _startInlineNoteEdit(d, isNew = false) {
         this._teardownInlineNoteEditor(false);
         const x = this.cs.timeToX(d.startTime);
@@ -1344,15 +1445,19 @@ class DrawingEngine {
         const colorSwatches = ['#f5d76e', '#e8f0ff', '#a8bcd4', '#00d4ff', '#00d4a8', '#ff4d6a', '#f59e0b', '#b18cff'];
         const initialColor = this._noteColor(d.color || '#f5d76e');
         const initialSize = Math.max(9, Math.min(34, Number(d.fontSize || 12)));
+        const initialWrapWidth = this._noteWrapWidth(d);
 
         const wrapper = document.createElement('div');
         wrapper.dataset.color = initialColor;
         wrapper.dataset.originalColor = initialColor;
         wrapper.dataset.originalSize = String(initialSize);
+        wrapper.dataset.wrapWidth = String(initialWrapWidth);
         wrapper.style.position = 'absolute';
-        wrapper.style.left = `${(d.anchor === 'top_left') ? x : x - 96}px`;
+        wrapper.style.left = `${(d.anchor === 'top_left') ? x : x - (initialWrapWidth / 2)}px`;
         wrapper.style.top = `${(d.anchor === 'top_left') ? y : y - 42}px`;
-        wrapper.style.width = '214px';
+        wrapper.style.width = `${initialWrapWidth + 18}px`;
+        wrapper.style.minWidth = '110px';
+        wrapper.style.maxWidth = '760px';
         wrapper.style.zIndex = '9999';
         wrapper.style.background = 'rgba(5, 7, 9, 0.94)';
         wrapper.style.border = `1px solid ${initialColor}`;
@@ -1362,14 +1467,17 @@ class DrawingEngine {
         wrapper.style.boxShadow = '0 12px 32px rgba(0, 0, 0, 0.50)';
         wrapper.style.fontFamily = 'Inter, "Segoe UI Variable", "Segoe UI", Arial, sans-serif';
         wrapper.style.pointerEvents = 'auto';
+        wrapper.style.resize = 'horizontal';
+        wrapper.style.overflow = 'auto';
 
         const ta = document.createElement('textarea');
         ta.value = d.text || '';
         ta.placeholder = 'Type note…';
         ta.maxLength = 500;
         ta.style.width = '100%';
-        ta.style.minHeight = '42px';
-        ta.style.maxHeight = '130px';
+        ta.style.minWidth = '80px';
+        ta.style.minHeight = '58px';
+        ta.style.maxHeight = '190px';
         ta.style.display = 'block';
         ta.style.boxSizing = 'border-box';
         ta.style.background = '#0f1318';
@@ -1379,6 +1487,8 @@ class DrawingEngine {
         ta.style.padding = '7px 8px';
         ta.style.outline = 'none';
         ta.style.resize = 'vertical';
+        ta.style.whiteSpace = 'pre-wrap';
+        ta.style.overflowWrap = 'break-word';
         ta.style.font = `650 ${initialSize}px Inter, "Segoe UI Variable", "Segoe UI", Arial, sans-serif`;
         ta.style.lineHeight = '1.28';
         ta.style.letterSpacing = '0.1px';
@@ -1483,6 +1593,15 @@ class DrawingEngine {
             }
         });
 
+        const persistEditorWidth = () => {
+            const rect = ta.getBoundingClientRect();
+            const nextWidth = Math.max(70, Math.min(720, Math.round(rect.width - 18)));
+            wrapper.dataset.wrapWidth = String(nextWidth);
+        };
+        ta.addEventListener('input', persistEditorWidth);
+        ta.addEventListener('mouseup', persistEditorWidth);
+        wrapper.addEventListener('mouseup', persistEditorWidth);
+
         this._noteEditor = { wrapper, textarea: ta, noteId: d.id, isNew, sizeInput };
         this._noteEditorJustCreated = true;
 
@@ -1503,6 +1622,8 @@ class DrawingEngine {
     _teardownInlineNoteEditor(commit) {
         if (!this._noteEditor) return;
         const { wrapper, textarea, noteId, isNew, sizeInput } = this._noteEditor;
+        const editorRect = textarea.getBoundingClientRect();
+        const editorWrapWidth = Math.max(70, Math.min(720, Math.round(editorRect.width - 18)));
         if (commit) {
             const d = this.drawings.get(noteId);
             if (d) {
@@ -1514,6 +1635,7 @@ class DrawingEngine {
                     d.fontSize = Math.max(9, Math.min(34, Number(sizeInput.value || d.fontSize || 12)));
                     d.fontFamily = 'ui';
                     d.fontWeight = 650;
+                    d.wrapWidth = Math.max(70, Math.min(720, Number(wrapper.dataset.wrapWidth || editorWrapWidth)));
                     if (!d.anchor) d.anchor = isNew ? 'top_left' : 'center';
                     delete d.noteBounds;
                     delete d.textWidth;
