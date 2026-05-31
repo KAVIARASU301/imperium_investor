@@ -119,9 +119,7 @@ class FixedTradingChart {
         // ── Settings ──
         this.colors = {
             bg:          '#050709',
-            bgGradTop:   '#05080C',
-            bgGradBot:   '#070B12',
-            paneBg:      '#060A10',
+            paneBg:      '#050709',
             grid:        'rgba(26,32,48,0.66)',
             gridMinor:   'rgba(38,50,71,0.34)',
             frame:       'rgba(38,50,71,0.72)',
@@ -789,11 +787,8 @@ class FixedTradingChart {
 
     _drawChartBackdrop() {
         const ctx = this.ctx;
-        const g = ctx.createLinearGradient(0, 0, 0, Math.max(1, this.height));
-        g.addColorStop(0, this.colors.bgGradTop || this.colors.bg);
-        g.addColorStop(0.55, this.colors.bg || '#050709');
-        g.addColorStop(1, this.colors.bgGradBot || this.colors.bg);
-        ctx.fillStyle = g;
+        // Match TC2000-style charts with a single dark solid pane instead of a gradient.
+        ctx.fillStyle = this.colors.bg || '#050709';
         ctx.fillRect(0, 0, this.width, this.height);
 
         // Subtle pane polish: a calm top highlight and bottom weight, no glow.
