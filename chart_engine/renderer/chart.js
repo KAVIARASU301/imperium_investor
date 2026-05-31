@@ -3087,10 +3087,11 @@ class FixedTradingChart {
 
         const sep = '<span style="color:#2A3A50;margin:0 5px;">•</span>';
         const dot = '<span style="color:#2A3A50;margin:0 5px;">•</span>';
+        const currencySymbol = this._priceCurrencySymbol();
         const adrPercent = Number(this.currentADR?.percent ?? 0);
         const adrPctColor = adrPercent > 4 ? '#00D4A8' : (adrPercent >= 2 ? '#E8F0FF' : '#FF4D6A');
         const adrStr = this.currentADR?.value > 0
-            ? `<span style="color:#A8BCD4;">ADR</span><span style="color:#E8F0FF;margin-left:2px;">₹${this.currentADR.value.toFixed(2)}</span><span style="color:${adrPctColor};margin-left:3px;font-weight:700;">(${adrPercent.toFixed(2)}%)</span>`
+            ? `<span style="color:#A8BCD4;">ADR</span><span style="color:#E8F0FF;margin-left:2px;">${currencySymbol}${this.currentADR.value.toFixed(2)}</span><span style="color:${adrPctColor};margin-left:3px;font-weight:700;">(${adrPercent.toFixed(2)}%)</span>`
             : '<span style="color:#5A7090;">ADR N/A</span>';
         const perfLabels = ['Monthly','3M','6M','1Y'];
         const perfToggles = ['show_perf_monthly','show_perf_3m','show_perf_6m','show_perf_1y'];
@@ -3109,11 +3110,11 @@ class FixedTradingChart {
 
         const priceItems = [];
         if (this.infoVisibility?.show_info_date) priceItems.push(`<span style="color:#5A7090;">${dateStr}</span>`);
-        if (this.infoVisibility?.show_info_open) priceItems.push(`<span style="color:#A8BCD4;">O</span><span style="color:#E8F0FF;margin-left:3px;">₹${c.open.toFixed(2)}</span>`);
-        if (this.infoVisibility?.show_info_high) priceItems.push(`<span style="color:#A8BCD4;">H</span><span style="color:#E8F0FF;margin-left:3px;">₹${c.high.toFixed(2)}</span>`);
-        if (this.infoVisibility?.show_info_low) priceItems.push(`<span style="color:#A8BCD4;">L</span><span style="color:#E8F0FF;margin-left:3px;">₹${c.low.toFixed(2)}</span>`);
-        if (this.infoVisibility?.show_info_close) priceItems.push(`<span style="color:#A8BCD4;">C</span><span style="color:#E8F0FF;margin-left:3px;">₹${c.close.toFixed(2)}</span>`);
-        if (this.infoVisibility?.show_info_pct_change) priceItems.push(`<span style="color:${dayColor};font-weight:700;">Chg ${daySign}₹${dayChange.toFixed(2)} (${daySign}${dayPct.toFixed(2)}%)</span>`);
+        if (this.infoVisibility?.show_info_open) priceItems.push(`<span style="color:#A8BCD4;">O</span><span style="color:#E8F0FF;margin-left:3px;">${currencySymbol}${c.open.toFixed(2)}</span>`);
+        if (this.infoVisibility?.show_info_high) priceItems.push(`<span style="color:#A8BCD4;">H</span><span style="color:#E8F0FF;margin-left:3px;">${currencySymbol}${c.high.toFixed(2)}</span>`);
+        if (this.infoVisibility?.show_info_low) priceItems.push(`<span style="color:#A8BCD4;">L</span><span style="color:#E8F0FF;margin-left:3px;">${currencySymbol}${c.low.toFixed(2)}</span>`);
+        if (this.infoVisibility?.show_info_close) priceItems.push(`<span style="color:#A8BCD4;">C</span><span style="color:#E8F0FF;margin-left:3px;">${currencySymbol}${c.close.toFixed(2)}</span>`);
+        if (this.infoVisibility?.show_info_pct_change) priceItems.push(`<span style="color:${dayColor};font-weight:700;">Chg ${daySign}${currencySymbol}${dayChange.toFixed(2)} (${daySign}${dayPct.toFixed(2)}%)</span>`);
         if (this.infoVisibility?.show_info_volume) priceItems.push(`<span style="color:#A8BCD4;">Vol</span><span style="color:#E8F0FF;margin-left:3px;">${Math.round(volume).toLocaleString('en-IN')}</span>`);
         const priceRow = priceItems.join(sep);
 
@@ -3966,6 +3967,10 @@ const US_AFTER_HOURS_CLOSE_MINUTES = 20 * 60;
         const sym = String(symbol || '').trim().toUpperCase();
         if (sym.endsWith('.NS') || sym.endsWith('.BO')) return 'INR';
         return 'USD';
+    }
+
+    _priceCurrencySymbol() {
+        return this.priceScaleCurrency === 'USD' ? '$' : '₹';
     }
 
     _fmtVol(vol) {
