@@ -127,6 +127,8 @@ def build_chart_html(cfg: ChartHtmlConfig) -> str:
         "downCandleColor":           cfg.down_candle_color,
         "upVolumeColor":             cfg.up_volume_color,
         "downVolumeColor":           cfg.down_volume_color,
+        "themePositiveColor":        cfg.up_candle_color,
+        "themeNegativeColor":        cfg.down_candle_color,
         "watermarkEnabled":          cfg.watermark_enabled,
         "watermarkColor":            cfg.watermark_color,
         "watermarkOpacity":          float(max(0.0, min(1.0, cfg.watermark_opacity))),

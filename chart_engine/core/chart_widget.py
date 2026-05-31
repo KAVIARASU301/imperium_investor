@@ -305,21 +305,36 @@ class CandlestickChart(QWidget):
             self._js(js_code)
 
     def apply_color_theme(self, theme: Dict[str, Any]) -> None:
-        candles = theme.get("candles", {})
-        volume  = theme.get("volume",  {})
-        self._current_up_color          = candles.get("up",   self._current_up_color)
-        self._current_down_color        = candles.get("down", self._current_down_color)
-        self._current_volume_up_color   = volume.get("up",    self._current_up_color)
-        self._current_volume_down_color = volume.get("down",  self._current_down_color)
-        theme_up = self._current_up_color
-        theme_down = self._current_down_color
-        self._current_volume_up_color = theme_up
-        self._current_volume_down_color = theme_down
+        global_colors = theme.get("global", {}) if isinstance(theme, dict) else {}
+        candles = theme.get("candles", {}) if isinstance(theme, dict) else {}
+        volume = theme.get("volume", {}) if isinstance(theme, dict) else {}
+
+        theme_up = global_colors.get("positive") or candles.get("up") or self._current_up_color
+        theme_down = global_colors.get("negative") or candles.get("down") or self._current_down_color
+        volume_up = volume.get("up") or theme_up
+        volume_down = volume.get("down") or theme_down
+
+        self._current_up_color = theme_up
+        self._current_down_color = theme_down
+        self._current_volume_up_color = volume_up
+        self._current_volume_down_color = volume_down
+
+        # Mirror terminal theme colors into chart global settings so a user's
+        # selected positive/negative colors survive chart reloads, symbol changes,
+        # and app restarts even when the chart is rendered before another theme
+        # signal is emitted.
+        self._save_global_settings_patch({
+            "up_candle_color": theme_up,
+            "down_candle_color": theme_down,
+            "up_volume_color": volume_up,
+            "down_volume_color": volume_down,
+        })
+
         payload = json.dumps({
             "upCandleColor": theme_up,
             "downCandleColor": theme_down,
-            "upVolumeColor": theme_up,
-            "downVolumeColor": theme_down,
+            "upVolumeColor": volume_up,
+            "downVolumeColor": volume_down,
             "themePositiveColor": theme_up,
             "themeNegativeColor": theme_down,
         })
@@ -802,8 +817,8 @@ class CandlestickChart(QWidget):
             key = str(cfg.get("id") or "").strip()
             if key and key not in initial_indicator_visibility:
                 initial_indicator_visibility[key] = True
-        up_volume_color = self._current_up_color
-        down_volume_color = self._current_down_color
+        up_volume_color = self._current_volume_up_color
+        down_volume_color = self._current_volume_down_color
         self._indicator_visibility = initial_indicator_visibility
         self.drawing_storage.save_global_indicator_visibility(self._indicator_visibility)
         self._apply_indicator_toolbar_state(initial_indicator_visibility)
@@ -843,6 +858,12 @@ class CandlestickChart(QWidget):
                 "brokerName":                self._broker_caps.name,
                 "showPremarketCandles":      self._show_premarket_candles,
                 "showPostmarketCandles":     self._show_postmarket_candles,
+                "upCandleColor":             self._current_up_color,
+                "downCandleColor":           self._current_down_color,
+                "upVolumeColor":             self._current_volume_up_color,
+                "downVolumeColor":           self._current_volume_down_color,
+                "themePositiveColor":        self._current_up_color,
+                "themeNegativeColor":        self._current_down_color,
             })
             loader_method = "refreshHistoricalData" if self._is_periodic_historical_refresh else "loadNewData"
             self._inject_chart_payload(
@@ -1642,8 +1663,8 @@ class CandlestickChart(QWidget):
         self._right_buffer_candles     = int(s.get("right_buffer_candles", self._right_buffer_candles))
         self._current_up_color           = s.get("up_candle_color", self._current_up_color)
         self._current_down_color         = s.get("down_candle_color", self._current_down_color)
-        self._current_volume_up_color    = self._current_up_color
-        self._current_volume_down_color  = self._current_down_color
+        self._current_volume_up_color    = s.get("up_volume_color", self._current_up_color)
+        self._current_volume_down_color  = s.get("down_volume_color", self._current_down_color)
         self._watermark_enabled          = s.get("watermark_enabled",  self._watermark_enabled)
         self._show_watermark_description = s.get("show_watermark_description", self._show_watermark_description)
         self._watermark_color            = s.get("watermark_color",    self._watermark_color)
@@ -1693,8 +1714,8 @@ class CandlestickChart(QWidget):
                 "rightBufferCandles": self._right_buffer_candles,
                 "upCandleColor":    self._current_up_color,
                 "downCandleColor":  self._current_down_color,
-                "upVolumeColor":    self._current_up_color,
-                "downVolumeColor":  self._current_down_color,
+                "upVolumeColor":    self._current_volume_up_color,
+                "downVolumeColor":  self._current_volume_down_color,
                 "themePositiveColor": self._current_up_color,
                 "themeNegativeColor": self._current_down_color,
                 "watermarkEnabled": self._watermark_enabled,
@@ -1737,7 +1758,8 @@ class CandlestickChart(QWidget):
         settings = self.drawing_storage.load_global_settings()
         settings.update(dict(patch or {}))
         settings["indicator_visibility"] = dict(self._indicator_visibility or {})
-        settings.setdefault("toolbar_preferences", self.toolbar.get_toolbar_preferences())
+        if self.toolbar:
+            settings.setdefault("toolbar_preferences", self.toolbar.get_toolbar_preferences())
         self.drawing_storage.save_global_settings(settings)
 
     # ── Misc actions ──────────────────────────────────────────────────────

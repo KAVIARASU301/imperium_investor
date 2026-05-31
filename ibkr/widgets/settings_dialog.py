@@ -608,7 +608,13 @@ class ColorSettingsDialog(QDialog):
         return self._theme[section][item]
 
     def get_theme(self) -> Dict[str, Any]:
-        self._theme["link_all_sections"] = self.link_checkbox.isChecked()
+        self._theme.setdefault("global", {})
+        # The color manager persists a universal positive/negative pair and
+        # fans it out to candles, volume, metrics, and tables.  Keep the older
+        # IBKR dialog's candle controls wired to that universal preference.
+        self._theme["global"]["positive"] = self._theme.get("candles", {}).get("up", "#00C896")
+        self._theme["global"]["negative"] = self._theme.get("candles", {}).get("down", "#E84060")
+        self._theme["link_all_sections"] = True
         self._theme["enable_table_directional_colors"] = self.table_color_toggle_checkbox.isChecked()
         self._theme["enable_volume_strength_indicator"] = self.volume_strength_toggle_checkbox.isChecked()
         self._theme["show_table_vertical_lines"] = self.show_table_vertical_lines_checkbox.isChecked()

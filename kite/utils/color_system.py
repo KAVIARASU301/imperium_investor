@@ -151,6 +151,12 @@ class ColorThemeManager(QObject):
         return merged
 
     def _normalize_linked_sections(self, theme: Dict[str, Any]) -> None:
+        # The terminal settings expose one universal positive/negative pair.
+        # Always fan that pair out to every directional surface so candles,
+        # volume bars, chart metrics, and tables stay in sync and persist as
+        # a single user preference.
+        theme["candles"]["up"] = theme["global"]["positive"]
+        theme["candles"]["down"] = theme["global"]["negative"]
         theme["volume"]["up"] = theme["global"]["positive"]
         theme["volume"]["down"] = theme["global"]["negative"]
         theme["tables"]["positive"] = theme["global"]["positive"]

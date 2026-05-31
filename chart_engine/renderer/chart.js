@@ -3804,6 +3804,23 @@ class FixedTradingChart {
         this.livePrice = null;
         this._hasLiveTicks = false;
 
+        if (cfg.upCandleColor) {
+            this.colors.upCandle = cfg.upCandleColor;
+            this.colors.upWick = cfg.upCandleColor;
+            this.colors.upOhlc = cfg.upCandleColor;
+        }
+        if (cfg.downCandleColor) {
+            this.colors.downCandle = cfg.downCandleColor;
+            this.colors.downWick = cfg.downCandleColor;
+            this.colors.downOhlc = cfg.downCandleColor;
+        }
+        if (cfg.upVolumeColor) this.colors.upVolume = cfg.upVolumeColor;
+        if (cfg.downVolumeColor) this.colors.downVolume = cfg.downVolumeColor;
+        if (cfg.themePositiveColor) this.colors.themePositive = cfg.themePositiveColor;
+        else if (cfg.upCandleColor) this.colors.themePositive = cfg.upCandleColor;
+        if (cfg.themeNegativeColor) this.colors.themeNegative = cfg.themeNegativeColor;
+        else if (cfg.downCandleColor) this.colors.themeNegative = cfg.downCandleColor;
+
         this.data = cfg.candlestickData || [];
         this._invalidateRenderCaches();
         this._rebuildHeikinAshiData();
