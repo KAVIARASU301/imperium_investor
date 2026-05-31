@@ -22,6 +22,8 @@ Usage in QullamaggieWindow.closeEvent():
 """
 
 import logging
+import os
+import threading
 from typing import Callable, List, Optional, Tuple
 from dataclasses import dataclass
 
@@ -392,16 +394,45 @@ class CleanShutdownMixin:
     And remove the existing closeEvent implementation.
     """
 
+    _shutdown_watchdog_seconds = 10.0
+
     def closeEvent(self, event):
         logger.info("closeEvent received — beginning graceful shutdown")
         event.accept()
 
         app = QApplication.instance()
+        watchdog = self._start_shutdown_watchdog()
 
         try:
             ShutdownManager(self).execute()
         except Exception as e:
             logger.critical("ShutdownManager failed: %s", e, exc_info=True)
         finally:
+            # If the ordered IBKR shutdown completed, the normal application
+            # cleanup path will call os._exit() after QApplication exits.  The
+            # watchdog is only for a shutdown step that blocks forever.
+            watchdog.cancel()
             if app:
                 app.quit()
+
+    def _start_shutdown_watchdog(self) -> threading.Timer:
+        """Force-exit if an IBKR shutdown step blocks the Qt close event.
+
+        IBKR/ib_insync can leave socket or asyncio worker threads alive.  More
+        importantly, some disconnect calls can block the closeEvent before
+        QApplication.quit() is reached, which leaves IDE runs stuck until the
+        user force-kills the process.  A daemon timer gives the graceful sequence
+        a short window and then guarantees process termination.
+        """
+
+        def _force_exit() -> None:
+            logger.critical(
+                "IBKR shutdown exceeded %.1fs; forcing process exit",
+                self._shutdown_watchdog_seconds,
+            )
+            os._exit(0)
+
+        watchdog = threading.Timer(self._shutdown_watchdog_seconds, _force_exit)
+        watchdog.daemon = True
+        watchdog.start()
+        return watchdog
