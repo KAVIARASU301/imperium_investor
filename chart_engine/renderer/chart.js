@@ -2270,16 +2270,13 @@ class FixedTradingChart {
                 if (engine) engine.rebuildSpatialHash();
             }
 
-            // Hard boundaries to stop panning past edges
+            // Hard boundaries to stop panning past edges.  Do not request
+            // more history from inside a drag gesture: the chart should remain
+            // interactive with the candles it already received, and hitting
+            // the left edge must not trigger a reload that snaps back to the
+            // latest candles.
             const maxEnd = this.data.length - 1 + this.rightBufferCandles;
-            if (this.viewPortStart <= 0 && this.panOffsetPx > 0) {
-                if (!this._olderDataRequestPending && this.chartBridge && typeof this.chartBridge.notify_older_data_requested === 'function') {
-                    this._olderDataRequestPending = true;
-                    try { this.chartBridge.notify_older_data_requested(); } catch (err) { console.error("notify_older_data_requested error:", err); }
-                    setTimeout(() => { this._olderDataRequestPending = false; }, 1200);
-                }
-                this.panOffsetPx = 0;
-            }
+            if (this.viewPortStart <= 0 && this.panOffsetPx > 0) this.panOffsetPx = 0;
             if (this.viewPortEnd >= maxEnd && this.panOffsetPx < 0) this.panOffsetPx = 0;
 
             // Automatically unlock Auto-Scale on intentional vertical drag.
