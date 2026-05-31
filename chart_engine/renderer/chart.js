@@ -131,6 +131,10 @@ class FixedTradingChart {
             livePrice:   '#E8F0FF',
             upCandle:    cfg.upCandleColor   || '#00D4A8',
             downCandle:  cfg.downCandleColor || '#FF4D6A',
+            upVolume:    cfg.upVolumeColor   || cfg.upCandleColor   || '#00D4A8',
+            downVolume:  cfg.downVolumeColor || cfg.downCandleColor || '#FF4D6A',
+            themePositive: cfg.themePositiveColor || cfg.upCandleColor   || '#00D4A8',
+            themeNegative: cfg.themeNegativeColor || cfg.downCandleColor || '#FF4D6A',
             dojiCandle:  '#7A8798',
             extendedHoursCandle: '#64748B',
             extendedHoursWick:   '#94A3B8',
@@ -906,9 +910,7 @@ class FixedTradingChart {
             const topY    = this._priceToY(gapUp  ? prev.high : cur.open);
             const bottomY = this._priceToY(gapUp  ? cur.open  : prev.low);
 
-            ctx.fillStyle = gapUp
-                ? 'rgba(0,212,168,0.055)'
-                : 'rgba(255,77,106,0.055)';
+            ctx.fillStyle = this._hexToRgba(gapUp ? this._themeUpColor() : this._themeDownColor(), 0.055);
             ctx.fillRect(x1, topY, x2 - x1, bottomY - topY);
         }
     }
@@ -1259,9 +1261,23 @@ class FixedTradingChart {
 
     _getIntegratedVolumeColors() {
         return {
-            upColor: this.colors.upCandle || "#00D4A8",
-            downColor: this.colors.downCandle || "#FF4D6A",
+            upColor: this.colors.upVolume || this._themeUpColor(),
+            downColor: this.colors.downVolume || this._themeDownColor(),
         };
+    }
+
+    _themeUpColor() {
+        return this.colors.themePositive || this.colors.upCandle || '#00D4A8';
+    }
+
+    _themeDownColor() {
+        return this.colors.themeNegative || this.colors.downCandle || '#FF4D6A';
+    }
+
+    _themeDirectionColor(value, zeroIsPositive = true) {
+        const n = Number(value) || 0;
+        return zeroIsPositive ? (n >= 0 ? this._themeUpColor() : this._themeDownColor())
+                              : (n > 0 ? this._themeUpColor() : this._themeDownColor());
     }
 
     _drawVolumeBars() {
@@ -3339,14 +3355,14 @@ class FixedTradingChart {
         const prevClose = Number(c.prevClose || c.previousClose || c.open || 0);
         const dayChange = c.close - prevClose;
         const dayPct = prevClose !== 0 ? ((dayChange / prevClose) * 100) : 0;
-        const dayColor = dayChange >= 0 ? '#00D4A8' : '#FF4D6A';
+        const dayColor = this._themeDirectionColor(dayChange);
         const daySign = dayChange >= 0 ? '+' : '';
         const volume = Number(c?.volume) || 0;
 
         const sep = '<span style="color:#2A3A50;margin:0 5px;">•</span>';
         const dot = '<span style="color:#2A3A50;margin:0 5px;">•</span>';
         const adrPercent = Number(this.currentADR?.percent ?? 0);
-        const adrPctColor = adrPercent > 4 ? '#00D4A8' : (adrPercent >= 2 ? '#E8F0FF' : '#FF4D6A');
+        const adrPctColor = adrPercent > 4 ? this._themeUpColor() : (adrPercent >= 2 ? '#E8F0FF' : this._themeDownColor());
         const adrStr = this.currentADR?.value > 0
             ? `<span style="color:#A8BCD4;">ADR</span><span style="color:#E8F0FF;margin-left:2px;">₹${this.currentADR.value.toFixed(2)}</span><span style="color:${adrPctColor};margin-left:3px;font-weight:700;">(${adrPercent.toFixed(2)}%)</span>`
             : '<span style="color:#5A7090;">ADR N/A</span>';
@@ -3356,7 +3372,7 @@ class FixedTradingChart {
             if (!this.infoVisibility?.[perfToggles[i]]) return null;
             const v = this.percentageChanges?.[p];
             if (v == null) return `<span style="color:#5A7090;">${p} N/A</span>`;
-            const valCol = v >= 0 ? '#00D4A8' : '#FF4D6A';
+            const valCol = this._themeDirectionColor(v);
             return `<span style="color:#A8BCD4;">${p}</span><span style="color:${valCol};margin-left:3px;font-weight:600;">${v >= 0 ? '+' : ''}${v.toFixed(2)}%</span>`;
         }).filter(Boolean).join(dot);
 
@@ -3980,12 +3996,20 @@ class FixedTradingChart {
             this.colors.upCandle = cfg.upCandleColor;
             this.colors.upWick = cfg.upCandleColor;
             this.colors.upOhlc = cfg.upCandleColor;
+            this.colors.themePositive = cfg.themePositiveColor || cfg.upCandleColor;
         }
         if (cfg.downCandleColor) {
             this.colors.downCandle = cfg.downCandleColor;
             this.colors.downWick = cfg.downCandleColor;
             this.colors.downOhlc = cfg.downCandleColor;
+            this.colors.themeNegative = cfg.themeNegativeColor || cfg.downCandleColor;
         }
+        if (cfg.upVolumeColor) this.colors.upVolume = cfg.upVolumeColor;
+        else if (cfg.upCandleColor) this.colors.upVolume = cfg.upCandleColor;
+        if (cfg.downVolumeColor) this.colors.downVolume = cfg.downVolumeColor;
+        else if (cfg.downCandleColor) this.colors.downVolume = cfg.downCandleColor;
+        if (cfg.themePositiveColor) this.colors.themePositive = cfg.themePositiveColor;
+        if (cfg.themeNegativeColor) this.colors.themeNegative = cfg.themeNegativeColor;
         const slotChanged = (cfg.candleWidth && cfg.candleWidth !== this.candleWidth) ||
                             (cfg.candleSpacing !== undefined && cfg.candleSpacing !== this.candleSpacing);
         if (cfg.candleWidth)                    this.candleWidth   = cfg.candleWidth;
@@ -4051,6 +4075,7 @@ class FixedTradingChart {
             this.calculateBounds();
         }
         this.requestDraw();
+        this._updateMetricsDisplay();
     }
 
     setWatermark(symbol, description = '', showDescription = false) {

@@ -311,12 +311,19 @@ class CandlestickChart(QWidget):
         self._current_down_color        = candles.get("down", self._current_down_color)
         self._current_volume_up_color   = volume.get("up",    self._current_up_color)
         self._current_volume_down_color = volume.get("down",  self._current_down_color)
-        self._js("if(window.chart) window.chart.setChartSettings({"
-                 f"upCandleColor:'{self._current_up_color}',"
-                 f"downCandleColor:'{self._current_down_color}',"
-                 f"upVolumeColor:'{self._current_volume_up_color}',"
-                 f"downVolumeColor:'{self._current_volume_down_color}'"
-                 "});")
+        theme_up = self._current_up_color
+        theme_down = self._current_down_color
+        self._current_volume_up_color = theme_up
+        self._current_volume_down_color = theme_down
+        payload = json.dumps({
+            "upCandleColor": theme_up,
+            "downCandleColor": theme_down,
+            "upVolumeColor": theme_up,
+            "downVolumeColor": theme_down,
+            "themePositiveColor": theme_up,
+            "themeNegativeColor": theme_down,
+        })
+        self._js(f"if(window.chart) window.chart.setChartSettings({payload});")
 
     def set_instrument_list(
         self,
@@ -795,13 +802,8 @@ class CandlestickChart(QWidget):
             key = str(cfg.get("id") or "").strip()
             if key and key not in initial_indicator_visibility:
                 initial_indicator_visibility[key] = True
-        has_volume_indicator = any(
-            str(cfg.get("type") or "").lower() == "volume"
-            for cfg in self._moving_average_configs
-            if isinstance(cfg, dict)
-        )
-        up_volume_color = self._current_up_color if has_volume_indicator else self._current_volume_up_color
-        down_volume_color = self._current_down_color if has_volume_indicator else self._current_volume_down_color
+        up_volume_color = self._current_up_color
+        down_volume_color = self._current_down_color
         self._indicator_visibility = initial_indicator_visibility
         self.drawing_storage.save_global_indicator_visibility(self._indicator_visibility)
         self._apply_indicator_toolbar_state(initial_indicator_visibility)
@@ -1640,8 +1642,8 @@ class CandlestickChart(QWidget):
         self._right_buffer_candles     = int(s.get("right_buffer_candles", self._right_buffer_candles))
         self._current_up_color           = s.get("up_candle_color", self._current_up_color)
         self._current_down_color         = s.get("down_candle_color", self._current_down_color)
-        self._current_volume_up_color    = s.get("up_volume_color",   self._current_up_color)
-        self._current_volume_down_color  = s.get("down_volume_color", self._current_down_color)
+        self._current_volume_up_color    = self._current_up_color
+        self._current_volume_down_color  = self._current_down_color
         self._watermark_enabled          = s.get("watermark_enabled",  self._watermark_enabled)
         self._show_watermark_description = s.get("show_watermark_description", self._show_watermark_description)
         self._watermark_color            = s.get("watermark_color",    self._watermark_color)
@@ -1691,8 +1693,10 @@ class CandlestickChart(QWidget):
                 "rightBufferCandles": self._right_buffer_candles,
                 "upCandleColor":    self._current_up_color,
                 "downCandleColor":  self._current_down_color,
-                "upVolumeColor":    self._current_volume_up_color,
-                "downVolumeColor":  self._current_volume_down_color,
+                "upVolumeColor":    self._current_up_color,
+                "downVolumeColor":  self._current_down_color,
+                "themePositiveColor": self._current_up_color,
+                "themeNegativeColor": self._current_down_color,
                 "watermarkEnabled": self._watermark_enabled,
                 "showWatermarkDescription": self._show_watermark_description,
                 "watermarkColor":   self._watermark_color,

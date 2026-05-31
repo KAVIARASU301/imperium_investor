@@ -85,9 +85,9 @@ class ChartSettingsDialog(QDialog):
         right_form = QFormLayout()
         right_form.setSpacing(10)
 
-        # ── Candle colors ──
-        left_form.addRow("Up Candle Color:", self._color_row("up_candle_color", "#00c896"))
-        left_form.addRow("Down Candle Color:", self._color_row("down_candle_color", "#e84060"))
+        # ── Chart theme colors ──
+        left_form.addRow("Up / Positive Theme Color:", self._color_row("up_candle_color", "#00c896"))
+        left_form.addRow("Down / Negative Theme Color:", self._color_row("down_candle_color", "#e84060"))
 
         # ── Watermark ──
         self.wm_enabled = QCheckBox("Show symbol watermark")
@@ -309,8 +309,8 @@ class ChartSettingsDialog(QDialog):
         new = {
             "up_candle_color": self._s.get("up_candle_color", "#00c896"),
             "down_candle_color": self._s.get("down_candle_color", "#e84060"),
-            "up_volume_color": self._s.get("up_volume_color", self._s.get("up_candle_color", "#00c896")),
-            "down_volume_color": self._s.get("down_volume_color", self._s.get("down_candle_color", "#e84060")),
+            "up_volume_color": self._s.get("up_candle_color", "#00c896"),
+            "down_volume_color": self._s.get("down_candle_color", "#e84060"),
             "watermark_enabled": self.wm_enabled.isChecked(),
             "show_watermark_description": self.wm_description.isChecked(),
             "toolbar_symbol_display": self.toolbar_symbol_display.currentData(),
