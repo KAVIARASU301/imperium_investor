@@ -320,8 +320,14 @@ class Application:
                     self.window.close()
             except Exception as e:
                 logger.warning(f"Window close during cleanup failed: {e}")
-        if self.broker_manager:
+        skip_broker_disconnect = bool(
+            self.window
+            and getattr(self.window, "_skip_broker_disconnect_on_app_quit", False)
+        )
+        if self.broker_manager and not skip_broker_disconnect:
             self.broker_manager.disconnect_all()
+        elif skip_broker_disconnect:
+            logger.info("Skipping broker disconnect during fast window-close shutdown.")
         logger.info("Cleanup complete.")
 
     def _show_critical_error(self, message: str):

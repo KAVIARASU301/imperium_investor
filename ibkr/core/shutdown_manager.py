@@ -152,6 +152,41 @@ class ShutdownManager:
 
         logger.info("=== Application shutdown complete ===")
 
+    def execute_fast_window_close(self) -> None:
+        """Persist UI state and return control to Qt without slow broker teardown.
+
+        Closing an IBKR session can block for several seconds while market-data,
+        trade-log, and ib_insync worker threads drain.  The main entry point
+        already force-exits the process after QApplication quits, so window-control
+        closes should do only the synchronous work users care about preserving
+        before letting Qt leave the event loop.
+        """
+        logger.info("=== Fast IBKR window-close shutdown starting ===")
+
+        fast_steps = (
+            ShutdownStep(
+                name="save_window_state",
+                fn=lambda: self.window.save_window_state()
+                if hasattr(self.window, "save_window_state") else None,
+                timeout_ms=1_000,
+            ),
+            ShutdownStep(
+                name="save_chart_state",
+                fn=self._save_chart_state,
+                timeout_ms=1_000,
+            ),
+            ShutdownStep(
+                name="stop_remaining_timers",
+                fn=self._stop_all_timers,
+                timeout_ms=500,
+            ),
+        )
+
+        for step in fast_steps:
+            self._run_step(step)
+
+        logger.info("=== Fast IBKR window-close shutdown complete ===")
+
     def _run_step(self, step: ShutdownStep) -> None:
         """Run a single step with timeout and error isolation."""
         logger.info(f"Shutdown: [{step.name}]…")
@@ -394,26 +429,32 @@ class CleanShutdownMixin:
     And remove the existing closeEvent implementation.
     """
 
-    _shutdown_watchdog_seconds = 10.0
+    _shutdown_watchdog_seconds = 4.0
 
     def closeEvent(self, event):
-        logger.info("closeEvent received — beginning graceful shutdown")
+        logger.info("closeEvent received — beginning fast IBKR shutdown")
         event.accept()
 
+        if getattr(self, "_shutdown_in_progress", False):
+            return
+
+        self._shutdown_in_progress = True
+        self._skip_broker_disconnect_on_app_quit = True
         app = QApplication.instance()
         watchdog = self._start_shutdown_watchdog()
 
         try:
-            ShutdownManager(self).execute()
+            ShutdownManager(self).execute_fast_window_close()
         except Exception as e:
-            logger.critical("ShutdownManager failed: %s", e, exc_info=True)
+            logger.critical("Fast shutdown failed: %s", e, exc_info=True)
         finally:
-            # If the ordered IBKR shutdown completed, the normal application
-            # cleanup path will call os._exit() after QApplication exits.  The
-            # watchdog is only for a shutdown step that blocks forever.
+            # Keep the window-control close path below the user's five-second
+            # expectation.  main.py exits the process with os._exit() immediately
+            # after QApplication leaves its event loop, so slow IBKR disconnect
+            # joins are intentionally skipped here.
             watchdog.cancel()
             if app:
-                app.quit()
+                QTimer.singleShot(0, app.quit)
 
     def _start_shutdown_watchdog(self) -> threading.Timer:
         """Force-exit if an IBKR shutdown step blocks the Qt close event.
