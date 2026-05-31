@@ -373,14 +373,21 @@ def _volume_strength_level(volume: int) -> int:
 class ModernAddScanDialog(QDialog):
     """Enhanced dialog for adding new Finviz scans with modern styling."""
 
-    def __init__(self, parent=None, initial_scan: Optional[Dict[str, str]] = None, is_edit: bool = False):
+    def __init__(
+            self,
+            parent=None,
+            initial_scan: Optional[Dict[str, str]] = None,
+            is_edit: bool = False,
+            available_tags: Optional[List[str]] = None,
+    ):
         super().__init__(parent)
         self.initial_scan = initial_scan or {}
         self.is_edit = is_edit
+        self.available_tags = self._build_available_tags(available_tags)
 
         self.setWindowTitle("Edit Finviz Scan" if self.is_edit else "Add New Finviz Scan")
         self.setModal(True)
-        self.setFixedSize(560, 350)
+        self.setFixedSize(560, 356)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self._drag_pos = None
@@ -390,6 +397,29 @@ class ModernAddScanDialog(QDialog):
         # ADDED: Auto-focus to the Scan Name input field
         self.name_input.setFocus()
         self.name_input.selectAll()  # Optional: select all text if any exists
+
+    @staticmethod
+    def _build_available_tags(available_tags: Optional[List[str]] = None) -> List[str]:
+        """Merge default groups with existing custom groups for the tag picker."""
+        tags: List[str] = []
+        seen = set()
+
+        def add_tag(raw_tag: Optional[str]) -> None:
+            tag = (raw_tag or "").strip()
+            if not tag:
+                return
+            key = tag.lower()
+            if key in seen:
+                return
+            seen.add(key)
+            tags.append(tag)
+
+        for tag in SCAN_GROUP_ORDER:
+            add_tag(tag)
+        for tag in available_tags or []:
+            add_tag(tag)
+
+        return tags or ["Others"]
 
     def _setup_ui(self):
         # Main container
@@ -453,11 +483,22 @@ class ModernAddScanDialog(QDialog):
         tag_label.setObjectName("fieldLabel")
         self.tag_input = QComboBox()
         self.tag_input.setObjectName("minimalInput")
-        self.tag_input.addItems(SCAN_GROUP_ORDER)
+        self.tag_input.setEditable(True)
+        self.tag_input.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.tag_input.addItems(self.available_tags)
         self.tag_input.setCurrentText("Others")
+        self.tag_input.setToolTip("Choose an existing group or type a new grouping tag")
+        if self.tag_input.lineEdit():
+            self.tag_input.lineEdit().setObjectName("comboLineEdit")
+            self.tag_input.lineEdit().setPlaceholderText("Choose or type a grouping tag")
+            self.tag_input.lineEdit().setFrame(False)
+
+        tag_hint = QLabel("Choose an existing group or type a new grouping tag")
+        tag_hint.setObjectName("fieldHint")
 
         form_layout.addWidget(tag_label)
         form_layout.addWidget(self.tag_input)
+        form_layout.addWidget(tag_hint)
 
         container_layout.addWidget(form_group)
 
@@ -489,6 +530,7 @@ class ModernAddScanDialog(QDialog):
         # Connect validation
         self.name_input.textChanged.connect(self._validate_inputs)
         self.url_input.textChanged.connect(self._validate_inputs)
+        self.tag_input.currentTextChanged.connect(self._validate_inputs)
         self._validate_inputs()
 
         # Enable dragging
@@ -605,6 +647,14 @@ class ModernAddScanDialog(QDialog):
                 background: transparent;
                 text-transform: uppercase;
             }}
+            QLabel#fieldHint {{
+                color: {_T3};
+                font-family: {_SANS};
+                font-size: 9px;
+                font-weight: 400;
+                background: transparent;
+                padding-left: 1px;
+            }}
 
             QLineEdit#minimalInput,
             QTextEdit#minimalTextArea,
@@ -630,8 +680,19 @@ class ModernAddScanDialog(QDialog):
                 background-color: {_BG3};
             }}
             QLineEdit#minimalInput::placeholder,
-            QTextEdit#minimalTextArea::placeholder {{
+            QTextEdit#minimalTextArea::placeholder,
+            QComboBox#minimalInput QLineEdit#comboLineEdit::placeholder {{
                 color: {_T3};
+            }}
+            QComboBox#minimalInput QLineEdit#comboLineEdit {{
+                background: transparent;
+                border: none;
+                color: {_T0};
+                padding: 0px;
+                font-family: {_SANS};
+                font-size: 11px;
+                selection-background-color: {_SEL};
+                selection-color: {_T0};
             }}
             QComboBox#minimalInput::drop-down {{
                 border: none;
@@ -887,9 +948,37 @@ class ModernManageScansDialog(QDialog):
         for row in range(len(self.scans)):
             self.scans_table.setRowHeight(row, _DIALOG_ROW_H)
 
+    def _available_scan_tags(self) -> List[str]:
+        """Return default plus existing user-created scan groups for the tag picker."""
+        tags: List[str] = []
+        seen = set()
+
+        def add_tag(raw_tag: Optional[str]) -> None:
+            tag = (raw_tag or "").strip()
+            if not tag:
+                return
+            key = tag.lower()
+            if key in seen:
+                return
+            seen.add(key)
+            tags.append(tag)
+
+        for tag in SCAN_GROUP_ORDER:
+            add_tag(tag)
+
+        custom_tags = []
+        for scan in self.scans:
+            tag = (scan.get("tag") or "").strip()
+            if tag and tag.lower() not in seen:
+                custom_tags.append(tag)
+        for tag in sorted(custom_tags, key=str.lower):
+            add_tag(tag)
+
+        return tags or ["Others"]
+
     def _add_scan(self):
         """Add a new scan."""
-        dialog = ModernAddScanDialog(self)
+        dialog = ModernAddScanDialog(self, available_tags=self._available_scan_tags())
         if dialog.exec() == QDialog.DialogCode.Accepted:
             scan_data = dialog.get_scan_data()
             self.scans.append(scan_data)
@@ -904,7 +993,12 @@ class ModernManageScansDialog(QDialog):
         if not (0 <= row < len(self.scans)):
             return
 
-        dialog = ModernAddScanDialog(self, initial_scan=self.scans[row], is_edit=True)
+        dialog = ModernAddScanDialog(
+            self,
+            initial_scan=self.scans[row],
+            is_edit=True,
+            available_tags=self._available_scan_tags(),
+        )
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.scans[row] = dialog.get_scan_data()
             self._populate_scans()
