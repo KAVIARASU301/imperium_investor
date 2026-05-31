@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QApplication,
     QLineEdit,
+    QScrollArea,
 )
 from PySide6.QtGui import QColor, QMouseEvent, QCursor
 
@@ -215,7 +216,17 @@ class ColorSettingsDialog(QDialog):
         ))
         colors_layout.addStretch()
 
-        self.tabs.addTab(colors_tab, "COLORS")
+        # Use a scroll area so color rows/buttons never get clipped on smaller
+        # windows or high-DPI Linux themes.
+        colors_scroll = QScrollArea()
+        colors_scroll.setObjectName("colorsScroll")
+        colors_scroll.setWidgetResizable(True)
+        colors_scroll.setFrameShape(QFrame.NoFrame)
+        colors_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        colors_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        colors_scroll.setWidget(colors_tab)
+
+        self.tabs.addTab(colors_scroll, "COLORS")
 
         # --- TAB: MORE ---
         more_tab = QWidget()
@@ -419,8 +430,11 @@ class ColorSettingsDialog(QDialog):
     def _build_color_row(self, label_text: str, key: str, initial_val: str, helper_text: str) -> QFrame:
         row = QFrame()
         row.setObjectName("colorRow")
+        row.setMinimumHeight(50)
         layout = QHBoxLayout(row)
-        layout.setContentsMargins(0, 8, 0, 0)
+        # Extra bottom padding prevents the color swatch border/background from
+        # being cut off by tight Qt layout calculations.
+        layout.setContentsMargins(0, 10, 0, 4)
         layout.setSpacing(12)
 
         label_stack = QVBoxLayout()
@@ -461,8 +475,8 @@ class ColorSettingsDialog(QDialog):
         btn = QPushButton()
         btn.setObjectName("colorSwatchButton")
         btn.setCursor(QCursor(Qt.PointingHandCursor))
-        btn.setFixedHeight(30)
-        btn.setFixedWidth(122)
+        btn.setMinimumSize(132, 34)
+        btn.setMaximumSize(132, 34)
         btn.clicked.connect(lambda: self._pick_color(key))
         self._buttons[key] = btn
         self._set_button_color(btn, value)
@@ -485,7 +499,8 @@ class ColorSettingsDialog(QDialog):
                 font-size: 10px;
                 font-weight: 850;
                 letter-spacing: 0.35px;
-                padding: 0 8px;
+                padding: 0px 8px;
+                margin: 1px 0px;
             }}
             QPushButton:hover {{
                 border: 1px solid {P.CYAN};
@@ -536,6 +551,14 @@ class ColorSettingsDialog(QDialog):
             QWidget {{
                 background: transparent;
                 font-family: {FONT_UI};
+            }}
+
+            QScrollArea#colorsScroll {{
+                background: transparent;
+                border: none;
+            }}
+            QScrollArea#colorsScroll > QWidget > QWidget {{
+                background: transparent;
             }}
 
             QTabWidget#customTabs::pane {{

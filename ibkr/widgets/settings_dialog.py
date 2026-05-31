@@ -16,6 +16,8 @@ from PySide6.QtWidgets import (
     QLabel,
     QApplication,
     QLineEdit,
+    QScrollArea,
+    QSizePolicy,
 )
 from PySide6.QtGui import QColor, QMouseEvent, QCursor
 
@@ -215,7 +217,7 @@ class ColorSettingsDialog(QDialog):
         ))
         colors_layout.addStretch()
 
-        self.tabs.addTab(colors_tab, "COLORS")
+        self.tabs.addTab(self._make_scroll_tab(colors_tab), "COLORS")
 
         # --- TAB: MORE ---
         more_tab = QWidget()
@@ -316,7 +318,7 @@ class ColorSettingsDialog(QDialog):
         more_layout.addWidget(account_group)
         more_layout.addStretch()
 
-        self.tabs.addTab(more_tab, "ADVANCED")
+        self.tabs.addTab(self._make_scroll_tab(more_tab), "ADVANCED")
 
         body_layout.addWidget(self.tabs)
 
@@ -347,6 +349,17 @@ class ColorSettingsDialog(QDialog):
         body_layout.addLayout(btn_layout)
 
         root.addWidget(body_widget)
+
+    def _make_scroll_tab(self, content_widget: QWidget) -> QScrollArea:
+        """Wrap tab pages so controls never get clipped on shorter screens."""
+        scroll = QScrollArea()
+        scroll.setObjectName("tabScrollArea")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll.setWidget(content_widget)
+        return scroll
 
     def _build_color_intro(self) -> QFrame:
         card = QFrame()
@@ -419,8 +432,10 @@ class ColorSettingsDialog(QDialog):
     def _build_color_row(self, label_text: str, key: str, initial_val: str, helper_text: str) -> QFrame:
         row = QFrame()
         row.setObjectName("colorRow")
+        row.setMinimumHeight(46)
+
         layout = QHBoxLayout(row)
-        layout.setContentsMargins(0, 8, 0, 0)
+        layout.setContentsMargins(0, 8, 0, 2)
         layout.setSpacing(12)
 
         label_stack = QVBoxLayout()
@@ -461,8 +476,8 @@ class ColorSettingsDialog(QDialog):
         btn = QPushButton()
         btn.setObjectName("colorSwatchButton")
         btn.setCursor(QCursor(Qt.PointingHandCursor))
-        btn.setFixedHeight(30)
-        btn.setFixedWidth(122)
+        btn.setFixedSize(128, 32)
+        btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         btn.clicked.connect(lambda: self._pick_color(key))
         self._buttons[key] = btn
         self._set_button_color(btn, value)
@@ -485,7 +500,7 @@ class ColorSettingsDialog(QDialog):
                 font-size: 10px;
                 font-weight: 850;
                 letter-spacing: 0.35px;
-                padding: 0 8px;
+                padding: 0px 9px;
             }}
             QPushButton:hover {{
                 border: 1px solid {P.CYAN};
@@ -536,6 +551,16 @@ class ColorSettingsDialog(QDialog):
             QWidget {{
                 background: transparent;
                 font-family: {FONT_UI};
+            }}
+            QScrollArea#tabScrollArea {{
+                background: transparent;
+                border: none;
+            }}
+            QScrollArea#tabScrollArea > QWidget {{
+                background: transparent;
+            }}
+            QScrollArea#tabScrollArea > QWidget > QWidget {{
+                background: transparent;
             }}
 
             QTabWidget#customTabs::pane {{
