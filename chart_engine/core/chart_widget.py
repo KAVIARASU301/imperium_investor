@@ -1573,16 +1573,16 @@ class CandlestickChart(QWidget):
     @Slot(str)
     def _open_text_note_dialog(self, mouse_pos_json: str) -> None:
         pos = json.loads(mouse_pos_json)
-        dlg = TextNoteDialog(self)
+        dlg = TextNoteDialog(self, color=self.current_drawing_color or '#f5d76e')
         if dlg.exec():
             note = {"text": dlg.text, "color": dlg.color, "size": dlg.size,
-                    "x": pos["x"], "y": pos["y"]}
+                    "x": pos["x"], "y": pos["y"], "anchor": "top_left"}
             self._js(f"if(window.chart) window.chart.addTextNoteFromDialog({json.dumps(note)});")
 
     @Slot(str)
     def _open_text_note_edit_dialog(self, note_json: str) -> None:
         note = json.loads(note_json)
-        dlg  = TextNoteDialog(self, text=note.get("text",""), color=note.get("color","#FFD700"), size=note.get("size",12))
+        dlg  = TextNoteDialog(self, text=note.get("text",""), color=note.get("color","#f5d76e"), size=note.get("size",12))
         if dlg.exec():
             note["text"]  = dlg.text
             note["color"] = dlg.color

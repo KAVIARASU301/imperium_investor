@@ -290,14 +290,17 @@ function installPublicApiShims(chart) {
             startPrice: chart._yToPrice(note.y),
             startTime:  chart._xToTime(note.x),
             text:  note.text,
-            color: note.color,
+            color: note.color || '#f5d76e',
             fontSize: note.size || 12,
+            fontFamily: 'ui',
+            fontWeight: 650,
+            anchor: 'top_left',
         });
     };
 
     chart.updateTextNote = (note) => {
         eng.updateDrawing(String(note.id), {
-            text: note.text, color: note.color, fontSize: note.size,
+            text: note.text, color: note.color || '#f5d76e', fontSize: note.size, fontFamily: 'ui', fontWeight: 650,
         });
     };
 }
@@ -311,7 +314,10 @@ function legacySerialize(drawings) {
         lines: [], rectangles: [], notes: [], horizontal_lines: [],
         horizontal_rays: [], arrow_lines: [], fibonacci: [],
     };
-    for (const d of drawings) {
+    for (const source of drawings) {
+        const d = (source && source.type === 'note')
+            ? (({ textWidth, textHeight, noteBounds, ...rest }) => rest)(source)
+            : source;
         switch (d.type) {
             case 'line':             out.lines.push(d);           break;
             case 'horizontal_line': out.horizontal_lines.push(d); break;
@@ -337,6 +343,9 @@ function legacyDeserialize(obj) {
             if (out.startTime == null && out.time != null) out.startTime = out.time;
             if (out.startPrice == null && out.price != null) out.startPrice = out.price;
             if (out.fontSize == null && out.size != null) out.fontSize = out.size;
+            delete out.textWidth;
+            delete out.textHeight;
+            delete out.noteBounds;
         }
         if (out.startTime == null || out.startPrice == null) return null;
         if (Number.isNaN(Number(out.startTime)) || Number.isNaN(Number(out.startPrice))) return null;

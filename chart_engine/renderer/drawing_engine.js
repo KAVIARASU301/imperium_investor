@@ -284,6 +284,9 @@ class DrawingEngine {
      */
     _hitTest(mx, my) {
         const candidates = this.spatialHash.query(mx, my, HANDLE_HIT + LINE_HIT_THRESH + 4);
+        for (const [id, d] of this.drawings) {
+            if (d && d.type === 'note' && !candidates.includes(id)) candidates.push(id);
+        }
 
         /* Test handles first (priority) */
         let bestHandle = null, bestHandleDist = Infinity;
@@ -368,10 +371,15 @@ class DrawingEngine {
                 return Infinity;
             }
             case 'note': {
-                /* hit box around text */
-                const w = (d.textWidth || 80) + 12, h = (d.fontSize || 12) + 8;
-                const tx = sx, ty = sy - h;
-                const inside = mx >= tx - 4 && mx <= tx + w && my >= ty && my <= sy + 4;
+                const w = Math.max(40, d.textWidth || 90);
+                const h = Math.max(16, d.textHeight || Math.ceil((d.fontSize || 12) * 1.35));
+                const b = d.noteBounds || {
+                    x: (d.anchor === 'top_left') ? sx : sx - (w / 2),
+                    y: (d.anchor === 'top_left') ? sy : sy - (h / 2),
+                    w, h,
+                };
+                const inside = mx >= b.x - 7 && mx <= b.x + b.w + 7 &&
+                               my >= b.y - 5 && my <= b.y + b.h + 5;
                 return inside ? 0 : Infinity;
             }
             default: return Infinity;
@@ -652,10 +660,11 @@ class DrawingEngine {
                     startPrice: this.cs.yToPrice(snapY),
                     startTime: this.cs.xToTime(snapX),
                     text: '',
-                    color: this.drawingColor || '#FFD700',
+                    color: this.drawingColor || '#f5d76e',
                     fontSize: 12,
-                    fontFamily: 'sans',
-                    fontWeight: 500,
+                    fontFamily: 'ui',
+                    fontWeight: 650,
+                    anchor: 'top_left',
                 });
                 this.selectedId = createdId;
                 const created = this.drawings.get(createdId);
@@ -928,7 +937,13 @@ class DrawingEngine {
     /* ─── Serialization ─────────────────────────────────────────────────────── */
 
     serialize() {
-        return JSON.stringify([...this.drawings.values()]);
+        return JSON.stringify([...this.drawings.values()].map((drawing) => {
+            if (drawing && drawing.type === 'note') {
+                const { textWidth, textHeight, noteBounds, ...rest } = drawing;
+                return rest;
+            }
+            return drawing;
+        }));
     }
 
     deserialize(json) {
@@ -969,7 +984,9 @@ class DrawingEngine {
                     if (out.startTime == null && out.time != null) out.startTime = out.time;
                     if (out.startPrice == null && out.price != null) out.startPrice = out.price;
                     if (out.fontSize == null && out.size != null) out.fontSize = out.size;
-                    delete out.textWidth; // runtime only; avoid DPI/session mismatch persistence
+                    delete out.textWidth;
+                    delete out.textHeight;
+                    delete out.noteBounds; // runtime only; avoid DPI/session mismatch persistence
                 }
 
                 if (out.startTime == null || out.startPrice == null) return null;
@@ -1209,33 +1226,106 @@ class DrawingEngine {
     }
 
     /* ── Text note ── */
+    _noteColor(color) {
+        const value = String(color || '').trim();
+        if (/^#[0-9a-f]{6}$/i.test(value)) return value;
+        if (/^#[0-9a-f]{3}$/i.test(value)) {
+            return '#' + value.slice(1).split('').map((c) => c + c).join('');
+        }
+        return '#f5d76e';
+    }
+
+    _noteFont(d, fs) {
+        const family = (d.fontFamily === 'monospace')
+            ? '"JetBrains Mono", "Consolas", "Courier New", monospace'
+            : '"Inter", "Segoe UI Variable", "Segoe UI", Arial, sans-serif';
+        const weight = Number.isFinite(Number(d.fontWeight)) ? Number(d.fontWeight) : 650;
+        return { family, weight, text: `${weight} ${fs}px ${family}` };
+    }
+
+    _roundRectPath(ctx, x, y, w, h, r) {
+        const rr = Math.max(0, Math.min(r, w / 2, h / 2));
+        if (typeof ctx.roundRect === 'function') {
+            ctx.beginPath();
+            ctx.roundRect(x, y, w, h, rr);
+            return;
+        }
+        ctx.beginPath();
+        ctx.moveTo(x + rr, y);
+        ctx.lineTo(x + w - rr, y);
+        ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+        ctx.lineTo(x + w, y + h - rr);
+        ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+        ctx.lineTo(x + rr, y + h);
+        ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+        ctx.lineTo(x, y + rr);
+        ctx.quadraticCurveTo(x, y, x + rr, y);
+    }
+
+    _computeNoteLayout(ctx, d) {
+        const x = this.cs.timeToX(d.startTime);
+        const y = this.cs.priceToY(d.startPrice);
+        const fs = Math.max(9, Math.min(34, Number(d.fontSize || 12)));
+        const font = this._noteFont(d, fs);
+        ctx.font = font.text;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+
+        const lines = String(d.text || '').split('\n');
+        const lineHeight = Math.ceil(fs * 1.26);
+        const textWidth = Math.max(1, lines.reduce((m, line) => Math.max(m, ctx.measureText(line).width), 0));
+        const textHeight = Math.max(lineHeight, lines.length * lineHeight);
+        const left = (d.anchor === 'top_left') ? x : x - (textWidth / 2);
+        const top = (d.anchor === 'top_left') ? y : y - (textHeight / 2);
+
+        d.textWidth = textWidth;
+        d.textHeight = textHeight;
+        d.noteBounds = { x: left, y: top, w: textWidth, h: textHeight };
+
+        return { x, y, left, top, textWidth, textHeight, lines, lineHeight, fs, font };
+    }
+
     _renderNote(ctx, d, sel, hov) {
         if (!d.text) return;
-        const x = this.cs.timeToX(d.startTime), y = this.cs.priceToY(d.startPrice);
-        const fs = Math.max(9, d.fontSize || 12);
-        const family = d.fontFamily === 'monospace' ? '"Consolas", "Courier New", monospace' : '"Segoe UI", sans-serif';
-        ctx.font = `${d.fontWeight || 500} ${fs}px ${family}`;
+        const color = this._noteColor(d.color);
+        const layout = this._computeNoteLayout(ctx, d);
+        const padX = 5;
+        const padY = 3;
+
+        ctx.save();
+        ctx.font = layout.font.text;
+        ctx.textAlign = 'left';
         ctx.textBaseline = 'top';
-        const lines = String(d.text).split('\n');
-        const lineHeight = Math.ceil(fs * 1.3);
-        const tw = lines.reduce((m, line) => Math.max(m, ctx.measureText(line).width), 0);
-        const th = Math.max(lineHeight, lines.length * lineHeight);
-        d.textWidth = tw;
-        d.textHeight = th;
+        ctx.lineJoin = 'round';
 
-        /* naked text: align text block center to note origin */
-        ctx.fillStyle = d.color || '#FFD700';
-        const textTop = y - (th / 2);
-        lines.forEach((line, idx) => {
-            const lw = ctx.measureText(line).width;
-            ctx.fillText(line, x - (lw / 2), textTop + (idx * lineHeight));
+        if (sel || hov) {
+            this._roundRectPath(
+                ctx,
+                layout.left - padX,
+                layout.top - padY,
+                layout.textWidth + (padX * 2),
+                layout.textHeight + (padY * 2),
+                2,
+            );
+            ctx.fillStyle = 'rgba(5, 7, 9, 0.58)';
+            ctx.fill();
+            ctx.strokeStyle = sel ? 'rgba(245, 215, 110, 0.55)' : 'rgba(130, 146, 168, 0.28)';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+        }
+
+        ctx.strokeStyle = 'rgba(5, 7, 9, 0.92)';
+        ctx.lineWidth = 3;
+        ctx.fillStyle = color;
+        layout.lines.forEach((line, idx) => {
+            const tx = layout.left;
+            const ty = layout.top + (idx * layout.lineHeight);
+            ctx.strokeText(line, tx, ty);
+            ctx.fillText(line, tx, ty);
         });
+        ctx.restore();
 
-        /* pin dot */
-        ctx.fillStyle = d.color || '#FFD700';
-        ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill();
-
-        if (sel || hov) this._renderHandle(ctx, x, y, sel, d.color);
+        if (sel || hov) this._renderHandle(ctx, layout.x, layout.y, sel, color);
     }
 
     _normalizeNoteText(raw) {
@@ -1249,36 +1339,134 @@ class DrawingEngine {
         this._teardownInlineNoteEditor(false);
         const x = this.cs.timeToX(d.startTime);
         const y = this.cs.priceToY(d.startPrice);
+        const colorSwatches = ['#f5d76e', '#e8f0ff', '#a8bcd4', '#00d4ff', '#00d4a8', '#ff4d6a', '#f59e0b', '#b18cff'];
+        const initialColor = this._noteColor(d.color || '#f5d76e');
+        const initialSize = Math.max(9, Math.min(34, Number(d.fontSize || 12)));
+
+        const wrapper = document.createElement('div');
+        wrapper.dataset.color = initialColor;
+        wrapper.dataset.originalColor = initialColor;
+        wrapper.dataset.originalSize = String(initialSize);
+        wrapper.style.position = 'absolute';
+        wrapper.style.left = `${(d.anchor === 'top_left') ? x : x - 96}px`;
+        wrapper.style.top = `${(d.anchor === 'top_left') ? y : y - 42}px`;
+        wrapper.style.width = '214px';
+        wrapper.style.zIndex = '9999';
+        wrapper.style.background = 'rgba(5, 7, 9, 0.94)';
+        wrapper.style.border = `1px solid ${initialColor}`;
+        wrapper.style.borderLeft = `4px solid ${initialColor}`;
+        wrapper.style.borderRadius = '2px';
+        wrapper.style.padding = '7px';
+        wrapper.style.boxShadow = '0 12px 32px rgba(0, 0, 0, 0.50)';
+        wrapper.style.fontFamily = 'Inter, "Segoe UI Variable", "Segoe UI", Arial, sans-serif';
+        wrapper.style.pointerEvents = 'auto';
+
         const ta = document.createElement('textarea');
         ta.value = d.text || '';
         ta.placeholder = 'Type note…';
         ta.maxLength = 500;
-        ta.style.position = 'absolute';
-        ta.style.left = `${x - 90}px`;
-        ta.style.top = `${y - 38}px`;
-        ta.style.width = '180px';
-        ta.style.minHeight = '36px';
-        ta.style.zIndex = '9999';
-        ta.style.background = '#0f172a';
-        ta.style.color = d.color || '#FFD700';
-        ta.style.border = '1px solid #334155';
-        ta.style.borderRadius = '8px';
-        ta.style.padding = '8px 10px';
-        ta.style.boxShadow = '0 8px 28px rgba(2, 6, 23, 0.55)';
+        ta.style.width = '100%';
+        ta.style.minHeight = '42px';
+        ta.style.maxHeight = '130px';
+        ta.style.display = 'block';
+        ta.style.boxSizing = 'border-box';
+        ta.style.background = '#0f1318';
+        ta.style.color = initialColor;
+        ta.style.border = '1px solid #1a2030';
+        ta.style.borderRadius = '2px';
+        ta.style.padding = '7px 8px';
         ta.style.outline = 'none';
-        ta.style.resize = 'none';
-        ta.style.font = `${Math.max(10, d.fontSize || 12)}px "Segoe UI", sans-serif`;
-        ta.style.lineHeight = '1.35';
-        this.canvas.parentElement.appendChild(ta);
-        ta.focus();
-        if (isNew) {
-            ta.setSelectionRange(0, 0);
-        } else {
-            ta.select();
+        ta.style.resize = 'vertical';
+        ta.style.font = `650 ${initialSize}px Inter, "Segoe UI Variable", "Segoe UI", Arial, sans-serif`;
+        ta.style.lineHeight = '1.28';
+        ta.style.letterSpacing = '0.1px';
+        ta.style.caretColor = initialColor;
+        wrapper.appendChild(ta);
+
+        const controls = document.createElement('div');
+        controls.style.display = 'flex';
+        controls.style.alignItems = 'center';
+        controls.style.gap = '5px';
+        controls.style.marginTop = '6px';
+
+        const colorInput = document.createElement('input');
+        colorInput.type = 'color';
+        colorInput.value = initialColor;
+        colorInput.title = 'Text color';
+        colorInput.style.width = '22px';
+        colorInput.style.height = '20px';
+        colorInput.style.padding = '0';
+        colorInput.style.border = '1px solid #263247';
+        colorInput.style.borderRadius = '2px';
+        colorInput.style.background = '#0f1318';
+        colorInput.style.cursor = 'pointer';
+        controls.appendChild(colorInput);
+
+        const swatchBar = document.createElement('div');
+        swatchBar.style.display = 'flex';
+        swatchBar.style.gap = '3px';
+        swatchBar.style.flex = '1 1 auto';
+        const applyEditorColor = (color) => {
+            const safe = this._noteColor(color);
+            wrapper.dataset.color = safe;
+            colorInput.value = safe;
+            ta.style.color = safe;
+            ta.style.caretColor = safe;
+            wrapper.style.borderColor = safe;
+            wrapper.style.borderLeftColor = safe;
+            for (const btn of swatchBar.children) {
+                btn.style.outline = (btn.dataset.color.toLowerCase() === safe.toLowerCase()) ? '1px solid #e8f0ff' : 'none';
+            }
+        };
+        for (const color of colorSwatches) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.dataset.color = color;
+            btn.title = color.toUpperCase();
+            btn.style.width = '14px';
+            btn.style.height = '14px';
+            btn.style.padding = '0';
+            btn.style.border = '1px solid #263247';
+            btn.style.borderRadius = '2px';
+            btn.style.background = color;
+            btn.style.cursor = 'pointer';
+            btn.addEventListener('mousedown', (ev) => ev.preventDefault());
+            btn.addEventListener('click', () => applyEditorColor(color));
+            swatchBar.appendChild(btn);
         }
-        ta.addEventListener('blur', () => {
-            if (this._noteEditorJustCreated) return;
-            this._teardownInlineNoteEditor(true);
+        controls.appendChild(swatchBar);
+
+        const sizeInput = document.createElement('input');
+        sizeInput.type = 'number';
+        sizeInput.min = '9';
+        sizeInput.max = '34';
+        sizeInput.value = String(initialSize);
+        sizeInput.title = 'Font size';
+        sizeInput.style.width = '42px';
+        sizeInput.style.height = '20px';
+        sizeInput.style.background = '#0f1318';
+        sizeInput.style.color = '#a8bcd4';
+        sizeInput.style.border = '1px solid #1a2030';
+        sizeInput.style.borderRadius = '2px';
+        sizeInput.style.font = '700 10px Inter, "Segoe UI", Arial, sans-serif';
+        sizeInput.style.padding = '0 3px';
+        sizeInput.addEventListener('input', () => {
+            const nextSize = Math.max(9, Math.min(34, Number(sizeInput.value || initialSize)));
+            ta.style.font = `650 ${nextSize}px Inter, "Segoe UI Variable", "Segoe UI", Arial, sans-serif`;
+        });
+        controls.appendChild(sizeInput);
+        wrapper.appendChild(controls);
+
+        wrapper.addEventListener('mousedown', (e) => e.stopPropagation());
+        wrapper.addEventListener('click', (e) => e.stopPropagation());
+        colorInput.addEventListener('input', () => applyEditorColor(colorInput.value));
+        wrapper.addEventListener('focusout', () => {
+            setTimeout(() => {
+                if (!this._noteEditor) return;
+                if (!this._noteEditor.wrapper.contains(document.activeElement)) {
+                    this._teardownInlineNoteEditor(true);
+                }
+            }, 0);
         });
         ta.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
@@ -1289,21 +1477,38 @@ class DrawingEngine {
                 this._teardownInlineNoteEditor(true);
             }
         });
-        this._noteEditor = { wrapper: ta, noteId: d.id, isNew };
+
+        this.canvas.parentElement.appendChild(wrapper);
+        applyEditorColor(initialColor);
+        ta.focus();
+        if (isNew) {
+            ta.setSelectionRange(0, 0);
+        } else {
+            ta.select();
+        }
+        this._noteEditor = { wrapper, textarea: ta, noteId: d.id, isNew, sizeInput };
         this._noteEditorJustCreated = true;
         setTimeout(() => { this._noteEditorJustCreated = false; }, 350);
     }
 
     _teardownInlineNoteEditor(commit) {
         if (!this._noteEditor) return;
-        const { wrapper, noteId, isNew } = this._noteEditor;
+        const { wrapper, textarea, noteId, isNew, sizeInput } = this._noteEditor;
         if (commit) {
             const d = this.drawings.get(noteId);
             if (d) {
-                const normalized = this._normalizeNoteText(wrapper.value);
+                const normalized = this._normalizeNoteText(textarea.value);
                 if (normalized) {
                     this._undoSnapshot();
                     d.text = normalized;
+                    d.color = this._noteColor(wrapper.dataset.color || d.color || '#f5d76e');
+                    d.fontSize = Math.max(9, Math.min(34, Number(sizeInput.value || d.fontSize || 12)));
+                    d.fontFamily = 'ui';
+                    d.fontWeight = 650;
+                    if (!d.anchor) d.anchor = isNew ? 'top_left' : 'center';
+                    delete d.noteBounds;
+                    delete d.textWidth;
+                    delete d.textHeight;
                     this._notify();
                 } else if (isNew) {
                     this.deleteDrawing(noteId);
