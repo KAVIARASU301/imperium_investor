@@ -3125,15 +3125,13 @@ class FixedTradingChart {
     // BOUNDS
     // ═══════════════════════════════════════════════════════════════════════
 
-    calculateBounds() {
-        if (this.data.length === 0) return;
-        const lockedMin = this.isUserYRange ? this.minPrice : null;
-        const lockedMax = this.isUserYRange ? this.maxPrice : null;
+    _visiblePriceExtents() {
+        if (this.data.length === 0) return null;
 
         const series = this._getPriceSeriesForRendering();
         const start = Math.max(0, this.viewPortStart);
         const end   = Math.min(series.length - 1, this.viewPortEnd);
-        if (end < start) return;
+        if (end < start) return null;
 
         let minPrice = Number.POSITIVE_INFINITY;
         let maxPrice = Number.NEGATIVE_INFINITY;
@@ -3145,10 +3143,7 @@ class FixedTradingChart {
             if (d.high > maxPrice) maxPrice = d.high;
         }
 
-        if (!Number.isFinite(minPrice) || !Number.isFinite(maxPrice)) return;
-
-        this.minPrice = minPrice;
-        this.maxPrice = maxPrice;
+        if (!Number.isFinite(minPrice) || !Number.isFinite(maxPrice)) return null;
 
         // Include only visible, price-based overlays in price range.
         // Binary-searching the visible time slice avoids scanning full MA arrays
@@ -3168,17 +3163,81 @@ class FixedTradingChart {
                 for (let j = pStart; j <= pEnd; j++) {
                     const v = Number(emaList[j]?.value);
                     if (!Number.isFinite(v)) continue;
-                    this.minPrice = Math.min(this.minPrice, v);
-                    this.maxPrice = Math.max(this.maxPrice, v);
+                    minPrice = Math.min(minPrice, v);
+                    maxPrice = Math.max(maxPrice, v);
                 }
             }
         }
 
         // Include live price
         if (this.livePrice !== null && !this._isHeikinAshiMode()) {
-            this.minPrice = Math.min(this.minPrice, this.livePrice);
-            this.maxPrice = Math.max(this.maxPrice, this.livePrice);
+            minPrice = Math.min(minPrice, this.livePrice);
+            maxPrice = Math.max(maxPrice, this.livePrice);
         }
+
+        return { minPrice, maxPrice };
+    }
+
+    _captureManualScaleContentBand() {
+        if (!this.isUserYRange) return null;
+        const range = this.maxPrice - this.minPrice;
+        if (!Number.isFinite(range) || range <= 0) return null;
+
+        const extents = this._visiblePriceExtents();
+        if (!extents) return null;
+
+        let lower = (extents.minPrice - this.minPrice) / range;
+        let upper = (extents.maxPrice - this.minPrice) / range;
+        if (!Number.isFinite(lower) || !Number.isFinite(upper)) return null;
+
+        lower = this._clamp01(lower);
+        upper = this._clamp01(upper);
+
+        // If the old candles were mostly outside the pane or effectively full-screen,
+        // fall back to normal autoscale. Otherwise preserve the occupied screen band
+        // so a crushed price scale survives symbol changes like TradingView.
+        const band = upper - lower;
+        if (band < 0.03 || band > 0.96) return null;
+        return { lower, upper };
+    }
+
+    _applyAutoScaleToContentBand(contentBand) {
+        const extents = this._visiblePriceExtents();
+        if (!extents) return false;
+
+        const rawRange = extents.maxPrice - extents.minPrice;
+        const lower = Number(contentBand?.lower);
+        const upper = Number(contentBand?.upper);
+        const band = upper - lower;
+        if (!Number.isFinite(lower) || !Number.isFinite(upper) || band < 0.03 || band > 0.96) {
+            return false;
+        }
+
+        if (rawRange === 0) {
+            this.minPrice = extents.minPrice - 1;
+            this.maxPrice = extents.maxPrice + 1;
+        } else {
+            const scaledRange = rawRange / band;
+            this.minPrice = extents.minPrice - scaledRange * lower;
+            this.maxPrice = this.minPrice + scaledRange;
+        }
+
+        const prevAxisWidth = this.rightAxisWidth || 0;
+        this._updateChartAreas();
+        if (Math.abs((this.rightAxisWidth || 0) - prevAxisWidth) > 0.5) {
+            this._updateChartAreas();
+        }
+        return true;
+    }
+
+    calculateBounds() {
+        const lockedMin = this.isUserYRange ? this.minPrice : null;
+        const lockedMax = this.isUserYRange ? this.maxPrice : null;
+        const extents = this._visiblePriceExtents();
+        if (!extents) return;
+
+        this.minPrice = extents.minPrice;
+        this.maxPrice = extents.maxPrice;
 
         // Keep auto-scaled price action in the middle 60% of the pane so the
         // top/bottom 20% stays visually clear (helps avoid overlap with volume bars).
@@ -3928,6 +3987,8 @@ class FixedTradingChart {
     }
 
     loadNewData(cfg) {
+        const preservedContentBand = this._captureManualScaleContentBand();
+
         // Reset live-tick state so the previous symbol's LTP never
         // pollutes the first rendered frame of the new symbol.
         this.livePrice = null;
@@ -3998,7 +4059,7 @@ class FixedTradingChart {
 
         // Reset viewport state.
         this.panOffsetPx = 0;
-        this.isUserYRange = false;          // always reset auto-scale on symbol switch
+        this.isUserYRange = false;          // temporarily unlock while new data auto-bounds are computed
         this._volVpKey = null;
         this._cachedMaxVolume = 1;
 
@@ -4044,7 +4105,17 @@ class FixedTradingChart {
         }
 
         // Recompute price bounds with the new data and correct geometry.
-        this.calculateBounds();
+        // When the user has manually crushed/panned the price scale, carry the
+        // old candle band's screen position to the new symbol instead of filling
+        // the whole pane. This mirrors TradingView's symbol-change autoscale and
+        // avoids needing to resize the price scale on every scan/navigation step.
+        const preservedScaleApplied = preservedContentBand
+            ? this._applyAutoScaleToContentBand(preservedContentBand)
+            : false;
+        this.isUserYRange = preservedScaleApplied;
+        if (!preservedScaleApplied) {
+            this.calculateBounds();
+        }
 
         this.requestDraw();
         this.updateSlider();
