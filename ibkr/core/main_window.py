@@ -2103,7 +2103,15 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
     @Slot(list)
     def _enqueue_market_data(self, ticks: List[Dict]):
-        """Ultra-light slot for raw websocket ticks; split chart ticks before coalescing."""
+        """Queue every websocket tick for every interested consumer.
+
+        Chart ticks are copied into a high-priority queue so the active charts
+        can repaint immediately, but they must also stay in the shared
+        coalesced buffer.  A symbol can be visible in the chart, watchlist,
+        scanner, positions, alerts, paper orders, or floating widgets at the
+        same time; consuming it for the chart only would starve the other
+        widgets of the same LTP/volume update.
+        """
         if not ticks:
             return
 
@@ -2113,10 +2121,10 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             # Feed every incoming tick to the chart queue and let each chart do
             # its own symbol/token filter.  IBKR can stream ticks before the GUI
             # has resolved the chart conId, or with token-only contracts whose
-            # symbol alias is filled slightly later; pre-filtering here can drop
-            # the exact live tick the active chart needs.  The coalesced path
-            # below is still used for watchlists, scanners, positions, alerts,
-            # and paper orders.
+            # symbol alias is filled slightly later.  The coalesced path below
+            # remains the fan-out source for watchlists, scanners, positions,
+            # alerts, and paper orders, so overlapping symbols update
+            # everywhere.
             self._chart_tick_queue.append(tick)
 
             if token is None:

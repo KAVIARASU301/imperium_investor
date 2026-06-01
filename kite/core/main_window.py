@@ -1720,32 +1720,26 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
     @Slot(list)
     def _enqueue_market_data(self, ticks: List[Dict]):
-        """Ultra-light slot for raw websocket ticks; split chart ticks before coalescing."""
+        """Queue every websocket tick for every interested consumer.
+
+        Chart ticks are copied into a high-priority queue so the active charts
+        can repaint immediately, but they must also stay in the shared
+        coalesced buffer.  A symbol can be visible in the chart, watchlist,
+        scanner, positions, alerts, paper orders, or floating widgets at the
+        same time; consuming it for the chart only would starve the other
+        widgets of the same LTP/volume update.
+        """
         if not ticks:
             return
-
-        chart_token = getattr(self.candlestick_chart, 'current_instrument_token', None)
-        chart_token_int = None
-        if chart_token not in (None, ""):
-            try:
-                chart_token_int = int(chart_token)
-            except (TypeError, ValueError):
-                chart_token_int = None
 
         for tick in ticks:
             token = tick.get("instrument_token")
 
-            # Chart ticks go into a separate deque — never coalesced
-            token_matches_chart = False
-            if chart_token_int is not None and token not in (None, ""):
-                try:
-                    token_matches_chart = int(token) == chart_token_int
-                except (TypeError, ValueError):
-                    token_matches_chart = False
-
-            if token_matches_chart:
-                self._chart_tick_queue.append(tick)
-                continue  # skip the coalescing buffer for chart ticks
+            # Feed every incoming tick to the chart queue and let each chart do
+            # its own symbol/token filter.  The coalesced path below remains the
+            # fan-out source for watchlists, scanners, positions, alerts, and
+            # paper orders, so overlapping symbols update everywhere.
+            self._chart_tick_queue.append(tick)
 
             if token is None:
                 self._tick_buffer_without_token.append(tick)
