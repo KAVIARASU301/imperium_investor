@@ -13,10 +13,10 @@ from collections import deque
 from datetime import datetime, timedelta
 from typing import List, Dict, Union, Any, Optional
 
-from PySide6.QtCore import Qt, QByteArray, QTimer, Slot, Signal, QEvent, QProcess
+from PySide6.QtCore import Qt, QByteArray, QTimer, Slot, Signal, QEvent, QProcess, QSize
 from PySide6.QtWidgets import QMainWindow, QSplitter, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, \
-    QPushButton, QLabel, QApplication, QMessageBox, QMenuBar, QSizePolicy, QDialog, QLineEdit, QGraphicsDropShadowEffect
-from PySide6.QtGui import QMouseEvent, QKeySequence, QKeyEvent, QAction, QColor
+    QPushButton, QLabel, QApplication, QMessageBox, QMenuBar, QSizePolicy, QDialog, QLineEdit, QGraphicsDropShadowEffect, QToolButton
+from PySide6.QtGui import QMouseEvent, QKeySequence, QKeyEvent, QAction, QColor, QIcon
 
 from ibkr.widgets.scanner_table import FinvizScannerTable
 from ibkr.widgets.positions_table import PositionsTable
@@ -46,6 +46,7 @@ from ibkr.core.data_cache import MarketAwareDataCache
 from ibkr.core.account_manager import AccountManager
 from ibkr.utils.ibkr_symbol_resolver import IBKRSymbolResolver
 from ibkr.utils.market_time import market_now, market_session_label, market_strftime
+from utils.resource_path import resource_path
 
 from ibkr.core.position_manager import PositionManager
 from ibkr.core.stop_loss_manager import StopLossManager
@@ -359,11 +360,29 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         positions_panel_layout = QVBoxLayout(self.positions_panel)
         positions_panel_layout.setContentsMargins(0, 0, 0, 0)
         positions_panel_layout.setSpacing(0)
+        self.positions_title_bar = QWidget()
+        self.positions_title_bar.setObjectName("positionsPanelTitleBar")
+        positions_title_layout = QHBoxLayout(self.positions_title_bar)
+        positions_title_layout.setContentsMargins(8, 0, 6, 0)
+        positions_title_layout.setSpacing(6)
         self.positions_title = QLabel("Positions")
         self.positions_title.setObjectName("positionsPanelTitle")
         self.positions_title.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        self.positions_title.setContentsMargins(8, 2, 8, 2)
-        positions_panel_layout.addWidget(self.positions_title)
+        self.positions_title.setContentsMargins(0, 2, 0, 2)
+        positions_title_layout.addWidget(self.positions_title, 1)
+        self.open_positions_table_button = QToolButton()
+        self.open_positions_table_button.setObjectName("openPositionsTableButton")
+        self.open_positions_table_button.setToolTip("Open floating positions table")
+        self.open_positions_table_button.setAccessibleName("Open floating positions table")
+        self.open_positions_table_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.open_positions_table_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.open_positions_table_button.setAutoRaise(True)
+        self.open_positions_table_button.setIcon(QIcon(resource_path("assets/icons/positions_table_open_arrow.svg")))
+        self.open_positions_table_button.setIconSize(QSize(14, 14))
+        self.open_positions_table_button.setFixedSize(22, 20)
+        self.open_positions_table_button.clicked.connect(self._show_floating_positions_dialog)
+        positions_title_layout.addWidget(self.open_positions_table_button, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        positions_panel_layout.addWidget(self.positions_title_bar)
         positions_panel_layout.addWidget(self.positions_table, 1)
         self.finviz_scanner.setObjectName("scannerPanel")
         self.candlestick_chart.setObjectName("primaryChartPanel")
@@ -4361,17 +4380,40 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 border: 1px solid #1f2530;
             }
 
-            #positionsPanelTitle {
+            #positionsPanelTitleBar {
                 background-color: #121826;
+                border: none;
+                border-top: 1px solid #2a3345;
+                border-right: 1px solid #2a3345;
+                border-bottom: 1px solid #2a3345;
+                min-height: 24px;
+            }
+
+            #positionsPanelTitle {
+                background-color: transparent;
                 color: #d7deef;
                 font-size: 10px;
                 font-weight: 600;
                 letter-spacing: 0.35px;
                 border: none;
-                border-top: 1px solid #2a3345;
-                border-right: 1px solid #2a3345;
-                border-bottom: 1px solid #2a3345;
-                padding: 2px 8px;
+                padding: 2px 0;
+            }
+
+            QToolButton#openPositionsTableButton {
+                background-color: transparent;
+                border: 1px solid transparent;
+                border-radius: 4px;
+                padding: 2px;
+            }
+
+            QToolButton#openPositionsTableButton:hover {
+                background-color: #1a2840;
+                border-color: #2a71c8;
+            }
+
+            QToolButton#openPositionsTableButton:pressed {
+                background-color: #101d30;
+                border-color: #3584e4;
             }
 
             #primaryChartPanel, #secondaryChartPanel {
