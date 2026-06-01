@@ -3754,7 +3754,35 @@ class FixedTradingChart {
         return numeric < 1e12 ? numeric * 1000 : numeric;
     }
 
-    updateLivePrice(price, tickTime = null, tickOpen = 0, tickHigh = 0, tickLow = 0, tickVolume = null) {
+    _applyLiveVolume(active, tickVolume, volumeMode, fallbackMode) {
+        const parsedTickVolume = Number(tickVolume);
+        if (!Number.isFinite(parsedTickVolume) || parsedTickVolume < 0) return false;
+
+        const mode = String(volumeMode || fallbackMode || 'none').toLowerCase();
+        if (mode === 'none') return false;
+
+        if (mode === 'total') {
+            // Cumulative broker volume should never make an already-rendered
+            // historical candle go backwards if a delayed/stale field arrives.
+            active.volume = Math.max(Number(active.volume) || 0, parsedTickVolume);
+        } else if (mode === 'delta') {
+            if (parsedTickVolume <= 0) return false;
+            active.volume = (Number(active.volume) || 0) + parsedTickVolume;
+        } else if (fallbackMode === 'total') {
+            active.volume = Math.max(Number(active.volume) || 0, parsedTickVolume);
+        } else {
+            if (parsedTickVolume <= 0) return false;
+            active.volume = (Number(active.volume) || 0) + parsedTickVolume;
+        }
+
+        if (this.volumeData.length > 0) {
+            this.volumeData[this.volumeData.length - 1] = { time: active.time, value: active.volume };
+        }
+        this._volVpKey = null;
+        return true;
+    }
+
+    updateLivePrice(price, tickTime = null, tickOpen = 0, tickHigh = 0, tickLow = 0, tickVolume = null, volumeMode = 'auto') {
         this.livePrice     = price;
         this._hasLiveTicks = true;
 
@@ -3854,14 +3882,7 @@ class FixedTradingChart {
         active.close = price;
 
         if (isDailyInterval) {
-            const parsedTickVolume = Number(tickVolume);
-            if (Number.isFinite(parsedTickVolume) && parsedTickVolume >= 0) {
-                active.volume = parsedTickVolume;
-                if (this.volumeData.length > 0) {
-                    this.volumeData[this.volumeData.length - 1] = { time: active.time, value: parsedTickVolume };
-                }
-                this._volVpKey = null;
-            }
+            this._applyLiveVolume(active, tickVolume, volumeMode, 'total');
             // For daily interval: honour broker-supplied session OHLC when available.
             // tickHigh/tickLow are the day's high/low from the broker tick payload.
             if (tickHigh > 0) active.high = Math.max(active.high, tickHigh, price);
@@ -3891,14 +3912,7 @@ class FixedTradingChart {
             active.high = Math.max(active.high, price);
             active.low  = Math.min(active.low,  price);
 
-            const parsedTickVolume = Number(tickVolume);
-            if (Number.isFinite(parsedTickVolume) && parsedTickVolume > 0) {
-                active.volume = (Number(active.volume) || 0) + parsedTickVolume;
-                if (this.volumeData.length > 0) {
-                    this.volumeData[this.volumeData.length - 1] = { time: active.time, value: active.volume };
-                }
-                this._volVpKey = null;
-            }
+            this._applyLiveVolume(active, tickVolume, volumeMode, 'delta');
         }
 
         if (!this.isUserYRange && !this._isHeikinAshiMode()) {

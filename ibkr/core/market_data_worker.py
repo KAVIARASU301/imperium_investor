@@ -119,6 +119,7 @@ class MarketDataWorker(QThread):
         self._key_to_symbol: Dict[str, str] = {}
         self._contract_cache: Dict[str, Contract] = {}
         self._latest_ticks: Dict[str, Dict[str, Any]] = {}
+        self._last_trade_signature_by_key: Dict[str, Tuple[Any, ...]] = {}
         self._req_id_to_key: Dict[int, str] = {}
         self._preferred_market_data_type = _configured_market_data_type()
         self._market_data_type = self._preferred_market_data_type
@@ -567,6 +568,7 @@ class MarketDataWorker(QThread):
                     self._symbol_to_key.pop(symbol, None)
                 self._key_to_symbol.pop(key, None)
                 self._latest_ticks.pop(key, None)
+                self._last_trade_signature_by_key.pop(key, None)
             if contract is None:
                 continue
             try:
@@ -582,6 +584,7 @@ class MarketDataWorker(QThread):
             self._symbol_to_key.clear()
             self._key_to_symbol.clear()
             self._latest_ticks.clear()
+            self._last_trade_signature_by_key.clear()
             self._req_id_to_key.clear()
         for key, contract in contracts:
             try:
@@ -819,10 +822,14 @@ class MarketDataWorker(QThread):
             getattr(ticker, "lastSize", 0.0),
             getattr(ticker, "delayedLastSize", 0.0),
         )
+        latest_trade_signature = None
 
         # ib_insync keeps recent low-level TickData in ticker.ticks.  Only tick
         # types 4/68 are Last/DelayedLast prices; bid/ask ticks must not become
-        # chart LTP updates.
+        # chart LTP updates.  The same Ticker object is also emitted for many
+        # non-trade field updates, so expose a volume_delta only when the last
+        # trade tick has a new signature.  This prevents chart candles from
+        # repeatedly adding the same lastSize on bid/ask/volume refreshes.
         for tick_data in reversed(list(getattr(ticker, "ticks", []) or [])):
             tick_type = int(getattr(tick_data, "tickType", -1) or -1)
             if tick_type not in {4, 68}:
@@ -832,6 +839,12 @@ class MarketDataWorker(QThread):
                 last_price = tick_price
                 latest_trade_time = getattr(tick_data, "time", None)
                 latest_trade_size = _clean_float(getattr(tick_data, "size", 0.0), latest_trade_size)
+                latest_trade_signature = (
+                    tick_type,
+                    latest_trade_time.isoformat() if isinstance(latest_trade_time, datetime) else str(latest_trade_time),
+                    round(float(tick_price), 8),
+                    round(float(latest_trade_size), 8),
+                )
                 break
 
         if last_price <= 0:
@@ -852,6 +865,14 @@ class MarketDataWorker(QThread):
         if isinstance(ticker_time, datetime) and ticker_time.tzinfo is None:
             ticker_time = ticker_time.replace(tzinfo=timezone.utc)
 
+        volume_delta = 0.0
+        if latest_trade_signature is not None and latest_trade_size > 0:
+            with self._lock:
+                previous_signature = self._last_trade_signature_by_key.get(key)
+                if previous_signature != latest_trade_signature:
+                    self._last_trade_signature_by_key[key] = latest_trade_signature
+                    volume_delta = latest_trade_size
+
         tick = {
             "symbol": symbol,
             "tradingsymbol": symbol,
@@ -861,6 +882,7 @@ class MarketDataWorker(QThread):
             "timestamp": ticker_time,
             "exchange_timestamp": ticker_time,
             "volume": int(_clean_float(getattr(ticker, "volume", 0.0), 0.0)),
+            "volume_delta": volume_delta,
             "last_size": latest_trade_size,
             "tick_count": len(list(getattr(ticker, "ticks", []) or [])),
             "close": prev_close,

@@ -1178,6 +1178,60 @@ class CandlestickChart(QWidget):
 
         return None
 
+
+    @staticmethod
+    def _first_non_negative_number(tick: Dict[str, Any], keys: tuple[str, ...]) -> Optional[float]:
+        """Return the first non-negative numeric tick field from a preferred key order."""
+        for key in keys:
+            raw_value = tick.get(key)
+            if raw_value in (None, ""):
+                continue
+            try:
+                parsed_value = float(raw_value)
+            except (TypeError, ValueError):
+                continue
+            if parsed_value >= 0:
+                return parsed_value
+        return None
+
+    def _resolve_tick_volume_payload(self, tick: Dict[str, Any], broker_name: str) -> tuple[Optional[float], str]:
+        """Choose live-volume semantics for the active chart interval.
+
+        IBKR reqMktData exposes both a cumulative session volume and last-trade
+        sizes.  Intraday/week/month chart candles need incremental trade volume
+        added onto the historical bar, while the daily candle can safely use the
+        broker's cumulative total when present.  Returning an explicit mode keeps
+        JavaScript from guessing and prevents one-tick sizes from replacing the
+        full candle volume.
+        """
+        interval_key = str(self.current_interval or "").strip().lower()
+        is_daily_interval = interval_key == "day"
+        is_ibkr = broker_name == "ibkr"
+
+        cumulative_keys = ("volume_traded", "day_volume", "volume")
+        delta_keys = ("volume_delta", "last_size", "last_traded_quantity")
+
+        if is_daily_interval:
+            total_volume = self._first_non_negative_number(tick, cumulative_keys)
+            if total_volume is not None and (not is_ibkr or total_volume > 0):
+                return total_volume, "total"
+            delta_volume = self._first_non_negative_number(tick, delta_keys)
+            return (delta_volume, "delta") if delta_volume is not None else (None, "none")
+
+        delta_volume = self._first_non_negative_number(tick, delta_keys)
+        if delta_volume is not None:
+            return delta_volume, "delta"
+
+        # As a conservative fallback, let JS preserve legacy behaviour for
+        # brokers that only provide one ambiguous volume field.  For IBKR this is
+        # intentionally not used on intraday/week/month candles because its
+        # cumulative daily volume would corrupt the active timeframe bar.
+        if not is_ibkr:
+            total_volume = self._first_non_negative_number(tick, cumulative_keys)
+            if total_volume is not None:
+                return total_volume, "auto"
+        return None, "none"
+
     def _process_tick(self, tick: Dict[str, Any]) -> None:
         """
         Apply a single live-price tick to the chart.
@@ -1263,24 +1317,13 @@ class CandlestickChart(QWidget):
                 tick_high = float(ohlc.get("high", 0) or 0)
                 tick_low = float(ohlc.get("low", 0) or 0)
 
-            tick_volume = None
-            volume_keys = ("last_size", "last_traded_quantity", "volume_traded", "volume", "day_volume")
-            for volume_key in volume_keys:
-                raw_volume = tick.get(volume_key)
-                if raw_volume in (None, ""):
-                    continue
-                try:
-                    parsed_volume = float(raw_volume)
-                except (TypeError, ValueError):
-                    continue
-                if parsed_volume >= 0:
-                    tick_volume = parsed_volume
-                    break
+            tick_volume, volume_mode = self._resolve_tick_volume_payload(tick, broker_name)
 
             self._js(
                 "if(window.chart) window.chart.updateLivePrice("
                 f"{json.dumps(float(price))}, {json.dumps(tick_time_ms)}, "
-                f"{json.dumps(tick_open)}, {json.dumps(tick_high)}, {json.dumps(tick_low)}, {json.dumps(tick_volume)}"
+                f"{json.dumps(tick_open)}, {json.dumps(tick_high)}, {json.dumps(tick_low)}, "
+                f"{json.dumps(tick_volume)}, {json.dumps(volume_mode)}"
                 ");"
             )
 
