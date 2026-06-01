@@ -41,6 +41,11 @@ from PySide6.QtWidgets import (
 )
 from app_paths import get_asset_path, get_user_data_dir
 
+try:
+    from ibkr.core.symbol_info_db import SymbolInfoDatabase
+except Exception:  # optional; watchlist grouping still works with passed metadata
+    SymbolInfoDatabase = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -695,6 +700,17 @@ _NUM_COLS = 5
 
 _HEADERS = ["", "Symbol", "LTP", "Vol", "%Chg"]
 
+_GROUP_ROW_ROLE = Qt.ItemDataRole.UserRole + 201
+_GROUP_NAME_ROLE = Qt.ItemDataRole.UserRole + 202
+_SECTOR_ROW_ROLE = Qt.ItemDataRole.UserRole + 203
+_SECTOR_NAME_ROLE = Qt.ItemDataRole.UserRole + 204
+
+_GENERIC_GROUP_NAMES = {
+    "", "-", "--", "n/a", "na", "none", "null", "unknown",
+    "other", "others", "ungrouped", "uncategorized", "uncategorised",
+    "unclassified", "not available",
+}
+
 
 class TradingTable(QTableWidget):
     """
@@ -721,7 +737,13 @@ class TradingTable(QTableWidget):
         self._watchlist_data: Dict[str, Dict] = {}
         self._symbol_to_row: Dict[str, int] = {}
         self._token_to_symbol: Dict[int, str] = {}
-        self._symbols: List[str] = []  # ordered list
+        self._symbols: List[str] = []  # flat ordered symbol list, grouped at render time
+        self._symbol_meta: Dict[str, Dict[str, Any]] = {}
+        self._sector_order: List[str] = []
+        self._group_order: List[str] = []
+        self._row_to_symbol: Dict[int, str] = {}
+        self._sector_rows: Dict[int, str] = {}
+        self._group_rows: Dict[int, str] = {}
         self._dirty: set = set()
 
         self._color_theme: Dict = {
@@ -830,11 +852,166 @@ class TradingTable(QTableWidget):
         self._init_data_for_existing()
         self._repopulate()
 
-    def load_symbols(self, symbols: List[str]) -> None:
-        self._symbols = [s for s in symbols if s]
+    def load_symbols(self, symbols: List[Any]) -> None:
+        """Load persisted watchlist entries. Accepts old flat symbol lists and new metadata rows."""
+        self._symbols = []
+        self._symbol_meta = {}
+        self._sector_order = []
+        self._group_order = []
+
+        for entry in symbols or []:
+            if isinstance(entry, dict):
+                symbol = str(entry.get("symbol") or entry.get("tradingsymbol") or "").strip().upper()
+                if not symbol:
+                    continue
+                metadata = dict(entry)
+            else:
+                symbol = str(entry or "").strip().upper()
+                if not symbol:
+                    continue
+                metadata = {"symbol": symbol}
+
+            if symbol in self._symbols:
+                self._symbol_meta[symbol].update(metadata)
+                continue
+
+            metadata = self._normalize_symbol_metadata(symbol, metadata)
+            self._symbols.append(symbol)
+            self._symbol_meta[symbol] = metadata
+            self._ensure_sector_group_order(metadata)
+
         if self._instrument_map:
             self._init_data_for_existing()
         self._repopulate()
+
+    def get_watchlist_entries(self) -> List[Dict[str, Any]]:
+        """Return symbol metadata rows for persistence, preserving group/theme information."""
+        entries: List[Dict[str, Any]] = []
+        for symbol in self._symbols:
+            meta = dict(self._symbol_meta.get(symbol, {}))
+            data = self._watchlist_data.get(symbol, {})
+            meta["symbol"] = symbol
+            meta["sector"] = self._sector_from_metadata(meta)
+            meta["group"] = self._group_from_metadata(meta)
+            for key in ("company", "company_name", "sector", "industry", "theme", "group", "source_scan", "scan_name", "country", "market_cap"):
+                if key not in meta and data.get(key):
+                    meta[key] = data.get(key)
+            entries.append(meta)
+        return entries
+
+    @staticmethod
+    def _metadata_text(value: Any) -> str:
+        return " ".join(str(value or "").strip().split())
+
+    @classmethod
+    def _is_generic_bucket(cls, value: Any) -> bool:
+        text = cls._metadata_text(value).lower()
+        return text in _GENERIC_GROUP_NAMES
+
+    def _clean_sector_name(self, value: Any) -> str:
+        sector = self._metadata_text(value)
+        return sector if sector and not self._is_generic_bucket(sector) else "Others"
+
+    def _clean_group_name(self, value: Any, *, sector: Optional[str] = None) -> str:
+        group = self._metadata_text(value)
+        if not group or self._is_generic_bucket(group):
+            clean_sector = self._clean_sector_name(sector)
+            return "Unclassified" if clean_sector != "Others" else "Ungrouped"
+        return group
+
+    def _sector_from_metadata(self, metadata: Optional[Dict[str, Any]] = None) -> str:
+        metadata = metadata or {}
+        return self._clean_sector_name(metadata.get("sector"))
+
+    def _group_from_metadata(self, metadata: Optional[Dict[str, Any]] = None, fallback: Optional[str] = None) -> str:
+        """Return the industry/theme bucket inside a sector.
+
+        Priority is scanner/database industry first, then explicit theme/group.
+        Generic values like 'Ungrouped' never override real sector/industry data.
+        """
+        metadata = metadata or {}
+        sector = self._sector_from_metadata(metadata)
+        industry = self._metadata_text(metadata.get("industry"))
+        if industry and not self._is_generic_bucket(industry):
+            return self._clean_group_name(industry, sector=sector)
+
+        for key in ("theme", "group", "scan_name", "source_scan"):
+            candidate = self._metadata_text(metadata.get(key))
+            if not candidate or self._is_generic_bucket(candidate):
+                continue
+            # If Finviz only gave a sector and the old group/theme mirrors that
+            # sector, keep it under a neutral sub-group instead of repeating
+            # TECHNOLOGY -> TECHNOLOGY.
+            if sector != "Others" and candidate.lower() == sector.lower():
+                continue
+            return self._clean_group_name(candidate, sector=sector)
+
+        if fallback and not self._is_generic_bucket(fallback):
+            return self._clean_group_name(fallback, sector=sector)
+        return self._clean_group_name(None, sector=sector)
+
+    def _ensure_sector_order(self, sector: str) -> None:
+        clean = self._clean_sector_name(sector)
+        if clean not in self._sector_order:
+            self._sector_order.append(clean)
+
+    def _ensure_group_order(self, group: str) -> None:
+        clean = self._metadata_text(group)
+        if not clean:
+            clean = "Ungrouped"
+        if clean not in self._group_order:
+            self._group_order.append(clean)
+
+    def _ensure_sector_group_order(self, metadata: Dict[str, Any]) -> None:
+        self._ensure_sector_order(self._sector_from_metadata(metadata))
+        self._ensure_group_order(self._group_from_metadata(metadata))
+
+    def _metadata_from_symbol_db(self, symbol: str) -> Dict[str, Any]:
+        if SymbolInfoDatabase is None:
+            return {}
+        try:
+            info = SymbolInfoDatabase().get_symbol_info(symbol) or {}
+        except Exception:
+            return {}
+        if not info:
+            return {}
+        return {
+            "company": info.get("company_name") or "",
+            "company_name": info.get("company_name") or "",
+            "sector": info.get("sector") or "",
+            "industry": info.get("industry") or "",
+            "country": info.get("country") or "",
+            "market_cap": info.get("market_cap_text") or "",
+        }
+
+    def _merge_metadata_value(self, merged: Dict[str, Any], key: str, value: Any) -> None:
+        if value in (None, ""):
+            return
+        if key in {"sector", "industry", "theme", "group"}:
+            existing = merged.get(key)
+            if self._is_generic_bucket(value) and existing and not self._is_generic_bucket(existing):
+                return
+        merged[key] = value
+
+    def _normalize_symbol_metadata(
+        self,
+        symbol: str,
+        metadata: Optional[Dict[str, Any]] = None,
+        group: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        # Database is the fallback baseline. Scanner/search metadata can add or
+        # improve values, but generic buckets must not erase real DB sectors.
+        merged: Dict[str, Any] = {}
+        merged.update(self._metadata_from_symbol_db(symbol))
+        if metadata:
+            for key, value in metadata.items():
+                self._merge_metadata_value(merged, key, value)
+        merged["symbol"] = symbol
+        if group:
+            self._merge_metadata_value(merged, "group", group)
+        merged["sector"] = self._sector_from_metadata(merged)
+        merged["group"] = self._group_from_metadata(merged, group)
+        return merged
 
     def _resolve_symbol_for_instrument_map(self, symbol: str) -> Optional[str]:
         """Return canonical symbol key from instrument_map for user/chart-provided symbol."""
@@ -866,17 +1043,39 @@ class TradingTable(QTableWidget):
 
         return None
 
-    def add_symbol(self, symbol: str) -> bool:
+    def add_symbol(
+        self,
+        symbol: str,
+        *,
+        group: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> bool:
         raw_symbol = str(symbol).strip().upper() if symbol else ""
         if not raw_symbol:
             return False
 
         resolved_symbol = self._resolve_symbol_for_instrument_map(raw_symbol)
         symbol_key = resolved_symbol or raw_symbol
+        symbol_meta = self._normalize_symbol_metadata(symbol_key, metadata, group)
+        symbol_group = self._group_from_metadata(symbol_meta, group)
+        symbol_meta["group"] = symbol_group
+
         if symbol_key in self._symbols:
+            # Keep one symbol per watchlist; refresh metadata/group if better data arrives.
+            existing = self._symbol_meta.setdefault(symbol_key, {"symbol": symbol_key})
+            existing.update({k: v for k, v in symbol_meta.items() if v not in (None, "")})
+            existing["sector"] = self._sector_from_metadata(existing)
+            existing["group"] = self._group_from_metadata(existing, symbol_group)
+            self._ensure_sector_group_order(existing)
+            if symbol_key in self._watchlist_data:
+                self._watchlist_data[symbol_key].update(existing)
+            self._repopulate()
+            self.watchlist_symbols_changed.emit()
             return False
 
         self._symbols.append(symbol_key)
+        self._symbol_meta[symbol_key] = symbol_meta
+        self._ensure_sector_group_order(symbol_meta)
         self._init_symbol_data(symbol_key)
         self._repopulate()
         self.watchlist_symbols_changed.emit()
@@ -923,22 +1122,36 @@ class TradingTable(QTableWidget):
             self._dirty.add(symbol)
 
     def remove_symbol(self, symbol: str) -> bool:
+        symbol = str(symbol or "").strip().upper()
         if symbol not in self._symbols:
             return False
         self._symbols.remove(symbol)
+        self._symbol_meta.pop(symbol, None)
         self._watchlist_data.pop(symbol, None)
+        self._rebuild_group_order()
         self._rebuild_token_map()
         self._repopulate()
         self.watchlist_symbols_changed.emit()
         return True
 
+    def _rebuild_group_order(self) -> None:
+        old_sectors = list(self._sector_order)
+        old_groups = list(self._group_order)
+        sectors = {self._sector_from_metadata(self._symbol_meta.get(sym, {})) for sym in self._symbols}
+        groups = {self._group_from_metadata(self._symbol_meta.get(sym, {})) for sym in self._symbols}
+        self._sector_order = [s for s in old_sectors if s in sectors]
+        self._group_order = [g for g in old_groups if g in groups]
+        for sym in self._symbols:
+            meta = self._symbol_meta.get(sym, {})
+            sector = self._sector_from_metadata(meta)
+            group = self._group_from_metadata(meta)
+            if sector not in self._sector_order:
+                self._sector_order.append(sector)
+            if group not in self._group_order:
+                self._group_order.append(group)
+
     def get_symbol_list(self) -> List[str]:
-        symbols: List[str] = []
-        for row in range(self.rowCount()):
-            sym = self._symbol_at_row(row)
-            if sym:
-                symbols.append(sym)
-        return symbols
+        return list(self._symbols)
 
     def get_all_tokens(self) -> List[int]:
         return list(self._token_to_symbol.keys())
@@ -1065,8 +1278,13 @@ class TradingTable(QTableWidget):
 
     def _init_data_for_existing(self):
         for sym in self._symbols:
+            meta = self._normalize_symbol_metadata(sym, self._symbol_meta.get(sym, {}))
+            self._symbol_meta[sym] = meta
+            self._ensure_sector_group_order(meta)
             if sym not in self._watchlist_data:
                 self._init_symbol_data(sym)
+            else:
+                self._watchlist_data[sym].update(meta)
         self._rebuild_token_map()
 
     def _init_symbol_data(self, symbol: str):
@@ -1076,15 +1294,19 @@ class TradingTable(QTableWidget):
         ltp = inst.get("last_price", 0.0) or 0.0
         vol = inst.get("volume", 0) or 0
         chg = (ltp - prev) / prev * 100 if prev > 0 and ltp > 0 else 0.0
+        meta = self._normalize_symbol_metadata(symbol, self._symbol_meta.get(symbol, {}))
+        self._symbol_meta[symbol] = meta
+        self._ensure_sector_group_order(meta)
 
         self._watchlist_data[symbol] = {
             "tradingsymbol": symbol,
             "instrument_token": inst.get("instrument_token"),
-            "exchange": inst.get("exchange", "NSE"),
+            "exchange": inst.get("exchange", "SMART"),
             "ltp": ltp,
             "volume": vol,
             "prev_close": prev,
             "change_pct": chg,
+            **meta,
         }
 
     def _rebuild_token_map(self):
@@ -1101,27 +1323,145 @@ class TradingTable(QTableWidget):
 
     def _repopulate(self):
         self.setRowCount(0)
+        try:
+            self.clearSpans()
+        except Exception:
+            pass
         self._symbol_to_row.clear()
+        self._row_to_symbol.clear()
+        self._sector_rows.clear()
+        self._group_rows.clear()
 
-        for row, sym in enumerate(self._symbols):
-            self._symbol_to_row[sym] = row
+        row = 0
+        for sector in self._ordered_sectors_for_render():
+            sector_symbols = [
+                sym for sym in self._symbols
+                if self._sector_from_metadata(self._symbol_meta.get(sym, {})) == sector
+            ]
+            if not sector_symbols:
+                continue
+
             self.insertRow(row)
-            for col in range(_NUM_COLS):
-                self.setItem(row, col, QTableWidgetItem())
+            self._paint_sector_header(row, sector, len(sector_symbols))
+            row += 1
 
-            # Flag cell
-            self._paint_flag_cell(row, sym)
+            for group in self._ordered_groups_for_sector(sector):
+                group_symbols = [
+                    sym for sym in self._symbols
+                    if self._sector_from_metadata(self._symbol_meta.get(sym, {})) == sector
+                    and self._group_from_metadata(self._symbol_meta.get(sym, {})) == group
+                ]
+                if not group_symbols:
+                    continue
 
-            data = self._watchlist_data.get(sym)
-            if data:
-                self._update_row(row, data)
-            else:
-                sym_item = self.item(row, _COL_SYMBOL)
-                if sym_item:
-                    sym_item.setText(sym)
-                    sym_item.setForeground(QColor(_C.T_SYMBOL))
-                    sym_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-                    sym_item.setFont(self._symbol_font())
+                self.insertRow(row)
+                self._paint_group_header(row, sector, group, len(group_symbols))
+                row += 1
+
+                for sym in group_symbols:
+                    self._symbol_to_row[sym] = row
+                    self._row_to_symbol[row] = sym
+                    self.insertRow(row)
+                    for col in range(_NUM_COLS):
+                        self.setItem(row, col, QTableWidgetItem())
+
+                    self._paint_flag_cell(row, sym)
+
+                    data = self._watchlist_data.get(sym)
+                    if data:
+                        self._update_row(row, data)
+                    else:
+                        sym_item = self.item(row, _COL_SYMBOL)
+                        if sym_item:
+                            sym_item.setText(sym)
+                            sym_item.setForeground(QColor(_C.T_SYMBOL))
+                            sym_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+                            sym_item.setFont(self._symbol_font())
+                    row += 1
+
+    def _ordered_sectors_for_render(self) -> List[str]:
+        sectors = {self._sector_from_metadata(self._symbol_meta.get(sym, {})) for sym in self._symbols}
+        ordered = [s for s in self._sector_order if s in sectors]
+        for sym in self._symbols:
+            sector = self._sector_from_metadata(self._symbol_meta.get(sym, {}))
+            if sector not in ordered:
+                ordered.append(sector)
+        # Keep Others last so real sectors stay together at the top.
+        return [s for s in ordered if s != "Others"] + (["Others"] if "Others" in ordered else [])
+
+    def _ordered_groups_for_sector(self, sector: str) -> List[str]:
+        groups = {
+            self._group_from_metadata(self._symbol_meta.get(sym, {}))
+            for sym in self._symbols
+            if self._sector_from_metadata(self._symbol_meta.get(sym, {})) == sector
+        }
+        ordered = [g for g in self._group_order if g in groups]
+        for sym in self._symbols:
+            if self._sector_from_metadata(self._symbol_meta.get(sym, {})) != sector:
+                continue
+            group = self._group_from_metadata(self._symbol_meta.get(sym, {}))
+            if group not in ordered:
+                ordered.append(group)
+        # Put generic group labels after named industries/themes.
+        generic = {"Ungrouped", "Unclassified"}
+        return [g for g in ordered if g not in generic] + [g for g in ordered if g in generic]
+
+    def _ordered_groups_for_render(self) -> List[str]:
+        """Compatibility helper: return all groups in sector-aware render order."""
+        ordered: List[str] = []
+        for sector in self._ordered_sectors_for_render():
+            for group in self._ordered_groups_for_sector(sector):
+                if group not in ordered:
+                    ordered.append(group)
+        return ordered
+
+    def _paint_sector_header(self, row: int, sector: str, count: int) -> None:
+        self._sector_rows[row] = sector
+        for col in range(_NUM_COLS):
+            item = QTableWidgetItem("")
+            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable & ~Qt.ItemFlag.ItemIsEditable)
+            item.setData(_SECTOR_ROW_ROLE, True)
+            item.setData(_SECTOR_NAME_ROLE, sector)
+            item.setBackground(QBrush(QColor(_C.BG0)))
+            item.setForeground(QColor(_C.T2))
+            self.setItem(row, col, item)
+
+        label = f"{sector.upper()}   {count} STOCK{'S' if count != 1 else ''}"
+        item = self.item(row, _COL_SYMBOL)
+        if item:
+            item.setText(label)
+            item.setForeground(QColor(_C.CYAN if sector != "Others" else _C.T2))
+            item.setFont(self._font_from_families(_UI_FONT_FAMILIES, point_size=8, weight=QFont.Weight.Bold))
+            item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        try:
+            self.setSpan(row, _COL_SYMBOL, 1, _NUM_COLS - _COL_SYMBOL)
+        except Exception:
+            pass
+        self.setRowHeight(row, max(_ROW_H, 21))
+
+    def _paint_group_header(self, row: int, sector: str, group: str, count: int) -> None:
+        self._group_rows[row] = group
+        for col in range(_NUM_COLS):
+            item = QTableWidgetItem("")
+            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable & ~Qt.ItemFlag.ItemIsEditable)
+            item.setData(_GROUP_ROW_ROLE, True)
+            item.setData(_GROUP_NAME_ROLE, group)
+            item.setBackground(QBrush(QColor(_C.BG2)))
+            item.setForeground(QColor(_C.T2))
+            self.setItem(row, col, item)
+
+        label = f"  {group.upper()}   {count}"
+        item = self.item(row, _COL_SYMBOL)
+        if item:
+            item.setText(label)
+            item.setForeground(QColor(_C.AMBER if group not in {"Ungrouped", "Unclassified"} else _C.T2))
+            item.setFont(self._font_from_families(_UI_FONT_FAMILIES, point_size=8, weight=QFont.Weight.Bold))
+            item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        try:
+            self.setSpan(row, _COL_SYMBOL, 1, _NUM_COLS - _COL_SYMBOL)
+        except Exception:
+            pass
+        self.setRowHeight(row, max(_ROW_H, 20))
 
     def _update_row(self, row: int, data: Dict):
         if row >= self.rowCount():
@@ -1222,7 +1562,7 @@ class TradingTable(QTableWidget):
     # ── Event handlers ─────────────────────────────────────────────────────
 
     def keyPressEvent(self, event):
-        """Spacebar moves selection down one row and opens selected symbol chart."""
+        """Spacebar moves selection down one symbol row and opens selected symbol chart."""
         if event.key() == Qt.Key.Key_Space:
             row_count = self.rowCount()
             if row_count == 0:
@@ -1230,14 +1570,14 @@ class TradingTable(QTableWidget):
                 return
 
             current_row = self.currentRow()
-            next_row = 0 if current_row < 0 else (current_row + 1) % row_count
-
-            self.selectRow(next_row)
-            self.setCurrentCell(next_row, _COL_SYMBOL)
-
-            sym = self._symbol_at_row(next_row)
-            if sym and not sym.startswith("─"):
-                self.symbol_selected.emit(sym)
+            for step in range(1, row_count + 1):
+                next_row = 0 if current_row < 0 else (current_row + step) % row_count
+                sym = self._symbol_at_row(next_row)
+                if sym:
+                    self.selectRow(next_row)
+                    self.setCurrentCell(next_row, _COL_SYMBOL)
+                    self.symbol_selected.emit(sym)
+                    break
 
             event.accept()
             return
@@ -1245,6 +1585,8 @@ class TradingTable(QTableWidget):
         super().keyPressEvent(event)
 
     def _on_cell_click(self, row: int, col: int):
+        if self._is_header_row(row):
+            return
         if col == _COL_FLAG:
             sym = self._symbol_at_row(row)
             if sym:
@@ -1252,7 +1594,7 @@ class TradingTable(QTableWidget):
                 self._paint_flag_cell(row, sym)
             return
         sym = self._symbol_at_row(row)
-        if sym and not sym.startswith("─"):
+        if sym:
             self.symbol_selected.emit(sym)
 
     def _on_focus_out(self, event):
@@ -1295,7 +1637,17 @@ class TradingTable(QTableWidget):
             if self._sort_col == _COL_CHG:    return d.get("change_pct", 0.0)
             return sym
 
-        self._symbols.sort(key=_key, reverse=not self._sort_asc)
+        grouped: List[str] = []
+        for sector in self._ordered_sectors_for_render():
+            for group in self._ordered_groups_for_sector(sector):
+                group_symbols = [
+                    sym for sym in self._symbols
+                    if self._sector_from_metadata(self._symbol_meta.get(sym, {})) == sector
+                    and self._group_from_metadata(self._symbol_meta.get(sym, {})) == group
+                ]
+                group_symbols.sort(key=_key, reverse=not self._sort_asc)
+                grouped.extend(group_symbols)
+        self._symbols = grouped
         self._repopulate()
 
     def _show_ctx_menu(self, pos: QPoint):
@@ -1339,10 +1691,16 @@ class TradingTable(QTableWidget):
     # ── Helpers ────────────────────────────────────────────────────────────
 
     def _symbol_at_row(self, row: int) -> Optional[str]:
-        for s, r in self._symbol_to_row.items():
-            if r == row:
-                return s
-        return None
+        return self._row_to_symbol.get(row)
+
+    def _is_group_row(self, row: int) -> bool:
+        return row in self._group_rows
+
+    def _is_sector_row(self, row: int) -> bool:
+        return row in self._sector_rows
+
+    def _is_header_row(self, row: int) -> bool:
+        return self._is_sector_row(row) or self._is_group_row(row)
 
     @staticmethod
     def _font_from_families(
@@ -1595,16 +1953,27 @@ class TabbedWatchlistWidget(QWidget):
         """Set broker client used for one-shot quote snapshots on newly added symbols."""
         self._quote_client = quote_client
 
-    def add_symbol(self, symbol: str, category: str = None) -> bool:
+    def add_symbol(
+        self,
+        symbol: str,
+        category: str = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> bool:
         table = self._current_table()
         if not table:
             return False
-        added = table.add_symbol(symbol)
+        added = table.add_symbol(symbol, group=category, metadata=metadata)
         if added:
             self._refresh_symbol_snapshot(table, symbol)
         return added
 
-    def add_symbol_to_watchlist_index(self, symbol: str, index: int) -> bool:
+    def add_symbol_to_watchlist_index(
+        self,
+        symbol: str,
+        index: int,
+        metadata: Optional[Dict[str, Any]] = None,
+        category: str = None,
+    ) -> bool:
         """Add symbol to watchlist at zero-based index."""
         entries = self._config.all()
         if index < 0 or index >= len(entries):
@@ -1618,7 +1987,7 @@ class TabbedWatchlistWidget(QWidget):
         if not table:
             return False
 
-        added = table.add_symbol(symbol)
+        added = table.add_symbol(symbol, group=category, metadata=metadata)
         if added:
             self._refresh_symbol_snapshot(table, symbol)
         return added
@@ -1634,9 +2003,14 @@ class TabbedWatchlistWidget(QWidget):
         """Return currently active watchlist name."""
         return self._dropdown.currentText() or None
 
-    def add_symbol_to_active_watchlist(self, symbol: str) -> bool:
+    def add_symbol_to_active_watchlist(
+        self,
+        symbol: str,
+        metadata: Optional[Dict[str, Any]] = None,
+        category: str = None,
+    ) -> bool:
         """Add symbol to currently active watchlist."""
-        return self.add_symbol(symbol)
+        return self.add_symbol(symbol, category=category, metadata=metadata)
 
     def remove_symbol_from_active_watchlist(self, symbol: str) -> bool:
         """Remove symbol from currently active watchlist."""
@@ -1832,7 +2206,7 @@ class TabbedWatchlistWidget(QWidget):
     def _on_symbols_changed(self, wl_id: str):
         table = self._tables.get(wl_id)
         if table:
-            _save_symbols(wl_id, table.get_symbol_list())
+            _save_symbols(wl_id, table.get_watchlist_entries())
             self._subscribe_all_tokens()
         self.watchlist_changed.emit()
 
@@ -1862,7 +2236,7 @@ class TabbedWatchlistWidget(QWidget):
 
     def closeEvent(self, event):
         for wl_id, table in self._tables.items():
-            _save_symbols(wl_id, table.get_symbol_list())
+            _save_symbols(wl_id, table.get_watchlist_entries())
         super().closeEvent(event)
 
     # ── Styles ─────────────────────────────────────────────────────────────

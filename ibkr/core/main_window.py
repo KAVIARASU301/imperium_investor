@@ -536,6 +536,10 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         stock_info_action.setShortcuts([QKeySequence("Ctrl+I"), QKeySequence("Shift+I")])
         stock_info_action.setShortcutVisibleInContextMenu(True)
 
+        scans_list_action = tools_menu.addAction("Scans List", self._show_scans_list_dialog)
+        scans_list_action.setShortcut(QKeySequence("Shift+S"))
+        scans_list_action.setShortcutVisibleInContextMenu(True)
+
         floating_watchlist_action = tools_menu.addAction("Floating Watchlist", self._show_floating_watchlist_dialog)
         floating_watchlist_action.setShortcut(QKeySequence("Shift+W"))
         floating_watchlist_action.setShortcutVisibleInContextMenu(True)
@@ -1596,9 +1600,13 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 first, last = 0, row_count - 1
 
             symbols = []
+            has_symbol_lookup = hasattr(table, "_symbol_at_row")
             for row in range(first, last + 1):
-                symbol = table._symbol_at_row(row) if hasattr(table, "_symbol_at_row") else None
-                if not symbol:
+                if has_symbol_lookup:
+                    symbol = table._symbol_at_row(row)
+                    if not symbol:
+                        continue  # grouped header row
+                else:
                     item = table.item(row, 1) if hasattr(table, "item") else None
                     symbol = item.text().strip() if item else None
                 symbol = str(symbol or "").strip().upper()
@@ -1615,9 +1623,13 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         try:
             row_count = table.rowCount()
             symbols = []
+            has_symbol_lookup = hasattr(table, "_symbol_at_row")
             for row in range(max(0, center_row - radius), min(row_count - 1, center_row + radius) + 1):
-                symbol = table._symbol_at_row(row) if hasattr(table, "_symbol_at_row") else None
-                if not symbol:
+                if has_symbol_lookup:
+                    symbol = table._symbol_at_row(row)
+                    if not symbol:
+                        continue
+                else:
                     item = table.item(row, 1) if hasattr(table, "item") else None
                     symbol = item.text().strip() if item else None
                 if symbol:
@@ -1994,6 +2006,14 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         except Exception as exc:
             logger.error("Failed to open stock info dialog for %s: %s", selected_symbol, exc)
             show_error("Failed to open stock info dialog")
+
+    def _show_scans_list_dialog(self) -> None:
+        """Open the scanner's simple scans list dialog."""
+        scanner = getattr(self, "finviz_scanner", None)
+        if scanner is None or not hasattr(scanner, "show_scans_list_dialog"):
+            show_info("Scanner is not ready")
+            return
+        scanner.show_scans_list_dialog()
 
     def _initialize_chart_after_instruments(self):
         """Initialize chart after instruments are ready.
@@ -3458,6 +3478,42 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self._watchlist_shortcuts = setup_keyboard_shortcuts(self)
         logger.info("Keyboard shortcuts initialized")
 
+    def _watchlist_metadata_for_symbol(self, symbol: str) -> Dict[str, Any]:
+        """Return scanner metadata so watchlist can group symbols by industry/theme."""
+        clean_symbol = str(symbol or "").strip().upper()
+        if not clean_symbol:
+            return {}
+
+        metadata: Dict[str, Any] = {"symbol": clean_symbol}
+        scanner = getattr(self, "finviz_scanner", None)
+        getter = getattr(scanner, "get_symbol_data", None)
+        if callable(getter):
+            try:
+                scanner_data = getter(clean_symbol) or {}
+                if isinstance(scanner_data, dict):
+                    metadata.update({
+                        key: value
+                        for key, value in scanner_data.items()
+                        if key in {
+                            "symbol", "name", "company", "company_name", "sector",
+                            "industry", "theme", "group", "country", "market_cap",
+                            "scan_name", "source_scan", "scan_tag"
+                        } and value not in (None, "")
+                    })
+            except Exception:
+                logger.debug("Could not read scanner metadata for %s", clean_symbol, exc_info=True)
+
+        group = (
+            metadata.get("group")
+            or metadata.get("theme")
+            or metadata.get("industry")
+            or metadata.get("scan_name")
+            or metadata.get("source_scan")
+        )
+        if group:
+            metadata["group"] = str(group).strip()
+        return metadata
+
     def _add_symbol_to_watchlist_from_chart_index(self, index: int):
         """Add current chart symbol to watchlist by zero-based index."""
         current_symbol = getattr(self.candlestick_chart, 'current_symbol', None)
@@ -3470,8 +3526,15 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             status.show_info(f"Watchlist slot {index + 1} is empty")
             return
 
-        if self.watchlist.add_symbol_to_watchlist_index(current_symbol, index):
-            status.show_info(f"Added {current_symbol} to {watchlist_name}")
+        metadata = self._watchlist_metadata_for_symbol(current_symbol)
+        if self.watchlist.add_symbol_to_watchlist_index(
+            current_symbol,
+            index,
+            metadata=metadata,
+            category=metadata.get("group"),
+        ):
+            group = metadata.get("group") or "Ungrouped"
+            status.show_info(f"Added {current_symbol} to {watchlist_name} / {group}")
         else:
             status.show_info(f"{current_symbol} already in {watchlist_name}")
 
@@ -3505,8 +3568,14 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             status.show_info(f"Could not remove {current_symbol} from {active_name or 'active watchlist'}")
             return
 
-        if self.watchlist.add_symbol_to_active_watchlist(current_symbol):
-            status.show_info(f"Added {current_symbol} to {active_name or 'active watchlist'}")
+        metadata = self._watchlist_metadata_for_symbol(current_symbol)
+        if self.watchlist.add_symbol_to_active_watchlist(
+            current_symbol,
+            metadata=metadata,
+            category=metadata.get("group"),
+        ):
+            group = metadata.get("group") or "Ungrouped"
+            status.show_info(f"Added {current_symbol} to {active_name or 'active watchlist'} / {group}")
         else:
             status.show_info(f"Could not add {current_symbol} to {active_name or 'active watchlist'}")
 
@@ -3916,7 +3985,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         return False
 
     def _navigate_watchlist_symbols(self, table, direction='next'):
-        """Navigate symbols in watchlist table."""
+        """Navigate symbols in watchlist table, skipping grouped industry header rows."""
         if not table:
             return
 
@@ -3925,29 +3994,28 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             return
 
         current_row = table.currentRow()
-        if current_row < 0:
-            next_row = 0
-        elif direction == 'previous':
-            next_row = (current_row - 1) % row_count
-        else:
-            next_row = (current_row + 1) % row_count
-
         symbol_col = 1
-        table.selectRow(next_row)
-        table.setCurrentCell(next_row, symbol_col)
+        step = -1 if direction == 'previous' else 1
+        if current_row < 0:
+            current_row = row_count if direction == 'previous' else -1
 
         try:
-            symbol = None
-            if hasattr(table, '_symbol_at_row'):
-                symbol = table._symbol_at_row(next_row)
-            if not symbol:
-                item = table.item(next_row, symbol_col)
-                symbol = item.text().strip() if item else None
+            for offset in range(1, row_count + 1):
+                next_row = (current_row + (step * offset)) % row_count
+                symbol = None
+                if hasattr(table, '_symbol_at_row'):
+                    symbol = table._symbol_at_row(next_row)
+                if not symbol and not hasattr(table, '_symbol_at_row'):
+                    item = table.item(next_row, symbol_col)
+                    symbol = item.text().strip() if item else None
 
-            if symbol and symbol != 'N/A' and not symbol.startswith('─'):
-                self._preload_nearby_table_symbols(table, next_row)
-                table.symbol_selected.emit(symbol)
-                logger.debug(f"Watchlist navigation: Selected {symbol}")
+                if symbol and symbol != 'N/A' and not symbol.startswith('─'):
+                    table.selectRow(next_row)
+                    table.setCurrentCell(next_row, symbol_col)
+                    self._preload_nearby_table_symbols(table, next_row)
+                    table.symbol_selected.emit(symbol)
+                    logger.debug(f"Watchlist navigation: Selected {symbol}")
+                    return
         except Exception as e:
             logger.warning(f"Error navigating watchlist symbols: {e}")
 

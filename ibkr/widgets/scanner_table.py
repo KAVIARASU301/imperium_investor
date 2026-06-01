@@ -12,7 +12,7 @@ from PySide6.QtCore import Signal, Slot, Qt, QThread, QTimer, QSize, QByteArray
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem, QHeaderView,
     QAbstractItemView, QPushButton, QHBoxLayout, QLabel, QComboBox, QMessageBox,
-    QDialog, QLineEdit, QGroupBox, QTextEdit, QListView,
+    QDialog, QLineEdit, QGroupBox, QTextEdit, QListView, QListWidget, QListWidgetItem,
     QStyledItemDelegate, QStyleOptionViewItem, QApplication, QStyle, QSizePolicy
 )
 from PySide6.QtGui import QColor, QFont, QBrush, QCursor, QFontMetrics, QIcon
@@ -1246,14 +1246,130 @@ class ModernManageScansDialog(QDialog):
         """)
 
 
+
+class ScansListDialog(QDialog):
+    """Simple list dialog for selecting and running saved scans."""
+
+    def __init__(self, scans: List[Dict[str, str]], parent=None):
+        super().__init__(parent)
+        self.scans = list(scans or [])
+        self.selected_scan_index: Optional[int] = None
+        self.setWindowTitle("Scans List")
+        self.setModal(True)
+        self.setFixedSize(360, 480)
+        self._setup_ui()
+        self._apply_styles()
+
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
+
+        title = QLabel("SCANS LIST")
+        title.setObjectName("simpleScanTitle")
+        layout.addWidget(title)
+
+        self.list_widget = QListWidget()
+        self.list_widget.setObjectName("simpleScanList")
+        self.list_widget.itemDoubleClicked.connect(self._accept_current_item)
+        layout.addWidget(self.list_widget, 1)
+
+        for index, scan in self._sorted_scan_items():
+            name = str(scan.get("name") or f"Scan {index + 1}")
+            tag = self._scan_tag(scan)
+            item = QListWidgetItem(f"{tag}  /  {name}")
+            item.setData(Qt.ItemDataRole.UserRole, index)
+            self.list_widget.addItem(item)
+
+        if self.list_widget.count() > 0:
+            self.list_widget.setCurrentRow(0)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+        cancel_btn = QPushButton("Cancel")
+        run_btn = QPushButton("Run")
+        cancel_btn.clicked.connect(self.reject)
+        run_btn.clicked.connect(self._accept_current_item)
+        buttons.addWidget(cancel_btn)
+        buttons.addWidget(run_btn)
+        layout.addLayout(buttons)
+
+    def _scan_tag(self, scan: Dict[str, str]) -> str:
+        tag = str(scan.get("tag") or "Others").strip()
+        return tag or "Others"
+
+    def _sorted_scan_items(self):
+        decorated = []
+        for index, scan in enumerate(self.scans):
+            tag = self._scan_tag(scan)
+            name = str(scan.get("name") or f"Scan {index + 1}")
+            decorated.append((tag.lower(), name.lower(), index, scan))
+        decorated.sort()
+        return [(index, scan) for _tag, _name, index, scan in decorated]
+
+    def _accept_current_item(self, *_args):
+        item = self.list_widget.currentItem()
+        if item is None:
+            return
+        self.selected_scan_index = item.data(Qt.ItemDataRole.UserRole)
+        self.accept()
+
+    def _apply_styles(self):
+        self.setStyleSheet(f"""
+            QDialog {{
+                background: {_BG1};
+                color: {_T0};
+                border: 1px solid {_BG4};
+            }}
+            QLabel#simpleScanTitle {{
+                color: {_T0};
+                font-family: {_SANS};
+                font-size: 11px;
+                font-weight: 700;
+                letter-spacing: 0.8px;
+            }}
+            QListWidget#simpleScanList {{
+                background: {_BG0};
+                color: {_T1};
+                border: 1px solid {_BG4};
+                outline: none;
+                font-family: {_SANS};
+                font-size: 10px;
+            }}
+            QListWidget#simpleScanList::item {{
+                min-height: 22px;
+                padding: 2px 6px;
+            }}
+            QListWidget#simpleScanList::item:selected {{
+                background: {_SEL};
+                color: {_T0};
+            }}
+            QPushButton {{
+                background: {_BG2};
+                color: {_T1};
+                border: 1px solid {_BG4};
+                border-radius: 2px;
+                padding: 4px 12px;
+                font-family: {_SANS};
+                font-size: 10px;
+            }}
+            QPushButton:hover {{
+                background: {_BG3};
+                color: {_T0};
+            }}
+        """)
+
+
 class ScanWorker(QThread):
     """Worker thread for Finviz scans - returns symbol-first EOD rows."""
     scan_completed = Signal(list)  # Emits list of complete symbol data
     scan_error = Signal(str)
 
-    def __init__(self, scan_url: str):
+    def __init__(self, scan_url: str, scan_name: str = "", scan_tag: str = ""):
         super().__init__()
         self.scan_url = scan_url
+        self.scan_name = scan_name
+        self.scan_tag = scan_tag
         self._symbol_info_db = SymbolInfoDatabase()
 
     def run(self):
@@ -1265,6 +1381,7 @@ class ScanWorker(QThread):
             tickers = quick_scrape(url)
             scan_results = []
             for row in tickers:
+                raw_row = row if isinstance(row, dict) else {'symbol': str(row).strip().upper()}
                 if isinstance(row, dict):
                     symbol = str(row.get('symbol', row.get('ticker', ''))).strip().upper()
                     price = float(row.get('price', row.get('Price', 0.0)) or 0.0)
@@ -1281,14 +1398,33 @@ class ScanWorker(QThread):
 
                 if not is_valid_finviz_symbol(symbol):
                     continue
-                self._symbol_info_db.upsert_row(row if isinstance(row, dict) else {'symbol': symbol}, source='finviz_scan')
+
+                company = str(raw_row.get('company') or raw_row.get('company_name') or raw_row.get('name') or symbol).strip()
+                sector = str(raw_row.get('sector') or '').strip()
+                industry = str(raw_row.get('industry') or '').strip()
+                country = str(raw_row.get('country') or '').strip()
+                market_cap = str(raw_row.get('market_cap') or raw_row.get('marketCap') or '').strip()
+                group = industry or sector or self.scan_name or self.scan_tag or 'Ungrouped'
+
+                self._symbol_info_db.upsert_row(raw_row, source='finviz_scan')
                 symbol_data = {
                     'symbol': symbol,
-                    'name': symbol,
+                    'name': company or symbol,
+                    'company': company,
+                    'company_name': company,
+                    'sector': sector,
+                    'industry': industry,
+                    'theme': group,
+                    'group': group,
+                    'country': country,
+                    'market_cap': market_cap,
+                    'scan_name': self.scan_name,
+                    'source_scan': self.scan_name,
+                    'scan_tag': self.scan_tag,
                     'price': price,
                     'change_pct': change_pct,
                     'volume': volume,
-                    '_raw_data': {'source': 'finviz', 'url': url},
+                    '_raw_data': {**raw_row, 'source': 'finviz', 'url': url},
                 }
                 scan_results.append(symbol_data)
 
@@ -2010,6 +2146,42 @@ class FinvizScannerTable(QWidget):
                 # Log the successful save
                 logger.info(f"Scans saved successfully. {len(self.scans)} scans available.")
 
+    def select_scan_by_index(self, scan_index: int, run: bool = True) -> bool:
+        """Select a saved scan by original self.scans index and optionally run it."""
+        try:
+            scan_index = int(scan_index)
+        except (TypeError, ValueError):
+            return False
+        if scan_index < 0 or scan_index >= len(self.scans):
+            return False
+
+        self.scan_dropdown.blockSignals(True)
+        self._set_dropdown_to_scan_index(scan_index)
+        self.scan_dropdown.blockSignals(False)
+        self._save_last_selected_scan(scan_index)
+        if run:
+            self._run_current_scan()
+        return True
+
+    def select_scan_by_name(self, scan_name: str, run: bool = True) -> bool:
+        """Select a saved scan by name and optionally run it."""
+        wanted = str(scan_name or "").strip().lower()
+        if not wanted:
+            return False
+        for index, scan in enumerate(self.scans):
+            if str(scan.get("name") or "").strip().lower() == wanted:
+                return self.select_scan_by_index(index, run=run)
+        return False
+
+    def show_scans_list_dialog(self) -> None:
+        """Open a simple scans list dialog and run the selected scan."""
+        if not self.scans:
+            QMessageBox.information(self, "Scans List", "No scans configured.")
+            return
+        dialog = ScansListDialog(self.scans, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.select_scan_by_index(dialog.selected_scan_index, run=True)
+
     def _run_current_scan(self):
         """Run the currently selected Finviz scan."""
         if self.scan_dropdown.signalsBlocked():
@@ -2055,7 +2227,11 @@ class FinvizScannerTable(QWidget):
             self.scan_thread.wait(3000)
 
         # Start new scan
-        self.scan_thread = ScanWorker(selected_scan_url)
+        self.scan_thread = ScanWorker(
+            selected_scan_url,
+            scan_name=str(selected_scan.get("name", "")),
+            scan_tag=str(selected_scan.get("tag", "")),
+        )
         self.scan_thread.scan_completed.connect(self._on_scan_complete)
         self.scan_thread.scan_error.connect(self._on_scan_error)
         self.scan_thread.start()
