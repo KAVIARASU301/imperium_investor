@@ -4,10 +4,10 @@ Institutional Dark Trading Terminal UI with modern UI typography for all visible
 text and numbers. Monospace is reserved only for raw logs / debug text.
 
 Ticker board redesign:
-  - Individual TickerPill widgets with FIXED width — no layout reflow on ticks
-  - Only QLabel.setText() is called on price updates → zero jitter
-  - Width is computed once at pill construction and on symbol-set changes
-  - TC2000-style inline tape: muted symbol / soft price / dominant colored %Chg
+  - IBKR Client Portal-style flat ticker strip
+  - SYMBOL PRICE ▲/% change in one compact quote item
+  - No percent pill/badge and no per-item borders
+  - Fixed quote widths; live ticks only call QLabel.setText() → zero jitter
 """
 
 import logging
@@ -151,34 +151,42 @@ class NotificationBadge(QLabel):
 
 class TickerPill(QFrame):
     """
-    IBKR-style compact quote cell for one symbol.
+    IBKR Client Portal-style compact quote item for one symbol.
 
-    The visible tape is rendered as one rich-text label instead of three wide
-    columns. That keeps SYMBOL, LTP, and %Chg visually close together while
-    the outer pill width stays fixed, so live ticks do not shake the toolbar.
+    Design goal from IBKR header ticker strip:
+      SYMBOL  PRICE  ▲ 0.02%
+
+    There is no pill background, no badge around % change, and no per-item
+    border. Each quote keeps a fixed width so live ticks update only text and
+    never make the toolbar jump.
     """
 
     _PILL_H = 22
-    _PAD_L = 6
-    _PAD_R = 6
-    _TEXT_GAP = "&nbsp;&nbsp;"   # compact terminal-style two-space separation
-    _PRICE_SAMPLE = "88,888.88"
-    _CHG_SAMPLE = "+88.88%"
-    _MIN_W = 112
-    _MAX_W = 178
+    _PAD_L = 0
+    _PAD_R = 0
+    _GAP_SYMBOL_PRICE = "&nbsp;&nbsp;"
+    _GAP_PRICE_CHANGE = "&nbsp;&nbsp;"
+    _PRICE_SAMPLE = "88888.88"
+    _CHG_SAMPLE = "▲ 88.88%"
+    _MIN_W = 96
+    _MAX_W = 188
 
     def __init__(self, symbol: str, parent=None):
         super().__init__(parent)
-        self._symbol = symbol.upper()
+        self._symbol = str(symbol or "").strip().upper()
         self._bull_color = _BULL
         self._bear_color = _BEAR
-        self._neutral_color = _TEXT_BUTTON
+        self._neutral_color = "#d4dce8"
+        self._symbol_color = "#d6deea"
+        self._price_color = "#f1f5fb"
         self._price_text = "--"
         self._chg_text = "--%"
+        self._chg_arrow = ""
 
         self.setObjectName("tickerPill")
         self.setFixedHeight(self._PILL_H)
         self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 
         inner = QHBoxLayout(self)
         inner.setContentsMargins(self._PAD_L, 0, self._PAD_R, 0)
@@ -208,16 +216,27 @@ class TickerPill(QFrame):
     def update_data(self, price: Optional[float], change_pct: Optional[float]) -> None:
         """Update displayed values. Only QLabel.setText() is used on ticks."""
         if isinstance(price, (int, float)):
-            self._price_text = f"{float(price):,.2f}"
+            # IBKR header style: compact index values without thousands commas.
+            self._price_text = f"{float(price):.2f}"
         else:
             self._price_text = "--"
 
         if isinstance(change_pct, (int, float)):
             chg = float(change_pct)
-            sign = "+" if chg > 0 else ""
-            self._chg_text = f"{sign}{chg:.2f}%"
-            new_state = "bull" if chg > 0 else ("bear" if chg < 0 else "flat")
+            if chg > 0:
+                self._chg_arrow = "▲"
+                self._chg_text = f"{abs(chg):.2f}%"
+                new_state = "bull"
+            elif chg < 0:
+                self._chg_arrow = "▼"
+                self._chg_text = f"{abs(chg):.2f}%"
+                new_state = "bear"
+            else:
+                self._chg_arrow = ""
+                self._chg_text = "0.00%"
+                new_state = "flat"
         else:
+            self._chg_arrow = ""
             self._chg_text = "--%"
             new_state = None
 
@@ -228,7 +247,7 @@ class TickerPill(QFrame):
             self._render_quote(self._color_for_state(new_state))
 
     def _compute_fixed_width(self) -> None:
-        """Lock width once using a compact terminal-style text tape estimate."""
+        """Lock width once using an IBKR-style quote text estimate."""
         fm = QFontMetrics(self._quote_label.font())
         sample = f"{self._symbol}  {self._PRICE_SAMPLE}  {self._CHG_SAMPLE}"
         quote_w = fm.horizontalAdvance(sample)
@@ -247,30 +266,34 @@ class TickerPill(QFrame):
         return _TEXT_MUTED
 
     def _render_quote(self, chg_color: str) -> None:
-        """Render one compact rich-text quote: SYMBOL  LTP  %Chg."""
+        """Render one compact quote: SYMBOL  PRICE  ▲ 0.02%."""
         symbol = escape(self._symbol)
         price = escape(self._price_text)
         change = escape(self._chg_text)
+        arrow = escape(self._chg_arrow)
+        arrow_html = f"{arrow}&nbsp;" if arrow else ""
+
         self._quote_label.setText(
-            f"<span style='color:{_TEXT_MUTED}; font-size:8px; "
-            f"font-weight:650; letter-spacing:0.25px;'>{symbol}</span>"
-            f"{self._TEXT_GAP}"
-            f"<span style='color:{_TEXT_SOFT}; font-size:9px; "
-            f"font-weight:520;'>{price}</span>"
-            f"{self._TEXT_GAP}"
+            f"<span style='color:{self._symbol_color}; font-size:9px; "
+            f"font-weight:520;'>{symbol}</span>"
+            f"{self._GAP_SYMBOL_PRICE}"
+            f"<span style='color:{self._price_color}; font-size:9px; "
+            f"font-weight:600;'>{price}</span>"
+            f"{self._GAP_PRICE_CHANGE}"
             f"<span style='color:{chg_color}; font-size:9px; "
-            f"font-weight:700;'>{change}</span>"
+            f"font-weight:650;'>{arrow_html}{change}</span>"
         )
 
     def _apply_style(self, state: Optional[str]) -> None:
-        """Apply compact market-tape styling. %Chg remains text-only."""
+        """Apply flat IBKR market-tape styling."""
         chg_color = self._color_for_state(state)
         self.setStyleSheet(f"""
             QFrame#tickerPill {{
                 background: transparent;
                 border: none;
-                border-left: 1px solid {_BG_BORDER_HI};
                 border-radius: 0px;
+                margin: 0px;
+                padding: 0px;
             }}
             QLabel#tickerPillQuote {{
                 color: {_TEXT_SOFT};
@@ -289,13 +312,13 @@ class TickerPill(QFrame):
 
 class TickerBoard(QFrame):
     """
-    Fixed-size horizontal strip containing one TickerPill per symbol.
+    IBKR-style flat horizontal ticker strip.
 
-    The board width = sum of pill widths + gaps.  It is set ONCE when the
-    symbol list changes and never touched on tick updates.
+    The board width = sum of fixed quote widths + visual gaps. It is set once
+    when the symbol list changes and never touched on tick updates.
     """
 
-    _PILL_GAP = 0        # TC2000-style inline items separated by item borders
+    _PILL_GAP = 22
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -305,7 +328,7 @@ class TickerBoard(QFrame):
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 
         self._layout = QHBoxLayout(self)
-        self._layout.setContentsMargins(1, 0, 1, 0)
+        self._layout.setContentsMargins(10, 0, 10, 0)
         self._layout.setSpacing(self._PILL_GAP)
 
         self._pills: Dict[str, TickerPill] = {}
@@ -314,17 +337,16 @@ class TickerBoard(QFrame):
 
         self.setStyleSheet(f"""
             QFrame#tickerBoard {{
-                background: transparent;
+                background: #171d26;
                 border: none;
-                border-radius: 0px;
+                border-radius: 2px;
             }}
         """)
 
     # ── Public API ────────────────────────────────────────────────────────────
 
     def set_symbols(self, symbols: List[str]) -> None:
-        """Rebuild pills when the symbol list changes. Called infrequently."""
-        # Clear existing pills
+        """Rebuild quote items when the symbol list changes. Called infrequently."""
         for pill in self._pills.values():
             self._layout.removeWidget(pill)
             pill.deleteLater()
@@ -341,12 +363,11 @@ class TickerBoard(QFrame):
             self._layout.addWidget(pill)
             self._pills[sym.upper()] = pill
 
-        # Lock board width to exactly fit all pills + gaps
         self._update_fixed_width()
         self.show()
 
     def update_ticker(self, symbol: str, price: Optional[float], change_pct: Optional[float]) -> None:
-        """Update a single pill. ONLY setText is called — no geometry changes."""
+        """Update a single quote item. ONLY setText is called — no geometry changes."""
         pill = self._pills.get(symbol.upper())
         if pill:
             pill.update_data(price, change_pct)
@@ -369,9 +390,10 @@ class TickerBoard(QFrame):
             self.setFixedWidth(0)
             return
         n = len(self._pills)
-        pill_total = sum(p.width() for p in self._pills.values())
+        pill_total = sum(pill.width() for pill in self._pills.values())
         gap_total = self._PILL_GAP * max(0, n - 1)
-        margins_total = 1 + 1   # left + right contentsMargins
+        margins = self._layout.contentsMargins()
+        margins_total = margins.left() + margins.right()
         self.setFixedWidth(pill_total + gap_total + margins_total)
 
 
@@ -513,6 +535,7 @@ class HeaderToolbar(QToolBar):
         # from settings, only the board content is hidden; the slot width remains
         # locked so BUY/SELL/INFO/search never expand into this space.
         self._ticker_board_divider = self._create_vertical_divider()
+        self._ticker_board_divider.setObjectName("tickerBoardLeadDivider")
         search_layout.addWidget(self._ticker_board_divider)
 
         self._ticker_board_slot = QWidget(search_group)
@@ -520,7 +543,7 @@ class HeaderToolbar(QToolBar):
         self._ticker_board_slot.setFixedHeight(_CONTROL_H)
         self._ticker_board_slot.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         ticker_slot_layout = QHBoxLayout(self._ticker_board_slot)
-        ticker_slot_layout.setContentsMargins(0, 0, 0, 0)
+        ticker_slot_layout.setContentsMargins(4, 0, 0, 0)
         ticker_slot_layout.setSpacing(0)
 
         self._ticker_board = TickerBoard(self._ticker_board_slot)
@@ -1231,6 +1254,12 @@ class HeaderToolbar(QToolBar):
             border: none;
             margin-top: 4px;
             margin-bottom: 4px;
+        }}
+        QFrame#tickerBoardLeadDivider {{
+            background-color: {_BG_BORDER};
+            border: none;
+            margin-top: 5px;
+            margin-bottom: 5px;
         }}
 
         QPushButton#tradingActionButton {{
