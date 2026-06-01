@@ -1426,7 +1426,7 @@ class TradingTable(QTableWidget):
             item.setForeground(QColor(_C.T2))
             self.setItem(row, col, item)
 
-        label = f"{sector.upper()}   {count} STOCK{'S' if count != 1 else ''}"
+        label = f"{sector.upper()}   {count}"
         item = self.item(row, _COL_SYMBOL)
         if item:
             item.setText(label)
@@ -1450,7 +1450,7 @@ class TradingTable(QTableWidget):
             item.setForeground(QColor(_C.T2))
             self.setItem(row, col, item)
 
-        label = f"  {group.upper()}   {count}"
+        label = f"{group.upper()}   {count}"
         item = self.item(row, _COL_SYMBOL)
         if item:
             item.setText(label)
