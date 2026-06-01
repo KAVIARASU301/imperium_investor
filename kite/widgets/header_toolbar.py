@@ -150,6 +150,8 @@ class NotificationBadge(QLabel):
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TickerPill(QFrame):
+    clicked = Signal(str)
+
     """
     IBKR Client Portal-style compact quote item for one symbol.
 
@@ -305,12 +307,21 @@ class TickerPill(QFrame):
         """)
         self._render_quote(chg_color)
 
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit(self._symbol)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TICKER BOARD  — container that holds all pills side by side
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TickerBoard(QFrame):
+    symbol_clicked = Signal(str)
+
     """
     IBKR-style flat horizontal ticker strip.
 
@@ -360,6 +371,7 @@ class TickerBoard(QFrame):
         for sym in symbols:
             pill = TickerPill(sym, self)
             pill.set_direction_colors(self._bull_color, self._bear_color)
+            pill.clicked.connect(self.symbol_clicked.emit)
             self._layout.addWidget(pill)
             self._pills[sym.upper()] = pill
 
@@ -547,6 +559,7 @@ class HeaderToolbar(QToolBar):
         ticker_slot_layout.setSpacing(0)
 
         self._ticker_board = TickerBoard(self._ticker_board_slot)
+        self._ticker_board.symbol_clicked.connect(self._on_ticker_symbol_clicked)
         ticker_slot_layout.addWidget(self._ticker_board)
         search_layout.addWidget(self._ticker_board_slot)
 
@@ -749,6 +762,13 @@ class HeaderToolbar(QToolBar):
     def _on_symbol_committed(self, symbol: str, inst: Dict) -> None:
         self._remember_recent_symbol(symbol)
         self.symbol_selected.emit(symbol)
+
+    def _on_ticker_symbol_clicked(self, symbol: str) -> None:
+        chart_symbol = self._resolve_ticker_instrument(symbol)
+        if not chart_symbol:
+            return
+        self._remember_recent_symbol(chart_symbol)
+        self.symbol_selected.emit(chart_symbol)
 
     def _on_buy_clicked(self):
         sym = self.search_input.text().upper().strip()
