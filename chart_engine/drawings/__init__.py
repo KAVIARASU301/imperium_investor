@@ -73,13 +73,10 @@ _DEFAULT_INDICATOR_VISIBILITY: Dict[str, bool] = {
     "ema20": False,
     "ema50": False,
     "ema200": False,
-    "bjTrend": False,
-    "vwap": False,
-    "atrTrendReversal": False,
     "volume": True,
-    "cvd": False,
-    "rsi": False,
 }
+
+_OBSOLETE_INDICATOR_VISIBILITY_KEYS = {"bjTrend", "vwap", "cvd", "rsi", "atrTrendReversal"}
 
 
 def _validate_drawings(drawings: Any) -> Dict[str, list]:
@@ -107,9 +104,10 @@ def _validate_indicator_visibility(visibility: Any) -> Dict[str, bool]:
     for key in _DEFAULT_INDICATOR_VISIBILITY:
         if key in visibility:
             result[key] = bool(visibility[key])
-    # Also preserve any extra keys not in defaults (future indicators)
+    # Also preserve any extra keys not in defaults (future indicators), while
+    # pruning retired placeholders that no longer have chart renderers.
     for key, val in visibility.items():
-        if key not in result:
+        if key not in result and key not in _OBSOLETE_INDICATOR_VISIBILITY_KEYS:
             result[key] = bool(val)
     return result
 

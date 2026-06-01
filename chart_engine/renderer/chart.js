@@ -11,8 +11,6 @@
  *   - Candle rendering: TC2000-style body + wick + subtle border
  *   - Volume bars: max-visible normalised (no percentile clipping)
  *   - Overlays: EMA10/20/50/200 with right-edge price labels
- *   - ATR Trend Reversal markers (3.01 ATR distance from EMA21)
- *   - VWAP line (institutional standard, calculated from cumulative TPV/Vol)
  *   - Magnetic crosshair that snaps to OHLC values
  *   - Live price ray with animated label
  *   - Session separators on intraday charts (market open line)
@@ -53,8 +51,18 @@ const US_AFTER_HOURS_CLOSE_MINUTES = 20 * 60;
 // Python-passed initialIndicatorVisibility is used ONLY when localStorage has
 // no record yet (i.e. first-ever launch).  After that, localStorage always wins.
 const _IND_STORE_KEY = 'tc2k_indicator_vis_v1';
+const _OBSOLETE_INDICATOR_KEYS = new Set(['bjTrend', 'vwap', 'cvd', 'rsi', 'atrTrendReversal']);
 let _indicatorStateSingleton = null;
 let _indicatorStateLoaded = false;
+
+function _sanitizeIndicatorState(state) {
+    const clean = {};
+    if (!state || typeof state !== 'object' || Array.isArray(state)) return clean;
+    for (const [key, val] of Object.entries(state)) {
+        if (!_OBSOLETE_INDICATOR_KEYS.has(key)) clean[key] = val === true;
+    }
+    return clean;
+}
 
 function _loadIndicatorState(pythonDefaults) {
     if (_indicatorStateLoaded && _indicatorStateSingleton) {
@@ -70,22 +78,20 @@ function _loadIndicatorState(pythonDefaults) {
                 // Once user preferences exist, they are the only source of truth.
                 // Python defaults seed first launch only; they are not merged on
                 // each symbol load because that can resurrect disabled indicators.
-                state = { ...stored };
+                state = _sanitizeIndicatorState(stored);
             }
         }
     } catch (e) { /* corrupt storage — fall through to defaults */ }
 
     if (!state) {
-        state = { ...(pythonDefaults || {}) };
-        _saveIndicatorState(state);
+        state = _sanitizeIndicatorState(pythonDefaults || {});
     }
-    _indicatorStateSingleton = state;
-    _indicatorStateLoaded = true;
+    _saveIndicatorState(state);
     return { ...state };
 }
 
 function _saveIndicatorState(state) {
-    _indicatorStateSingleton = { ...(state || {}) };
+    _indicatorStateSingleton = _sanitizeIndicatorState(state);
     _indicatorStateLoaded = true;
     try { localStorage.setItem(_IND_STORE_KEY, JSON.stringify(_indicatorStateSingleton)); }
     catch (e) { /* quota or security error — non-fatal */ }
@@ -131,10 +137,8 @@ class FixedTradingChart {
         this.brokerName = String(cfg.brokerName || '').toLowerCase();
         this.showPremarketCandles = cfg.showPremarketCandles !== false;
         this.showPostmarketCandles = cfg.showPostmarketCandles !== false;
-        this._chartType = cfg.chartType === 'renko' ? 'candle' : (cfg.chartType || 'candle');
+        this._chartType = cfg.chartType || 'candle';
         this.heikinAshiData = [];
-        this._renkoBoxPctIntraday = cfg.renkoBoxPctIntraday || 0.5;
-        this._renkoBoxPctSwing = cfg.renkoBoxPctSwing || 1.5;
         this.currentSymbol = cfg.currentSymbol || '';
         this.priceScaleCurrency = this._resolvePriceScaleCurrency(cfg.priceScaleCurrency, this.currentSymbol);
         this.currentSymbolDescription = cfg.watermarkDescription || '';
@@ -254,12 +258,7 @@ class FixedTradingChart {
         this.indicatorVisibility = _loadIndicatorState(_pythonDefaults);
         // indicator panel removed — toggles live in the Python toolbar (IND ▾)
 
-        // ── Computed indicators — only if real historical data is present ──
-        // CVD/VWAP/RSI must never run on empty or placeholder data.
         this._hasLiveTicks = false;
-        if (this.data.length > 0) {
-            this._computeRenko();
-        }
 
         // ── Bridge ──
         this.chartBridge = null;
@@ -437,8 +436,6 @@ class FixedTradingChart {
         this.chartArea = { x: pad.left, y: pad.top, width: paneW, height: chartH };
         this.volumeArea = null;
         this._volumeScale = null;
-        this.cvdArea = null;
-        this.rsiArea = null;
         this.rightAxisWidth = pad.right;
     }
 
@@ -688,49 +685,6 @@ class FixedTradingChart {
     }
 
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // KAGI COMPUTATION
-    // ═══════════════════════════════════════════════════════════════════════
-    //
-    // Kagi charts use a reversal amount to filter noise.
-    // Two methods used institutionally:
-    //   1. ATR-based reversal  (adapts to volatility — preferred)
-    //   2. Percentage reversal (fixed % of price — simpler, classic)
-    //
-    // A Kagi line has two states:
-    //   YANG (thick) = price broke above the previous peak  → bullish control
-    //   YIN  (thin)  = price broke below the previous trough → bearish control
-    //
-    // Each segment: { x1, y1, x2, y2, yang: bool, isReversal: bool }
-    // ─────────────────────────────────────────────────────────────────────
-    _computeRenko() {
-        if (this.data.length < 2) { this.renkoBricks = []; return; }
-        const intraday = ['minute', '3minute', '5minute', '10minute', '15minute', '30minute', '60minute'].includes(this.currentInterval);
-        const boxPct = Math.max(0.01, intraday ? this._renkoBoxPctIntraday : this._renkoBoxPctSwing);
-        let lastBrickClose = this.data[0].close;
-        const bricks = [];
-        for (let i = 1; i < this.data.length; i++) {
-            const close = this.data[i].close;
-            const brickSize = Math.max(0.0001, Math.abs(lastBrickClose) * (boxPct / 100.0));
-            let delta = close - lastBrickClose;
-            while (Math.abs(delta) >= brickSize) {
-                const dir = delta > 0 ? 1 : -1;
-                const nextClose = lastBrickClose + dir * brickSize;
-                bricks.push({
-                    fromPrice: lastBrickClose,
-                    toPrice: nextClose,
-                    fromIdx: i - 1,
-                    toIdx: i,
-                    yang: dir > 0,
-                    goingUp: dir > 0,
-                });
-                lastBrickClose = nextClose;
-                delta = close - lastBrickClose;
-            }
-        }
-        this.renkoBricks = bricks;
-    }
-
     _isHeikinAshiMode() {
         const chartType = this._chartType || window.__CHART_DATA__?.chartType || 'candle';
         return chartType === 'heikinashi';
@@ -758,34 +712,6 @@ class FixedTradingChart {
     _getPriceSeriesForRendering() {
         return this._isHeikinAshiMode() ? this.heikinAshiData : this.data;
     }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // CVD  (Cumulative Volume Delta)  —  Steidlmayer bar-level estimation
-    // ═══════════════════════════════════════════════════════════════════════
-    //
-    //   buy_frac  = (close - low)  / (high - low)   ← where in the range close sits
-    //   sell_frac = (high - close) / (high - low)
-    //   delta[i]  = vol × (buy_frac − sell_frac)    ← signed net volume per bar
-    //   CVD[i]    = Σ delta[0..i]                   ← running cumulative sum
-    //
-    // Doji/inside bars (high == low): delta = 0 (conservative — no guess).
-    // On intraday charts CVD resets at every session open (as per reference).
-    // ────────────────────────────────────────────────────────────────────────
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // RSI  (Relative Strength Index — Wilder 14-period smoothed)
-    // ═══════════════════════════════════════════════════════════════════════
-    //
-    // Wilder's method (the institutional standard):
-    //   Seed: simple average of first `period` gains & losses
-    //   Then: avgGain = (prevAvgGain × (period-1) + gain) / period  ← RMA/SMMA
-    //         avgLoss = (prevAvgLoss × (period-1) + loss) / period
-    //   RS  = avgGain / avgLoss
-    //   RSI = 100 - (100 / (1 + RS))
-    //
-    // First (period-1) bars yield null — not enough data.
-    // ────────────────────────────────────────────────────────────────────────
-
 
     // ═══════════════════════════════════════════════════════════════════════
     // RENDER LOOP  (dirty-flag + rAF)
@@ -1284,96 +1210,6 @@ class FixedTradingChart {
         }
         ctx.restore();
     }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // RENKO RENDERER
-    // ═══════════════════════════════════════════════════════════════════════
-    _drawRenko() {
-        if (!this.renkoBricks || this.renkoBricks.length === 0) return;
-
-        const ctx = this.ctx;
-        const area = this.chartArea;
-
-        // ── Visual constants (TC2000 style) ───────────────────────────────
-        const YANG_COLOR  = '#00D4A8';   // Teal — bullish thickness
-        const YIN_COLOR   = '#FF4D6A';   // Crimson — bearish thickness
-        const YANG_WIDTH  = 2.5;
-        const YIN_WIDTH   = 0.9;
-        const HORIZ_COLOR = '#5A7090';   // neutral grey for horizontal connectors
-
-        // Map kagi index → canvas X position
-        // Kagi segments are spaced evenly regardless of time
-        const totalSegs = this.renkoBricks.length;
-        const slotW     = Math.max(8, area.width / Math.max(1, totalSegs + 2));
-
-        // Helper: segment index → canvas X center
-        const segX = (idx) => area.x + (idx + 1) * slotW;
-
-        for (let i = 0; i < this.renkoBricks.length; i++) {
-            const seg = this.renkoBricks[i];
-            const x   = segX(i);
-            const y1  = this._priceToY(seg.fromPrice);
-            const y2  = this._priceToY(seg.toPrice);
-
-            // ── Clip to chart area ────────────────────────────────────────
-            if (x < area.x - 2 || x > area.x + area.width + 2) continue;
-            if (Math.min(y1, y2) > area.y + area.height + 2) continue;
-            if (Math.max(y1, y2) < area.y - 2) continue;
-
-            const color = seg.yang ? YANG_COLOR : YIN_COLOR;
-            const lw    = seg.yang ? YANG_WIDTH : YIN_WIDTH;
-
-            // ── Horizontal connector (shoulder line) ──────────────────────
-            // At each reversal, a small horizontal line connects to next segment
-            if (i > 0) {
-                const prevX = segX(i - 1);
-                const prevSeg = this.renkoBricks[i - 1];
-                ctx.strokeStyle = HORIZ_COLOR;
-                ctx.lineWidth   = 1;
-                ctx.setLineDash([]);
-                ctx.beginPath();
-                ctx.moveTo(prevX, y1);
-                ctx.lineTo(x,     y1);
-                ctx.stroke();
-            }
-
-            // ── Vertical line ─────────────────────────────────────────────
-            ctx.strokeStyle = color;
-            ctx.lineWidth   = lw;
-            ctx.setLineDash([]);
-            ctx.beginPath();
-            ctx.moveTo(x, y1);
-            ctx.lineTo(x, y2);
-            ctx.stroke();
-
-            // ── Yang/Yin transition marker ────────────────────────────────
-            // A small circle at the transition point (where state changed)
-            if (i > 0 && this.renkoBricks[i - 1].yang !== seg.yang) {
-                ctx.fillStyle   = color;
-                ctx.strokeStyle = '#0A0D12';
-                ctx.lineWidth   = 1.2;
-                ctx.beginPath();
-                ctx.arc(x, y1, 3.5, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.stroke();
-            }
-        }
-
-        // ── Last price ray (same as candlestick mode) ─────────────────────
-        const lastSeg = this.renkoBricks[this.renkoBricks.length - 1];
-        if (lastSeg) {
-            const liveP = this.livePrice || lastSeg.toPrice;
-            const ly    = this._priceToY(liveP);
-            if (ly >= area.y && ly <= area.y + area.height) {
-                this._drawLivePriceRay();
-            }
-        }
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // CVD PANE
-    // ═══════════════════════════════════════════════════════════════════════
-
 
     // ═══════════════════════════════════════════════════════════════════════
     // VOLUME
@@ -3323,8 +3159,7 @@ class FixedTradingChart {
     // COORDINATE TRANSFORMS
     // ═══════════════════════════════════════════════════════════════════════
 
-    // Returns the bottom pixel of the lowest visible pane.
-    // Priority: CVD → Volume → Price (chart area itself as fallback).
+    // Returns the bottom pixel of the price pane.
     _paneBottom() {
         return this.chartArea.y + this.chartArea.height;
     }
@@ -4100,10 +3935,6 @@ class FixedTradingChart {
             }
         }
 
-        if (this.data.length > 0) {
-            this._computeRenko();
-        }
-
         // Load drawings.
         if (cfg.initialDrawingsJson) {
             try {
@@ -4196,7 +4027,6 @@ class FixedTradingChart {
             this.viewPortEnd = this.data.length - 1 + this.rightBufferCandles;
             this._updateViewport();
         }
-        this._computeRenko();
         this.calculateBounds();
         this.requestDraw();
         this.updateSlider();
@@ -4276,14 +4106,11 @@ class FixedTradingChart {
             this._extendedHoursCache = new WeakMap();
         }
         if (cfg.chartType !== undefined) {
-            this._chartType = cfg.chartType === 'renko' ? 'candle' : cfg.chartType;
+            this._chartType = cfg.chartType;
             if (window.__CHART_DATA__) {
                 window.__CHART_DATA__.chartType = this._chartType;
             }
         }
-        if (cfg.renkoBoxPctIntraday !== undefined) this._renkoBoxPctIntraday = cfg.renkoBoxPctIntraday;
-        if (cfg.renkoBoxPctSwing !== undefined) this._renkoBoxPctSwing = cfg.renkoBoxPctSwing;
-        if (cfg.renkoBoxPctIntraday !== undefined || cfg.renkoBoxPctSwing !== undefined) this._computeRenko();
         if (cfg.infoVisibility && typeof cfg.infoVisibility === 'object') {
             this.infoVisibility = { ...this.infoVisibility, ...cfg.infoVisibility };
         }
@@ -4372,6 +4199,7 @@ class FixedTradingChart {
     }
 
     setIndicatorVisibility(key, visible) {
+        if (_OBSOLETE_INDICATOR_KEYS.has(key)) return;
         this.indicatorVisibility[key] = visible === true;
         // Persist immediately — survives any symbol/timeframe reload
         _saveIndicatorState(this.indicatorVisibility);
