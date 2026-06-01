@@ -556,6 +556,17 @@ class FixedTradingChart {
         return n.toFixed(d);
     }
 
+    _priceCurrencySymbol() {
+        return this.priceScaleCurrency === 'USD' ? '$' : '₹';
+    }
+
+    _formatMoney(value, decimals = 2) {
+        const n = Number(value);
+        if (!Number.isFinite(n)) return `${this._priceCurrencySymbol()}0.00`;
+        const d = Math.max(0, Math.min(8, Number(decimals) || 0));
+        return `${this._priceCurrencySymbol()}${n.toFixed(d)}`;
+    }
+
     _rebuildTimeIndex() {
         this._timeIndex = Array.isArray(this.data)
             ? this.data.map(c => Number(c?.time)).map(t => Number.isFinite(t) ? t : 0)
@@ -2222,7 +2233,7 @@ class FixedTradingChart {
                 ctx.font      = '9px "Inter", "Aptos", "Segoe UI Variable", "Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", sans-serif';
                 ctx.textAlign = 'right';
                 ctx.fillStyle = col;
-                ctx.fillText(`${FIB_LABELS[idx]}  ₹${price.toFixed(2)}`, Math.max(sx, ex) - 2, y - 2);
+                ctx.fillText(`${FIB_LABELS[idx]}  ${this._formatMoney(price)}`, Math.max(sx, ex) - 2, y - 2);
             });
         }
     }
@@ -2311,7 +2322,7 @@ class FixedTradingChart {
 
         const sign = priceChange >= 0 ? '+' : '';
         const infoText = [
-            `${sign}₹${priceChange.toFixed(2)} (${sign}${pctChange.toFixed(2)}%)`,
+            `${sign}${this._formatMoney(priceChange)} (${sign}${pctChange.toFixed(2)}%)`,
             `${bars >= 0 ? '+' : ''}${bars} bars, ${dayCount} days`
         ];
 
@@ -2405,7 +2416,7 @@ class FixedTradingChart {
         const valCol = priceDiff >= 0 ? '#00D4A8' : '#FF4D6A';
 
         const lines = [
-            { label: 'Δ Price', value: `${sign}₹${Math.abs(priceDiff).toFixed(2)}`, color: valCol },
+            { label: 'Δ Price', value: `${sign}${this._formatMoney(Math.abs(priceDiff))}`, color: valCol },
             { label: '% Move',  value: `${sign}${pctChange.toFixed(2)}%`,            color: valCol },
             { label: 'Bars',    value: `${bars}`,                                     color: '#A8BCD4' },
             { label: 'Days',    value: `${dayCount}`,                                 color: '#A8BCD4' },
@@ -2919,7 +2930,7 @@ class FixedTradingChart {
         const sym       = this.currentSymbol || 'SYMBOL';
 
         const items = [
-            { text: `Alert at ₹${priceLevel.toFixed(2)}`, icon: '🔔', highlight: true,
+            { text: `Alert at ${this._formatMoney(priceLevel)}`, icon: '🔔', highlight: true,
               sub: `${isAbove ? 'Above' : 'Below'} LTP by ${diffPct}%`,
               action: () => this._createAlert(sym, priceLevel) },
             { divider: true },
@@ -2991,7 +3002,7 @@ class FixedTradingChart {
         this.drawings.horizontal_lines.push({
             id: Date.now() + Math.random(), type: 'horizontal_line',
             price, color: '#B88732', lineWidth: 1.5, style: 'solid',
-            label: `₹${price.toFixed(2)}`
+            label: `${this._formatMoney(price)}`
         });
         this.requestDraw(); this._notifyDrawingsChange();
     }
@@ -3000,7 +3011,7 @@ class FixedTradingChart {
         this.drawings.horizontal_lines.push({
             id: Date.now() + Math.random(), type: 'horizontal_line',
             price, color, lineWidth: 1.5, style: 'solid',
-            label: `${name}: ₹${price.toFixed(2)}`
+            label: `${name}: ${this._formatMoney(price)}`
         });
         this.requestDraw(); this._notifyDrawingsChange();
     }
@@ -3532,7 +3543,7 @@ class FixedTradingChart {
         const adrPercent = Number(this.currentADR?.percent ?? 0);
         const adrPctColor = adrPercent > 4 ? this._themeUpColor() : (adrPercent >= 2 ? '#E8F0FF' : this._themeDownColor());
         const adrStr = this.currentADR?.value > 0
-            ? `<span style="color:#A8BCD4;">ADR</span><span style="color:#E8F0FF;margin-left:2px;">₹${this.currentADR.value.toFixed(2)}</span><span style="color:${adrPctColor};margin-left:3px;font-weight:700;">(${adrPercent.toFixed(2)}%)</span>`
+            ? `<span style="color:#A8BCD4;">ADR</span><span style="color:#E8F0FF;margin-left:2px;">${this._formatMoney(this.currentADR.value)}</span><span style="color:${adrPctColor};margin-left:3px;font-weight:700;">(${adrPercent.toFixed(2)}%)</span>`
             : '<span style="color:#5A7090;">ADR N/A</span>';
         const perfLabels = ['Monthly','3M','6M','1Y'];
         const perfToggles = ['show_perf_monthly','show_perf_3m','show_perf_6m','show_perf_1y'];
@@ -3551,11 +3562,11 @@ class FixedTradingChart {
 
         const priceItems = [];
         if (this.infoVisibility?.show_info_date) priceItems.push(`<span style="color:#5A7090;">${dateStr}</span>`);
-        if (this.infoVisibility?.show_info_open) priceItems.push(`<span style="color:#A8BCD4;">O</span><span style="color:#E8F0FF;margin-left:3px;">₹${c.open.toFixed(2)}</span>`);
-        if (this.infoVisibility?.show_info_high) priceItems.push(`<span style="color:#A8BCD4;">H</span><span style="color:#E8F0FF;margin-left:3px;">₹${c.high.toFixed(2)}</span>`);
-        if (this.infoVisibility?.show_info_low) priceItems.push(`<span style="color:#A8BCD4;">L</span><span style="color:#E8F0FF;margin-left:3px;">₹${c.low.toFixed(2)}</span>`);
-        if (this.infoVisibility?.show_info_close) priceItems.push(`<span style="color:#A8BCD4;">C</span><span style="color:#E8F0FF;margin-left:3px;">₹${c.close.toFixed(2)}</span>`);
-        if (this.infoVisibility?.show_info_pct_change) priceItems.push(`<span style="color:${dayColor};font-weight:700;">Chg ${daySign}₹${dayChange.toFixed(2)} (${daySign}${dayPct.toFixed(2)}%)</span>`);
+        if (this.infoVisibility?.show_info_open) priceItems.push(`<span style="color:#A8BCD4;">O</span><span style="color:#E8F0FF;margin-left:3px;">${this._formatMoney(c.open)}</span>`);
+        if (this.infoVisibility?.show_info_high) priceItems.push(`<span style="color:#A8BCD4;">H</span><span style="color:#E8F0FF;margin-left:3px;">${this._formatMoney(c.high)}</span>`);
+        if (this.infoVisibility?.show_info_low) priceItems.push(`<span style="color:#A8BCD4;">L</span><span style="color:#E8F0FF;margin-left:3px;">${this._formatMoney(c.low)}</span>`);
+        if (this.infoVisibility?.show_info_close) priceItems.push(`<span style="color:#A8BCD4;">C</span><span style="color:#E8F0FF;margin-left:3px;">${this._formatMoney(c.close)}</span>`);
+        if (this.infoVisibility?.show_info_pct_change) priceItems.push(`<span style="color:${dayColor};font-weight:700;">Chg ${daySign}${this._formatMoney(dayChange)} (${daySign}${dayPct.toFixed(2)}%)</span>`);
         if (this.infoVisibility?.show_info_volume) priceItems.push(`<span style="color:#A8BCD4;">Vol</span><span style="color:#E8F0FF;margin-left:3px;">${Math.round(volume).toLocaleString('en-IN')}</span>`);
         const priceRow = priceItems.join(sep);
 

@@ -218,6 +218,18 @@ class DrawingEngine {
         return { x: e.clientX - r.left, y: e.clientY - r.top };
     }
 
+    _priceCurrencySymbol() {
+        const symbol = String(this.cs?.priceCurrencySymbol || '').trim();
+        return symbol || '₹';
+    }
+
+    _formatMoney(value, decimals = 2) {
+        const n = Number(value);
+        const d = Math.max(0, Math.min(8, Number(decimals) || 0));
+        const amount = Number.isFinite(n) ? n.toFixed(d) : (0).toFixed(d);
+        return `${this._priceCurrencySymbol()}${amount}`;
+    }
+
     _inChartArea(x, y) {
         const a = this.cs.chartArea;
         return x >= a.x && x <= a.x + a.width && y >= a.y && y <= a.y + a.height;
@@ -1245,7 +1257,7 @@ class DrawingEngine {
             /* label */
             ctx.fillStyle = lvl.color;
             ctx.textAlign = 'right';
-            ctx.fillText(`${lvl.label}  ₹${price.toFixed(2)}`, rightX - 2, fy - 3);
+            ctx.fillText(`${lvl.label}  ${this._formatMoney(price)}`, rightX - 2, fy - 3);
         }
 
         if (sel || hov) {
@@ -1665,7 +1677,7 @@ class DrawingEngine {
         const bars      = Math.abs(endCi - startCi);
         const sign      = priceDiff >= 0 ? '+' : '';
 
-        const info = `${sign}₹${priceDiff.toFixed(2)}  (${sign}${pct.toFixed(2)}%)  ${bars} bars`;
+        const info = `${sign}${this._formatMoney(priceDiff)}  (${sign}${pct.toFixed(2)}%)  ${bars} bars`;
 
         ctx.font = '600 11px "Segoe UI", sans-serif';
         const tw = ctx.measureText(info).width;
