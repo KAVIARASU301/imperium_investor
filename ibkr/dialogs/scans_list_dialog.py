@@ -1,9 +1,10 @@
 """Scans list selection dialog for IBKR scanner mode."""
 
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QComboBox,
     QDialog,
     QHBoxLayout,
     QLabel,
@@ -20,78 +21,185 @@ _BG1 = "#0a0d12"
 _BG2 = "#0f1318"
 _BG3 = "#141920"
 _BG4 = "#1a2030"
+_BG5 = "#26354a"
+_BGTB = "#070a0f"
 _T0 = "#e8f0ff"
 _T1 = "#a8bcd4"
+_T2 = "#5a7090"
+_T3 = "#2a3a50"
 _SEL = "#1a2840"
+_AMBER = "#f59e0b"
+_CYAN = "#00d4ff"
 _SANS = "'Inter', 'Aptos', 'Segoe UI Variable', 'Segoe UI', 'Roboto', 'Noto Sans', Arial, sans-serif"
+
+_ALL_TAGS_LABEL = "All scans"
 
 
 class ScansListDialog(QDialog):
-    """Simple list dialog for selecting and running saved scans."""
+    """Compact click-to-run scan launcher for saved IBKR scans."""
 
-    def __init__(self, scans: List[Dict[str, str]], parent=None):
+    def __init__(
+        self,
+        scans: List[Dict[str, str]],
+        parent=None,
+        run_scan: Optional[Callable[[int], bool]] = None,
+        is_scan_running: Optional[Callable[[], bool]] = None,
+    ):
         super().__init__(parent)
         self.scans = list(scans or [])
         self.selected_scan_index: Optional[int] = None
+        self._run_scan = run_scan
+        self._is_scan_running = is_scan_running
+        self._active_tag = _ALL_TAGS_LABEL
         self.setWindowTitle("Scans List")
         self.setModal(True)
-        self.setFixedSize(360, 480)
+        self.setFixedSize(390, 520)
         self._setup_ui()
         self._apply_styles()
+        self.set_scan_running(self._scanner_is_running())
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
 
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(8)
+
+        title_box = QVBoxLayout()
+        title_box.setContentsMargins(0, 0, 0, 0)
+        title_box.setSpacing(1)
         title = QLabel("SCANS LIST")
         title.setObjectName("simpleScanTitle")
-        layout.addWidget(title)
+        subtitle = QLabel("Click a scan to run it")
+        subtitle.setObjectName("simpleScanSubtitle")
+        title_box.addWidget(title)
+        title_box.addWidget(subtitle)
+        header_layout.addLayout(title_box, 1)
+
+        self.status_label = QLabel("READY")
+        self.status_label.setObjectName("scanStatusLabel")
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        header_layout.addWidget(self.status_label)
+        layout.addLayout(header_layout)
+
+        filter_layout = QHBoxLayout()
+        filter_layout.setContentsMargins(0, 0, 0, 0)
+        filter_layout.setSpacing(6)
+        filter_label = QLabel("TAG")
+        filter_label.setObjectName("scanFilterLabel")
+        self.tag_filter = QComboBox()
+        self.tag_filter.setObjectName("scanTagFilter")
+        self.tag_filter.setFixedHeight(24)
+        self.tag_filter.addItem(_ALL_TAGS_LABEL)
+        for tag in self._available_tags():
+            self.tag_filter.addItem(tag)
+        self.tag_filter.currentTextChanged.connect(self._on_tag_filter_changed)
+        filter_layout.addWidget(filter_label)
+        filter_layout.addWidget(self.tag_filter, 1)
+        layout.addLayout(filter_layout)
 
         self.list_widget = QListWidget()
         self.list_widget.setObjectName("simpleScanList")
-        self.list_widget.itemDoubleClicked.connect(self._accept_current_item)
+        self.list_widget.itemClicked.connect(self._run_item)
+        self.list_widget.itemDoubleClicked.connect(self._run_item)
         layout.addWidget(self.list_widget, 1)
+        self._populate_list()
 
-        for index, scan in self._sorted_scan_items():
-            name = str(scan.get("name") or f"Scan {index + 1}")
+        footer = QHBoxLayout()
+        footer.setContentsMargins(0, 0, 0, 0)
+        footer.addStretch()
+        close_btn = QPushButton("Close")
+        close_btn.setObjectName("closeButton")
+        close_btn.clicked.connect(self.reject)
+        footer.addWidget(close_btn)
+        layout.addLayout(footer)
+
+    def _scanner_is_running(self) -> bool:
+        if self._is_scan_running is None:
+            return False
+        try:
+            return bool(self._is_scan_running())
+        except Exception:
+            return False
+
+    def _available_tags(self) -> List[str]:
+        tags = []
+        seen = set()
+        for scan in self.scans:
             tag = self._scan_tag(scan)
-            item = QListWidgetItem(f"{tag}  /  {name}")
+            key = tag.lower()
+            if key not in seen:
+                seen.add(key)
+                tags.append(tag)
+        return sorted(tags, key=str.lower)
+
+    def _on_tag_filter_changed(self, tag: str) -> None:
+        if self._scanner_is_running():
+            return
+        self._active_tag = tag or _ALL_TAGS_LABEL
+        self._populate_list()
+
+    def _populate_list(self) -> None:
+        self.list_widget.clear()
+        for index, scan in self._sorted_scan_items(self._active_tag):
+            name = str(scan.get("name") or f"Scan {index + 1}").strip()
+            tag = self._scan_tag(scan)
+            item = QListWidgetItem(f"{name}\n{tag}")
             item.setData(Qt.ItemDataRole.UserRole, index)
+            item.setToolTip(f"Run {name}")
             self.list_widget.addItem(item)
 
         if self.list_widget.count() > 0:
             self.list_widget.setCurrentRow(0)
 
-        buttons = QHBoxLayout()
-        buttons.addStretch()
-        cancel_btn = QPushButton("Cancel")
-        run_btn = QPushButton("Run")
-        cancel_btn.clicked.connect(self.reject)
-        run_btn.clicked.connect(self._accept_current_item)
-        buttons.addWidget(cancel_btn)
-        buttons.addWidget(run_btn)
-        layout.addLayout(buttons)
-
     def _scan_tag(self, scan: Dict[str, str]) -> str:
         tag = str(scan.get("tag") or "Others").strip()
         return tag or "Others"
 
-    def _sorted_scan_items(self):
+    def _sorted_scan_items(self, tag_filter: str = _ALL_TAGS_LABEL):
         decorated = []
+        wanted = (tag_filter or _ALL_TAGS_LABEL).strip().lower()
         for index, scan in enumerate(self.scans):
             tag = self._scan_tag(scan)
+            if wanted != _ALL_TAGS_LABEL.lower() and tag.lower() != wanted:
+                continue
             name = str(scan.get("name") or f"Scan {index + 1}")
             decorated.append((tag.lower(), name.lower(), index, scan))
         decorated.sort()
         return [(index, scan) for _tag, _name, index, scan in decorated]
 
-    def _accept_current_item(self, *_args):
-        item = self.list_widget.currentItem()
+    def _run_item(self, item: QListWidgetItem, *_args) -> None:
         if item is None:
             return
-        self.selected_scan_index = item.data(Qt.ItemDataRole.UserRole)
-        self.accept()
+        if self._scanner_is_running():
+            self.set_scan_running(True)
+            return
+
+        scan_index = item.data(Qt.ItemDataRole.UserRole)
+        self.selected_scan_index = scan_index
+        if self._run_scan is None:
+            return
+
+        try:
+            started = bool(self._run_scan(scan_index))
+        except Exception:
+            started = False
+
+        if started:
+            self.set_scan_running(True)
+
+    def set_scan_running(self, running: bool) -> None:
+        """Reflect scanner-table fetch/running state in this modal launcher."""
+        running = bool(running)
+        self.list_widget.setEnabled(not running)
+        self.tag_filter.setEnabled(not running)
+        self.status_label.setText("RUNNING" if running else "READY")
+        self.status_label.setProperty("running", running)
+        self.status_label.style().unpolish(self.status_label)
+        self.status_label.style().polish(self.status_label)
+        self.status_label.update()
 
     def _apply_styles(self):
         self.setStyleSheet(f"""
@@ -105,7 +213,62 @@ class ScansListDialog(QDialog):
                 font-family: {_SANS};
                 font-size: 11px;
                 font-weight: 700;
-                letter-spacing: 0.8px;
+                letter-spacing: 0.9px;
+                background: transparent;
+            }}
+            QLabel#simpleScanSubtitle {{
+                color: {_T2};
+                font-family: {_SANS};
+                font-size: 10px;
+                font-weight: 400;
+                background: transparent;
+            }}
+            QLabel#scanStatusLabel {{
+                color: {_T2};
+                background: {_BG0};
+                border: 1px solid {_BG4};
+                border-radius: 2px;
+                padding: 3px 8px;
+                font-family: {_SANS};
+                font-size: 9px;
+                font-weight: 700;
+                letter-spacing: 0.7px;
+            }}
+            QLabel#scanStatusLabel[running="true"] {{
+                color: {_AMBER};
+                border-color: {_BG5};
+            }}
+            QLabel#scanFilterLabel {{
+                color: {_T2};
+                font-family: {_SANS};
+                font-size: 9px;
+                font-weight: 700;
+                letter-spacing: 0.7px;
+            }}
+            QComboBox#scanTagFilter {{
+                background: {_BG0};
+                color: {_T1};
+                border: 1px solid {_BG4};
+                border-radius: 2px;
+                padding: 2px 8px;
+                font-family: {_SANS};
+                font-size: 10px;
+                selection-background-color: {_SEL};
+            }}
+            QComboBox#scanTagFilter:hover {{
+                border-color: {_BG5};
+                color: {_T0};
+            }}
+            QComboBox#scanTagFilter:disabled {{
+                color: {_T3};
+                border-color: {_BG2};
+            }}
+            QComboBox#scanTagFilter QAbstractItemView {{
+                background: {_BG0};
+                color: {_T1};
+                border: 1px solid {_BG4};
+                selection-background-color: {_SEL};
+                outline: none;
             }}
             QListWidget#simpleScanList {{
                 background: {_BG0};
@@ -114,27 +277,38 @@ class ScansListDialog(QDialog):
                 outline: none;
                 font-family: {_SANS};
                 font-size: 10px;
+                alternate-background-color: {_BG2};
             }}
             QListWidget#simpleScanList::item {{
-                min-height: 22px;
-                padding: 2px 6px;
+                min-height: 34px;
+                padding: 4px 8px;
+                border-bottom: 1px solid {_BG2};
+            }}
+            QListWidget#simpleScanList::item:hover {{
+                background: {_BG3};
+                color: {_T0};
             }}
             QListWidget#simpleScanList::item:selected {{
                 background: {_SEL};
                 color: {_T0};
+                border-left: 2px solid {_CYAN};
             }}
-            QPushButton {{
+            QListWidget#simpleScanList:disabled {{
+                color: {_T3};
+                border-color: {_BG2};
+            }}
+            QPushButton#closeButton {{
                 background: {_BG2};
                 color: {_T1};
                 border: 1px solid {_BG4};
                 border-radius: 2px;
-                padding: 4px 12px;
+                padding: 4px 14px;
                 font-family: {_SANS};
                 font-size: 10px;
             }}
-            QPushButton:hover {{
+            QPushButton#closeButton:hover {{
                 background: {_BG3};
                 color: {_T0};
+                border-color: {_BG5};
             }}
         """)
-

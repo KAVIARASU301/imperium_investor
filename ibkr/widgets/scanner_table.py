@@ -1340,6 +1340,7 @@ class FinvizScannerTable(QWidget):
     symbol_selected     = Signal(str)
     symbol_hovered      = Signal(str)
     scan_results_changed = Signal()   # emitted when scan completes → triggers re-subscription
+    scan_running_changed = Signal(bool)  # emitted when scanner fetch starts/stops
     visible_rows_changed = Signal()   # emitted when scroll changes visible rows
 
     def __init__(self, parent=None):
@@ -2180,6 +2181,7 @@ class FinvizScannerTable(QWidget):
         logger.info(f"EOD Scanner table updated with {len(scan_results)} symbols.")
         self.scan_dropdown.setEnabled(True)
         self.manage_btn.setEnabled(True)
+        self.scan_running_changed.emit(False)
 
     @Slot(str)
     def _on_scan_error(self, error_message: str):
@@ -2196,6 +2198,7 @@ class FinvizScannerTable(QWidget):
 
         self.scan_dropdown.setEnabled(True)
         self.manage_btn.setEnabled(True)
+        self.scan_running_changed.emit(False)
 
     def _set_dropdown_to_scan_index(self, scan_index: int):
         """Select the dropdown item for a given scan index."""
@@ -2315,6 +2318,8 @@ class FinvizScannerTable(QWidget):
 
     def select_scan_by_index(self, scan_index: int, run: bool = True) -> bool:
         """Select a saved scan by original self.scans index and optionally run it."""
+        if run and self.is_scan_running():
+            return False
         try:
             scan_index = int(scan_index)
         except (TypeError, ValueError):
@@ -2327,7 +2332,7 @@ class FinvizScannerTable(QWidget):
         self.scan_dropdown.blockSignals(False)
         self._save_last_selected_scan(scan_index)
         if run:
-            self._run_current_scan()
+            return self._run_current_scan()
         return True
 
     def select_scan_by_name(self, scan_name: str, run: bool = True) -> bool:
@@ -2341,25 +2346,43 @@ class FinvizScannerTable(QWidget):
         return False
 
     def show_scans_list_dialog(self) -> None:
-        """Open a simple scans list dialog and run the selected scan."""
+        """Open a click-to-run scans list dialog without closing after launch."""
         if not self.scans:
             QMessageBox.information(self, "Scans List", "No scans configured.")
             return
-        dialog = ScansListDialog(self.scans, self)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.select_scan_by_index(dialog.selected_scan_index, run=True)
+        dialog = ScansListDialog(
+            self.scans,
+            self,
+            run_scan=lambda scan_index: self.select_scan_by_index(scan_index, run=True),
+            is_scan_running=self.is_scan_running,
+        )
+        self.scan_running_changed.connect(dialog.set_scan_running)
+        try:
+            dialog.exec()
+        finally:
+            try:
+                self.scan_running_changed.disconnect(dialog.set_scan_running)
+            except (RuntimeError, TypeError):
+                pass
 
-    def _run_current_scan(self):
+    def is_scan_running(self) -> bool:
+        """Return True while the scanner worker is fetching scan results."""
+        return bool(self.scan_thread and self.scan_thread.isRunning())
+
+    def _run_current_scan(self) -> bool:
         """Run the currently selected Finviz scan."""
         if self.scan_dropdown.signalsBlocked():
-            return
+            return False
+
+        if self.is_scan_running():
+            return False
 
         if not self.scans:
-            return
+            return False
 
         selected_scan_index = self._get_selected_scan_index()
         if selected_scan_index is None or selected_scan_index < 0 or selected_scan_index >= len(self.scans):
-            return
+            return False
 
         selected_scan = self.scans[selected_scan_index]
         selected_scan_url = selected_scan.get("url")
@@ -2372,12 +2395,13 @@ class FinvizScannerTable(QWidget):
             self.table.setItem(0, 0, item)
             for col in range(1, 4):
                 self.table.setItem(0, col, QTableWidgetItem(""))
-            return
+            return False
 
         logger.info(f"Running EOD Finviz scan: {selected_scan.get('name', 'Unnamed')}")
 
         self.scan_dropdown.setEnabled(False)
         self.manage_btn.setEnabled(False)
+        self.scan_running_changed.emit(True)
 
         # Show loading state
         self.table.setRowCount(0)
@@ -2388,12 +2412,8 @@ class FinvizScannerTable(QWidget):
         for col in range(1, 4):
             self.table.setItem(0, col, QTableWidgetItem(""))
 
-        # Stop any existing scan
-        if self.scan_thread and self.scan_thread.isRunning():
-            self.scan_thread.terminate()
-            self.scan_thread.wait(3000)
-
-        # Start new scan
+        # Start new scan. Existing workers are protected by is_scan_running()
+        # so a user click cannot cancel an in-flight fetch.
         self.scan_thread = ScanWorker(
             selected_scan_url,
             scan_name=str(selected_scan.get("name", "")),
@@ -2402,6 +2422,7 @@ class FinvizScannerTable(QWidget):
         self.scan_thread.scan_completed.connect(self._on_scan_complete)
         self.scan_thread.scan_error.connect(self._on_scan_error)
         self.scan_thread.start()
+        return True
 
     def _on_cell_clicked(self, row: int, column: int):
         """Handle cell clicks and emit symbol selection."""
