@@ -31,7 +31,7 @@
 
 // Professional upgrade applied to the CURRENT uploaded renderer.
 // Build marker makes it easy to verify the right chart.js is loaded in QWebEngine devtools.
-const CHART_RENDERER_BUILD = 'professional-current-upload-v3-2026-06-02';
+const CHART_RENDERER_BUILD = 'professional-crisp-candles-v4-2026-06-02';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -319,8 +319,11 @@ class FixedTradingChart {
         this.canvas.width  = Math.round(w * dpr);
         this.canvas.height = Math.round(h * dpr);
         this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        this.ctx.imageSmoothingEnabled = true;
-        this.ctx.imageSmoothingQuality = 'high';
+        // Keep vector candles/drawings crisp. The chart is already HiDPI-scaled,
+        // so bitmap smoothing is only useful for imported images and can soften
+        // cached layers when Chromium composites them.
+        this.ctx.imageSmoothingEnabled = false;
+        this.ctx.imageSmoothingQuality = 'low';
         this.ctx.textRendering = 'geometricPrecision';
         this.ctx.textBaseline = 'middle';
 
@@ -349,6 +352,10 @@ class FixedTradingChart {
         this.canvas.width  = Math.round(w * dpr);
         this.canvas.height = Math.round(h * dpr);
         this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        this.ctx.imageSmoothingEnabled = false;
+        this.ctx.imageSmoothingQuality = 'low';
+        this.ctx.textRendering = 'geometricPrecision';
+        this.ctx.textBaseline = 'middle';
         this.width  = w;
         this.height = h;
         this._updateChartAreas();
@@ -987,20 +994,21 @@ class FixedTradingChart {
         const visCount = this.viewPortEnd - this.viewPortStart + 1;
         if (visCount <= 0) return;
 
-        // candleWidth is user-fixed — never recalculate to fill space.
-        const bodyInset = this.candleWidth >= 8 ? 0.5 : 0.25;
-        const bodyW     = Math.max(1, this.candleWidth - bodyInset * 2);
-        const wickW     = this._snapStrokeWidth(this.candleWidth >= 7 ? 1.35 : 1);
+        const dpr = this._devicePixelRatio();
+        const minCssPixel = 1 / dpr;
+        const bodyInset = this.candleWidth >= 8 ? 0.5 : (this.candleWidth >= 3 ? 0.25 : 0);
+        const targetBodyW = Math.max(minCssPixel, this.candleWidth - bodyInset * 2);
+        const wickW = this._snapStrokeWidth(this.candleWidth >= 7 ? 1.35 : 1);
         const drawBorder = this.candleWidth >= 7;
         const { start, end } = this._visibleIndexRange(1);
 
         ctx.lineJoin = 'miter';
-        ctx.lineCap  = 'butt';
+        ctx.lineCap  = 'square';
 
-        for (let i = start; i < series.length && i <= end; i++) {
-            if (i < 0) continue;
-            const c = series[i];
+        const drawCandle = (i, c) => {
             const x = this._candleToX(i);
+            const rawCx = x + this.candleWidth / 2;
+            const cx = this._crispStrokeCoord(rawCx, wickW);
 
             const openY  = this._priceToY(c.open);
             const closeY = this._priceToY(c.close);
@@ -1013,58 +1021,68 @@ class FixedTradingChart {
             const col    = isExtendedHours ? this.colors.extendedHoursCandle : (isDoji ? this.colors.dojiCandle : (isUp ? this.colors.upCandle : this.colors.downCandle));
             const wick   = isExtendedHours ? this.colors.extendedHoursWick : (isDoji ? this.colors.dojiCandle : (isUp ? this.colors.upWick : this.colors.downWick));
             const brdr   = isExtendedHours ? 'rgba(148,163,184,0.88)' : (isDoji ? 'rgba(122,135,152,0.90)' : col);
-            const cx    = x + this.candleWidth / 2;
 
-            // Wick
+            // TradingView-style crisp geometry: snap wick centers and body edges to
+            // physical pixels, and derive both from one center so tiny zoomed-out
+            // candles never have bodies and wicks drifting onto different columns.
             ctx.strokeStyle = wick;
             ctx.lineWidth   = wickW;
             ctx.beginPath();
-            ctx.moveTo(cx, highY);
-            ctx.lineTo(cx, lowY);
+            ctx.moveTo(cx, this._snapCssPixel(highY));
+            ctx.lineTo(cx, this._snapCssPixel(lowY));
             ctx.stroke();
 
-            // Body
-            const topY   = Math.min(openY, closeY);
-            const bodyH  = Math.max(1, Math.abs(closeY - openY));
-            const bx     = x + bodyInset;
+            const topY = Math.min(openY, closeY);
+            const rawBodyH = Math.abs(closeY - openY);
+            const rect = this._snapRectToDevicePixels(
+                cx - targetBodyW / 2,
+                topY,
+                targetBodyW,
+                rawBodyH,
+                1,
+                1
+            );
 
             ctx.fillStyle = col;
-            ctx.fillRect(Math.round(bx), Math.round(topY), Math.max(1, Math.round(bodyW)), Math.max(1, Math.round(bodyH)));
+            ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
 
-            if (drawBorder) {
+            if (drawBorder && rect.w > minCssPixel && rect.h > minCssPixel) {
+                const borderW = this._snapStrokeWidth(0.65);
+                const strokeX = this._crispStrokeCoord(rect.x + rect.w / 2, borderW);
+                const borderRect = this._snapRectToDevicePixels(
+                    strokeX - rect.w / 2,
+                    rect.y,
+                    rect.w,
+                    rect.h,
+                    2,
+                    2
+                );
                 ctx.strokeStyle = brdr;
-                ctx.lineWidth   = this._snapStrokeWidth(0.65);
-                ctx.strokeRect(Math.round(bx) + 0.5, Math.round(topY) + 0.5, Math.max(0, Math.round(bodyW) - 1), Math.max(0, Math.round(bodyH) - 1));
+                ctx.lineWidth   = borderW;
+                ctx.strokeRect(
+                    borderRect.x + borderW / 2,
+                    borderRect.y + borderW / 2,
+                    Math.max(0, borderRect.w - borderW),
+                    Math.max(0, borderRect.h - borderW)
+                );
             }
+        };
+
+        for (let i = start; i < series.length && i <= end; i++) {
+            if (i < 0) continue;
+            drawCandle(i, series[i]);
         }
 
         // Live price candle — update last bar
         if (this.livePrice !== null && series.length > 0 && !this._isHeikinAshiMode()) {
             const last = series.length - 1;
             if (last >= this.viewPortStart && last <= this.viewPortEnd) {
-                const c  = { ...series[last], close: this.livePrice,
-                              high: Math.max(series[last].high, this.livePrice),
-                              low:  Math.min(series[last].low,  this.livePrice) };
-                const x     = this._candleToX(last);
-                const bx    = x + bodyInset;
-                const openY = this._priceToY(c.open);
-                const clY   = this._priceToY(c.close);
-                const hiY   = this._priceToY(c.high);
-                const loY   = this._priceToY(c.low);
-                const isDoji = Math.abs(c.close - c.open) < 1e-10;
-                const isUp   = c.close > c.open;
-                const isExtendedHours = this._isIbkrExtendedHoursCandle(c);
-                const col    = isExtendedHours ? this.colors.extendedHoursCandle : (isDoji ? this.colors.dojiCandle : (isUp ? this.colors.upCandle : this.colors.downCandle));
-                const wick   = isExtendedHours ? this.colors.extendedHoursWick : (isDoji ? this.colors.dojiCandle : (isUp ? this.colors.upWick : this.colors.downWick));
-                const cx    = x + this.candleWidth / 2;
-
-                ctx.strokeStyle = wick; ctx.lineWidth = wickW;
-                ctx.beginPath(); ctx.moveTo(cx, hiY); ctx.lineTo(cx, loY); ctx.stroke();
-
-                const topY  = Math.min(openY, clY);
-                const bodyH = Math.max(1, Math.abs(clY - openY));
-                ctx.fillStyle = col;
-                ctx.fillRect(Math.round(bx), Math.round(topY), Math.max(1, Math.round(bodyW)), Math.max(1, Math.round(bodyH)));
+                drawCandle(last, {
+                    ...series[last],
+                    close: this.livePrice,
+                    high: Math.max(series[last].high, this.livePrice),
+                    low:  Math.min(series[last].low,  this.livePrice),
+                });
             }
         }
     }
@@ -4375,6 +4393,48 @@ class FixedTradingChart {
         const dpr = this.dpr || window.devicePixelRatio || 1;
         const devPx = Math.max(1, Math.round(cssWidth * dpr));
         return devPx / dpr;
+    }
+
+    _devicePixelRatio() {
+        return this.dpr || window.devicePixelRatio || 1;
+    }
+
+    _snapCssPixel(value) {
+        const dpr = this._devicePixelRatio();
+        return Math.round(value * dpr) / dpr;
+    }
+
+    _crispStrokeCoord(value, cssLineWidth) {
+        const dpr = this._devicePixelRatio();
+        const devLineWidth = Math.max(1, Math.round(cssLineWidth * dpr));
+        const dev = Math.round(value * dpr);
+        return (dev + (devLineWidth % 2 ? 0.5 : 0)) / dpr;
+    }
+
+    _snapRectToDevicePixels(x, y, width, height, minWidthDevPx = 1, minHeightDevPx = 1) {
+        const dpr = this._devicePixelRatio();
+        let left = Math.round(x * dpr);
+        let right = Math.round((x + width) * dpr);
+        let top = Math.round(y * dpr);
+        let bottom = Math.round((y + height) * dpr);
+
+        if (right - left < minWidthDevPx) {
+            const center = Math.round((x + width / 2) * dpr);
+            left = center - Math.floor(minWidthDevPx / 2);
+            right = left + minWidthDevPx;
+        }
+        if (bottom - top < minHeightDevPx) {
+            const center = Math.round((y + height / 2) * dpr);
+            top = center - Math.floor(minHeightDevPx / 2);
+            bottom = top + minHeightDevPx;
+        }
+
+        return {
+            x: left / dpr,
+            y: top / dpr,
+            w: Math.max(minWidthDevPx, right - left) / dpr,
+            h: Math.max(minHeightDevPx, bottom - top) / dpr,
+        };
     }
 
     _resolvePriceScaleCurrency(explicitCurrency, symbol) {
