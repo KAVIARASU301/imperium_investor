@@ -1198,11 +1198,13 @@ class CandlestickChart(QWidget):
         """Choose live-volume semantics for the active chart interval.
 
         IBKR reqMktData exposes both a cumulative session volume and last-trade
-        sizes.  Intraday/week/month chart candles need incremental trade volume
-        added onto the historical bar, while the daily candle can safely use the
-        broker's cumulative total when present.  Returning an explicit mode keeps
-        JavaScript from guessing and prevents one-tick sizes from replacing the
-        full candle volume.
+        sizes.  Once historical candles have loaded, IBKR live ticks should only
+        append incremental trade volume to the active candle for every interval,
+        including the daily chart.  Its cumulative daily volume can be scaled
+        differently from historical bars and can corrupt the current-day volume
+        bar after the first tick.  Returning an explicit mode keeps JavaScript
+        from guessing and prevents one-tick sizes from replacing the full candle
+        volume.
         """
         interval_key = str(self.current_interval or "").strip().lower()
         is_daily_interval = interval_key == "day"
@@ -1211,9 +1213,17 @@ class CandlestickChart(QWidget):
         cumulative_keys = ("volume_traded", "day_volume", "volume")
         delta_keys = ("volume_delta", "last_size", "last_traded_quantity")
 
+        if is_ibkr:
+            # IBKR's streaming `volume` is a cumulative day/session field and can
+            # arrive on a different scale than historical bars.  Historical data
+            # already seeded the active candle, so live updates must only append
+            # the de-duplicated trade delta emitted by the market-data worker.
+            delta_volume = self._first_non_negative_number(tick, ("volume_delta",))
+            return (delta_volume, "delta") if delta_volume is not None else (None, "none")
+
         if is_daily_interval:
             total_volume = self._first_non_negative_number(tick, cumulative_keys)
-            if total_volume is not None and (not is_ibkr or total_volume > 0):
+            if total_volume is not None:
                 return total_volume, "total"
             delta_volume = self._first_non_negative_number(tick, delta_keys)
             return (delta_volume, "delta") if delta_volume is not None else (None, "none")
@@ -1224,8 +1234,8 @@ class CandlestickChart(QWidget):
 
         # As a conservative fallback, let JS preserve legacy behaviour for
         # brokers that only provide one ambiguous volume field.  For IBKR this is
-        # intentionally not used on intraday/week/month candles because its
-        # cumulative daily volume would corrupt the active timeframe bar.
+        # intentionally not used on any interval because its cumulative daily
+        # volume can corrupt the active candle after historical data is loaded.
         if not is_ibkr:
             total_volume = self._first_non_negative_number(tick, cumulative_keys)
             if total_volume is not None:

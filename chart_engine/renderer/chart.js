@@ -3693,53 +3693,21 @@ class FixedTradingChart {
         return numeric < 1e12 ? numeric * 1000 : numeric;
     }
 
-    _normalizeIbkrDailyTotalVolume(active, parsedTickVolume) {
-        if (this.brokerName !== 'ibkr') return parsedTickVolume;
-        const key = String(this.currentInterval || 'day').toLowerCase();
-        if (key !== 'day') return parsedTickVolume;
-
-        const activeVolume = Number(active && active.volume);
-        if (!Number.isFinite(activeVolume) || activeVolume <= 0) return parsedTickVolume;
-
-        // Depending on the TWS/Gateway "Send market data in lots for US stocks"
-        // setting and ib_insync/TWS build, IBKR's streaming daily volume can
-        // arrive 100x larger than the historical daily bar that was loaded
-        // first.  Detect that round-lot scale mismatch against the already
-        // rendered current-day candle before applying the cumulative total.
-        const roundLotAdjusted = parsedTickVolume / 100;
-        const rawRatio = parsedTickVolume / activeVolume;
-        const adjustedRatio = roundLotAdjusted / activeVolume;
-        if (
-            rawRatio >= 50 &&
-            rawRatio <= 500 &&
-            adjustedRatio >= 0.95 &&
-            adjustedRatio <= 5
-        ) {
-            return roundLotAdjusted;
-        }
-        return parsedTickVolume;
-    }
-
     _applyLiveVolume(active, tickVolume, volumeMode, fallbackMode) {
         const parsedTickVolume = Number(tickVolume);
         if (!Number.isFinite(parsedTickVolume) || parsedTickVolume < 0) return false;
 
         const mode = String(volumeMode || fallbackMode || 'none').toLowerCase();
         if (mode === 'none') return false;
-        const usesCumulativeTotal = mode === 'total' || String(fallbackMode || '').toLowerCase() === 'total';
-        const normalizedTickVolume = usesCumulativeTotal
-            ? this._normalizeIbkrDailyTotalVolume(active, parsedTickVolume)
-            : parsedTickVolume;
-
         if (mode === 'total') {
             // Cumulative broker volume should never make an already-rendered
             // historical candle go backwards if a delayed/stale field arrives.
-            active.volume = Math.max(Number(active.volume) || 0, normalizedTickVolume);
+            active.volume = Math.max(Number(active.volume) || 0, parsedTickVolume);
         } else if (mode === 'delta') {
             if (parsedTickVolume <= 0) return false;
             active.volume = (Number(active.volume) || 0) + parsedTickVolume;
         } else if (fallbackMode === 'total') {
-            active.volume = Math.max(Number(active.volume) || 0, normalizedTickVolume);
+            active.volume = Math.max(Number(active.volume) || 0, parsedTickVolume);
         } else {
             if (parsedTickVolume <= 0) return false;
             active.volume = (Number(active.volume) || 0) + parsedTickVolume;
