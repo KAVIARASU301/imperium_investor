@@ -43,6 +43,16 @@ SCAN_HEADER_VERTICAL_MARGIN = max(0, (CHART_TOOLBAR_HEIGHT - CHART_TOOLBAR_CONTR
 VOLUME_STRENGTH_ENABLED_ROLE = Qt.ItemDataRole.UserRole + 101
 VOLUME_STRENGTH_LEVEL_ROLE = Qt.ItemDataRole.UserRole + 102
 VOLUME_STRENGTH_COLOR_ROLE = Qt.ItemDataRole.UserRole + 103
+SCANNER_GROUP_ROW_ROLE = Qt.ItemDataRole.UserRole + 201
+SCANNER_GROUP_NAME_ROLE = Qt.ItemDataRole.UserRole + 202
+SCANNER_SECTOR_ROW_ROLE = Qt.ItemDataRole.UserRole + 203
+SCANNER_SECTOR_NAME_ROLE = Qt.ItemDataRole.UserRole + 204
+
+_GENERIC_GROUP_NAMES = {
+    "", "-", "--", "n/a", "na", "none", "null", "unknown",
+    "other", "others", "ungrouped", "uncategorized", "uncategorised",
+    "unclassified", "not available",
+}
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  AMOLED INSTITUTIONAL DARK TRADING TERMINAL UI TOKENS
@@ -1448,7 +1458,12 @@ class FinvizScannerTable(QWidget):
         self.scans = self._load_scans()
         self.scan_thread: ScanWorker = None
         self._symbol_data: Dict[str, Dict] = {}
+        self._symbol_order: List[str] = []
         self._symbol_to_row: Dict[str, int] = {}
+        self._sector_order: List[str] = []
+        self._group_order: List[str] = []
+        self._sector_rows: Dict[int, str] = {}
+        self._group_rows: Dict[int, str] = {}
         self._instrument_map: Dict[str, Dict] = {}
         self._token_to_symbol: Dict[int, str] = {}
         self._dirty_symbols = set()
@@ -1566,19 +1581,24 @@ class FinvizScannerTable(QWidget):
     def _select_symbol_at_index(self, index: int):
         """Select symbol at given index and emit selection signal."""
         symbols = self.get_current_symbols()
-        if 0 <= index < len(symbols) and index < self.table.rowCount():
-            # Update table selection
-            self.table.selectRow(index)
-            self.table.setCurrentCell(index, 0)
+        if 0 <= index < len(symbols):
+            symbol = symbols[index]
+            row = self._symbol_to_row.get(symbol)
+            if row is None:
+                return
+
+            # Update table selection using the actual visual row; sector and
+            # industry headers mean list index no longer equals table row.
+            self.table.selectRow(row)
+            self.table.setCurrentCell(row, 0)
 
             # Get symbol and emit selection
-            symbol = symbols[index]
             self.symbol_selected.emit(symbol)
 
             # Update current index
             self._current_symbol_index = index
 
-            logger.debug(f"Scanner: Selected symbol {symbol} at index {index}")
+            logger.debug(f"Scanner: Selected symbol {symbol} at row {row}")
 
     def _on_table_focus_out(self, event):
         """Keep the scanner selection visible when focus moves to the chart."""
@@ -1834,31 +1854,237 @@ class FinvizScannerTable(QWidget):
 
         self._apply_table_ordering()
 
+    @staticmethod
+    def _metadata_text(value: Any) -> str:
+        return " ".join(str(value or "").strip().split())
+
+    @classmethod
+    def _is_generic_bucket(cls, value: Any) -> bool:
+        text = cls._metadata_text(value).lower()
+        return text in _GENERIC_GROUP_NAMES
+
+    def _clean_sector_name(self, value: Any) -> str:
+        sector = self._metadata_text(value)
+        return sector if sector and not self._is_generic_bucket(sector) else "Others"
+
+    def _clean_group_name(self, value: Any, *, sector: Optional[str] = None) -> str:
+        group = self._metadata_text(value)
+        if not group or self._is_generic_bucket(group):
+            clean_sector = self._clean_sector_name(sector)
+            return "Unclassified" if clean_sector != "Others" else "Ungrouped"
+        return group
+
+    def _sector_from_metadata(self, metadata: Optional[Dict[str, Any]] = None) -> str:
+        metadata = metadata or {}
+        return self._clean_sector_name(metadata.get("sector"))
+
+    def _group_from_metadata(self, metadata: Optional[Dict[str, Any]] = None, fallback: Optional[str] = None) -> str:
+        """Return the scanner industry/theme bucket inside the sector."""
+        metadata = metadata or {}
+        sector = self._sector_from_metadata(metadata)
+        industry = self._metadata_text(metadata.get("industry"))
+        if industry and not self._is_generic_bucket(industry):
+            return self._clean_group_name(industry, sector=sector)
+
+        for key in ("theme", "group", "scan_name", "source_scan", "scan_tag"):
+            candidate = self._metadata_text(metadata.get(key))
+            if not candidate or self._is_generic_bucket(candidate):
+                continue
+            if sector != "Others" and candidate.lower() == sector.lower():
+                continue
+            return self._clean_group_name(candidate, sector=sector)
+
+        if fallback and not self._is_generic_bucket(fallback):
+            return self._clean_group_name(fallback, sector=sector)
+        return self._clean_group_name(None, sector=sector)
+
+    def _metadata_from_symbol_db(self, symbol: str) -> Dict[str, Any]:
+        try:
+            info = SymbolInfoDatabase().get_symbol_info(symbol) or {}
+        except Exception:
+            return {}
+        if not info:
+            return {}
+        return {
+            "company": info.get("company_name") or "",
+            "company_name": info.get("company_name") or "",
+            "sector": info.get("sector") or "",
+            "industry": info.get("industry") or "",
+            "country": info.get("country") or "",
+            "market_cap": info.get("market_cap_text") or "",
+        }
+
+    def _merge_metadata_value(self, merged: Dict[str, Any], key: str, value: Any) -> None:
+        if value in (None, ""):
+            return
+        if key in {"sector", "industry", "theme", "group"}:
+            existing = merged.get(key)
+            if self._is_generic_bucket(value) and existing and not self._is_generic_bucket(existing):
+                return
+        merged[key] = value
+
+    def _normalize_symbol_data(self, result: Dict[str, Any]) -> Dict[str, Any]:
+        """Merge Finviz and cached symbol-info metadata before grouping rows."""
+        symbol = str(result.get("symbol") or "").strip().upper()
+        merged: Dict[str, Any] = {}
+        if symbol:
+            merged.update(self._metadata_from_symbol_db(symbol))
+        for key, value in (result or {}).items():
+            self._merge_metadata_value(merged, key, value)
+        merged["symbol"] = symbol
+        merged["sector"] = self._sector_from_metadata(merged)
+        merged["group"] = self._group_from_metadata(merged)
+        return merged
+
+    def _ensure_sector_group_order(self, data: Dict[str, Any]) -> None:
+        sector = self._sector_from_metadata(data)
+        group = self._group_from_metadata(data)
+        if sector not in self._sector_order:
+            self._sector_order.append(sector)
+        if group not in self._group_order:
+            self._group_order.append(group)
+
+    def _ordered_sectors_for_render(self) -> List[str]:
+        sectors = {self._sector_from_metadata(data) for data in self._symbol_data.values()}
+        ordered = [sector for sector in self._sector_order if sector in sectors]
+        for symbol in self._symbol_order:
+            data = self._symbol_data.get(symbol, {})
+            sector = self._sector_from_metadata(data)
+            if sector not in ordered:
+                ordered.append(sector)
+        return [s for s in ordered if s != "Others"] + (["Others"] if "Others" in ordered else [])
+
+    def _ordered_groups_for_sector(self, sector: str) -> List[str]:
+        groups = {
+            self._group_from_metadata(data)
+            for data in self._symbol_data.values()
+            if self._sector_from_metadata(data) == sector
+        }
+        ordered = [group for group in self._group_order if group in groups]
+        for symbol in self._symbol_order:
+            data = self._symbol_data.get(symbol, {})
+            if self._sector_from_metadata(data) != sector:
+                continue
+            group = self._group_from_metadata(data)
+            if group not in ordered:
+                ordered.append(group)
+        generic = {"Ungrouped", "Unclassified"}
+        return [g for g in ordered if g not in generic] + [g for g in ordered if g in generic]
+
+    def _paint_sector_header(self, row: int, sector: str, count: int) -> None:
+        self._sector_rows[row] = sector
+        for col in range(4):
+            item = QTableWidgetItem("")
+            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable & ~Qt.ItemFlag.ItemIsEditable)
+            item.setData(SCANNER_SECTOR_ROW_ROLE, True)
+            item.setData(SCANNER_SECTOR_NAME_ROLE, sector)
+            item.setBackground(QBrush(QColor(_BG0)))
+            item.setForeground(QColor(_T2))
+            self.table.setItem(row, col, item)
+
+        item = self.table.item(row, 0)
+        if item:
+            item.setText(f"{sector.upper()}   {count}")
+            item.setForeground(QColor(_CYAN if sector != "Others" else _T2))
+            item.setFont(_ui_font(8, QFont.Weight.Bold))
+            item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        try:
+            self.table.setSpan(row, 0, 1, 4)
+        except Exception:
+            pass
+        self.table.setRowHeight(row, max(_ROW_H, 21))
+
+    def _paint_group_header(self, row: int, group: str, count: int) -> None:
+        self._group_rows[row] = group
+        for col in range(4):
+            item = QTableWidgetItem("")
+            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable & ~Qt.ItemFlag.ItemIsEditable)
+            item.setData(SCANNER_GROUP_ROW_ROLE, True)
+            item.setData(SCANNER_GROUP_NAME_ROLE, group)
+            item.setBackground(QBrush(QColor(_BG2)))
+            item.setForeground(QColor(_T2))
+            self.table.setItem(row, col, item)
+
+        item = self.table.item(row, 0)
+        if item:
+            item.setText(f"{group.upper()}   {count}")
+            item.setForeground(QColor(_AMBER if group not in {"Ungrouped", "Unclassified"} else _T2))
+            item.setFont(_ui_font(8, QFont.Weight.Bold))
+            item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        try:
+            self.table.setSpan(row, 0, 1, 4)
+        except Exception:
+            pass
+        self.table.setRowHeight(row, max(_ROW_H, 20))
+
+    def _sort_key_for_symbol(self, symbol: str) -> Any:
+        data = self._symbol_data.get(symbol, {})
+        if self._change_sort_state in {"asc", "desc"}:
+            return float(data.get("change_pct", 0.0) or 0.0)
+        try:
+            return self._symbol_order.index(symbol)
+        except ValueError:
+            return len(self._symbol_order)
+
     def _apply_table_ordering(self) -> None:
-        """Rebuild table rows based on current sort mode."""
-        symbols = list(self._symbol_data.keys())
-        if not symbols:
+        """Rebuild table rows in watchlist-style sector/industry sections."""
+        if not self._symbol_data:
             self.table.horizontalHeader().setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
             return
 
         if self._change_sort_state == "asc":
-            symbols.sort(key=lambda s: float(self._symbol_data.get(s, {}).get("change_pct", 0.0) or 0.0))
             self.table.horizontalHeader().setSortIndicator(3, Qt.SortOrder.AscendingOrder)
+            reverse = False
         elif self._change_sort_state == "desc":
-            symbols.sort(key=lambda s: float(self._symbol_data.get(s, {}).get("change_pct", 0.0) or 0.0), reverse=True)
             self.table.horizontalHeader().setSortIndicator(3, Qt.SortOrder.DescendingOrder)
+            reverse = True
         else:
-            symbols.sort(key=lambda s: s)
             self.table.horizontalHeader().setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
+            reverse = False
 
-        self.table.setRowCount(len(symbols))
+        try:
+            self.table.clearSpans()
+        except Exception:
+            pass
+        self.table.setRowCount(0)
         self._symbol_to_row.clear()
-        for row, symbol in enumerate(symbols):
-            self._symbol_to_row[symbol] = row
-            for col in range(4):
-                if not self.table.item(row, col):
-                    self.table.setItem(row, col, QTableWidgetItem())
-            self._update_row_data(row, self._symbol_data[symbol])
+        self._sector_rows.clear()
+        self._group_rows.clear()
+
+        row = 0
+        for sector in self._ordered_sectors_for_render():
+            sector_symbols = [
+                symbol for symbol in self._symbol_order
+                if symbol in self._symbol_data
+                and self._sector_from_metadata(self._symbol_data.get(symbol, {})) == sector
+            ]
+            if not sector_symbols:
+                continue
+
+            self.table.insertRow(row)
+            self._paint_sector_header(row, sector, len(sector_symbols))
+            row += 1
+
+            for group in self._ordered_groups_for_sector(sector):
+                group_symbols = [
+                    symbol for symbol in sector_symbols
+                    if self._group_from_metadata(self._symbol_data.get(symbol, {})) == group
+                ]
+                if not group_symbols:
+                    continue
+                group_symbols.sort(key=self._sort_key_for_symbol, reverse=reverse)
+
+                self.table.insertRow(row)
+                self._paint_group_header(row, group, len(group_symbols))
+                row += 1
+
+                for symbol in group_symbols:
+                    self.table.insertRow(row)
+                    self._symbol_to_row[symbol] = row
+                    for col in range(4):
+                        self.table.setItem(row, col, QTableWidgetItem())
+                    self._update_row_data(row, self._symbol_data[symbol])
+                    row += 1
 
 
     def _update_row_data(self, row: int, data: Dict):
@@ -1969,7 +2195,16 @@ class FinvizScannerTable(QWidget):
     def _on_scan_complete(self, scan_results: List[Dict]):
         """Handle scan completion with EOD data from Finviz ticker scan."""
         self._symbol_data.clear()
+        self._symbol_order.clear()
         self._symbol_to_row.clear()
+        self._sector_order.clear()
+        self._group_order.clear()
+        self._sector_rows.clear()
+        self._group_rows.clear()
+        try:
+            self.table.clearSpans()
+        except Exception:
+            pass
         self.table.setRowCount(0)
 
         if not scan_results:
@@ -1981,21 +2216,29 @@ class FinvizScannerTable(QWidget):
                 self.table.setItem(0, col, QTableWidgetItem(""))
         else:
             for result in scan_results:
-                symbol = result.get('symbol', '')
+                normalized = self._normalize_symbol_data(result)
+                symbol = normalized.get('symbol', '')
                 if not symbol:
                     continue
 
-                self._symbol_data[symbol] = result
+                if symbol not in self._symbol_data:
+                    self._symbol_order.append(symbol)
+                self._symbol_data[symbol] = normalized
+                self._ensure_sector_group_order(normalized)
             self._apply_table_ordering()
 
-            # Select first row automatically
-            if len(scan_results) > 0:
-                index = self.table.model().index(0, 0)
+            # Select first tradable row automatically; the first visible row may
+            # now be a sector header.
+            current_symbols = self.get_current_symbols()
+            if current_symbols:
+                first_symbol = current_symbols[0]
+                first_row = self._symbol_to_row.get(first_symbol, 0)
+                index = self.table.model().index(first_row, 0)
                 self.table.selectionModel().select(
                     index,
                     QItemSelectionModel.Select | QItemSelectionModel.Rows
                 )
-                self.table.setCurrentCell(0, 0)
+                self.table.setCurrentCell(first_row, 0)
                 self.table.setFocus()
 
                 # Reset symbol index when new scan results arrive
@@ -2285,7 +2528,7 @@ class FinvizScannerTable(QWidget):
 
         vp = self.table.viewport()
         if vp is None or vp.height() == 0:
-            return list(self._symbol_data.keys())
+            return [symbol for symbol in self._symbol_order if symbol in self._symbol_data]
 
         top_row    = self.table.rowAt(0)
         bottom_row = self.table.rowAt(vp.height() - 1)
