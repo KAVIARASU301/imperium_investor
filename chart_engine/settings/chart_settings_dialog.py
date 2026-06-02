@@ -108,13 +108,13 @@ class ChartSettingsDialog(QDialog):
                 break
         left_form.addRow("Toolbar Symbol Text:", self.toolbar_symbol_display)
 
-        left_form.addRow("Watermark Color:", self._color_row("watermark_color", "#ffffff"))
+        left_form.addRow("Watermark Color:", self._color_row("watermark_color", "#6F7783"))
 
         self.wm_opacity = QDoubleSpinBox()
         self.wm_opacity.setRange(0.0, 1.0)
         self.wm_opacity.setSingleStep(0.05)
         self.wm_opacity.setDecimals(2)
-        self.wm_opacity.setValue(self._s.get("watermark_opacity", 0.28))
+        self.wm_opacity.setValue(self._s.get("watermark_opacity", 0.22))
         left_form.addRow("Watermark Opacity:", self.wm_opacity)
 
         self.wm_position = QComboBox()
@@ -122,7 +122,7 @@ class ChartSettingsDialog(QDialog):
                              ("Mid Center", "mid_center"),
                              ("Bottom Center", "bottom_center")]:
             self.wm_position.addItem(label, data)
-        current_pos = self._s.get("watermark_position", "bottom_center")
+        current_pos = self._s.get("watermark_position", "mid_center")
         for i in range(self.wm_position.count()):
             if self.wm_position.itemData(i) == current_pos:
                 self.wm_position.setCurrentIndex(i)
@@ -167,7 +167,7 @@ class ChartSettingsDialog(QDialog):
 
         self.wm_font_size = QSpinBox()
         self.wm_font_size.setRange(0, 300)
-        self.wm_font_size.setValue(self._s.get("watermark_font_size", 50))
+        self.wm_font_size.setValue(self._s.get("watermark_font_size", 0))
         self.wm_font_size.setToolTip("0 = auto size")
         right_form.addRow("Watermark Font Size:", self.wm_font_size)
 
@@ -175,12 +175,12 @@ class ChartSettingsDialog(QDialog):
         self.wm_description_opacity.setRange(0.0, 1.0)
         self.wm_description_opacity.setSingleStep(0.05)
         self.wm_description_opacity.setDecimals(2)
-        self.wm_description_opacity.setValue(self._s.get("watermark_description_opacity", 0.13))
+        self.wm_description_opacity.setValue(self._s.get("watermark_description_opacity", 0.16))
         right_form.addRow("Description Opacity:", self.wm_description_opacity)
 
         self.wm_description_font_size = QSpinBox()
         self.wm_description_font_size.setRange(0, 150)
-        self.wm_description_font_size.setValue(self._s.get("watermark_description_font_size", 25))
+        self.wm_description_font_size.setValue(self._s.get("watermark_description_font_size", 0))
         self.wm_description_font_size.setToolTip("0 = auto size")
         right_form.addRow("Description Font Size:", self.wm_description_font_size)
 
@@ -314,7 +314,7 @@ class ChartSettingsDialog(QDialog):
             "watermark_enabled": self.wm_enabled.isChecked(),
             "show_watermark_description": self.wm_description.isChecked(),
             "toolbar_symbol_display": self.toolbar_symbol_display.currentData(),
-            "watermark_color": self._s.get("watermark_color", "#ffffff"),
+            "watermark_color": self._s.get("watermark_color", "#6F7783"),
             "watermark_opacity": self.wm_opacity.value(),
             "watermark_position": self.wm_position.currentData(),
             "watermark_font_size": self.wm_font_size.value(),

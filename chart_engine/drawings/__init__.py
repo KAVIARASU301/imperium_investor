@@ -26,12 +26,12 @@ _DEFAULT_GLOBAL_SETTINGS: Dict[str, Any] = {
     "up_volume_color": "#00c896",
     "down_volume_color": "#e84060",
     "watermark_enabled": True,
-    "watermark_color": "#ffffff",
-    "watermark_opacity": 0.28,
-    "watermark_position": "bottom_center",
-    "watermark_font_size": 50,
-    "watermark_description_opacity": 0.13,
-    "watermark_description_font_size": 25,
+    "watermark_color": "#6F7783",
+    "watermark_opacity": 0.22,
+    "watermark_position": "mid_center",
+    "watermark_font_size": 0,
+    "watermark_description_opacity": 0.16,
+    "watermark_description_font_size": 0,
     "indicator_scale_labels_enabled": False,
     "crosshair_snap_enabled": False,
     "show_time_slider": True,
@@ -77,6 +77,25 @@ _DEFAULT_INDICATOR_VISIBILITY: Dict[str, bool] = {
 }
 
 _OBSOLETE_INDICATOR_VISIBILITY_KEYS = {"bjTrend", "vwap", "cvd", "rsi", "atrTrendReversal"}
+
+_LEGACY_WATERMARK_DEFAULTS: Dict[str, Any] = {
+    "watermark_color": "#ffffff",
+    "watermark_opacity": 0.28,
+    "watermark_position": "bottom_center",
+    "watermark_font_size": 50,
+    "watermark_description_opacity": 0.13,
+    "watermark_description_font_size": 25,
+}
+
+
+def _upgrade_legacy_watermark_defaults(settings: Dict[str, Any]) -> Dict[str, Any]:
+    """Move untouched pre-TC2000 watermark defaults to the new softer style."""
+    if not isinstance(settings, dict):
+        return settings
+    if all(settings.get(key) == value for key, value in _LEGACY_WATERMARK_DEFAULTS.items()):
+        for key in _LEGACY_WATERMARK_DEFAULTS:
+            settings[key] = _DEFAULT_GLOBAL_SETTINGS[key]
+    return settings
 
 
 def _validate_drawings(drawings: Any) -> Dict[str, list]:
@@ -260,6 +279,7 @@ class DrawingStorage:
                 settings = json.load(f)
             result = dict(_DEFAULT_GLOBAL_SETTINGS)
             result.update(settings)
+            result = _upgrade_legacy_watermark_defaults(result)
             result["indicator_visibility"] = _validate_indicator_visibility(
                 result.get("indicator_visibility")
             )

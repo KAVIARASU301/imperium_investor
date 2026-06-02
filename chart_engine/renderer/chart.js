@@ -31,7 +31,7 @@
 
 // Professional upgrade applied to the CURRENT uploaded renderer.
 // Build marker makes it easy to verify the right chart.js is loaded in QWebEngine devtools.
-const CHART_RENDERER_BUILD = 'professional-current-upload-v2-2026-05-31';
+const CHART_RENDERER_BUILD = 'professional-current-upload-v3-2026-06-02';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -221,11 +221,11 @@ class FixedTradingChart {
         // ── Watermark ──
         this.watermark = {
             enabled:  cfg.watermarkEnabled !== false,
-            color:    cfg.watermarkColor    || '#1A2030',
-            opacity:  typeof cfg.watermarkOpacity  === 'number' ? cfg.watermarkOpacity  : 0.06,
+            color:    cfg.watermarkColor    || '#6F7783',
+            opacity:  typeof cfg.watermarkOpacity  === 'number' ? cfg.watermarkOpacity  : 0.22,
             position: cfg.watermarkPosition || 'mid_center',
             fontSize: cfg.watermarkFontSize || 0,
-            descriptionOpacity: typeof cfg.watermarkDescriptionOpacity === 'number' ? cfg.watermarkDescriptionOpacity : 0.08,
+            descriptionOpacity: typeof cfg.watermarkDescriptionOpacity === 'number' ? cfg.watermarkDescriptionOpacity : 0.16,
             descriptionFontSize: cfg.watermarkDescriptionFontSize || 0,
         };
         this.indicatorScaleLabelsEnabled = cfg.indicatorScaleLabelsEnabled === true;
@@ -1883,35 +1883,60 @@ class FixedTradingChart {
         ctx.save();
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'middle';
-        const symbolYOffset = hasDescription ? 28 : 0;
-        ctx.globalAlpha  = this.watermark.opacity;
+        const symbolYOffset = hasDescription ? Math.round(fontSize * 0.28) : 0;
+        const watermarkFont = '"Arial Narrow", "Roboto Condensed", "Inter", "Aptos", "Segoe UI Variable", "Segoe UI", sans-serif';
+        const symbolText = String(this.currentSymbol || '').toUpperCase();
+
+        ctx.globalAlpha  = Math.max(0.0, Math.min(1.0, this.watermark.opacity));
         ctx.fillStyle    = this.watermark.color;
-        ctx.font         = `700 ${fontSize}px "Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", sans-serif`;
-        ctx.fillText(this.currentSymbol, centerX, centerY - symbolYOffset);
+        ctx.font         = `500 ${fontSize}px ${watermarkFont}`;
+        this._fillCenteredTrackedText(symbolText, centerX, centerY - symbolYOffset, Math.max(1.5, fontSize * 0.055));
 
         if (hasDescription) {
             const descriptionFontSize = this.watermark.descriptionFontSize > 0
                 ? this.watermark.descriptionFontSize
-                : Math.max(14, Math.round(fontSize * 0.32));
+                : Math.max(13, Math.round(fontSize * 0.30));
             ctx.globalAlpha = Math.max(0.0, Math.min(1.0, this.watermark.descriptionOpacity));
-            ctx.font        = `600 ${descriptionFontSize}px "Inter", "Aptos", "Segoe UI Variable", "Segoe UI", "Roboto", sans-serif`;
+            ctx.font        = `400 ${descriptionFontSize}px ${watermarkFont}`;
             const descriptionLines = String(this.currentSymbolDescription || '')
                 .split('\n')
                 .map(line => line.trim())
                 .filter(Boolean);
-            const lineHeight = Math.round(descriptionFontSize * 1.25);
-            const baseY = centerY + Math.round(fontSize * 0.48);
+            const lineHeight = Math.round(descriptionFontSize * 1.22);
+            const baseY = centerY + Math.round(fontSize * 0.46);
+            const tracking = Math.max(0.4, descriptionFontSize * 0.018);
             if (descriptionLines.length <= 1) {
-                ctx.fillText(descriptionLines[0] || '', centerX, baseY);
+                this._fillCenteredTrackedText(descriptionLines[0] || '', centerX, baseY, tracking);
             } else {
                 const totalHeight = lineHeight * (descriptionLines.length - 1);
                 const firstLineY = baseY - Math.round(totalHeight / 2);
                 descriptionLines.forEach((line, idx) => {
-                    ctx.fillText(line, centerX, firstLineY + (idx * lineHeight));
+                    this._fillCenteredTrackedText(line, centerX, firstLineY + (idx * lineHeight), tracking);
                 });
             }
         }
         ctx.restore();
+    }
+
+    _fillCenteredTrackedText(text, centerX, y, trackingPx = 0) {
+        const ctx = this.ctx;
+        const glyphs = Array.from(String(text || ''));
+        if (glyphs.length === 0) return;
+        const tracking = Number.isFinite(trackingPx) ? Math.max(0, trackingPx) : 0;
+        if (tracking <= 0 || glyphs.length === 1) {
+            ctx.fillText(text, centerX, y);
+            return;
+        }
+
+        const widths = glyphs.map(ch => ctx.measureText(ch).width);
+        const totalWidth = widths.reduce((sum, width) => sum + width, 0) + tracking * (glyphs.length - 1);
+        let x = centerX - totalWidth / 2;
+        ctx.textAlign = 'left';
+        glyphs.forEach((ch, idx) => {
+            ctx.fillText(ch, x, y);
+            x += widths[idx] + tracking;
+        });
+        ctx.textAlign = 'center';
     }
 
     // ═══════════════════════════════════════════════════════════════════════
