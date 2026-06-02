@@ -1523,7 +1523,7 @@ class TradingTable(QTableWidget):
             vol_item.setFont(value_font)
 
         # ── Chg% with heat-map ──
-        chg_text = f"{chg:+.2f}" if abs(chg) > 0.005 else "0.00"
+        chg_text = f"{chg:+.2f}" if abs(chg) > 0.005 else "+0.00"
         fg, bg_rgba = self._change_colors(chg)
         chg_item = self.item(row, _COL_CHG)
         if chg_item:

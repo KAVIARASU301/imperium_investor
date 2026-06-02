@@ -813,7 +813,7 @@ class FloatingWatchlistDialog(QDialog):
         chg_item = self.table.item(row, _COL_CHG)
         if chg_item:
             chg_item.setText(
-                f"{chg_pct:+.2f}%" if abs(chg_pct) > 0.005 else "0.00%"
+                f"{chg_pct:+.2f}%" if abs(chg_pct) > 0.005 else "+0.00%"
             )
             chg_item.setForeground(QColor(fg_chg))
             chg_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
