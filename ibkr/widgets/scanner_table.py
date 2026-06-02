@@ -12,12 +12,13 @@ from PySide6.QtCore import Signal, Slot, Qt, QThread, QTimer, QSize, QByteArray
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem, QHeaderView,
     QAbstractItemView, QPushButton, QHBoxLayout, QLabel, QComboBox, QMessageBox,
-    QDialog, QLineEdit, QGroupBox, QTextEdit, QListView, QListWidget, QListWidgetItem,
+    QDialog, QLineEdit, QGroupBox, QTextEdit, QListView,
     QStyledItemDelegate, QStyleOptionViewItem, QApplication, QStyle, QSizePolicy
 )
 from PySide6.QtGui import QColor, QFont, QBrush, QCursor, QFontMetrics, QIcon
 from PySide6.QtCore import QItemSelectionModel
 from app_paths import get_asset_path, get_user_data_dir
+from ibkr.dialogs.scans_list_dialog import ScansListDialog
 
 logger = logging.getLogger(__name__)
 
@@ -1256,118 +1257,6 @@ class ModernManageScansDialog(QDialog):
         """)
 
 
-
-class ScansListDialog(QDialog):
-    """Simple list dialog for selecting and running saved scans."""
-
-    def __init__(self, scans: List[Dict[str, str]], parent=None):
-        super().__init__(parent)
-        self.scans = list(scans or [])
-        self.selected_scan_index: Optional[int] = None
-        self.setWindowTitle("Scans List")
-        self.setModal(True)
-        self.setFixedSize(360, 480)
-        self._setup_ui()
-        self._apply_styles()
-
-    def _setup_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(8)
-
-        title = QLabel("SCANS LIST")
-        title.setObjectName("simpleScanTitle")
-        layout.addWidget(title)
-
-        self.list_widget = QListWidget()
-        self.list_widget.setObjectName("simpleScanList")
-        self.list_widget.itemDoubleClicked.connect(self._accept_current_item)
-        layout.addWidget(self.list_widget, 1)
-
-        for index, scan in self._sorted_scan_items():
-            name = str(scan.get("name") or f"Scan {index + 1}")
-            tag = self._scan_tag(scan)
-            item = QListWidgetItem(f"{tag}  /  {name}")
-            item.setData(Qt.ItemDataRole.UserRole, index)
-            self.list_widget.addItem(item)
-
-        if self.list_widget.count() > 0:
-            self.list_widget.setCurrentRow(0)
-
-        buttons = QHBoxLayout()
-        buttons.addStretch()
-        cancel_btn = QPushButton("Cancel")
-        run_btn = QPushButton("Run")
-        cancel_btn.clicked.connect(self.reject)
-        run_btn.clicked.connect(self._accept_current_item)
-        buttons.addWidget(cancel_btn)
-        buttons.addWidget(run_btn)
-        layout.addLayout(buttons)
-
-    def _scan_tag(self, scan: Dict[str, str]) -> str:
-        tag = str(scan.get("tag") or "Others").strip()
-        return tag or "Others"
-
-    def _sorted_scan_items(self):
-        decorated = []
-        for index, scan in enumerate(self.scans):
-            tag = self._scan_tag(scan)
-            name = str(scan.get("name") or f"Scan {index + 1}")
-            decorated.append((tag.lower(), name.lower(), index, scan))
-        decorated.sort()
-        return [(index, scan) for _tag, _name, index, scan in decorated]
-
-    def _accept_current_item(self, *_args):
-        item = self.list_widget.currentItem()
-        if item is None:
-            return
-        self.selected_scan_index = item.data(Qt.ItemDataRole.UserRole)
-        self.accept()
-
-    def _apply_styles(self):
-        self.setStyleSheet(f"""
-            QDialog {{
-                background: {_BG1};
-                color: {_T0};
-                border: 1px solid {_BG4};
-            }}
-            QLabel#simpleScanTitle {{
-                color: {_T0};
-                font-family: {_SANS};
-                font-size: 11px;
-                font-weight: 700;
-                letter-spacing: 0.8px;
-            }}
-            QListWidget#simpleScanList {{
-                background: {_BG0};
-                color: {_T1};
-                border: 1px solid {_BG4};
-                outline: none;
-                font-family: {_SANS};
-                font-size: 10px;
-            }}
-            QListWidget#simpleScanList::item {{
-                min-height: 22px;
-                padding: 2px 6px;
-            }}
-            QListWidget#simpleScanList::item:selected {{
-                background: {_SEL};
-                color: {_T0};
-            }}
-            QPushButton {{
-                background: {_BG2};
-                color: {_T1};
-                border: 1px solid {_BG4};
-                border-radius: 2px;
-                padding: 4px 12px;
-                font-family: {_SANS};
-                font-size: 10px;
-            }}
-            QPushButton:hover {{
-                background: {_BG3};
-                color: {_T0};
-            }}
-        """)
 
 
 class ScanWorker(QThread):
