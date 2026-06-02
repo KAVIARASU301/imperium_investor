@@ -52,8 +52,8 @@ class ChartHtmlConfig:
     watermark_description:   str   = ""
     show_watermark_description: bool = False
     visible_candle_count:    int   = 100
-    candle_width:            int   = 3
-    candle_spacing:          int   = 3
+    candle_width:            float = 3
+    candle_spacing:          float = 3
     right_buffer_candles:    int   = 20
     viewport_right_offset:  float | None = None
     up_candle_color:         str   = "#00c896"

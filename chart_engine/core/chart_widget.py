@@ -1398,8 +1398,8 @@ class CandlestickChart(QWidget):
             )
 
 
-    @Slot(int, int, int)
-    def _on_zoom_preferences_changed(self, count: int, candle_width: int, candle_spacing: int) -> None:
+    @Slot(int, float, float)
+    def _on_zoom_preferences_changed(self, count: int, candle_width: float, candle_spacing: float) -> None:
         """Persist exact JS candle slot dimensions as soon as zoom settles."""
         patch: Dict[str, Any] = {"default_visible_candles": int(count)}
         if isinstance(candle_width, (int, float)):
@@ -1715,8 +1715,8 @@ class CandlestickChart(QWidget):
 
     @Slot(dict)
     def _apply_chart_settings(self, s: Dict[str, Any]) -> None:
-        self._current_candle_width       = int(s.get("candle_width", self._current_candle_width))
-        self._current_candle_spacing     = int(s.get("candle_spacing", self._current_candle_spacing))
+        self._current_candle_width       = float(s.get("candle_width", self._current_candle_width))
+        self._current_candle_spacing     = float(s.get("candle_spacing", self._current_candle_spacing))
         self.current_visible_candle_count = int(s.get("default_visible_candles", self.current_visible_candle_count))
         self._right_buffer_candles     = int(s.get("right_buffer_candles", self._right_buffer_candles))
         self._current_up_color           = s.get("up_candle_color", self._current_up_color)

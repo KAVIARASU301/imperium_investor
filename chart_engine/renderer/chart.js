@@ -45,6 +45,22 @@ const US_PREMARKET_OPEN_MINUTES = 4 * 60;
 const US_RTH_OPEN_MINUTES = 9 * 60 + 30;
 const US_RTH_CLOSE_MINUTES = 16 * 60;
 const US_AFTER_HOURS_CLOSE_MINUTES = 20 * 60;
+const MIN_CANDLE_WIDTH_PX = 0.2;
+const MAX_CANDLE_WIDTH_PX = 60;
+const MIN_CANDLE_SPACING_PX = 0;
+const MIN_CANDLE_SLOT_PX = 0.2;
+
+function _clampCandleWidthPx(value, fallback = 8) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric <= 0) return fallback;
+    return Math.max(MIN_CANDLE_WIDTH_PX, Math.min(MAX_CANDLE_WIDTH_PX, numeric));
+}
+
+function _clampCandleSpacingPx(value, fallback = 2) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric < 0) return fallback;
+    return Math.max(MIN_CANDLE_SPACING_PX, Math.min(MAX_CANDLE_WIDTH_PX, numeric));
+}
 
 // ─── Indicator persistence key (global — intentionally not per-symbol) ────────
 // User toggles apply across ALL symbols, timeframes, and sessions.
@@ -177,8 +193,8 @@ class FixedTradingChart {
         // visibleCount is DERIVED from chartArea.width / slotW — never set directly.
         // On resize: more/fewer candles appear automatically, no stretching.
         this.rightBufferCandles = Math.max(0, Number.isFinite(cfg.rightBufferCandles) ? cfg.rightBufferCandles : 20);
-        this.candleWidth   = cfg.initialCandleWidth   || 8;   // body+wick pixel width — user control
-        this.candleSpacing = cfg.initialCandleSpacing || 2;   // gap between candles in px
+        this.candleWidth   = _clampCandleWidthPx(cfg.initialCandleWidth, 8);   // body+wick pixel width — user control
+        this.candleSpacing = _clampCandleSpacingPx(cfg.initialCandleSpacing, 2); // gap between candles in px
         this.visibleCandleCount = 100;                         // computed — don't use cfg value
         this.viewPortEnd   = this._viewportEndFromRightOffset(cfg.viewportRightOffset);
         this.viewPortStart = 0;                                // recalculated in _updateViewport()
@@ -444,7 +460,7 @@ class FixedTradingChart {
     _slotW() {
         // Total pixels per candle slot: body + gap.  This is the ONE number that
         // controls density.  candleWidth is fixed; slotW drives everything else.
-        return this.candleWidth + this.candleSpacing;
+        return Math.max(MIN_CANDLE_SLOT_PX, this.candleWidth + this.candleSpacing);
     }
 
     _updateViewport() {
@@ -2710,10 +2726,11 @@ class FixedTradingChart {
 
         // ── Fixed-width zoom model ──────────────────────────────────────────
         // Zoom = change candleWidth in px. visibleCount adjusts automatically.
-        // Smooth multiplicative step; clamp to [2, 60] px.
+        // Smooth multiplicative step; allow TradingView-style sub-pixel
+        // compression so years of candles can fit on one screen.
         const factor  = zoomIn ? 1.10 : 0.91;
-        const newW    = Math.max(2, Math.min(60, this.candleWidth * factor));
-        if (Math.abs(newW - this.candleWidth) < 0.05) return;
+        const newW    = _clampCandleWidthPx(this.candleWidth * factor, this.candleWidth);
+        if (Math.abs(newW - this.candleWidth) < 0.001) return;
 
         // Anchor the candle under the mouse so it stays in place after zoom.
         const anchorCandle = this._xToCandle(pos.x);   // index before resize
@@ -3957,9 +3974,10 @@ class FixedTradingChart {
         // a meaningfully different candleWidth from what _updateViewport chose.
         // This preserves "same zoom across symbols" without corrupting the layout.
         if (cfg.visibleCandleCount && cfg.visibleCandleCount > 0 && this.chartArea) {
-            const desiredW = Math.max(2, Math.min(60,
-                Math.floor(this.chartArea.width / cfg.visibleCandleCount) - this.candleSpacing
-            ));
+            const desiredW = _clampCandleWidthPx(
+                (this.chartArea.width / cfg.visibleCandleCount) - this.candleSpacing,
+                this.candleWidth
+            );
             // Only apply if the difference is meaningful (> 1 px) to avoid
             // tiny float differences causing visible jumps.
             if (Math.abs(desiredW - this.candleWidth) > 1) {
@@ -4069,8 +4087,8 @@ class FixedTradingChart {
         // Legacy API — convert requested count to the nearest candleWidth that
         // would show that many candles in the current chart area.
         if (count > 0 && this.chartArea) {
-            const targetW = Math.max(2, Math.floor(this.chartArea.width / count) - this.candleSpacing);
-            this.candleWidth = Math.max(2, Math.min(60, targetW));
+            const targetW = (this.chartArea.width / count) - this.candleSpacing;
+            this.candleWidth = _clampCandleWidthPx(targetW, this.candleWidth);
         }
         this.viewPortEnd = Math.max(0, this.data.length - 1 + this.rightBufferCandles);
         this._updateViewport();
@@ -4100,8 +4118,8 @@ class FixedTradingChart {
         if (cfg.themeNegativeColor) this.colors.themeNegative = cfg.themeNegativeColor;
         const slotChanged = (cfg.candleWidth && cfg.candleWidth !== this.candleWidth) ||
                             (cfg.candleSpacing !== undefined && cfg.candleSpacing !== this.candleSpacing);
-        if (cfg.candleWidth)                    this.candleWidth   = cfg.candleWidth;
-        if (cfg.candleSpacing !== undefined)    this.candleSpacing = cfg.candleSpacing;
+        if (cfg.candleWidth !== undefined)      this.candleWidth   = _clampCandleWidthPx(cfg.candleWidth, this.candleWidth);
+        if (cfg.candleSpacing !== undefined)    this.candleSpacing = _clampCandleSpacingPx(cfg.candleSpacing, this.candleSpacing);
         if (cfg.rightBufferCandles !== undefined) {
             const nextRightBuffer = Number(cfg.rightBufferCandles);
             if (Number.isFinite(nextRightBuffer)) this.rightBufferCandles = Math.max(0, Math.round(nextRightBuffer));
@@ -4300,8 +4318,8 @@ class FixedTradingChart {
             this.chartBridge.notify_zoom_changed(this.visibleCandleCount);
             this.chartBridge.notify_zoom_preferences_changed(
                 Math.round(this.visibleCandleCount),
-                Math.round(this.candleWidth),
-                Math.round(this.candleSpacing),
+                this.candleWidth,
+                this.candleSpacing,
             );
         }
         catch (e) { console.error('notify_zoom_changed error:', e); }
