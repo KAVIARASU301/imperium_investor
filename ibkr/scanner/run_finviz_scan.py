@@ -104,8 +104,11 @@ def fetch_single_page_tickers(
     _debug(debug, f"🧪 DEBUG HTTP: {response.status_code}, bytes={len(html_content):,}")
     _save_debug_html(html_content, save_html_dir, page_number)
 
+    quote_rows = extract_quote_link_rows(html_content, debug=debug)
+
     rows = extract_table_rows(html_content, debug=debug)
     if rows:
+        rows = _merge_missing_quote_link_rows(rows, quote_rows, debug=debug)
         for row in rows:
             row.setdefault("_source", "table")
         _debug(debug, f"🧪 DEBUG extractor: rendered table rows={len(rows)}")
@@ -113,12 +116,14 @@ def fetch_single_page_tickers(
 
     rows = extract_comment_tickers(html_content, debug=debug)
     if rows:
+        rows = _merge_missing_quote_link_rows(rows, quote_rows, debug=debug)
         for row in rows:
             row.setdefault("_source", "comment")
         _debug(debug, f"🧪 DEBUG extractor: Finviz TS comment rows={len(rows)}")
         return rows
 
     rows = extract_fallback_tickers(html_content, debug=debug)
+    rows = _merge_missing_quote_link_rows(rows, quote_rows, debug=debug)
     for row in rows:
         row.setdefault("_source", "fallback")
     _debug(debug, f"🧪 DEBUG extractor: fallback tab-link rows={len(rows)}")
@@ -318,6 +323,124 @@ def extract_comment_tickers(html_content: str, *, debug: bool = False) -> List[R
             print(json.dumps(rows[0], ensure_ascii=False, indent=2))
 
     return rows
+
+
+def _merge_missing_quote_link_rows(rows: List[Row], quote_rows: List[Row], *, debug: bool = False) -> List[Row]:
+    """Restore Finviz rows that regex/comment parsing missed but quote links expose.
+
+    Finviz occasionally wraps or serializes the first screener result in markup
+    that does not line up with the primary extractor.  The visible ticker link
+    still points at ``quote.ashx?t=SYMBOL`` though, so use those links as an
+    order-preserving cross-check before returning any extractor result.
+    """
+    if not quote_rows:
+        return rows
+
+    rows_by_symbol = {_symbol_from_row(row): row for row in rows if _symbol_from_row(row)}
+    quote_symbols = [_symbol_from_row(row) for row in quote_rows if _symbol_from_row(row)]
+    if not quote_symbols:
+        return rows
+
+    merged: List[Row] = []
+    seen = set()
+
+    # Keep the website's visible rank order.  This fixes the off-by-one symptom
+    # where row #1 is absent while rows #2..N parse normally, regardless of
+    # whether the table, comment, or fallback extractor produced the partial set.
+    for quote_row in quote_rows:
+        symbol = _symbol_from_row(quote_row)
+        if not symbol or symbol in seen:
+            continue
+        table_row = rows_by_symbol.get(symbol)
+        if table_row is not None:
+            merged.append(table_row)
+        else:
+            quote_row.setdefault("_source", "quote_link")
+            merged.append(quote_row)
+        seen.add(symbol)
+
+    # Preserve any parsed rows that were not represented by quote links.
+    for row in rows:
+        symbol = _symbol_from_row(row)
+        if symbol and symbol not in seen:
+            merged.append(row)
+            seen.add(symbol)
+
+    missing_count = sum(1 for symbol in quote_symbols if symbol not in rows_by_symbol)
+    if debug and missing_count:
+        print(f"🧪 DEBUG quote-link recovery: restored {missing_count} ticker(s)")
+
+    return merged
+
+
+def extract_quote_link_rows(html_content: str, *, debug: bool = False) -> List[Row]:
+    """Extract visible Finviz quote-link ticker symbols in page order."""
+    anchor_pattern = r'<a\b[^>]*\bhref=["\']([^"\']*quote\.ashx[^"\']*)["\'][^>]*>(.*?)</a>'
+    matches = re.findall(anchor_pattern, html_content, re.IGNORECASE | re.DOTALL)
+    rows: List[Row] = []
+    seen = set()
+
+    for href, link_text in matches:
+        symbol = _symbol_from_quote_href(href)
+        if not symbol or not _valid_symbol(symbol) or symbol in seen:
+            continue
+
+        visible_text = _clean_html_cell(link_text).strip().upper()
+        # Prefer links where the visible text is the ticker.  Some Finviz pages
+        # decorate the ticker cell with spans/icons, so only reject clear
+        # non-ticker company/name links rather than requiring raw string equality.
+        if visible_text and not _visible_quote_text_matches_symbol(visible_text, symbol):
+            continue
+
+        seen.add(symbol)
+        rows.append({
+            "symbol": symbol,
+            "company": "",
+            "sector": "",
+            "industry": "",
+            "country": "",
+            "market_cap": "",
+            "pe": "",
+            "price": 0.0,
+            "volume": 0,
+            "change_pct": 0.0,
+            "change": 0.0,
+            "change_raw": "",
+            "_source": "quote_link",
+        })
+
+    if debug:
+        print(f"🧪 DEBUG quote-link: unique_symbols={len(rows)}")
+    return rows
+
+
+def _symbol_from_quote_href(href: str) -> str:
+    """Return the Finviz ``t=`` quote symbol from a raw/escaped href."""
+    href = unescape(str(href or "")).strip()
+    if not href:
+        return ""
+
+    try:
+        query = parse_qs(urlparse(href).query, keep_blank_values=True)
+        values = query.get("t") or query.get("T") or []
+        if values:
+            return str(values[0]).strip().upper()
+    except Exception:
+        pass
+
+    match = re.search(r"(?:[?&]|&amp;)t=([^&#;&]+)", href, re.IGNORECASE)
+    return unescape(match.group(1)).strip().upper() if match else ""
+
+
+def _visible_quote_text_matches_symbol(visible_text: str, symbol: str) -> bool:
+    """Return True when an anchor's visible text plausibly identifies ``symbol``."""
+    text = re.sub(r"\s+", " ", str(visible_text or "").strip().upper())
+    if text == symbol:
+        return True
+    # Accept common decorations such as "#1 AAA" or "AAA *" without accepting
+    # company-name quote links like "APPLE INC" for symbol AAPL.
+    tokens = re.findall(r"[A-Z][A-Z0-9.\-]{0,9}", text)
+    return symbol in tokens[:2]
 
 
 def extract_fallback_tickers(html_content: str, *, debug: bool = False) -> List[Row]:
