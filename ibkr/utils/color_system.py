@@ -6,6 +6,29 @@ from typing import Dict, Any
 from PySide6.QtCore import QObject, Signal
 
 
+BROKER_MODE = "ibkr"
+IBKR_TICKER_DEFAULTS = ["SPY", "QQQ"]
+KITE_TICKER_DEFAULTS = ["NIFTY", "SENSEX"]
+TICKER_DEFAULTS_BY_MODE = {
+    "ibkr": IBKR_TICKER_DEFAULTS,
+    "kite": KITE_TICKER_DEFAULTS,
+}
+
+
+def _clean_ticker_symbols(value: Any, fallback: list[str]) -> list[str]:
+    if isinstance(value, str):
+        value = [value]
+    if isinstance(value, list):
+        cleaned = [str(sym).strip().upper() for sym in value if str(sym).strip()]
+        if cleaned:
+            return cleaned[:5]
+    return list(fallback)
+
+
+def _ticker_symbols_match_defaults(symbols: list[str], defaults: list[str]) -> bool:
+    return [str(sym).strip().upper() for sym in symbols] == defaults
+
+
 DEFAULT_COLOR_THEME: Dict[str, Any] = {
     "link_all_sections": True,
     "enable_table_directional_colors": True,
@@ -22,6 +45,10 @@ DEFAULT_COLOR_THEME: Dict[str, Any] = {
     "dual_chart_mode": True,
     "show_ticker_board": True,
     "ticker_board_symbols": ["SPY", "QQQ"],
+    "ticker_board_symbols_by_mode": {
+        "ibkr": IBKR_TICKER_DEFAULTS,
+        "kite": KITE_TICKER_DEFAULTS,
+    },
     "global": {
         "positive": "#00d4a8",
         "negative": "#ff4d6a",
@@ -72,6 +99,14 @@ class ColorThemeManager(QObject):
         return copy.deepcopy(self._theme)
 
     def update_theme(self, new_theme: Dict[str, Any]) -> None:
+        if isinstance(new_theme, dict) and "ticker_board_symbols" in new_theme:
+            new_theme = copy.deepcopy(new_theme)
+            symbols_by_mode = new_theme.get("ticker_board_symbols_by_mode")
+            if not isinstance(symbols_by_mode, dict):
+                symbols_by_mode = copy.deepcopy(self._theme.get("ticker_board_symbols_by_mode", {}))
+            symbols_by_mode[BROKER_MODE] = new_theme.get("ticker_board_symbols")
+            new_theme["ticker_board_symbols_by_mode"] = symbols_by_mode
+
         self._theme = self._merge_with_default(new_theme)
         self._normalize_linked_sections(self._theme)
         self.save_theme()
@@ -109,12 +144,34 @@ class ColorThemeManager(QObject):
         merged["preferred_username"] = str(custom.get("preferred_username", merged["preferred_username"])).strip()
         merged["dual_chart_mode"] = bool(custom.get("dual_chart_mode", merged["dual_chart_mode"]))
         merged["show_ticker_board"] = bool(custom.get("show_ticker_board", merged["show_ticker_board"]))
-        raw_symbols = custom.get("ticker_board_symbols", merged["ticker_board_symbols"])
-        if isinstance(raw_symbols, str):
-            raw_symbols = [raw_symbols]
-        if isinstance(raw_symbols, list):
-            cleaned = [str(sym).strip().upper() for sym in raw_symbols if str(sym).strip()]
-            merged["ticker_board_symbols"] = cleaned[:5] if cleaned else merged["ticker_board_symbols"]
+
+        ticker_symbols_by_mode = copy.deepcopy(merged["ticker_board_symbols_by_mode"])
+        custom_symbols_by_mode = custom.get("ticker_board_symbols_by_mode")
+        if isinstance(custom_symbols_by_mode, dict):
+            for broker_mode, defaults in TICKER_DEFAULTS_BY_MODE.items():
+                ticker_symbols_by_mode[broker_mode] = _clean_ticker_symbols(
+                    custom_symbols_by_mode.get(broker_mode),
+                    defaults,
+                )
+
+        active_defaults = TICKER_DEFAULTS_BY_MODE[BROKER_MODE]
+        active_symbols = _clean_ticker_symbols(ticker_symbols_by_mode.get(BROKER_MODE), active_defaults)
+        # One legacy key used to be shared by both broker modes.  Import it only
+        # when no broker-aware map has been saved yet, and do not import a value
+        # that exactly matches the other broker's defaults.
+        legacy_symbols = _clean_ticker_symbols(custom.get("ticker_board_symbols"), active_defaults)
+        other_modes = [mode for mode in TICKER_DEFAULTS_BY_MODE if mode != BROKER_MODE]
+        if not isinstance(custom_symbols_by_mode, dict):
+            active_symbols = legacy_symbols
+            if any(
+                _ticker_symbols_match_defaults(legacy_symbols, TICKER_DEFAULTS_BY_MODE[mode])
+                for mode in other_modes
+            ):
+                active_symbols = list(active_defaults)
+
+        ticker_symbols_by_mode[BROKER_MODE] = active_symbols
+        merged["ticker_board_symbols_by_mode"] = ticker_symbols_by_mode
+        merged["ticker_board_symbols"] = active_symbols
 
         global_data = custom.get("global")
         if isinstance(global_data, dict) and global_data:
