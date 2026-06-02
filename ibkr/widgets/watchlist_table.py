@@ -1043,6 +1043,22 @@ class TradingTable(QTableWidget):
 
         return None
 
+    def get_symbol_grouping(self, symbol: str) -> Dict[str, str]:
+        """Return the normalized sector/group labels currently used to render a symbol."""
+        raw_symbol = str(symbol).strip().upper() if symbol else ""
+        if not raw_symbol:
+            return {}
+
+        symbol_key = self._resolve_symbol_for_instrument_map(raw_symbol) or raw_symbol
+        metadata = self._symbol_meta.get(symbol_key) or self._watchlist_data.get(symbol_key)
+        if not metadata:
+            return {}
+
+        return {
+            "sector": self._sector_from_metadata(metadata),
+            "group": self._group_from_metadata(metadata),
+        }
+
     def add_symbol(
         self,
         symbol: str,
@@ -1998,6 +2014,24 @@ class TabbedWatchlistWidget(QWidget):
         if index < 0 or index >= len(entries):
             return None
         return entries[index].get("name")
+
+    def get_symbol_grouping(
+        self,
+        symbol: str,
+        index: Optional[int] = None,
+    ) -> Dict[str, str]:
+        """Return the rendered sector/group labels for a symbol in a watchlist."""
+        table: Optional[TradingTable] = None
+        if index is None:
+            table = self._current_table()
+        else:
+            entries = self._config.all()
+            if 0 <= index < len(entries):
+                table = self._tables.get(entries[index].get("id"))
+
+        if table is None:
+            return {}
+        return table.get_symbol_grouping(symbol)
 
     def get_active_watchlist_name(self) -> Optional[str]:
         """Return currently active watchlist name."""

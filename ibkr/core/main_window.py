@@ -3541,6 +3541,23 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             metadata["group"] = str(group).strip()
         return metadata
 
+    @staticmethod
+    def _watchlist_toast_group_label(grouping: Dict[str, str]) -> str:
+        """Return a user-facing watchlist bucket label from normalized render metadata."""
+        generic = {"ungrouped", "unclassified", "others", "other", "uncategorized", "uncategorised"}
+        sector = str(grouping.get("sector") or "").strip()
+        group = str(grouping.get("group") or "").strip()
+        has_sector = bool(sector) and sector.lower() not in generic
+        has_group = bool(group) and group.lower() not in generic
+
+        if has_sector and has_group and sector.lower() != group.lower():
+            return f"{sector} / {group}"
+        if has_sector:
+            return sector
+        if has_group:
+            return group
+        return "Ungrouped"
+
     def _add_symbol_to_watchlist_from_chart_index(self, index: int):
         """Add current chart symbol to watchlist by zero-based index."""
         current_symbol = getattr(self.candlestick_chart, 'current_symbol', None)
@@ -3560,7 +3577,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             metadata=metadata,
             category=metadata.get("group"),
         ):
-            group = metadata.get("group") or "Ungrouped"
+            grouping = self.watchlist.get_symbol_grouping(current_symbol, index=index)
+            group = self._watchlist_toast_group_label(grouping)
             status.show_info(f"Added {current_symbol} to {watchlist_name} / {group}")
         else:
             status.show_info(f"{current_symbol} already in {watchlist_name}")
@@ -3601,7 +3619,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             metadata=metadata,
             category=metadata.get("group"),
         ):
-            group = metadata.get("group") or "Ungrouped"
+            grouping = self.watchlist.get_symbol_grouping(current_symbol)
+            group = self._watchlist_toast_group_label(grouping)
             status.show_info(f"Added {current_symbol} to {active_name or 'active watchlist'} / {group}")
         else:
             status.show_info(f"Could not add {current_symbol} to {active_name or 'active watchlist'}")
