@@ -434,8 +434,10 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.finviz_scanner.setMinimumWidth(_SCANNER_PANEL_MIN_WIDTH)
         self.finviz_scanner.setMaximumWidth(_SCANNER_PANEL_MAX_WIDTH)
         right_panel_splitter.setMinimumWidth(_RIGHT_PANEL_MIN_WIDTH)
-        self.candlestick_chart.setMinimumWidth(460)
-        self.candlestick_chart_secondary.setMinimumWidth(460)
+        # Charts are the flexible center lane; keep table side-panel slider
+        # widths stable even when the chart lane becomes very narrow.
+        self.candlestick_chart.setMinimumWidth(0)
+        self.candlestick_chart_secondary.setMinimumWidth(0)
 
         # Add to the main splitter
         self.main_splitter.addWidget(self.finviz_scanner)
@@ -1919,11 +1921,34 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     def _apply_chart_mode_layout(self):
         if not hasattr(self, 'candlestick_chart_secondary'):
             return
+
+        current_sizes = self.main_splitter.sizes() if hasattr(self, 'main_splitter') else []
+        if len(current_sizes) != 4 or sum(int(size) for size in current_sizes) <= 0:
+            current_sizes = [220, 1100, 0, 320]
+
+        left_width = int(current_sizes[0])
+        right_width = int(current_sizes[3])
+        chart_width = max(0, int(current_sizes[1]) + int(current_sizes[2]))
+
         self.candlestick_chart_secondary.setVisible(self.dual_chart_mode_enabled)
+
         if self.dual_chart_mode_enabled:
-            self.main_splitter.setSizes([220, 700, 700, 320])
+            old_chart_width = max(1, int(current_sizes[1]) + int(current_sizes[2]))
+            if int(current_sizes[2]) > 0:
+                primary_ratio = int(current_sizes[1]) / old_chart_width
+            else:
+                primary_ratio = 0.5
+            primary_width = int(round(chart_width * primary_ratio))
+            secondary_width = max(0, chart_width - primary_width)
         else:
-            self.main_splitter.setSizes([220, 1100, 0, 320])
+            primary_width = chart_width
+            secondary_width = 0
+
+        self._is_adjusting_splitter = True
+        try:
+            self.main_splitter.setSizes([left_width, primary_width, secondary_width, right_width])
+        finally:
+            self._is_adjusting_splitter = False
 
     # ==============================================================================
     # WINDOW MANAGEMENT & EVENTS
