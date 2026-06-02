@@ -472,6 +472,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self._pending_right_splitter_sizes = None
         self._saved_watchlist_panel_width = None
         self._saved_scanner_panel_width = None
+        self._restored_main_splitter_sizes = None
         self._apply_intelligent_main_splitter_layout()
         self._apply_panel_elevation()
         QTimer.singleShot(0, self._prewarm_webengine)
@@ -614,7 +615,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     def _clamp_right_panel_width(self, width: Any = None) -> int:
         """Return a safe right-side width while allowing it to be wider than scanner."""
         splitter_width = self.main_splitter.size().width() if hasattr(self, "main_splitter") else 0
-        max_width = max(_RIGHT_PANEL_MIN_WIDTH, int(splitter_width * 0.34)) if splitter_width > 0 else 520
+        max_width = max(520, int(splitter_width * 0.34)) if splitter_width > 0 else 520
         try:
             value = int(width) if width not in (None, "") else _RIGHT_PANEL_DEFAULT_WIDTH
         except (TypeError, ValueError):
@@ -622,7 +623,14 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         return max(_RIGHT_PANEL_MIN_WIDTH, min(value, max_width))
 
     def _sanitize_main_splitter_sizes(self, raw_sizes=None) -> List[int]:
-        """Clamp restored/saved splitter sizes so side panels cannot drift outward."""
+        """Clamp splitter sizes while preserving the user's side-panel widths.
+
+        Startup used to protect a large minimum chart lane by shrinking the
+        scanner/right panes during the small pre-show resize pass. When the
+        maximized window then expanded, the extra pixels went back to the chart
+        lane and the scanner reopened crushed. Keep the side panes at the sizes
+        the user saved; only the chart lane absorbs extra or missing width.
+        """
         sizes = list(raw_sizes or self.main_splitter.sizes())
         if len(sizes) != 4:
             sizes = [_SCANNER_PANEL_DEFAULT_WIDTH, 900, 0, _RIGHT_PANEL_DEFAULT_WIDTH]
@@ -641,12 +649,11 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         left = self._clamp_scanner_panel_width(sizes[0]) if left_visible else 0
         right = self._clamp_right_panel_width(sizes[3]) if right_visible else 0
 
-        # Always protect the chart lane first. If side panels would squeeze the
-        # center, reduce the right panel before touching the scanner width.
-        center_floor = 520 if not self.dual_chart_mode_enabled else 920
-        if left + right + center_floor > total:
-            deficit = (left + right + center_floor) - total
-            right_reduction = min(max(0, right - _RIGHT_PANEL_MIN_WIDTH), deficit)
+        # If the window is genuinely too narrow, reduce side panes only enough
+        # to fit the splitter instead of reserving extra chart space.
+        if left + right > total:
+            deficit = left + right - total
+            right_reduction = min(max(0, right - (_RIGHT_PANEL_MIN_WIDTH if right_visible else 0)), deficit)
             right -= right_reduction
             deficit -= right_reduction
             if deficit > 0:
@@ -759,6 +766,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
     def _on_main_splitter_moved(self, _pos: int, _index: int):
         """Persist user splitter drags, but keep side panes inside safe limits."""
+        self._restored_main_splitter_sizes = None
         sizes = self.main_splitter.sizes()
         if len(sizes) == 4:
             if self.finviz_scanner.isVisible():
@@ -777,7 +785,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         super().resizeEvent(event)
         self._update_title_bar_compact_state()
         if hasattr(self, 'main_splitter'):
-            self._apply_intelligent_main_splitter_layout()
+            self._apply_intelligent_main_splitter_layout(
+                getattr(self, '_restored_main_splitter_sizes', None) or None
+            )
 
     def showEvent(self, event):
         """Recompute title/menu geometry once the window is visible."""
@@ -789,14 +799,18 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         """Apply restored splitter sizes once widgets have a real on-screen size."""
         try:
             if self._pending_main_splitter_sizes:
-                self.main_splitter.setSizes(self._sanitize_main_splitter_sizes(self._pending_main_splitter_sizes))
+                restored_sizes = self._sanitize_main_splitter_sizes(self._pending_main_splitter_sizes)
+                self.main_splitter.setSizes(restored_sizes)
+                self._restored_main_splitter_sizes = restored_sizes
                 self._pending_main_splitter_sizes = None
 
             if hasattr(self, 'right_panel_splitter') and self._pending_right_splitter_sizes:
                 self.right_panel_splitter.setSizes(self._pending_right_splitter_sizes)
                 self._pending_right_splitter_sizes = None
 
-            self._apply_intelligent_main_splitter_layout()
+            self._apply_intelligent_main_splitter_layout(
+                self._restored_main_splitter_sizes or self.main_splitter.sizes()
+            )
         except Exception as e:
             logger.warning(f"Failed applying pending splitter sizes: {e}")
 
@@ -4188,6 +4202,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                     self.main_splitter.setSizes([_SCANNER_PANEL_DEFAULT_WIDTH, 900, 0, _RIGHT_PANEL_DEFAULT_WIDTH])
                 if state.get('main_splitter_sizes'):
                     self._pending_main_splitter_sizes = state['main_splitter_sizes']
+                    self._restored_main_splitter_sizes = state['main_splitter_sizes']
 
                 if hasattr(self, 'right_panel_splitter') and 'right_panel_splitter' in state:
                     try:
