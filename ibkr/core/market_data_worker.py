@@ -358,13 +358,18 @@ class MarketDataWorker(QThread):
             }
 
     def get_last_price(self, symbol_or_token: Any) -> float:
+        tick = self.get_last_tick(symbol_or_token)
+        return _clean_float((tick or {}).get("last_price"), 0.0)
+
+    def get_last_tick(self, symbol_or_token: Any) -> Dict[str, Any]:
+        """Return the latest cached tick for a symbol/conId without touching IBKR."""
         key = str(symbol_or_token or "").strip().upper()
         if not key:
-            return 0.0
+            return {}
         with self._lock:
             canonical = self._symbol_to_key.get(key, key)
             tick = self._latest_ticks.get(canonical) or self._latest_ticks.get(key)
-            return _clean_float((tick or {}).get("last_price"), 0.0)
+            return dict(tick or {})
 
     # ------------------------------------------------------------------
     # Command processing inside worker thread

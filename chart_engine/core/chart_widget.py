@@ -130,6 +130,7 @@ class CandlestickChart(QWidget):
         self.current_state = ChartState.IDLE
         self.last_df:    Optional[pd.DataFrame] = None
         self._active_load_key: Optional[str] = None
+        self._pending_live_tick: Optional[Dict[str, Any]] = None
         self.instrument_map: Dict[str, Dict[str, Any]] = {}
 
         # ── Drawing style ──
@@ -266,6 +267,7 @@ class CandlestickChart(QWidget):
         self._historical_sync_timer.stop()
         self.current_symbol           = symbol
         self.current_ltp              = 0.0
+        self._pending_live_tick       = None
         self._current_watermark_description = self._resolve_symbol_description(symbol)
         token = int(instrument_token or 0)
         if not token:
@@ -279,7 +281,10 @@ class CandlestickChart(QWidget):
 
     def update_live_data(self, live_data: Any) -> None:
         """Called by the market-data worker with a tick dict or list of ticks."""
-        if self.current_state != ChartState.LOADED or not self.current_symbol:
+        if not self.current_symbol:
+            return
+        if self.current_state != ChartState.LOADED:
+            self._buffer_pending_live_tick(live_data)
             return
         if isinstance(live_data, list):
             for item in live_data:
@@ -878,6 +883,7 @@ class CandlestickChart(QWidget):
             )
             if not self._is_periodic_historical_refresh:
                 self._set_state(ChartState.LOADED)
+            self._flush_pending_live_tick()
             self._update_symbol_info(df)
             self.symbol_loaded.emit(self.current_symbol)
             self.data_request_for_symbol.emit(self.current_symbol)
@@ -932,6 +938,7 @@ class CandlestickChart(QWidget):
         self._render_html(cfg)
         self._update_symbol_info(df)
         self._set_state(ChartState.LOADED)
+        self._flush_pending_live_tick()
         self.symbol_loaded.emit(self.current_symbol)
         self.data_request_for_symbol.emit(self.current_symbol)
         logger.info("Chart HTML loaded: %s (%d candles)", self.current_symbol, len(candles))
@@ -1241,6 +1248,40 @@ class CandlestickChart(QWidget):
             if total_volume is not None:
                 return total_volume, "auto"
         return None, "none"
+
+    def _tick_matches_current_symbol(self, tick: Dict[str, Any]) -> bool:
+        sym = str(
+            tick.get("tradingsymbol")
+            or tick.get("symbol")
+            or ""
+        ).strip().upper()
+        token = tick.get("instrument_token")
+        current_symbol = str(self.current_symbol or "").strip().upper()
+        if sym and current_symbol and sym == current_symbol:
+            return True
+        if token not in (None, "") and self.current_instrument_token:
+            try:
+                return int(token) == int(self.current_instrument_token)
+            except (TypeError, ValueError):
+                return False
+        return False
+
+    def _buffer_pending_live_tick(self, live_data: Any) -> None:
+        """Keep the newest matching tick that arrives while history is loading."""
+        candidates = live_data if isinstance(live_data, list) else [live_data]
+        for tick in candidates:
+            if not isinstance(tick, dict):
+                continue
+            if tick.get("last_price") is None:
+                continue
+            if self._tick_matches_current_symbol(tick):
+                self._pending_live_tick = dict(tick)
+
+    def _flush_pending_live_tick(self) -> None:
+        tick = self._pending_live_tick
+        self._pending_live_tick = None
+        if tick and self.current_state == ChartState.LOADED:
+            self._process_tick(tick)
 
     def _process_tick(self, tick: Dict[str, Any]) -> None:
         """

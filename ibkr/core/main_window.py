@@ -1428,7 +1428,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
     @Slot(str)
     def _ensure_chart_subscription(self, symbol: str):
-        """Ensure chart symbol is subscribed."""
+        """Ensure chart symbol is subscribed and replay the freshest cached tick."""
         clean_symbol = str(symbol or "").strip().upper()
         if not clean_symbol or not self.market_data_worker:
             return
@@ -1455,10 +1455,39 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             self.market_data_worker.request_snapshots([item])
             if token:
                 self._subscribed_tokens.add(token)
+            self._replay_latest_chart_tick(clean_symbol, token)
             logger.info(f"Ensured subscription for chart symbol {clean_symbol}")
             self._schedule_subscription_rebuild()
         except Exception as e:
             logger.error(f"Failed to ensure chart subscription for {clean_symbol}: {e}")
+
+    def _replay_latest_chart_tick(self, symbol: str, token: Any = None) -> None:
+        """Apply a cached IBKR tick after historical loading drops in-flight ticks."""
+        worker = getattr(self, "market_data_worker", None)
+        if not worker or not hasattr(worker, "get_last_tick"):
+            return
+
+        keys = [symbol]
+        if token not in (None, "", 0, "0"):
+            keys.insert(0, token)
+
+        tick: Dict[str, Any] = {}
+        for key in keys:
+            try:
+                tick = worker.get_last_tick(key)
+            except Exception:
+                tick = {}
+            if tick:
+                break
+
+        if not tick:
+            return
+        tick.setdefault("tradingsymbol", symbol)
+        tick.setdefault("symbol", symbol)
+
+        for chart in (getattr(self, "candlestick_chart", None), getattr(self, "candlestick_chart_secondary", None)):
+            if chart and str(getattr(chart, "current_symbol", "") or "").strip().upper() == symbol:
+                chart.update_live_data(dict(tick))
 
 
     def _refresh_header_ticker_ws_subscriptions(self) -> None:
