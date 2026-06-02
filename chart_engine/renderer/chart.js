@@ -223,10 +223,10 @@ class FixedTradingChart {
             enabled:  cfg.watermarkEnabled !== false,
             color:    cfg.watermarkColor    || '#6F7783',
             opacity:  typeof cfg.watermarkOpacity  === 'number' ? cfg.watermarkOpacity  : 0.22,
-            position: cfg.watermarkPosition || 'mid_center',
-            fontSize: cfg.watermarkFontSize || 0,
+            position: cfg.watermarkPosition || 'bottom_center',
+            fontSize: typeof cfg.watermarkFontSize === 'number' ? cfg.watermarkFontSize : 40,
             descriptionOpacity: typeof cfg.watermarkDescriptionOpacity === 'number' ? cfg.watermarkDescriptionOpacity : 0.16,
-            descriptionFontSize: cfg.watermarkDescriptionFontSize || 0,
+            descriptionFontSize: typeof cfg.watermarkDescriptionFontSize === 'number' ? cfg.watermarkDescriptionFontSize : 20,
         };
         this.indicatorScaleLabelsEnabled = cfg.indicatorScaleLabelsEnabled === true;
         this.crosshairSnapEnabled = cfg.crosshairSnapEnabled !== false;
@@ -1874,7 +1874,7 @@ class FixedTradingChart {
             bottom_center: this.chartArea.y + this.chartArea.height * 0.8,
         };
         const centerX = this.chartArea.x + this.chartArea.width / 2;
-        const centerY = yMap[this.watermark.position] || yMap.mid_center;
+        const centerY = yMap[this.watermark.position] || yMap.bottom_center;
         const hasDescription = this.showWatermarkDescription && !!this.currentSymbolDescription;
         const fontSize = this.watermark.fontSize > 0
             ? this.watermark.fontSize
@@ -1883,37 +1883,46 @@ class FixedTradingChart {
         ctx.save();
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'middle';
-        const symbolYOffset = hasDescription ? Math.round(fontSize * 0.28) : 0;
         const watermarkFont = '"Arial Narrow", "Roboto Condensed", "Inter", "Aptos", "Segoe UI Variable", "Segoe UI", sans-serif';
         const symbolText = String(this.currentSymbol || '').toUpperCase();
+        const descriptionFontSize = this.watermark.descriptionFontSize > 0
+            ? this.watermark.descriptionFontSize
+            : Math.max(13, Math.round(fontSize * 0.30));
+        const descriptionLines = hasDescription
+            ? String(this.currentSymbolDescription || '')
+                .split('\n')
+                .map(line => line.trim())
+                .filter(Boolean)
+            : [];
+        const lineHeight = Math.max(
+            descriptionFontSize + 6,
+            Math.round(descriptionFontSize * 1.35),
+        );
+        const descriptionBlockHeight = descriptionLines.length > 0
+            ? descriptionFontSize + (lineHeight * (descriptionLines.length - 1))
+            : 0;
+        const symbolDescriptionGap = descriptionLines.length > 0
+            ? Math.max(10, Math.round(Math.max(fontSize, descriptionFontSize) * 0.28))
+            : 0;
+        const totalTextHeight = fontSize + symbolDescriptionGap + descriptionBlockHeight;
+        const groupTopY = centerY - (totalTextHeight / 2);
+        const symbolY = descriptionLines.length > 0
+            ? groupTopY + (fontSize / 2)
+            : centerY;
 
         ctx.globalAlpha  = Math.max(0.0, Math.min(1.0, this.watermark.opacity));
         ctx.fillStyle    = this.watermark.color;
         ctx.font         = `500 ${fontSize}px ${watermarkFont}`;
-        this._fillCenteredTrackedText(symbolText, centerX, centerY - symbolYOffset, Math.max(1.5, fontSize * 0.055));
+        this._fillCenteredTrackedText(symbolText, centerX, symbolY, Math.max(1.5, fontSize * 0.055));
 
-        if (hasDescription) {
-            const descriptionFontSize = this.watermark.descriptionFontSize > 0
-                ? this.watermark.descriptionFontSize
-                : Math.max(13, Math.round(fontSize * 0.30));
+        if (descriptionLines.length > 0) {
             ctx.globalAlpha = Math.max(0.0, Math.min(1.0, this.watermark.descriptionOpacity));
             ctx.font        = `400 ${descriptionFontSize}px ${watermarkFont}`;
-            const descriptionLines = String(this.currentSymbolDescription || '')
-                .split('\n')
-                .map(line => line.trim())
-                .filter(Boolean);
-            const lineHeight = Math.round(descriptionFontSize * 1.22);
-            const baseY = centerY + Math.round(fontSize * 0.46);
+            const firstLineY = groupTopY + fontSize + symbolDescriptionGap + (descriptionFontSize / 2);
             const tracking = Math.max(0.4, descriptionFontSize * 0.018);
-            if (descriptionLines.length <= 1) {
-                this._fillCenteredTrackedText(descriptionLines[0] || '', centerX, baseY, tracking);
-            } else {
-                const totalHeight = lineHeight * (descriptionLines.length - 1);
-                const firstLineY = baseY - Math.round(totalHeight / 2);
-                descriptionLines.forEach((line, idx) => {
-                    this._fillCenteredTrackedText(line, centerX, firstLineY + (idx * lineHeight), tracking);
-                });
-            }
+            descriptionLines.forEach((line, idx) => {
+                this._fillCenteredTrackedText(line, centerX, firstLineY + (idx * lineHeight), tracking);
+            });
         }
         ctx.restore();
     }

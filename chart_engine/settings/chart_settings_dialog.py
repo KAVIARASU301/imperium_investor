@@ -122,7 +122,7 @@ class ChartSettingsDialog(QDialog):
                              ("Mid Center", "mid_center"),
                              ("Bottom Center", "bottom_center")]:
             self.wm_position.addItem(label, data)
-        current_pos = self._s.get("watermark_position", "mid_center")
+        current_pos = self._s.get("watermark_position", "bottom_center")
         for i in range(self.wm_position.count()):
             if self.wm_position.itemData(i) == current_pos:
                 self.wm_position.setCurrentIndex(i)
@@ -167,7 +167,7 @@ class ChartSettingsDialog(QDialog):
 
         self.wm_font_size = QSpinBox()
         self.wm_font_size.setRange(0, 300)
-        self.wm_font_size.setValue(self._s.get("watermark_font_size", 0))
+        self.wm_font_size.setValue(self._s.get("watermark_font_size", 40))
         self.wm_font_size.setToolTip("0 = auto size")
         right_form.addRow("Watermark Font Size:", self.wm_font_size)
 
@@ -180,7 +180,7 @@ class ChartSettingsDialog(QDialog):
 
         self.wm_description_font_size = QSpinBox()
         self.wm_description_font_size.setRange(0, 150)
-        self.wm_description_font_size.setValue(self._s.get("watermark_description_font_size", 0))
+        self.wm_description_font_size.setValue(self._s.get("watermark_description_font_size", 20))
         self.wm_description_font_size.setToolTip("0 = auto size")
         right_form.addRow("Description Font Size:", self.wm_description_font_size)
 

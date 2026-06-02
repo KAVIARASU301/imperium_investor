@@ -63,10 +63,10 @@ class ChartHtmlConfig:
     watermark_enabled:       bool  = True
     watermark_color:         str   = "#6F7783"
     watermark_opacity:       float = 0.22
-    watermark_position:      str   = "mid_center"
-    watermark_font_size:     int   = 0
+    watermark_position:      str   = "bottom_center"
+    watermark_font_size:     int   = 40
     watermark_description_opacity: float = 0.16
-    watermark_description_font_size: int = 0
+    watermark_description_font_size: int = 20
     indicator_scale_labels_enabled: bool = False
     crosshair_snap_enabled:  bool  = False
     show_time_slider:        bool  = True
