@@ -1558,15 +1558,37 @@ class FinvizScannerTable(QWidget):
         if not enabled:
             self._dirty_symbols.clear()
 
+    def _current_navigation_index(self, symbols: List[str]) -> int:
+        """Return the current symbol-list index for keyboard navigation.
+
+        IBKR scanner rows include sector/industry headers, so the QTableWidget
+        visual row is not the same thing as the symbol index used by
+        get_current_symbols().  Resolve the selected visual row back to its
+        symbol first, then find that symbol in the current sorted symbol list.
+        """
+        for row in (self.table.currentRow(),):
+            symbol = self._symbol_at_row(row)
+            if symbol in symbols:
+                return symbols.index(symbol)
+
+        for selected_range in self.table.selectedRanges():
+            for row in range(selected_range.topRow(), selected_range.bottomRow() + 1):
+                symbol = self._symbol_at_row(row)
+                if symbol in symbols:
+                    return symbols.index(symbol)
+
+        if 0 <= self._current_symbol_index < len(symbols):
+            return self._current_symbol_index
+        return -1
+
     def _next_symbol(self):
         """Navigate to the next symbol in the scanner list."""
         symbols = self.get_current_symbols()
         if not symbols:
             return
 
-        # Increment to next symbol (wrap around to beginning)
-        self._current_symbol_index = (self._current_symbol_index + 1) % len(symbols)
-        self._select_symbol_at_index(self._current_symbol_index)
+        current_index = self._current_navigation_index(symbols)
+        self._select_symbol_at_index((current_index + 1) % len(symbols))
 
     def _previous_symbol(self):
         """Navigate to the previous symbol in the scanner list."""
@@ -1574,9 +1596,8 @@ class FinvizScannerTable(QWidget):
         if not symbols:
             return
 
-        # Decrement to previous symbol (wrap around to end)
-        self._current_symbol_index = (self._current_symbol_index - 1) % len(symbols)
-        self._select_symbol_at_index(self._current_symbol_index)
+        current_index = self._current_navigation_index(symbols)
+        self._select_symbol_at_index((current_index - 1) % len(symbols))
 
     def _select_symbol_at_index(self, index: int):
         """Select symbol at given index and emit selection signal."""
@@ -2028,8 +2049,11 @@ class FinvizScannerTable(QWidget):
 
     def _apply_table_ordering(self) -> None:
         """Rebuild table rows in watchlist-style sector/industry sections."""
+        selected_symbol = self._symbol_at_row(self.table.currentRow())
+
         if not self._symbol_data:
             self.table.horizontalHeader().setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
+            self._current_symbol_index = 0
             return
 
         if self._change_sort_state == "asc":
@@ -2085,6 +2109,17 @@ class FinvizScannerTable(QWidget):
                         self.table.setItem(row, col, QTableWidgetItem())
                     self._update_row_data(row, self._symbol_data[symbol])
                     row += 1
+
+        current_symbols = self.get_current_symbols()
+        if selected_symbol in self._symbol_to_row and selected_symbol in current_symbols:
+            self._current_symbol_index = current_symbols.index(selected_symbol)
+            selected_row = self._symbol_to_row[selected_symbol]
+            self.table.selectRow(selected_row)
+            self.table.setCurrentCell(selected_row, 0)
+        elif current_symbols:
+            self._current_symbol_index = min(self._current_symbol_index, len(current_symbols) - 1)
+        else:
+            self._current_symbol_index = 0
 
 
     def _update_row_data(self, row: int, data: Dict):
@@ -2486,8 +2521,11 @@ class FinvizScannerTable(QWidget):
             symbol_item = self.table.item(row, 0)
             if symbol_text and symbol_item and symbol_item.flags() & Qt.ItemFlag.ItemIsSelectable:
                 if symbol_text and not symbol_text.startswith(("Error:", "Loading", "No symbols", "No scans")):
-                    # Update current index when manually clicking
-                    self._current_symbol_index = row
+                    # Update current symbol-list index when manually clicking;
+                    # table rows include sector/group headers, so row != index.
+                    current_symbols = self.get_current_symbols()
+                    if symbol_text in current_symbols:
+                        self._current_symbol_index = current_symbols.index(symbol_text)
                     self.symbol_selected.emit(symbol_text)
         except Exception as e:
             logger.warning(f"Could not get symbol from clicked row {row}: {e}")

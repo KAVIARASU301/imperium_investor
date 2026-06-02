@@ -1229,15 +1229,39 @@ class ChartinkScannerTable(QWidget):
         if not enabled:
             self._dirty_symbols.clear()
 
+    def _current_navigation_row(self, symbols: List[str]) -> int:
+        """Return the current visual row for keyboard navigation.
+
+        Spacebar navigation must follow the row that is actually selected in the
+        table, not a cached index that may have been made stale by %CHG sorting.
+        """
+        row = self.table.currentRow()
+        if 0 <= row < len(symbols):
+            item = self.table.item(row, 0)
+            if item and item.text().strip() in self._symbol_data:
+                return row
+
+        selected_ranges = self.table.selectedRanges()
+        if selected_ranges:
+            row = selected_ranges[0].topRow()
+            if 0 <= row < len(symbols):
+                item = self.table.item(row, 0)
+                if item and item.text().strip() in self._symbol_data:
+                    return row
+
+        if 0 <= self._current_symbol_index < len(symbols):
+            return self._current_symbol_index
+        return -1
+
     def _next_symbol(self):
         """Navigate to the next symbol in the scanner list."""
         symbols = self.get_current_symbols()
         if not symbols:
             return
 
-        # Increment to next symbol (wrap around to beginning)
-        self._current_symbol_index = (self._current_symbol_index + 1) % len(symbols)
-        self._select_symbol_at_index(self._current_symbol_index)
+        current_row = self._current_navigation_row(symbols)
+        next_index = (current_row + 1) % len(symbols)
+        self._select_symbol_at_index(next_index)
 
     def _previous_symbol(self):
         """Navigate to the previous symbol in the scanner list."""
@@ -1245,9 +1269,9 @@ class ChartinkScannerTable(QWidget):
         if not symbols:
             return
 
-        # Decrement to previous symbol (wrap around to end)
-        self._current_symbol_index = (self._current_symbol_index - 1) % len(symbols)
-        self._select_symbol_at_index(self._current_symbol_index)
+        current_row = self._current_navigation_row(symbols)
+        previous_index = (current_row - 1) % len(symbols)
+        self._select_symbol_at_index(previous_index)
 
     def _select_symbol_at_index(self, index: int):
         """Select symbol at given index and emit selection signal."""
@@ -1445,9 +1469,19 @@ class ChartinkScannerTable(QWidget):
 
     def _apply_table_ordering(self) -> None:
         """Rebuild table rows based on current sort mode."""
+        selected_symbol = None
+        current_row = self.table.currentRow()
+        if current_row >= 0:
+            current_item = self.table.item(current_row, 0)
+            if current_item:
+                candidate = current_item.text().strip()
+                if candidate in self._symbol_data:
+                    selected_symbol = candidate
+
         symbols = list(self._symbol_data.keys())
         if not symbols:
             self.table.horizontalHeader().setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
+            self._current_symbol_index = 0
             return
 
         if self._change_sort_state == "asc":
@@ -1468,6 +1502,13 @@ class ChartinkScannerTable(QWidget):
                 if not self.table.item(row, col):
                     self.table.setItem(row, col, QTableWidgetItem())
             self._update_row_data(row, self._symbol_data[symbol])
+
+        if selected_symbol in self._symbol_to_row:
+            self._current_symbol_index = self._symbol_to_row[selected_symbol]
+            self.table.selectRow(self._current_symbol_index)
+            self.table.setCurrentCell(self._current_symbol_index, 0)
+        else:
+            self._current_symbol_index = min(self._current_symbol_index, len(symbols) - 1)
 
 
     def _update_row_data(self, row: int, data: Dict):
