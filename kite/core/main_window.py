@@ -361,6 +361,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         # Create the main splitter
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.main_splitter.setObjectName("mainSplitter")
         main_layout.addWidget(self.main_splitter, 1)
         self._is_adjusting_splitter = False
 
@@ -3548,12 +3549,12 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.setStyleSheet("""
             #mainContainer {
                 background-color: #050709;
-                border: 1px solid #151d2b;
+                border: 1px solid #1A2030;
             }
 
             #customTitleBar {
                 background-color: #050709;
-                border-bottom: 1px solid #151d2b;
+                border-bottom: 1px solid #1A2030;
             }
 
             #menuContainer {
@@ -3729,20 +3730,20 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
             #scannerPanel, #watchlistPanel, #positionsPanel {
                 background-color: #0e1117;
-                border: 1px solid #1f2530;
+                border: 1px solid #1A2030;
             }
 
             #positionsPanelContainer {
                 background-color: #0e1117;
-                border: 1px solid #1f2530;
+                border: 1px solid #1A2030;
             }
 
             #positionsPanelTitleBar {
                 background-color: #121826;
                 border: none;
-                border-top: 1px solid #2a3345;
-                border-right: 1px solid #2a3345;
-                border-bottom: 1px solid #2a3345;
+                border-top: 1px solid #1A2030;
+                border-right: 1px solid #1A2030;
+                border-bottom: 1px solid #1A2030;
                 min-height: 24px;
             }
 
@@ -3775,29 +3776,39 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
             #primaryChartPanel, #secondaryChartPanel {
                 background-color: #0c1016;
-                border: 1px solid #202634;
+                border: 1px solid #1A2030;
             }
 
-            /* Ultra-thin splitter styling */
+            /* Production-grade 1px panel join lines for the main terminal grid. */
             QSplitter { 
-                background-color: #0a0a0a;
+                background-color: #1A2030;
+            }
+
+            QSplitter#mainSplitter {
+                border-top: 1px solid #1A2030;
+                border-bottom: 1px solid #1A2030;
+            }
+
+            QSplitter#rightPanelSplitter {
+                border-left: 1px solid #1A2030;
+                background-color: #1A2030;
             }
 
             QSplitter::handle { 
-                background-color: transparent;
+                background-color: #1A2030;
                 border: none;
                 margin: 0px;
             }
 
             QSplitter::handle:horizontal { 
                 width: 1px; 
-                background-color: transparent;
+                background-color: #1A2030;
                 border: none;
             }
 
             QSplitter::handle:vertical { 
                 height: 1px; 
-                background-color: transparent;
+                background-color: #1A2030;
                 border: none;
             }
 
@@ -3810,7 +3821,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             }
 
             QSplitter#rightPanelSplitter::handle:vertical {
-                background-color: transparent;
+                background-color: #1A2030;
                 height: 1px;
             }
 
