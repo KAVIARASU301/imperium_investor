@@ -12,7 +12,6 @@ import logging
 from typing import Any, Dict, List
 
 from ibkr.core.symbol_info_db import SymbolInfoDatabase
-from ibkr.core.ibkr_contract_db import IBKRContractDatabase
 from ibkr.widgets.search_bar import SymbolIndex
 
 from PySide6.QtCore import QThread, Signal
@@ -83,7 +82,6 @@ class IBKRInstrumentLoader(QThread):
         super().__init__()
         self.ib_client = ib_client
         self._stop_requested = False
-        self._contract_db = IBKRContractDatabase()
 
     def stop(self):
         self._stop_requested = True
@@ -205,49 +203,21 @@ class IBKRInstrumentLoader(QThread):
                 break
 
             batch = symbols[i : i + batch_size]
-            contracts = []
+            contracts = [Stock(sym, "SMART", "USD") for sym in batch]
 
-            for sym in batch:
-                try:
-                    row = self._contract_db.get_contract(sym)
-                    if row and row.get("con_id") and not self._contract_db.is_stale(sym):
-                        con_id = int(row["con_id"])
+            try:
+                qualified = self.ib_client.qualifyContracts(*contracts)
+                for contract in qualified:
+                    sym = contract.symbol
+                    con_id = contract.conId
+                    if sym in instrument_map and con_id:
                         instrument_map[sym]["instrument_token"] = con_id
-                        instrument_map[sym]["conId"] = con_id
-                        instrument_map[sym]["exchange"] = row.get("primary_exchange") or row.get("exchange") or "SMART"
-                        instrument_map[sym]["currency"] = row.get("currency") or "USD"
-                        if row.get("company_name"):
-                            instrument_map[sym]["name"] = row["company_name"]
+                        instrument_map[sym]["exchange"] = contract.exchange or "SMART"
                         token_to_symbol[con_id] = sym
-                        logger.info("Loaded IBKR conId for %s from DB: %s", sym, con_id)
-                        continue
-                    if row and row.get("con_id"):
-                        logger.info("Refreshing stale IBKR contract record for %s", sym)
-                except Exception as exc:
-                    logger.warning("IBKR contract DB lookup failed for %s; falling back to IBKR qualification: %s", sym, exc)
-                contracts.append(Stock(sym, "SMART", "USD"))
-
-            if contracts:
-                try:
-                    logger.info("Qualifying %d IBKR contract(s) from IBKR", len(contracts))
-                    qualified = self.ib_client.qualifyContracts(*contracts)
-                    for contract in qualified:
-                        sym = str(contract.symbol or "").strip().upper()
-                        con_id = int(contract.conId or 0)
-                        if sym in instrument_map and con_id:
-                            instrument_map[sym]["instrument_token"] = con_id
-                            instrument_map[sym]["conId"] = con_id
-                            instrument_map[sym]["exchange"] = contract.exchange or "SMART"
-                            instrument_map[sym]["currency"] = getattr(contract, "currency", "USD") or "USD"
-                            token_to_symbol[con_id] = sym
-                            try:
-                                self._contract_db.save_contract(sym, contract)
-                            except Exception as save_exc:
-                                logger.warning("IBKR contract DB save failed for %s: %s", sym, save_exc)
-                except Exception as e:
-                    logger.warning(
-                        "Batch qualification failed (batch starting %s): %s", batch[0], e
-                    )
+            except Exception as e:
+                logger.warning(
+                    "Batch qualification failed (batch starting %s): %s", batch[0], e
+                )
 
             self.instruments_loaded.emit(self._build_payload(instrument_map, token_to_symbol))
             self.progress_update.emit(

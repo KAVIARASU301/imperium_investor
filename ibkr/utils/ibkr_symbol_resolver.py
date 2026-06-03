@@ -12,29 +12,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 
-from ibkr.core.ibkr_contract_db import IBKRContractDatabase
-
 logger = logging.getLogger(__name__)
-
-
-def _db_row_to_symbol_result(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    symbol = str(row.get("symbol") or "").strip().upper()
-    if not symbol:
-        return None
-    con_id = int(row.get("con_id") or 0)
-    return {
-        "tradingsymbol": symbol,
-        "symbol": symbol,
-        "name": row.get("company_name") or row.get("description") or symbol,
-        "exchange": row.get("primary_exchange") or row.get("exchange") or "SMART",
-        "primaryExch": row.get("primary_exchange") or "",
-        "instrument_token": con_id,
-        "conId": con_id,
-        "segment": row.get("sec_type") or "STK",
-        "secType": row.get("sec_type") or "STK",
-        "currency": row.get("currency") or "USD",
-        "instrument_type": "EQ",
-    }
 
 
 def _normalize_symbol_result(details: Any, fallback_query: str) -> Optional[Dict[str, Any]]:
@@ -87,27 +65,10 @@ def _fetch_ibkr_symbols(ib_client: Any, query: str) -> List[Dict[str, Any]]:
 
     results: List[Dict[str, Any]] = []
     seen: set[tuple[str, int]] = set()
-    contract_db = IBKRContractDatabase()
-
-    try:
-        db_rows = contract_db.search_symbols(query, limit=30)
-        fresh_db_hits = []
-        for row in db_rows:
-            symbol = str(row.get("symbol") or "").strip().upper()
-            if row.get("con_id") and symbol and not contract_db.is_stale(symbol):
-                item = _db_row_to_symbol_result(row)
-                if item:
-                    fresh_db_hits.append(item)
-        if fresh_db_hits:
-            logger.info("Loaded %d IBKR symbol search result(s) for %s from DB", len(fresh_db_hits), query)
-            return fresh_db_hits[:30]
-    except Exception as exc:
-        logger.warning("IBKR contract DB search failed for %s; falling back to IBKR: %s", query, exc)
 
     try:
         # Prefix-style lookup. SMART keeps routing generic while TWS resolves
         # the primary exchange/conId in ContractDetails.
-        logger.info("Qualifying IBKR symbol search for %s from IBKR", query)
         contract = Stock(query, "SMART", "USD")
         details_list = ib_client.reqContractDetails(contract)
 
@@ -120,10 +81,6 @@ def _fetch_ibkr_symbols(ib_client: Any, query: str) -> List[Dict[str, Any]]:
                 continue
             seen.add(key)
             results.append(item)
-            try:
-                contract_db.save_contract(item["tradingsymbol"], getattr(details, "contract", details), details)
-            except Exception as save_exc:
-                logger.warning("IBKR contract DB save failed for %s: %s", item["tradingsymbol"], save_exc)
 
         if results:
             # Prefer exact symbol match first, then shorter/common symbols.

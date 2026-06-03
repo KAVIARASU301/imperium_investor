@@ -18,7 +18,6 @@ from typing import Any, Dict, List, Optional, Tuple
 from chart_engine.core.broker_protocol import BarData, BrokerCapabilities
 from zoneinfo import ZoneInfo
 from ibkr.utils.market_time import US_MARKET_TZ, market_today
-from ibkr.core.ibkr_contract_db import IBKRContractDatabase
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +69,6 @@ class DataFetcher:
     def __init__(self, client: Any):
         self.client = client
         self._contract_cache: Dict[str, Any] = {}
-        self._contract_db = IBKRContractDatabase()
 
     # ------------------------------------------------------------------
     # Public chart-engine interface
@@ -211,79 +209,41 @@ class DataFetcher:
         if Contract is None or Stock is None:
             return None
 
-        normalized_symbol = str(symbol or "").strip().upper()
-        key = str(instrument_token or normalized_symbol or "").strip().upper()
+        key = str(instrument_token or symbol or "").strip().upper()
         if not key:
             return None
         if key in self._contract_cache:
             return self._contract_cache[key]
 
         contract = None
-        db_row = None
-        stale = True
         try:
-            if normalized_symbol and instrument_token in (None, "", 0, "0"):
-                db_row = self._contract_db.get_contract(normalized_symbol)
-                stale = self._contract_db.is_stale(normalized_symbol)
-                if db_row and db_row.get("con_id") and not stale:
-                    contract = Contract()
-                    contract.conId = int(db_row["con_id"])
-                    contract.symbol = normalized_symbol
-                    contract.secType = db_row.get("sec_type") or "STK"
-                    contract.exchange = db_row.get("exchange") or "SMART"
-                    contract.primaryExchange = db_row.get("primary_exchange") or ""
-                    contract.currency = db_row.get("currency") or "USD"
-                    contract.tradingClass = db_row.get("trading_class") or ""
-                    contract.localSymbol = db_row.get("local_symbol") or ""
-                    logger.info("Loaded IBKR conId for %s from DB: %s", normalized_symbol, contract.conId)
-        except Exception as exc:
-            logger.warning("IBKR contract DB lookup failed for %s; falling back to IBKR qualification: %s", normalized_symbol or key, exc)
+            if instrument_token not in (None, "", 0, "0"):
+                contract = Contract()
+                contract.conId = int(instrument_token)
+                contract.secType = "STK"
+                contract.exchange = "SMART"
+                contract.currency = "USD"
+                if symbol:
+                    contract.symbol = str(symbol).strip().upper()
+            elif symbol:
+                contract = Stock(str(symbol).strip().upper(), "SMART", "USD")
+        except Exception:
             contract = None
-
-        if contract is None:
-            try:
-                if instrument_token not in (None, "", 0, "0"):
-                    contract = Contract()
-                    contract.conId = int(instrument_token)
-                    contract.secType = "STK"
-                    contract.exchange = "SMART"
-                    contract.currency = "USD"
-                    if normalized_symbol:
-                        contract.symbol = normalized_symbol
-                elif normalized_symbol:
-                    if db_row and db_row.get("con_id") and stale:
-                        logger.info("Refreshing stale IBKR contract record for %s", normalized_symbol)
-                    contract = Stock(normalized_symbol, "SMART", "USD")
-            except Exception:
-                contract = None
 
         if contract is None:
             return None
 
-        needs_qualification = not getattr(contract, "conId", 0) or bool(db_row and stale)
-        qualified_from_ibkr = False
-        if needs_qualification or instrument_token not in (None, "", 0, "0"):
-            try:
-                _ensure_thread_event_loop()
-                logger.info("Qualifying IBKR contract for %s from IBKR", normalized_symbol or key)
-                qualified = self.client.qualifyContracts(contract)
-                resolved = qualified[0] if qualified else contract
-                qualified_from_ibkr = bool(getattr(resolved, "conId", 0))
-            except Exception as exc:
-                logger.warning("IBKR contract qualification failed for %s: %s", key, exc)
-                resolved = contract
-        else:
+        try:
+            _ensure_thread_event_loop()
+            qualified = self.client.qualifyContracts(contract)
+            resolved = qualified[0] if qualified else contract
+        except Exception as exc:
+            logger.warning("IBKR contract qualification failed for %s: %s", key, exc)
             resolved = contract
 
-        try:
-            if qualified_from_ibkr and normalized_symbol and getattr(resolved, "conId", 0):
-                self._contract_db.save_contract(normalized_symbol, resolved)
-        except Exception as exc:
-            logger.warning("IBKR contract DB save failed for %s: %s", normalized_symbol, exc)
-
         self._contract_cache[key] = resolved
-        if normalized_symbol:
-            self._contract_cache[normalized_symbol] = resolved
+        if symbol:
+            self._contract_cache[str(symbol).strip().upper()] = resolved
         if getattr(resolved, "conId", 0):
             self._contract_cache[str(resolved.conId)] = resolved
         return resolved

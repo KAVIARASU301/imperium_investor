@@ -21,7 +21,6 @@ from PySide6.QtCore import QObject, Signal, QTimer
 from ibkr.utils.account_display import extract_account_display_name
 from ibkr.utils.ibkr_price import first_positive_ibkr_price, safe_ibkr_price
 from ibkr.utils.market_time import market_isoformat
-from ibkr.core.ibkr_contract_db import IBKRContractDatabase
 
 try:
     from ib_insync import IB, Contract, Stock, MarketOrder, LimitOrder, StopOrder, StopLimitOrder, Trade, Position, Ticker
@@ -227,7 +226,6 @@ class IBKRTradingClient(QObject):
         self._positions: Dict[str, Dict[str, Any]] = {}
         self._orders: Dict[str, Dict[str, Any]] = {}
         self._contract_cache: Dict[str, Any] = {}
-        self._contract_db = IBKRContractDatabase()
         self._market_data_subscriptions: Dict[str, Dict[str, Any]] = {}
         self._subscribed_symbols: set[str] = set()
         self._recent_order_errors: Dict[str, str] = {}
@@ -734,52 +732,14 @@ class IBKRTradingClient(QObject):
             return None
         if symbol in self._contract_cache:
             return self._contract_cache[symbol]
-
         exchange = "SMART" if exchange in {"", "NASDAQ", "NYSE", "ARCA", "AMEX", "BATS"} else exchange
-        db_row = None
-        contract = None
-        stale = True
+        contract = Stock(symbol, exchange or "SMART", currency or "USD")
         try:
-            db_row = self._contract_db.get_contract(symbol)
-            stale = self._contract_db.is_stale(symbol)
-            if db_row and db_row.get("con_id") and not stale:
-                contract = Contract()
-                contract.conId = int(db_row["con_id"])
-                contract.symbol = symbol
-                contract.secType = db_row.get("sec_type") or "STK"
-                contract.exchange = db_row.get("exchange") or exchange or "SMART"
-                contract.primaryExchange = db_row.get("primary_exchange") or ""
-                contract.currency = db_row.get("currency") or currency or "USD"
-                contract.tradingClass = db_row.get("trading_class") or ""
-                contract.localSymbol = db_row.get("local_symbol") or ""
-                logger.info("Loaded IBKR conId for %s from DB: %s", symbol, contract.conId)
+            qualified = self.ib.qualifyContracts(contract)
+            resolved = qualified[0] if qualified else contract
         except Exception as exc:
-            logger.warning("IBKR contract DB lookup failed for %s; falling back to IBKR qualification: %s", symbol, exc)
-            stale = True
-
-        if contract is None:
-            if db_row and db_row.get("con_id") and stale:
-                logger.info("Refreshing stale IBKR contract record for %s", symbol)
-            contract = Stock(symbol, exchange or "SMART", currency or "USD")
-            qualified_from_ibkr = False
-            try:
-                logger.info("Qualifying IBKR contract for %s from IBKR", symbol)
-                qualified = self.ib.qualifyContracts(contract)
-                resolved = qualified[0] if qualified else contract
-                qualified_from_ibkr = bool(getattr(resolved, "conId", 0))
-            except Exception as exc:
-                logger.warning("IBKR contract qualification failed for %s: %s", symbol, exc)
-                resolved = contract
-        else:
+            logger.warning("IBKR contract qualification failed for %s: %s", symbol, exc)
             resolved = contract
-            qualified_from_ibkr = False
-
-        try:
-            if qualified_from_ibkr and getattr(resolved, "conId", 0):
-                self._contract_db.save_contract(symbol, resolved)
-        except Exception as exc:
-            logger.warning("IBKR contract DB save failed for %s: %s", symbol, exc)
-
         self._contract_cache[symbol] = resolved
         con_id = int(getattr(resolved, "conId", 0) or 0)
         if con_id:
