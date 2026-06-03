@@ -2,16 +2,18 @@
 
 from typing import Callable, Dict, List, Optional
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
     QPushButton,
     QVBoxLayout,
+    QWidget,
 )
 
 # Keep the scans list visually aligned with the scanner/dialog styling without
@@ -51,7 +53,11 @@ class ScansListDialog(QDialog):
         self._run_scan = run_scan
         self._is_scan_running = is_scan_running
         self._active_tag = _ALL_TAGS_LABEL
+        self._drag_active = False
+        self._drag_offset = QPoint()
         self.setWindowTitle("Scans List")
+        self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
         self.setModal(True)
         self.setFixedSize(390, 520)
         self._setup_ui()
@@ -59,30 +65,50 @@ class ScansListDialog(QDialog):
         self.set_scan_running(self._scanner_is_running())
 
     def _setup_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(8)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(1, 1, 1, 1)
+        root.setSpacing(0)
 
-        header_layout = QHBoxLayout()
-        header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.setSpacing(8)
+        title_bar = QFrame()
+        title_bar.setObjectName("scanTitleBar")
+        title_bar.setFixedHeight(34)
+        title_bar.setCursor(Qt.CursorShape.SizeAllCursor)
+        title_bar.mousePressEvent = self.mousePressEvent
+        title_bar.mouseMoveEvent = self.mouseMoveEvent
+        title_bar.mouseReleaseEvent = self.mouseReleaseEvent
 
-        title_box = QVBoxLayout()
-        title_box.setContentsMargins(0, 0, 0, 0)
-        title_box.setSpacing(1)
+        title_layout = QHBoxLayout(title_bar)
+        title_layout.setContentsMargins(10, 0, 6, 0)
+        title_layout.setSpacing(8)
+
         title = QLabel("SCANS LIST")
         title.setObjectName("simpleScanTitle")
-        subtitle = QLabel("Click a scan to run it")
+
+        subtitle = QLabel("click to run saved IBKR scans")
         subtitle.setObjectName("simpleScanSubtitle")
-        title_box.addWidget(title)
-        title_box.addWidget(subtitle)
-        header_layout.addLayout(title_box, 1)
 
         self.status_label = QLabel("READY")
         self.status_label.setObjectName("scanStatusLabel")
-        self.status_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        header_layout.addWidget(self.status_label)
-        layout.addLayout(header_layout)
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        close_title_btn = QPushButton("✕")
+        close_title_btn.setObjectName("scanTitleCloseButton")
+        close_title_btn.setFixedSize(24, 24)
+        close_title_btn.setToolTip("Close")
+        close_title_btn.clicked.connect(self.reject)
+
+        title_layout.addWidget(title)
+        title_layout.addWidget(subtitle)
+        title_layout.addStretch()
+        title_layout.addWidget(self.status_label)
+        title_layout.addWidget(close_title_btn)
+        root.addWidget(title_bar)
+
+        body = QWidget()
+        body.setObjectName("scanDialogBody")
+        layout = QVBoxLayout(body)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
 
         filter_layout = QHBoxLayout()
         filter_layout.setContentsMargins(0, 0, 0, 0)
@@ -105,16 +131,28 @@ class ScansListDialog(QDialog):
         self.list_widget.itemClicked.connect(self._run_item)
         self.list_widget.itemDoubleClicked.connect(self._run_item)
         layout.addWidget(self.list_widget, 1)
+        root.addWidget(body, 1)
         self._populate_list()
 
-        footer = QHBoxLayout()
-        footer.setContentsMargins(0, 0, 0, 0)
-        footer.addStretch()
-        close_btn = QPushButton("Close")
+        footer = QWidget()
+        footer.setObjectName("scanFooterBar")
+        footer.setFixedHeight(34)
+        footer_layout = QHBoxLayout(footer)
+        footer_layout.setContentsMargins(10, 0, 10, 0)
+        footer_layout.setSpacing(8)
+
+        footer_hint = QLabel("SELECT A ROW TO LAUNCH SCAN")
+        footer_hint.setObjectName("scanFooterHint")
+
+        close_btn = QPushButton("CLOSE")
         close_btn.setObjectName("closeButton")
+        close_btn.setFixedHeight(24)
         close_btn.clicked.connect(self.reject)
-        footer.addWidget(close_btn)
-        layout.addLayout(footer)
+
+        footer_layout.addWidget(footer_hint)
+        footer_layout.addStretch()
+        footer_layout.addWidget(close_btn)
+        root.addWidget(footer)
 
     def _scanner_is_running(self) -> bool:
         if self._is_scan_running is None:
@@ -201,6 +239,25 @@ class ScansListDialog(QDialog):
         self.status_label.style().polish(self.status_label)
         self.status_label.update()
 
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_active = True
+            self._drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._drag_active and event.buttons() & Qt.MouseButton.LeftButton:
+            self.move(event.globalPosition().toPoint() - self._drag_offset)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_active = False
+        super().mouseReleaseEvent(event)
+
     def _apply_styles(self):
         self.setStyleSheet(f"""
             QDialog {{
@@ -208,19 +265,30 @@ class ScansListDialog(QDialog):
                 color: {_T0};
                 border: 1px solid {_BG4};
             }}
+            QFrame#scanTitleBar {{
+                background: {_BGTB};
+                border-bottom: 1px solid {_BG4};
+            }}
+            QWidget#scanDialogBody {{
+                background: {_BG1};
+            }}
+            QWidget#scanFooterBar {{
+                background: {_BGTB};
+                border-top: 1px solid {_BG4};
+            }}
             QLabel#simpleScanTitle {{
                 color: {_T0};
                 font-family: {_SANS};
                 font-size: 11px;
-                font-weight: 700;
-                letter-spacing: 0.9px;
+                font-weight: 800;
+                letter-spacing: 1.0px;
                 background: transparent;
             }}
             QLabel#simpleScanSubtitle {{
                 color: {_T2};
                 font-family: {_SANS};
                 font-size: 10px;
-                font-weight: 400;
+                font-weight: 500;
                 background: transparent;
             }}
             QLabel#scanStatusLabel {{
@@ -231,19 +299,22 @@ class ScansListDialog(QDialog):
                 padding: 3px 8px;
                 font-family: {_SANS};
                 font-size: 9px;
-                font-weight: 700;
+                font-weight: 800;
                 letter-spacing: 0.7px;
+                min-width: 58px;
             }}
             QLabel#scanStatusLabel[running="true"] {{
                 color: {_AMBER};
                 border-color: {_BG5};
             }}
-            QLabel#scanFilterLabel {{
+            QLabel#scanFilterLabel,
+            QLabel#scanFooterHint {{
                 color: {_T2};
                 font-family: {_SANS};
                 font-size: 9px;
-                font-weight: 700;
+                font-weight: 800;
                 letter-spacing: 0.7px;
+                background: transparent;
             }}
             QComboBox#scanTagFilter {{
                 background: {_BG0};
@@ -302,13 +373,29 @@ class ScansListDialog(QDialog):
                 color: {_T1};
                 border: 1px solid {_BG4};
                 border-radius: 2px;
-                padding: 4px 14px;
+                padding: 3px 14px;
                 font-family: {_SANS};
                 font-size: 10px;
+                font-weight: 700;
+                letter-spacing: 0.5px;
             }}
             QPushButton#closeButton:hover {{
                 background: {_BG3};
                 color: {_T0};
                 border-color: {_BG5};
+            }}
+            QPushButton#scanTitleCloseButton {{
+                background: transparent;
+                color: {_T2};
+                border: 1px solid transparent;
+                border-radius: 2px;
+                font-family: {_SANS};
+                font-size: 13px;
+                font-weight: 800;
+            }}
+            QPushButton#scanTitleCloseButton:hover {{
+                background: rgba(255, 77, 106, 0.15);
+                color: #ff4d6a;
+                border-color: rgba(255, 77, 106, 0.25);
             }}
         """)
