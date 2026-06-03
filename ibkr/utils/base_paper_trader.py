@@ -345,9 +345,20 @@ class BasePaperTrader(QObject, ABC, metaclass=QObjectABCMeta):
         """Return current cash balance."""
         return self.balance
 
+    def get_realized_pnl(self) -> float:
+        """Return booked/session realized P&L for closed or reduced lots."""
+        return float(self._daily_pnl or 0.0)
+
+    def get_unrealized_pnl(self) -> float:
+        """Return current open-position MTM using the latest paper market prices."""
+        total = 0.0
+        for symbol, pos in self._positions.items():
+            total += pos.unrealized_pnl(self._get_ltp(symbol))
+        return float(total)
+
     def get_daily_pnl(self) -> float:
-        """Return session P&L."""
-        return self.balance - self._session_start_balance
+        """Return total session P&L (realized + current open MTM)."""
+        return self.get_realized_pnl() + self.get_unrealized_pnl()
 
     # ─────────────────────────────────────────────────────────────────────────
     # MARKET DATA — called by main window to keep us updated

@@ -84,6 +84,7 @@ class IBKRPaperTradingManager(QObject):
         self.positions: Dict[str, PaperPosition] = {}
         self.orders: Dict[str, PaperOrder] = {}
         self.order_counter = 1
+        self.realized_pnl = 0.0
         self.commissions = 1.0  # $1 per trade
         self.slippage = 0.01  # 1 cent slippage simulation
 
@@ -115,6 +116,7 @@ class IBKRPaperTradingManager(QObject):
                     data = json.load(f)
 
                 self.current_balance = data.get('balance', self.initial_balance)
+                self.realized_pnl = float(data.get('realized_pnl', 0.0) or 0.0)
 
                 # Load positions
                 for pos_data in data.get('positions', []):
@@ -140,6 +142,7 @@ class IBKRPaperTradingManager(QObject):
                 'positions': [asdict(pos) for pos in self.positions.values()],
                 'orders': [order.to_dict() for order in self.orders.values()],
                 'order_counter': self.order_counter,
+                'realized_pnl': self.realized_pnl,
                 'last_updated': market_isoformat()
             }
 
@@ -267,68 +270,44 @@ class IBKRPaperTradingManager(QObject):
             order.status = "REJECTED"
 
     def _update_position(self, symbol: str, action: str, quantity: int, price: float):
-        """Update position after order fill"""
+        """Update position after order fill and book realized P&L for reduced lots."""
+        signed_qty = quantity if action == "BUY" else -quantity
         if symbol not in self.positions:
-            # New position
-            if action == "BUY":
-                self.positions[symbol] = PaperPosition(
-                    symbol=symbol,
-                    quantity=quantity,
-                    average_price=price,
-                    current_price=price,
-                    entry_time=market_isoformat()
-                )
-            else:
-                # Short position
-                self.positions[symbol] = PaperPosition(
-                    symbol=symbol,
-                    quantity=-quantity,
-                    average_price=price,
-                    current_price=price,
-                    entry_time=market_isoformat()
-                )
-        else:
-            # Existing position
-            position = self.positions[symbol]
+            if signed_qty == 0:
+                return
+            self.positions[symbol] = PaperPosition(
+                symbol=symbol,
+                quantity=signed_qty,
+                average_price=price,
+                current_price=price,
+                entry_time=market_isoformat()
+            )
+            return
 
-            if action == "BUY":
-                if position.quantity < 0:
-                    # Covering short
-                    if quantity >= abs(position.quantity):
-                        # Complete cover + new long
-                        remaining = quantity - abs(position.quantity)
-                        if remaining > 0:
-                            position.quantity = remaining
-                            position.average_price = price
-                        else:
-                            del self.positions[symbol]
-                    else:
-                        # Partial cover
-                        position.quantity += quantity
-                else:
-                    # Adding to long position
-                    total_cost = (position.quantity * position.average_price) + (quantity * price)
-                    position.quantity += quantity
-                    position.average_price = total_cost / position.quantity
-            else:  # SELL
-                if position.quantity > 0:
-                    # Selling long
-                    if quantity >= position.quantity:
-                        # Complete sale + new short
-                        remaining = quantity - position.quantity
-                        if remaining > 0:
-                            position.quantity = -remaining
-                            position.average_price = price
-                        else:
-                            del self.positions[symbol]
-                    else:
-                        # Partial sale
-                        position.quantity -= quantity
-                else:
-                    # Adding to short position
-                    total_cost = (abs(position.quantity) * position.average_price) + (quantity * price)
-                    position.quantity -= quantity
-                    position.average_price = total_cost / abs(position.quantity)
+        position = self.positions[symbol]
+        old_qty = position.quantity
+        new_qty = old_qty + signed_qty
+
+        if (old_qty > 0 and signed_qty < 0) or (old_qty < 0 and signed_qty > 0):
+            closed_qty = min(abs(old_qty), abs(signed_qty))
+            if closed_qty > 0:
+                multiplier = 1 if old_qty > 0 else -1
+                self.realized_pnl += (price - position.average_price) * closed_qty * multiplier
+
+        if new_qty == 0:
+            del self.positions[symbol]
+        elif old_qty * signed_qty > 0:
+            total_cost = (abs(old_qty) * position.average_price) + (abs(signed_qty) * price)
+            position.quantity = new_qty
+            position.average_price = total_cost / abs(new_qty)
+            position.current_price = price
+        elif old_qty * new_qty < 0:
+            position.quantity = new_qty
+            position.average_price = price
+            position.current_price = price
+        else:
+            position.quantity = new_qty
+            position.current_price = price
 
     # Public API methods
 
@@ -446,23 +425,38 @@ class IBKRPaperTradingManager(QObject):
             'total_orders': len(self.orders)
         }
 
-    def get_total_pnl(self) -> float:
-        """Calculate total unrealized P&L"""
-        total_pnl = 0
+    def get_unrealized_pnl(self) -> float:
+        """Calculate current open-position MTM."""
+        total_pnl = 0.0
         for position in self.positions.values():
             position.current_price = self._get_current_price(position.symbol)
             total_pnl += position.unrealized_pnl
-        return total_pnl
+        return float(total_pnl)
+
+    def get_realized_pnl(self) -> float:
+        """Return booked paper-trading P&L from closed/reduced lots."""
+        return float(self.realized_pnl or 0.0)
+
+    def get_daily_pnl(self) -> float:
+        """Return total session P&L (realized + current open MTM)."""
+        return self.get_realized_pnl() + self.get_unrealized_pnl()
+
+    def get_total_pnl(self) -> float:
+        """Calculate total session P&L."""
+        return self.get_daily_pnl()
 
     def get_account_summary(self) -> Dict[str, Any]:
         """Get detailed account summary"""
+        unrealized_pnl = self.get_unrealized_pnl()
         total_pnl = self.get_total_pnl()
         total_market_value = sum(abs(pos.market_value) for pos in self.positions.values())
 
         return {
             'TotalCashValue': {'value': str(self.current_balance), 'currency': 'USD'},
-            'NetLiquidation': {'value': str(self.current_balance + total_pnl), 'currency': 'USD'},
-            'UnrealizedPnL': {'value': str(total_pnl), 'currency': 'USD'},
+            'NetLiquidation': {'value': str(self.current_balance + total_market_value), 'currency': 'USD'},
+            'UnrealizedPnL': {'value': str(unrealized_pnl), 'currency': 'USD'},
+            'RealizedPnL': {'value': str(self.get_realized_pnl()), 'currency': 'USD'},
+            'DailyPnL': {'value': str(total_pnl), 'currency': 'USD'},
             'GrossPositionValue': {'value': str(total_market_value), 'currency': 'USD'},
             'BuyingPower': {'value': str(self.current_balance * 4), 'currency': 'USD'},  # 4:1 margin
             'InitialMarginReq': {'value': str(total_market_value * 0.25), 'currency': 'USD'},
@@ -475,6 +469,7 @@ class IBKRPaperTradingManager(QObject):
         self.positions.clear()
         self.orders.clear()
         self.order_counter = 1
+        self.realized_pnl = 0.0
         self.market_data.clear()
 
         # Delete saved data file

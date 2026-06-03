@@ -498,11 +498,18 @@ class PositionManager(QObject):
         kite_positions = payload.get("positions", {}) if isinstance(payload, dict) else (payload or {})
         holdings = payload.get("holdings", []) if isinstance(payload, dict) else []
 
-        for pos_data in (kite_positions or {}).get("net", []):
+        position_rows = (kite_positions or {}).get("net", [])
+        day_rows = (kite_positions or {}).get("day") if isinstance(kite_positions, dict) else None
+        realized_rows = day_rows if isinstance(day_rows, list) else position_rows
+        total_day_realized = sum(
+            float(row.get("realised") or row.get("realized") or 0.0)
+            for row in (realized_rows or [])
+        )
+
+        for pos_data in position_rows:
             quantity = int(pos_data.get("quantity") or 0)
             product = str(pos_data.get("product") or pos_data.get("product_type") or "MIS").upper()
             day_realized = float(pos_data.get("realised") or pos_data.get("realized") or 0.0)
-            total_day_realized += day_realized
 
             # Quantity-zero rows are where fully exited trades usually live.
             # Count their realized P&L above, but do not show them as active positions.
@@ -558,15 +565,15 @@ class PositionManager(QObject):
             total_day_unrealized += pos.pnl
             positions.append(pos)
 
-        # Paper traders track realized P&L at account/session level, not per-open-position.
-        # In that mode, per-position "realised" fields are 0 and would otherwise overwrite
-        # the status bar with 0 after each positions refresh.
+        # Paper traders track booked P&L at account/session level, not in the open
+        # position rows. Use that realized bucket directly so open MTM remains separate.
         try:
-            if hasattr(self.trader, "get_daily_pnl"):
+            if hasattr(self.trader, "get_realized_pnl"):
+                total_day_realized = float(self.trader.get_realized_pnl() or 0.0)
+            elif hasattr(self.trader, "get_daily_pnl"):
                 broker_hint = str(getattr(self.trader, "broker", getattr(self.trader, "broker_type", ""))).lower()
                 if broker_hint in {"kite", "india"}:
-                    session_total = float(self.trader.get_daily_pnl() or 0.0)
-                    total_day_realized = round(session_total - total_day_unrealized, 2)
+                    total_day_realized = float(self.trader.get_daily_pnl() or 0.0) - total_day_unrealized
         except Exception:
             # Keep broker-supplied totals if trader-specific computation fails.
             pass

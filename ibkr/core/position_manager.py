@@ -254,13 +254,22 @@ class PositionManager(QObject):
         """
         open_unrealized = sum(float(getattr(p, "day_unrealized", p.pnl) or 0.0) for p in positions)
 
+        trader_realized = None
+        try:
+            if hasattr(self.trader, "get_realized_pnl"):
+                trader_realized = float(self.trader.get_realized_pnl() or 0.0)
+        except Exception:
+            trader_realized = None
+
         top_level_realized = self._first_float(
             raw_payload,
             "realised", "realized", "day_realised", "day_realized",
             "realised_pnl", "realized_pnl", "realizedPNL", "realizedPnL",
             default=None,
         )
-        if top_level_realized is not None:
+        if trader_realized is not None:
+            realized = trader_realized
+        elif top_level_realized is not None:
             realized = top_level_realized
         else:
             realized = 0.0
