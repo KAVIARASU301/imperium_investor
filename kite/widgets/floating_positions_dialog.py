@@ -984,6 +984,7 @@ class FloatingPositionsDialog(QDialog):
                 sl_type=order_type,
                 trailing=trailing,
                 trail_pct=trail_pct,
+                current_ltp=ltp,
             )
 
         def _on_sl_remove(sym):

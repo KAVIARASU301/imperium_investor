@@ -120,6 +120,7 @@ class StopLossManager(QObject):
         sl_type:         str   = "MARKET",
         trailing:        bool  = False,
         trail_pct:       Optional[float] = None,
+        current_ltp:     Optional[float] = None,
     ) -> bool:
         """
         Register a stop-loss for an open position.
@@ -131,17 +132,21 @@ class StopLossManager(QObject):
 
         is_long = quantity > 0
 
-        # SL must be BELOW entry for longs, ABOVE entry for shorts
-        if is_long and sl_price >= avg_price:
-            self.show_notification.emit(
-                f"SL must be below avg price ₹{avg_price:.2f} for a long position", "error"
-            )
-            return False
-        if not is_long and sl_price <= avg_price:
-            self.show_notification.emit(
-                f"SL must be above avg price ₹{avg_price:.2f} for a short position", "error"
-            )
-            return False
+        # SL validity is based on the latest market price, not entry.
+        # Profitable stops may be above long entry / below short entry as long
+        # as they remain on the non-triggered side of LTP.
+        ltp = self._coerce_positive_price(current_ltp) or self._get_current_ltp(symbol)
+        if ltp > 0:
+            if is_long and sl_price >= ltp:
+                self.show_notification.emit(
+                    f"SL must be below LTP ₹{ltp:.2f} for a long position", "error"
+                )
+                return False
+            if not is_long and sl_price <= ltp:
+                self.show_notification.emit(
+                    f"SL must be above LTP ₹{ltp:.2f} for a short position", "error"
+                )
+                return False
 
         if sl_price <= 0:
             self.show_notification.emit("Invalid SL price", "error")
@@ -164,7 +169,7 @@ class StopLossManager(QObject):
             sl_type          = sl_type,
             trailing_sl      = trailing,
             trail_offset_pct = trail_pct,
-            peak_price       = avg_price,   # baseline for trailing
+            peak_price       = self._initial_trailing_peak(is_long, sl_price, trail_pct, ltp),
         )
 
         with QMutexLocker(self._mutex):
@@ -199,12 +204,18 @@ class StopLossManager(QObject):
         if new_sl_price <= 0:
             self.show_notification.emit("Modified SL price must be > 0", "error")
             return False
-        if is_long and new_sl_price >= rec.avg_price:
-            self.show_notification.emit("Modified SL must be below entry for long", "error")
-            return False
-        if not is_long and new_sl_price <= rec.avg_price:
-            self.show_notification.emit("Modified SL must be above entry for short", "error")
-            return False
+        ltp = self._get_current_ltp(symbol)
+        if ltp > 0:
+            if is_long and new_sl_price >= ltp:
+                self.show_notification.emit(
+                    f"Modified SL must be below LTP ₹{ltp:.2f} for long", "error"
+                )
+                return False
+            if not is_long and new_sl_price <= ltp:
+                self.show_notification.emit(
+                    f"Modified SL must be above LTP ₹{ltp:.2f} for short", "error"
+                )
+                return False
 
         with QMutexLocker(self._mutex):
             rec.sl_price = new_sl_price
@@ -431,6 +442,38 @@ class StopLossManager(QObject):
                         "Trailing SL lowered: %s ₹%.2f → ₹%.2f (LTP ₹%.2f)",
                         rec.symbol, old_sl, new_sl, ltp,
                     )
+
+
+    @staticmethod
+    def _coerce_positive_price(value) -> float:
+        try:
+            price = float(value or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+        return price if price > 0 else 0.0
+
+    @staticmethod
+    def _initial_trailing_peak(
+        is_long: bool,
+        sl_price: float,
+        trail_pct: Optional[float],
+        current_ltp: Optional[float],
+    ) -> Optional[float]:
+        if not trail_pct or trail_pct <= 0:
+            return current_ltp
+        try:
+            ltp = float(current_ltp or 0.0)
+        except (TypeError, ValueError):
+            ltp = 0.0
+        if ltp > 0:
+            return ltp
+
+        # Recover the implied high/low-water mark from the selected stop and
+        # trailing offset so the first tick does not loosen the user-selected SL.
+        if is_long:
+            denominator = 1 - trail_pct / 100
+            return sl_price / denominator if denominator > 0 else sl_price
+        return sl_price / (1 + trail_pct / 100)
 
 
     def _flush_trailing_updates(self) -> None:

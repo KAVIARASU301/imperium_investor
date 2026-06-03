@@ -135,10 +135,10 @@ class StopLossDialog(QDialog):
         self.sl_price_spin.setSingleStep(0.5)
         self.sl_price_spin.setObjectName("numericInput")
 
-        # Sensible default: 2% below avg for longs, 2% above for shorts
-        default_sl = current_sl if current_sl else (
-            self.avg_price * 0.98 if self.is_long else self.avg_price * 1.02
-        )
+        # Default to 1% away from the current market price so profitable
+        # positions can immediately lock gains above/below entry without
+        # placing a stop that has already crossed the LTP trigger boundary.
+        default_sl = current_sl if current_sl else self._default_sl_price()
         self.sl_price_spin.setValue(round(default_sl, 2))
         self.sl_price_spin.valueChanged.connect(self._update_distance_label)
         body_lay.addWidget(self.sl_price_spin)
@@ -199,10 +199,13 @@ class StopLossDialog(QDialog):
         self.trail_pct_spin = QDoubleSpinBox()
         self.trail_pct_spin.setRange(0.1, 20.0)
         self.trail_pct_spin.setDecimals(1)
-        self.trail_pct_spin.setValue(1.5)
+        self.trail_pct_spin.setValue(1.0)
         self.trail_pct_spin.setSuffix("%")
         self.trail_pct_spin.setObjectName("numericInput")
         self.trail_pct_spin.setEnabled(False)
+        self.trail_pct_spin.valueChanged.connect(
+            lambda _value: self._sync_trailing_price_from_offset()
+        )
         trail_row.addWidget(self.trail_pct_spin)
         body_lay.addLayout(trail_row)
 
@@ -244,17 +247,44 @@ class StopLossDialog(QDialog):
 
     # ── Slots ─────────────────────────────────────────────────────────────────
 
+    def _default_sl_price(self) -> float:
+        reference = self.ltp if self.ltp > 0 else self.avg_price
+        if reference <= 0:
+            return 0.05
+        return reference * (0.99 if self.is_long else 1.01)
+
+    def _sync_trailing_price_from_offset(self) -> None:
+        if not self.trailing_chk.isChecked() or self.ltp <= 0:
+            return
+        trail_pct = self.trail_pct_spin.value()
+        trail_price = self.ltp * (1 - trail_pct / 100) if self.is_long else (
+            self.ltp * (1 + trail_pct / 100)
+        )
+        self.sl_price_spin.blockSignals(True)
+        self.sl_price_spin.setValue(round(trail_price, 2))
+        self.sl_price_spin.blockSignals(False)
+        self._update_distance_label()
+
     def _update_distance_label(self) -> None:
         sl = self.sl_price_spin.value()
         if self.avg_price > 0 and sl > 0:
             dist_pct = abs(sl - self.avg_price) / self.avg_price * 100
             dist_pts = abs(sl - self.avg_price)
-            color = "#00d4a8" if self.is_long and sl < self.avg_price else (
-                    "#00d4a8" if not self.is_long and sl > self.avg_price else "#ff4d6a")
+            is_valid = self._is_stop_on_safe_side_of_ltp(sl)
+            color = "#00d4a8" if is_valid else "#ff4d6a"
+            profit_text = "locks profit" if (
+                (self.is_long and sl > self.avg_price)
+                or (not self.is_long and sl < self.avg_price)
+            ) else "protects loss"
             self._dist_label.setText(
-                f"Distance: ₹{dist_pts:.2f}  ({dist_pct:.2f}% from entry)"
+                f"Distance: ₹{dist_pts:.2f}  ({dist_pct:.2f}% from entry, {profit_text})"
             )
             self._dist_label.setStyleSheet(f"color: {color}; font-size: 10px;")
+
+    def _is_stop_on_safe_side_of_ltp(self, sl_price: float) -> bool:
+        if self.ltp <= 0:
+            return sl_price > 0
+        return sl_price < self.ltp if self.is_long else sl_price > self.ltp
 
     def _on_qty_type_changed(self, index: int) -> None:
         self.custom_qty_spin.setVisible(index == 2)
@@ -262,6 +292,7 @@ class StopLossDialog(QDialog):
     def _on_trailing_toggled(self, checked: bool) -> None:
         self.trail_pct_spin.setEnabled(checked)
         if checked:
+            self._sync_trailing_price_from_offset()
             self.sl_price_spin.setEnabled(False)
         else:
             self.sl_price_spin.setEnabled(True)
@@ -269,30 +300,15 @@ class StopLossDialog(QDialog):
     def _on_confirm(self) -> None:
         sl_price = self.sl_price_spin.value()
 
-        # Direction validation
-        if self.is_long and sl_price >= self.avg_price:
-            self._dist_label.setText("⚠ SL must be BELOW entry for long positions")
+        # Direction validation is against LTP, not entry. A profitable long may
+        # set SL above entry as long as it remains below LTP; shorts are mirrored.
+        if self.ltp > 0 and not self._is_stop_on_safe_side_of_ltp(sl_price):
+            boundary = "below" if self.is_long else "above"
+            self._dist_label.setText(
+                f"⚠ SL must be {boundary.upper()} LTP (₹{self.ltp:.2f})"
+            )
             self._dist_label.setStyleSheet("color: #ff4d6a; font-size: 10px;")
             return
-        if not self.is_long and sl_price <= self.avg_price:
-            self._dist_label.setText("⚠ SL must be ABOVE entry for short positions")
-            self._dist_label.setStyleSheet("color: #ff4d6a; font-size: 10px;")
-            return
-
-        # LTP proximity warning — SL would trigger immediately
-        if self.ltp > 0:
-            if self.is_long and sl_price >= self.ltp:
-                self._dist_label.setText(
-                    "⚠ SL is at or above current price — order will trigger immediately"
-                )
-                self._dist_label.setStyleSheet("color: #f59e0b; font-size: 10px;")
-                # Don't block — warn only. User may intend an immediate exit.
-            elif not self.is_long and sl_price <= self.ltp:
-                self._dist_label.setText(
-                    "⚠ SL is at or below current price — order will trigger immediately"
-                )
-                self._dist_label.setStyleSheet("color: #f59e0b; font-size: 10px;")
-                # Don't block — warn only. User may intend an immediate exit.
 
         idx = self.qty_combo.currentIndex()
         sl_qty_type = ["FULL", "HALF", "CUSTOM"][idx]
