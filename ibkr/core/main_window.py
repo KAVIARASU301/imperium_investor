@@ -171,7 +171,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             paper_trader.set_main_window(self)
             integrate_paper_trading(self, paper_trader)
 
-        self.setWindowTitle("qullamaggie")
+        self.setWindowTitle("Swing Trader")
 
         # --- Window Dragging Variables ---
         self._drag_pos = None
@@ -844,7 +844,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         title_layout.setContentsMargins(0, 0, 0, 0)
         title_layout.setSpacing(4)
 
-        self.title_label = QLabel("Qullamaggie")
+        self.title_label = QLabel()
         self.title_label.setObjectName("appTitle")
         title_layout.addWidget(self.title_label)
 
@@ -892,8 +892,26 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         top_bar.mouseMoveEvent = self._title_bar_mouse_move
         top_bar.mouseReleaseEvent = self._title_bar_mouse_release
         top_bar.mouseDoubleClickEvent = self._title_bar_double_click
+        self._apply_title_bar_preferences(self.color_theme_manager.get_theme())
         self._update_title_bar_compact_state()
         return top_bar
+
+    def _preferred_app_title(self, theme: Optional[Dict[str, Any]] = None) -> str:
+        """Return the user-facing app title shown in the custom title bar."""
+        theme = theme or self.color_theme_manager.get_theme()
+        title = str(theme.get("app_title_text", "Swing Trader")).strip()
+        return title or "Swing Trader"
+
+    def _apply_title_bar_preferences(self, theme: Optional[Dict[str, Any]] = None) -> None:
+        """Apply the settings-controlled app name to the centered title bar."""
+        if not hasattr(self, "title_label"):
+            return
+
+        theme = theme or self.color_theme_manager.get_theme()
+        app_title = self._preferred_app_title(theme)
+        self.title_label.setText(app_title)
+        self.setWindowTitle(app_title)
+        self._update_title_bar_compact_state()
 
     def _update_title_bar_compact_state(self):
         """Keep menu labels visible and collapse non-critical title labels on narrow windows."""
@@ -901,7 +919,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             return
 
         compact = self.width() < 1280
-        self.title_label.setVisible(not compact)
+        theme = self.color_theme_manager.get_theme()
+        show_app_title = bool(theme.get("show_app_title", True))
+        self.title_label.setVisible(show_app_title and not compact)
         self.mode_label.setVisible(not compact)
 
     def eventFilter(self, obj, event):
@@ -922,6 +942,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
     @Slot(dict)
     def _on_color_theme_changed(self, theme: Dict[str, Any]):
+        self._apply_title_bar_preferences(theme)
         self.header_toolbar.apply_color_theme(theme)
         self.finviz_scanner.apply_color_theme(theme)
         self.watchlist.apply_color_theme(theme)

@@ -42,6 +42,8 @@ DEFAULT_COLOR_THEME: Dict[str, Any] = {
     "show_account_name": False,
     "show_account_balance": True,
     "preferred_username": "",
+    "show_app_title": True,
+    "app_title_text": "Swing Trader",
     "dual_chart_mode": True,
     "show_ticker_board": True,
     "ticker_board_symbols": ["SPY", "QQQ"],
@@ -142,6 +144,9 @@ class ColorThemeManager(QObject):
         merged["show_account_name"] = bool(custom.get("show_account_name", merged["show_account_name"]))
         merged["show_account_balance"] = bool(custom.get("show_account_balance", merged["show_account_balance"]))
         merged["preferred_username"] = str(custom.get("preferred_username", merged["preferred_username"])).strip()
+        merged["show_app_title"] = bool(custom.get("show_app_title", merged["show_app_title"]))
+        app_title_text = str(custom.get("app_title_text", merged["app_title_text"])).strip()
+        merged["app_title_text"] = app_title_text or DEFAULT_COLOR_THEME["app_title_text"]
         merged["dual_chart_mode"] = bool(custom.get("dual_chart_mode", merged["dual_chart_mode"]))
         merged["show_ticker_board"] = bool(custom.get("show_ticker_board", merged["show_ticker_board"]))
 

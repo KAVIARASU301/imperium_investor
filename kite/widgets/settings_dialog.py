@@ -324,6 +324,29 @@ class ColorSettingsDialog(QDialog):
         username_row.addWidget(self.preferred_username_input)
         account_layout.addLayout(username_row)
 
+        title_bar_group = QGroupBox("TITLE BAR")
+        title_bar_layout = QVBoxLayout(title_bar_group)
+        title_bar_layout.setContentsMargins(8, 9, 8, 8)
+        title_bar_layout.setSpacing(5)
+
+        self.show_app_title_checkbox = _Toggle("SHOW APP NAME IN TOP TITLE BAR")
+        self.show_app_title_checkbox.setChecked(bool(self._theme.get("show_app_title", True)))
+        title_bar_layout.addWidget(self.show_app_title_checkbox)
+
+        app_title_row = QHBoxLayout()
+        app_title_label = _Label("PREFERRED APP NAME", color=P.T1, size=10, bold=True)
+        self.app_title_input = QLineEdit()
+        self.app_title_input.setPlaceholderText("Swing Trader")
+        self.app_title_input.setFixedHeight(22)
+        self.app_title_input.setText(str(self._theme.get("app_title_text", "Swing Trader")))
+        self.app_title_input.setClearButtonEnabled(True)
+        self.app_title_input.setMaxLength(60)
+        app_title_row.addWidget(app_title_label)
+        app_title_row.addWidget(self.app_title_input)
+        title_bar_layout.addLayout(app_title_row)
+
+        more_layout.addWidget(title_bar_group)
+
         more_layout.addWidget(account_group)
         more_layout.addStretch()
 
@@ -761,6 +784,8 @@ class ColorSettingsDialog(QDialog):
         self._theme["show_account_name"] = self.show_account_name_checkbox.isChecked()
         self._theme["show_account_balance"] = self.show_account_balance_checkbox.isChecked()
         self._theme["preferred_username"] = self.preferred_username_input.text().strip()
+        self._theme["show_app_title"] = self.show_app_title_checkbox.isChecked()
+        self._theme["app_title_text"] = self.app_title_input.text().strip() or "Swing Trader"
         self._theme["show_ticker_board"] = self.show_ticker_board_checkbox.isChecked()
         raw_symbols = [part.strip().upper() for part in self.ticker_symbols_input.text().split(",")]
         symbols = [sym for sym in raw_symbols if sym][:5]
