@@ -13,7 +13,7 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal, QTimer
-from ibkr.utils.market_time import market_isoformat, market_now_naive
+from ibkr.utils.market_time import market_isoformat, market_now_naive, market_today
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +85,7 @@ class IBKRPaperTradingManager(QObject):
         self.orders: Dict[str, PaperOrder] = {}
         self.order_counter = 1
         self.realized_pnl = 0.0
+        self.realized_pnl_date = self._current_pnl_date()
         self.commissions = 1.0  # $1 per trade
         self.slippage = 0.01  # 1 cent slippage simulation
 
@@ -116,7 +117,14 @@ class IBKRPaperTradingManager(QObject):
                     data = json.load(f)
 
                 self.current_balance = data.get('balance', self.initial_balance)
-                self.realized_pnl = float(data.get('realized_pnl', 0.0) or 0.0)
+                saved_pnl_date = data.get('realized_pnl_date') or data.get('daily_pnl_date')
+                self.realized_pnl_date = saved_pnl_date or self._current_pnl_date()
+                self.realized_pnl = (
+                    float(data.get('realized_pnl', 0.0) or 0.0)
+                    if self.realized_pnl_date == self._current_pnl_date()
+                    else 0.0
+                )
+                self.realized_pnl_date = self._current_pnl_date()
 
                 # Load positions
                 for pos_data in data.get('positions', []):
@@ -143,6 +151,7 @@ class IBKRPaperTradingManager(QObject):
                 'orders': [order.to_dict() for order in self.orders.values()],
                 'order_counter': self.order_counter,
                 'realized_pnl': self.realized_pnl,
+                'realized_pnl_date': self.realized_pnl_date,
                 'last_updated': market_isoformat()
             }
 
@@ -292,6 +301,7 @@ class IBKRPaperTradingManager(QObject):
             closed_qty = min(abs(old_qty), abs(signed_qty))
             if closed_qty > 0:
                 multiplier = 1 if old_qty > 0 else -1
+                self._ensure_realized_pnl_date()
                 self.realized_pnl += (price - position.average_price) * closed_qty * multiplier
 
         if new_qty == 0:
@@ -425,6 +435,19 @@ class IBKRPaperTradingManager(QObject):
             'total_orders': len(self.orders)
         }
 
+    @staticmethod
+    def _current_pnl_date() -> str:
+        """Return the IBKR market date used for realized P&L buckets."""
+        return market_today().isoformat()
+
+    def _ensure_realized_pnl_date(self) -> None:
+        """Reset booked paper P&L when the market date changes."""
+        today = self._current_pnl_date()
+        if getattr(self, "realized_pnl_date", today) != today:
+            self.realized_pnl = 0.0
+            self.realized_pnl_date = today
+            self._save_data()
+
     def get_unrealized_pnl(self) -> float:
         """Calculate current open-position MTM."""
         total_pnl = 0.0
@@ -434,7 +457,8 @@ class IBKRPaperTradingManager(QObject):
         return float(total_pnl)
 
     def get_realized_pnl(self) -> float:
-        """Return booked paper-trading P&L from closed/reduced lots."""
+        """Return booked P&L for today only, not historical paper P&L."""
+        self._ensure_realized_pnl_date()
         return float(self.realized_pnl or 0.0)
 
     def get_daily_pnl(self) -> float:
@@ -470,6 +494,7 @@ class IBKRPaperTradingManager(QObject):
         self.orders.clear()
         self.order_counter = 1
         self.realized_pnl = 0.0
+        self.realized_pnl_date = self._current_pnl_date()
         self.market_data.clear()
 
         # Delete saved data file

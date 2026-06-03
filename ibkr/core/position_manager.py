@@ -250,21 +250,21 @@ class PositionManager(QObject):
 
         MTM/unrealized is only the current open position P&L. Realized is the
         booked P&L for today's trades, including symbols already closed and no
-        longer present in the open positions table.
+        longer present in the open positions table.  Avoid broker/account
+        realized fields in live mode because they can be lifetime aggregates.
         """
         open_unrealized = sum(float(getattr(p, "day_unrealized", p.pnl) or 0.0) for p in positions)
 
         trader_realized = None
         try:
-            if hasattr(self.trader, "get_realized_pnl"):
+            if self._is_paper_trader() and hasattr(self.trader, "get_realized_pnl"):
                 trader_realized = float(self.trader.get_realized_pnl() or 0.0)
         except Exception:
             trader_realized = None
 
         top_level_realized = self._first_float(
             raw_payload,
-            "realised", "realized", "day_realised", "day_realized",
-            "realised_pnl", "realized_pnl", "realizedPNL", "realizedPnL",
+            "day_realised", "day_realized",
             default=None,
         )
         if trader_realized is not None:
@@ -276,8 +276,7 @@ class PositionManager(QObject):
             for row in self._extract_day_position_rows(raw_payload):
                 row_realized = self._first_float(
                     row,
-                    "realised", "realized", "day_realised", "day_realized",
-                    "realised_pnl", "realized_pnl", "realizedPNL", "realizedPnL",
+                    "day_realised", "day_realized",
                     default=None,
                 )
                 if row_realized is not None:
@@ -289,6 +288,18 @@ class PositionManager(QObject):
             "realized": realized,
         }
 
+
+    def _is_paper_trader(self) -> bool:
+        """Return whether the current trader is a paper/simulated broker."""
+        trader = self.trader
+        hints = (
+            trader.__class__.__name__,
+            trader.__class__.__module__,
+            str(getattr(trader, "broker", "")),
+            str(getattr(trader, "broker_type", "")),
+            str(getattr(trader, "trading_mode", "")),
+        )
+        return any("paper" in str(hint).lower() for hint in hints)
 
     def _normalize_position(self, pos_data: Any) -> Position:
         contract = self._field(pos_data, "contract")

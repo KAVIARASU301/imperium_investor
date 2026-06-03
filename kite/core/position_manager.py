@@ -487,6 +487,18 @@ class PositionManager(QObject):
             logger.warning(f"Holdings fetch failed while loading positions UI: {exc}")
         return payload
 
+    def _is_paper_trader(self) -> bool:
+        """Return whether the current trader is a paper/simulated broker."""
+        trader = self.trader
+        hints = (
+            trader.__class__.__name__,
+            trader.__class__.__module__,
+            str(getattr(trader, "broker", "")),
+            str(getattr(trader, "broker_type", "")),
+            str(getattr(trader, "trading_mode", "")),
+        )
+        return any("paper" in str(hint).lower() for hint in hints)
+
     @Slot(object)
     def _handle_positions_result(self, payload):
         positions: List[Position] = []
@@ -567,10 +579,12 @@ class PositionManager(QObject):
 
         # Paper traders track booked P&L at account/session level, not in the open
         # position rows. Use that realized bucket directly so open MTM remains separate.
+        # In live mode, keep Kite's day-position realized total instead of any
+        # account-level getter that may be a historical/cumulative value.
         try:
-            if hasattr(self.trader, "get_realized_pnl"):
+            if self._is_paper_trader() and hasattr(self.trader, "get_realized_pnl"):
                 total_day_realized = float(self.trader.get_realized_pnl() or 0.0)
-            elif hasattr(self.trader, "get_daily_pnl"):
+            elif self._is_paper_trader() and hasattr(self.trader, "get_daily_pnl"):
                 broker_hint = str(getattr(self.trader, "broker", getattr(self.trader, "broker_type", ""))).lower()
                 if broker_hint in {"kite", "india"}:
                     total_day_realized = float(self.trader.get_daily_pnl() or 0.0) - total_day_unrealized

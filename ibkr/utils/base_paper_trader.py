@@ -17,7 +17,7 @@ from datetime import datetime
 from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Optional, Any, Tuple
 from PySide6.QtCore import QObject, QTimer, Signal
-from ibkr.utils.market_time import market_isoformat
+from ibkr.utils.market_time import market_isoformat, market_today
 
 logger = logging.getLogger(__name__)
 
@@ -160,6 +160,7 @@ class BasePaperTrader(QObject, ABC, metaclass=QObjectABCMeta):
         self._positions: Dict[str, PaperPosition] = {}
         self._orders: List[PaperOrder] = []
         self._daily_pnl: float = 0.0
+        self._daily_pnl_date: str = self._current_pnl_date()
         self._session_start_balance: float = initial_balance
 
         # ── Market data registry (token → price OR symbol → price) ──
@@ -345,8 +346,22 @@ class BasePaperTrader(QObject, ABC, metaclass=QObjectABCMeta):
         """Return current cash balance."""
         return self.balance
 
+    @staticmethod
+    def _current_pnl_date() -> str:
+        """Return the IBKR market date used for realized P&L buckets."""
+        return market_today().isoformat()
+
+    def _ensure_daily_pnl_date(self) -> None:
+        """Reset booked paper P&L when the market date changes."""
+        today = self._current_pnl_date()
+        if getattr(self, "_daily_pnl_date", today) != today:
+            self._daily_pnl = 0.0
+            self._daily_pnl_date = today
+            self._save_state()
+
     def get_realized_pnl(self) -> float:
-        """Return booked/session realized P&L for closed or reduced lots."""
+        """Return booked P&L for today only, not historical paper P&L."""
+        self._ensure_daily_pnl_date()
         return float(self._daily_pnl or 0.0)
 
     def get_unrealized_pnl(self) -> float:
@@ -565,6 +580,7 @@ class BasePaperTrader(QObject, ABC, metaclass=QObjectABCMeta):
                 closed_qty = abs(old_qty)
                 realised = (price - pos.avg_price) * closed_qty * (1 if old_qty > 0 else -1)
                 del self._positions[symbol]
+                self._ensure_daily_pnl_date()
                 self._daily_pnl += realised
                 self.daily_pnl_update.emit(self._daily_pnl)
                 logger.info(f"Position closed: {symbol} | Realised P&L: ₹{realised:,.2f}")
@@ -580,6 +596,7 @@ class BasePaperTrader(QObject, ABC, metaclass=QObjectABCMeta):
                 closed_qty = min(abs(old_qty), abs(signed_qty))
                 if closed_qty > 0:
                     realised = (price - pos.avg_price) * closed_qty * (1 if old_qty > 0 else -1)
+                    self._ensure_daily_pnl_date()
                     self._daily_pnl += realised
                     self.daily_pnl_update.emit(self._daily_pnl)
                     logger.info(
@@ -648,7 +665,10 @@ class BasePaperTrader(QObject, ABC, metaclass=QObjectABCMeta):
                 with open(self._state_path, "r") as f:
                     state = json.load(f)
                 self.balance    = state.get("balance", self.initial_balance)
-                self._daily_pnl = state.get("daily_pnl", 0.0)
+                saved_pnl_date = state.get("daily_pnl_date") or state.get("realized_pnl_date")
+                self._daily_pnl_date = saved_pnl_date or self._current_pnl_date()
+                self._daily_pnl = state.get("daily_pnl", 0.0) if self._daily_pnl_date == self._current_pnl_date() else 0.0
+                self._daily_pnl_date = self._current_pnl_date()
                 # Reconstruct positions
                 raw_positions = state.get("positions", {})
                 self._positions = {}
@@ -666,6 +686,7 @@ class BasePaperTrader(QObject, ABC, metaclass=QObjectABCMeta):
                 "broker": self.broker,
                 "balance": self.balance,
                 "daily_pnl": self._daily_pnl,
+                "daily_pnl_date": self._daily_pnl_date,
                 "positions": {sym: asdict(pos) for sym, pos in self._positions.items()},
                 "last_updated": market_isoformat(),
             }
@@ -680,6 +701,7 @@ class BasePaperTrader(QObject, ABC, metaclass=QObjectABCMeta):
         self._positions.clear()
         self._orders.clear()
         self._daily_pnl = 0.0
+        self._daily_pnl_date = self._current_pnl_date()
         self._session_start_balance = self.balance
         self._save_state()
         self.balance_update.emit(self.balance)
