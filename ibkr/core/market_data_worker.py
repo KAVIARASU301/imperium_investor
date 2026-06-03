@@ -22,6 +22,8 @@ from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 from PySide6.QtCore import QThread, Signal
 from ib_insync import IB, Contract, Stock, Ticker
 
+from ibkr.core.ibkr_contract_db import IBKRContractDatabase
+
 logger = logging.getLogger(__name__)
 
 _MARKET_DATA_TYPE_NAMES = {
@@ -118,6 +120,7 @@ class MarketDataWorker(QThread):
         self._symbol_to_key: Dict[str, str] = {}
         self._key_to_symbol: Dict[str, str] = {}
         self._contract_cache: Dict[str, Contract] = {}
+        self._contract_db = IBKRContractDatabase()
         self._latest_ticks: Dict[str, Dict[str, Any]] = {}
         self._last_trade_signature_by_key: Dict[str, Tuple[Any, ...]] = {}
         self._req_id_to_key: Dict[int, str] = {}
@@ -430,12 +433,15 @@ class MarketDataWorker(QThread):
             contract = self._contract_from_item(item)
             if contract is None:
                 continue
+            symbol = self._symbol_from_item(item) or (getattr(contract, "symbol", "") or "").strip().upper()
+            if getattr(contract, "conId", 0) and symbol:
+                if getattr(contract, "_loaded_from_ibkr_contract_db", False):
+                    logger.info("Loaded IBKR conId for %s from DB: %s", symbol, contract.conId)
+                self._subscribe_contract(contract, alias_key=key, alias_symbol=symbol)
+                continue
             contracts_to_qualify.append(contract)
             original_keys.append(key)
-            original_symbols.append(
-                self._symbol_from_item(item)
-                or (getattr(contract, "symbol", "") or "").strip().upper()
-            )
+            original_symbols.append(symbol)
 
         for chunk_start in range(0, len(contracts_to_qualify), 25):
             chunk = contracts_to_qualify[chunk_start:chunk_start + 25]
@@ -463,6 +469,11 @@ class MarketDataWorker(QThread):
                 qualified = [by_conid.get(str(getattr(c, "conId", 0) or "")) or by_symbol.get(getattr(c, "symbol", "")) or c for c in chunk]
 
             for contract, alias, alias_symbol in zip(qualified, aliases, alias_symbols):
+                try:
+                    if alias_symbol and getattr(contract, "conId", 0):
+                        self._contract_db.save_contract(alias_symbol, contract)
+                except Exception as exc:
+                    logger.warning("IBKR contract DB save failed for %s: %s", alias_symbol, exc)
                 self._subscribe_contract(contract, alias_key=alias, alias_symbol=alias_symbol)
 
 
@@ -797,6 +808,24 @@ class MarketDataWorker(QThread):
             pass
 
         if symbol:
+            try:
+                row = self._contract_db.get_contract(symbol)
+                if row and row.get("con_id") and not self._contract_db.is_stale(symbol):
+                    contract = Contract()
+                    contract.conId = int(row["con_id"])
+                    contract.symbol = symbol
+                    contract.secType = row.get("sec_type") or "STK"
+                    contract.exchange = row.get("exchange") or "SMART"
+                    contract.primaryExchange = row.get("primary_exchange") or ""
+                    contract.currency = row.get("currency") or currency
+                    contract.tradingClass = row.get("trading_class") or ""
+                    contract.localSymbol = row.get("local_symbol") or ""
+                    contract._loaded_from_ibkr_contract_db = True
+                    return contract
+                if row and row.get("con_id"):
+                    logger.info("Refreshing stale IBKR contract record for %s", symbol)
+            except Exception as exc:
+                logger.warning("IBKR contract DB lookup failed for %s; falling back to IBKR qualification: %s", symbol, exc)
             return Stock(symbol, "SMART", currency)
         return None
 
