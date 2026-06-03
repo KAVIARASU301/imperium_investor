@@ -29,8 +29,11 @@ from PySide6.QtWidgets import (
     QMessageBox, QWidget, QStackedWidget, QCheckBox, QFrame,
     QRadioButton, QComboBox, QSpinBox, QTextEdit, QButtonGroup
 )
-from PySide6.QtCore import Qt, QTimer, Signal, QThread
-from PySide6.QtGui import QMouseEvent, QIcon
+from PySide6.QtCore import QRectF, Qt, QTimer, Signal, QThread
+from PySide6.QtGui import (
+    QBrush, QColor, QIcon, QLinearGradient, QMouseEvent, QPainter, QPainterPath,
+    QPen, QRadialGradient
+)
 
 try:
     from kiteconnect import KiteConnect
@@ -78,6 +81,123 @@ class UI:
     SANS = "'Inter', 'Aptos', 'Segoe UI Variable', 'Segoe UI', 'Roboto', 'Noto Sans', sans-serif"
     NUM = "'Inter', 'Aptos', 'Segoe UI Variable', 'Segoe UI', sans-serif"
     MONO = "'JetBrains Mono', 'Consolas', monospace"  # only for raw logs, IDs, technical debug text
+
+
+class LoginTextureFrame(QFrame):
+    """Paints a production-grade IBKR-style dark login shell.
+
+    Uses only procedural graphite / terminal-grid texture. No external texture
+    image is required, so the login window stays consistent across installs.
+    """
+
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
+        self.setAutoFillBackground(False)
+
+    def _draw_micro_texture(self, painter: QPainter, rect):
+        """Draw a crisp graphite weave + terminal-grid texture."""
+        w = max(1, rect.width())
+        h = max(1, rect.height())
+
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+
+        # Fine scanlines: gives the surface a real terminal/display material feel.
+        painter.setPen(QPen(QColor(255, 255, 255, 7), 1))
+        for y in range(1, h, 4):
+            painter.drawLine(0, y, w, y)
+
+        painter.setPen(QPen(QColor(0, 0, 0, 22), 1))
+        for y in range(3, h, 8):
+            painter.drawLine(0, y, w, y)
+
+        # Subtle cross-grid: visible enough to read as texture, not decoration.
+        painter.setPen(QPen(QColor(0, 212, 255, 10), 1))
+        for x in range(0, w, 18):
+            painter.drawLine(x, 0, x, h)
+
+        painter.setPen(QPen(QColor(168, 188, 212, 7), 1))
+        for y in range(0, h, 18):
+            painter.drawLine(0, y, w, y)
+
+        # Carbon-fiber style diagonal weave, like a high-end broker terminal shell.
+        painter.setPen(QPen(QColor(255, 255, 255, 9), 1))
+        for x in range(-h, w + h, 22):
+            painter.drawLine(x, 0, x + h, h)
+
+        painter.setPen(QPen(QColor(0, 0, 0, 32), 1))
+        for x in range(-h, w + h, 22):
+            painter.drawLine(x, h, x + h, 0)
+
+        # A few quiet data-trace strokes so the shell feels like trading software,
+        # not a generic dark dialog.
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        trace_pen = QPen(QColor(0, 212, 255, 24), 1)
+        trace_pen.setCapStyle(Qt.PenCapStyle.SquareCap)
+        painter.setPen(trace_pen)
+        for i, y in enumerate((58, 92, h - 86, h - 54)):
+            if 16 < y < h - 16:
+                x0 = 28 + i * 11
+                painter.drawLine(x0, y, x0 + 46, y)
+                painter.drawLine(x0 + 46, y, x0 + 46, y - 10)
+                painter.drawLine(x0 + 46, y - 10, x0 + 76, y - 10)
+                painter.drawLine(x0 + 76, y - 10, x0 + 76, y + 7)
+                painter.drawLine(x0 + 76, y + 7, x0 + 126, y + 7)
+
+        painter.restore()
+
+    def paintEvent(self, event):
+        _ = event
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+        rect = self.rect()
+        shell_rect = QRectF(rect).adjusted(0.5, 0.5, -0.5, -0.5)
+        path = QPainterPath()
+        path.addRoundedRect(shell_rect, 2, 2)
+        painter.setClipPath(path)
+
+        # Layer 1: deep graphite base, not plain black.
+        base = QLinearGradient(0, 0, 0, rect.height())
+        base.setColorAt(0.00, QColor(13, 19, 27))
+        base.setColorAt(0.32, QColor(6, 10, 15))
+        base.setColorAt(0.68, QColor(3, 5, 8))
+        base.setColorAt(1.00, QColor(0, 0, 0))
+        painter.fillPath(path, QBrush(base))
+
+        # Layer 2: procedural graphite / terminal-grid texture.
+        self._draw_micro_texture(painter, rect)
+
+        # Layer 3: broker-terminal accent glow, kept controlled and premium.
+        cyan_glow = QRadialGradient(rect.width() * 0.14, rect.height() * 0.16, rect.width() * 0.72)
+        cyan_glow.setColorAt(0.0, QColor(0, 212, 255, 46))
+        cyan_glow.setColorAt(0.42, QColor(0, 212, 255, 13))
+        cyan_glow.setColorAt(1.0, QColor(0, 212, 255, 0))
+        painter.fillPath(path, QBrush(cyan_glow))
+
+        amber_glow = QRadialGradient(rect.width() * 0.96, rect.height() * 0.90, rect.width() * 0.72)
+        amber_glow.setColorAt(0.0, QColor(245, 158, 11, 38))
+        amber_glow.setColorAt(0.48, QColor(245, 158, 11, 11))
+        amber_glow.setColorAt(1.0, QColor(245, 158, 11, 0))
+        painter.fillPath(path, QBrush(amber_glow))
+
+        # Layer 4: glassy side fade. Lighter than before so the texture survives.
+        fade = QLinearGradient(0, 0, rect.width(), rect.height())
+        fade.setColorAt(0.0, QColor(1, 3, 5, 8))
+        fade.setColorAt(0.40, QColor(1, 3, 5, 36))
+        fade.setColorAt(0.75, QColor(1, 3, 5, 70))
+        fade.setColorAt(1.0, QColor(0, 0, 0, 120))
+        painter.fillPath(path, QBrush(fade))
+
+        # Premium edge treatment: outer line + faint inner highlight.
+        painter.setClipping(False)
+        painter.setPen(QPen(QColor(38, 52, 70), 1))
+        painter.drawRoundedRect(shell_rect, 2, 2)
+        inner_rect = shell_rect.adjusted(1.0, 1.0, -1.0, -1.0)
+        painter.setPen(QPen(QColor(255, 255, 255, 18), 1))
+        painter.drawRoundedRect(inner_rect, 2, 2)
+
 
 
 def _resolve_callback_ports() -> List[int]:
@@ -241,7 +361,7 @@ class DualModeLoginManager(QDialog):
 
 
     def _setup_ui(self):
-        container = QFrame()
+        container = LoginTextureFrame()
         container.setObjectName("mainContainer")
         container.mousePressEvent = self._handle_mouse_press
         container.mouseMoveEvent = self._handle_mouse_move
@@ -936,19 +1056,19 @@ class DualModeLoginManager(QDialog):
 
         market_data_panel = self._create_ibkr_market_data_selector()
 
-        # Status area — QTextEdit handles long multi-line error messages cleanly
+        # Status/help area — rich text keeps the setup checklist readable,
+        # while the same QTextEdit still handles long multi-line error messages cleanly.
         self.ibkr_status_display = QTextEdit()
         self.ibkr_status_display.setObjectName("ibkrStatusDisplay")
         self.ibkr_status_display.setReadOnly(True)
-        self.ibkr_status_display.setFixedHeight(150)
-        self.ibkr_status_display.setPlaceholderText(
-            "Status will appear here.\n\n"
-            "TWS / IB Gateway checklist:\n"
-            "1) Login to TWS (or IB Gateway)\n"
-            "2) Enable API: Configure → API → Settings → Enable ActiveX and Socket Clients\n"
-            "3) Allow localhost in Trusted IPs: 127.0.0.1\n"
-            "4) Enter the same API socket port configured in TWS / IB Gateway"
+        self.ibkr_status_display.setFixedHeight(156)
+        self.ibkr_status_display.setFrameShape(QFrame.Shape.NoFrame)
+        self.ibkr_status_display.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.ibkr_status_display.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.ibkr_status_display.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse | Qt.TextInteractionFlag.TextSelectableByKeyboard
         )
+        self._set_ibkr_status_help_text()
 
         self.connect_ibkr_btn = QPushButton("CONNECT")
         self.connect_ibkr_btn.setObjectName("primaryButton")
@@ -964,6 +1084,51 @@ class DualModeLoginManager(QDialog):
         layout.addStretch()
         layout.addLayout(nav)
         return page
+
+
+    def _set_ibkr_status_help_text(self):
+        """Render a structured, readable IBKR setup hint instead of a raw placeholder."""
+        self.ibkr_status_display.setHtml(f"""
+            <div style="font-family:{UI.SANS}; color:{UI.TEXT1}; font-size:10px; font-weight:600;">
+                <table width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+                    <tr>
+                        <td style="color:{UI.TEXT0}; font-size:10px; font-weight:800; letter-spacing:1.1px; padding-bottom:5px;">
+                            STATUS
+                        </td>
+                        <td align="right" style="color:{UI.CYAN}; font-size:9px; font-weight:800; letter-spacing:1px; padding-bottom:5px;">
+                            WAITING FOR CONNECTION
+                        </td>
+                    </tr>
+                </table>
+
+                <div style="color:{UI.TEXT2}; font-size:10px; font-weight:650; margin-bottom:8px;">
+                    Status messages and connection errors will appear here.
+                </div>
+
+                <div style="color:{UI.AMBER}; font-size:9px; font-weight:850; letter-spacing:1px; margin-bottom:5px;">
+                    TWS / IB GATEWAY CHECKLIST
+                </div>
+
+                <table cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+                    <tr>
+                        <td width="22" align="center" style="color:{UI.CYAN}; font-weight:850; padding:2px 8px 2px 0;">1</td>
+                        <td style="color:{UI.TEXT1}; padding:2px 0;">Login to TWS or IB Gateway.</td>
+                    </tr>
+                    <tr>
+                        <td width="22" align="center" style="color:{UI.CYAN}; font-weight:850; padding:2px 8px 2px 0;">2</td>
+                        <td style="color:{UI.TEXT1}; padding:2px 0;">Enable API: Configure → API → Settings → Enable ActiveX and Socket Clients.</td>
+                    </tr>
+                    <tr>
+                        <td width="22" align="center" style="color:{UI.CYAN}; font-weight:850; padding:2px 8px 2px 0;">3</td>
+                        <td style="color:{UI.TEXT1}; padding:2px 0;">Allow localhost in Trusted IPs: <span style="color:{UI.TEXT0};">127.0.0.1</span>.</td>
+                    </tr>
+                    <tr>
+                        <td width="22" align="center" style="color:{UI.CYAN}; font-weight:850; padding:2px 8px 2px 0;">4</td>
+                        <td style="color:{UI.TEXT1}; padding:2px 0;">Use the same API socket port configured in TWS / IB Gateway.</td>
+                    </tr>
+                </table>
+            </div>
+        """)
 
 
     def _create_ibkr_market_data_selector(self) -> QFrame:
@@ -1145,14 +1310,14 @@ class DualModeLoginManager(QDialog):
             }}
 
             #mainContainer {{
-                background-color: {UI.BG1};
-                border: 1px solid {UI.BG5};
+                background: transparent;
+                border: none;
                 border-radius: 2px;
             }}
 
             #titleBar {{
-                background: {UI.BG2};
-                border-bottom: 1px solid {UI.BG5};
+                background: rgba(7, 10, 13, 0.86);
+                border-bottom: 1px solid rgba(34, 48, 68, 0.82);
             }}
 
             #dialogTitle {{
@@ -1193,7 +1358,7 @@ class DualModeLoginManager(QDialog):
 
             #loginStack,
             QWidget#loginPage {{
-                background: {UI.BG1};
+                background: transparent;
             }}
 
             #welcomeTitle,
@@ -1249,31 +1414,31 @@ class DualModeLoginManager(QDialog):
             }}
 
             #inputPanel {{
-                background: {UI.BG3};
-                border: 1px solid {UI.BG5};
+                background: rgba(11, 16, 21, 0.78);
+                border: 1px solid rgba(34, 48, 68, 0.86);
                 border-radius: 2px;
             }}
 
             #modeFrame {{
-                background: {UI.BG2};
-                border: 1px solid {UI.BG5};
+                background: rgba(7, 10, 13, 0.70);
+                border: 1px solid rgba(34, 48, 68, 0.80);
                 border-radius: 2px;
             }}
 
             #brokerCard {{
-                background: {UI.BG3};
-                border: 1px solid {UI.BG5};
+                background: rgba(11, 16, 21, 0.74);
+                border: 1px solid rgba(34, 48, 68, 0.78);
                 border-radius: 2px;
             }}
 
             #brokerCard:hover {{
-                background: {UI.BG4};
-                border-color: rgba(0, 212, 255, 0.34);
+                background: rgba(17, 25, 35, 0.88);
+                border-color: rgba(0, 212, 255, 0.42);
             }}
 
             #brokerCard[selected="true"] {{
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #101722, stop:1 #080c10);
-                border: 1px solid rgba(245, 158, 11, 0.92);
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(18, 25, 35, 0.94), stop:1 rgba(8, 12, 16, 0.88));
+                border: 1px solid rgba(245, 158, 11, 0.96);
             }}
 
             #brokerIcon {{
@@ -1323,7 +1488,7 @@ class DualModeLoginManager(QDialog):
 
             QRadioButton#modeRadio {{
                 color: {UI.TEXT1};
-                background: {UI.BG3};
+                background: rgba(11, 16, 21, 0.76);
                 border: 1px solid transparent;
                 border-radius: 2px;
                 padding: 7px 14px;
@@ -1335,8 +1500,8 @@ class DualModeLoginManager(QDialog):
 
             QRadioButton#modeRadio:hover {{
                 color: {UI.TEXT0};
-                background: {UI.BG4};
-                border-color: rgba(0, 212, 255, 0.24);
+                background: rgba(17, 25, 35, 0.90);
+                border-color: rgba(0, 212, 255, 0.28);
             }}
 
             QRadioButton#modeRadio:checked {{
@@ -1355,8 +1520,8 @@ class DualModeLoginManager(QDialog):
             QLineEdit,
             QComboBox,
             QSpinBox {{
-                background: {UI.BG4};
-                border: 1px solid {UI.BG6};
+                background: rgba(17, 25, 35, 0.84);
+                border: 1px solid rgba(34, 48, 68, 0.98);
                 border-radius: 2px;
                 padding: 7px 9px;
                 color: {UI.TEXT0};
@@ -1530,15 +1695,15 @@ class DualModeLoginManager(QDialog):
             }}
 
             #ibkrStatusDisplay {{
-                background: {UI.BG0};
-                border: 1px solid {UI.BG5};
+                background: rgba(0, 0, 0, 0.64);
+                border: 1px solid rgba(34, 48, 68, 0.88);
                 border-radius: 2px;
                 color: {UI.TEXT1};
                 selection-background-color: {UI.SELECTION};
-                font-family: {UI.MONO};
+                font-family: {UI.SANS};
                 font-size: 10px;
                 font-weight: 600;
-                padding: 7px;
+                padding: 8px 9px;
             }}
 
             QTextEdit {{
