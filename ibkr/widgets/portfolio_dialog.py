@@ -482,6 +482,7 @@ class PortfolioIntelligenceDialog(QDialog):
     def _apply_styles(self) -> None:
         self.setStyleSheet(f"""
             QDialog {{ background: {C.BG}; color: {C.TEXT}; border: 1px solid {C.BORDER}; font-family: {_UI_FONT}; }}
+            QLabel {{ background: transparent; }}
             QWidget#body {{ background: {C.WINDOW}; }}
             QFrame#titleBar, QFrame#footerBar {{ background: {C.TITLEBAR}; border: 0; }}
             QFrame#titleBar {{ border-bottom: 1px solid {C.BORDER}; }}
