@@ -1344,14 +1344,28 @@ class CandlestickChart(QWidget):
             if self._broker_caps.name == "kite":
                 now_exchange = reference_utc + timedelta(hours=5, minutes=30)
                 open_t, close_t = dt_time(9, 15), dt_time(15, 30)
+                if not (open_t <= now_exchange.time() <= close_t):
+                    return
             else:
                 if ZoneInfo is not None:
                     now_exchange = reference_utc.replace(tzinfo=timezone.utc).astimezone(ZoneInfo("America/New_York")).replace(tzinfo=None)
                 else:
                     now_exchange = reference_utc - timedelta(hours=4)
-                open_t, close_t = dt_time(9, 30), dt_time(16, 0)
-            if not (open_t <= now_exchange.time() <= close_t):
-                return
+
+                # Daily IBKR charts have only one slot for the current exchange
+                # date.  Before the regular session opens, let live premarket
+                # ticks populate that slot as a gray preview when enabled; once
+                # RTH starts, JS resets the same slot into the normal daily
+                # candle.  Do not forward postmarket ticks on daily charts,
+                # because they would corrupt the completed RTH candle.
+                current_time = now_exchange.time()
+                premarket_open_t = dt_time(4, 0)
+                regular_open_t = dt_time(9, 30)
+                regular_close_t = dt_time(16, 0)
+                in_premarket = premarket_open_t <= current_time < regular_open_t
+                in_regular_session = regular_open_t <= current_time <= regular_close_t
+                if not (in_regular_session or (in_premarket and self._show_premarket_candles)):
+                    return
 
         self.current_ltp = float(price)
         self._refresh_toolbar_symbol_text()

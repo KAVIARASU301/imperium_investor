@@ -31,7 +31,7 @@
 
 // Professional upgrade applied to the CURRENT uploaded renderer.
 // Build marker makes it easy to verify the right chart.js is loaded in QWebEngine devtools.
-const CHART_RENDERER_BUILD = 'professional-crisp-candles-v4-2026-06-02';
+const CHART_RENDERER_BUILD = 'professional-crisp-candles-v5-2026-06-04';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -3778,7 +3778,7 @@ class FixedTradingChart {
         // IMPORTANT: if tickMs is NaN (bad/missing timestamp), use Date.now()
         // rather than 0 or lastTimeMs to avoid false "new candle" triggers.
         const rawNowMs = Number.isFinite(tickMs) ? tickMs : Date.now();
-        const nowMs = (this.brokerName === 'ibkr' && !isDailyInterval)
+        const nowMs = this.brokerName === 'ibkr'
             ? this._ibkrWallClockMsFromUtc(rawNowMs)
             : rawNowMs;
 
@@ -3827,14 +3827,19 @@ class FixedTradingChart {
                 }
 
                 if (newCandleTime !== null) {
-                    this.data.push({
+                    const newCandle = {
                         time:   newCandleTime,
                         open:   carryClose,
                         high:   carryClose,
                         low:    carryClose,
                         close:  carryClose,
                         volume: 0,
-                    });
+                    };
+                    if (isDailyInterval && this.brokerName === 'ibkr' && this._isIbkrPremarketTime(nowMs)) {
+                        newCandle.extendedHoursSession = 'premarket';
+                        newCandle._ibkrDailyPremarketPreview = true;
+                    }
+                    this.data.push(newCandle);
                     this.volumeData.push({ time: newCandleTime, value: 0 });
                     this._invalidateRenderCaches();
                     activeCandleAppended = true;
@@ -3852,6 +3857,34 @@ class FixedTradingChart {
 
         // ── Update the active (last) candle ──────────────────────────────────────
         const active = this.data[this.data.length - 1];
+        const isIbkrDailyPremarket = isDailyInterval && this.brokerName === 'ibkr' && this._isIbkrPremarketTime(nowMs);
+        const isIbkrDailyRegular = isDailyInterval && this.brokerName === 'ibkr' && this._isIbkrRegularSessionTime(nowMs);
+
+        if (isIbkrDailyPremarket) {
+            active.extendedHoursSession = 'premarket';
+            active._ibkrDailyPremarketPreview = true;
+        } else if (isIbkrDailyRegular && active._ibkrDailyPremarketPreview) {
+            // The daily timeframe has a single slot for today's exchange date.
+            // Premarket ticks temporarily preview that slot in gray; the first
+            // regular-session tick must turn the same slot into a clean RTH
+            // candle rather than carrying premarket range/colour forward.
+            const sessionOpen = tickOpen > 0 ? tickOpen : price;
+            active.open = sessionOpen;
+            active.high = Math.max(sessionOpen, price);
+            active.low = Math.min(sessionOpen, price);
+            active.close = price;
+            active.volume = 0;
+            delete active.extendedHoursSession;
+            delete active._ibkrDailyPremarketPreview;
+            if (this.volumeData.length > 0) {
+                this.volumeData[this.volumeData.length - 1] = { time: active.time, value: 0 };
+            }
+            this._extendedHoursCache = new WeakMap();
+        } else if (isDailyInterval && this.brokerName === 'ibkr') {
+            delete active.extendedHoursSession;
+            delete active._ibkrDailyPremarketPreview;
+        }
+
         active.close = price;
 
         if (isDailyInterval) {
@@ -4560,7 +4593,7 @@ class FixedTradingChart {
     }
 
     _ibkrSessionMinutes(epochMs) {
-        if (this.brokerName !== 'ibkr' || !String(this.currentInterval || '').includes('minute')) return null;
+        if (this.brokerName !== 'ibkr') return null;
         const d = this._exchangeDate(epochMs);
         if (!Number.isFinite(d.getTime())) return null;
         return d.getUTCHours() * 60 + d.getUTCMinutes();
@@ -4576,9 +4609,20 @@ class FixedTradingChart {
         return minutes !== null && minutes > US_RTH_CLOSE_MINUTES && minutes <= US_AFTER_HOURS_CLOSE_MINUTES;
     }
 
+    _isIbkrRegularSessionTime(epochMs) {
+        const minutes = this._ibkrSessionMinutes(Number(epochMs));
+        return minutes !== null && minutes >= US_RTH_OPEN_MINUTES && minutes <= US_RTH_CLOSE_MINUTES;
+    }
+
     _isIbkrExtendedHoursCandle(candle) {
-        if (!candle || this.brokerName !== 'ibkr' || !String(this.currentInterval || '').includes('minute')) return false;
-        const cacheKey = `${this.currentInterval}|${this.showPremarketCandles ? 1 : 0}|${this.showPostmarketCandles ? 1 : 0}`;
+        if (!candle || this.brokerName !== 'ibkr') return false;
+        const intervalKey = String(this.currentInterval || '').toLowerCase();
+        const sessionFlag = String(candle.extendedHoursSession || '').toLowerCase();
+        if (intervalKey === 'day') {
+            return sessionFlag === 'premarket' && this.showPremarketCandles === true;
+        }
+        if (!intervalKey.includes('minute')) return false;
+        const cacheKey = `${this.currentInterval}|${this.showPremarketCandles ? 1 : 0}|${this.showPostmarketCandles ? 1 : 0}|${sessionFlag}`;
         const cached = this._extendedHoursCache?.get(candle);
         if (cached && cached.key === cacheKey) return cached.value;
 
