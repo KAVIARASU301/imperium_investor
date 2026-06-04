@@ -36,6 +36,7 @@ from ibkr.widgets.order_history_dialog import OrderHistoryDialog
 from ibkr.widgets.pending_orders_dialog import PendingOrdersDialog
 from ibkr.widgets.performance_dialog import PerformanceDialog
 from ibkr.widgets.pnl_history_dialog import PnlHistoryDialog
+from ibkr.widgets.portfolio_dialog import PortfolioIntelligenceDialog
 from ibkr.widgets.floating_positions_dialog import FloatingPositionsDialog
 from ibkr.widgets.floating_watchlist_dialog import attach_floating_watchlist
 from ibkr.widgets.reconnecting_overlay import ReconnectingOverlay
@@ -49,6 +50,7 @@ from ibkr.utils.market_time import market_now, market_session_label, market_strf
 from utils.resource_path import resource_path
 
 from ibkr.core.position_manager import PositionManager
+from ibkr.core.symbol_info_db import SymbolInfoDatabase
 from ibkr.core.stop_loss_manager import StopLossManager
 from ibkr.core.shutdown_manager import CleanShutdownMixin
 
@@ -180,6 +182,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.pending_orders_dialog = None
         self.performance_dialog = None
         self.pnl_history_dialog = None
+        self.portfolio_intelligence_dialog = None
         self.floating_positions_dialog = None
         self._target_prices: Dict[str, float] = {}
         self.floating_watchlist_dialog = None
@@ -577,6 +580,9 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         performance_action = tools_menu.addAction("Performance", self._show_performance_dialog)
         performance_action.setShortcut(QKeySequence("Ctrl+D"))
         performance_action.setShortcutVisibleInContextMenu(True)
+        portfolio_action = tools_menu.addAction("Portfolio Intelligence", self._show_portfolio_intelligence_dialog)
+        portfolio_action.setShortcut(QKeySequence("Ctrl+Shift+P"))
+        portfolio_action.setShortcutVisibleInContextMenu(True)
         tools_menu.addSeparator()
 
         settings_action = tools_menu.addAction("Settings", self._open_color_settings_dialog)
@@ -3305,6 +3311,28 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         except Exception as e:
             logger.error(f"Failed to show performance dashboard: {e}")
             show_error("Failed to open performance dashboard")
+
+    def _show_portfolio_intelligence_dialog(self):
+        """Show the enriched Portfolio Intelligence report for current positions."""
+        try:
+            if self.portfolio_intelligence_dialog is None or not self.portfolio_intelligence_dialog.isVisible():
+                self.portfolio_intelligence_dialog = PortfolioIntelligenceDialog(
+                    position_provider=lambda: getattr(self.positions_table, "positions_data", {}).values(),
+                    symbol_info_db=SymbolInfoDatabase(),
+                    parent=self,
+                )
+                self.portfolio_intelligence_dialog.ticker_activated.connect(self.candlestick_chart.on_search)
+                self.portfolio_intelligence_dialog.ticker_activated.connect(self.header_toolbar.set_current_symbol)
+            else:
+                self.portfolio_intelligence_dialog.refresh_data()
+
+            self.portfolio_intelligence_dialog.show()
+            self.portfolio_intelligence_dialog.raise_()
+            self.portfolio_intelligence_dialog.activateWindow()
+            logger.info("Portfolio Intelligence dialog opened")
+        except Exception as e:
+            logger.error(f"Failed to show Portfolio Intelligence dialog: {e}")
+            show_error("Failed to open Portfolio Intelligence")
 
     def _show_pnl_history_dialog(self):
         """Show P&L history dialog."""

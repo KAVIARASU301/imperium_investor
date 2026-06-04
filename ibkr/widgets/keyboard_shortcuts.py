@@ -74,6 +74,7 @@ SHORTCUT_SECTIONS: tuple[ShortcutSection, ...] = (
             ("Shift + N", "Open pending orders", "BLUE"),
             ("Shift + L", "Open P&L history", "BLUE"),
             ("Ctrl + D", "Open performance dashboard", "BLUE"),
+            ("Ctrl + Shift + P", "Open Portfolio Intelligence", "CYAN"),
             ("Ctrl + P", "Toggle floating positions", "BLUE"),
             ("Shift + P", "Toggle floating positions", "BLUE"),
             ("Shift + W", "Open floating watchlist", "BLUE"),
@@ -119,6 +120,7 @@ def setup_keyboard_shortcuts(main_window: QWidget) -> list[QShortcut]:
     shortcuts.append(_bind_shortcut(main_window, "Shift+N", main_window._show_pending_orders_dialog))
     shortcuts.append(_bind_shortcut(main_window, "Shift+L", main_window._show_pnl_history_dialog))
     shortcuts.append(_bind_shortcut(main_window, "Ctrl+D", main_window._show_performance_dialog))
+    shortcuts.append(_bind_shortcut(main_window, "Ctrl+Shift+P", main_window._show_portfolio_intelligence_dialog))
     shortcuts.append(_bind_shortcut(main_window, "F1", main_window._on_buy_shortcut))
     shortcuts.append(_bind_shortcut(main_window, "Shift+B", main_window._on_buy_shortcut))
     shortcuts.append(_bind_shortcut(main_window, "F2", main_window._on_sell_shortcut))
