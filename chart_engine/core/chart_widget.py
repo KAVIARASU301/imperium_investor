@@ -114,6 +114,8 @@ class CandlestickChart(QWidget):
         data_fetcher: BrokerDataFetcher,
         instrument_loader=None,
         storage_dir: str = "kite/user_data/chart_drawings",
+        persistence_key: str = "",
+        default_interval: str = "day",
         parent=None,
     ):
         super().__init__(parent)
@@ -124,7 +126,8 @@ class CandlestickChart(QWidget):
 
         # ── State ──
         self.current_symbol:          str   = ""
-        self.current_interval:        str   = "day"
+        self.current_interval:        str   = str(default_interval or "day")
+        self.persistence_key:         str   = str(persistence_key or "")
         self.current_instrument_token: Any  = 0
         self.current_ltp:             float = 0.0
         self.current_state = ChartState.IDLE
@@ -209,7 +212,7 @@ class CandlestickChart(QWidget):
         self._apply_styles()
 
         # ── Restore last symbol ──
-        last = self.drawing_storage.load_last_viewed_symbol()
+        last = self.drawing_storage.load_last_viewed_symbol(self.persistence_key)
         if last.get("symbol"):
             self.load_symbol(last["symbol"], None, 0, last.get("interval", "day"))
 
@@ -439,7 +442,9 @@ class CandlestickChart(QWidget):
             self._show_watermark_description,
         )
 
-        self.drawing_storage.save_last_viewed_symbol(resolved_symbol, self.current_interval)
+        self.drawing_storage.save_last_viewed_symbol(
+            resolved_symbol, self.current_interval, self.persistence_key
+        )
 
     def _resolve_symbol(self, symbol: Optional[str]) -> Optional[str]:
         if not symbol:
@@ -1871,7 +1876,9 @@ class CandlestickChart(QWidget):
                 self._save_current_state_sync()
             self.current_interval = interval
             if self.current_symbol:
-                self.drawing_storage.save_last_viewed_symbol(self.current_symbol, self.current_interval)
+                self.drawing_storage.save_last_viewed_symbol(
+                    self.current_symbol, self.current_interval, self.persistence_key
+                )
                 self._load_chart_data()
 
     def _step_timeframe(self, direction: int) -> None:
@@ -2175,7 +2182,9 @@ class CandlestickChart(QWidget):
         try:
             if self.current_symbol and self.chart_view:
                 self._save_current_state_sync()
-                self.drawing_storage.save_last_viewed_symbol(self.current_symbol, self.current_interval)
+                self.drawing_storage.save_last_viewed_symbol(
+                    self.current_symbol, self.current_interval, self.persistence_key
+                )
             self._stop_loader(blocking=True)
             self._stop_retired_loader_threads()
             # Keep IBKR HMDS history connection warm across symbol transitions.

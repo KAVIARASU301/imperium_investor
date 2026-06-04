@@ -267,17 +267,21 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         logger.info("Chart panes revealed after initial symbol render: %s", symbol)
 
     def _apply_startup_dual_chart_timeframes(self):
-        """Set default timeframe intervals without triggering loads (no symbol yet)."""
+        """Show each chart's default interval only when it has no persisted view.
+
+        A chart that restored a symbol has already started loading its persisted
+        interval. Changing ``current_interval`` here would let those in-flight
+        bars be interpreted as a different timeframe when the load completes.
+        """
         try:
-            # Just set the toolbar state — don't trigger a load
-            self.candlestick_chart.toolbar.set_timeframe("day")
-            self.candlestick_chart.current_interval = "day"
-            if self.dual_chart_mode_enabled:
-                self.candlestick_chart_secondary.toolbar.set_timeframe("60minute")
-                self.candlestick_chart_secondary.current_interval = "60minute"
-                logger.info("Applied startup dual-chart timeframes: left=day, right=60minute")
-            else:
-                logger.info("Applied startup single-chart timeframe: primary=day")
+            for chart in (self.candlestick_chart, self.candlestick_chart_secondary):
+                if not chart.current_symbol:
+                    chart.toolbar.set_timeframe(chart.current_interval)
+            logger.info(
+                "Applied startup chart timeframes: left=%s, right=%s",
+                self.candlestick_chart.current_interval,
+                self.candlestick_chart_secondary.current_interval,
+            )
         except Exception as e:
             logger.warning(f"Failed to apply startup chart timeframes: {e}")
 
@@ -349,6 +353,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.candlestick_chart_secondary = ChartWindow(
             chart_data_fetcher,
             storage_dir=self.chart_drawings_dir,
+            persistence_key="secondary",
+            default_interval="60minute",
         )
         shared_chart_cache = MarketAwareDataCache(parent=self)
         self.candlestick_chart.data_cache = shared_chart_cache

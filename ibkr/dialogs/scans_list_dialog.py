@@ -94,6 +94,7 @@ class ScansListDialog(QDialog):
         close_title_btn = QPushButton("✕")
         close_title_btn.setObjectName("scanTitleCloseButton")
         close_title_btn.setFixedSize(24, 24)
+        close_title_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         close_title_btn.setToolTip("Close")
         close_title_btn.clicked.connect(self.reject)
 
@@ -147,6 +148,7 @@ class ScansListDialog(QDialog):
         close_btn = QPushButton("CLOSE")
         close_btn.setObjectName("closeButton")
         close_btn.setFixedHeight(24)
+        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         close_btn.clicked.connect(self.reject)
 
         footer_layout.addWidget(footer_hint)

@@ -8,6 +8,7 @@
 import json
 import logging
 import os
+import re
 import tempfile
 from datetime import datetime
 from typing import Any, Dict
@@ -302,9 +303,23 @@ class DrawingStorage:
 
     # ─── Last-viewed symbol ───────────────────────────────────────────────────
 
-    def save_last_viewed_symbol(self, symbol: str, interval: str) -> None:
+    def _last_viewed_symbol_path(self, persistence_key: str = "") -> str:
+        """Return a chart-instance-specific last-view file path.
+
+        The empty key intentionally retains the legacy filename so existing
+        single-chart and primary-chart sessions continue to restore normally.
+        """
+        key = str(persistence_key or "").strip()
+        if not key:
+            return os.path.join(self.storage_dir, "last_viewed_symbol.json")
+        safe_key = re.sub(r"[^A-Za-z0-9_.-]+", "_", key).strip("._") or "chart"
+        return os.path.join(self.storage_dir, f"last_viewed_symbol_{safe_key}.json")
+
+    def save_last_viewed_symbol(
+        self, symbol: str, interval: str, persistence_key: str = ""
+    ) -> None:
         try:
-            path = os.path.join(self.storage_dir, "last_viewed_symbol.json")
+            path = self._last_viewed_symbol_path(persistence_key)
             with open(path, "w") as f:
                 json.dump(
                     {"symbol": symbol, "interval": interval, "timestamp": datetime.now().isoformat()},
@@ -313,8 +328,8 @@ class DrawingStorage:
         except Exception as exc:
             logger.error("Failed to save last viewed symbol: %s", exc)
 
-    def load_last_viewed_symbol(self) -> Dict[str, str]:
-        path = os.path.join(self.storage_dir, "last_viewed_symbol.json")
+    def load_last_viewed_symbol(self, persistence_key: str = "") -> Dict[str, str]:
+        path = self._last_viewed_symbol_path(persistence_key)
         if not os.path.exists(path):
             return {}
         try:
@@ -326,8 +341,8 @@ class DrawingStorage:
             logger.error("Failed to load last viewed symbol: %s", exc)
         return {}
 
-    def clear_last_viewed_symbol(self) -> None:
-        path = os.path.join(self.storage_dir, "last_viewed_symbol.json")
+    def clear_last_viewed_symbol(self, persistence_key: str = "") -> None:
+        path = self._last_viewed_symbol_path(persistence_key)
         try:
             if os.path.exists(path):
                 os.remove(path)
