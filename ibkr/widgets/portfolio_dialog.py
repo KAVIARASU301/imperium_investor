@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Callable, Iterable, Optional
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor, QFont, QGuiApplication
+from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtGui import QColor, QCursor, QFont, QGuiApplication, QIcon, QMouseEvent
 from PySide6.QtWidgets import (
     QDialog,
     QFileDialog,
@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QToolButton,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -24,25 +25,30 @@ from PySide6.QtWidgets import (
 
 from ibkr.core.portfolio_analyzer import PortfolioAnalyzer
 from ibkr.core.portfolio_models import AllocationGroup, PortfolioHolding, PortfolioReport
+from utils.resource_path import resource_path
 
 
 class C:
     BG = "#050709"
-    PANEL = "#0A0D12"
-    CARD = "#0F1318"
-    CARD_HOVER = "#141920"
-    BORDER = "#1A2533"
-    TEXT = "#DCE8F7"
-    SOFT = "#9BB0C9"
-    MUTED = "#61758E"
-    CYAN = "#00B8D9"
-    AMBER = "#D99A2B"
-    GREEN = "#00C896"
-    RED = "#F05A71"
+    WINDOW = "#0A0D12"
+    PANEL = "#0F1318"
+    SECTION = "#141920"
+    BORDER = "#1A2030"
+    BORDER_HI = "#25344A"
+    TITLEBAR = "#070A0F"
+    TEXT = "#E8F0FF"
+    SOFT = "#A8BCD4"
+    MUTED = "#5A7090"
+    DISABLED = "#2A3A50"
+    SELECTION = "#1A2840"
+    CYAN = "#00D4FF"
+    AMBER = "#F59E0B"
+    GREEN = "#00D4A8"
+    RED = "#FF4D6A"
 
 
-_NUM_FONT = "'JetBrains Mono', 'IBM Plex Mono', 'SFMono-Regular', Consolas, monospace"
-_UI_FONT = "'Inter', 'Aptos', 'Segoe UI', Arial, sans-serif"
+_NUM_FONT = "'Inter', 'Aptos', 'Segoe UI', 'Roboto', 'Noto Sans', sans-serif"
+_UI_FONT = "'Inter', 'Aptos', 'Segoe UI', 'Roboto', 'Noto Sans', sans-serif"
 
 
 class MetricCard(QFrame):
@@ -50,8 +56,8 @@ class MetricCard(QFrame):
         super().__init__(parent)
         self.setObjectName("metricCard")
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 9, 12, 9)
-        layout.setSpacing(4)
+        layout.setContentsMargins(10, 7, 10, 7)
+        layout.setSpacing(3)
         self.label = QLabel(label.upper())
         self.label.setObjectName("metricLabel")
         self.value = QLabel("—")
@@ -73,11 +79,11 @@ class AllocationPanel(QFrame):
         super().__init__(parent)
         self.setObjectName("panel")
         self._rows = QVBoxLayout()
-        self._rows.setSpacing(8)
+        self._rows.setSpacing(6)
         self._rows.setContentsMargins(0, 0, 0, 0)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 10, 12, 12)
-        layout.setSpacing(9)
+        layout.setContentsMargins(10, 8, 10, 9)
+        layout.setSpacing(7)
         title_label = QLabel(title.upper())
         title_label.setObjectName("sectionTitle")
         layout.addWidget(title_label)
@@ -149,9 +155,11 @@ class PortfolioIntelligenceDialog(QDialog):
         self.analyzer = PortfolioAnalyzer(metadata_getter)
         self.report = PortfolioReport()
         self.share_mode = False
+        self._drag_offset = None
 
         self.setWindowTitle("Portfolio Intelligence")
         self.setMinimumSize(1080, 720)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
         self.resize(1320, 850)
         self.setModal(False)
         self._build_ui()
@@ -160,37 +168,55 @@ class PortfolioIntelligenceDialog(QDialog):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(14, 12, 14, 14)
-        root.setSpacing(10)
+        root.setContentsMargins(1, 1, 1, 1)
+        root.setSpacing(0)
 
-        header = QHBoxLayout()
-        title_box = QVBoxLayout()
-        title_box.setSpacing(2)
+        title_bar = QFrame()
+        title_bar.setObjectName("titleBar")
+        title_bar.setFixedHeight(32)
+        title_bar.setCursor(QCursor(Qt.CursorShape.SizeAllCursor))
+        title_bar.mousePressEvent = self._title_bar_press
+        title_bar.mouseMoveEvent = self._title_bar_move
+        title_bar.mouseReleaseEvent = self._title_bar_release
+        title_layout = QHBoxLayout(title_bar)
+        title_layout.setContentsMargins(10, 0, 6, 0)
+        title_layout.setSpacing(7)
         self.title_label = QLabel("PORTFOLIO INTELLIGENCE")
         self.title_label.setObjectName("title")
-        self.subtitle_label = QLabel("Preparing portfolio snapshot…")
+        self.subtitle_label = QLabel("ALLOCATION / PERFORMANCE / RISK")
         self.subtitle_label.setObjectName("subtitle")
-        title_box.addWidget(self.title_label)
-        title_box.addWidget(self.subtitle_label)
-        header.addLayout(title_box)
-        header.addStretch(1)
-        self.share_button = QPushButton("Share View")
+        title_layout.addWidget(self.title_label)
+        title_layout.addWidget(self.subtitle_label)
+        title_layout.addStretch(1)
+
+        self.share_button = QPushButton("SHARE VIEW")
+        self.share_button.setObjectName("shareButton")
         self.share_button.setCheckable(True)
+        self.share_button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.share_button.setToolTip("Hide private values for a screenshot-safe view")
         self.share_button.clicked.connect(self._toggle_share_mode)
-        self.copy_button = QPushButton("Copy PNG")
+        title_layout.addWidget(self.share_button)
+
+        self.copy_button = self._title_button("copy.svg", "Copy portfolio snapshot")
         self.copy_button.clicked.connect(self.copy_snapshot)
-        self.save_button = QPushButton("Save PNG")
+        self.save_button = self._title_button("snapshot.svg", "Save portfolio snapshot as PNG")
         self.save_button.clicked.connect(self.save_snapshot)
-        self.refresh_button = QPushButton("Refresh")
+        self.refresh_button = self._title_button("refresh.svg", "Refresh portfolio data")
         self.refresh_button.clicked.connect(self.refresh_data)
-        close_button = QPushButton("Close")
+        close_button = self._title_button("clear.svg", "Close", close=True)
         close_button.clicked.connect(self.close)
-        for button in (self.share_button, self.copy_button, self.save_button, self.refresh_button, close_button):
-            header.addWidget(button)
-        root.addLayout(header)
+        for button in (self.copy_button, self.save_button, self.refresh_button, close_button):
+            title_layout.addWidget(button)
+        root.addWidget(title_bar)
+
+        body = QWidget()
+        body.setObjectName("body")
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(8, 8, 8, 8)
+        body_layout.setSpacing(8)
 
         self.cards_layout = QGridLayout()
-        self.cards_layout.setSpacing(8)
+        self.cards_layout.setSpacing(6)
         self.cards = {
             "total": MetricCard("Total Value"),
             "invested": MetricCard("Invested"),
@@ -201,23 +227,23 @@ class PortfolioIntelligenceDialog(QDialog):
         }
         for index, card in enumerate(self.cards.values()):
             self.cards_layout.addWidget(card, 0, index)
-        root.addLayout(self.cards_layout)
+        body_layout.addLayout(self.cards_layout)
 
         analytics = QHBoxLayout()
-        analytics.setSpacing(8)
+        analytics.setSpacing(6)
         self.sector_panel = AllocationPanel("Sector Allocation")
         self.industry_panel = AllocationPanel("Industry Breakdown")
         self.quality_panel = self._build_quality_panel()
         analytics.addWidget(self.sector_panel, 2)
         analytics.addWidget(self.industry_panel, 2)
         analytics.addWidget(self.quality_panel, 1)
-        root.addLayout(analytics, 2)
+        body_layout.addLayout(analytics, 2)
 
         table_panel = QFrame()
         table_panel.setObjectName("panel")
         table_layout = QVBoxLayout(table_panel)
-        table_layout.setContentsMargins(10, 9, 10, 10)
-        table_layout.setSpacing(7)
+        table_layout.setContentsMargins(8, 7, 8, 8)
+        table_layout.setSpacing(6)
         table_header = QHBoxLayout()
         holdings_title = QLabel("HOLDINGS  ·  GROUPED BY SECTOR / INDUSTRY")
         holdings_title.setObjectName("sectionTitle")
@@ -228,28 +254,52 @@ class PortfolioIntelligenceDialog(QDialog):
         table_header.addWidget(self.warning_label)
         table_layout.addLayout(table_header)
         self.table = QTreeWidget()
-        self.table.setHeaderLabels(self.HEADERS)
+        self.table.setHeaderLabels([header.upper() for header in self.HEADERS])
         self.table.setRootIsDecorated(True)
         self.table.setAlternatingRowColors(True)
         self.table.setUniformRowHeights(True)
         self.table.setSelectionMode(QTreeWidget.SelectionMode.SingleSelection)
+        self.table.setAllColumnsShowFocus(True)
         self.table.itemDoubleClicked.connect(self._on_item_double_clicked)
         widths = [82, 180, 135, 170, 75, 70, 88, 110, 70, 70, 70, 70, 85, 95]
         for column, width in enumerate(widths):
             self.table.setColumnWidth(column, width)
         table_layout.addWidget(self.table)
-        root.addWidget(table_panel, 5)
+        body_layout.addWidget(table_panel, 5)
+        root.addWidget(body, 1)
 
+        footer = QFrame()
+        footer.setObjectName("footerBar")
+        footer.setFixedHeight(28)
+        footer_layout = QHBoxLayout(footer)
+        footer_layout.setContentsMargins(10, 0, 10, 0)
+        self.footer_status_label = QLabel("PORTFOLIO ANALYTICS")
+        self.footer_status_label.setObjectName("footerStatus")
         self.footer_label = QLabel("Generated by Swing Trader")
         self.footer_label.setObjectName("footer")
-        root.addWidget(self.footer_label, alignment=Qt.AlignmentFlag.AlignRight)
+        footer_layout.addWidget(self.footer_status_label)
+        footer_layout.addStretch(1)
+        footer_layout.addWidget(self.footer_label)
+        root.addWidget(footer)
+
+    @staticmethod
+    def _title_button(icon_name: str, tooltip: str, close: bool = False) -> QToolButton:
+        button = QToolButton()
+        button.setObjectName("closeButton" if close else "titleButton")
+        button.setIcon(QIcon(resource_path(f"assets/icons/{icon_name}")))
+        button.setIconSize(QSize(13, 13))
+        button.setFixedSize(22, 20)
+        button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        button.setToolTip(tooltip)
+        button.setAccessibleName(tooltip)
+        return button
 
     def _build_quality_panel(self) -> QFrame:
         panel = QFrame()
         panel.setObjectName("panel")
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(12, 10, 12, 12)
-        layout.setSpacing(7)
+        layout.setContentsMargins(10, 8, 10, 9)
+        layout.setSpacing(6)
         title = QLabel("DATA QUALITY")
         title.setObjectName("sectionTitle")
         layout.addWidget(title)
@@ -269,6 +319,20 @@ class PortfolioIntelligenceDialog(QDialog):
         layout.addStretch(1)
         return panel
 
+    def _title_bar_press(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            event.accept()
+
+    def _title_bar_move(self, event: QMouseEvent) -> None:
+        if self._drag_offset is not None and event.buttons() & Qt.MouseButton.LeftButton:
+            self.move(event.globalPosition().toPoint() - self._drag_offset)
+            event.accept()
+
+    def _title_bar_release(self, event: QMouseEvent) -> None:
+        self._drag_offset = None
+        event.accept()
+
     def refresh_data(self) -> None:
         try:
             positions = list(self.position_provider() or [])
@@ -284,10 +348,6 @@ class PortfolioIntelligenceDialog(QDialog):
         report = self.report
         count = len(report.holdings)
         timestamp = report.updated_at.astimezone().strftime("%I:%M %p").lstrip("0")
-        self.subtitle_label.setText(
-            f"{count} holding{'s' if count != 1 else ''}  ·  {len(report.sectors)} sectors  ·  "
-            f"{len(report.industries)} industries  ·  Updated {timestamp}"
-        )
         self.title_label.setText("PORTFOLIO SNAPSHOT" if self.share_mode else "PORTFOLIO INTELLIGENCE")
         self._render_cards()
         self.sector_panel.set_groups(report.sectors)
@@ -295,6 +355,9 @@ class PortfolioIntelligenceDialog(QDialog):
         self._render_quality()
         self._render_table()
         local_date = report.updated_at.astimezone()
+        self.footer_status_label.setText(
+            f"{count} HOLDING{'S' if count != 1 else ''}  ·  {len(report.sectors)} SECTORS  ·  UPDATED {timestamp}  ·  DOUBLE-CLICK TICKER TO OPEN CHART"
+        )
         self.footer_label.setText(f"Generated by Swing Trader  ·  {local_date.strftime('%B')} {local_date.day}, {local_date.year}")
 
     def _render_cards(self) -> None:
@@ -370,6 +433,8 @@ class PortfolioIntelligenceDialog(QDialog):
                     item.setData(0, Qt.ItemDataRole.UserRole, holding.ticker)
                     item.setForeground(0, QColor(C.TEXT))
                     item.setFont(0, _bold_font())
+                    for column in range(4, len(self.HEADERS)):
+                        item.setTextAlignment(column, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                     for column, value in ((8, holding.day_change_pct), (9, holding.weekly_pct), (10, holding.monthly_pct), (11, holding.three_month_pct), (12, holding.unrealized_pnl_pct), (13, holding.unrealized_pnl)):
                         item.setForeground(column, QColor(_tone(value)))
                     industry_item.addChild(item)
@@ -396,7 +461,7 @@ class PortfolioIntelligenceDialog(QDialog):
 
     def _toggle_share_mode(self, checked: bool) -> None:
         self.share_mode = checked
-        self.share_button.setText("Private View" if checked else "Share View")
+        self.share_button.setText("PRIVATE VIEW" if checked else "SHARE VIEW")
         self._render()
 
     def _on_item_double_clicked(self, item: QTreeWidgetItem, _column: int) -> None:
@@ -416,26 +481,38 @@ class PortfolioIntelligenceDialog(QDialog):
 
     def _apply_styles(self) -> None:
         self.setStyleSheet(f"""
-            QDialog {{ background: {C.BG}; color: {C.TEXT}; font-family: {_UI_FONT}; }}
-            QLabel#title {{ color: {C.TEXT}; font-size: 17px; font-weight: 700; letter-spacing: 1px; }}
-            QLabel#subtitle, QLabel#footer {{ color: {C.MUTED}; font-size: 11px; }}
-            QFrame#metricCard, QFrame#panel {{ background: {C.CARD}; border: 1px solid {C.BORDER}; border-radius: 4px; }}
-            QLabel#metricLabel, QLabel#sectionTitle {{ color: {C.MUTED}; font-size: 10px; font-weight: 700; letter-spacing: 1px; }}
-            QLabel#metricValue {{ color: {C.TEXT}; font-family: {_NUM_FONT}; font-size: 16px; font-weight: 600; }}
+            QDialog {{ background: {C.BG}; color: {C.TEXT}; border: 1px solid {C.BORDER}; font-family: {_UI_FONT}; }}
+            QWidget#body {{ background: {C.WINDOW}; }}
+            QFrame#titleBar, QFrame#footerBar {{ background: {C.TITLEBAR}; border: 0; }}
+            QFrame#titleBar {{ border-bottom: 1px solid {C.BORDER}; }}
+            QFrame#footerBar {{ border-top: 1px solid {C.BORDER}; }}
+            QLabel#title {{ color: {C.TEXT}; font-size: 12px; font-weight: 800; letter-spacing: 0.7px; }}
+            QLabel#subtitle, QLabel#footer, QLabel#footerStatus {{ color: {C.MUTED}; font-size: 10px; font-weight: 600; }}
+            QFrame#metricCard, QFrame#panel {{ background: {C.PANEL}; border: 1px solid {C.BORDER}; border-radius: 2px; }}
+            QLabel#metricLabel, QLabel#sectionTitle {{ color: {C.MUTED}; font-size: 10px; font-weight: 800; letter-spacing: 0.7px; }}
+            QLabel#metricValue {{ color: {C.TEXT}; font-family: {_NUM_FONT}; font-size: 15px; font-weight: 600; }}
             QLabel#metricDetail, QLabel#mutedText {{ color: {C.MUTED}; font-size: 10px; }}
-            QLabel#allocationName {{ color: {C.SOFT}; font-size: 11px; }}
-            QLabel#allocationValue, QLabel#qualityText {{ color: {C.TEXT}; font-family: {_NUM_FONT}; font-size: 11px; }}
-            QLabel#score {{ color: {C.CYAN}; font-family: {_NUM_FONT}; font-size: 22px; font-weight: 700; }}
-            QLabel#warning {{ color: {C.AMBER}; font-size: 10px; }}
-            QPushButton {{ background: {C.CARD}; border: 1px solid {C.BORDER}; color: {C.SOFT}; padding: 6px 11px; border-radius: 3px; }}
-            QPushButton:hover {{ background: {C.CARD_HOVER}; border-color: {C.CYAN}; color: {C.TEXT}; }}
-            QPushButton:checked {{ background: #0B2028; border-color: {C.CYAN}; color: {C.CYAN}; }}
-            QProgressBar {{ background: #18212C; border: 0; border-radius: 2px; }}
+            QLabel#allocationName {{ color: {C.SOFT}; font-size: 11px; font-weight: 600; }}
+            QLabel#allocationValue, QLabel#qualityText {{ color: {C.TEXT}; font-family: {_NUM_FONT}; font-size: 11px; font-weight: 600; }}
+            QLabel#score {{ color: {C.CYAN}; font-family: {_NUM_FONT}; font-size: 20px; font-weight: 700; }}
+            QLabel#warning {{ color: {C.AMBER}; font-size: 10px; font-weight: 600; }}
+            QPushButton#shareButton {{ background: {C.PANEL}; border: 1px solid {C.BORDER}; color: {C.SOFT}; padding: 3px 8px; border-radius: 2px; font-size: 10px; font-weight: 700; }}
+            QPushButton#shareButton:hover {{ background: {C.SECTION}; border-color: {C.BORDER_HI}; color: {C.TEXT}; }}
+            QPushButton#shareButton:checked {{ background: {C.SELECTION}; border-color: {C.CYAN}; color: {C.CYAN}; }}
+            QToolButton#titleButton, QToolButton#closeButton {{ background: transparent; border: 1px solid transparent; border-radius: 2px; padding: 2px; }}
+            QToolButton#titleButton:hover {{ background: {C.SECTION}; border-color: {C.BORDER_HI}; }}
+            QToolButton#closeButton:hover {{ background: {C.RED}; border-color: {C.RED}; }}
+            QProgressBar {{ background: {C.SECTION}; border: 0; border-radius: 2px; }}
             QProgressBar::chunk {{ background: {C.CYAN}; border-radius: 2px; }}
-            QTreeWidget {{ background: {C.PANEL}; alternate-background-color: #0C1015; border: 1px solid {C.BORDER}; color: {C.SOFT}; outline: 0; font-size: 11px; }}
-            QTreeWidget::item {{ height: 22px; border-bottom: 1px solid #111922; }}
-            QTreeWidget::item:selected {{ background: #102631; color: {C.TEXT}; }}
-            QHeaderView::section {{ background: #0B0F14; color: {C.MUTED}; border: 0; border-right: 1px solid {C.BORDER}; border-bottom: 1px solid {C.BORDER}; padding: 5px; font-size: 10px; font-weight: 700; }}
+            QTreeWidget {{ background: {C.PANEL}; alternate-background-color: {C.WINDOW}; border: 1px solid {C.BORDER}; color: {C.SOFT}; outline: 0; font-family: {_UI_FONT}; font-size: 11px; }}
+            QTreeWidget:focus {{ border-color: {C.BORDER_HI}; }}
+            QTreeWidget::item {{ height: 24px; border-bottom: 1px solid {C.BORDER}; }}
+            QTreeWidget::item:hover {{ background: {C.SECTION}; color: {C.TEXT}; }}
+            QTreeWidget::item:selected {{ background: {C.SELECTION}; color: {C.TEXT}; }}
+            QHeaderView::section {{ background: {C.TITLEBAR}; color: {C.MUTED}; border: 0; border-right: 1px solid {C.BORDER}; border-bottom: 1px solid {C.BORDER}; padding: 4px 5px; font-size: 10px; font-weight: 800; }}
+            QScrollBar:vertical {{ background: {C.WINDOW}; width: 9px; margin: 0; }}
+            QScrollBar::handle:vertical {{ background: {C.BORDER_HI}; min-height: 24px; border-radius: 2px; }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
         """)
 
 
