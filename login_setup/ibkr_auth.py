@@ -25,7 +25,6 @@ except ImportError:
     IBKR_AVAILABLE = False
     IB = None
 
-from login_setup.broker_modes import TradingMode
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +39,6 @@ class IBKRConnectionParams:
     port: int = 7496
     client_id: int = 1
     timeout: float = 30.0
-    trading_mode: TradingMode = TradingMode.PAPER
     fallback_hosts: List[str] = field(default_factory=lambda: ["127.0.0.1", "::1"])
 
     def candidate_hosts(self) -> List[str]:
@@ -272,7 +270,6 @@ class IBKRAuth(QObject):
 
     def connect_to_tws(
         self,
-        trading_mode: TradingMode,
         host: str,
         port: int,
         client_id: int,
@@ -288,7 +285,6 @@ class IBKRAuth(QObject):
             host=host,
             port=port,
             client_id=client_id,
-            trading_mode=trading_mode,
         )
 
         self.worker = IBKRConnectionWorker(params)

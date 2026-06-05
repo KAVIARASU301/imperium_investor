@@ -481,12 +481,13 @@ class BrokerFactory:
         Returns:
             BrokerClientInterface: Wrapped client implementing common interface
         """
-        logger.info(f"Creating {broker_mode.value} client for {trading_mode.value} trading")
+        effective_trading_mode = TradingMode.LIVE if broker_mode == BrokerMode.AMERICA else trading_mode
+        logger.info(f"Creating {broker_mode.value} client for {effective_trading_mode.value} trading")
 
         if broker_mode == BrokerMode.INDIA:
-            return BrokerFactory._create_kite_client(trading_mode, authentication_data)
+            return BrokerFactory._create_kite_client(effective_trading_mode, authentication_data)
         elif broker_mode == BrokerMode.AMERICA:
-            return BrokerFactory._create_ibkr_client(trading_mode, authentication_data)
+            return BrokerFactory._create_ibkr_client(effective_trading_mode, authentication_data)
         else:
             raise ValueError(f"Unsupported broker mode: {broker_mode}")
 
@@ -552,7 +553,7 @@ class BrokerFactory:
             # Extract connection information for enhanced wrapper
             connection_info = {
                 'client_id': auth_data.get('client_id'),
-                'trading_mode': trading_mode.value,
+                'trading_mode': TradingMode.LIVE.value,
                 'broker_mode': BrokerMode.AMERICA.value
             }
 
@@ -609,9 +610,10 @@ class BrokerFactory:
                 raise
 
         elif broker_mode == BrokerMode.AMERICA:
-            # For IBKR, use the same client for data
+            # For IBKR, use the same client for data; Gateway/TWS determines the real account type.
             ib_client = authentication_data.get('ib_client')
-            connection_info = authentication_data.get('connection_details', {})
+            connection_info = dict(authentication_data.get('connection_details', {}))
+            connection_info['trading_mode'] = TradingMode.LIVE.value
             return IBKRClientWrapper(ib_client, connection_info)
 
     @staticmethod
@@ -688,7 +690,7 @@ class BrokerFactory:
                 'currency_symbol': '$',
                 'real_time_data': True,
                 'historical_data': True,
-                'paper_trading': True,
+                'paper_trading': False,
                 'auto_reconnect': True,
                 'session_duration': 'persistent',
                 'timezone': 'America/New_York',

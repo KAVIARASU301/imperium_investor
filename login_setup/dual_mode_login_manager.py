@@ -368,6 +368,9 @@ class DualModeLoginManager(QDialog):
             return default
 
     def _preferred_trading_mode_for_broker(self, broker_mode: BrokerMode) -> TradingMode:
+        if broker_mode == BrokerMode.AMERICA:
+            return TradingMode.LIVE
+
         broker_pref = self._broker_preferences.get(broker_mode, {})
         return self._coerce_trading_mode(
             broker_pref.get("trading_mode") or self._global_preferences.get("last_trading_mode"),
@@ -384,22 +387,28 @@ class DualModeLoginManager(QDialog):
         if hasattr(self, "paper_radio") and hasattr(self, "live_radio"):
             self._set_trading_mode_radio(self._preferred_trading_mode_for_broker(broker_mode))
 
+        if hasattr(self, "mode_frame"):
+            self.mode_frame.setVisible(broker_mode == BrokerMode.INDIA)
+
     def _remember_mode_selection(self):
         if not self.selected_broker or not self.selected_trading_mode:
             return
 
         global_settings = dict(self._global_preferences)
-        global_settings.update({
-            "last_broker_mode": self.selected_broker.value,
-            "last_trading_mode": self.selected_trading_mode.value,
-        })
+        global_settings["last_broker_mode"] = self.selected_broker.value
+        if self.selected_broker == BrokerMode.INDIA:
+            global_settings["last_trading_mode"] = self.selected_trading_mode.value
         if self.token_manager.save_global_settings(global_settings):
             self._global_preferences = global_settings
 
         broker_pref = dict(self._broker_preferences.get(self.selected_broker, {}))
-        broker_pref["trading_mode"] = self.selected_trading_mode.value
-        if self.token_manager.save_broker_preferences(self.selected_broker, broker_pref):
-            self._broker_preferences[self.selected_broker] = broker_pref
+        if self.selected_broker == BrokerMode.INDIA:
+            broker_pref["trading_mode"] = self.selected_trading_mode.value
+            if self.token_manager.save_broker_preferences(self.selected_broker, broker_pref):
+                self._broker_preferences[self.selected_broker] = broker_pref
+        elif broker_pref.pop("trading_mode", None) is not None:
+            if self.token_manager.save_broker_preferences(self.selected_broker, broker_pref):
+                self._broker_preferences[self.selected_broker] = broker_pref
 
     def _remember_ibkr_login_options(self):
         if not hasattr(self, "ibkr_host_combo"):
@@ -407,8 +416,8 @@ class DualModeLoginManager(QDialog):
 
         market_data_type = "delayed" if self.ibkr_delayed_data_radio.isChecked() else "live"
         broker_pref = dict(self._broker_preferences.get(BrokerMode.AMERICA, {}))
+        broker_pref.pop("trading_mode", None)
         broker_pref.update({
-            "trading_mode": (self.selected_trading_mode or TradingMode.PAPER).value,
             "tws_host": self.ibkr_host_combo.currentText().strip() or "127.0.0.1",
             "tws_port": self.ibkr_port_input.value(),
             "tws_client_id": self.ibkr_client_id_input.value(),
@@ -624,7 +633,7 @@ class DualModeLoginManager(QDialog):
         self.broker_group.addButton(self.india_radio)
         self.broker_group.addButton(self.america_radio)
 
-        mode_frame = self._create_trading_mode_selector()
+        self.mode_frame = self._create_trading_mode_selector()
 
         preferred_broker = self._coerce_broker_mode(self._global_preferences.get("last_broker_mode"))
         preferred_radio = self.india_radio if preferred_broker == BrokerMode.INDIA else self.america_radio
@@ -642,7 +651,7 @@ class DualModeLoginManager(QDialog):
 
         selection_layout.addWidget(self.session_hint_label)
         selection_layout.addLayout(broker_layout)
-        selection_layout.addWidget(mode_frame)
+        selection_layout.addWidget(self.mode_frame)
 
         layout.addStretch(1)
         layout.addLayout(selection_layout)
@@ -747,7 +756,10 @@ class DualModeLoginManager(QDialog):
                 QMessageBox.warning(self, "Selection Required", "Please select a broker.")
                 return
 
-            self.selected_trading_mode = TradingMode.LIVE if self.live_radio.isChecked() else TradingMode.PAPER
+            if self.selected_broker == BrokerMode.AMERICA:
+                self.selected_trading_mode = TradingMode.LIVE
+            else:
+                self.selected_trading_mode = TradingMode.LIVE if self.live_radio.isChecked() else TradingMode.PAPER
             self._remember_mode_selection()
 
             if self.selected_broker == BrokerMode.INDIA:
@@ -1286,10 +1298,7 @@ class DualModeLoginManager(QDialog):
         return frame
 
     def _connect_to_ibkr(self):
-        if self.selected_trading_mode is None:
-            QMessageBox.warning(self, "Selection Required", "Please choose a trading mode first.")
-            self.stacked_widget.setCurrentIndex(1)
-            return
+        self.selected_trading_mode = TradingMode.LIVE
 
         host = self.ibkr_host_combo.currentText().strip()
         if not host:
@@ -1308,7 +1317,6 @@ class DualModeLoginManager(QDialog):
             f"Market data: {self.selected_ibkr_market_data_type.upper()} (no automatic fallback)"
         )
         self.ibkr_auth.connect_to_tws(
-            trading_mode=self.selected_trading_mode,
             host=host,
             port=port,
             client_id=client_id
@@ -1338,7 +1346,7 @@ class DualModeLoginManager(QDialog):
         os.environ["IBKR_MARKET_DATA_FALLBACK_DELAYED"] = "0"
         self.authentication_data = {
             "broker_mode": BrokerMode.AMERICA,
-            "trading_mode": self.selected_trading_mode,
+            "trading_mode": TradingMode.LIVE,
             "ib_client": ib_client,
             "client_id": client_id,
             "port": port,

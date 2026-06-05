@@ -342,7 +342,6 @@ class EnhancedTokenManager:
             BrokerMode.AMERICA: {
                 'remember_credentials': True,
                 'auto_connect': True,
-                'trading_mode': TradingMode.PAPER.value,
                 'default_exchange': 'SMART',
                 'tws_host': '127.0.0.1',
                 'tws_port': 7496,

@@ -11,7 +11,7 @@ import re
 import time
 from collections import deque
 from datetime import datetime, timedelta
-from typing import List, Dict, Union, Any, Optional
+from typing import List, Dict, Any, Optional
 
 from PySide6.QtCore import Qt, QByteArray, QTimer, Slot, Signal, QEvent, QProcess, QSize
 from PySide6.QtWidgets import QMainWindow, QSplitter, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, \
@@ -55,11 +55,6 @@ from ibkr.core.stop_loss_manager import StopLossManager
 from ibkr.core.shutdown_manager import CleanShutdownMixin
 
 from ibkr.core.market_data_worker import MarketDataWorker
-from ibkr.utils.paper_trading_manager import (
-    PaperTradingManager,
-    PaperTradingMixin,
-    integrate_paper_trading,
-)
 from ibkr.utils.config_manager import ConfigManager
 from ibkr.core.trade_logger import TradeLogger
 try:
@@ -90,7 +85,7 @@ _RIGHT_PANEL_DEFAULT_WIDTH = 320
 
 
 
-class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
+class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
     """
     SIMPLIFIED Main Window with subtle bottom status bar:
     - Simple Position Manager (only works when tracking orders)
@@ -100,22 +95,11 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
     """
     trade_completed = Signal()
 
-    def _get_paper_trading_manager(self) -> Optional[PaperTradingManager]:
-        """Return the underlying paper trading manager, even when wrapped."""
-        if isinstance(self.trader, PaperTradingManager):
-            return self.trader
-
-        wrapped_client = getattr(self.trader, 'client', None)
-        if isinstance(wrapped_client, PaperTradingManager):
-            return wrapped_client
-
-        return None
-
     # ==============================================================================
     # INITIALIZATION AND SETUP
     # ==============================================================================
 
-    def __init__(self, trader: Union[IB, PaperTradingManager], real_kite_client: IB,
+    def __init__(self, trader: IB, real_kite_client: IB,
                  api_key: str, access_token: str):
         super().__init__()
 
@@ -129,8 +113,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.color_theme_manager = get_color_theme_manager()
         theme_dual_mode = bool(self.color_theme_manager.get_theme().get('dual_chart_mode', False))
         self.dual_chart_mode_enabled = bool(self.app_settings.get('dual_chart_mode', theme_dual_mode))
-        paper_trader = self._get_paper_trading_manager()
-        self.trading_mode = 'paper' if paper_trader else 'live'
+        self.trading_mode = 'live'
         self.trade_logger = TradeLogger(
             mode=self.trading_mode,
         )
@@ -168,10 +151,6 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self._subscribed_tokens = set()
         self._ibkr_symbol_resolver: Optional[IBKRSymbolResolver] = None
 
-        if paper_trader:
-            paper_trader.set_trade_logger(self.trade_logger)
-            paper_trader.set_main_window(self)
-            integrate_paper_trading(self, paper_trader)
 
         self.setWindowTitle("Swing Trader")
 
@@ -318,9 +297,8 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.top_bar = self._create_top_bar()
         main_layout.addWidget(self.top_bar)
 
-        # Header toolbar dedicated to trading actions
-        # Use the raw Kite client for live data, but keep the paper trader for paper mode
-        toolbar_client = self.trader if self.trading_mode == 'paper' else self.real_kite_client
+        # Header toolbar dedicated to trading actions.
+        toolbar_client = self.real_kite_client
         self.header_toolbar = HeaderToolbar(toolbar_client, self, enable_account_polling=False)
         if self.real_kite_client and hasattr(self.real_kite_client, "reqMatchingSymbols"):
             self._ibkr_symbol_resolver = IBKRSymbolResolver(self.real_kite_client, parent=self)
@@ -2081,10 +2059,6 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         self.watchlist.set_instrument_map(self.instrument_map)
         self.finviz_scanner.set_instrument_map(self.instrument_map)
 
-        paper_trader = self._get_paper_trading_manager()
-        if paper_trader:
-            paper_trader.set_instrument_map(self.instrument_map)
-            logger.info("Paper trader instrument map updated")
         if self.alert_system:
             self.alert_system.set_instrument_map(self.instrument_map)
 
@@ -2299,12 +2273,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
                 if self.floating_positions_dialog and self.floating_positions_dialog.isVisible():
                     self.floating_positions_dialog.update_market_data(int(token), float(ltp))
 
-        # 3. Paper trader (only in paper mode, lightweight)
-        paper_trader = self._get_paper_trading_manager()
-        if paper_trader:
-            paper_trader.update_market_data(ticks)
-
-        # 4. Alert engine
+        # 3. Alert engine
         if self.alert_system:
             self.alert_system.update_market_data(ticks)
 
@@ -2573,29 +2542,6 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             return clean_symbol
         return None
 
-    def _get_pending_paper_order_subscription_items(self) -> List[Any]:
-        """Return market-data subscription items for active pending paper orders."""
-        paper_trader = self._get_paper_trading_manager()
-        if not paper_trader:
-            return []
-
-        items: List[Any] = []
-        try:
-            for order in paper_trader.orders() or []:
-                if str(order.get("status", "")).upper() != "PENDING_EXECUTION":
-                    continue
-                symbol = str(order.get("tradingsymbol") or order.get("symbol") or "").strip().upper()
-                if not symbol:
-                    continue
-                item = self._build_subscription_item(symbol)
-                if item is not None:
-                    items.append(item)
-        except Exception as exc:
-            logger.warning(f"Failed to collect pending paper-order subscriptions: {exc}")
-            return []
-
-        return items
-
     def _get_scanner_visible_subscription_items(self) -> List[Any]:
         """Return subscription items for visible scanner rows, including raw symbols without conIds."""
         if not hasattr(self, 'finviz_scanner'):
@@ -2633,15 +2579,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             if item is not None:
                 add_subscription_item(item)
 
-        # Priority 0: Pending paper-order symbols (must stay subscribed so
-        # trigger/limit orders continue evaluating even when chart focus changes).
-        paper_pending_items = self._get_pending_paper_order_subscription_items()
-        for item in paper_pending_items:
-            add_subscription_item(item)
-        if paper_pending_items:
-            logger.info(f"Added {len(paper_pending_items)} pending paper-order symbols")
-
-        # Priority 1: Position tokens
+        # Priority 0: Position tokens
         if hasattr(self, 'positions_table') and self.positions_table.positions_data:
             position_count = 0
             for pos in self.positions_table.positions_data.values():
@@ -2733,30 +2671,6 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         if not hasattr(self, 'finviz_scanner'):
             return []
         return self.finviz_scanner.get_visible_tokens()
-
-    def _get_pending_paper_order_tokens(self) -> List[int]:
-        """Return instrument tokens for active pending paper orders."""
-        paper_trader = self._get_paper_trading_manager()
-        if not paper_trader:
-            return []
-
-        tokens = set()
-        try:
-            for order in paper_trader.orders() or []:
-                if str(order.get("status", "")).upper() != "PENDING_EXECUTION":
-                    continue
-                symbol = str(order.get("tradingsymbol", "")).strip().upper()
-                if not symbol:
-                    continue
-                instrument = self.instrument_map.get(symbol) or {}
-                token = instrument.get("instrument_token")
-                if token:
-                    tokens.add(int(token))
-        except Exception as exc:
-            logger.warning(f"Failed to collect pending paper-order tokens: {exc}")
-            return []
-
-        return list(tokens)
 
     @Slot(list)
     def _subscribe_to_tokens(self, tokens: List[Any]):
@@ -3105,7 +3019,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
 
         Flow:
           1. Validate
-          2. Submit to broker (live or paper)
+          2. Submit to the connected IBKR session
           3. On success → status bar + start tracking
           4. On failure → status bar with reason (no popup)
         """
@@ -3223,7 +3137,7 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
         return str(order_response).strip(), {}
 
     def _ensure_symbol_subscription_for_order(self, symbol: str) -> None:
-        """Subscribe order symbol immediately so paper/live flows get fresh ticks."""
+        """Subscribe order symbol immediately so live orders get fresh ticks."""
         symbol = (symbol or "").strip().upper()
         if not symbol or symbol not in self.instrument_map:
             return
