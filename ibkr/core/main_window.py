@@ -1058,19 +1058,10 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
             logger.error("IB still not connected after retry")
 
     def _connect_position_worker_signals(self):
-        """Wire IBKR worker position/order events into the table reconciliation path."""
+        """Wire only market-data worker connection events; orders come from trader polling."""
         worker = getattr(self, "market_data_worker", None)
         if not worker or getattr(worker, "_positions_sync_connected", False):
             return
-        try:
-            worker.order_update.connect(self.position_manager.on_ws_order_update)
-        except Exception:
-            logger.debug("IBKR order update signal was already connected", exc_info=True)
-        if hasattr(worker, "position_update"):
-            try:
-                worker.position_update.connect(self.position_manager.on_ws_position_update)
-            except Exception:
-                logger.debug("IBKR position update signal was already connected", exc_info=True)
         try:
             worker.connection_established.connect(self.position_manager.on_ws_connected)
             worker.connection_closed.connect(self.position_manager.on_ws_disconnected)
@@ -1936,13 +1927,11 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
 
 
     def _connect_ibkr_order_lifecycle_signals(self) -> None:
-        """Wire IBKR API order/position events into immediate UI refreshes."""
+        """Single source of truth: trader emits, position manager reacts."""
         try:
             if hasattr(self.trader, "order_status_updated"):
                 self.trader.order_status_updated.connect(self.position_manager.on_ws_order_update)
                 self.trader.order_status_updated.connect(self._on_ibkr_order_status_update)
-            if hasattr(self.trader, "position_updated"):
-                self.trader.position_updated.connect(self.position_manager.on_ws_position_update)
             if hasattr(self.trader, "connection_status_changed"):
                 self.trader.connection_status_changed.connect(self._on_ibkr_connection_status_changed)
             logger.info("IBKR order lifecycle signals connected")
@@ -3047,16 +3036,10 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
         return message
 
     def _handle_order_placement(self, order_data: Dict[str, Any]):
-        """
-        Entry order placement handler.
-        Called via OrderDialog.order_placed signal for BUY (and short-SELL) entries.
-
-        Flow:
-          1. Validate
-          2. Submit to the connected IBKR session
-          3. On success → status bar + start tracking
-          4. On failure → status bar with reason (no popup)
-        """
+        """Submit entry orders and let IBKRTradingClient polling drive lifecycle updates."""
+        symbol = order_data.get("tradingsymbol", "")
+        tx_type = order_data.get("transaction_type", "BUY")
+        qty = order_data.get("quantity", 0)
         try:
             logger.info(f"[ENTRY] Placing order: {order_data}")
 
@@ -3064,9 +3047,6 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
                 show_error("Order validation failed — check qty/price")
                 return
 
-            symbol = order_data.get("tradingsymbol", "")
-            tx_type = order_data.get("transaction_type", "BUY")
-            qty = order_data.get("quantity", 0)
             self._ensure_symbol_subscription_for_order(symbol)
             status.set_message(
                 f"Submitting {tx_type} {qty} {symbol}…", 3000, level="action"
@@ -3079,26 +3059,17 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
                 order_data.update(broker_order)
                 order_data["order_id"] = order_id
                 order_data["status"] = str(broker_order.get("status") or "ROUTED").upper()
-
-                status.notify("submitted", symbol)
                 self.position_manager.start_tracking_order(order_id, order_data)
-                self.position_manager.on_ws_order_update(order_data)
-                self.position_manager.fetch_positions_from_kite("entry_order_submitted")
-                if self.pending_orders_dialog is not None and self.pending_orders_dialog.isVisible():
-                    self.pending_orders_dialog.refresh_orders()
-                self.account_manager.refresh_margins(force=True)
-                QTimer.singleShot(2000, lambda: self.account_manager.refresh_margins(force=True))
                 self._log_order_placement_immediate(order_data, order_id)
+                QTimer.singleShot(3000, lambda: self.account_manager.refresh_margins(force=True))
                 logger.info(f"[ENTRY] Order accepted by broker: {broker_order or order_id}")
             else:
-                reason = broker_order.get("error") or broker_order.get("status_message") or "no order ID returned"
+                reason = broker_order.get("error") or broker_order.get("status_message") or "no order ID"
                 show_order_failed(f"{symbol} — {reason}")
                 logger.warning(f"[ENTRY] Broker returned no order_id for {symbol}: {broker_order or order_response}")
 
         except Exception as e:
-            symbol = order_data.get("tradingsymbol", "?")
-            compact_error = self._compact_broker_error(e)
-            status.notify("rejected", symbol, compact_error)
+            show_order_failed(f"{symbol} — {self._compact_broker_error(e)}")
             logger.error(f"[ENTRY] Order placement exception: {e}", exc_info=True)
 
     def _handle_exit_order_placement(self, order_data: Dict[str, Any]):
@@ -3138,12 +3109,9 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
 
                 status.notify("submitted", symbol)
                 self.position_manager.start_tracking_order(order_id, order_data)
-                self.position_manager.on_ws_order_update(order_data)
-                self.position_manager.fetch_positions_from_kite("exit_order_submitted")
                 if self.pending_orders_dialog is not None and self.pending_orders_dialog.isVisible():
                     self.pending_orders_dialog.refresh_orders()
-                self.account_manager.refresh_margins(force=True)
-                QTimer.singleShot(2000, lambda: self.account_manager.refresh_margins(force=True))
+                QTimer.singleShot(3000, lambda: self.account_manager.refresh_margins(force=True))
                 self._log_order_placement_immediate(order_data, order_id)
                 logger.info(f"[EXIT] Exit order accepted: {broker_order or order_id}")
             else:

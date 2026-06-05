@@ -98,8 +98,6 @@ class MarketDataWorker(QThread):
     connection_error = Signal(str)
     connection_established = Signal()
     connection_closed = Signal()
-    order_update = Signal(dict)
-    position_update = Signal(dict)
     market_data_type_changed = Signal(str, bool)
 
     def __init__(self, ib_client: IB):
@@ -261,15 +259,6 @@ class MarketDataWorker(QThread):
         except Exception:
             logger.debug("Could not attach IBKR errorEvent", exc_info=True)
         try:
-            self.ib.orderStatusEvent += self._on_order_status
-        except Exception:
-            logger.debug("Could not attach IBKR orderStatusEvent", exc_info=True)
-        try:
-            self.ib.positionEvent += self._on_position_update
-        except Exception:
-            logger.debug("Could not attach IBKR positionEvent", exc_info=True)
-
-        try:
             while self._is_running and self.ib.isConnected():
                 self._drain_commands(max_commands=25)
                 self._maybe_retry_live_market_data()
@@ -285,14 +274,6 @@ class MarketDataWorker(QThread):
                 pass
             try:
                 self.ib.errorEvent -= self._on_ib_error
-            except Exception:
-                pass
-            try:
-                self.ib.orderStatusEvent -= self._on_order_status
-            except Exception:
-                pass
-            try:
-                self.ib.positionEvent -= self._on_position_update
             except Exception:
                 pass
             if self._owns_ib_connection and self.ib and self.ib.isConnected():
@@ -968,37 +949,3 @@ class MarketDataWorker(QThread):
 
         if 10000 <= int(error_code) < 11000 or int(error_code) in {200, 300, 321, 322}:
             logger.warning("IBKR API error for %s: %s (%s)", label, error_string, error_code)
-
-    def _on_order_status(self, trade: Any) -> None:
-        try:
-            order = getattr(trade, "order", None)
-            status = getattr(trade, "orderStatus", None)
-            contract = getattr(trade, "contract", None)
-            self.order_update.emit({
-                "order_id": str(getattr(order, "orderId", "") or getattr(order, "permId", "")),
-                "tradingsymbol": getattr(contract, "symbol", ""),
-                "symbol": getattr(contract, "symbol", ""),
-                "transaction_type": getattr(order, "action", ""),
-                "quantity": int(_clean_float(getattr(order, "totalQuantity", 0), 0.0)),
-                "status": str(getattr(status, "status", "UNKNOWN") or "UNKNOWN").upper(),
-                "filled_quantity": int(_clean_float(getattr(status, "filled", 0), 0.0)),
-                "average_price": _clean_float(getattr(status, "avgFillPrice", 0.0), 0.0),
-            })
-        except Exception:
-            logger.debug("Failed to emit order status update", exc_info=True)
-
-    def _on_position_update(self, position: Any) -> None:
-        try:
-            contract = getattr(position, "contract", None)
-            self.position_update.emit({
-                "tradingsymbol": getattr(contract, "symbol", ""),
-                "symbol": getattr(contract, "symbol", ""),
-                "instrument_token": int(getattr(contract, "conId", 0) or 0),
-                "conId": int(getattr(contract, "conId", 0) or 0),
-                "quantity": int(_clean_float(getattr(position, "position", 0), 0.0)),
-                "average_price": _clean_float(getattr(position, "avgCost", 0.0), 0.0),
-                "avg_price": _clean_float(getattr(position, "avgCost", 0.0), 0.0),
-                "product": getattr(contract, "secType", "IBKR") if contract is not None else "IBKR",
-            })
-        except Exception:
-            logger.debug("Failed to emit position update", exc_info=True)

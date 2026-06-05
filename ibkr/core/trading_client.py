@@ -11,16 +11,18 @@ Main integration fixes:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from PySide6.QtCore import QObject, Signal, QTimer
+from PySide6.QtCore import QObject, Signal, QThreadPool, QTimer
 
 from ibkr.utils.account_display import extract_account_display_name
 from ibkr.utils.ibkr_price import first_positive_ibkr_price, safe_ibkr_price
 from ibkr.utils.market_time import market_isoformat
+from ibkr.utils.worker import Worker
 
 try:
     from ib_insync import IB, Contract, Stock, MarketOrder, LimitOrder, StopOrder, StopLimitOrder, Trade, Position, Ticker
@@ -38,6 +40,17 @@ except Exception:  # pragma: no cover
 
 logger = logging.getLogger(__name__)
 
+def _ensure_thread_event_loop() -> None:
+    """Ensure current thread has an asyncio event loop for ib_insync sync wrappers."""
+    try:
+        asyncio.get_running_loop()
+        return
+    except RuntimeError:
+        pass
+    try:
+        asyncio.get_event_loop()
+    except RuntimeError:
+        asyncio.set_event_loop(asyncio.new_event_loop())
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
     try:
@@ -384,151 +397,45 @@ class IBKRTradingClient(QObject):
         self._contract_cache: Dict[str, Any] = {}
         self._market_data_subscriptions: Dict[str, Dict[str, Any]] = {}
         self._subscribed_symbols: set[str] = set()
-        self._recent_order_errors: Dict[str, str] = {}
-        self._fill_handler_trade_ids: set[int] = set()
-        self._events_attached = False
+        self._thread_pool = QThreadPool.globalInstance()
+        self._poll_inflight = False
 
-        self._setup_event_handlers()
-        self.heartbeat_timer = QTimer(self)
-        self.heartbeat_timer.timeout.connect(self._check_connection)
-        self.heartbeat_timer.start(30_000)
+        self._order_poll_timer = QTimer(self)
+        self._order_poll_timer.timeout.connect(self._dispatch_order_poll)
+        self._order_poll_timer.start(1500)
 
     # ------------------------------------------------------------------
-    # Event handlers
+    # Active order polling
     # ------------------------------------------------------------------
-    def _setup_event_handlers(self) -> None:
-        if not self.ib or self._events_attached:
+    def _dispatch_order_poll(self) -> None:
+        if self._poll_inflight or not self.is_connected():
             return
+        self._poll_inflight = True
+        worker = Worker(self._fetch_orders_from_tws)
+        worker.signals.result.connect(self._on_orders_polled)
+        worker.signals.finished.connect(lambda: setattr(self, "_poll_inflight", False))
+        self._thread_pool.start(worker)
+
+    def _fetch_orders_from_tws(self) -> List[Dict[str, Any]]:
+        """Query TWS directly for open orders and drive ib_insync briefly."""
+        _ensure_thread_event_loop()
         try:
-            if hasattr(self.ib, "newOrderEvent"):
-                self.ib.newOrderEvent += self._on_order_status
-            if hasattr(self.ib, "openOrderEvent"):
-                self.ib.openOrderEvent += self._on_order_status
-            self.ib.orderStatusEvent += self._on_order_status
-            if hasattr(self.ib, "execDetailsEvent"):
-                self.ib.execDetailsEvent += self._on_order_execution
-            self.ib.positionEvent += self._on_position_update
-            self.ib.accountValueEvent += self._on_account_update
-            self.ib.pendingTickersEvent += self._on_market_data_update
-            self.ib.disconnectedEvent += self._on_disconnected
-            if hasattr(self.ib, "errorEvent"):
-                self.ib.errorEvent += self._on_ib_error
-            self._events_attached = True
+            trades = self.ib.reqAllOpenOrders() if self.ib else []
         except Exception as exc:
-            logger.warning("Failed to attach IBKR event handlers: %s", exc)
+            logger.warning("reqAllOpenOrders failed: %s", exc)
+            return list(self._orders.values())
+        return [_convert_trade(trade) for trade in (trades or [])]
 
-    def _detach_event_handlers(self) -> None:
-        if not self.ib or not self._events_attached:
-            return
-        for event_name, handler in (
-            ("newOrderEvent", self._on_order_status),
-            ("openOrderEvent", self._on_order_status),
-            ("orderStatusEvent", self._on_order_status),
-            ("execDetailsEvent", self._on_order_execution),
-            ("positionEvent", self._on_position_update),
-            ("accountValueEvent", self._on_account_update),
-            ("pendingTickersEvent", self._on_market_data_update),
-            ("disconnectedEvent", self._on_disconnected),
-            ("errorEvent", self._on_ib_error),
-        ):
-            try:
-                event = getattr(self.ib, event_name)
-                event -= handler
-            except Exception:
-                pass
-        self._events_attached = False
-
-    def _on_order_status(self, trade: Any) -> None:
-        self._attach_trade_fill_handlers(trade)
-        data = _convert_trade(trade)
-        self._emit_order_update(data)
-
-    def _on_order_execution(self, trade: Any, fill: Any = None) -> None:
-        self._attach_trade_fill_handlers(trade)
-        data = _convert_trade_with_fill(trade, fill)
-        self._emit_order_update(data)
-
-    def _on_trade_fill(self, trade: Any, fill: Any = None) -> None:
-        data = _convert_trade_with_fill(trade, fill)
-        self._emit_order_update(data)
-
-    def _attach_trade_fill_handlers(self, trade: Any) -> None:
-        """Subscribe to per-Trade execution events once.
-
-        ib_insync emits both IB-level ``execDetailsEvent`` and per-trade
-        ``fillEvent``/``filledEvent`` callbacks depending on how the order was
-        created and how fast TWS acknowledges execution.  Attaching both makes
-        fast fills visible to the Qt app even when ``orderStatusEvent`` lags.
-        """
-        if trade is None:
-            return
-        trade_key = id(trade)
-        if (
-            trade_key in self._fill_handler_trade_ids
-            or getattr(trade, "_swing_trader_fill_handlers", False)
-        ):
-            return
-        try:
-            if hasattr(trade, "fillEvent"):
-                trade.fillEvent += self._on_trade_fill
-            if hasattr(trade, "filledEvent"):
-                trade.filledEvent += self._on_order_status
-            self._fill_handler_trade_ids.add(trade_key)
-            setattr(trade, "_swing_trader_fill_handlers", True)
-        except Exception as exc:
-            logger.debug("Failed to attach IBKR trade fill handlers: %s", exc)
-
-    def _emit_order_update(self, data: Dict[str, Any]) -> None:
-        order_id = str(data.get("order_id") or "").strip()
-        if order_id:
-            data = _merge_order_snapshot(self._orders.get(order_id), data)
-            self._orders[order_id] = data
-        self.order_status_updated.emit(data)
-
-    def _on_position_update(self, position: Any) -> None:
-        data = _convert_position(position)
-        if data.get("symbol"):
-            self._positions[data["symbol"]] = data
-        self.position_updated.emit(data)
-
-    def _on_account_update(self, account_value: Any) -> None:
-        tag = getattr(account_value, "tag", "")
-        if tag:
-            self._account_info[tag] = {
-                "value": getattr(account_value, "value", ""),
-                "currency": getattr(account_value, "currency", "USD"),
-            }
-            self.account_updated.emit(self._account_info)
-
-    def _on_market_data_update(self, tickers: List[Any]) -> None:
-        for ticker in tickers or []:
-            data = _convert_ticker(ticker)
-            if data.get("last_price", 0) > 0:
-                self.market_data_updated.emit(data)
-
-    def _on_disconnected(self) -> None:
-        self._connected = False
-        self.connection_status_changed.emit(False)
-
-    def _on_ib_error(self, req_id: Any = None, error_code: Any = None, error_string: Any = None, contract: Any = None) -> None:
-        message = " ".join(str(error_string or "").split())
-        if not message:
-            return
-
-        key = str(req_id or "").strip()
-        if key and key != "-1":
-            self._recent_order_errors[key] = message
-
-        symbol = str(getattr(contract, "symbol", "") or "").upper() if contract is not None else ""
-        full_message = f"{symbol}: {message}" if symbol else message
-        logger.warning("IBKR error %s for request %s: %s", error_code, req_id, full_message)
-        self.error_occurred.emit(full_message)
-
-    def _check_connection(self) -> None:
-        connected = bool(self.ib and self.ib.isConnected())
-        if connected != self._connected:
-            self._connected = connected
-            self.connection_status_changed.emit(connected)
+    def _on_orders_polled(self, fresh_orders: List[Dict[str, Any]]) -> None:
+        for order_data in fresh_orders or []:
+            order_id = str(order_data.get("order_id") or "").strip()
+            if not order_id:
+                continue
+            existing = self._orders.get(order_id)
+            merged = _merge_order_snapshot(existing, order_data)
+            if merged != existing:
+                self._orders[order_id] = merged
+                self.order_status_updated.emit(merged)
 
     # ------------------------------------------------------------------
     # Kite-compatible broker surface
@@ -552,6 +459,7 @@ class IBKRTradingClient(QObject):
             return {"error": str(exc)}
 
     def get_positions(self) -> List[Dict[str, Any]]:
+        _ensure_thread_event_loop()
         try:
             if not self.ib:
                 positions = []
@@ -573,122 +481,19 @@ class IBKRTradingClient(QObject):
         return self.get_positions()
 
     def get_orders(self) -> List[Dict[str, Any]]:
+        """Synchronously fetch a fresh open-order snapshot from TWS."""
+        _ensure_thread_event_loop()
         try:
-            trades = self.ib.trades() if self.ib else []
-            rows: List[Dict[str, Any]] = []
-            seen_order_ids: set[str] = set()
-            for trade in trades:
-                self._attach_trade_fill_handlers(trade)
-                row = _convert_trade(trade)
+            trades = self.ib.reqAllOpenOrders() if self.ib else []
+            rows = [_convert_trade(trade) for trade in (trades or [])]
+            for row in rows:
                 order_id = str(row.get("order_id") or "").strip()
                 if order_id:
-                    row = _merge_order_snapshot(self._orders.get(order_id), row)
-                    self._orders[order_id] = row
-                    seen_order_ids.add(order_id)
-                rows.append(row)
-
-            # TWS's Trades tab is backed by execution reports.  Pull them during
-            # refresh and merge by orderId/permId so a completed execution can
-            # advance an order whose Trade.orderStatus snapshot is still pending.
-            for fill in self._request_execution_fills():
-                exec_row = _convert_execution_fill(fill)
-                exec_row = self._merge_execution_row(exec_row)
-                order_id = str(exec_row.get("order_id") or "").strip()
-                if order_id:
-                    seen_order_ids.add(order_id)
-                    rows = [row for row in rows if str(row.get("order_id") or "").strip() != order_id]
-                    rows.append(exec_row)
-
-            # Include cached execution-derived terminal updates that may not be
-            # present in the current ib.trades() snapshot yet.  This prevents a
-            # pending-orders refresh from showing an already-filled order until
-            # the app is restarted and TWS resyncs the local Trade object.
-            for order_id, row in self._orders.items():
-                if order_id not in seen_order_ids:
-                    rows.append(row)
-            return rows
-        except Exception as exc:
-            logger.error("Error getting IBKR orders: %s", exc)
+                    self._orders[order_id] = _merge_order_snapshot(self._orders.get(order_id), row)
             return list(self._orders.values())
-
-    def _request_execution_fills(self) -> List[Any]:
-        """Return current execution reports from ib_insync/IBKR when available.
-
-        ``reqExecutions`` asks TWS for the same recent fills that appear under
-        Trades.  If a request is unavailable or fails, fall back to ib_insync's
-        local fill/execution caches so refresh remains best-effort.
-        """
-        if not self.ib:
-            return []
-
-        for method_name in ("reqExecutions", "fills"):
-            method = getattr(self.ib, method_name, None)
-            if not callable(method):
-                continue
-            try:
-                fills = method() or []
-                if fills:
-                    return list(fills)
-            except TypeError:
-                try:
-                    fills = method(None) or []
-                    if fills:
-                        return list(fills)
-                except Exception as exc:
-                    logger.debug("IBKR %s fallback failed: %s", method_name, exc)
-            except Exception as exc:
-                logger.debug("IBKR %s refresh failed: %s", method_name, exc)
-
-        executions_method = getattr(self.ib, "executions", None)
-        if callable(executions_method):
-            try:
-                return list(executions_method() or [])
-            except Exception as exc:
-                logger.debug("IBKR executions cache refresh failed: %s", exc)
-        return []
-
-    def _merge_execution_row(self, exec_row: Dict[str, Any]) -> Dict[str, Any]:
-        """Merge an execution report into the cached order keyed by orderId.
-
-        Execution reports may only carry permId/orderId and not the original
-        order size.  When a pending order is already cached, keep its symbol,
-        side, type, and quantity, then overlay fill quantities/prices.
-        """
-        order_id = str(exec_row.get("order_id") or "").strip()
-        perm_id = str(exec_row.get("perm_id") or "").strip()
-        existing = self._orders.get(order_id) if order_id else None
-        if existing is None and perm_id:
-            existing = next(
-                (row for row in self._orders.values() if str(row.get("perm_id") or "").strip() == perm_id),
-                None,
-            )
-
-        if existing:
-            base = dict(existing)
-            for key, value in exec_row.items():
-                # Do not let execution-only size (cumQty/shares) shrink the
-                # original order quantity; use it only as filled quantity.
-                if key == "quantity" and _safe_float(existing.get("quantity"), 0.0) > 0:
-                    continue
-                is_execution_state = key in {"filled_quantity", "pending_quantity", "status", "raw_status"}
-                if value not in (None, "", 0, 0.0) or is_execution_state:
-                    base[key] = value
-            quantity = int(_safe_float(base.get("quantity"), 0.0))
-            filled = int(_safe_float(base.get("filled_quantity"), 0.0))
-            if quantity > 0:
-                base["pending_quantity"] = max(quantity - filled, 0)
-                if filled >= quantity:
-                    base["status"] = "COMPLETE"
-                    base["raw_status"] = "Filled"
-                elif filled > 0:
-                    base["status"] = "OPEN"
-                    base["raw_status"] = "PartiallyFilled"
-            exec_row = _merge_order_snapshot(existing, base)
-
-        order_id = str(exec_row.get("order_id") or "").strip()
-        if order_id:
-            self._orders[order_id] = exec_row
-        return exec_row
+        except Exception as exc:
+            logger.error("get_orders failed: %s", exc)
+            return list(self._orders.values())
 
     def orders(self) -> List[Dict[str, Any]]:
         return self.get_orders()
@@ -739,15 +544,9 @@ class IBKRTradingClient(QObject):
             if not trade:
                 return self._order_failure_response(params, "IBKR did not return a Trade object")
 
-            self._attach_trade_fill_handlers(trade)
             self._pump_order_updates(trade)
             result = self._build_order_result(trade, params, contract)
             order_id = str(result.get("order_id") or "").strip()
-            if order_id:
-                error_message = self._recent_order_errors.pop(order_id, "")
-                if error_message and not result.get("status_message"):
-                    result["status_message"] = error_message
-
             status_text = str(result.get("status") or "UNKNOWN").upper()
             status_message = str(result.get("status_message") or "").strip()
 
@@ -961,8 +760,7 @@ class IBKRTradingClient(QObject):
 
     def disconnect(self) -> None:
         try:
-            self.heartbeat_timer.stop()
-            self._detach_event_handlers()
+            self._order_poll_timer.stop()
             for symbol in list(self._subscribed_symbols):
                 self.unsubscribe_market_data([symbol])
             if self.ib and self.ib.isConnected():

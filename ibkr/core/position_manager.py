@@ -7,7 +7,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Set
 
-from PySide6.QtCore import QObject, Signal, QTimer
+from PySide6.QtCore import QObject, Signal, Slot, QTimer
 
 from ibkr.utils.ibkr_price import first_positive_ibkr_price, safe_ibkr_price
 from ibkr.utils.sounds import play_entry_exit
@@ -41,17 +41,12 @@ class PositionManager(QObject):
         self.main_window = main_window
         self.trade_logger = trade_logger
         self.tracking_orders: Dict[str, Dict[str, Any]] = {}
-        self.order_check_timer = QTimer(self)
-        self.order_check_timer.setInterval(1000)
-        self.order_check_timer.timeout.connect(self._check_pending_orders)
         self.safety_timer: Optional[QTimer] = None
         self.live_sync_timer: Optional[QTimer] = None
         self._pending_position_refresh_reason = "broker_position_update"
         self._position_refresh_timer = QTimer(self)
         self._position_refresh_timer.setSingleShot(True)
         self._position_refresh_timer.timeout.connect(self._flush_scheduled_position_refresh)
-        self._last_order_fills: Dict[str, int] = {}
-        self._last_order_statuses: Dict[str, str] = {}
 
     # ------------------------------------------------------------------
     # Positions
@@ -122,35 +117,6 @@ class PositionManager(QObject):
         price_text = f" @ {price:.2f}" if price else ""
         self.show_notification.emit(f"⏳ {tx_type} {quantity} {symbol}{price_text} - Pending", "pending")
 
-        if not self.order_check_timer.isActive():
-            self.order_check_timer.start()
-
-    def _check_pending_orders(self) -> None:
-        if not self.tracking_orders:
-            self.order_check_timer.stop()
-            return
-
-        try:
-            broker_orders = self._broker_orders()
-            normalized_orders = [self._normalize_order(order) for order in broker_orders]
-            by_id = {str(order.get("order_id")): order for order in normalized_orders if order.get("order_id")}
-
-            for order_id in list(self.tracking_orders):
-                broker_order = by_id.get(str(order_id))
-                if broker_order:
-                    self.on_ws_order_update(broker_order)
-
-            if not self.tracking_orders:
-                self.order_check_timer.stop()
-        except Exception as exc:
-            logger.error("Error checking order status: %s", exc, exc_info=True)
-
-    def _broker_orders(self) -> List[Any]:
-        if hasattr(self.trader, "get_orders"):
-            return list(self.trader.get_orders() or [])
-        if hasattr(self.trader, "orders"):
-            return list(self.trader.orders() or [])
-        return []
 
     def _handle_order_completion(self, order_id: str, broker_order: Dict[str, Any], status: str) -> None:
         symbol = broker_order.get("tradingsymbol") or broker_order.get("symbol") or ""
@@ -163,7 +129,8 @@ class PositionManager(QObject):
                 show_order_completed(symbol, "")
                 play_entry_exit()
                 self._sync_chart_position_line(symbol, tx_type, broker_order, is_exit)
-                QTimer.singleShot(250, lambda: self.fetch_positions_from_broker("order_completed"))
+                self._schedule_position_refresh("fill_immediate", delay_ms=0)
+                QTimer.singleShot(2000, lambda: self.fetch_positions_from_broker("fill_confirm"))
             elif status in {"REJECTED", "CANCELLED", "FAILED", "INACTIVE"}:
                 show_order_failed(f"Order {status.lower()}")
         except Exception as exc:
@@ -415,8 +382,6 @@ class PositionManager(QObject):
         self.remove_position_line_for_symbol(symbol)
 
     def stop_tracking(self) -> None:
-        if self.order_check_timer.isActive():
-            self.order_check_timer.stop()
         self.tracking_orders.clear()
 
     def _schedule_position_refresh(self, reason: str = "broker_position_update", delay_ms: int = 350) -> None:
@@ -449,70 +414,34 @@ class PositionManager(QObject):
     # ------------------------------------------------------------------
     # Real-time order update signal handlers
     # ------------------------------------------------------------------
+    @Slot(object)
     def on_ws_order_update(self, update: Any = None, *_args, **_kwargs) -> None:
         if not update:
             return
 
-        order = self._normalize_order(update)
-        order_id = str(order.get("order_id", "")).strip()
+        order = self._normalize_order(update) if not isinstance(update, dict) else update
+        order_id = str(order.get("order_id") or "").strip()
         if not order_id:
             return
 
-        status = str(order.get("status", "UNKNOWN")).upper()
+        status = str(order.get("status") or "UNKNOWN").upper()
         symbol = str(order.get("tradingsymbol") or "").upper()
-        quantity = int(order.get("quantity") or 0)
-        filled_quantity = int(order.get("filled_quantity") or 0)
-        previous_fill = self._last_order_fills.get(order_id, 0)
-        previous_status = self._last_order_statuses.get(order_id, "")
-        terminal_status = status in {"COMPLETE", "FILLED", "CANCELLED", "REJECTED", "FAILED", "INACTIVE"}
 
         if order_id in self.tracking_orders:
             self.tracking_orders[order_id].update(order)
 
-        if filled_quantity > previous_fill:
-            self._last_order_fills[order_id] = filled_quantity
-            self._schedule_position_refresh("ibkr_order_fill", delay_ms=0)
-            if symbol:
+        terminal = status in {"COMPLETE", "FILLED", "CANCELLED", "REJECTED", "FAILED", "INACTIVE"}
+        if terminal and order_id in self.tracking_orders:
+            self._handle_order_completion(order_id, order, status)
+            self.tracking_orders.pop(order_id, None)
+            self._schedule_position_refresh("order_terminal", delay_ms=300)
+        elif terminal:
+            self._schedule_position_refresh("ibkr_order_update", delay_ms=0)
+        elif status in {"OPEN", "PENDING"}:
+            filled = int(order.get("filled_quantity") or 0)
+            qty = int(order.get("quantity") or 0)
+            if filled > 0 and filled < qty:
                 self.partial_fill_symbols_updated.emit({symbol})
-
-            is_partial = quantity > 0 and filled_quantity < quantity and not terminal_status
-            if is_partial:
-                avg_price = float(order.get("average_price") or order.get("price") or 0.0)
-                remaining = max(quantity - filled_quantity, 0)
-                self.show_notification.emit(
-                    f"◐ {filled_quantity}/{quantity} {symbol} filled · {remaining} pending",
-                    "pending",
-                )
-                tracked_order = self.tracking_orders.get(order_id, {})
-                tx_type = str(order.get("transaction_type") or tracked_order.get("transaction_type") or "").upper()
-                self._sync_chart_position_line(
-                    symbol,
-                    tx_type,
-                    {**order, "filled_quantity": filled_quantity, "average_price": avg_price},
-                    bool(tracked_order.get("_is_exit_order")),
-                )
-
-        if status != previous_status:
-            self._last_order_statuses[order_id] = status
-            if status in {"OPEN", "PENDING", "CANCEL_PENDING"} and order_id in self.tracking_orders:
-                # Keep the pending lifecycle visible without waiting for the next 5s
-                # live sync.  The pending-orders dialog is refreshed by MainWindow.
-                self._schedule_position_refresh("ibkr_order_pending", delay_ms=250)
-
-        if terminal_status:
-            if order_id in self.tracking_orders:
-                self._handle_order_completion(order_id, order, status)
-                self.tracking_orders.pop(order_id, None)
-                if not self.tracking_orders:
-                    self.order_check_timer.stop()
-            else:
-                # Orders can fill outside this UI (TWS, mobile, bracket legs, or an
-                # order that was submitted before this app started).  A terminal
-                # IBKR order event must still reconcile both position tables.
-                self._schedule_position_refresh("ibkr_order_update", delay_ms=0)
-
-            self._last_order_fills.pop(order_id, None)
-            self._last_order_statuses.pop(order_id, None)
 
     def on_ws_position_update(self, update: Any = None, *_args, **_kwargs) -> None:
         # IBKR positionEvent is per-position and may carry zero quantity for a

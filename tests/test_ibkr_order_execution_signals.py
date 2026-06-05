@@ -7,18 +7,53 @@ if "PySide6.QtCore" not in sys.modules:
     qtcore = ModuleType("PySide6.QtCore")
 
     class _FakeQObject:
-        pass
-
-    class _FakeSignal:
         def __init__(self, *_args, **_kwargs):
             pass
 
+    class _FakeSignal:
+        def __init__(self, *_args, **_kwargs):
+            self._callbacks = []
+
+        def connect(self, callback):
+            self._callbacks.append(callback)
+
+        def emit(self, *args):
+            for callback in list(self._callbacks):
+                callback(*args)
+
     class _FakeQTimer:
+        def __init__(self, *_args, **_kwargs):
+            self.timeout = _FakeSignal()
+            self.active = False
+
+        def start(self, *_args, **_kwargs):
+            self.active = True
+
+        def stop(self):
+            self.active = False
+
+    class _FakeQThreadPool:
+        @staticmethod
+        def globalInstance():
+            return _FakeQThreadPool()
+
+        def start(self, worker):
+            worker.run()
+
+    class _FakeQRunnable:
         pass
+
+    def _fake_slot(*_args, **_kwargs):
+        def decorator(func):
+            return func
+        return decorator
 
     qtcore.QObject = _FakeQObject
     qtcore.Signal = _FakeSignal
     qtcore.QTimer = _FakeQTimer
+    qtcore.QThreadPool = _FakeQThreadPool
+    qtcore.QRunnable = _FakeQRunnable
+    qtcore.Slot = _fake_slot
     pyside.QtCore = qtcore
     sys.modules["PySide6"] = pyside
     sys.modules["PySide6.QtCore"] = qtcore
@@ -93,74 +128,44 @@ def test_execution_fill_reports_partial_quantity_without_terminal_status():
 
 
 class _FakeIB:
-    def __init__(self, trades=None, fills=None):
-        self._trades = trades or []
-        self._fills = fills or []
+    def __init__(self, open_orders=None):
+        self._open_orders = open_orders or []
+        self.req_all_open_orders_calls = 0
 
-    def trades(self):
-        return list(self._trades)
-
-    def reqExecutions(self):
-        return list(self._fills)
+    def reqAllOpenOrders(self):
+        self.req_all_open_orders_calls += 1
+        return list(self._open_orders)
 
 
 def _client_with_ib(fake_ib, cached_orders=None):
     client = IBKRTradingClient.__new__(IBKRTradingClient)
     client.ib = fake_ib
     client._orders = dict(cached_orders or {})
-    client._fill_handler_trade_ids = set()
     return client
 
 
-def test_get_orders_merges_tws_trade_execution_reports_over_stale_pending_status():
-    stale_trade = _trade(status="PendingSubmit", filled=0, remaining=10)
-    fill = SimpleNamespace(
-        contract=SimpleNamespace(symbol="AAPL", exchange="SMART", conId=123),
-        execution=SimpleNamespace(
-            orderId=77,
-            permId=880077,
-            side="BOT",
-            shares=10,
-            cumQty=10,
-            price=192.35,
-            avgPrice=192.35,
-            time="2026-06-05 14:30:00",
-        ),
-    )
-    client = _client_with_ib(_FakeIB(trades=[stale_trade], fills=[fill]))
+def test_get_orders_fetches_fresh_open_orders_from_tws():
+    open_trade = _trade(status="Submitted", filled=0, remaining=10)
+    client = _client_with_ib(_FakeIB(open_orders=[open_trade]))
 
     orders = client.get_orders()
 
+    assert client.ib.req_all_open_orders_calls == 1
     assert len(orders) == 1
     assert orders[0]["order_id"] == "77"
-    assert orders[0]["status"] == "COMPLETE"
-    assert orders[0]["filled_quantity"] == 10
-    assert orders[0]["pending_quantity"] == 0
-    assert client._orders["77"]["status"] == "COMPLETE"
-
-
-def test_get_orders_keeps_partial_execution_open_when_original_quantity_is_larger():
-    stale_trade = _trade(status="Submitted", filled=0, remaining=10)
-    fill = SimpleNamespace(
-        contract=SimpleNamespace(symbol="AAPL", exchange="SMART", conId=123),
-        execution=SimpleNamespace(
-            orderId=77,
-            permId=880077,
-            side="BOT",
-            shares=4,
-            cumQty=4,
-            price=192.35,
-            avgPrice=192.35,
-        ),
-    )
-    client = _client_with_ib(_FakeIB(trades=[stale_trade], fills=[fill]))
-
-    orders = client.get_orders()
-
-    assert orders[0]["quantity"] == 10
     assert orders[0]["status"] == "OPEN"
-    assert orders[0]["filled_quantity"] == 4
-    assert orders[0]["pending_quantity"] == 6
+    assert client._orders["77"]["status"] == "OPEN"
+
+
+def test_get_orders_returns_cached_snapshot_when_tws_fetch_fails():
+    class _FailingIB:
+        def reqAllOpenOrders(self):
+            raise RuntimeError("TWS unavailable")
+
+    cached = {"77": {"order_id": "77", "status": "OPEN"}}
+    client = _client_with_ib(_FailingIB(), cached_orders=cached)
+
+    assert client.get_orders() == list(cached.values())
 
 
 def test_execution_only_fill_row_is_complete_without_trade_snapshot():
