@@ -39,7 +39,7 @@ from typing import Dict, List, Optional, Tuple
 
 from PySide6.QtCore import (
     Qt, Signal, Slot, QTimer, QPoint, QSize, QPropertyAnimation,
-    QEasingCurve, QRect, Property, QByteArray
+    QEasingCurve, QRect, Property, QByteArray, QSignalBlocker
 )
 from PySide6.QtGui import (
     QColor, QFont, QBrush, QPainter, QPen, QLinearGradient,
@@ -307,6 +307,7 @@ class FloatingPositionsDialog(QDialog):
         self._subscribed: set = set()
         self._targets: Dict[str, float] = {}
         self._nav_idx = 0                              # keyboard nav index
+        self._context_menu_active = False
 
         # ── Build ────────────────────────────────────────────────────────────
         self._build_ui()
@@ -822,6 +823,8 @@ class FloatingPositionsDialog(QDialog):
         return next((s for s, r in self._sym_to_row.items() if r == row), None)
 
     def _on_cell_click(self, row: int, _col: int):
+        if self._context_menu_active:
+            return
         sym = self._symbol_at_row(row)
         if sym:
             self.symbol_chart_requested.emit(sym)
@@ -843,6 +846,11 @@ class FloatingPositionsDialog(QDialog):
         position = self._positions.get(sym)
         if not position:
             return
+
+        self._context_menu_active = True
+        with QSignalBlocker(self.table):
+            self.table.selectRow(row)
+            self.table.setCurrentCell(row, _COL_IDX["Symbol"])
 
         menu = QMenu(self)
         menu.setObjectName("posCtxMenu")
@@ -897,7 +905,10 @@ class FloatingPositionsDialog(QDialog):
         half_act = menu.addAction(f"Exit Half ({half_qty} shares)")
         half_act.triggered.connect(lambda: self.exit_half_position_requested.emit(sym))
 
-        menu.exec(self.table.viewport().mapToGlobal(pos))
+        try:
+            menu.exec(self.table.viewport().mapToGlobal(pos))
+        finally:
+            self._context_menu_active = False
 
     def _open_sl_dialog(self, symbol: str, position, current_sl_price: Optional[float]):
         """Open the SL configuration dialog."""

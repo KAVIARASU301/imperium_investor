@@ -252,6 +252,8 @@ class PositionsTable(QWidget):
         self._flashes: List[_FlashCell] = []
         self._pending_ticks: Dict[int, float] = {}
         self._selected_rows: Set[int] = set()
+        self._context_menu_active: bool = False
+        self._suppress_selection_chart_sync: bool = False
 
         self._color_theme: Dict = {
             "enable_table_directional_colors": False,
@@ -389,8 +391,15 @@ class PositionsTable(QWidget):
         QTimer.singleShot(0, self._fit_columns_after_layout)
 
     def eventFilter(self, watched, event):
-        if watched is self.table.viewport() and event.type() == QEvent.Type.Resize:
-            self._fit_columns_after_layout()
+        if watched is self.table.viewport():
+            if event.type() == QEvent.Type.Resize:
+                self._fit_columns_after_layout()
+            elif event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.RightButton:
+                # A right-click changes the current table row before Qt emits the
+                # custom context menu signal.  Do not treat that row change as a
+                # symbol navigation request; otherwise choosing an order action
+                # can race with an unrelated chart load.
+                self._suppress_selection_chart_sync = True
         return super().eventFilter(watched, event)
 
     def _fit_columns_after_layout(self) -> None:
@@ -724,6 +733,8 @@ class PositionsTable(QWidget):
         self._footer_frame.setVisible(bool(visible))
 
     def _on_cell_clicked(self, row: int, col: int):
+        if self._context_menu_active or self._suppress_selection_chart_sync:
+            return
         symbol = self._symbol_at_row(row)
         if not symbol:
             return
@@ -739,6 +750,8 @@ class PositionsTable(QWidget):
             return
         if current_col == COL_FLAG:
             return
+        if self._context_menu_active or self._suppress_selection_chart_sync:
+            return
         symbol = self._symbol_at_row(current_row)
         if symbol:
             self.symbol_selected.emit(symbol)
@@ -748,9 +761,19 @@ class PositionsTable(QWidget):
 
     def _show_context_menu(self, pos):
         row = self.table.rowAt(pos.y())
-        if row < 0: return
+        if row < 0:
+            self._suppress_selection_chart_sync = False
+            return
         symbol = self._symbol_at_row(row)
-        if not symbol: return
+        if not symbol:
+            self._suppress_selection_chart_sync = False
+            return
+
+        self._context_menu_active = True
+        self._suppress_selection_chart_sync = True
+        with QSignalBlocker(self.table):
+            self.table.selectRow(row)
+            self.table.setCurrentCell(row, COL_SYMBOL)
 
         menu = QMenu(self)
         menu.setObjectName("posContextMenu")
@@ -771,7 +794,11 @@ class PositionsTable(QWidget):
         half_act = menu.addAction("Exit Half")
         half_act.triggered.connect(lambda: self.exit_half_position_requested.emit(symbol))
 
-        menu.exec(self.table.viewport().mapToGlobal(pos))
+        try:
+            menu.exec(self.table.viewport().mapToGlobal(pos))
+        finally:
+            self._context_menu_active = False
+            self._suppress_selection_chart_sync = False
 
 
     def _paint_flag_cell(self, row: int, symbol: str):

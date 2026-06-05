@@ -2993,57 +2993,83 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
             pass
         return fallback
 
-    @Slot(str)
-    def _handle_exit_position_request(self, symbol: str):
-        """Handle position exit request from positions table."""
+    def _position_exit_ltp(self, symbol: str, position) -> float:
+        """Return the best available price for seeding a position-exit ticket."""
+        ltp = 0.0
+        try:
+            ltp = float(self._get_fresh_ltp(symbol) or 0.0)
+        except Exception:
+            logger.exception("Failed to fetch fresh LTP for exit ticket: %s", symbol)
+
+        if ltp <= 0.0:
+            for attr in ("ltp", "avg_price"):
+                try:
+                    ltp = float(getattr(position, attr, 0.0) or 0.0)
+                except (TypeError, ValueError):
+                    ltp = 0.0
+                if ltp > 0.0:
+                    break
+        return ltp
+
+    def _open_position_exit_dialog(self, symbol: str, exit_quantity: int) -> None:
+        """Open a retained IBKR order ticket for closing all or part of a position."""
+        symbol = (symbol or "").strip().upper()
         position = self.positions_table.get_position_by_symbol(symbol)
         if not position:
             show_error(f"Position not found: {symbol}")
             return
 
-        transaction_type = "SELL" if position.quantity > 0 else "BUY"
-        ltp = self._get_fresh_ltp(symbol)
+        try:
+            quantity = min(abs(int(position.quantity)), max(1, int(exit_quantity)))
+            transaction_type = "SELL" if position.quantity > 0 else "BUY"
+            ltp = self._position_exit_ltp(symbol, position)
 
-        exit_order = {
-            "tradingsymbol": symbol,
-            "transaction_type": transaction_type,
-            "quantity": abs(position.quantity),
-            "order_type": self._resolve_position_order_type(symbol, position.quantity, "MARKET"),
-            "product": self._resolve_position_product(symbol, position.product),
-            "ltp": ltp,
-        }
+            exit_order = {
+                "tradingsymbol": symbol,
+                "transaction_type": transaction_type,
+                "quantity": quantity,
+                "order_type": self._resolve_position_order_type(symbol, position.quantity, "MARKET"),
+                "product": self._resolve_position_product(symbol, position.product),
+                "ltp": ltp,
+            }
 
-        instrument = self.instrument_map.get(symbol, {})
-        dialog = OrderDialog(self, symbol, ltp, self._build_order_details_with_account(exit_order), instrument=instrument, ltp_fetcher=self._get_fresh_ltp)
-        dialog.order_placed.connect(self._handle_exit_order_placement)
-        dialog.show()
+            instrument = self._instrument_for_order(symbol)
+            if not instrument:
+                show_error(f"Symbol not found: {symbol}")
+                return
+
+            dialog = OrderDialog(
+                self,
+                symbol,
+                ltp,
+                self._build_order_details_with_account(exit_order),
+                instrument=instrument,
+                ltp_fetcher=self._get_fresh_ltp,
+            )
+            dialog.order_placed.connect(self._handle_exit_order_placement)
+            self._remember_order_dialog(dialog)
+            dialog.show()
+        except Exception as exc:
+            logger.exception("Failed to open exit order dialog for %s", symbol)
+            show_error(f"Could not open exit order ticket for {symbol}: {exc}")
+
+    @Slot(str)
+    def _handle_exit_position_request(self, symbol: str):
+        """Handle full position exit request from positions widgets."""
+        position = self.positions_table.get_position_by_symbol((symbol or "").strip().upper())
+        if not position:
+            show_error(f"Position not found: {symbol}")
+            return
+        self._open_position_exit_dialog(symbol, abs(int(position.quantity)))
 
     @Slot(str)
     def _handle_exit_half_position_request(self, symbol: str):
         """Handle half position exit request from positions widgets."""
-        position = self.positions_table.get_position_by_symbol(symbol)
+        position = self.positions_table.get_position_by_symbol((symbol or "").strip().upper())
         if not position:
             show_error(f"Position not found: {symbol}")
             return
-
-        total_qty = abs(int(position.quantity))
-        half_qty = max(1, total_qty // 2)
-        transaction_type = "SELL" if position.quantity > 0 else "BUY"
-        ltp = self._get_fresh_ltp(symbol)
-
-        exit_order = {
-            "tradingsymbol": symbol,
-            "transaction_type": transaction_type,
-            "quantity": half_qty,
-            "order_type": self._resolve_position_order_type(symbol, position.quantity, "MARKET"),
-            "product": self._resolve_position_product(symbol, position.product),
-            "ltp": ltp,
-        }
-
-        instrument = self.instrument_map.get(symbol, {})
-        dialog = OrderDialog(self, symbol, ltp, self._build_order_details_with_account(exit_order), instrument=instrument, ltp_fetcher=self._get_fresh_ltp)
-        dialog.order_placed.connect(self._handle_exit_order_placement)
-        dialog.show()
+        self._open_position_exit_dialog(symbol, max(1, abs(int(position.quantity)) // 2))
 
 
     @staticmethod
