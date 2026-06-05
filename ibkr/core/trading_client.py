@@ -346,7 +346,15 @@ class IBKRTradingClient(QObject):
 
     def get_positions(self) -> List[Dict[str, Any]]:
         try:
-            positions = self.ib.positions() if self.ib else []
+            if not self.ib:
+                positions = []
+            elif hasattr(self.ib, "reqPositions"):
+                # IBKR can lag in the local positions() cache immediately after an
+                # order fill.  reqPositions() forces a fresh broker snapshot so the
+                # UI does not require an app restart to see the new/changed row.
+                positions = self.ib.reqPositions() or []
+            else:
+                positions = self.ib.positions()
             rows = [_convert_position(pos) for pos in positions if _safe_float(getattr(pos, "position", 0), 0) != 0]
             self._positions = {row["symbol"]: row for row in rows if row.get("symbol")}
             return rows

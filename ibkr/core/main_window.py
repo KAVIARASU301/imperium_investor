@@ -1852,9 +1852,11 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
         self.position_manager.positions_updated.connect(self._update_floating_positions_dialog)
         self.position_manager.day_pnl_updated.connect(self._on_day_pnl_updated)
         self.position_manager.show_notification.connect(self._show_position_manager_notification)
+        self._connect_ibkr_order_lifecycle_signals()
         self._connect_position_worker_signals()
         self.position_manager.start_live_sync(interval_seconds=5)
         # Position manager notifications route through the Qt signal so WS callbacks stay visible/audible.
+
 
         # SIMPLIFIED: Positions Table → Main Window
         self.positions_table.exit_position_requested.connect(self._handle_exit_position_request)
@@ -1931,6 +1933,38 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
         self.alert_update_timer = QTimer(self)
         self.alert_update_timer.timeout.connect(self._update_alert_badges)
         self.alert_update_timer.start(30000)
+
+
+    def _connect_ibkr_order_lifecycle_signals(self) -> None:
+        """Wire IBKR API order/position events into immediate UI refreshes."""
+        try:
+            if hasattr(self.trader, "order_status_updated"):
+                self.trader.order_status_updated.connect(self.position_manager.on_ws_order_update)
+                self.trader.order_status_updated.connect(self._on_ibkr_order_status_update)
+            if hasattr(self.trader, "position_updated"):
+                self.trader.position_updated.connect(self.position_manager.on_ws_position_update)
+            if hasattr(self.trader, "connection_status_changed"):
+                self.trader.connection_status_changed.connect(self._on_ibkr_connection_status_changed)
+            logger.info("IBKR order lifecycle signals connected")
+        except Exception as exc:
+            logger.warning("Failed to connect IBKR order lifecycle signals: %s", exc)
+
+    def _on_ibkr_order_status_update(self, order_update: Dict[str, Any]) -> None:
+        """Refresh pending orders and balances as IBKR reports order lifecycle changes."""
+        try:
+            status_text = str((order_update or {}).get("status") or "").upper()
+            if self.pending_orders_dialog is not None and self.pending_orders_dialog.isVisible():
+                self.pending_orders_dialog.refresh_orders()
+            if status_text in {"COMPLETE", "FILLED", "CANCELLED", "REJECTED", "FAILED", "INACTIVE"}:
+                self.account_manager.refresh_margins(force=True)
+                if self.order_history_dialog and self.order_history_dialog.isVisible():
+                    self.order_history_dialog.refresh_orders()
+        except Exception as exc:
+            logger.debug("IBKR order status UI refresh failed: %s", exc, exc_info=True)
+
+    def _on_ibkr_connection_status_changed(self, connected: bool) -> None:
+        if connected:
+            self.position_manager.on_ws_connected()
 
 
     @Slot(str, str)
@@ -3048,7 +3082,10 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
 
                 status.notify("submitted", symbol)
                 self.position_manager.start_tracking_order(order_id, order_data)
+                self.position_manager.on_ws_order_update(order_data)
                 self.position_manager.fetch_positions_from_kite("entry_order_submitted")
+                if self.pending_orders_dialog is not None and self.pending_orders_dialog.isVisible():
+                    self.pending_orders_dialog.refresh_orders()
                 self.account_manager.refresh_margins(force=True)
                 QTimer.singleShot(2000, lambda: self.account_manager.refresh_margins(force=True))
                 self._log_order_placement_immediate(order_data, order_id)
@@ -3101,7 +3138,10 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
 
                 status.notify("submitted", symbol)
                 self.position_manager.start_tracking_order(order_id, order_data)
+                self.position_manager.on_ws_order_update(order_data)
                 self.position_manager.fetch_positions_from_kite("exit_order_submitted")
+                if self.pending_orders_dialog is not None and self.pending_orders_dialog.isVisible():
+                    self.pending_orders_dialog.refresh_orders()
                 self.account_manager.refresh_margins(force=True)
                 QTimer.singleShot(2000, lambda: self.account_manager.refresh_margins(force=True))
                 self._log_order_placement_immediate(order_data, order_id)
