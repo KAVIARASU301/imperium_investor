@@ -346,6 +346,8 @@ class EnhancedTokenManager:
                 'default_exchange': 'SMART',
                 'tws_host': '127.0.0.1',
                 'tws_port': 7496,
+                'tws_client_id': 1,
+                'market_data_type': 'live',
                 'auto_reconnect': True
             }
         }

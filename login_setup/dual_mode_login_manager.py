@@ -331,6 +331,11 @@ class DualModeLoginManager(QDialog):
         self._active_kite_session: Optional[Dict[str, Any]] = None
         self._active_kite_creds: Optional[Dict[str, Any]] = None
         self.selected_ibkr_market_data_type = "live"
+        self._global_preferences = self.token_manager.load_global_settings()
+        self._broker_preferences: Dict[BrokerMode, Dict[str, Any]] = {
+            BrokerMode.INDIA: self.token_manager.load_broker_preferences(BrokerMode.INDIA),
+            BrokerMode.AMERICA: self.token_manager.load_broker_preferences(BrokerMode.AMERICA),
+        }
 
         self._request_token_servers: List[KiteRequestTokenServer] = []
         self._callback_failure_reasons: Dict[int, str] = {}
@@ -345,6 +350,96 @@ class DualModeLoginManager(QDialog):
         self.ibkr_auth.status_updated.connect(self._on_ibkr_status_update)
 
         QTimer.singleShot(100, self._try_auto_login)
+
+    def _coerce_broker_mode(self, value: Any, default: BrokerMode = BrokerMode.INDIA) -> BrokerMode:
+        try:
+            if isinstance(value, BrokerMode):
+                return value
+            return BrokerMode(str(value))
+        except Exception:
+            return default
+
+    def _coerce_trading_mode(self, value: Any, default: TradingMode = TradingMode.PAPER) -> TradingMode:
+        try:
+            if isinstance(value, TradingMode):
+                return value
+            return TradingMode(str(value))
+        except Exception:
+            return default
+
+    def _preferred_trading_mode_for_broker(self, broker_mode: BrokerMode) -> TradingMode:
+        broker_pref = self._broker_preferences.get(broker_mode, {})
+        return self._coerce_trading_mode(
+            broker_pref.get("trading_mode") or self._global_preferences.get("last_trading_mode"),
+            TradingMode.PAPER,
+        )
+
+    def _set_trading_mode_radio(self, trading_mode: TradingMode):
+        if trading_mode == TradingMode.LIVE:
+            self.live_radio.setChecked(True)
+        else:
+            self.paper_radio.setChecked(True)
+
+    def _sync_trading_mode_for_selected_broker(self, broker_mode: BrokerMode):
+        if hasattr(self, "paper_radio") and hasattr(self, "live_radio"):
+            self._set_trading_mode_radio(self._preferred_trading_mode_for_broker(broker_mode))
+
+    def _remember_mode_selection(self):
+        if not self.selected_broker or not self.selected_trading_mode:
+            return
+
+        global_settings = dict(self._global_preferences)
+        global_settings.update({
+            "last_broker_mode": self.selected_broker.value,
+            "last_trading_mode": self.selected_trading_mode.value,
+        })
+        if self.token_manager.save_global_settings(global_settings):
+            self._global_preferences = global_settings
+
+        broker_pref = dict(self._broker_preferences.get(self.selected_broker, {}))
+        broker_pref["trading_mode"] = self.selected_trading_mode.value
+        if self.token_manager.save_broker_preferences(self.selected_broker, broker_pref):
+            self._broker_preferences[self.selected_broker] = broker_pref
+
+    def _remember_ibkr_login_options(self):
+        if not hasattr(self, "ibkr_host_combo"):
+            return
+
+        market_data_type = "delayed" if self.ibkr_delayed_data_radio.isChecked() else "live"
+        broker_pref = dict(self._broker_preferences.get(BrokerMode.AMERICA, {}))
+        broker_pref.update({
+            "trading_mode": (self.selected_trading_mode or TradingMode.PAPER).value,
+            "tws_host": self.ibkr_host_combo.currentText().strip() or "127.0.0.1",
+            "tws_port": self.ibkr_port_input.value(),
+            "tws_client_id": self.ibkr_client_id_input.value(),
+            "market_data_type": market_data_type,
+        })
+        if self.token_manager.save_broker_preferences(BrokerMode.AMERICA, broker_pref):
+            self._broker_preferences[BrokerMode.AMERICA] = broker_pref
+
+    def _apply_ibkr_login_options(self):
+        pref = self._broker_preferences.get(BrokerMode.AMERICA, {})
+        host = str(pref.get("tws_host") or "127.0.0.1").strip()
+        if host:
+            if self.ibkr_host_combo.findText(host) < 0:
+                self.ibkr_host_combo.addItem(host)
+            self.ibkr_host_combo.setCurrentText(host)
+
+        try:
+            port = int(pref.get("tws_port") or 7496)
+        except (TypeError, ValueError):
+            port = 7496
+        try:
+            client_id = int(pref.get("tws_client_id") or 1)
+        except (TypeError, ValueError):
+            client_id = 1
+        self.ibkr_port_input.setValue(port)
+        self.ibkr_client_id_input.setValue(client_id)
+
+        if str(pref.get("market_data_type") or "live").lower() == "delayed":
+            self.ibkr_delayed_data_radio.setChecked(True)
+        else:
+            self.ibkr_live_data_radio.setChecked(True)
 
     # --------------------------------------------------------------------------
     # Window & UI Setup
@@ -529,13 +624,16 @@ class DualModeLoginManager(QDialog):
         self.broker_group.addButton(self.india_radio)
         self.broker_group.addButton(self.america_radio)
 
-        # Default to Kite when available; otherwise fall back to IBKR.
-        if self.india_radio.isEnabled():
-            self.india_radio.setChecked(True)
-        elif self.america_radio.isEnabled():
-            self.america_radio.setChecked(True)
-
         mode_frame = self._create_trading_mode_selector()
+
+        preferred_broker = self._coerce_broker_mode(self._global_preferences.get("last_broker_mode"))
+        preferred_radio = self.india_radio if preferred_broker == BrokerMode.INDIA else self.america_radio
+        fallback_radio = self.america_radio if preferred_broker == BrokerMode.INDIA else self.india_radio
+        if preferred_radio.isEnabled():
+            preferred_radio.setChecked(True)
+        elif fallback_radio.isEnabled():
+            fallback_radio.setChecked(True)
+
 
         continue_btn = QPushButton("CONTINUE")
         continue_btn.setObjectName("primaryButton")
@@ -605,6 +703,9 @@ class DualModeLoginManager(QDialog):
                 market_label.setText("ib_insync unavailable")
 
         radio.toggled.connect(lambda checked, c=card: self._set_card_selected(c, checked))
+        radio.toggled.connect(
+            lambda checked, mode=broker_mode: self._sync_trading_mode_for_selected_broker(mode) if checked else None
+        )
 
         card.mousePressEvent = lambda e: radio.setChecked(True)
         return card
@@ -631,10 +732,10 @@ class DualModeLoginManager(QDialog):
         self.live_radio = QRadioButton("LIVE")
         self.live_radio.setObjectName("modeRadio")
         self.live_radio.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.live_radio.setChecked(True)
 
         layout.addWidget(self.paper_radio)
         layout.addWidget(self.live_radio)
+        self._set_trading_mode_radio(self._coerce_trading_mode(self._global_preferences.get("last_trading_mode")))
         return frame
 
     def _on_broker_selected(self):
@@ -647,6 +748,7 @@ class DualModeLoginManager(QDialog):
                 return
 
             self.selected_trading_mode = TradingMode.LIVE if self.live_radio.isChecked() else TradingMode.PAPER
+            self._remember_mode_selection()
 
             if self.selected_broker == BrokerMode.INDIA:
                 if self._active_kite_session and self._active_kite_creds:
@@ -726,7 +828,8 @@ class DualModeLoginManager(QDialog):
         self.kite_api_secret_input.setEchoMode(QLineEdit.EchoMode.Password)
 
         self.save_kite_creds = QCheckBox("Remember Credentials")
-        self.save_kite_creds.setChecked(True)
+        kite_pref = self._broker_preferences.get(BrokerMode.INDIA, {})
+        self.save_kite_creds.setChecked(bool(kite_pref.get("remember_credentials", True)))
 
         self.relay_settings_btn = QPushButton("Configure Relay")
         self.relay_settings_btn.setObjectName("subtleActionButton")
@@ -837,11 +940,19 @@ class DualModeLoginManager(QDialog):
                 QMessageBox.warning(self, "Missing Credentials", "API Key and Secret are required.")
                 return
 
+            kite_pref = dict(self._broker_preferences.get(BrokerMode.INDIA, {}))
+            kite_pref["remember_credentials"] = self.save_kite_creds.isChecked()
+            kite_pref["trading_mode"] = (self.selected_trading_mode or TradingMode.PAPER).value
+            if self.token_manager.save_broker_preferences(BrokerMode.INDIA, kite_pref):
+                self._broker_preferences[BrokerMode.INDIA] = kite_pref
+
             if self.save_kite_creds.isChecked():
                 self.token_manager.save_broker_credentials(
                     BrokerMode.INDIA,
                     {"api_key": self.kite_api_key, "api_secret": self.kite_api_secret}
                 )
+            else:
+                self.token_manager.clear_broker_credentials(BrokerMode.INDIA)
 
             self.stacked_widget.setCurrentIndex(3)
             self.capture_status_label.setText("Waiting for browser authentication...")
@@ -1055,6 +1166,7 @@ class DualModeLoginManager(QDialog):
         settings_layout.addLayout(client_id_col, 1)
 
         market_data_panel = self._create_ibkr_market_data_selector()
+        self._apply_ibkr_login_options()
 
         # Status/help area — rich text keeps the setup checklist readable,
         # while the same QTextEdit still handles long multi-line error messages cleanly.
@@ -1187,6 +1299,7 @@ class DualModeLoginManager(QDialog):
         port = self.ibkr_port_input.value()
         client_id = self.ibkr_client_id_input.value()
         self.selected_ibkr_market_data_type = "delayed" if self.ibkr_delayed_data_radio.isChecked() else "live"
+        self._remember_ibkr_login_options()
         self.connect_ibkr_btn.setEnabled(False)
         self.connect_ibkr_btn.setText("CONNECTING…")
         self.ibkr_status_display.clear()
@@ -1218,6 +1331,7 @@ class DualModeLoginManager(QDialog):
         port = self.ibkr_port_input.value()
         client_id = self.ibkr_client_id_input.value()
         self.selected_ibkr_market_data_type = "delayed" if self.ibkr_delayed_data_radio.isChecked() else "live"
+        self._remember_ibkr_login_options()
         os.environ["IBKR_HOST"] = host
         os.environ["IBKR_PORT"] = str(port)
         os.environ["IBKR_MARKET_DATA_TYPE"] = self.selected_ibkr_market_data_type
