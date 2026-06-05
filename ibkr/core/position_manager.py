@@ -110,6 +110,14 @@ class PositionManager(QObject):
         normalized = self._normalize_order({**(order_data or {}), "order_id": order_id})
         self.tracking_orders[order_id] = {**(order_data or {}), **normalized}
 
+        status = str(normalized.get("status") or "UNKNOWN").upper()
+        if status in {"COMPLETE", "FILLED", "CANCELLED", "REJECTED", "FAILED", "INACTIVE"}:
+            # IBKR can fill market orders inside placeOrder() before MainWindow has
+            # registered the order for tracking. Process that returned snapshot
+            # immediately so the UI does not remain on the initial Pending row.
+            self.on_ws_order_update({**self.tracking_orders[order_id], **normalized})
+            return
+
         symbol = normalized.get("tradingsymbol", "")
         quantity = normalized.get("quantity", 0)
         price = normalized.get("price", 0.0)
@@ -117,6 +125,44 @@ class PositionManager(QObject):
         price_text = f" @ {price:.2f}" if price else ""
         self.show_notification.emit(f"⏳ {tx_type} {quantity} {symbol}{price_text} - Pending", "pending")
 
+        # Kick IBKR reconciliation immediately after order acceptance.  This
+        # reads IBKR's current order/position API cache now, then retries shortly
+        # after to catch fills/position rows that arrive milliseconds later.
+        self._schedule_position_refresh("order_accepted", delay_ms=0)
+        QTimer.singleShot(
+            250,
+            lambda oid=order_id: self._refresh_tracked_order_from_broker(oid, "order_accepted_fast_poll"),
+        )
+        QTimer.singleShot(
+            1000,
+            lambda oid=order_id: self._refresh_tracked_order_from_broker(oid, "order_accepted_confirm_poll"),
+        )
+
+    def _refresh_tracked_order_from_broker(self, order_id: str, reason: str = "tracked_order_poll") -> None:
+        """Read IBKR's latest order snapshot and refresh positions for a tracked order."""
+        try:
+            rows = []
+            if hasattr(self.trader, "get_orders"):
+                rows = self.trader.get_orders() or []
+            elif hasattr(self.trader, "orders"):
+                rows = self.trader.orders() or []
+
+            broker_order = next(
+                (
+                    row
+                    for row in rows
+                    if str((row or {}).get("order_id") or (row or {}).get("id") or "").strip()
+                    == str(order_id)
+                ),
+                None,
+            )
+            if broker_order:
+                self.on_ws_order_update(broker_order)
+            else:
+                self._schedule_position_refresh(reason, delay_ms=0)
+        except Exception as exc:
+            logger.debug("IBKR tracked order refresh failed for %s: %s", order_id, exc, exc_info=True)
+            self._schedule_position_refresh(reason, delay_ms=0)
 
     def _handle_order_completion(self, order_id: str, broker_order: Dict[str, Any], status: str) -> None:
         symbol = broker_order.get("tradingsymbol") or broker_order.get("symbol") or ""
@@ -447,7 +493,7 @@ class PositionManager(QObject):
         # IBKR positionEvent is per-position and may carry zero quantity for a
         # closed symbol. Fetch the full broker snapshot so removed rows disappear
         # from both embedded and floating tables together.
-        self._schedule_position_refresh("ibkr_position_event")
+        self._schedule_position_refresh("ibkr_position_event", delay_ms=0)
 
     def on_ws_connected(self, *_args, **_kwargs) -> None:
         self.fetch_positions_from_broker("ibkr_connected")

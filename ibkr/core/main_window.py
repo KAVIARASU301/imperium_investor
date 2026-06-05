@@ -1932,6 +1932,8 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
             if hasattr(self.trader, "order_status_updated"):
                 self.trader.order_status_updated.connect(self.position_manager.on_ws_order_update)
                 self.trader.order_status_updated.connect(self._on_ibkr_order_status_update)
+            if hasattr(self.trader, "position_updated"):
+                self.trader.position_updated.connect(self.position_manager.on_ws_position_update)
             if hasattr(self.trader, "connection_status_changed"):
                 self.trader.connection_status_changed.connect(self._on_ibkr_connection_status_changed)
             logger.info("IBKR order lifecycle signals connected")

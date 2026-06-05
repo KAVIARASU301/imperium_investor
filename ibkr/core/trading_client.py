@@ -165,8 +165,11 @@ def _convert_position(pos: Any) -> Dict[str, Any]:
     contract = getattr(pos, "contract", None)
     symbol = str(getattr(contract, "symbol", "") or "").upper()
     qty = int(_safe_float(getattr(pos, "position", 0), 0.0))
-    avg = _safe_float(getattr(pos, "avgCost", 0.0), 0.0)
+    avg = _safe_float(getattr(pos, "avgCost", getattr(pos, "averageCost", 0.0)), 0.0)
     con_id = int(getattr(contract, "conId", 0) or 0) if contract is not None else 0
+    last_price = _safe_float(getattr(pos, "marketPrice", 0.0), 0.0)
+    unrealized = _safe_float(getattr(pos, "unrealizedPNL", getattr(pos, "unrealizedPnL", 0.0)), 0.0)
+    realized = _safe_float(getattr(pos, "realizedPNL", getattr(pos, "realizedPnL", 0.0)), 0.0)
     return {
         "tradingsymbol": symbol,
         "symbol": symbol,
@@ -177,9 +180,11 @@ def _convert_position(pos: Any) -> Dict[str, Any]:
         "average_price": avg,
         "avg_price": avg,
         "product": getattr(contract, "secType", "STK") if contract else "STK",
-        "last_price": 0.0,
-        "pnl": 0.0,
-        "currency": "USD",
+        "last_price": last_price,
+        "pnl": unrealized,
+        "unrealized_pnl": unrealized,
+        "realized_pnl": realized,
+        "currency": getattr(contract, "currency", "USD") if contract else "USD",
     }
 
 
@@ -416,6 +421,10 @@ class IBKRTradingClient(QObject):
             self.ib.execDetailsEvent += self._on_ib_exec_details
             self.ib.newOrderEvent += self._on_ib_order_event
             self.ib.openOrderEvent += self._on_ib_order_event
+            if hasattr(self.ib, "positionEvent"):
+                self.ib.positionEvent += self._on_ib_position_event
+            if hasattr(self.ib, "updatePortfolioEvent"):
+                self.ib.updatePortfolioEvent += self._on_ib_position_event
             self._ib_events_subscribed = True
             logger.info("Subscribed to IBKR real-time order events")
         except Exception as exc:
@@ -441,6 +450,20 @@ class IBKRTradingClient(QObject):
             self._process_trade_update(trade)
         except Exception as exc:
             logger.debug("IBKR order event error: %s", exc)
+
+    def _on_ib_position_event(self, position: Any) -> None:
+        """Fires when IBKR publishes a position/portfolio row update."""
+        try:
+            row = _convert_position(position)
+            symbol = row.get("symbol")
+            if symbol:
+                if row.get("quantity"):
+                    self._positions[symbol] = row
+                else:
+                    self._positions.pop(symbol, None)
+            self.position_updated.emit(row)
+        except Exception as exc:
+            logger.debug("IBKR position event error: %s", exc)
 
     def _process_trade_update(self, trade: Any, fill: Any = None) -> None:
         """Convert ib_insync Trade → app dict, merge, and emit signal."""

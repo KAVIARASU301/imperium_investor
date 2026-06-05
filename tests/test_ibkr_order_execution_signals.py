@@ -25,12 +25,23 @@ if "PySide6.QtCore" not in sys.modules:
         def __init__(self, *_args, **_kwargs):
             self.timeout = _FakeSignal()
             self.active = False
+            self.single_shot = False
+
+        def setSingleShot(self, value):
+            self.single_shot = bool(value)
+
+        def isActive(self):
+            return self.active
 
         def start(self, *_args, **_kwargs):
             self.active = True
 
         def stop(self):
             self.active = False
+
+        @staticmethod
+        def singleShot(_delay, callback):
+            callback()
 
     class _FakeQThreadPool:
         @staticmethod
@@ -63,6 +74,18 @@ from ibkr.core.trading_client import (
     _convert_execution_fill,
     _convert_trade_with_fill,
 )
+
+sounds = ModuleType("ibkr.utils.sounds")
+sounds.play_entry_exit = lambda: None
+sounds.play_alert = lambda: None
+sounds.play_error = lambda: None
+status_bar = ModuleType("ibkr.widgets.status_bar")
+status_bar.show_order_completed = lambda *_args, **_kwargs: None
+status_bar.show_order_failed = lambda *_args, **_kwargs: None
+sys.modules["ibkr.utils.sounds"] = sounds
+sys.modules["ibkr.widgets.status_bar"] = status_bar
+
+from ibkr.core.position_manager import PositionManager
 
 
 def _trade(status="Submitted", filled=0, remaining=10):
@@ -148,6 +171,8 @@ class _FakeIB:
         self.execDetailsEvent = _FakeIBEvent()
         self.newOrderEvent = _FakeIBEvent()
         self.openOrderEvent = _FakeIBEvent()
+        self.positionEvent = _FakeIBEvent()
+        self.updatePortfolioEvent = _FakeIBEvent()
 
     def isConnected(self):
         return True
@@ -198,6 +223,7 @@ def test_client_subscribes_to_ibkr_order_events_and_emits_updates():
 
     assert client._ib_events_subscribed is True
     assert len(fake_ib.orderStatusEvent.callbacks) == 1
+    assert len(fake_ib.positionEvent.callbacks) == 1
     assert emitted[-1]["order_id"] == "77"
     assert emitted[-1]["status"] == "OPEN"
 
@@ -245,3 +271,80 @@ def test_execution_only_fill_row_is_complete_without_trade_snapshot():
     assert row["transaction_type"] == "SELL"
     assert row["status"] == "COMPLETE"
     assert row["filled_quantity"] == 5
+
+
+class _FakeTraderForPositions:
+    def __init__(self):
+        self.orders_calls = 0
+        self.positions_calls = 0
+        self._orders = []
+        self._positions = []
+
+    def get_orders(self):
+        self.orders_calls += 1
+        return list(self._orders)
+
+    def get_positions(self):
+        self.positions_calls += 1
+        return list(self._positions)
+
+
+def test_position_manager_processes_terminal_order_returned_by_place_order_immediately():
+    trader = _FakeTraderForPositions()
+    trader._positions = [{
+        "tradingsymbol": "AAPL",
+        "quantity": 10,
+        "average_price": 192.35,
+        "instrument_token": 123,
+    }]
+    manager = PositionManager(trader)
+    emitted = []
+    manager.positions_updated.connect(emitted.append)
+
+    manager.start_tracking_order("77", {
+        "order_id": "77",
+        "tradingsymbol": "AAPL",
+        "transaction_type": "BUY",
+        "quantity": 10,
+        "status": "COMPLETE",
+        "filled_quantity": 10,
+        "average_price": 192.35,
+    })
+
+    assert "77" not in manager.tracking_orders
+    assert trader.positions_calls >= 1
+    assert emitted[-1][0].symbol == "AAPL"
+
+
+def test_position_manager_fast_polls_ibkr_order_api_after_acceptance():
+    trader = _FakeTraderForPositions()
+    trader._orders = [{
+        "order_id": "77",
+        "tradingsymbol": "AAPL",
+        "transaction_type": "BUY",
+        "quantity": 10,
+        "status": "COMPLETE",
+        "filled_quantity": 10,
+        "average_price": 192.35,
+    }]
+    trader._positions = [{
+        "tradingsymbol": "AAPL",
+        "quantity": 10,
+        "average_price": 192.35,
+        "instrument_token": 123,
+    }]
+    manager = PositionManager(trader)
+    emitted = []
+    manager.positions_updated.connect(emitted.append)
+
+    manager.start_tracking_order("77", {
+        "order_id": "77",
+        "tradingsymbol": "AAPL",
+        "transaction_type": "BUY",
+        "quantity": 10,
+        "status": "OPEN",
+    })
+
+    assert trader.orders_calls >= 1
+    assert "77" not in manager.tracking_orders
+    assert emitted[-1][0].symbol == "AAPL"
