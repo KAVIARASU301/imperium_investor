@@ -136,6 +136,7 @@ def get_finviz_tickers(
     debug: bool = False,
     save_html_dir: Optional[str] = None,
     max_pages: int = 200,
+    progress: bool = False,
 ) -> List[Row]:
     """
     Extract rows from all pages of a Finviz screener URL.
@@ -184,7 +185,8 @@ def get_finviz_tickers(
                     all_rows.append(row)
                     new_count += 1
 
-            print(f"Page {page_number}: {len(page_rows)} rows, {new_count} new")
+            if progress or debug:
+                print(f"Page {page_number}: {len(page_rows)} rows, {new_count} new")
 
             # When Finviz has no more rows it may repeat previous page content.
             if new_count == 0:
@@ -754,6 +756,7 @@ def main(argv: Optional[List[str]] = None) -> List[Row]:
         debug=debug,
         save_html_dir=args.save_html_dir or None,
         max_pages=max(1, int(args.max_pages or 1)),
+        progress=True,
     )
 
     if not rows:
@@ -783,14 +786,14 @@ def main(argv: Optional[List[str]] = None) -> List[Row]:
 # Quick function for scripts/imports
 def quick_scrape(url: str, *, debug: bool = False) -> List[Row]:
     """Quick function to get full Finviz rows without prompts."""
-    return get_finviz_tickers(url, debug=debug)
+    return get_finviz_tickers(url, debug=debug, progress=False)
 
 
 def quick_symbols(url: str, *, debug: bool = False) -> List[str]:
     """Quick function to get only ticker symbols."""
     return [
         symbol
-        for row in get_finviz_tickers(url, debug=debug)
+        for row in get_finviz_tickers(url, debug=debug, progress=False)
         if (symbol := _symbol_from_row(row)) and is_valid_finviz_symbol(symbol)
     ]
 

@@ -150,6 +150,8 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
         self.instrument_list: List[Dict] = []
         self.instrument_map: Dict[str, Dict] = {}
         self._subscribed_tokens = set()
+        self._subscription_universe_keys: frozenset[str] = frozenset()
+        self._position_subscription_keys: frozenset[str] = frozenset()
         self._ibkr_symbol_resolver: Optional[IBKRSymbolResolver] = None
 
 
@@ -1840,13 +1842,13 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
         self.position_manager.partial_fill_symbols_updated.connect(
             self.positions_table.mark_partial_symbols
         )
-        self.position_manager.positions_updated.connect(self._schedule_subscription_rebuild)
+        self.position_manager.positions_updated.connect(self._schedule_position_subscription_rebuild)
         self.position_manager.positions_updated.connect(self._update_floating_positions_dialog)
         self.position_manager.day_pnl_updated.connect(self._on_day_pnl_updated)
         self.position_manager.show_notification.connect(self._show_position_manager_notification)
         self._connect_ibkr_order_lifecycle_signals()
         self._connect_position_worker_signals()
-        self.position_manager.start_live_sync(interval_seconds=5)
+        self.position_manager.start_safety_refresh(interval_minutes=5)
         # Position manager notifications route through the Qt signal so WS callbacks stay visible/audible.
 
 
@@ -2582,13 +2584,48 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
                 items.append(item)
         return items
 
+
+    def _current_position_subscription_keys(self) -> frozenset[str]:
+        """Return the stable subscription keys contributed by current positions."""
+        keys: set[str] = set()
+        if not (hasattr(self, 'positions_table') and self.positions_table.positions_data):
+            return frozenset()
+
+        for pos in self.positions_table.positions_data.values():
+            item = self._build_subscription_item(
+                getattr(pos, "symbol", ""),
+                token=getattr(pos, "token", 0),
+            )
+            key = self._subscription_item_key(item) if item is not None else ""
+            if key:
+                keys.add(key)
+        return frozenset(keys)
+
+    @Slot(list)
+    def _schedule_position_subscription_rebuild(self, _positions: Optional[List[Any]] = None):
+        """Rebuild subscriptions only when the position symbol/token set changes."""
+        position_keys = self._current_position_subscription_keys()
+        if position_keys == getattr(self, "_position_subscription_keys", frozenset()):
+            logger.debug("Position refresh did not change subscription symbols; skipping rebuild")
+            return
+
+        self._position_subscription_keys = position_keys
+        self._schedule_subscription_rebuild()
+
     @Slot()
     def _rebuild_subscription_universe(self):
-        """Handle watchlist and UI changes with position-priority subscriptions."""
-        logger.info("Watchlist changed - updating subscriptions")
+        """Handle event-driven watchlist/UI changes with position-priority subscriptions."""
         all_tokens = set()
         all_instruments: List[Any] = []
         seen_instruments: set[str] = set()
+        source_counts = {
+            "positions": 0,
+            "charts": 0,
+            "watchlist": 0,
+            "scanner": 0,
+            "alerts": 0,
+            "header": 0,
+        }
 
         def add_subscription_item(item: Any) -> None:
             key = self._subscription_item_key(item)
@@ -2611,7 +2648,7 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
             for pos in self.positions_table.positions_data.values():
                 add_symbol(getattr(pos, "symbol", ""), token=getattr(pos, "token", 0))
                 position_count += 1
-            logger.info(f"Added {position_count} position symbols")
+            source_counts["positions"] = position_count
 
         # Priority 2: Chart token
         for chart in (getattr(self, 'candlestick_chart', None), getattr(self, 'candlestick_chart_secondary', None)):
@@ -2620,7 +2657,7 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
                 chart_token = getattr(chart, 'current_instrument_token', None)
                 if chart_symbol or chart_token:
                     add_symbol(chart_symbol, token=chart_token)
-                    logger.info(f"Added chart subscription: {chart_symbol or chart_token}")
+                    source_counts["charts"] += 1
 
         # Priority 3: Watchlist tokens (always include)
         # NOTE:
@@ -2642,7 +2679,7 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
         else:
             for token in watchlist_tokens:
                 add_subscription_item(token)
-        logger.info(f"Added {len(watchlist_tokens)} watchlist tokens")
+        source_counts["watchlist"] = len(watchlist_tokens)
 
         # Priority 4: Scanner-visible symbols
         theme = self.color_theme_manager.get_theme()
@@ -2650,12 +2687,13 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
             scanner_items = self._get_scanner_visible_subscription_items()
             for item in scanner_items:
                 add_subscription_item(item)
-            logger.info(f"Added {len(scanner_items)} scanner visible symbols")
+            source_counts["scanner"] = len(scanner_items)
 
         # Priority 5: Alert tokens
         alert_tokens = self._get_alert_tokens()
         for token in alert_tokens:
             add_subscription_item(token)
+        source_counts["alerts"] = len(alert_tokens)
 
         # Priority 6: Header ticker board symbols
         # Keep these in the core subscription universe so they are not dropped
@@ -2670,7 +2708,7 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
                     header_items = self.header_toolbar.configure_ticker_ws_tokens(getattr(self, "instrument_map", {}) or {})
                 for item in header_items:
                     add_subscription_item(item)
-                logger.info(f"Added {len(header_items)} header ticker subscriptions")
+                source_counts["header"] = len(header_items)
             except Exception as exc:
                 logger.error(f"Failed to resolve header ticker subscriptions: {exc}")
 
@@ -2679,13 +2717,30 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
         # instrument dicts/strings for the watchlist and bare tokens for the
         # other consumers.
         if self.market_data_worker:
+            universe_keys = frozenset(self._subscription_item_key(item) for item in all_instruments)
+            if universe_keys == getattr(self, "_subscription_universe_keys", frozenset()):
+                logger.debug(
+                    "Subscription universe unchanged (%d instruments); skipping broker update",
+                    len(all_instruments),
+                )
+                return
+
+            previous_keys = getattr(self, "_subscription_universe_keys", frozenset())
+            added_keys = universe_keys - previous_keys
+            removed_keys = previous_keys - universe_keys
             token_keys = {str(token) for token in all_tokens}
             self.market_data_worker.set_instruments(all_instruments)
             self.market_data_worker.request_snapshots(all_instruments)
             self._subscribed_tokens = set(all_tokens)
+            self._subscription_universe_keys = universe_keys
             logger.info(
-                f"Updated subscription universe to {len(all_instruments)} instruments "
-                f"({len(token_keys)} token-backed)"
+                "Subscription universe changed: %d instruments (%d token-backed, +%d/-%d) "
+                "sources=%s",
+                len(all_instruments),
+                len(token_keys),
+                len(added_keys),
+                len(removed_keys),
+                {key: value for key, value in source_counts.items() if value},
             )
 
     def _get_scanner_visible_tokens(self) -> List[int]:

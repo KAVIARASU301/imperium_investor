@@ -44,6 +44,7 @@ class PositionManager(QObject):
         self.safety_timer: Optional[QTimer] = None
         self.live_sync_timer: Optional[QTimer] = None
         self._pending_position_refresh_reason = "broker_position_update"
+        self._last_position_log_signature: Optional[tuple] = None
         self._position_refresh_timer = QTimer(self)
         self._position_refresh_timer.setSingleShot(True)
         self._position_refresh_timer.timeout.connect(self._flush_scheduled_position_refresh)
@@ -73,7 +74,8 @@ class PositionManager(QObject):
     # ------------------------------------------------------------------
     def fetch_positions_from_broker(self, reason: str = "manual") -> None:
         try:
-            logger.info("Fetching positions from broker - Reason: %s", reason)
+            log_method = logger.debug if reason in {"safety_refresh", "ibkr_live_sync"} else logger.info
+            log_method("Fetching positions from broker - Reason: %s", reason)
             raw_payload = self._broker_positions()
             raw_positions = self._extract_position_rows(raw_payload)
 
@@ -88,12 +90,28 @@ class PositionManager(QObject):
             self.positions_updated.emit(positions)
             self.partial_fill_symbols_updated.emit(set())
             self.day_pnl_updated.emit(day_pnl)
-            logger.info(
-                "Sent %d positions to table | open MTM %.2f | realized %.2f",
+            position_signature = tuple(
+                sorted(
+                    (pos.symbol, int(pos.quantity), round(float(pos.avg_price), 4), int(pos.token or 0))
+                    for pos in positions
+                )
+            )
+            summary_args = (
                 len(positions),
                 day_pnl.get("unrealized", 0.0),
                 day_pnl.get("realized", 0.0),
             )
+            if position_signature != self._last_position_log_signature:
+                logger.info(
+                    "Position table changed: %d open positions | open MTM %.2f | realized %.2f",
+                    *summary_args,
+                )
+                self._last_position_log_signature = position_signature
+            else:
+                logger.debug(
+                    "Position table refreshed: %d open positions | open MTM %.2f | realized %.2f",
+                    *summary_args,
+                )
         except Exception as exc:
             logger.error("Failed to fetch positions: %s", exc, exc_info=True)
             self.show_notification.emit(f"Failed to fetch positions: {exc}", "error")
@@ -468,11 +486,17 @@ class PositionManager(QObject):
         self.safety_timer.start(max(1, int(interval_minutes)) * 60 * 1000)
 
     def start_live_sync(self, interval_seconds: int = 5) -> None:
-        """Continuously reconcile UI positions with the broker's latest position snapshot."""
+        """Start legacy polling only when explicitly enabled by callers/config.
+
+        Normal production flow is event-driven via IBKR order/position/connection
+        signals.  Use start_safety_refresh() for low-frequency reconciliation.
+        """
+        interval = max(60, int(interval_seconds))
         if self.live_sync_timer is None:
             self.live_sync_timer = QTimer(self)
             self.live_sync_timer.timeout.connect(lambda: self.fetch_positions_from_broker("ibkr_live_sync"))
-        self.live_sync_timer.start(max(1, int(interval_seconds)) * 1000)
+        self.live_sync_timer.start(interval * 1000)
+        logger.warning("Legacy IBKR position polling enabled at %d-second interval", interval)
 
     def stop_live_sync(self) -> None:
         if self.live_sync_timer and self.live_sync_timer.isActive():
