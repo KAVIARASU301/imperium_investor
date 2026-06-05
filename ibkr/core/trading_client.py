@@ -8,7 +8,7 @@ Main integration fixes:
   • Keeps place_order() returning a rich dict, while updated MainWindow accepts
     both this dict and older broker order-id strings.
   • ✅ NEW: Subscribes to tradeStatusEvent for real-time order updates
-  • ✅ NEW: Uses reqAllOpenOrders() + reqExecutions() for fresh broker data
+  • ✅ NEW: Polls the local ib.trades() cache without cross-thread broker requests
   • ✅ NEW: Properly tracks order cancellation state
 """
 
@@ -20,12 +20,11 @@ import math
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from PySide6.QtCore import QObject, Signal, QThreadPool, QTimer
+from PySide6.QtCore import QObject, Signal, QTimer
 
 from ibkr.utils.account_display import extract_account_display_name
 from ibkr.utils.ibkr_price import first_positive_ibkr_price, safe_ibkr_price
 from ibkr.utils.market_time import market_isoformat
-from ibkr.utils.worker import Worker
 
 try:
     from ib_insync import IB, Contract, Stock, MarketOrder, LimitOrder, StopOrder, StopLimitOrder, Trade, Position, Ticker
@@ -405,8 +404,6 @@ class IBKRTradingClient(QObject):
         self._contract_cache: Dict[str, Any] = {}
         self._market_data_subscriptions: Dict[str, Dict[str, Any]] = {}
         self._subscribed_symbols: set[str] = set()
-        self._thread_pool = QThreadPool.globalInstance()
-        self._poll_inflight = False
         self._ib_events_subscribed = False
         self._pending_cancellation: Dict[str, bool] = {}  # Track orders waiting for cancellation confirmation
 
@@ -507,64 +504,42 @@ class IBKRTradingClient(QObject):
         self.order_status_updated.emit(dict(merged))
 
     # ------------------------------------------------------------------
-    # Active order polling with fresh broker data
+    # Active order polling from the local ib_insync cache
     # ------------------------------------------------------------------
     def _dispatch_order_poll(self) -> None:
-        if self._poll_inflight or not self.is_connected():
+        if not self.is_connected():
             return
-        self._poll_inflight = True
-        worker = Worker(self._fetch_fresh_orders_from_broker)
-        worker.signals.result.connect(self._on_orders_polled)
-        worker.signals.finished.connect(lambda: setattr(self, "_poll_inflight", False))
-        self._thread_pool.start(worker)
+        try:
+            fresh_orders = self._fetch_fresh_orders_from_broker()
+            self._on_orders_polled(fresh_orders)
+        except Exception as exc:
+            logger.warning("Order poll failed: %s", exc)
 
     def _fetch_fresh_orders_from_broker(self) -> List[Dict[str, Any]]:
-        """✅ NEW: Fetch fresh orders using reqAllOpenOrders() + reqExecutions()"""
+        """Read fresh order state from ib_insync's local trade cache only.
+
+        ib_insync owns an asyncio socket/event loop that must not be driven from
+        QThreadPool workers.  Avoid proactive broker requests such as
+        reqAllOpenOrders() or reqExecutions() here; the subscribed live events
+        keep ``ib.trades()`` and each trade's fills up to date.
+        """
         try:
             if not self.ib:
                 return []
-            
+
             fresh_orders: Dict[str, Dict[str, Any]] = {}
-            
-            # 1. Get all open orders from the broker
-            try:
-                if hasattr(self.ib, "reqAllOpenOrders"):
-                    self.ib.reqAllOpenOrders()  # Populates ib.trades()
-                    trades = self.ib.trades() or []
-                else:
-                    trades = self.ib.trades() or []
-                
-                for trade in trades:
-                    row = _convert_trade(trade)
-                    order_id = str(row.get("order_id") or "").strip()
-                    if order_id:
-                        fresh_orders[order_id] = row
-                logger.debug("Fetched %d open orders from IBKR", len(fresh_orders))
-            except Exception as exc:
-                logger.warning("reqAllOpenOrders failed: %s", exc)
-            
-            # 2. Get executions to catch recent fills
-            try:
-                if hasattr(self.ib, "reqExecutions"):
-                    filter_obj = self.ib.ExecutionFilter() if hasattr(self.ib, "ExecutionFilter") else None
-                    executions = self.ib.reqExecutions(filter_obj) if filter_obj else []
-                    
-                    for exec_detail in executions or []:
-                        row = _convert_execution_fill(exec_detail)
-                        order_id = str(row.get("order_id") or "").strip()
-                        if order_id:
-                            # Merge execution fill with order state
-                            if order_id in fresh_orders:
-                                fresh_orders[order_id] = _apply_execution_to_order_row(
-                                    fresh_orders[order_id],
-                                    execution=getattr(exec_detail, "execution", exec_detail)
-                                )
-                            else:
-                                fresh_orders[order_id] = row
-                    logger.debug("Fetched %d recent executions from IBKR", len(executions or []))
-            except Exception as exc:
-                logger.warning("reqExecutions failed: %s", exc)
-            
+            trades = list(self.ib.trades() or [])
+            for trade in trades:
+                row = _convert_trade(trade)
+                fills = list(getattr(trade, "fills", []) or [])
+                for fill in fills:
+                    row = _apply_execution_to_order_row(row, fill)
+
+                order_id = str(row.get("order_id") or "").strip()
+                if order_id:
+                    fresh_orders[order_id] = row
+
+            logger.debug("Synced %d orders from local IBKR trade cache", len(fresh_orders))
             return list(fresh_orders.values())
         except Exception as exc:
             logger.warning("Fresh order fetch failed: %s", exc)

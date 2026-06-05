@@ -1,10 +1,9 @@
-import asyncio
 import inspect
 import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from PySide6.QtCore import Qt, QTimer, Signal, QThreadPool, QPoint
+from PySide6.QtCore import Qt, QTimer, Signal, QPoint
 from PySide6.QtGui import QColor, QCursor, QFont, QBrush
 from PySide6.QtWidgets import (
     QDialog,
@@ -31,7 +30,6 @@ from PySide6.QtWidgets import (
 from ibkr.utils.ibkr_price import first_positive_ibkr_price, safe_ibkr_price
 from ibkr.utils.market_time import market_strftime
 from ibkr.widgets.status_bar import show_error, show_info, show_order_cancelled
-from ibkr.utils.worker import Worker
 
 logger = logging.getLogger(__name__)
 
@@ -54,20 +52,6 @@ PENDING_STATUSES = {
     "MODIFY PENDING",
     "AMO REQ RECEIVED",
 }
-
-
-def _ensure_thread_event_loop() -> None:
-    """Ensure ib_insync synchronous calls have an asyncio loop in worker threads."""
-    try:
-        asyncio.get_running_loop()
-        return
-    except RuntimeError:
-        pass
-
-    try:
-        asyncio.get_event_loop()
-    except RuntimeError:
-        asyncio.set_event_loop(asyncio.new_event_loop())
 
 
 def _normalize_status(status: Any) -> str:
@@ -618,8 +602,6 @@ class PendingOrdersDialog(QDialog):
         self.instrument_map = instrument_map or {}
         self._orders: List[Dict[str, Any]] = []
         self._orders_by_id: Dict[str, Dict[str, Any]] = {}
-        self._thread_pool = QThreadPool.globalInstance()
-        self._refresh_inflight = False
 
         self.setWindowTitle("PENDING ORDERS")
         self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
@@ -1034,22 +1016,15 @@ class PendingOrdersDialog(QDialog):
         if not self.isVisible() and self._orders:
             return
 
-        if self._refresh_inflight:
-            logger.debug("Pending order refresh skipped — previous broker request still running")
-            return
-
-        self._refresh_inflight = True
         self.status_label.setText("Syncing with IBKR...")
-        worker = Worker(self._fetch_orders_from_api)
-        worker.signals.result.connect(self._handle_orders_result)
-        worker.signals.error.connect(lambda err: self._handle_orders_error(err[1]))
-        worker.signals.finished.connect(self._on_refresh_finished)
-        self._thread_pool.start(worker)
+        try:
+            orders = self._fetch_orders_from_api()
+            self._handle_orders_result(orders)
+        except Exception as exc:
+            self._handle_orders_error(exc)
 
     def _fetch_orders_from_api(self) -> List[Dict[str, Any]]:
         """Pull the latest pending/order list from the active IBKR client surface."""
-        _ensure_thread_event_loop()
-
         if hasattr(self.trader, "orders") and callable(self.trader.orders):
             orders = self.trader.orders()
         elif hasattr(self.trader, "get_orders") and callable(self.trader.get_orders):
@@ -1084,9 +1059,6 @@ class PendingOrdersDialog(QDialog):
         logger.error("Failed to refresh pending orders: %s", exc, exc_info=True)
         self.status_label.setText("Failed to load pending orders")
         show_error(f"Pending orders refresh failed: {exc}")
-
-    def _on_refresh_finished(self):
-        self._refresh_inflight = False
 
     def _render_table(self):
         selected_order_id = self._selected_order_id()
