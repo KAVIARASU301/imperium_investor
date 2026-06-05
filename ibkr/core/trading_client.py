@@ -179,6 +179,57 @@ def _convert_trade(trade: Any) -> Dict[str, Any]:
     }
 
 
+def _convert_trade_with_fill(trade: Any, fill: Any = None) -> Dict[str, Any]:
+    """Convert an IBKR trade plus execution fill into the app order schema.
+
+    IBKR/TWS can report fast market-order executions via ``execDetailsEvent`` or
+    a Trade ``fillEvent`` before the corresponding ``orderStatusEvent`` updates
+    the local ``Trade.orderStatus`` object.  Relying only on orderStatus then
+    leaves the UI tracking an order as OPEN/PENDING even though TWS has already
+    executed it.  This helper overlays execution fields on top of the normal
+    trade conversion so every execution signal can advance the app lifecycle.
+    """
+    data = _convert_trade(trade)
+    execution = getattr(fill, "execution", None) if fill is not None else None
+    if execution is None:
+        return data
+
+    quantity = int(_safe_float(data.get("quantity"), 0.0))
+    exec_order_id = str(getattr(execution, "orderId", "") or "").strip()
+    exec_perm_id = str(getattr(execution, "permId", "") or "").strip()
+    cum_qty = int(_safe_float(getattr(execution, "cumQty", 0), 0.0))
+    shares = int(_safe_float(getattr(execution, "shares", 0), 0.0))
+    previous_filled = int(_safe_float(data.get("filled_quantity"), 0.0))
+    filled_quantity = max(previous_filled, cum_qty, shares)
+    avg_price = _first_price(
+        getattr(execution, "avgPrice", 0.0),
+        getattr(execution, "price", 0.0),
+        data.get("average_price"),
+    )
+
+    if exec_order_id and not data.get("order_id"):
+        data["order_id"] = exec_order_id
+    if exec_perm_id and not data.get("perm_id"):
+        data["perm_id"] = exec_perm_id
+    if filled_quantity > 0:
+        data["filled_quantity"] = filled_quantity
+        data["pending_quantity"] = (
+            max(quantity - filled_quantity, 0)
+            if quantity > 0
+            else int(data.get("pending_quantity") or 0)
+        )
+        data["average_price"] = avg_price
+        if avg_price > 0 and not data.get("price"):
+            data["price"] = avg_price
+        if quantity <= 0 or filled_quantity >= quantity:
+            data["status"] = "COMPLETE"
+            data["raw_status"] = "Filled"
+        elif _normalize_status(data.get("status")) in {"UNKNOWN", "PENDING", "OPEN"}:
+            data["status"] = "OPEN"
+            data["raw_status"] = "PartiallyFilled"
+    return data
+
+
 def _convert_ticker(ticker: Any) -> Dict[str, Any]:
     contract = getattr(ticker, "contract", None)
     symbol = str(getattr(contract, "symbol", "") or "").upper()
@@ -229,6 +280,7 @@ class IBKRTradingClient(QObject):
         self._market_data_subscriptions: Dict[str, Dict[str, Any]] = {}
         self._subscribed_symbols: set[str] = set()
         self._recent_order_errors: Dict[str, str] = {}
+        self._fill_handler_trade_ids: set[int] = set()
         self._events_attached = False
 
         self._setup_event_handlers()
@@ -243,7 +295,13 @@ class IBKRTradingClient(QObject):
         if not self.ib or self._events_attached:
             return
         try:
+            if hasattr(self.ib, "newOrderEvent"):
+                self.ib.newOrderEvent += self._on_order_status
+            if hasattr(self.ib, "openOrderEvent"):
+                self.ib.openOrderEvent += self._on_order_status
             self.ib.orderStatusEvent += self._on_order_status
+            if hasattr(self.ib, "execDetailsEvent"):
+                self.ib.execDetailsEvent += self._on_order_execution
             self.ib.positionEvent += self._on_position_update
             self.ib.accountValueEvent += self._on_account_update
             self.ib.pendingTickersEvent += self._on_market_data_update
@@ -258,7 +316,10 @@ class IBKRTradingClient(QObject):
         if not self.ib or not self._events_attached:
             return
         for event_name, handler in (
+            ("newOrderEvent", self._on_order_status),
+            ("openOrderEvent", self._on_order_status),
             ("orderStatusEvent", self._on_order_status),
+            ("execDetailsEvent", self._on_order_execution),
             ("positionEvent", self._on_position_update),
             ("accountValueEvent", self._on_account_update),
             ("pendingTickersEvent", self._on_market_data_update),
@@ -273,7 +334,46 @@ class IBKRTradingClient(QObject):
         self._events_attached = False
 
     def _on_order_status(self, trade: Any) -> None:
+        self._attach_trade_fill_handlers(trade)
         data = _convert_trade(trade)
+        self._emit_order_update(data)
+
+    def _on_order_execution(self, trade: Any, fill: Any = None) -> None:
+        self._attach_trade_fill_handlers(trade)
+        data = _convert_trade_with_fill(trade, fill)
+        self._emit_order_update(data)
+
+    def _on_trade_fill(self, trade: Any, fill: Any = None) -> None:
+        data = _convert_trade_with_fill(trade, fill)
+        self._emit_order_update(data)
+
+    def _attach_trade_fill_handlers(self, trade: Any) -> None:
+        """Subscribe to per-Trade execution events once.
+
+        ib_insync emits both IB-level ``execDetailsEvent`` and per-trade
+        ``fillEvent``/``filledEvent`` callbacks depending on how the order was
+        created and how fast TWS acknowledges execution.  Attaching both makes
+        fast fills visible to the Qt app even when ``orderStatusEvent`` lags.
+        """
+        if trade is None:
+            return
+        trade_key = id(trade)
+        if (
+            trade_key in self._fill_handler_trade_ids
+            or getattr(trade, "_swing_trader_fill_handlers", False)
+        ):
+            return
+        try:
+            if hasattr(trade, "fillEvent"):
+                trade.fillEvent += self._on_trade_fill
+            if hasattr(trade, "filledEvent"):
+                trade.filledEvent += self._on_order_status
+            self._fill_handler_trade_ids.add(trade_key)
+            setattr(trade, "_swing_trader_fill_handlers", True)
+        except Exception as exc:
+            logger.debug("Failed to attach IBKR trade fill handlers: %s", exc)
+
+    def _emit_order_update(self, data: Dict[str, Any]) -> None:
         if data.get("order_id"):
             self._orders[str(data["order_id"])] = data
         self.order_status_updated.emit(data)
@@ -426,6 +526,7 @@ class IBKRTradingClient(QObject):
             if not trade:
                 return self._order_failure_response(params, "IBKR did not return a Trade object")
 
+            self._attach_trade_fill_handlers(trade)
             self._pump_order_updates(trade)
             result = self._build_order_result(trade, params, contract)
             order_id = str(result.get("order_id") or "").strip()
