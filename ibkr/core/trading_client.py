@@ -399,10 +399,59 @@ class IBKRTradingClient(QObject):
         self._subscribed_symbols: set[str] = set()
         self._thread_pool = QThreadPool.globalInstance()
         self._poll_inflight = False
+        self._ib_events_subscribed = False
+
+        self._subscribe_ib_events()
 
         self._order_poll_timer = QTimer(self)
         self._order_poll_timer.timeout.connect(self._dispatch_order_poll)
-        self._order_poll_timer.start(1500)
+        self._order_poll_timer.start(5_000)
+
+    def _subscribe_ib_events(self) -> None:
+        """Subscribe to ib_insync real-time order/fill callbacks. Called once."""
+        if getattr(self, "_ib_events_subscribed", False) or not self.ib:
+            return
+        try:
+            self.ib.orderStatusEvent += self._on_ib_order_status
+            self.ib.execDetailsEvent += self._on_ib_exec_details
+            self.ib.newOrderEvent += self._on_ib_order_event
+            self.ib.openOrderEvent += self._on_ib_order_event
+            self._ib_events_subscribed = True
+            logger.info("Subscribed to IBKR real-time order events")
+        except Exception as exc:
+            logger.warning("Could not subscribe to IBKR order events: %s", exc)
+
+    def _on_ib_order_status(self, trade: Any) -> None:
+        """Fires on every order status change: Submitted, Filled, Cancelled, etc."""
+        try:
+            self._process_trade_update(trade)
+        except Exception as exc:
+            logger.debug("IBKR orderStatus event error: %s", exc)
+
+    def _on_ib_exec_details(self, trade: Any, fill: Any) -> None:
+        """Fires when a fill/execution report arrives from TWS."""
+        try:
+            self._process_trade_update(trade, fill)
+        except Exception as exc:
+            logger.debug("IBKR execDetails event error: %s", exc)
+
+    def _on_ib_order_event(self, trade: Any) -> None:
+        """Fires for new-order acknowledgments and open-order updates."""
+        try:
+            self._process_trade_update(trade)
+        except Exception as exc:
+            logger.debug("IBKR order event error: %s", exc)
+
+    def _process_trade_update(self, trade: Any, fill: Any = None) -> None:
+        """Convert ib_insync Trade → app dict, merge, and emit signal."""
+        row = _convert_trade_with_fill(trade, fill) if fill else _convert_trade(trade)
+        order_id = str(row.get("order_id") or "").strip()
+        if not order_id:
+            return
+        existing = self._orders.get(order_id)
+        merged = _merge_order_snapshot(existing, row)
+        self._orders[order_id] = merged
+        self.order_status_updated.emit(dict(merged))
 
     # ------------------------------------------------------------------
     # Active order polling
@@ -417,22 +466,21 @@ class IBKRTradingClient(QObject):
         self._thread_pool.start(worker)
 
     def _fetch_orders_from_tws(self) -> List[Dict[str, Any]]:
-        """Query TWS directly for open orders and drive ib_insync briefly."""
-        _ensure_thread_event_loop()
+        """Fallback: read local ib_insync trade cache — no network call."""
         try:
-            trades = self.ib.reqAllOpenOrders() if self.ib else []
+            trades = self.ib.trades() if self.ib else []
+            return [_convert_trade(trade) for trade in (trades or [])]
         except Exception as exc:
-            logger.warning("reqAllOpenOrders failed: %s", exc)
+            logger.warning("Fallback trade read failed: %s", exc)
             return list(self._orders.values())
-        return [_convert_trade(trade) for trade in (trades or [])]
 
     def _on_orders_polled(self, fresh_orders: List[Dict[str, Any]]) -> None:
-        for order_data in fresh_orders or []:
-            order_id = str(order_data.get("order_id") or "").strip()
+        for row in fresh_orders or []:
+            order_id = str(row.get("order_id") or "").strip()
             if not order_id:
                 continue
             existing = self._orders.get(order_id)
-            merged = _merge_order_snapshot(existing, order_data)
+            merged = _merge_order_snapshot(existing, row)
             if merged != existing:
                 self._orders[order_id] = merged
                 self.order_status_updated.emit(merged)
@@ -481,11 +529,9 @@ class IBKRTradingClient(QObject):
         return self.get_positions()
 
     def get_orders(self) -> List[Dict[str, Any]]:
-        """Synchronously fetch a fresh open-order snapshot from TWS."""
-        _ensure_thread_event_loop()
+        """Return cached session orders refreshed from ib_insync's local trade cache."""
         try:
-            trades = self.ib.reqAllOpenOrders() if self.ib else []
-            rows = [_convert_trade(trade) for trade in (trades or [])]
+            rows = self._fetch_orders_from_tws()
             for row in rows:
                 order_id = str(row.get("order_id") or "").strip()
                 if order_id:
@@ -544,30 +590,18 @@ class IBKRTradingClient(QObject):
             if not trade:
                 return self._order_failure_response(params, "IBKR did not return a Trade object")
 
-            self._pump_order_updates(trade)
+            # Build initial result from synchronous trade object state.
+            # Real status updates arrive via orderStatusEvent / execDetailsEvent.
             result = self._build_order_result(trade, params, contract)
             order_id = str(result.get("order_id") or "").strip()
-            status_text = str(result.get("status") or "UNKNOWN").upper()
-            status_message = str(result.get("status_message") or "").strip()
-
-            if _is_failure_status(status_text):
-                reason = status_message or f"IBKR marked order {status_text.lower()}"
-                result.update({"accepted": False, "error": reason})
-                logger.warning("IBKR order rejected/failed for %s: %s", symbol, reason)
-            elif _is_pending_or_open_status(status_text) or status_text in IBKR_SUCCESS_STATUSES:
-                result["accepted"] = True
-            else:
-                # Some IBKR responses have an order id before a status arrives. Treat
-                # that as accepted-but-pending so the normal polling/event flow can
-                # resolve it instead of showing a false failure to the user.
-                result.update({"accepted": bool(order_id), "status": "PENDING" if order_id else status_text})
-                if not order_id:
-                    result.update({"accepted": False, "error": "IBKR did not provide an order id yet"})
 
             if order_id:
-                result = _merge_order_snapshot(self._orders.get(order_id), result)
                 self._orders[order_id] = result
-                self.order_status_updated.emit(result)
+                result["accepted"] = True
+                self.order_status_updated.emit(dict(result))
+            else:
+                result.update({"accepted": False, "error": "No order ID returned from IBKR"})
+
             return result
         except Exception as exc:
             logger.error("Error placing IBKR order: %s", exc, exc_info=True)
@@ -756,7 +790,16 @@ class IBKRTradingClient(QObject):
             return dict(self._account_info)
 
     def is_connected(self) -> bool:
-        return bool(self.ib and self.ib.isConnected())
+        connected = bool(self.ib and self.ib.isConnected())
+        if connected and not getattr(self, "_connected", False):
+            self._on_reconnected()
+        self._connected = connected
+        return connected
+
+    def _on_reconnected(self) -> None:
+        self._ib_events_subscribed = False
+        self._subscribe_ib_events()
+        self.connection_status_changed.emit(True)
 
     def disconnect(self) -> None:
         try:
@@ -772,18 +815,6 @@ class IBKRTradingClient(QObject):
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
-    def _pump_order_updates(self, trade: Any, attempts: int = 5, timeout: float = 0.1) -> None:
-        for _ in range(max(1, attempts)):
-            status = _normalize_status(getattr(getattr(trade, "orderStatus", None), "status", ""))
-            order_id, _ = _extract_order_identity(trade)
-            if status in {"OPEN", "PENDING", "COMPLETE", "REJECTED", "CANCELLED"} and order_id:
-                return
-            try:
-                self.ib.waitOnUpdate(timeout=timeout)
-            except Exception as exc:
-                logger.debug("IBKR waitOnUpdate during order placement failed: %s", exc)
-                return
-
     def _build_order_result(self, trade: Any, params: Dict[str, Any], contract: Any) -> Dict[str, Any]:
         symbol = params.get("symbol", "")
         quantity = int(params.get("quantity") or 0)
