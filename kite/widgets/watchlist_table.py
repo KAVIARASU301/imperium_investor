@@ -15,9 +15,9 @@ Features
   • Context menu: chart, advanced buy/sell, bracket, remove
   • Keyboard: focus → Space navigates symbols into chart
   • Persistence:
-      watchlist config  → ~/.qullamaggie/watchlist_config.json
-      per-list symbols  → kite/user_data/watchlist_{id}.json
-      flags             → ~/.qullamaggie/watchlist_flags.json
+      watchlist config  → ~/.qullamaggie/storage/user_data/<broker>/<mode>/watchlist_config.json
+      per-list symbols  → ~/.qullamaggie/storage/user_data/<broker>/<mode>/watchlist_{id}.json
+      flags             → ~/.qullamaggie/storage/user_data/<broker>/<mode>/watchlist_flags.json
 """
 
 from __future__ import annotations

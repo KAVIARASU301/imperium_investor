@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import re
+from enum import Enum
 from datetime import datetime, time as dt_time, timedelta, timezone
 try:
     from zoneinfo import ZoneInfo
@@ -35,6 +36,7 @@ from PySide6.QtWidgets import (
 )
 
 
+from app_paths import get_user_data_path
 from chart_engine.core.chart_bridge import ChartBridge
 from chart_engine.core.data_loader import (
     DEFAULT_DAYS_BACK,
@@ -70,8 +72,6 @@ POLL_MS_INTRADAY = 60_000
 MINUTE_BOUNDARY_POLL_OFFSET_MS = 5000
 
 # ChartState is used internally to manage the stacked-widget visibility.
-from enum import Enum
-
 class ChartState(Enum):
     IDLE    = "idle"
     LOADING = "loading"
@@ -122,7 +122,7 @@ class CandlestickChart(QWidget):
         self.instrument_loader = instrument_loader
         self._broker_caps = data_fetcher.capabilities
         if storage_dir == "kite/user_data/chart_drawings":
-            storage_dir = "kite/user_data/chart_drawings" if self._broker_caps.name == "kite" else "ibkr/user_data/chart_drawings"
+            storage_dir = str(get_user_data_path(self._broker_caps.name, "live", "chart_drawings"))
 
         # ── State ──
         self.current_symbol:          str   = ""
@@ -1024,9 +1024,9 @@ class CandlestickChart(QWidget):
     def _infer_default_price_scale_currency(self) -> str:
         """Infer default currency once from mode/symbol when not persisted yet."""
         storage_hint = (getattr(self.drawing_storage, "storage_dir", "") or "").lower()
-        if "/kite/" in storage_hint or storage_hint.startswith("kite/"):
+        if "/kite/" in storage_hint or "\\kite\\" in storage_hint:
             return "INR"
-        if "/ibkr/" in storage_hint or storage_hint.startswith("ibkr/"):
+        if "/ibkr/" in storage_hint or "\\ibkr\\" in storage_hint:
             return "USD"
 
         sym = (self.current_symbol or "").strip().upper()

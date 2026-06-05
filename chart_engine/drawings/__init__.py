@@ -13,6 +13,8 @@ import tempfile
 from datetime import datetime
 from typing import Any, Dict
 
+from app_paths import get_user_data_path
+
 logger = logging.getLogger(__name__)
 
 # ─── Default values ──────────────────────────────────────────────────────────
@@ -139,6 +141,8 @@ class DrawingStorage:
     """
 
     def __init__(self, storage_dir: str = "kite/user_data/chart_drawings"):
+        if storage_dir == "kite/user_data/chart_drawings":
+            storage_dir = str(get_user_data_path("kite", "live", "chart_drawings"))
         self.storage_dir = storage_dir
         os.makedirs(storage_dir, exist_ok=True)
         self.global_settings_file = os.path.join(storage_dir, "global_chart_settings.json")

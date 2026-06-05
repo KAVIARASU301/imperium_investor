@@ -17,6 +17,7 @@ from PySide6.QtCore import Qt, QByteArray, QTimer, Slot, Signal, QEvent, QProces
 from PySide6.QtWidgets import QMainWindow, QSplitter, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, \
     QPushButton, QLabel, QApplication, QMessageBox, QMenuBar, QSizePolicy, QDialog, QLineEdit, QGraphicsDropShadowEffect, QToolButton
 from PySide6.QtGui import QMouseEvent, QKeySequence, QKeyEvent, QAction, QColor, QIcon
+from app_paths import get_user_data_path
 
 from ibkr.widgets.scanner_table import FinvizScannerTable
 from ibkr.widgets.positions_table import PositionsTable
@@ -117,8 +118,8 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
         self.trade_logger = TradeLogger(
             mode=self.trading_mode,
         )
-        self.chart_drawings_dir = os.path.join(
-            "ibkr", "user_data", f"chart_drawings_{self.trading_mode}"
+        self.chart_drawings_dir = str(
+            get_user_data_path("ibkr", self.trading_mode, "chart_drawings")
         )
 
         # SIMPLIFIED MANAGERS - NO NOTIFICATION SYSTEM

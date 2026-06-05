@@ -19,6 +19,7 @@ import time
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 from PySide6.QtCore import QObject, Signal, Slot, QTimer
+from app_paths import get_user_data_path
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,7 @@ class ChartLinesManager(QObject):
     """
     Manages alert lines and position lines in the chart.
     Compatible with existing drawing system:
-        ibkr/user_data/chart_drawings/SYMBOL_state.json
+        ~/.qullamaggie/storage/user_data/ibkr/<mode>/chart_drawings/SYMBOL_state.json
     """
 
     chart_refresh_requested = Signal()
@@ -55,7 +56,7 @@ class ChartLinesManager(QObject):
         super().__init__()
         self.main_window = main_window
         mode = self._get_trading_mode()
-        self.drawings_dir = os.path.join("ibkr", "user_data", f"chart_drawings_{mode}")
+        self.drawings_dir = str(get_user_data_path("ibkr", mode, "chart_drawings"))
         os.makedirs(self.drawings_dir, exist_ok=True)
         _recent_draws.clear()
         _lines_drawn_this_session.clear()

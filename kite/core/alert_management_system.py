@@ -1146,7 +1146,7 @@ class AlertSystemManager(QObject):
             return method(symbol)
 
         safe_symbol = symbol.replace("/", "_").replace(":", "_")
-        drawings_dir = getattr(clm, "drawings_dir", "kite/user_data/chart_drawings")
+        drawings_dir = getattr(clm, "drawings_dir", "")
         try:
             paths = [
                 os.path.join(drawings_dir, fname)

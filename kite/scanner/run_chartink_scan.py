@@ -5,11 +5,13 @@ import os
 import time
 import re
 
+from app_paths import get_user_data_path
+
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # The temporary file where results will be saved.
-TEMP_FILE = "user_data/temp_scan_results.json"
+TEMP_FILE = str(get_user_data_path("kite", os.environ.get("QULLAMAGGIE_TRADING_MODE", "live"), "temp_scan_results.json"))
 
 
 # Cache CSRF token to avoid fetching /screener for every scan.
