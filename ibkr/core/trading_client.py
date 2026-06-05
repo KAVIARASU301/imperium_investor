@@ -237,18 +237,14 @@ def _convert_trade(trade: Any) -> Dict[str, Any]:
     }
 
 
-def _convert_trade_with_fill(trade: Any, fill: Any = None) -> Dict[str, Any]:
-    """Convert an IBKR trade plus execution fill into the app order schema.
+def _apply_execution_to_order_row(data: Dict[str, Any], fill: Any = None, *, execution: Any = None) -> Dict[str, Any]:
+    """Overlay an IBKR execution report on an app order row.
 
-    IBKR/TWS can report fast market-order executions via ``execDetailsEvent`` or
-    a Trade ``fillEvent`` before the corresponding ``orderStatusEvent`` updates
-    the local ``Trade.orderStatus`` object.  Relying only on orderStatus then
-    leaves the UI tracking an order as OPEN/PENDING even though TWS has already
-    executed it.  This helper overlays execution fields on top of the normal
-    trade conversion so every execution signal can advance the app lifecycle.
+    Official TWS API execution reports are the source that TWS uses for its
+    Trades tab.  They can arrive, or be requested, even when the in-memory
+    ``Trade.orderStatus`` snapshot still says Submitted/PendingSubmit.
     """
-    data = _convert_trade(trade)
-    execution = getattr(fill, "execution", None) if fill is not None else None
+    execution = execution if execution is not None else getattr(fill, "execution", None)
     if execution is None:
         return data
 
@@ -282,10 +278,61 @@ def _convert_trade_with_fill(trade: Any, fill: Any = None) -> Dict[str, Any]:
         if quantity <= 0 or filled_quantity >= quantity:
             data["status"] = "COMPLETE"
             data["raw_status"] = "Filled"
+            data["pending_quantity"] = 0
         elif _normalize_status(data.get("status")) in {"UNKNOWN", "PENDING", "OPEN"}:
             data["status"] = "OPEN"
             data["raw_status"] = "PartiallyFilled"
     return data
+
+
+def _convert_trade_with_fill(trade: Any, fill: Any = None) -> Dict[str, Any]:
+    """Convert an IBKR trade plus execution fill into the app order schema.
+
+    IBKR/TWS can report fast market-order executions via ``execDetailsEvent`` or
+    a Trade ``fillEvent`` before the corresponding ``orderStatusEvent`` updates
+    the local ``Trade.orderStatus`` object.  Relying only on orderStatus then
+    leaves the UI tracking an order as OPEN/PENDING even though TWS has already
+    executed it.  This helper overlays execution fields on top of the normal
+    trade conversion so every execution signal can advance the app lifecycle.
+    """
+    return _apply_execution_to_order_row(_convert_trade(trade), fill)
+
+
+def _convert_execution_fill(fill: Any) -> Dict[str, Any]:
+    """Convert a broker execution report (TWS Trades tab row) to app schema."""
+    execution = getattr(fill, "execution", fill)
+    contract = getattr(fill, "contract", None)
+    symbol = str(getattr(contract, "symbol", "") or "").upper()
+    shares = int(_safe_float(getattr(execution, "shares", 0), 0.0))
+    cum_qty = int(_safe_float(getattr(execution, "cumQty", 0), 0.0))
+    filled_quantity = max(cum_qty, shares)
+    avg_price = _first_price(getattr(execution, "avgPrice", 0.0), getattr(execution, "price", 0.0))
+    order_id = str(getattr(execution, "orderId", "") or "").strip()
+    perm_id = str(getattr(execution, "permId", "") or "").strip()
+    side = str(getattr(execution, "side", "") or "").upper()
+    action = {"BOT": "BUY", "BOUGHT": "BUY", "SLD": "SELL", "SOLD": "SELL"}.get(side, side)
+    row = {
+        "order_id": order_id or perm_id,
+        "perm_id": perm_id,
+        "tradingsymbol": symbol,
+        "symbol": symbol,
+        "exchange": getattr(contract, "exchange", "SMART") if contract else getattr(execution, "exchange", "SMART"),
+        "instrument_token": int(getattr(contract, "conId", 0) or 0) if contract else 0,
+        "transaction_type": action,
+        "order_type": "",
+        "quantity": filled_quantity,
+        "price": avg_price,
+        "trigger_price": 0.0,
+        "status": "COMPLETE" if filled_quantity > 0 else "UNKNOWN",
+        "raw_status": "Filled" if filled_quantity > 0 else "Execution",
+        "status_message": "",
+        "filled_quantity": filled_quantity,
+        "pending_quantity": 0,
+        "average_price": avg_price,
+        "timestamp": str(getattr(execution, "time", "") or market_isoformat()),
+        "product": "IBKR",
+    }
+    return _apply_execution_to_order_row(row, execution=execution)
 
 
 def _convert_ticker(ticker: Any) -> Dict[str, Any]:
@@ -531,6 +578,7 @@ class IBKRTradingClient(QObject):
             rows: List[Dict[str, Any]] = []
             seen_order_ids: set[str] = set()
             for trade in trades:
+                self._attach_trade_fill_handlers(trade)
                 row = _convert_trade(trade)
                 order_id = str(row.get("order_id") or "").strip()
                 if order_id:
@@ -538,6 +586,18 @@ class IBKRTradingClient(QObject):
                     self._orders[order_id] = row
                     seen_order_ids.add(order_id)
                 rows.append(row)
+
+            # TWS's Trades tab is backed by execution reports.  Pull them during
+            # refresh and merge by orderId/permId so a completed execution can
+            # advance an order whose Trade.orderStatus snapshot is still pending.
+            for fill in self._request_execution_fills():
+                exec_row = _convert_execution_fill(fill)
+                exec_row = self._merge_execution_row(exec_row)
+                order_id = str(exec_row.get("order_id") or "").strip()
+                if order_id:
+                    seen_order_ids.add(order_id)
+                    rows = [row for row in rows if str(row.get("order_id") or "").strip() != order_id]
+                    rows.append(exec_row)
 
             # Include cached execution-derived terminal updates that may not be
             # present in the current ib.trades() snapshot yet.  This prevents a
@@ -550,6 +610,85 @@ class IBKRTradingClient(QObject):
         except Exception as exc:
             logger.error("Error getting IBKR orders: %s", exc)
             return list(self._orders.values())
+
+    def _request_execution_fills(self) -> List[Any]:
+        """Return current execution reports from ib_insync/IBKR when available.
+
+        ``reqExecutions`` asks TWS for the same recent fills that appear under
+        Trades.  If a request is unavailable or fails, fall back to ib_insync's
+        local fill/execution caches so refresh remains best-effort.
+        """
+        if not self.ib:
+            return []
+
+        for method_name in ("reqExecutions", "fills"):
+            method = getattr(self.ib, method_name, None)
+            if not callable(method):
+                continue
+            try:
+                fills = method() or []
+                if fills:
+                    return list(fills)
+            except TypeError:
+                try:
+                    fills = method(None) or []
+                    if fills:
+                        return list(fills)
+                except Exception as exc:
+                    logger.debug("IBKR %s fallback failed: %s", method_name, exc)
+            except Exception as exc:
+                logger.debug("IBKR %s refresh failed: %s", method_name, exc)
+
+        executions_method = getattr(self.ib, "executions", None)
+        if callable(executions_method):
+            try:
+                return list(executions_method() or [])
+            except Exception as exc:
+                logger.debug("IBKR executions cache refresh failed: %s", exc)
+        return []
+
+    def _merge_execution_row(self, exec_row: Dict[str, Any]) -> Dict[str, Any]:
+        """Merge an execution report into the cached order keyed by orderId.
+
+        Execution reports may only carry permId/orderId and not the original
+        order size.  When a pending order is already cached, keep its symbol,
+        side, type, and quantity, then overlay fill quantities/prices.
+        """
+        order_id = str(exec_row.get("order_id") or "").strip()
+        perm_id = str(exec_row.get("perm_id") or "").strip()
+        existing = self._orders.get(order_id) if order_id else None
+        if existing is None and perm_id:
+            existing = next(
+                (row for row in self._orders.values() if str(row.get("perm_id") or "").strip() == perm_id),
+                None,
+            )
+
+        if existing:
+            base = dict(existing)
+            for key, value in exec_row.items():
+                # Do not let execution-only size (cumQty/shares) shrink the
+                # original order quantity; use it only as filled quantity.
+                if key == "quantity" and _safe_float(existing.get("quantity"), 0.0) > 0:
+                    continue
+                is_execution_state = key in {"filled_quantity", "pending_quantity", "status", "raw_status"}
+                if value not in (None, "", 0, 0.0) or is_execution_state:
+                    base[key] = value
+            quantity = int(_safe_float(base.get("quantity"), 0.0))
+            filled = int(_safe_float(base.get("filled_quantity"), 0.0))
+            if quantity > 0:
+                base["pending_quantity"] = max(quantity - filled, 0)
+                if filled >= quantity:
+                    base["status"] = "COMPLETE"
+                    base["raw_status"] = "Filled"
+                elif filled > 0:
+                    base["status"] = "OPEN"
+                    base["raw_status"] = "PartiallyFilled"
+            exec_row = _merge_order_snapshot(existing, base)
+
+        order_id = str(exec_row.get("order_id") or "").strip()
+        if order_id:
+            self._orders[order_id] = exec_row
+        return exec_row
 
     def orders(self) -> List[Dict[str, Any]]:
         return self.get_orders()
