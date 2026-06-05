@@ -77,6 +77,64 @@ def _normalize_status(status: Any) -> str:
     return mapping.get(text, text)
 
 
+def _is_terminal_status(status: Any) -> bool:
+    return _normalize_status(status) in (IBKR_FAILURE_STATUSES | IBKR_SUCCESS_STATUSES)
+
+
+def _merge_order_snapshot(existing: Optional[Dict[str, Any]], incoming: Dict[str, Any]) -> Dict[str, Any]:
+    """Merge a fresh IBKR order row without regressing execution state.
+
+    IBKR can deliver execution/fill events before the corresponding Trade
+    ``orderStatus`` object is updated.  Later polling of ``ib.trades()`` may
+    therefore return the same order as Submitted with zero fills.  Keep the
+    best-known terminal/fill information so UI refreshes do not move an already
+    executed order back to pending.
+    """
+    if not existing:
+        return dict(incoming or {})
+
+    merged = {**existing, **(incoming or {})}
+    existing_status = _normalize_status(existing.get("status") or existing.get("raw_status"))
+    incoming_status = _normalize_status((incoming or {}).get("status") or (incoming or {}).get("raw_status"))
+    existing_filled = int(_safe_float(existing.get("filled_quantity"), 0.0))
+    incoming_filled = int(_safe_float((incoming or {}).get("filled_quantity"), 0.0))
+    quantity = int(_safe_float(merged.get("quantity"), 0.0))
+
+    best_filled = max(existing_filled, incoming_filled)
+    if best_filled > 0:
+        merged["filled_quantity"] = best_filled
+        if quantity > 0:
+            merged["pending_quantity"] = max(quantity - best_filled, 0)
+
+    existing_avg = _safe_float(existing.get("average_price"), 0.0)
+    incoming_avg = _safe_float((incoming or {}).get("average_price"), 0.0)
+    if existing_avg > 0 and incoming_avg <= 0:
+        merged["average_price"] = existing_avg
+    if _safe_float(existing.get("price"), 0.0) > 0 and _safe_float((incoming or {}).get("price"), 0.0) <= 0:
+        merged["price"] = existing.get("price")
+
+    stale_incoming = (
+        _is_terminal_status(existing_status)
+        and not _is_terminal_status(incoming_status)
+        and incoming_filled <= existing_filled
+    )
+    if stale_incoming:
+        merged["status"] = existing.get("status", existing_status)
+        merged["raw_status"] = existing.get("raw_status", existing_status)
+        merged["pending_quantity"] = existing.get("pending_quantity", merged.get("pending_quantity", 0))
+        merged["filled_quantity"] = existing_filled
+        if existing_avg > 0:
+            merged["average_price"] = existing_avg
+        if existing.get("status_message") and not (incoming or {}).get("status_message"):
+            merged["status_message"] = existing.get("status_message")
+    elif quantity > 0 and best_filled >= quantity:
+        merged["status"] = "COMPLETE"
+        merged["raw_status"] = "Filled"
+        merged["pending_quantity"] = 0
+
+    return merged
+
+
 def _is_failure_status(status: Any) -> bool:
     return _normalize_status(status) in IBKR_FAILURE_STATUSES
 
@@ -374,8 +432,10 @@ class IBKRTradingClient(QObject):
             logger.debug("Failed to attach IBKR trade fill handlers: %s", exc)
 
     def _emit_order_update(self, data: Dict[str, Any]) -> None:
-        if data.get("order_id"):
-            self._orders[str(data["order_id"])] = data
+        order_id = str(data.get("order_id") or "").strip()
+        if order_id:
+            data = _merge_order_snapshot(self._orders.get(order_id), data)
+            self._orders[order_id] = data
         self.order_status_updated.emit(data)
 
     def _on_position_update(self, position: Any) -> None:
@@ -468,10 +528,24 @@ class IBKRTradingClient(QObject):
     def get_orders(self) -> List[Dict[str, Any]]:
         try:
             trades = self.ib.trades() if self.ib else []
-            rows = [_convert_trade(trade) for trade in trades]
-            for row in rows:
-                if row.get("order_id"):
-                    self._orders[str(row["order_id"])] = row
+            rows: List[Dict[str, Any]] = []
+            seen_order_ids: set[str] = set()
+            for trade in trades:
+                row = _convert_trade(trade)
+                order_id = str(row.get("order_id") or "").strip()
+                if order_id:
+                    row = _merge_order_snapshot(self._orders.get(order_id), row)
+                    self._orders[order_id] = row
+                    seen_order_ids.add(order_id)
+                rows.append(row)
+
+            # Include cached execution-derived terminal updates that may not be
+            # present in the current ib.trades() snapshot yet.  This prevents a
+            # pending-orders refresh from showing an already-filled order until
+            # the app is restarted and TWS resyncs the local Trade object.
+            for order_id, row in self._orders.items():
+                if order_id not in seen_order_ids:
+                    rows.append(row)
             return rows
         except Exception as exc:
             logger.error("Error getting IBKR orders: %s", exc)
@@ -553,6 +627,7 @@ class IBKRTradingClient(QObject):
                     result.update({"accepted": False, "error": "IBKR did not provide an order id yet"})
 
             if order_id:
+                result = _merge_order_snapshot(self._orders.get(order_id), result)
                 self._orders[order_id] = result
                 self.order_status_updated.emit(result)
             return result
