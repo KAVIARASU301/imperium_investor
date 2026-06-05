@@ -47,6 +47,26 @@ class PositionManager(QObject):
         self._position_refresh_timer = QTimer(self)
         self._position_refresh_timer.setSingleShot(True)
         self._position_refresh_timer.timeout.connect(self._flush_scheduled_position_refresh)
+        
+        # ✅ NEW: Connect to trader signals for real-time updates from IBKR API
+        self._connect_trader_signals()
+
+    def _connect_trader_signals(self) -> None:
+        """✅ NEW: Subscribe to trader's real-time update signals from IBKR events."""
+        try:
+            if hasattr(self.trader, "order_status_updated"):
+                self.trader.order_status_updated.connect(self.on_ws_order_update)
+                logger.info("✅ Connected to trader.order_status_updated signal - orders will sync immediately")
+            
+            if hasattr(self.trader, "position_updated"):
+                self.trader.position_updated.connect(self.on_ws_position_update)
+                logger.info("✅ Connected to trader.position_updated signal - positions will sync immediately")
+            
+            if hasattr(self.trader, "connection_status_changed"):
+                self.trader.connection_status_changed.connect(self.on_ws_connected)
+                logger.info("✅ Connected to trader.connection_status_changed signal")
+        except Exception as exc:
+            logger.warning("Could not connect trader signals: %s", exc)
 
     # ------------------------------------------------------------------
     # Positions
@@ -398,6 +418,7 @@ class PositionManager(QObject):
             "PENDINGSUBMIT": "PENDING",
             "APIPENDING": "PENDING",
             "CANCELLED": "CANCELLED",
+            "CANCEL_PENDING": "CANCEL_PENDING",
             "INACTIVE": "INACTIVE",
         }
         return mapping.get(text.replace(" ", ""), text)
