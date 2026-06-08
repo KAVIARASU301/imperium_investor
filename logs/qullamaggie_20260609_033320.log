@@ -1,0 +1,620 @@
+2026-06-09 03:33:20,699 - INFO - login_setup.login_setup_config - qullamaggie v1.0.0 starting...
+2026-06-09 03:33:20,699 - INFO - login_setup.login_setup_config - Logging to file: /home/kavi/Desktop/Python_Projects/swing_trader/logs/qullamaggie_20260609_033320.log
+2026-06-09 03:33:20,699 - INFO - login_setup.login_setup_config - Fatal crash diagnostics enabled for all threads.
+2026-06-09 03:33:20,699 - INFO - __main__ - 🚀 Starting qullamaggie Application...
+2026-06-09 03:33:20,835 - INFO - __main__ - Application icon loaded from: /home/kavi/Desktop/Python_Projects/swing_trader/assets/qullamaggie_swing_trader_icon.svg
+2026-06-09 03:33:23,172 - INFO - ib_insync.client - Connecting to 127.0.0.1:4002 with clientId 1...
+2026-06-09 03:33:23,175 - INFO - ib_insync.client - Connected
+2026-06-09 03:33:23,191 - INFO - ib_insync.client - Logged on to server version 176
+2026-06-09 03:33:23,231 - INFO - ib_insync.client - API connection ready
+2026-06-09 03:33:23,712 - INFO - __main__ - Authenticated for broker: america
+2026-06-09 03:33:23,713 - INFO - __main__ - Initializing trading and data clients...
+2026-06-09 03:33:23,713 - INFO - login_setup.broker_factory - Creating america client for live trading
+2026-06-09 03:33:23,713 - INFO - login_setup.broker_factory - IBKR client created with accounts: ['DUQ624205']
+2026-06-09 03:33:23,720 - INFO - ibkr.core.trading_client - Subscribed to IBKR real-time order events
+2026-06-09 03:33:23,720 - INFO - ibkr.core.trading_client - IBKR trading client startup snapshots deferred; using local cache/event sync
+2026-06-09 03:33:23,721 - INFO - __main__ - Trading client created; creating data client...
+2026-06-09 03:33:23,721 - INFO - login_setup.broker_factory - Creating data client for america
+2026-06-09 03:33:23,721 - INFO - __main__ - Data client created; validating connection state...
+2026-06-09 03:33:23,722 - INFO - __main__ - Trading client connected: True
+2026-06-09 03:33:23,722 - INFO - __main__ - Data client connected: True
+2026-06-09 03:33:23,722 - INFO - __main__ - Clients initialized successfully.
+2026-06-09 03:33:23,724 - INFO - login_setup.broker_factory - Added america client to manager
+2026-06-09 03:33:23,724 - INFO - login_setup.broker_factory - Started connection monitoring for america
+2026-06-09 03:33:23,724 - INFO - __main__ - Creating main window for america...
+2026-06-09 03:33:23,725 - INFO - login_setup.broker_factory - Dynamically loading main window from: ibkr.core.main_window
+2026-06-09 03:33:24,625 - INFO - ibkr.core.trade_logger - Trade history database for 'live' mode at: /home/kavi/.qullamaggie/trade_history_live.db
+2026-06-09 03:33:24,626 - INFO - ibkr.core.trade_logger - TradeLogger initialized with background processing
+2026-06-09 03:33:24,626 - INFO - ibkr.core.trade_logger - DatabaseWorker processing started
+2026-06-09 03:33:24,628 - INFO - ibkr.core.trade_logger - Database initialization completed
+2026-06-09 03:33:24,629 - INFO - ibkr.core.position_manager - ✅ Connected to trader.order_status_updated signal - orders will sync immediately
+2026-06-09 03:33:24,629 - INFO - ibkr.core.position_manager - ✅ Connected to trader.position_updated signal - positions will sync immediately
+2026-06-09 03:33:24,630 - INFO - ibkr.core.position_manager - ✅ Connected to trader.connection_status_changed signal
+2026-06-09 03:33:24,679 - INFO - ibkr.widgets.scanner_table - Loaded 4 valid scan configurations
+2026-06-09 03:33:24,695 - INFO - ibkr.widgets.scanner_table - Scanner table ready for context-aware navigation
+2026-06-09 03:33:24,701 - INFO - ibkr.widgets.scanner_table - Running EOD Finviz scan: Semiconductors
+2026-06-09 03:33:24,704 - INFO - chart_engine.core.ibkr_data_fetcher - Pre-warming dedicated IBKR history connection...
+2026-06-09 03:33:24,708 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-09 03:33:24,708 - INFO - ib_insync.client - Connecting to 127.0.0.1:4002 with clientId 102...
+2026-06-09 03:33:24,963 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=NVDA interval=day from=2025-05-04T18:03:24.952851-04:00 to=2026-06-08T18:03:24.952851-04:00 dedicated_history=True
+2026-06-09 03:33:25,044 - INFO - chart_engine.core.ibkr_data_fetcher - IBKR chart history connected on 127.0.0.1:4002 clientId=102
+2026-06-09 03:33:25,140 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=NVDA interval=60minute from=2026-04-19T18:03:25.140755-04:00 to=2026-06-08T18:03:25.140755-04:00 dedicated_history=True
+2026-06-09 03:33:25,141 - INFO - ibkr.core.data_cache - MarketAwareDataCache initialised for IBKR/US market time
+2026-06-09 03:33:25,257 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-09 03:33:25,525 - INFO - ibkr.core.alert_management_system - Loaded 0 alerts from disk
+2026-06-09 03:33:25,526 - INFO - ibkr.core.alert_management_system - AlertSystemManager ready
+2026-06-09 03:33:25,526 - INFO - ibkr.core.main_window - Alert system initialized successfully.
+2026-06-09 03:33:25,527 - INFO - ibkr.core.alert_management_system - AlertEngine started
+2026-06-09 03:33:25,530 - INFO - ibkr.core.main_window - Connecting component signals...
+2026-06-09 03:33:25,531 - INFO - ibkr.core.main_window - IBKR order lifecycle UI signals connected
+2026-06-09 03:33:25,533 - INFO - ib_insync.client - Connecting to 127.0.0.1:4002 with clientId 101...
+2026-06-09 03:33:25,552 - INFO - ibkr.core.main_window - Keyboard shortcuts initialized
+2026-06-09 03:33:25,697 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: NVDA conId=4815747 bar=1 day duration=2 Y end=latest
+2026-06-09 03:33:25,700 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: NVDA conId=4815747 bar=30 mins duration=50 D end=latest
+2026-06-09 03:33:25,713 - INFO - ibkr.core.main_window - Subscription universe changed: 3 instruments (0 token-backed, +3/-0) sources={'charts': 2, 'header': 2}
+2026-06-09 03:33:25,713 - INFO - ibkr.core.main_window - Window state restored
+2026-06-09 03:33:25,714 - INFO - ibkr.core.main_window - Applied startup chart timeframes: left=day, right=60minute
+2026-06-09 03:33:25,714 - INFO - ibkr.core.main_window - Simplified qullamaggie Window with Status Bar Initialized Successfully.
+2026-06-09 03:33:25,716 - INFO - __main__ - Main window created successfully.
+2026-06-09 03:33:25,836 - INFO - __main__ - Starting application event loop.
+2026-06-09 03:33:26,427 - INFO - ibkr.core.main_window - IBKR loader: Building initial instrument list...
+2026-06-09 03:33:26,436 - INFO - ibkr.core.market_data_worker - Dedicated IBKR market-data connection established on 127.0.0.1:4002 clientId=101
+2026-06-09 03:33:26,437 - INFO - ibkr.core.market_data_worker - IBKR MarketDataWorker started
+2026-06-09 03:33:26,438 - INFO - ibkr.core.market_data_worker - Requested IBKR delayed market data type (3); delayed fallback=False; generic ticks=''
+2026-06-09 03:33:26,456 - INFO - ibkr.core.main_window - Window state saved
+2026-06-09 03:33:26,496 - WARNING - ibkr.core.main_window - IBKR market data is delayed (delayed); live subscription is unavailable.
+2026-06-09 03:33:26,497 - INFO - ibkr.core.main_window - WebSocket connected. Setting up subscriptions.
+2026-06-09 03:33:26,497 - INFO - ibkr.core.position_manager - Fetching positions from broker - Reason: ibkr_connected
+2026-06-09 03:33:26,667 - INFO - ibkr.core.main_window - Added 19 widget market-data subscriptions (19 token-backed)
+2026-06-09 03:33:26,678 - INFO - ibkr.core.position_manager - Position table changed: 19 open positions | open MTM -13152.14 | realized 0.00
+2026-06-09 03:33:26,914 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=NVDA bars=275
+2026-06-09 03:33:27,025 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: NVDA key=4815747 type=delayed
+2026-06-09 03:33:27,158 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: SPY key=756733 type=delayed
+2026-06-09 03:33:27,160 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: QQQ key=320227571 type=delayed
+2026-06-09 03:33:27,437 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for NVDA: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-09 03:33:27,601 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=NVDA bars=350
+2026-06-09 03:33:27,764 - INFO - ibkr.core.main_window - Successfully loaded 3929 instruments.
+2026-06-09 03:33:27,765 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for SPY: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-09 03:33:27,766 - INFO - ibkr.widgets.header_toolbar - Search index ready: 3929 instruments
+2026-06-09 03:33:27,766 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for QQQ: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-09 03:33:27,787 - INFO - ibkr.core.main_window - Instruments loaded successfully.
+2026-06-09 03:33:27,807 - INFO - ibkr.core.main_window - IBKR loader: Loaded 181 symbols (qualifying in background...)
+2026-06-09 03:33:27,912 - INFO - ibkr.core.main_window - Chart panes revealed after initial symbol render: NVDA
+2026-06-09 03:33:27,912 - INFO - ibkr.core.main_window - Chart symbol changed to: NVDA
+2026-06-09 03:33:27,913 - INFO - ibkr.core.main_window - Added chart symbol NVDA to subscription
+2026-06-09 03:33:27,913 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol NVDA
+2026-06-09 03:33:27,913 - INFO - chart_engine.core.chart_widget - Chart HTML loaded: NVDA (275 candles)
+2026-06-09 03:33:28,032 - INFO - chart_engine.core.chart_widget - Chart HTML loaded: NVDA (350 candles)
+2026-06-09 03:33:28,116 - INFO - ibkr.core.position_manager - Fetching positions from broker - Reason: app_startup
+2026-06-09 03:33:28,131 - INFO - ibkr.core.main_window - Position system initialized successfully
+2026-06-09 03:33:28,375 - INFO - ibkr.core.main_window - Subscription universe changed: 22 instruments (19 token-backed, +19/-0) sources={'positions': 19, 'charts': 2, 'header': 2}
+2026-06-09 03:33:28,819 - INFO - ibkr.core.network_monitor - NetworkMonitor started
+2026-06-09 03:33:28,820 - INFO - ibkr.core.main_window - Network resilience layer initialized
+2026-06-09 03:33:28,820 - INFO - ibkr.core.position_manager - Fetching positions from broker - Reason: instruments_loaded
+2026-06-09 03:33:28,854 - INFO - ibkr.core.main_window - Chart auto-loading initiated
+2026-06-09 03:33:28,854 - INFO - ibkr.core.main_window - Chart already has active rendered symbol: NVDA
+2026-06-09 03:33:29,057 - INFO - ibkr.widgets.scanner_table - EOD Scan completed: 47 symbols with complete data
+2026-06-09 03:33:29,251 - INFO - ibkr.widgets.scanner_table - EOD Scanner table updated with 47 symbols.
+2026-06-09 03:33:29,465 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: TACT key=6858145 type=delayed
+2026-06-09 03:33:29,465 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: BAX key=8111188 type=delayed
+2026-06-09 03:33:29,466 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: TSLA key=76792991 type=delayed
+2026-06-09 03:33:29,466 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: PTCT key=129374415 type=delayed
+2026-06-09 03:33:29,467 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: HPQ key=209411801 type=delayed
+2026-06-09 03:33:29,467 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: DELL key=346218218 type=delayed
+2026-06-09 03:33:29,467 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: MTA key=395717235 type=delayed
+2026-06-09 03:33:29,468 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: DRS key=478483396 type=delayed
+2026-06-09 03:33:29,468 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: RDW key=512000171 type=delayed
+2026-06-09 03:33:29,468 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: IONQ key=517593749 type=delayed
+2026-06-09 03:33:29,469 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: GFS key=523222624 type=delayed
+2026-06-09 03:33:29,469 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: QBTS key=578031277 type=delayed
+2026-06-09 03:33:29,469 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: LUNR key=613910262 type=delayed
+2026-06-09 03:33:29,470 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: SIDU key=673368857 type=delayed
+2026-06-09 03:33:29,470 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: DPRO key=725468685 type=delayed
+2026-06-09 03:33:29,470 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: SNDK key=760250490 type=delayed
+2026-06-09 03:33:29,471 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: RKLB key=787273575 type=delayed
+2026-06-09 03:33:29,471 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: SPRC key=860471331 type=delayed
+2026-06-09 03:33:29,797 - INFO - ibkr.core.network_monitor - Network confirmed online at startup
+2026-06-09 03:33:30,051 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for TACT: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-09 03:33:30,268 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for BAX: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-09 03:33:30,269 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for TSLA: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-09 03:33:30,312 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for PTCT: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-09 03:33:30,313 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for HPQ: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-09 03:33:30,313 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for DELL: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-09 03:33:30,313 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for MTA: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-09 03:33:30,559 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for DRS: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-09 03:33:30,570 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for RDW: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-09 03:33:30,606 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for IONQ: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-09 03:33:30,800 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for GFS: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-09 03:33:30,801 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for QBTS: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-09 03:33:30,843 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for LUNR: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-09 03:33:30,951 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for SIDU: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-09 03:33:30,995 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for DPRO: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-09 03:33:30,995 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for SNDK: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-09 03:33:30,996 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for RKLB: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-09 03:33:30,996 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for SPRC: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-09 03:33:52,292 - INFO - ibkr.widgets.scanner_table - Saved 5 scans to /home/kavi/.qullamaggie/storage/user_data/ibkr/live/finviz_scans.json
+2026-06-09 03:33:52,302 - INFO - ibkr.widgets.scanner_table - Running EOD Finviz scan: Semiconductors
+2026-06-09 03:33:52,315 - INFO - ibkr.widgets.scanner_table - Scans saved successfully. 5 scans available.
+2026-06-09 03:33:58,208 - INFO - ibkr.widgets.scanner_table - EOD Scan completed: 47 symbols with complete data
+2026-06-09 03:33:58,575 - INFO - ibkr.widgets.scanner_table - EOD Scanner table updated with 47 symbols.
+2026-06-09 03:34:05,259 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=NVDA interval=60minute from=2026-04-19T18:04:05.259538-04:00 to=2026-06-08T18:04:05.259538-04:00 dedicated_history=True
+2026-06-09 03:34:05,263 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: NVDA conId=4815747 bar=30 mins duration=50 D end=latest
+2026-06-09 03:34:06,957 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=NVDA bars=350
+2026-06-09 03:34:06,998 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-09 03:34:06,999 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-09 03:34:07,003 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol NVDA
+2026-06-09 03:34:07,004 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: NVDA (350 candles)
+2026-06-09 03:34:25,258 - INFO - ibkr.core.data_cache - US market-open cache flush complete; intraday entries cleared
+2026-06-09 03:34:37,703 - INFO - ibkr.widgets.scanner_table - Saved 6 scans to /home/kavi/.qullamaggie/storage/user_data/ibkr/live/finviz_scans.json
+2026-06-09 03:34:37,710 - INFO - ibkr.widgets.scanner_table - Running EOD Finviz scan: Semiconductors
+2026-06-09 03:34:37,721 - INFO - ibkr.widgets.scanner_table - Scans saved successfully. 6 scans available.
+2026-06-09 03:34:42,223 - INFO - ibkr.widgets.scanner_table - EOD Scan completed: 47 symbols with complete data
+2026-06-09 03:34:42,394 - INFO - ibkr.widgets.scanner_table - EOD Scanner table updated with 47 symbols.
+2026-06-09 03:35:05,259 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=NVDA interval=60minute from=2026-04-19T18:05:05.259779-04:00 to=2026-06-08T18:05:05.259779-04:00 dedicated_history=True
+2026-06-09 03:35:05,263 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: NVDA conId=4815747 bar=30 mins duration=50 D end=latest
+2026-06-09 03:35:06,716 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=NVDA bars=350
+2026-06-09 03:35:06,759 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-09 03:35:06,760 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-09 03:35:06,766 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol NVDA
+2026-06-09 03:35:06,766 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: NVDA (350 candles)
+2026-06-09 03:35:15,063 - INFO - ibkr.widgets.scanner_table - Saved 7 scans to /home/kavi/.qullamaggie/storage/user_data/ibkr/live/finviz_scans.json
+2026-06-09 03:35:15,071 - INFO - ibkr.widgets.scanner_table - Running EOD Finviz scan: Semiconductors
+2026-06-09 03:35:15,082 - INFO - ibkr.widgets.scanner_table - Scans saved successfully. 7 scans available.
+2026-06-09 03:35:18,077 - INFO - ibkr.widgets.scanner_table - EOD Scan completed: 47 symbols with complete data
+2026-06-09 03:35:18,244 - INFO - ibkr.widgets.scanner_table - EOD Scanner table updated with 47 symbols.
+2026-06-09 03:35:19,307 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-09 03:35:19,308 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-09 03:35:19,313 - INFO - chart_engine.drawings - Saved state for NVDA (day) — 0 drawings
+2026-06-09 03:35:20,660 - INFO - chart_engine.drawings - Loaded state for NVDA (60minute) — 0 drawings
+2026-06-09 03:35:20,664 - INFO - chart_engine.drawings - Saved state for NVDA (60minute) — 0 drawings
+2026-06-09 03:35:24,324 - INFO - chart_engine.drawings - Loaded state for NVDA (day) — 0 drawings
+2026-06-09 03:35:30,662 - INFO - ibkr.widgets.scanner_table - Running EOD Finviz scan: Auto Manufacturers
+2026-06-09 03:35:31,817 - INFO - ibkr.widgets.scanner_table - EOD Scan completed: 7 symbols with complete data
+2026-06-09 03:35:31,841 - INFO - ibkr.widgets.scanner_table - EOD Scanner table updated with 7 symbols.
+2026-06-09 03:35:36,802 - INFO - ibkr.core.main_window - Window state saved
+2026-06-09 03:35:42,225 - INFO - ibkr.widgets.scanner_table - Running EOD Finviz scan: Auto Parts
+2026-06-09 03:35:44,076 - INFO - ibkr.widgets.scanner_table - EOD Scan completed: 21 symbols with complete data
+2026-06-09 03:35:44,164 - INFO - ibkr.widgets.scanner_table - EOD Scanner table updated with 21 symbols.
+2026-06-09 03:35:52,808 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=APTV interval=day from=2025-05-04T18:05:52.807475-04:00 to=2026-06-08T18:05:52.807475-04:00 dedicated_history=True
+2026-06-09 03:35:52,809 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: APTV conId=748351585 bar=1 day duration=2 Y end=latest
+2026-06-09 03:35:52,819 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=APTV interval=60minute from=2026-04-19T18:05:52.819577-04:00 to=2026-06-08T18:05:52.819577-04:00 dedicated_history=True
+2026-06-09 03:35:52,822 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: APTV conId=748351585 bar=30 mins duration=50 D end=latest
+2026-06-09 03:35:54,442 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=APTV bars=350
+2026-06-09 03:35:54,492 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-09 03:35:54,494 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-09 03:35:54,500 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol APTV
+2026-06-09 03:35:54,501 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: APTV (350 candles)
+2026-06-09 03:35:54,604 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=APTV bars=275
+2026-06-09 03:35:54,658 - INFO - ibkr.core.main_window - Chart symbol changed to: APTV
+2026-06-09 03:35:54,659 - INFO - ibkr.core.main_window - Added chart symbol APTV to subscription
+2026-06-09 03:35:54,659 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: APTV (275 candles)
+2026-06-09 03:35:54,811 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: APTV key=748351585 type=delayed
+2026-06-09 03:35:54,973 - INFO - ibkr.core.main_window - Subscription universe changed: 22 instruments (19 token-backed, +1/-1) sources={'positions': 19, 'charts': 2, 'header': 2}
+2026-06-09 03:35:55,218 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for APTV: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-09 03:35:56,614 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=BWA interval=day from=2025-05-04T18:05:56.614473-04:00 to=2026-06-08T18:05:56.614473-04:00 dedicated_history=True
+2026-06-09 03:35:56,617 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: BWA conId=5336 bar=1 day duration=2 Y end=latest
+2026-06-09 03:35:56,627 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=BWA interval=60minute from=2026-04-19T18:05:56.626914-04:00 to=2026-06-08T18:05:56.626914-04:00 dedicated_history=True
+2026-06-09 03:35:56,628 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: BWA conId=5336 bar=30 mins duration=50 D end=latest
+2026-06-09 03:35:58,640 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=BWA bars=275
+2026-06-09 03:35:58,698 - INFO - ibkr.core.main_window - Chart symbol changed to: BWA
+2026-06-09 03:35:58,698 - INFO - ibkr.core.main_window - Added chart symbol BWA to subscription
+2026-06-09 03:35:58,698 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol BWA
+2026-06-09 03:35:58,699 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: BWA (275 candles)
+2026-06-09 03:35:59,003 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: BWA key=5336 type=delayed
+2026-06-09 03:35:59,125 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=BWA bars=350
+2026-06-09 03:35:59,189 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: BWA (350 candles)
+2026-06-09 03:35:59,330 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for BWA: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-09 03:36:00,137 - INFO - ibkr.core.market_data_worker - Unsubscribed IBKR market data: APTV
+2026-06-09 03:36:00,168 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=DCH interval=day from=2025-05-04T18:06:00.168209-04:00 to=2026-06-08T18:06:00.168209-04:00 dedicated_history=True
+2026-06-09 03:36:00,169 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: DCH conId=5082651 bar=1 day duration=2 Y end=latest
+2026-06-09 03:36:00,191 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=DCH interval=60minute from=2026-04-19T18:06:00.191886-04:00 to=2026-06-08T18:06:00.191886-04:00 dedicated_history=True
+2026-06-09 03:36:00,194 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: DCH conId=5082651 bar=30 mins duration=50 D end=latest
+2026-06-09 03:36:00,241 - ERROR - ib_insync.wrapper - Error 300, reqId 120: Can't find EId with tickerId:120
+2026-06-09 03:36:00,241 - WARNING - ibkr.core.market_data_worker - IBKR API error for reqId=120: Can't find EId with tickerId:120 (300)
+2026-06-09 03:36:03,099 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=DCH bars=350
+2026-06-09 03:36:03,169 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol DCH
+2026-06-09 03:36:03,169 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: DCH (350 candles)
+2026-06-09 03:36:03,254 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=DCH bars=275
+2026-06-09 03:36:03,309 - INFO - ibkr.core.main_window - Chart symbol changed to: DCH
+2026-06-09 03:36:03,309 - INFO - ibkr.core.main_window - Added chart symbol DCH to subscription
+2026-06-09 03:36:03,310 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: DCH (275 candles)
+2026-06-09 03:36:03,460 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: DCH key=5082651 type=delayed
+2026-06-09 03:36:03,795 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for DCH: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-09 03:36:04,640 - INFO - ibkr.core.market_data_worker - Unsubscribed IBKR market data: BWA
+2026-06-09 03:36:04,905 - ERROR - ib_insync.wrapper - Error 300, reqId 149: Can't find EId with tickerId:149
+2026-06-09 03:36:04,905 - WARNING - ibkr.core.market_data_worker - IBKR API error for reqId=149: Can't find EId with tickerId:149 (300)
+2026-06-09 03:36:38,508 - INFO - ibkr.widgets.scanner_table - Saved 8 scans to /home/kavi/.qullamaggie/storage/user_data/ibkr/live/finviz_scans.json
+2026-06-09 03:36:38,518 - INFO - ibkr.widgets.scanner_table - Running EOD Finviz scan: Auto Parts
+2026-06-09 03:36:38,532 - INFO - ibkr.widgets.scanner_table - Scans saved successfully. 8 scans available.
+2026-06-09 03:36:40,423 - INFO - ibkr.widgets.scanner_table - EOD Scan completed: 21 symbols with complete data
+2026-06-09 03:36:40,524 - INFO - ibkr.widgets.scanner_table - EOD Scanner table updated with 21 symbols.
+2026-06-09 03:36:44,097 - INFO - ibkr.widgets.scanner_table - Running EOD Finviz scan: Biotechnology
+2026-06-09 03:36:48,820 - INFO - ibkr.widgets.scanner_table - EOD Scan completed: 103 symbols with complete data
+2026-06-09 03:36:49,169 - INFO - ibkr.widgets.scanner_table - EOD Scanner table updated with 103 symbols.
+2026-06-09 03:37:05,259 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=DCH interval=60minute from=2026-04-19T18:07:05.259644-04:00 to=2026-06-08T18:07:05.259644-04:00 dedicated_history=True
+2026-06-09 03:37:05,263 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: DCH conId=5082651 bar=30 mins duration=50 D end=latest
+2026-06-09 03:37:06,327 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=DCH bars=350
+2026-06-09 03:37:06,357 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-09 03:37:06,358 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-09 03:37:06,362 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol DCH
+2026-06-09 03:37:06,362 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: DCH (350 candles)
+2026-06-09 03:37:58,635 - INFO - ibkr.widgets.scanner_table - Saved 9 scans to /home/kavi/.qullamaggie/storage/user_data/ibkr/live/finviz_scans.json
+2026-06-09 03:37:58,643 - INFO - ibkr.widgets.scanner_table - Running EOD Finviz scan: Biotechnology
+2026-06-09 03:37:58,660 - INFO - ibkr.widgets.scanner_table - Scans saved successfully. 9 scans available.
+2026-06-09 03:38:03,925 - INFO - ibkr.widgets.scanner_table - EOD Scan completed: 103 symbols with complete data
+2026-06-09 03:38:04,544 - INFO - ibkr.widgets.scanner_table - EOD Scanner table updated with 103 symbols.
+2026-06-09 03:38:05,261 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=DCH interval=60minute from=2026-04-19T18:08:05.261095-04:00 to=2026-06-08T18:08:05.261095-04:00 dedicated_history=True
+2026-06-09 03:38:05,267 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: DCH conId=5082651 bar=30 mins duration=50 D end=latest
+2026-06-09 03:38:06,673 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=DCH bars=350
+2026-06-09 03:38:06,968 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-09 03:38:06,973 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-09 03:38:06,992 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol DCH
+2026-06-09 03:38:06,993 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: DCH (350 candles)
+2026-06-09 03:38:08,479 - INFO - ibkr.core.main_window - Window state saved
+2026-06-09 03:38:26,035 - INFO - ibkr.widgets.scanner_table - Saved 10 scans to /home/kavi/.qullamaggie/storage/user_data/ibkr/live/finviz_scans.json
+2026-06-09 03:38:26,042 - INFO - ibkr.widgets.scanner_table - Running EOD Finviz scan: Biotechnology
+2026-06-09 03:38:26,054 - INFO - ibkr.widgets.scanner_table - Scans saved successfully. 10 scans available.
+2026-06-09 03:38:30,762 - INFO - ibkr.widgets.scanner_table - EOD Scan completed: 103 symbols with complete data
+2026-06-09 03:38:31,339 - INFO - ibkr.widgets.scanner_table - EOD Scanner table updated with 103 symbols.
+2026-06-09 03:38:57,459 - INFO - ibkr.widgets.scanner_table - Saved 11 scans to /home/kavi/.qullamaggie/storage/user_data/ibkr/live/finviz_scans.json
+2026-06-09 03:38:57,469 - INFO - ibkr.widgets.scanner_table - Running EOD Finviz scan: Biotechnology
+2026-06-09 03:38:57,481 - INFO - ibkr.widgets.scanner_table - Scans saved successfully. 11 scans available.
+2026-06-09 03:39:02,986 - INFO - ibkr.widgets.scanner_table - EOD Scan completed: 103 symbols with complete data
+2026-06-09 03:39:03,325 - INFO - ibkr.widgets.scanner_table - EOD Scanner table updated with 103 symbols.
+2026-06-09 03:39:05,268 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=DCH interval=60minute from=2026-04-19T18:09:05.268275-04:00 to=2026-06-08T18:09:05.268275-04:00 dedicated_history=True
+2026-06-09 03:39:05,269 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: DCH conId=5082651 bar=30 mins duration=50 D end=latest
+2026-06-09 03:39:06,319 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=DCH bars=350
+2026-06-09 03:39:06,379 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-09 03:39:06,380 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-09 03:39:06,384 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol DCH
+2026-06-09 03:39:06,384 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: DCH (350 candles)
+2026-06-09 03:40:05,260 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=DCH interval=60minute from=2026-04-19T18:10:05.260268-04:00 to=2026-06-08T18:10:05.260268-04:00 dedicated_history=True
+2026-06-09 03:40:05,263 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: DCH conId=5082651 bar=30 mins duration=50 D end=latest
+2026-06-09 03:40:06,328 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=DCH bars=350
+2026-06-09 03:40:06,375 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-09 03:40:06,377 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-09 03:40:06,384 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol DCH
+2026-06-09 03:40:06,384 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: DCH (350 candles)
+2026-06-09 03:40:48,033 - INFO - ibkr.widgets.scanner_table - Saved 12 scans to /home/kavi/.qullamaggie/storage/user_data/ibkr/live/finviz_scans.json
+2026-06-09 03:40:48,040 - INFO - ibkr.widgets.scanner_table - Running EOD Finviz scan: Biotechnology
+2026-06-09 03:40:48,053 - INFO - ibkr.widgets.scanner_table - Scans saved successfully. 12 scans available.
+2026-06-09 03:40:53,871 - INFO - ibkr.widgets.scanner_table - EOD Scan completed: 103 symbols with complete data
+2026-06-09 03:40:54,384 - INFO - ibkr.widgets.scanner_table - EOD Scanner table updated with 103 symbols.
+2026-06-09 03:41:05,259 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=DCH interval=60minute from=2026-04-19T18:11:05.259654-04:00 to=2026-06-08T18:11:05.259654-04:00 dedicated_history=True
+2026-06-09 03:41:05,260 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: DCH conId=5082651 bar=30 mins duration=50 D end=latest
+2026-06-09 03:41:06,311 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=DCH bars=350
+2026-06-09 03:41:06,347 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-09 03:41:06,348 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-09 03:41:06,353 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol DCH
+2026-06-09 03:41:06,354 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: DCH (350 candles)
+2026-06-09 03:42:05,260 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=DCH interval=60minute from=2026-04-19T18:12:05.260225-04:00 to=2026-06-08T18:12:05.260225-04:00 dedicated_history=True
+2026-06-09 03:42:05,263 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: DCH conId=5082651 bar=30 mins duration=50 D end=latest
+2026-06-09 03:42:06,368 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=DCH bars=350
+2026-06-09 03:42:06,414 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-09 03:42:06,415 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-09 03:42:06,419 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol DCH
+2026-06-09 03:42:06,419 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: DCH (350 candles)
+2026-06-09 03:43:05,260 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=DCH interval=60minute from=2026-04-19T18:13:05.260507-04:00 to=2026-06-08T18:13:05.260507-04:00 dedicated_history=True
+2026-06-09 03:43:05,263 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: DCH conId=5082651 bar=30 mins duration=50 D end=latest
+2026-06-09 03:43:06,258 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=DCH bars=350
+2026-06-09 03:43:06,349 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-09 03:43:06,351 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-09 03:43:06,356 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol DCH
+2026-06-09 03:43:06,356 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: DCH (350 candles)
+2026-06-09 03:44:05,261 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=DCH interval=60minute from=2026-04-19T18:14:05.261288-04:00 to=2026-06-08T18:14:05.261288-04:00 dedicated_history=True
+2026-06-09 03:44:05,264 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: DCH conId=5082651 bar=30 mins duration=50 D end=latest
+2026-06-09 03:44:06,267 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=DCH bars=350
+2026-06-09 03:44:06,310 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-09 03:44:06,311 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-09 03:44:06,316 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol DCH
+2026-06-09 03:44:06,316 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: DCH (350 candles)
+2026-06-09 03:44:25,491 - INFO - ibkr.widgets.scanner_table - Saved 19 scans to /home/kavi/.qullamaggie/storage/user_data/ibkr/live/finviz_scans.json
+2026-06-09 03:44:25,501 - INFO - ibkr.widgets.scanner_table - Running EOD Finviz scan: Biotechnology
+2026-06-09 03:44:25,518 - INFO - ibkr.widgets.scanner_table - Scans saved successfully. 19 scans available.
+2026-06-09 03:44:32,042 - INFO - ibkr.widgets.scanner_table - EOD Scan completed: 103 symbols with complete data
+2026-06-09 03:44:32,443 - INFO - ibkr.widgets.scanner_table - EOD Scanner table updated with 103 symbols.
+2026-06-09 03:44:38,538 - INFO - ibkr.widgets.scanner_table - Running EOD Finviz scan: Basic Materials
+2026-06-09 03:44:41,169 - INFO - ibkr.widgets.scanner_table - EOD Scan completed: 51 symbols with complete data
+2026-06-09 03:44:41,369 - INFO - ibkr.widgets.scanner_table - EOD Scanner table updated with 51 symbols.
+2026-06-09 03:44:44,727 - INFO - ibkr.widgets.scanner_table - Running EOD Finviz scan: Communication Services
+2026-06-09 03:44:48,141 - INFO - ibkr.widgets.scanner_table - EOD Scan completed: 70 symbols with complete data
+2026-06-09 03:44:48,449 - INFO - ibkr.widgets.scanner_table - EOD Scanner table updated with 70 symbols.
+2026-06-09 03:44:51,328 - INFO - ibkr.widgets.scanner_table - Running EOD Finviz scan: Consumer Cyclical
+2026-06-09 03:44:58,465 - INFO - ibkr.widgets.scanner_table - EOD Scan completed: 157 symbols with complete data
+2026-06-09 03:44:59,040 - INFO - ibkr.widgets.scanner_table - EOD Scanner table updated with 157 symbols.
+2026-06-09 03:45:00,921 - INFO - ibkr.widgets.scanner_table - Running EOD Finviz scan: Consumer Defensive
+2026-06-09 03:45:03,607 - INFO - ibkr.widgets.scanner_table - EOD Scan completed: 48 symbols with complete data
+2026-06-09 03:45:03,807 - INFO - ibkr.widgets.scanner_table - EOD Scanner table updated with 48 symbols.
+2026-06-09 03:45:05,265 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=DCH interval=60minute from=2026-04-19T18:15:05.265723-04:00 to=2026-06-08T18:15:05.265723-04:00 dedicated_history=True
+2026-06-09 03:45:05,267 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: DCH conId=5082651 bar=30 mins duration=50 D end=latest
+2026-06-09 03:45:06,441 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=DCH bars=350
+2026-06-09 03:45:06,477 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-09 03:45:06,478 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-09 03:45:06,482 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol DCH
+2026-06-09 03:45:06,482 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: DCH (350 candles)
+2026-06-09 03:45:07,543 - INFO - ibkr.widgets.scanner_table - Running EOD Finviz scan: Energy
+2026-06-09 03:45:11,715 - INFO - ibkr.widgets.scanner_table - EOD Scan completed: 77 symbols with complete data
+2026-06-09 03:45:12,007 - INFO - ibkr.widgets.scanner_table - EOD Scanner table updated with 77 symbols.
+2026-06-09 03:45:15,344 - INFO - ibkr.widgets.scanner_table - Running EOD Finviz scan: Financial
+2026-06-09 03:46:05,260 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=DCH interval=60minute from=2026-04-19T18:16:05.260516-04:00 to=2026-06-08T18:16:05.260516-04:00 dedicated_history=True
+2026-06-09 03:46:05,264 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: DCH conId=5082651 bar=30 mins duration=50 D end=latest
+2026-06-09 03:46:06,396 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=DCH bars=350
+2026-06-09 03:46:06,434 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-09 03:46:06,435 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-09 03:46:06,440 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol DCH
+2026-06-09 03:46:06,440 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: DCH (350 candles)
+2026-06-09 03:47:04,220 - INFO - ibkr.widgets.scanner_table - EOD Scan completed: 2739 symbols with complete data
+2026-06-09 03:47:17,477 - INFO - ibkr.widgets.scanner_table - EOD Scanner table updated with 2739 symbols.
+2026-06-09 03:47:17,516 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=DCH interval=60minute from=2026-04-19T18:17:17.516708-04:00 to=2026-06-08T18:17:17.516708-04:00 dedicated_history=True
+2026-06-09 03:47:17,521 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: DCH conId=5082651 bar=30 mins duration=50 D end=latest
+2026-06-09 03:47:18,703 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=DCH bars=350
+2026-06-09 03:47:18,759 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-09 03:47:18,761 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-09 03:47:18,768 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol DCH
+2026-06-09 03:47:18,769 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: DCH (350 candles)
+2026-06-09 03:47:23,260 - INFO - ibkr.widgets.scanner_table - Running EOD Finviz scan: Healthcare
+2026-06-09 03:47:32,746 - INFO - ibkr.widgets.scanner_table - EOD Scan completed: 242 symbols with complete data
+2026-06-09 03:47:33,813 - INFO - ibkr.widgets.scanner_table - EOD Scanner table updated with 242 symbols.
+2026-06-09 03:47:37,698 - INFO - ibkr.widgets.scanner_table - Running EOD Finviz scan: Industrials
+2026-06-09 03:47:45,682 - INFO - ibkr.widgets.scanner_table - EOD Scan completed: 204 symbols with complete data
+2026-06-09 03:47:46,601 - INFO - ibkr.widgets.scanner_table - EOD Scanner table updated with 204 symbols.
+2026-06-09 03:47:48,256 - INFO - ibkr.widgets.scanner_table - Running EOD Finviz scan: Real Estate
+2026-06-09 03:47:52,326 - INFO - ibkr.widgets.scanner_table - EOD Scan completed: 85 symbols with complete data
+2026-06-09 03:47:52,721 - INFO - ibkr.widgets.scanner_table - EOD Scanner table updated with 85 symbols.
+2026-06-09 03:47:54,633 - INFO - ibkr.widgets.scanner_table - Running EOD Finviz scan: Technology
+2026-06-09 03:48:05,259 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=DCH interval=60minute from=2026-04-19T18:18:05.259621-04:00 to=2026-06-08T18:18:05.259621-04:00 dedicated_history=True
+2026-06-09 03:48:05,260 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: DCH conId=5082651 bar=30 mins duration=50 D end=latest
+2026-06-09 03:48:06,339 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=DCH bars=350
+2026-06-09 03:48:06,394 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-09 03:48:06,396 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-09 03:48:06,403 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol DCH
+2026-06-09 03:48:06,404 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: DCH (350 candles)
+2026-06-09 03:48:07,459 - INFO - ibkr.widgets.scanner_table - EOD Scan completed: 323 symbols with complete data
+2026-06-09 03:48:08,855 - INFO - ibkr.widgets.scanner_table - EOD Scanner table updated with 323 symbols.
+2026-06-09 03:48:10,586 - INFO - ibkr.widgets.scanner_table - Running EOD Finviz scan: Utilities
+2026-06-09 03:48:12,015 - INFO - ibkr.widgets.scanner_table - EOD Scan completed: 18 symbols with complete data
+2026-06-09 03:48:12,126 - INFO - ibkr.widgets.scanner_table - EOD Scanner table updated with 18 symbols.
+2026-06-09 03:48:18,812 - INFO - ibkr.widgets.scanner_table - Running EOD Finviz scan: Aerospace & Defence
+2026-06-09 03:48:20,850 - INFO - ibkr.widgets.scanner_table - EOD Scan completed: 27 symbols with complete data
+2026-06-09 03:48:20,971 - INFO - ibkr.widgets.scanner_table - EOD Scanner table updated with 27 symbols.
+2026-06-09 03:48:22,663 - ERROR - ib_insync.wrapper - Error 200, reqId 390: No security definition has been found for the request, contract: Stock(symbol='HEI-A', exchange='SMART', currency='USD')
+2026-06-09 03:48:22,981 - INFO - ibkr.widgets.scanner_table - Running EOD Finviz scan: Auto Manufacturers
+2026-06-09 03:48:23,217 - WARNING - ib_insync.ib - Unknown contract: Stock(symbol='HEI-A', exchange='SMART', currency='USD')
+2026-06-09 03:48:23,493 - ERROR - ib_insync.wrapper - Error 200, reqId 391: No security definition has been found for the request, contract: Stock(symbol='HEI-A', exchange='SMART', currency='USD')
+2026-06-09 03:48:24,771 - ERROR - ib_insync.wrapper - Error 200, reqId 397: No security definition has been found for the request, contract: Stock(symbol='MOG-A', exchange='SMART', currency='USD')
+2026-06-09 03:48:25,540 - INFO - ibkr.widgets.scanner_table - EOD Scan completed: 7 symbols with complete data
+2026-06-09 03:48:25,565 - INFO - ibkr.widgets.scanner_table - EOD Scanner table updated with 7 symbols.
+2026-06-09 03:48:25,887 - WARNING - ib_insync.ib - Unknown contract: Stock(symbol='MOG-A', exchange='SMART', currency='USD')
+2026-06-09 03:48:26,166 - ERROR - ib_insync.wrapper - Error 200, reqId 404: No security definition has been found for the request, contract: Stock(symbol='MOG-A', exchange='SMART', currency='USD')
+2026-06-09 03:48:26,343 - INFO - ibkr.widgets.scanner_table - Running EOD Finviz scan: Auto Parts
+2026-06-09 03:48:28,591 - INFO - ibkr.widgets.scanner_table - EOD Scan completed: 21 symbols with complete data
+2026-06-09 03:48:28,675 - INFO - ibkr.widgets.scanner_table - EOD Scanner table updated with 21 symbols.
+2026-06-09 03:48:32,794 - INFO - ibkr.widgets.scanner_table - Running EOD Finviz scan: Biotechnology
+2026-06-09 03:48:37,869 - INFO - ibkr.widgets.scanner_table - EOD Scan completed: 103 symbols with complete data
+2026-06-09 03:48:38,467 - INFO - ibkr.widgets.scanner_table - EOD Scanner table updated with 103 symbols.
+2026-06-09 03:48:42,297 - INFO - ibkr.widgets.scanner_table - Running EOD Finviz scan: Computer Hardware
+2026-06-09 03:48:44,330 - INFO - ibkr.widgets.scanner_table - EOD Scan completed: 24 symbols with complete data
+2026-06-09 03:48:44,417 - INFO - ibkr.widgets.scanner_table - EOD Scanner table updated with 24 symbols.
+2026-06-09 03:48:46,956 - INFO - ibkr.widgets.scanner_table - Running EOD Finviz scan: Semiconductor Equips
+2026-06-09 03:48:49,692 - INFO - ibkr.widgets.scanner_table - EOD Scan completed: 15 symbols with complete data
+2026-06-09 03:48:49,780 - INFO - ibkr.widgets.scanner_table - EOD Scanner table updated with 15 symbols.
+2026-06-09 03:48:52,497 - INFO - ibkr.widgets.scanner_table - Running EOD Finviz scan: Semiconductors
+2026-06-09 03:48:58,257 - INFO - ibkr.widgets.scanner_table - EOD Scan completed: 47 symbols with complete data
+2026-06-09 03:48:58,736 - INFO - ibkr.widgets.scanner_table - EOD Scanner table updated with 47 symbols.
+2026-06-09 03:49:05,278 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=DCH interval=60minute from=2026-04-19T18:19:05.274757-04:00 to=2026-06-08T18:19:05.274757-04:00 dedicated_history=True
+2026-06-09 03:49:05,293 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: DCH conId=5082651 bar=30 mins duration=50 D end=latest
+2026-06-09 03:49:06,453 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=DCH bars=350
+2026-06-09 03:49:06,610 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-09 03:49:06,612 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-09 03:49:06,619 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol DCH
+2026-06-09 03:49:06,620 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: DCH (350 candles)
+2026-06-09 03:49:15,516 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=ALAB interval=day from=2025-05-04T18:19:15.515929-04:00 to=2026-06-08T18:19:15.515929-04:00 dedicated_history=True
+2026-06-09 03:49:15,516 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: ALAB conId=692196414 bar=1 day duration=2 Y end=latest
+2026-06-09 03:49:15,525 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=ALAB interval=60minute from=2026-04-19T18:19:15.525290-04:00 to=2026-06-08T18:19:15.525290-04:00 dedicated_history=True
+2026-06-09 03:49:15,526 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: ALAB conId=692196414 bar=30 mins duration=50 D end=latest
+2026-06-09 03:49:17,072 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=ALAB bars=275
+2026-06-09 03:49:17,173 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-09 03:49:17,174 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-09 03:49:17,181 - INFO - ibkr.core.main_window - Chart symbol changed to: ALAB
+2026-06-09 03:49:17,182 - INFO - ibkr.core.main_window - Added chart symbol ALAB to subscription
+2026-06-09 03:49:17,182 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol ALAB
+2026-06-09 03:49:17,182 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: ALAB (275 candles)
+2026-06-09 03:49:17,474 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=ALAB bars=350
+2026-06-09 03:49:17,511 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: ALAB key=692196414 type=delayed
+2026-06-09 03:49:17,513 - INFO - ibkr.core.main_window - Subscription universe changed: 22 instruments (19 token-backed, +1/-1) sources={'positions': 19, 'charts': 2, 'header': 2}
+2026-06-09 03:49:17,539 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: ALAB (350 candles)
+2026-06-09 03:49:18,037 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for ALAB: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-09 03:49:18,553 - INFO - ibkr.core.market_data_worker - Unsubscribed IBKR market data: DCH
+2026-06-09 03:49:18,555 - ERROR - ib_insync.wrapper - Error 300, reqId 189: Can't find EId with tickerId:189
+2026-06-09 03:49:18,555 - WARNING - ibkr.core.market_data_worker - IBKR API error for reqId=189: Can't find EId with tickerId:189 (300)
+2026-06-09 03:49:18,922 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=ALMU interval=day from=2025-05-04T18:19:18.922612-04:00 to=2026-06-08T18:19:18.922612-04:00 dedicated_history=True
+2026-06-09 03:49:18,924 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: ALMU conId=598714460 bar=1 day duration=2 Y end=latest
+2026-06-09 03:49:18,948 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=ALMU interval=60minute from=2026-04-19T18:19:18.948535-04:00 to=2026-06-08T18:19:18.948535-04:00 dedicated_history=True
+2026-06-09 03:49:18,949 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: ALMU conId=598714460 bar=30 mins duration=50 D end=latest
+2026-06-09 03:49:21,708 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=ALMU bars=350
+2026-06-09 03:49:21,708 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=ALMU bars=275
+2026-06-09 03:49:21,779 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol ALMU
+2026-06-09 03:49:21,780 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: ALMU (350 candles)
+2026-06-09 03:49:21,810 - INFO - ibkr.core.main_window - Chart symbol changed to: ALMU
+2026-06-09 03:49:21,810 - INFO - ibkr.core.main_window - Added chart symbol ALMU to subscription
+2026-06-09 03:49:21,811 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: ALMU (275 candles)
+2026-06-09 03:49:22,090 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: ALMU key=598714460 type=delayed
+2026-06-09 03:49:22,499 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for ALMU: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-09 03:49:23,333 - INFO - ibkr.core.market_data_worker - Unsubscribed IBKR market data: ALAB
+2026-06-09 03:49:23,434 - ERROR - ib_insync.wrapper - Error 300, reqId 216: Can't find EId with tickerId:216
+2026-06-09 03:49:23,434 - WARNING - ibkr.core.market_data_worker - IBKR API error for reqId=216: Can't find EId with tickerId:216 (300)
+2026-06-09 03:49:24,553 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=CRDO interval=day from=2025-05-04T18:19:24.552597-04:00 to=2026-06-08T18:19:24.552597-04:00 dedicated_history=True
+2026-06-09 03:49:24,555 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: CRDO conId=541265127 bar=1 day duration=2 Y end=latest
+2026-06-09 03:49:24,569 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=CRDO interval=60minute from=2026-04-19T18:19:24.569413-04:00 to=2026-06-08T18:19:24.569413-04:00 dedicated_history=True
+2026-06-09 03:49:24,572 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: CRDO conId=541265127 bar=30 mins duration=50 D end=latest
+2026-06-09 03:49:27,077 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=CRDO bars=275
+2026-06-09 03:49:27,150 - INFO - ibkr.core.main_window - Chart symbol changed to: CRDO
+2026-06-09 03:49:27,151 - INFO - ibkr.core.main_window - Added chart symbol CRDO to subscription
+2026-06-09 03:49:27,151 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol CRDO
+2026-06-09 03:49:27,151 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: CRDO (275 candles)
+2026-06-09 03:49:27,424 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=CRDO bars=350
+2026-06-09 03:49:27,454 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: CRDO key=541265127 type=delayed
+2026-06-09 03:49:27,479 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: CRDO (350 candles)
+2026-06-09 03:49:27,969 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for CRDO: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-09 03:49:28,655 - INFO - ibkr.core.market_data_worker - Unsubscribed IBKR market data: ALMU
+2026-06-09 03:49:28,754 - ERROR - ib_insync.wrapper - Error 300, reqId 241: Can't find EId with tickerId:241
+2026-06-09 03:49:28,755 - WARNING - ibkr.core.market_data_worker - IBKR API error for reqId=241: Can't find EId with tickerId:241 (300)
+2026-06-09 03:49:47,533 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=NVDA interval=day from=2025-05-04T18:19:47.533547-04:00 to=2026-06-08T18:19:47.533547-04:00 dedicated_history=True
+2026-06-09 03:49:47,534 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: NVDA conId=4815747 bar=1 day duration=2 Y end=latest
+2026-06-09 03:49:47,715 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=NVDA interval=day from=2025-05-04T18:19:47.715226-04:00 to=2026-06-08T18:19:47.715226-04:00 dedicated_history=True
+2026-06-09 03:49:47,832 - INFO - chart_engine.drawings - Loaded state for NVDA (60minute) — 0 drawings
+2026-06-09 03:49:47,833 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-09 03:49:47,835 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-09 03:49:47,844 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol NVDA
+2026-06-09 03:49:47,845 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: NVDA (350 candles)
+2026-06-09 03:49:48,284 - INFO - ibkr.core.main_window - Subscription universe changed: 22 instruments (19 token-backed, +1/-1) sources={'positions': 19, 'charts': 2, 'header': 2}
+2026-06-09 03:49:48,300 - INFO - ibkr.core.market_data_worker - Unsubscribed IBKR market data: CRDO
+2026-06-09 03:49:48,301 - ERROR - ib_insync.wrapper - Error 300, reqId 268: Can't find EId with tickerId:268
+2026-06-09 03:49:48,302 - WARNING - ibkr.core.market_data_worker - IBKR API error for reqId=268: Can't find EId with tickerId:268 (300)
+2026-06-09 03:49:48,587 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=NVDA bars=275
+2026-06-09 03:49:48,725 - INFO - chart_engine.drawings - Loaded state for NVDA (day) — 0 drawings
+2026-06-09 03:49:48,735 - INFO - ibkr.core.main_window - Chart symbol changed to: NVDA
+2026-06-09 03:49:48,735 - INFO - ibkr.core.main_window - Added chart symbol NVDA to subscription
+2026-06-09 03:49:48,737 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: NVDA (275 candles)
+2026-06-09 03:49:50,614 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=AMBQ interval=day from=2025-05-04T18:19:50.614040-04:00 to=2026-06-08T18:19:50.614040-04:00 dedicated_history=True
+2026-06-09 03:49:50,615 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: AMBQ conId=802476467 bar=1 day duration=2 Y end=latest
+2026-06-09 03:49:50,625 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=AMBQ interval=60minute from=2026-04-19T18:19:50.625533-04:00 to=2026-06-08T18:19:50.625533-04:00 dedicated_history=True
+2026-06-09 03:49:50,627 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: AMBQ conId=802476467 bar=30 mins duration=50 D end=latest
+2026-06-09 03:49:52,475 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=AMBQ bars=350
+2026-06-09 03:49:52,525 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol AMBQ
+2026-06-09 03:49:52,525 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: AMBQ (350 candles)
+2026-06-09 03:49:52,857 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: AMBQ key=802476467 type=delayed
+2026-06-09 03:49:53,226 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=AMBQ bars=216
+2026-06-09 03:49:53,275 - INFO - ibkr.core.main_window - Chart symbol changed to: AMBQ
+2026-06-09 03:49:53,275 - INFO - ibkr.core.main_window - Added chart symbol AMBQ to subscription
+2026-06-09 03:49:53,276 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: AMBQ (216 candles)
+2026-06-09 03:49:53,317 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for AMBQ: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-09 03:49:59,823 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=STM interval=day from=2025-05-04T18:19:59.822576-04:00 to=2026-06-08T18:19:59.822576-04:00 dedicated_history=True
+2026-06-09 03:49:59,826 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: STM conId=12460 bar=1 day duration=2 Y end=latest
+2026-06-09 03:49:59,840 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=STM interval=60minute from=2026-04-19T18:19:59.840260-04:00 to=2026-06-08T18:19:59.840260-04:00 dedicated_history=True
+2026-06-09 03:49:59,841 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: STM conId=12460 bar=30 mins duration=50 D end=latest
+2026-06-09 03:50:01,363 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=STM bars=275
+2026-06-09 03:50:01,447 - INFO - ibkr.core.main_window - Chart symbol changed to: STM
+2026-06-09 03:50:01,448 - INFO - ibkr.core.main_window - Added chart symbol STM to subscription
+2026-06-09 03:50:01,449 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol STM
+2026-06-09 03:50:01,449 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: STM (275 candles)
+2026-06-09 03:50:01,858 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: STM key=12460 type=delayed
+2026-06-09 03:50:01,899 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=STM bars=350
+2026-06-09 03:50:01,943 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: STM (350 candles)
+2026-06-09 03:50:02,193 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for STM: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-09 03:50:02,407 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=GFS interval=day from=2025-05-04T18:20:02.407254-04:00 to=2026-06-08T18:20:02.407254-04:00 dedicated_history=True
+2026-06-09 03:50:02,408 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: GFS conId=523222624 bar=1 day duration=2 Y end=latest
+2026-06-09 03:50:02,428 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=GFS interval=60minute from=2026-04-19T18:20:02.428690-04:00 to=2026-06-08T18:20:02.428690-04:00 dedicated_history=True
+2026-06-09 03:50:02,434 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: GFS conId=523222624 bar=30 mins duration=50 D end=latest
+2026-06-09 03:50:02,570 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=GFS interval=day from=2025-05-04T18:20:02.569198-04:00 to=2026-06-08T18:20:02.569198-04:00 dedicated_history=True
+2026-06-09 03:50:02,578 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=GFS interval=60minute from=2026-04-19T18:20:02.578462-04:00 to=2026-06-08T18:20:02.578462-04:00 dedicated_history=True
+2026-06-09 03:50:02,884 - INFO - ibkr.core.market_data_worker - Unsubscribed IBKR market data: AMBQ
+2026-06-09 03:50:02,984 - ERROR - ib_insync.wrapper - Error 300, reqId 323: Can't find EId with tickerId:323
+2026-06-09 03:50:02,984 - WARNING - ibkr.core.market_data_worker - IBKR API error for reqId=323: Can't find EId with tickerId:323 (300)
+2026-06-09 03:50:04,115 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=GFS bars=275
+2026-06-09 03:50:04,171 - INFO - ibkr.core.main_window - Chart symbol changed to: GFS
+2026-06-09 03:50:04,171 - INFO - ibkr.core.main_window - Added chart symbol GFS to subscription
+2026-06-09 03:50:04,172 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol GFS
+2026-06-09 03:50:04,172 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: GFS (275 candles)
+2026-06-09 03:50:04,526 - INFO - ibkr.core.market_data_worker - Unsubscribed IBKR market data: STM
+2026-06-09 03:50:04,533 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=GFS bars=350
+2026-06-09 03:50:04,594 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: GFS (350 candles)
+2026-06-09 03:50:05,012 - ERROR - ib_insync.wrapper - Error 300, reqId 350: Can't find EId with tickerId:350
+2026-06-09 03:50:05,014 - WARNING - ibkr.core.market_data_worker - IBKR API error for reqId=350: Can't find EId with tickerId:350 (300)
+2026-06-09 03:50:05,123 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=LSCC interval=day from=2025-05-04T18:20:05.123224-04:00 to=2026-06-08T18:20:05.123224-04:00 dedicated_history=True
+2026-06-09 03:50:05,124 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: LSCC conId=271320 bar=1 day duration=2 Y end=latest
+2026-06-09 03:50:05,137 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=LSCC interval=60minute from=2026-04-19T18:20:05.137529-04:00 to=2026-06-08T18:20:05.137529-04:00 dedicated_history=True
+2026-06-09 03:50:05,138 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: LSCC conId=271320 bar=30 mins duration=50 D end=latest
+2026-06-09 03:50:07,372 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=LSCC bars=275
+2026-06-09 03:50:07,446 - INFO - ibkr.core.main_window - Chart symbol changed to: LSCC
+2026-06-09 03:50:07,446 - INFO - ibkr.core.main_window - Added chart symbol LSCC to subscription
+2026-06-09 03:50:07,447 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol LSCC
+2026-06-09 03:50:07,447 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: LSCC (275 candles)
+2026-06-09 03:50:07,739 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=LSCC bars=350
+2026-06-09 03:50:07,829 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: LSCC (350 candles)
+2026-06-09 03:50:07,855 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=SKYT interval=day from=2025-05-04T18:20:07.854711-04:00 to=2026-06-08T18:20:07.854711-04:00 dedicated_history=True
+2026-06-09 03:50:07,858 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: SKYT conId=482880559 bar=1 day duration=2 Y end=latest
+2026-06-09 03:50:07,866 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=SKYT interval=60minute from=2026-04-19T18:20:07.866780-04:00 to=2026-06-08T18:20:07.866780-04:00 dedicated_history=True
+2026-06-09 03:50:07,872 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: SKYT conId=482880559 bar=30 mins duration=50 D end=latest
+2026-06-09 03:50:07,893 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: LSCC key=271320 type=delayed
+2026-06-09 03:50:08,456 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for LSCC: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-09 03:50:09,360 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=SKYT bars=275
+2026-06-09 03:50:09,423 - INFO - ibkr.core.main_window - Chart symbol changed to: SKYT
+2026-06-09 03:50:09,423 - INFO - ibkr.core.main_window - Added chart symbol SKYT to subscription
+2026-06-09 03:50:09,423 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol SKYT
+2026-06-09 03:50:09,423 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: SKYT (275 candles)
+2026-06-09 03:50:09,798 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=SKYT bars=350
+2026-06-09 03:50:09,865 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: SKYT (350 candles)
+2026-06-09 03:50:10,283 - INFO - ibkr.core.market_data_worker - Unsubscribed IBKR market data: LSCC
+2026-06-09 03:50:10,700 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=DELL interval=day from=2025-05-04T18:20:10.700005-04:00 to=2026-06-08T18:20:10.700005-04:00 dedicated_history=True
+2026-06-09 03:50:10,700 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: DELL conId=346218218 bar=1 day duration=2 Y end=latest
+2026-06-09 03:50:10,712 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=DELL interval=60minute from=2026-04-19T18:20:10.712247-04:00 to=2026-06-08T18:20:10.712247-04:00 dedicated_history=True
+2026-06-09 03:50:10,714 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: DELL conId=346218218 bar=30 mins duration=50 D end=latest
+2026-06-09 03:50:10,836 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=DELL interval=day from=2025-05-04T18:20:10.835866-04:00 to=2026-06-08T18:20:10.835866-04:00 dedicated_history=True
+2026-06-09 03:50:10,871 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=DELL interval=60minute from=2026-04-19T18:20:10.870963-04:00 to=2026-06-08T18:20:10.870963-04:00 dedicated_history=True
+2026-06-09 03:50:11,240 - ERROR - ib_insync.wrapper - Error 300, reqId 402: Can't find EId with tickerId:402
+2026-06-09 03:50:11,240 - WARNING - ibkr.core.market_data_worker - IBKR API error for reqId=402: Can't find EId with tickerId:402 (300)
+2026-06-09 03:50:11,521 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: SKYT key=482880559 type=delayed
+2026-06-09 03:50:12,156 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for SKYT: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-09 03:50:12,437 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=DELL bars=275
+2026-06-09 03:50:12,488 - INFO - ibkr.core.main_window - Chart symbol changed to: DELL
+2026-06-09 03:50:12,489 - INFO - ibkr.core.main_window - Added chart symbol DELL to subscription
+2026-06-09 03:50:12,489 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol DELL
+2026-06-09 03:50:12,489 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: DELL (275 candles)
+2026-06-09 03:50:13,324 - INFO - ibkr.core.market_data_worker - Unsubscribed IBKR market data: SKYT
+2026-06-09 03:50:13,722 - ERROR - ib_insync.wrapper - Error 300, reqId 429: Can't find EId with tickerId:429
+2026-06-09 03:50:13,723 - WARNING - ibkr.core.market_data_worker - IBKR API error for reqId=429: Can't find EId with tickerId:429 (300)
+2026-06-09 03:50:13,827 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=DELL bars=350
+2026-06-09 03:50:13,884 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: DELL (350 candles)
+2026-06-09 03:50:16,265 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=AOSL interval=day from=2025-05-04T18:20:16.265805-04:00 to=2026-06-08T18:20:16.265805-04:00 dedicated_history=True
+2026-06-09 03:50:16,268 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: AOSL conId=74820280 bar=1 day duration=2 Y end=latest
+2026-06-09 03:50:16,284 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=AOSL interval=60minute from=2026-04-19T18:20:16.283420-04:00 to=2026-06-08T18:20:16.283420-04:00 dedicated_history=True
+2026-06-09 03:50:16,286 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: AOSL conId=74820280 bar=30 mins duration=50 D end=latest
+2026-06-09 03:50:17,815 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=AOSL bars=275
+2026-06-09 03:50:17,946 - INFO - ibkr.core.main_window - Chart symbol changed to: AOSL
+2026-06-09 03:50:17,947 - INFO - ibkr.core.main_window - Added chart symbol AOSL to subscription
+2026-06-09 03:50:17,948 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol AOSL
+2026-06-09 03:50:17,948 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: AOSL (275 candles)
+2026-06-09 03:50:17,983 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=SMTC interval=day from=2025-05-04T18:20:17.982708-04:00 to=2026-06-08T18:20:17.982708-04:00 dedicated_history=True
+2026-06-09 03:50:17,984 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: SMTC conId=3655896 bar=1 day duration=2 Y end=latest
+2026-06-09 03:50:18,019 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=SMTC interval=60minute from=2026-04-19T18:20:18.018170-04:00 to=2026-06-08T18:20:18.018170-04:00 dedicated_history=True
+2026-06-09 03:50:18,020 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: SMTC conId=3655896 bar=30 mins duration=50 D end=latest
+2026-06-09 03:50:18,162 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=AOSL bars=350
+2026-06-09 03:50:18,251 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: AOSL key=74820280 type=delayed
+2026-06-09 03:50:18,757 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for AOSL: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-09 03:50:19,298 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=AMD interval=day from=2025-05-04T18:20:19.297961-04:00 to=2026-06-08T18:20:19.297961-04:00 dedicated_history=True
+2026-06-09 03:50:19,299 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: AMD conId=4391 bar=1 day duration=2 Y end=latest
+2026-06-09 03:50:19,325 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=AMD interval=60minute from=2026-04-19T18:20:19.325698-04:00 to=2026-06-08T18:20:19.325698-04:00 dedicated_history=True
+2026-06-09 03:50:19,327 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: AMD conId=4391 bar=30 mins duration=50 D end=latest
+2026-06-09 03:50:19,329 - INFO - ibkr.core.market_data_worker - Unsubscribed IBKR market data: AOSL
+2026-06-09 03:50:19,528 - ERROR - ib_insync.wrapper - Error 300, reqId 458: Can't find EId with tickerId:458
+2026-06-09 03:50:19,528 - WARNING - ibkr.core.market_data_worker - IBKR API error for reqId=458: Can't find EId with tickerId:458 (300)
+2026-06-09 03:50:19,711 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=SMTC bars=275
+2026-06-09 03:50:20,075 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=SMTC bars=350
+2026-06-09 03:50:20,091 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: SMTC key=3655896 type=delayed
+2026-06-09 03:50:20,415 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for SMTC: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-09 03:50:20,883 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=AMD bars=275
+2026-06-09 03:50:20,945 - INFO - ibkr.core.main_window - Chart symbol changed to: AMD
+2026-06-09 03:50:20,946 - INFO - ibkr.core.main_window - Added chart symbol AMD to subscription
+2026-06-09 03:50:20,946 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol AMD
+2026-06-09 03:50:20,946 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: AMD (275 candles)
+2026-06-09 03:50:22,804 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: AMD key=4391 type=delayed
+2026-06-09 03:50:23,664 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for AMD: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-09 03:50:24,037 - INFO - ibkr.core.market_data_worker - Unsubscribed IBKR market data: SMTC
+2026-06-09 03:50:24,137 - ERROR - ib_insync.wrapper - Error 300, reqId 480: Can't find EId with tickerId:480
+2026-06-09 03:50:24,137 - WARNING - ibkr.core.market_data_worker - IBKR API error for reqId=480: Can't find EId with tickerId:480 (300)
+2026-06-09 03:50:25,786 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=AMD bars=350
+2026-06-09 03:50:25,842 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: AMD (350 candles)
+2026-06-09 03:50:51,338 - INFO - ibkr.core.shutdown_manager - closeEvent received — beginning fast IBKR shutdown
+2026-06-09 03:50:51,340 - INFO - ibkr.core.shutdown_manager - === Fast IBKR window-close shutdown starting ===
+2026-06-09 03:50:51,340 - INFO - ibkr.core.shutdown_manager - Shutdown: [save_window_state]…
+2026-06-09 03:50:51,342 - INFO - ibkr.core.main_window - Window state saved
+2026-06-09 03:50:51,342 - INFO - ibkr.core.shutdown_manager - Shutdown: [save_window_state] ✓
+2026-06-09 03:50:51,345 - INFO - ibkr.core.shutdown_manager - Shutdown: [save_chart_state]…
+2026-06-09 03:50:51,362 - INFO - ibkr.core.shutdown_manager - Shutdown: [save_chart_state] ✓
+2026-06-09 03:50:51,363 - INFO - ibkr.core.shutdown_manager - Shutdown: [stop_remaining_timers]…
+2026-06-09 03:50:51,384 - INFO - ibkr.core.shutdown_manager - Shutdown: [stop_remaining_timers] ✓
+2026-06-09 03:50:51,384 - INFO - ibkr.core.shutdown_manager - === Fast IBKR window-close shutdown complete ===
+2026-06-09 03:50:51,400 - INFO - __main__ - Shutting down and cleaning up resources...
+2026-06-09 03:50:51,400 - INFO - __main__ - Skipping broker disconnect during fast window-close shutdown.
+2026-06-09 03:50:51,400 - INFO - __main__ - Cleanup complete.

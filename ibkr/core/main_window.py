@@ -1751,7 +1751,6 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
             self.positions_sync_status.setText("SYNCING")
             self.positions_sync_status.setToolTip(message or "Syncing positions from IBKR")
             self.positions_sync_status.setVisible(True)
-            self.positions_title.setText("Positions • Syncing")
         else:
             self.positions_sync_status.setVisible(False)
             self.positions_sync_status.setToolTip("")
