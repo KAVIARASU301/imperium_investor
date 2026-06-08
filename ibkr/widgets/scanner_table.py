@@ -390,10 +390,12 @@ class ModernAddScanDialog(QDialog):
             initial_scan: Optional[Dict[str, str]] = None,
             is_edit: bool = False,
             available_tags: Optional[List[str]] = None,
+            default_tag: str = "Others",
     ):
         super().__init__(parent)
         self.initial_scan = initial_scan or {}
         self.is_edit = is_edit
+        self.default_tag = (default_tag or "Others").strip() or "Others"
         self.available_tags = self._build_available_tags(available_tags)
 
         self.setWindowTitle("Edit Finviz Scan" if self.is_edit else "Add New Finviz Scan")
@@ -497,7 +499,7 @@ class ModernAddScanDialog(QDialog):
         self.tag_input.setEditable(True)
         self.tag_input.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         self.tag_input.addItems(self.available_tags)
-        self.tag_input.setCurrentText("Others")
+        self.tag_input.setCurrentText(self.default_tag)
         self.tag_input.setToolTip("Choose an existing group or type a new grouping tag")
         if self.tag_input.lineEdit():
             self.tag_input.lineEdit().setObjectName("comboLineEdit")
@@ -793,6 +795,7 @@ class ModernManageScansDialog(QDialog):
     def __init__(self, scans: List[Dict[str, str]], parent=None):
         super().__init__(parent)
         self.scans = scans.copy()
+        self.last_selected_tag = self._load_last_selected_tag()
         self.setWindowTitle("Manage Finviz Scans")
         self.setModal(True)
         self.setFixedSize(760, 500)
@@ -987,11 +990,40 @@ class ModernManageScansDialog(QDialog):
 
         return tags or ["Others"]
 
+    def _load_last_selected_tag(self) -> str:
+        """Load the most recently saved scan tag for new-scan prefill."""
+        try:
+            settings = self.parent()._load_scanner_settings() if self.parent() else {}
+            tag = (settings.get("last_selected_scan_tag") or "").strip() if isinstance(settings, dict) else ""
+            if tag:
+                return tag
+        except Exception as e:
+            logger.debug(f"Failed to load last selected scan tag: {e}")
+        return "Others"
+
+    def _save_last_selected_tag(self, tag: str) -> None:
+        """Persist the last scan tag without discarding other scanner settings."""
+        clean_tag = (tag or "").strip() or "Others"
+        self.last_selected_tag = clean_tag
+        try:
+            settings = self.parent()._load_scanner_settings() if self.parent() else {}
+            if not isinstance(settings, dict):
+                settings = {}
+            settings["last_selected_scan_tag"] = clean_tag
+            settings_dir = os.path.dirname(SETTINGS_FILE)
+            if settings_dir and not os.path.exists(settings_dir):
+                os.makedirs(settings_dir, exist_ok=True)
+            with open(SETTINGS_FILE, "w") as f:
+                json.dump(settings, f, indent=2)
+        except Exception as e:
+            logger.debug(f"Failed to save last selected scan tag: {e}")
+
     def _add_scan(self):
         """Add a new scan."""
-        dialog = ModernAddScanDialog(self, available_tags=self._available_scan_tags())
+        dialog = ModernAddScanDialog(self, available_tags=self._available_scan_tags(), default_tag=self.last_selected_tag)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             scan_data = dialog.get_scan_data()
+            self._save_last_selected_tag(scan_data.get("tag", "Others"))
             self.scans.append(scan_data)
             self._populate_scans()
             # Update info label
@@ -1009,9 +1041,12 @@ class ModernManageScansDialog(QDialog):
             initial_scan=self.scans[row],
             is_edit=True,
             available_tags=self._available_scan_tags(),
+            default_tag=self.last_selected_tag,
         )
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.scans[row] = dialog.get_scan_data()
+            scan_data = dialog.get_scan_data()
+            self._save_last_selected_tag(scan_data.get("tag", "Others"))
+            self.scans[row] = scan_data
             self._populate_scans()
 
     def _delete_scan(self, row: int):

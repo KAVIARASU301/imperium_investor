@@ -197,11 +197,12 @@ def _volume_strength_level(volume: int) -> int:
 class ModernAddScanDialog(QDialog):
     """Enhanced dialog for adding new Chartink scans with modern styling."""
 
-    def __init__(self, parent=None, initial_scan: Optional[Dict[str, str]] = None, is_edit: bool = False, existing_tags: Optional[List[str]] = None):
+    def __init__(self, parent=None, initial_scan: Optional[Dict[str, str]] = None, is_edit: bool = False, existing_tags: Optional[List[str]] = None, default_tag: str = "Others"):
         super().__init__(parent)
         self.initial_scan = initial_scan or {}
         self.is_edit = is_edit
         self.existing_tags = existing_tags or []
+        self.default_tag = (default_tag or "Others").strip() or "Others"
 
         self.setWindowTitle("Edit Chartink Scan" if self.is_edit else "Add New Chartink Scan")
         self.setModal(True)
@@ -297,7 +298,7 @@ class ModernAddScanDialog(QDialog):
         self.tag_input.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         self.tag_input.setDuplicatesEnabled(False)
         self.tag_input.addItems(self._get_tag_options())
-        self.tag_input.setCurrentText("Others")
+        self.tag_input.setCurrentText(self.default_tag)
         tag_editor = self.tag_input.lineEdit()
         if tag_editor is not None:
             tag_editor.setPlaceholderText("Choose or type a new group tag")
@@ -581,6 +582,7 @@ class ModernManageScansDialog(QDialog):
     def __init__(self, scans: List[Dict[str, str]], parent=None):
         super().__init__(parent)
         self.scans = scans.copy()
+        self.last_selected_tag = self._load_last_selected_tag()
         self.setWindowTitle("Manage Chartink Scans")
         self.setModal(True)
         self.setFixedSize(760, 500)
@@ -762,11 +764,46 @@ class ModernManageScansDialog(QDialog):
             seen.add(key)
         return tags or ["Others"]
 
+    def _load_last_selected_tag(self) -> str:
+        """Load the most recently saved scan tag for new-scan prefill."""
+        try:
+            if os.path.exists(SETTINGS_FILE):
+                with open(SETTINGS_FILE, 'r') as f:
+                    settings = json.load(f)
+                    if isinstance(settings, dict):
+                        tag = (settings.get("last_selected_scan_tag") or "").strip()
+                        if tag:
+                            return tag
+        except Exception as e:
+            logger.debug(f"Failed to load last selected scan tag: {e}")
+        return "Others"
+
+    def _save_last_selected_tag(self, tag: str) -> None:
+        """Persist the last scan tag without discarding other scanner settings."""
+        clean_tag = (tag or "").strip() or "Others"
+        self.last_selected_tag = clean_tag
+        try:
+            settings = {}
+            if os.path.exists(SETTINGS_FILE):
+                with open(SETTINGS_FILE, 'r') as f:
+                    data = json.load(f)
+                    if isinstance(data, dict):
+                        settings = data
+            settings["last_selected_scan_tag"] = clean_tag
+            settings_dir = os.path.dirname(SETTINGS_FILE)
+            if settings_dir and not os.path.exists(settings_dir):
+                os.makedirs(settings_dir, exist_ok=True)
+            with open(SETTINGS_FILE, 'w') as f:
+                json.dump(settings, f, indent=2)
+        except Exception as e:
+            logger.debug(f"Failed to save last selected scan tag: {e}")
+
     def _add_scan(self):
         """Add a new scan."""
-        dialog = ModernAddScanDialog(self, existing_tags=self._get_available_tags())
+        dialog = ModernAddScanDialog(self, existing_tags=self._get_available_tags(), default_tag=self.last_selected_tag)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             scan_data = dialog.get_scan_data()
+            self._save_last_selected_tag(scan_data.get("tag", "Others"))
             self.scans.append(scan_data)
             self._populate_scans()
             # Update info label
@@ -784,9 +821,12 @@ class ModernManageScansDialog(QDialog):
             initial_scan=self.scans[row],
             is_edit=True,
             existing_tags=self._get_available_tags(),
+            default_tag=self.last_selected_tag,
         )
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.scans[row] = dialog.get_scan_data()
+            scan_data = dialog.get_scan_data()
+            self._save_last_selected_tag(scan_data.get("tag", "Others"))
+            self.scans[row] = scan_data
             self._populate_scans()
 
     def _delete_scan(self, row: int):
@@ -1730,7 +1770,13 @@ class ChartinkScannerTable(QWidget):
     def _save_last_selected_scan(self, index: int):
         """Save the last selected scan index."""
         try:
-            settings = {"last_selected_scan": index}
+            settings = {}
+            if os.path.exists(SETTINGS_FILE):
+                with open(SETTINGS_FILE, 'r') as f:
+                    data = json.load(f)
+                    if isinstance(data, dict):
+                        settings = data
+            settings["last_selected_scan"] = index
             settings_dir = os.path.dirname(SETTINGS_FILE)
             if not os.path.exists(settings_dir):
                 os.makedirs(settings_dir, exist_ok=True)
