@@ -69,6 +69,7 @@ if "PySide6.QtCore" not in sys.modules:
     sys.modules["PySide6"] = pyside
     sys.modules["PySide6.QtCore"] = qtcore
 
+import ibkr.core.trading_client as trading_client_module
 from ibkr.core.trading_client import (
     IBKRTradingClient,
     _convert_execution_fill,
@@ -416,3 +417,65 @@ def test_position_manager_fast_polls_ibkr_order_api_after_acceptance():
     assert trader.orders_calls >= 1
     assert "77" not in manager.tracking_orders
     assert emitted[-1][0].symbol == "AAPL"
+
+
+def test_resolve_stock_contract_uses_dialog_con_id_without_blocking_qualification():
+    class _FakeIBForContract:
+        def __init__(self):
+            self.qualify_calls = 0
+
+        def qualifyContracts(self, *_args):
+            self.qualify_calls += 1
+            raise AssertionError("conId-backed orders should not synchronously qualify contracts")
+
+    class _FakeContract:
+        def __init__(self, **kwargs):
+            for key, value in kwargs.items():
+                setattr(self, key, value)
+
+    fake_ib = _FakeIBForContract()
+    old_stock = trading_client_module.Stock
+    old_contract = trading_client_module.Contract
+    trading_client_module.Stock = _FakeContract
+    trading_client_module.Contract = _FakeContract
+    client = _client_with_ib(fake_ib)
+    client._contract_cache = {}
+
+    try:
+        contract = client._resolve_stock_contract(
+            "ARM",
+            "SMART",
+            "USD",
+            con_id=653400472,
+            primary_exchange="NASDAQ",
+        )
+    finally:
+        trading_client_module.Stock = old_stock
+        trading_client_module.Contract = old_contract
+
+    assert fake_ib.qualify_calls == 0
+    assert getattr(contract, "conId", 0) == 653400472
+    assert getattr(contract, "symbol", "") == "ARM"
+    assert getattr(contract, "primaryExchange", "") == "NASDAQ"
+    assert client._contract_cache["ARM"] is contract
+    assert client._contract_cache["653400472"] is contract
+
+
+def test_prepare_order_params_preserves_contract_identity_from_order_dialog():
+    client = _client_with_ib(_FakeIB())
+
+    params = client._prepare_order_params({
+        "tradingsymbol": "arm",
+        "transaction_type": "SELL",
+        "quantity": 1,
+        "order_type": "LMT",
+        "price": 357.89,
+        "conId": 653400472,
+        "primaryExch": "nasdaq",
+    })
+
+    assert params["symbol"] == "ARM"
+    assert params["action"] == "SELL"
+    assert params["order_type"] == "LIMIT"
+    assert params["con_id"] == 653400472
+    assert params["primary_exchange"] == "NASDAQ"

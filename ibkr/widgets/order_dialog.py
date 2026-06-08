@@ -544,6 +544,8 @@ class OrderDialog(QDialog):
             od.get("primary_exchange"),
             instr.get("primaryExchange"),
             instr.get("primary_exchange"),
+            instr.get("primaryExch"),
+            instr.get("primary_exch"),
             instr.get("listing_exchange"),
             default="",
         ), "")
@@ -1158,6 +1160,15 @@ class OrderDialog(QDialog):
         tif = self._tif_seg.current()
         primary_exchange = self._primary_exchange
         account = str(self._order_details.get("account") or "").strip()
+        con_id = _as_int(_first_value(
+            self._order_details.get("conId"),
+            self._order_details.get("con_id"),
+            self._order_details.get("instrument_token"),
+            self.instrument.get("conId"),
+            self.instrument.get("con_id"),
+            self.instrument.get("instrument_token"),
+            default=0,
+        ), 0)
         outside_rth = False
         transmit = True
 
@@ -1188,6 +1199,7 @@ class OrderDialog(QDialog):
             "currency": currency,
             "primaryExchange": primary_exchange,
             "primary_exchange": primary_exchange,
+            "primaryExch": primary_exchange,
             "route": "AUTO",
             "orderRef": f"QULL-SWING-{self.symbol}",
             "tag": "terminal-ibkr-swing",
@@ -1195,6 +1207,10 @@ class OrderDialog(QDialog):
 
         if account:
             data["account"] = account
+        if con_id > 0:
+            data["conId"] = con_id
+            data["con_id"] = con_id
+            data["instrument_token"] = con_id
 
         if ibkr_order_type == "LMT":
             limit_price = _snap_to_tick(float(self._price_spin.value()), self._tick_size)

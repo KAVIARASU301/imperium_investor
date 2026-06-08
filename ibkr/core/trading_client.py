@@ -650,7 +650,13 @@ class IBKRTradingClient(QObject):
             if not symbol or quantity <= 0:
                 return self._order_failure_response(params or kwargs, "Invalid symbol or quantity")
 
-            contract = self._resolve_stock_contract(symbol, params.get("exchange", "SMART"), params.get("currency", "USD"))
+            contract = self._resolve_stock_contract(
+                symbol,
+                params.get("exchange", "SMART"),
+                params.get("currency", "USD"),
+                con_id=params.get("con_id", 0),
+                primary_exchange=params.get("primary_exchange", ""),
+            )
             if contract is None:
                 return self._order_failure_response(params, f"Unable to resolve IBKR contract for {symbol}")
 
@@ -977,28 +983,55 @@ class IBKRTradingClient(QObject):
             "stop_price": kwargs.get("stop_price") or kwargs.get("trigger_price") or kwargs.get("triggerPrice"),
             "exchange": kwargs.get("exchange") or "SMART",
             "currency": kwargs.get("currency") or "USD",
+            "con_id": int(_safe_float(kwargs.get("con_id") or kwargs.get("conId") or kwargs.get("instrument_token") or 0, 0.0)),
+            "primary_exchange": str(kwargs.get("primary_exchange") or kwargs.get("primaryExchange") or kwargs.get("primaryExch") or "").strip().upper(),
             "time_in_force": kwargs.get("time_in_force") or kwargs.get("validity") or "DAY",
             "outside_rth": bool(kwargs.get("outside_rth") or kwargs.get("outsideRth") or False),
         }
 
-    def _resolve_stock_contract(self, symbol: str, exchange: str = "SMART", currency: str = "USD") -> Optional[Any]:
+    def _resolve_stock_contract(
+        self,
+        symbol: str,
+        exchange: str = "SMART",
+        currency: str = "USD",
+        con_id: int = 0,
+        primary_exchange: str = "",
+    ) -> Optional[Any]:
         symbol = str(symbol or "").strip().upper()
+        con_id = int(_safe_float(con_id, 0.0))
+        cache_key = str(con_id) if con_id > 0 else symbol
         if not symbol or Stock is None:
             return None
+        if cache_key in self._contract_cache:
+            return self._contract_cache[cache_key]
         if symbol in self._contract_cache:
             return self._contract_cache[symbol]
+
         exchange = "SMART" if exchange in {"", "NASDAQ", "NYSE", "ARCA", "AMEX", "BATS"} else exchange
-        contract = Stock(symbol, exchange or "SMART", currency or "USD")
-        try:
-            qualified = self.ib.qualifyContracts(contract)
-            resolved = qualified[0] if qualified else contract
-        except Exception as exc:
-            logger.warning("IBKR contract qualification failed for %s: %s", symbol, exc)
-            resolved = contract
+        primary_exchange = str(primary_exchange or "").strip().upper()
+
+        if con_id > 0 and Contract is not None:
+            resolved = Contract(
+                secType="STK",
+                conId=con_id,
+                symbol=symbol,
+                exchange=exchange or "SMART",
+                currency=currency or "USD",
+                primaryExchange=primary_exchange,
+            )
+        else:
+            contract = Stock(symbol, exchange or "SMART", currency or "USD", primaryExchange=primary_exchange)
+            try:
+                qualified = self.ib.qualifyContracts(contract)
+                resolved = qualified[0] if qualified else contract
+            except Exception as exc:
+                logger.warning("IBKR contract qualification failed for %s: %s", symbol, exc)
+                resolved = contract
+
         self._contract_cache[symbol] = resolved
-        con_id = int(getattr(resolved, "conId", 0) or 0)
-        if con_id:
-            self._contract_cache[str(con_id)] = resolved
+        resolved_con_id = int(getattr(resolved, "conId", 0) or 0)
+        if resolved_con_id:
+            self._contract_cache[str(resolved_con_id)] = resolved
         return resolved
 
     def __getattr__(self, name: str):
