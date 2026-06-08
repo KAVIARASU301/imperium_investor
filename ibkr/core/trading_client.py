@@ -968,12 +968,63 @@ class IBKRTradingClient(QObject):
         text = " ".join(str(exc or "").split())
         return text or exc.__class__.__name__
 
+    def _position_contract_metadata(self, symbol: str) -> Dict[str, Any]:
+        """Return cached IBKR contract metadata for a held position.
+
+        Position exits frequently originate from the chart/header where the order
+        ticket may only know the symbol.  Reusing the portfolio/position conId
+        avoids a synchronous reqContractDetails round trip on the GUI thread just
+        before placeOrder().
+        """
+        symbol = str(symbol or "").strip().upper()
+        if not symbol:
+            return {}
+
+        positions_cache = getattr(self, "_positions", None)
+        if positions_cache is None:
+            positions_cache = {}
+            self._positions = positions_cache
+
+        cached_position = dict(positions_cache.get(symbol, {}) or {})
+        if cached_position:
+            return cached_position
+
+        if not self.ib:
+            return {}
+
+        rows: List[Dict[str, Any]] = []
+        for source_name in ("portfolio", "positions"):
+            source = getattr(self.ib, source_name, None)
+            if not callable(source):
+                continue
+            try:
+                rows.extend(_convert_position(row) for row in list(source() or []))
+            except Exception:
+                logger.debug("Unable to inspect IBKR %s cache for %s", source_name, symbol, exc_info=True)
+
+        for row in rows:
+            if str(row.get("symbol") or row.get("tradingsymbol") or "").upper() == symbol:
+                if _safe_float(row.get("quantity"), 0.0) != 0:
+                    self._positions[symbol] = row
+                return row
+        return {}
+
     def _prepare_order_params(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
         symbol = str(kwargs.get("symbol") or kwargs.get("tradingsymbol") or "").strip().upper()
         action = str(kwargs.get("action") or kwargs.get("transaction_type") or "BUY").strip().upper()
         quantity = int(float(kwargs.get("quantity") or kwargs.get("qty") or 0))
         raw_type = kwargs.get("order_type") or kwargs.get("orderType") or "MARKET"
         order_type = _normalize_order_type(raw_type)
+        position_meta = self._position_contract_metadata(symbol)
+        con_id = int(_safe_float(
+            kwargs.get("con_id")
+            or kwargs.get("conId")
+            or kwargs.get("instrument_token")
+            or position_meta.get("conId")
+            or position_meta.get("instrument_token")
+            or 0,
+            0.0,
+        ))
         return {
             "symbol": symbol,
             "action": "SELL" if action == "SELL" else "BUY",
@@ -981,10 +1032,18 @@ class IBKRTradingClient(QObject):
             "order_type": order_type,
             "limit_price": kwargs.get("limit_price") or kwargs.get("price"),
             "stop_price": kwargs.get("stop_price") or kwargs.get("trigger_price") or kwargs.get("triggerPrice"),
-            "exchange": kwargs.get("exchange") or "SMART",
-            "currency": kwargs.get("currency") or "USD",
-            "con_id": int(_safe_float(kwargs.get("con_id") or kwargs.get("conId") or kwargs.get("instrument_token") or 0, 0.0)),
-            "primary_exchange": str(kwargs.get("primary_exchange") or kwargs.get("primaryExchange") or kwargs.get("primaryExch") or "").strip().upper(),
+            "exchange": kwargs.get("exchange") or position_meta.get("exchange") or "SMART",
+            "currency": kwargs.get("currency") or position_meta.get("currency") or "USD",
+            "con_id": con_id,
+            "primary_exchange": str(
+                kwargs.get("primary_exchange")
+                or kwargs.get("primaryExchange")
+                or kwargs.get("primaryExch")
+                or position_meta.get("primary_exchange")
+                or position_meta.get("primaryExchange")
+                or position_meta.get("exchange")
+                or ""
+            ).strip().upper(),
             "time_in_force": kwargs.get("time_in_force") or kwargs.get("validity") or "DAY",
             "outside_rth": bool(kwargs.get("outside_rth") or kwargs.get("outsideRth") or False),
         }

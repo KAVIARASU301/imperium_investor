@@ -2812,8 +2812,60 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
 
     def _instrument_for_order(self, symbol: str) -> Dict[str, Any]:
         """Return an order-ready instrument, with an IBKR on-demand fallback."""
+        symbol = (symbol or "").strip().upper()
         instrument = dict(getattr(self, "instrument_map", {}).get(symbol, {}) or {})
+
+        # In IBKR mode, a header SELL often targets an existing chart/position
+        # symbol whose static instrument row has no conId.  Prefer the already
+        # synchronized portfolio position metadata so order submission can build
+        # a concrete Contract and avoid a blocking reqContractDetails lookup.
+        if self.trading_mode == "ibkr" and (not instrument.get("instrument_token") and not instrument.get("conId")):
+            position_meta: Dict[str, Any] = {}
+            try:
+                position = self.positions_table.get_position_by_symbol(symbol)
+            except Exception:
+                position = None
+            if position is not None:
+                for key in ("instrument_token", "conId", "con_id", "exchange", "currency", "product"):
+                    value = getattr(position, key, None)
+                    if value not in (None, ""):
+                        position_meta[key] = value
+
+            try:
+                for row in self.trader.positions() or []:
+                    if str(row.get("symbol") or row.get("tradingsymbol") or "").upper() != symbol:
+                        continue
+                    if int(float(row.get("quantity") or 0)) == 0:
+                        continue
+                    position_meta.update({key: value for key, value in row.items() if value not in (None, "")})
+                    break
+            except Exception:
+                logger.debug("Unable to enrich %s order instrument from positions", symbol, exc_info=True)
+
+            con_id = int(float(
+                position_meta.get("conId")
+                or position_meta.get("con_id")
+                or position_meta.get("instrument_token")
+                or 0
+            ))
+            if con_id > 0:
+                instrument.update({
+                    "tradingsymbol": symbol,
+                    "symbol": symbol,
+                    "exchange": position_meta.get("exchange") or instrument.get("exchange") or "SMART",
+                    "primaryExch": position_meta.get("primary_exchange") or position_meta.get("primaryExchange") or position_meta.get("exchange") or instrument.get("primaryExch") or "",
+                    "instrument_token": con_id,
+                    "conId": con_id,
+                    "segment": "STK",
+                    "secType": "STK",
+                    "currency": position_meta.get("currency") or instrument.get("currency") or "USD",
+                    "instrument_type": "EQ",
+                })
+
         if instrument:
+            self.instrument_map[symbol] = instrument
+            if hasattr(self, "header_toolbar"):
+                self.header_toolbar._instrument_map[symbol] = instrument
             return instrument
 
         # IBKR mode can chart/order raw US symbols after TWS qualifies them.

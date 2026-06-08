@@ -479,3 +479,35 @@ def test_prepare_order_params_preserves_contract_identity_from_order_dialog():
     assert params["order_type"] == "LIMIT"
     assert params["con_id"] == 653400472
     assert params["primary_exchange"] == "NASDAQ"
+
+
+def test_prepare_order_params_reuses_cached_position_conid_when_order_has_symbol_only():
+    client = IBKRTradingClient.__new__(IBKRTradingClient)
+    client.ib = None
+    client._positions = {
+        "ARM": {
+            "symbol": "ARM",
+            "conId": 653400472,
+            "instrument_token": 653400472,
+            "exchange": "NASDAQ",
+            "currency": "USD",
+            "quantity": 100,
+        }
+    }
+
+    params = client._prepare_order_params({"tradingsymbol": "ARM", "transaction_type": "SELL", "quantity": 1})
+
+    assert params["con_id"] == 653400472
+    assert params["exchange"] == "NASDAQ"
+    assert params["primary_exchange"] == "NASDAQ"
+    assert params["action"] == "SELL"
+
+
+def test_prepare_order_params_prefers_explicit_conid_over_cached_position():
+    client = IBKRTradingClient.__new__(IBKRTradingClient)
+    client.ib = None
+    client._positions = {"ARM": {"symbol": "ARM", "conId": 653400472, "quantity": 100}}
+
+    params = client._prepare_order_params({"symbol": "ARM", "conId": 12345, "quantity": 1})
+
+    assert params["con_id"] == 12345
