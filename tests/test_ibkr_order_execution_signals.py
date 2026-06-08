@@ -289,6 +289,74 @@ class _FakeTraderForPositions:
         return list(self._positions)
 
 
+def test_get_positions_uses_local_cache_without_req_positions_feedback_loop():
+    class _FakeIBWithPositions(_FakeIB):
+        def __init__(self):
+            super().__init__()
+            self.positions_calls = 0
+            self.portfolio_calls = 0
+            self.req_positions_calls = 0
+            self._positions_rows = [
+                SimpleNamespace(
+                    contract=SimpleNamespace(
+                        symbol="AAPL",
+                        exchange="SMART",
+                        primaryExchange="NASDAQ",
+                        conId=123,
+                        secType="STK",
+                        currency="USD",
+                    ),
+                    position=10,
+                    avgCost=192.35,
+                )
+            ]
+            self._portfolio_rows = [
+                SimpleNamespace(
+                    contract=SimpleNamespace(
+                        symbol="AAPL",
+                        exchange="SMART",
+                        primaryExchange="NASDAQ",
+                        conId=123,
+                        secType="STK",
+                        currency="USD",
+                    ),
+                    position=10,
+                    averageCost=192.35,
+                    marketPrice=195.25,
+                    unrealizedPNL=29.0,
+                    realizedPNL=0.0,
+                )
+            ]
+
+        def positions(self):
+            self.positions_calls += 1
+            return list(self._positions_rows)
+
+        def portfolio(self):
+            self.portfolio_calls += 1
+            return list(self._portfolio_rows)
+
+        def reqPositions(self):
+            self.req_positions_calls += 1
+            raise AssertionError(
+                "get_positions must not issue reqPositions from event-driven refreshes"
+            )
+
+    fake_ib = _FakeIBWithPositions()
+    client = _client_with_ib(fake_ib)
+    client._positions = {}
+
+    rows = client.get_positions()
+
+    assert fake_ib.req_positions_calls == 0
+    assert fake_ib.positions_calls == 1
+    assert fake_ib.portfolio_calls == 1
+    assert rows == [client._positions["AAPL"]]
+    assert rows[0]["quantity"] == 10
+    assert rows[0]["last_price"] == 195.25
+    assert rows[0]["unrealized_pnl"] == 29.0
+
+
 def test_position_manager_processes_terminal_order_returned_by_place_order_immediately():
     trader = _FakeTraderForPositions()
     trader._positions = [{

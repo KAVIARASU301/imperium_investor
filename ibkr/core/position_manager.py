@@ -535,10 +535,11 @@ class PositionManager(QObject):
                 self.partial_fill_symbols_updated.emit({symbol})
 
     def on_ws_position_update(self, update: Any = None, *_args, **_kwargs) -> None:
-        # IBKR positionEvent is per-position and may carry zero quantity for a
-        # closed symbol. Fetch the full broker snapshot so removed rows disappear
-        # from both embedded and floating tables together.
-        self._schedule_position_refresh("ibkr_position_event", delay_ms=0)
+        # IBKR position/updatePortfolio events arrive as bursts, one row at a
+        # time. Coalesce them before reading the already-synchronized local
+        # ib_insync cache so the UI updates once per burst and we avoid a
+        # request/event/request feedback loop.
+        self._schedule_position_refresh("ibkr_position_event", delay_ms=250)
 
     def on_ws_connected(self, *_args, **_kwargs) -> None:
         self.fetch_positions_from_broker("ibkr_connected")

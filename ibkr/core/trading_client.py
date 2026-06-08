@@ -8,7 +8,7 @@ Main integration fixes:
   • Keeps place_order() returning a rich dict, while updated MainWindow accepts
     both this dict and older broker order-id strings.
   • ✅ NEW: Subscribes to tradeStatusEvent for real-time order updates
-  • ✅ NEW: Polls the local ib.trades() cache without cross-thread broker requests
+  • ✅ NEW: Polls local ib_insync caches without cross-thread broker requests
   • ✅ NEW: Properly tracks order cancellation state
 """
 
@@ -582,17 +582,39 @@ class IBKRTradingClient(QObject):
         _ensure_thread_event_loop()
         try:
             if not self.ib:
-                positions = []
-            elif hasattr(self.ib, "reqPositions"):
-                # IBKR can lag in the local positions() cache immediately after an
-                # order fill.  reqPositions() forces a fresh broker snapshot so the
-                # UI does not require an app restart to see the new/changed row.
-                positions = self.ib.reqPositions() or []
-            else:
-                positions = self.ib.positions()
-            rows = [_convert_position(pos) for pos in positions if _safe_float(getattr(pos, "position", 0), 0) != 0]
-            self._positions = {row["symbol"]: row for row in rows if row.get("symbol")}
-            return rows
+                return list(self._positions.values())
+
+            # Use ib_insync's synchronized local caches here instead of issuing
+            # reqPositions().  Position/portfolio events call back into the app
+            # as each row changes; forcing a new broker snapshot from that path
+            # causes a feedback loop of reqPositions -> positionEvent ->
+            # PositionManager refresh -> reqPositions that can exhaust memory.
+            portfolio_rows = []
+            if hasattr(self.ib, "portfolio"):
+                portfolio_rows = list(self.ib.portfolio() or [])
+
+            rows_by_symbol: Dict[str, Dict[str, Any]] = {}
+            for item in portfolio_rows:
+                row = _convert_position(item)
+                if row.get("symbol") and _safe_float(row.get("quantity"), 0.0) != 0:
+                    rows_by_symbol[row["symbol"]] = row
+
+            if hasattr(self.ib, "positions"):
+                for pos in list(self.ib.positions() or []):
+                    row = _convert_position(pos)
+                    symbol = row.get("symbol")
+                    if not symbol or _safe_float(row.get("quantity"), 0.0) == 0:
+                        continue
+                    existing = rows_by_symbol.get(symbol, {})
+                    merged = {**row, **existing}
+                    for price_key in ("last_price", "pnl", "unrealized_pnl", "realized_pnl"):
+                        if _safe_float(merged.get(price_key), 0.0) == 0 and _safe_float(row.get(price_key), 0.0) != 0:
+                            merged[price_key] = row.get(price_key)
+                    rows_by_symbol[symbol] = merged
+
+            if rows_by_symbol:
+                self._positions = rows_by_symbol
+            return list(self._positions.values())
         except Exception as exc:
             logger.error("Error getting IBKR positions: %s", exc)
             return list(self._positions.values())

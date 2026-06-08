@@ -573,7 +573,15 @@ class BrokerFactory:
             except Exception as e:
                 logger.warning(f"Could not get managed accounts: {e}")
 
-            return IBKRClientWrapper(ib_client, connection_info)
+            # Order lifecycle events from IB Gateway/TWS are delivered to the
+            # API session that places the order and, when configured, to the
+            # Master Client ID.  Use the event-aware trading client on the
+            # authenticated/master session (normally clientId=1) instead of the
+            # generic wrapper so orderStatus/openOrder/execDetails callbacks are
+            # listened to by the same API client that receives them.
+            from ibkr.core.trading_client import IBKRTradingClient
+
+            return IBKRTradingClient(ib_client, TradingMode.LIVE)
 
         except Exception as e:
             logger.error(f"Could not create IBKR client: {e}")
