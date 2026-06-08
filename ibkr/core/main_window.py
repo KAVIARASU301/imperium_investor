@@ -2806,6 +2806,35 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
             order_details["available_margin"] = self.account_manager.get_cached_balance()
         return order_details
 
+    def _chart_contract_metadata_for_order(self, symbol: str) -> Dict[str, Any]:
+        """Return the current chart conId metadata when it matches the order symbol."""
+        clean_symbol = (symbol or "").strip().upper()
+        if not clean_symbol:
+            return {}
+
+        for chart in (getattr(self, "candlestick_chart", None), getattr(self, "candlestick_chart_secondary", None)):
+            if chart is None:
+                continue
+            chart_symbol = str(getattr(chart, "current_symbol", "") or "").strip().upper()
+            if chart_symbol != clean_symbol:
+                continue
+            token = self._safe_int_token(getattr(chart, "current_instrument_token", 0))
+            if token <= 0:
+                continue
+            return {
+                "tradingsymbol": clean_symbol,
+                "symbol": clean_symbol,
+                "exchange": "SMART",
+                "primaryExch": "",
+                "instrument_token": token,
+                "conId": token,
+                "segment": "STK",
+                "secType": "STK",
+                "currency": "USD",
+                "instrument_type": "EQ",
+            }
+        return {}
+
     # ==============================================================================
     # SIMPLIFIED ORDER HANDLING WITH STATUS BAR
     # ==============================================================================
@@ -2815,10 +2844,16 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
         symbol = (symbol or "").strip().upper()
         instrument = dict(getattr(self, "instrument_map", {}).get(symbol, {}) or {})
 
-        # In IBKR mode, a header SELL often targets an existing chart/position
-        # symbol whose static instrument row has no conId.  Prefer the already
-        # synchronized portfolio position metadata so order submission can build
-        # a concrete Contract and avoid a blocking reqContractDetails lookup.
+        # In IBKR mode, a header/chart order often targets a symbol whose static
+        # instrument row has no conId. Prefer the currently rendered chart
+        # contract first, then synchronized portfolio metadata, so order
+        # submission can build a concrete Contract and avoid a blocking
+        # reqContractDetails lookup on the GUI/ib_insync event loop.
+        if self.trading_mode == "ibkr" and (not instrument.get("instrument_token") and not instrument.get("conId")):
+            chart_meta = self._chart_contract_metadata_for_order(symbol)
+            if chart_meta:
+                instrument.update(chart_meta)
+
         if self.trading_mode == "ibkr" and (not instrument.get("instrument_token") and not instrument.get("conId")):
             position_meta: Dict[str, Any] = {}
             try:
@@ -2969,7 +3004,8 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
         if not symbol:
             show_info("Select a symbol on chart before placing an order")
             return
-        if symbol not in self.instrument_map:
+        instrument = self._instrument_for_order(symbol)
+        if not instrument:
             show_error(f"Symbol {symbol} not found")
             return
 
@@ -2989,7 +3025,6 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
         }
         order_details = self._build_order_details_with_account(order_details)
 
-        instrument = self.instrument_map.get(symbol, {})
         dialog = OrderDialog(
             self,
             symbol,
@@ -3005,6 +3040,7 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
             dialog._refresh_fields_visibility()
             dialog._update_summary()
         dialog.order_placed.connect(self._handle_order_placement)
+        self._remember_order_dialog(dialog)
         dialog.show()
 
     def _on_header_buy_order(self, symbol: str):

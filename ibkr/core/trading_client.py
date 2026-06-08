@@ -42,6 +42,15 @@ except Exception:  # pragma: no cover
 
 logger = logging.getLogger(__name__)
 
+
+def _asyncio_loop_is_running() -> bool:
+    """Return True when synchronous ib_insync helpers would re-enter a live loop."""
+    try:
+        return asyncio.get_running_loop().is_running()
+    except RuntimeError:
+        return False
+
+
 def _ensure_thread_event_loop() -> None:
     """Ensure current thread has an asyncio event loop for ib_insync sync wrappers."""
     try:
@@ -656,6 +665,7 @@ class IBKRTradingClient(QObject):
                 params.get("currency", "USD"),
                 con_id=params.get("con_id", 0),
                 primary_exchange=params.get("primary_exchange", ""),
+                allow_qualification=False,
             )
             if contract is None:
                 return self._order_failure_response(params, f"Unable to resolve IBKR contract for {symbol}")
@@ -1055,6 +1065,7 @@ class IBKRTradingClient(QObject):
         currency: str = "USD",
         con_id: int = 0,
         primary_exchange: str = "",
+        allow_qualification: bool = True,
     ) -> Optional[Any]:
         symbol = str(symbol or "").strip().upper()
         con_id = int(_safe_float(con_id, 0.0))
@@ -1080,12 +1091,31 @@ class IBKRTradingClient(QObject):
             )
         else:
             contract = Stock(symbol, exchange or "SMART", currency or "USD", primaryExchange=primary_exchange)
-            try:
-                qualified = self.ib.qualifyContracts(contract)
-                resolved = qualified[0] if qualified else contract
-            except Exception as exc:
-                logger.warning("IBKR contract qualification failed for %s: %s", symbol, exc)
+            if not allow_qualification or _asyncio_loop_is_running():
+                # Order placement can be invoked from the Qt/ib_insync loop.
+                # Calling qualifyContracts there blocks and raises
+                # "This event loop is already running", leaving the UI frozen
+                # until shutdown. IBKR can still accept a symbol-only stock
+                # contract, while any available conId path above remains fully
+                # qualified and non-blocking.
+                reason = (
+                    "order path requested non-blocking resolution"
+                    if not allow_qualification
+                    else "an event loop is already running"
+                )
+                logger.info(
+                    "Skipping synchronous IBKR contract qualification for %s because %s",
+                    symbol,
+                    reason,
+                )
                 resolved = contract
+            else:
+                try:
+                    qualified = self.ib.qualifyContracts(contract)
+                    resolved = qualified[0] if qualified else contract
+                except Exception as exc:
+                    logger.warning("IBKR contract qualification failed for %s: %s", symbol, exc)
+                    resolved = contract
 
         self._contract_cache[symbol] = resolved
         resolved_con_id = int(getattr(resolved, "conId", 0) or 0)

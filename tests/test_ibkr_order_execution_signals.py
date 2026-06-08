@@ -511,3 +511,78 @@ def test_prepare_order_params_prefers_explicit_conid_over_cached_position():
     params = client._prepare_order_params({"symbol": "ARM", "conId": 12345, "quantity": 1})
 
     assert params["con_id"] == 12345
+
+
+def test_resolve_stock_contract_skips_blocking_qualification_when_loop_running(monkeypatch):
+    class _FakeIBForContract:
+        def __init__(self):
+            self.qualify_calls = 0
+
+        def qualifyContracts(self, *_args):
+            self.qualify_calls += 1
+            raise AssertionError("synchronous qualification should be skipped inside a running loop")
+
+    class _FakeStock:
+        def __init__(self, symbol, exchange, currency, primaryExchange=""):
+            self.symbol = symbol
+            self.exchange = exchange
+            self.currency = currency
+            self.primaryExchange = primaryExchange
+            self.conId = 0
+
+    fake_ib = _FakeIBForContract()
+    old_stock = trading_client_module.Stock
+    old_contract = trading_client_module.Contract
+    trading_client_module.Stock = _FakeStock
+    trading_client_module.Contract = None
+    monkeypatch.setattr(trading_client_module, "_asyncio_loop_is_running", lambda: True)
+    client = _client_with_ib(fake_ib)
+    client._contract_cache = {}
+
+    try:
+        contract = client._resolve_stock_contract("QBTS", "SMART", "USD")
+    finally:
+        trading_client_module.Stock = old_stock
+        trading_client_module.Contract = old_contract
+
+    assert fake_ib.qualify_calls == 0
+    assert getattr(contract, "symbol", "") == "QBTS"
+    assert getattr(contract, "exchange", "") == "SMART"
+    assert client._contract_cache["QBTS"] is contract
+
+
+def test_resolve_stock_contract_can_skip_qualification_for_order_path(monkeypatch):
+    class _FakeIBForContract:
+        def __init__(self):
+            self.qualify_calls = 0
+
+        def qualifyContracts(self, *_args):
+            self.qualify_calls += 1
+            raise AssertionError("order placement should not synchronously qualify symbol-only contracts")
+
+    class _FakeStock:
+        def __init__(self, symbol, exchange, currency, primaryExchange=""):
+            self.symbol = symbol
+            self.exchange = exchange
+            self.currency = currency
+            self.primaryExchange = primaryExchange
+            self.conId = 0
+
+    fake_ib = _FakeIBForContract()
+    old_stock = trading_client_module.Stock
+    old_contract = trading_client_module.Contract
+    trading_client_module.Stock = _FakeStock
+    trading_client_module.Contract = None
+    monkeypatch.setattr(trading_client_module, "_asyncio_loop_is_running", lambda: False)
+    client = _client_with_ib(fake_ib)
+    client._contract_cache = {}
+
+    try:
+        contract = client._resolve_stock_contract("QBTS", "SMART", "USD", allow_qualification=False)
+    finally:
+        trading_client_module.Stock = old_stock
+        trading_client_module.Contract = old_contract
+
+    assert fake_ib.qualify_calls == 0
+    assert getattr(contract, "symbol", "") == "QBTS"
+    assert client._contract_cache["QBTS"] is contract
