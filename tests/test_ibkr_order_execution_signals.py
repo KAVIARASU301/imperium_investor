@@ -165,15 +165,20 @@ class _FakeIBEvent:
 
 
 class _FakeIB:
-    def __init__(self, trades=None, open_trades=None):
+    def __init__(self, trades=None, open_trades=None, executions=None, completed_orders=None):
         self._trades = trades or []
         self._open_trades = open_trades or []
+        self._executions = executions or []
+        self._completed_orders = completed_orders or []
         self.trades_calls = 0
         self.open_trades_calls = 0
+        self.snapshot_calls = []
         self.orderStatusEvent = _FakeIBEvent()
         self.execDetailsEvent = _FakeIBEvent()
+        self.commissionReportEvent = _FakeIBEvent()
         self.newOrderEvent = _FakeIBEvent()
         self.openOrderEvent = _FakeIBEvent()
+        self.errorEvent = _FakeIBEvent()
         self.positionEvent = _FakeIBEvent()
         self.updatePortfolioEvent = _FakeIBEvent()
 
@@ -187,6 +192,22 @@ class _FakeIB:
     def openTrades(self):
         self.open_trades_calls += 1
         return list(self._open_trades)
+
+    def reqOpenOrders(self):
+        self.snapshot_calls.append("reqOpenOrders")
+        return list(self._open_trades)
+
+    def reqAllOpenOrders(self):
+        self.snapshot_calls.append("reqAllOpenOrders")
+        return list(self._open_trades)
+
+    def reqExecutions(self):
+        self.snapshot_calls.append("reqExecutions")
+        return list(self._executions)
+
+    def reqCompletedOrders(self, api_only):
+        self.snapshot_calls.append(("reqCompletedOrders", api_only))
+        return list(self._completed_orders)
 
 
 def _client_with_ib(fake_ib, cached_orders=None):
@@ -271,6 +292,75 @@ def test_exec_details_event_marks_order_complete_in_real_time():
     assert emitted[-1]["status"] == "COMPLETE"
     assert emitted[-1]["filled_quantity"] == 10
     assert client._orders["77"]["pending_quantity"] == 0
+
+
+
+
+def test_client_requests_order_and_execution_snapshots_on_connection():
+    fill = SimpleNamespace(
+        contract=SimpleNamespace(symbol="MSFT", exchange="SMART", conId=456),
+        execution=SimpleNamespace(
+            execId="E-88",
+            orderId=88,
+            permId=880088,
+            side="BOT",
+            shares=5,
+            cumQty=5,
+            price=410.5,
+            avgPrice=410.5,
+        ),
+    )
+    completed_trade = _trade(status="Filled", filled=10, remaining=0)
+    fake_ib = _FakeIB(executions=[fill], completed_orders=[completed_trade])
+
+    client = IBKRTradingClient(fake_ib)
+
+    assert fake_ib.snapshot_calls == [
+        "reqOpenOrders",
+        "reqAllOpenOrders",
+        "reqExecutions",
+        ("reqCompletedOrders", False),
+    ]
+    assert client._orders["88"]["status"] == "COMPLETE"
+    assert client._orders["77"]["status"] == "COMPLETE"
+
+
+def test_commission_report_event_enriches_fill_cost_details():
+    fake_ib = _FakeIB()
+    client = IBKRTradingClient(fake_ib)
+    fill = SimpleNamespace(
+        contract=SimpleNamespace(symbol="MSFT", exchange="SMART", conId=456),
+        execution=SimpleNamespace(
+            execId="E-88",
+            orderId=88,
+            permId=880088,
+            side="BOT",
+            shares=5,
+            cumQty=5,
+            price=410.5,
+            avgPrice=410.5,
+        ),
+    )
+    report = SimpleNamespace(execId="E-88", commission=1.25, currency="USD", realizedPNL=12.5)
+
+    fake_ib.execDetailsEvent.emit(None, fill)
+    fake_ib.commissionReportEvent.emit(None, fill, report)
+
+    assert client._orders["88"]["status"] == "COMPLETE"
+    assert client._orders["88"]["commission"] == 1.25
+    assert client._orders["88"]["commission_currency"] == "USD"
+    assert client._orders["88"]["realized_pnl"] == 12.5
+
+
+def test_error_event_marks_known_order_rejected_with_message():
+    fake_ib = _FakeIB()
+    client = IBKRTradingClient(fake_ib)
+    client._orders["77"] = {"order_id": "77", "status": "OPEN"}
+
+    fake_ib.errorEvent.emit(77, 201, "Order rejected")
+
+    assert client._orders["77"]["status"] == "REJECTED"
+    assert "Order rejected" in client._orders["77"]["status_message"]
 
 
 def test_execution_only_fill_row_is_complete_without_trade_snapshot():

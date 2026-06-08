@@ -1,0 +1,16 @@
+2026-06-09 00:52:05,448 - INFO - login_setup.login_setup_config - qullamaggie v1.0.0 starting...
+2026-06-09 00:52:05,448 - INFO - login_setup.login_setup_config - Logging to file: /home/kavi/Desktop/Python_Projects/swing_trader/logs/qullamaggie_20260609_005205.log
+2026-06-09 00:52:05,449 - INFO - __main__ - 🚀 Starting qullamaggie Application...
+2026-06-09 00:52:05,587 - INFO - __main__ - Application icon loaded from: /home/kavi/Desktop/Python_Projects/swing_trader/assets/qullamaggie_swing_trader_icon.svg
+2026-06-09 00:52:08,644 - INFO - ib_insync.client - Connecting to 127.0.0.1:4002 with clientId 1...
+2026-06-09 00:52:08,645 - INFO - ib_insync.client - Connected
+2026-06-09 00:52:08,664 - INFO - ib_insync.client - Logged on to server version 176
+2026-06-09 00:52:08,706 - INFO - ib_insync.client - API connection ready
+2026-06-09 00:52:09,194 - INFO - __main__ - Authenticated for broker: america
+2026-06-09 00:52:09,195 - INFO - __main__ - Initializing trading and data clients...
+2026-06-09 00:52:09,195 - INFO - login_setup.broker_factory - Creating america client for live trading
+2026-06-09 00:52:09,196 - INFO - login_setup.broker_factory - IBKR client created with accounts: ['DUQ624205']
+2026-06-09 00:52:09,203 - INFO - ibkr.core.trading_client - Subscribed to IBKR real-time order events
+2026-06-09 00:52:41,148 - WARNING - __main__ - Signal 2 received, initiating shutdown.
+2026-06-09 00:52:41,148 - INFO - __main__ - Shutting down and cleaning up resources...
+2026-06-09 00:52:41,148 - INFO - __main__ - Cleanup complete.

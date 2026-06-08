@@ -280,6 +280,7 @@ def _apply_execution_to_order_row(data: Dict[str, Any], fill: Any = None, *, exe
     quantity = int(_safe_float(data.get("quantity"), 0.0))
     exec_order_id = str(getattr(execution, "orderId", "") or "").strip()
     exec_perm_id = str(getattr(execution, "permId", "") or "").strip()
+    exec_id = str(getattr(execution, "execId", "") or "").strip()
     cum_qty = int(_safe_float(getattr(execution, "cumQty", 0), 0.0))
     shares = int(_safe_float(getattr(execution, "shares", 0), 0.0))
     previous_filled = int(_safe_float(data.get("filled_quantity"), 0.0))
@@ -294,6 +295,8 @@ def _apply_execution_to_order_row(data: Dict[str, Any], fill: Any = None, *, exe
         data["order_id"] = exec_order_id
     if exec_perm_id and not data.get("perm_id"):
         data["perm_id"] = exec_perm_id
+    if exec_id:
+        data["exec_id"] = exec_id
     if filled_quantity > 0:
         data["filled_quantity"] = filled_quantity
         data["pending_quantity"] = (
@@ -364,6 +367,28 @@ def _convert_execution_fill(fill: Any) -> Dict[str, Any]:
     return _apply_execution_to_order_row(row, execution=execution)
 
 
+def _apply_commission_report_to_order_row(data: Dict[str, Any], report: Any = None) -> Dict[str, Any]:
+    """Overlay IBKR commissionReport details on an app order row."""
+    if report is None:
+        return data
+    exec_id = str(getattr(report, "execId", "") or "").strip()
+    if exec_id:
+        data["exec_id"] = exec_id
+    data["commission"] = _safe_float(getattr(report, "commission", data.get("commission", 0.0)), 0.0)
+    data["commission_currency"] = str(getattr(report, "currency", data.get("commission_currency", "")) or "")
+    data["realized_pnl"] = _safe_float(getattr(report, "realizedPNL", data.get("realized_pnl", 0.0)), 0.0)
+    data["yield"] = _safe_float(getattr(report, "yield_", getattr(report, "yield", data.get("yield", 0.0))), 0.0)
+    redemption_date = getattr(report, "yieldRedemptionDate", None)
+    if redemption_date not in (None, ""):
+        data["yield_redemption_date"] = redemption_date
+    return data
+
+
+def _execution_id(fill: Any = None, *, execution: Any = None) -> str:
+    execution = execution if execution is not None else getattr(fill, "execution", fill)
+    return str(getattr(execution, "execId", "") or "").strip()
+
+
 def _convert_ticker(ticker: Any) -> Dict[str, Any]:
     contract = getattr(ticker, "contract", None)
     symbol = str(getattr(contract, "symbol", "") or "").upper()
@@ -415,8 +440,11 @@ class IBKRTradingClient(QObject):
         self._subscribed_symbols: set[str] = set()
         self._ib_events_subscribed = False
         self._pending_cancellation: Dict[str, bool] = {}  # Track orders waiting for cancellation confirmation
+        self._execution_order_keys: Dict[str, str] = {}
+        self._connection_snapshot_requested = False
 
         self._subscribe_ib_events()
+        self._request_connection_order_snapshots()
 
         # Fetch fresh broker orders immediately and periodically
         self._order_poll_timer = QTimer(self)
@@ -431,20 +459,24 @@ class IBKRTradingClient(QObject):
             # Core order events
             self.ib.orderStatusEvent += self._on_ib_order_status
             self.ib.execDetailsEvent += self._on_ib_exec_details
+            if hasattr(self.ib, "commissionReportEvent"):
+                self.ib.commissionReportEvent += self._on_ib_commission_report
             self.ib.newOrderEvent += self._on_ib_order_event
             self.ib.openOrderEvent += self._on_ib_order_event
-            
+            if hasattr(self.ib, "errorEvent"):
+                self.ib.errorEvent += self._on_ib_error
+
             # ✅ NEW: Subscribe to trade status event for real-time updates
             if hasattr(self.ib, "tradeStatusEvent"):
                 self.ib.tradeStatusEvent += self._on_ib_trade_status
                 logger.info("Subscribed to IBKR tradeStatusEvent")
-            
+
             # Position updates
             if hasattr(self.ib, "positionEvent"):
                 self.ib.positionEvent += self._on_ib_position_event
             if hasattr(self.ib, "updatePortfolioEvent"):
                 self.ib.updatePortfolioEvent += self._on_ib_position_event
-            
+
             self._ib_events_subscribed = True
             logger.info("Subscribed to IBKR real-time order events")
         except Exception as exc:
@@ -460,9 +492,56 @@ class IBKRTradingClient(QObject):
     def _on_ib_exec_details(self, trade: Any, fill: Any) -> None:
         """Fires when a fill/execution report arrives from TWS."""
         try:
-            self._process_trade_update(trade, fill)
+            if trade is not None:
+                self._process_trade_update(trade, fill)
+            else:
+                self._process_execution_fill(fill)
         except Exception as exc:
             logger.debug("IBKR execDetails event error: %s", exc)
+
+    def _on_ib_commission_report(self, trade: Any, fill: Any, report: Any) -> None:
+        """Fires when IBKR publishes final commission/cost details for a fill."""
+        try:
+            order_id = ""
+            if trade is not None:
+                self._process_trade_update(trade, fill)
+                row = _convert_trade_with_fill(trade, fill) if fill else _convert_trade(trade)
+                order_id = str(row.get("order_id") or "").strip()
+            if not order_id and fill is not None:
+                order_id = self._process_execution_fill(fill)
+            if not order_id:
+                exec_id = str(getattr(report, "execId", "") or "").strip()
+                order_id = getattr(self, "_execution_order_keys", {}).get(exec_id, "")
+            if order_id and order_id in self._orders:
+                row = _apply_commission_report_to_order_row(dict(self._orders[order_id]), report)
+                self._orders[order_id] = row
+                self.order_status_updated.emit(dict(row))
+        except Exception as exc:
+            logger.debug("IBKR commissionReport event error: %s", exc)
+
+    def _on_ib_error(self, req_id: Any, error_code: Any, error_string: Any, contract: Any = None) -> None:
+        """Log and surface IBKR API errors, including order rejections/cancels."""
+        message = f"IBKR error {error_code}: {error_string}"
+        if contract is not None:
+            symbol = getattr(contract, "symbol", "")
+            if symbol:
+                message = f"{message} ({symbol})"
+        logger.warning(message)
+        try:
+            self.error_occurred.emit(message)
+        except Exception:
+            pass
+
+        order_id = str(req_id or "").strip()
+        if order_id and order_id in getattr(self, "_orders", {}):
+            row = dict(self._orders[order_id])
+            row["status_message"] = message
+            code_text = str(error_code or "")
+            if code_text in {"201", "202"}:
+                row["status"] = "REJECTED" if code_text == "201" else "CANCELLED"
+                row["raw_status"] = row["status"]
+            self._orders[order_id] = row
+            self.order_status_updated.emit(dict(row))
 
     def _on_ib_order_event(self, trade: Any) -> None:
         """Fires for new-order acknowledgments and open-order updates."""
@@ -499,18 +578,101 @@ class IBKRTradingClient(QObject):
         order_id = str(row.get("order_id") or "").strip()
         if not order_id:
             return
-        
+        exec_id = str(row.get("exec_id") or _execution_id(fill) or "").strip()
+        if exec_id:
+            if not hasattr(self, "_execution_order_keys"):
+                self._execution_order_keys = {}
+            self._execution_order_keys[exec_id] = order_id
+
         # ✅ Check if this was a pending cancellation
         if order_id in self._pending_cancellation:
             status = _normalize_status(row.get("status") or row.get("raw_status"))
             if status == "CANCELLED":
                 self._pending_cancellation.pop(order_id, None)
                 logger.info("Order %s successfully cancelled", order_id)
-            
+
         existing = self._orders.get(order_id)
         merged = _merge_order_snapshot(existing, row)
         self._orders[order_id] = merged
         self.order_status_updated.emit(dict(merged))
+
+    def _request_connection_order_snapshots(self) -> None:
+        """Request one-time IBKR order/execution snapshots after connecting.
+
+        ``orderStatus`` is not guaranteed for every transition, especially fast
+        market fills.  On startup/reconnect, ask TWS/Gateway for open orders,
+        all open API orders, today's executions, and completed-order records so
+        the local cache can recover fills that occurred before our callbacks
+        were attached.
+        """
+        if getattr(self, "_connection_snapshot_requested", False) or not self.is_connected():
+            return
+        self._connection_snapshot_requested = True
+        snapshot_calls = (
+            ("reqOpenOrders", ()),
+            ("reqAllOpenOrders", ()),
+            ("reqExecutions", ()),
+            ("reqCompletedOrders", (False,)),
+        )
+        if _asyncio_loop_is_running():
+            asyncio.create_task(self._request_connection_order_snapshots_async(snapshot_calls))
+            return
+
+        for method_name, args in snapshot_calls:
+            method = getattr(self.ib, method_name, None)
+            if not callable(method):
+                continue
+            try:
+                result = method(*args)
+                self._process_snapshot_result(method_name, result)
+                logger.debug("Requested IBKR connection snapshot via %s", method_name)
+            except Exception as exc:
+                logger.warning("IBKR %s snapshot request failed: %s", method_name, exc)
+
+    async def _request_connection_order_snapshots_async(self, snapshot_calls: Tuple[Tuple[str, Tuple[Any, ...]], ...]) -> None:
+        """Run startup snapshots without blocking an already-running asyncio loop."""
+        for method_name, args in snapshot_calls:
+            async_method = getattr(self.ib, f"{method_name}Async", None)
+            method = async_method if callable(async_method) else getattr(self.ib, method_name, None)
+            if not callable(method):
+                continue
+            try:
+                result = method(*args)
+                if hasattr(result, "__await__"):
+                    result = await result
+                self._process_snapshot_result(method_name, result)
+                logger.debug("Requested IBKR connection snapshot via %s", method_name)
+            except Exception as exc:
+                logger.warning("IBKR %s snapshot request failed: %s", method_name, exc)
+
+    def _process_snapshot_result(self, method_name: str, result: Any) -> None:
+        """Merge rows returned by one-time startup snapshot requests."""
+        if result is None:
+            return
+        if method_name == "reqExecutions":
+            for fill in list(result or []):
+                self._process_execution_fill(fill)
+            return
+
+        for trade in list(result or []):
+            self._process_trade_update(trade)
+
+    def _process_execution_fill(self, fill: Any) -> str:
+        """Merge an execution-only fill and emit the normalized order update."""
+        row = _convert_execution_fill(fill)
+        order_id = str(row.get("order_id") or "").strip()
+        if not order_id:
+            return ""
+        exec_id = str(row.get("exec_id") or _execution_id(fill) or "").strip()
+        if exec_id:
+            if not hasattr(self, "_execution_order_keys"):
+                self._execution_order_keys = {}
+            self._execution_order_keys[exec_id] = order_id
+        existing = self._orders.get(order_id)
+        merged = _merge_order_snapshot(existing, row)
+        self._orders[order_id] = merged
+        self.order_status_updated.emit(dict(merged))
+        return order_id
 
     # ------------------------------------------------------------------
     # Active order polling from the local ib_insync cache
@@ -749,7 +911,7 @@ class IBKRTradingClient(QObject):
                     # Mark as pending cancellation so we wait for broker confirmation
                     self._pending_cancellation[str(oid)] = True
                     self.ib.cancelOrder(trade.order)
-                    
+
                     # Return with CANCEL_PENDING status
                     return {
                         "status": "CANCEL_PENDING",
