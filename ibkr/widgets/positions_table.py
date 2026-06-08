@@ -786,13 +786,11 @@ class PositionsTable(QWidget):
 
         chart_act = menu.addAction("Open Chart")
         chart_act.triggered.connect(lambda: self.symbol_selected.emit(symbol))
-        menu.addSeparator()
 
-        close_act = menu.addAction("Close Position")
-        close_act.triggered.connect(lambda: self.exit_position_requested.emit(symbol))
-
-        half_act = menu.addAction("Exit Half")
-        half_act.triggered.connect(lambda: self.exit_half_position_requested.emit(symbol))
+        # IBKR position exits are intentionally unavailable from this compact
+        # positions-table context menu. Keep order exits routed through the
+        # dedicated order controls/dialogs to avoid the unstable context-menu
+        # exit path.
 
         try:
             menu.exec(self.table.viewport().mapToGlobal(pos))
