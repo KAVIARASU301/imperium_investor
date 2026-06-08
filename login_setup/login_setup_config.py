@@ -3,6 +3,7 @@
 Handles central application configuration, constants, and logging setup.
 """
 
+import faulthandler
 import logging
 import sys
 import time
@@ -10,6 +11,9 @@ from collections import OrderedDict
 from datetime import datetime
 
 from app_paths import get_project_log_dir
+
+_CURRENT_LOG_FILE = None
+_FATAL_LOG_HANDLE = None
 
 # --- Application Constants ---
 APP_NAME = "qullamaggie"
@@ -99,6 +103,20 @@ def setup_logging():
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         log_file = log_dir / f"qullamaggie_{timestamp}.log"
 
+        global _CURRENT_LOG_FILE, _FATAL_LOG_HANDLE
+        _CURRENT_LOG_FILE = log_file
+        if _FATAL_LOG_HANDLE is not None:
+            try:
+                _FATAL_LOG_HANDLE.close()
+            except Exception:
+                pass
+            _FATAL_LOG_HANDLE = None
+        try:
+            _FATAL_LOG_HANDLE = open(log_file, "a", buffering=1, encoding="utf-8")
+            faulthandler.enable(file=_FATAL_LOG_HANDLE, all_threads=True)
+        except Exception:
+            _FATAL_LOG_HANDLE = None
+
         handlers = [
             logging.FileHandler(log_file),
             logging.StreamHandler(sys.stdout),
@@ -120,6 +138,8 @@ def setup_logging():
         logger = logging.getLogger(__name__)
         logger.info(f"{APP_NAME} v{APP_VERSION} starting...")
         logger.info(f"Logging to file: {log_file}")
+        if _FATAL_LOG_HANDLE is not None:
+            logger.info("Fatal crash diagnostics enabled for all threads.")
 
     except Exception as e:
         # Fallback basic logging if setup fails

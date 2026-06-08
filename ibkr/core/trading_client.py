@@ -444,7 +444,14 @@ class IBKRTradingClient(QObject):
         self._connection_snapshot_requested = False
 
         self._subscribe_ib_events()
-        self._request_connection_order_snapshots()
+
+        # Do not issue blocking IBKR snapshot requests during application startup.
+        # The login dialog hands us an already-connected ib_insync object; making
+        # synchronous req* calls before Qt's event loop is running can leave the
+        # app looking like it crashed with no fresh log lines.  The live event
+        # subscriptions above plus the local-cache poll below keep startup safe
+        # while still surfacing order changes as IBKR publishes them.
+        logger.info("IBKR trading client startup snapshots deferred; using local cache/event sync")
 
         # Fetch fresh broker orders immediately and periodically
         self._order_poll_timer = QTimer(self)

@@ -18,6 +18,7 @@ appropriate main window, and manages the application lifecycle.
 
 import logging
 import signal
+import threading
 from typing import Optional
 
 from PySide6.QtCore import Qt, QTimer
@@ -55,6 +56,27 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
+def _install_last_resort_exception_logging() -> None:
+    """Route otherwise-silent Python exceptions into the session log."""
+
+    def _log_unhandled(exc_type, exc, tb):
+        logger.critical(
+            "Unhandled exception reached sys.excepthook",
+            exc_info=(exc_type, exc, tb),
+        )
+
+    def _log_thread_exception(args):
+        logger.critical(
+            "Unhandled exception in thread %s",
+            getattr(args.thread, "name", "unknown"),
+            exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
+        )
+
+    sys.excepthook = _log_unhandled
+    if hasattr(threading, "excepthook"):
+        threading.excepthook = _log_thread_exception
+
+
 class Application:
     """Encapsulates the entire trading application lifecycle."""
 
@@ -67,6 +89,7 @@ class Application:
 
     def run(self):
         """Main entry point to run the application."""
+        _install_last_resort_exception_logging()
         logger.info("🚀 Starting qullamaggie Application...")
         configure_qt_startup()
         self.app = QApplication(sys.argv)
@@ -192,12 +215,18 @@ class Application:
                 trading_mode=auth_data['trading_mode'],
                 authentication_data=auth_data
             )
+            logger.info("Trading client created; creating data client...")
             data_client = BrokerFactory.create_data_client(
                 broker_mode=auth_data['broker_mode'],
                 authentication_data=auth_data
             )
+            logger.info("Data client created; validating connection state...")
 
-            if not trader.is_connected() or not data_client.is_connected():
+            trader_connected = bool(trader.is_connected())
+            logger.info("Trading client connected: %s", trader_connected)
+            data_connected = bool(data_client.is_connected())
+            logger.info("Data client connected: %s", data_connected)
+            if not trader_connected or not data_connected:
                 raise ConnectionError("Failed to connect one or more clients.")
 
             logger.info("Clients initialized successfully.")
