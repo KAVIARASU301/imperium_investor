@@ -74,7 +74,15 @@ class PositionManager(QObject):
     # ------------------------------------------------------------------
     def fetch_positions_from_broker(self, reason: str = "manual") -> None:
         try:
-            log_method = logger.debug if reason in {"safety_refresh", "ibkr_live_sync"} else logger.info
+            noisy_reasons = {
+                "safety_refresh",
+                "ibkr_live_sync",
+                "ibkr_order_update",
+                "ibkr_position_event",
+                "order_accepted_fast_poll",
+                "order_accepted_confirm_poll",
+            }
+            log_method = logger.debug if reason in noisy_reasons else logger.info
             log_method("Fetching positions from broker - Reason: %s", reason)
             raw_payload = self._broker_positions()
             raw_positions = self._extract_position_rows(raw_payload)

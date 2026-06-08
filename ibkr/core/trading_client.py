@@ -18,7 +18,7 @@ import asyncio
 import logging
 import math
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from PySide6.QtCore import QObject, Signal, QTimer
 
@@ -537,8 +537,27 @@ class IBKRTradingClient(QObject):
                 return []
 
             fresh_orders: Dict[str, Dict[str, Any]] = {}
-            trades = list(self.ib.trades() or [])
-            for trade in trades:
+            cache_sources = []
+            if hasattr(self.ib, "trades"):
+                cache_sources.extend(list(self.ib.trades() or []))
+
+            # ``openTrades()`` is also an ib_insync local cache accessor.  On
+            # master-client connections TWS/Gateway can publish open-order rows
+            # into this active-order cache before they are visible through the
+            # broader completed-trade cache.  Read both local caches so the
+            # pending-orders UI lists broker-accepted orders immediately without
+            # issuing a network request such as reqOpenOrders().
+            if hasattr(self.ib, "openTrades"):
+                cache_sources.extend(list(self.ib.openTrades() or []))
+
+            seen_trade_keys: Set[Tuple[str, str]] = set()
+            for trade in cache_sources:
+                order_id, perm_id = _extract_order_identity(trade)
+                trade_key = (order_id, perm_id)
+                if trade_key in seen_trade_keys:
+                    continue
+                seen_trade_keys.add(trade_key)
+
                 row = _convert_trade(trade)
                 fills = list(getattr(trade, "fills", []) or [])
                 for fill in fills:
@@ -548,7 +567,7 @@ class IBKRTradingClient(QObject):
                 if order_id:
                     fresh_orders[order_id] = row
 
-            logger.debug("Synced %d orders from local IBKR trade cache", len(fresh_orders))
+            logger.debug("Synced %d orders from local IBKR trade caches", len(fresh_orders))
             return list(fresh_orders.values())
         except Exception as exc:
             logger.warning("Fresh order fetch failed: %s", exc)
@@ -621,8 +640,11 @@ class IBKRTradingClient(QObject):
                             merged[price_key] = row.get(price_key)
                     rows_by_symbol[symbol] = merged
 
-            if rows_by_symbol:
-                self._positions = rows_by_symbol
+            # Always replace the cache, even when IBKR reports no open rows.
+            # Otherwise a just-closed position can remain stuck in the table until
+            # the app restarts because an empty broker snapshot would keep the old
+            # non-empty cache alive.
+            self._positions = rows_by_symbol
             return list(self._positions.values())
         except Exception as exc:
             logger.error("Error getting IBKR positions: %s", exc)

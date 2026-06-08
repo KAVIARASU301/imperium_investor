@@ -5,6 +5,8 @@ Handles central application configuration, constants, and logging setup.
 
 import logging
 import sys
+import time
+from collections import OrderedDict
 from datetime import datetime
 
 from app_paths import get_project_log_dir
@@ -34,6 +36,56 @@ COLORS = {
 DATA_REFRESH_INTERVAL_MS = 30 * 1000  # 30 seconds
 
 
+class DuplicateLogFilter(logging.Filter):
+    """Suppress repeated log records that otherwise spam IBKR session logs.
+
+    IBKR can emit identical position/portfolio/order snapshots in short bursts,
+    especially when multiple event sources reconcile the same broker cache.  The
+    application log is more useful when exact duplicates are collapsed while
+    still allowing later state changes through.
+    """
+
+    def __init__(self, window_seconds: float = 10.0, max_entries: int = 1000):
+        super().__init__()
+        self.window_seconds = max(0.0, float(window_seconds))
+        self.max_entries = max(1, int(max_entries))
+        self._recent: OrderedDict[tuple, float] = OrderedDict()
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        now = time.monotonic()
+        cutoff = now - self.window_seconds
+        while self._recent:
+            _key, seen_at = next(iter(self._recent.items()))
+            if seen_at >= cutoff:
+                break
+            self._recent.popitem(last=False)
+
+        key = (record.name, record.levelno, record.getMessage())
+        seen_at = self._recent.get(key)
+        if seen_at is not None and now - seen_at <= self.window_seconds:
+            self._recent.move_to_end(key)
+            self._recent[key] = now
+            return False
+
+        self._recent[key] = now
+        if len(self._recent) > self.max_entries:
+            self._recent.popitem(last=False)
+        return True
+
+
+def _configure_noisy_loggers() -> None:
+    """Keep third-party broker/library chatter out of normal INFO logs."""
+    # IBKR wrapper INFO messages include full position/updatePortfolio snapshots
+    # and often arrive twice in the same event burst.  Application code records
+    # concise position summaries, so only warnings/errors from ib_insync are kept.
+    logging.getLogger('ib_insync.wrapper').setLevel(logging.WARNING)
+    logging.getLogger('ib_insync.ib').setLevel(logging.WARNING)
+
+    logging.getLogger('urllib3').setLevel(logging.WARNING)
+    logging.getLogger('requests').setLevel(logging.WARNING)
+    logging.getLogger('kiteconnect').setLevel(logging.WARNING)
+
+
 def setup_logging():
     """
     Configures the application-wide logging system.
@@ -47,19 +99,22 @@ def setup_logging():
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         log_file = log_dir / f"qullamaggie_{timestamp}.log"
 
+        handlers = [
+            logging.FileHandler(log_file),
+            logging.StreamHandler(sys.stdout),
+        ]
+        for handler in handlers:
+            handler.addFilter(DuplicateLogFilter())
+
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
-            handlers=[
-                logging.FileHandler(log_file),
-                logging.StreamHandler(sys.stdout)
-            ]
+            handlers=handlers,
+            force=True,
         )
 
-        # Reduce log noise from third-party libraries
-        logging.getLogger('urllib3').setLevel(logging.WARNING)
-        logging.getLogger('requests').setLevel(logging.WARNING)
-        logging.getLogger('kiteconnect').setLevel(logging.WARNING)
+        # Reduce log noise from third-party broker/API libraries.
+        _configure_noisy_loggers()
 
         # Log the application startup
         logger = logging.getLogger(__name__)

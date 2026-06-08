@@ -165,9 +165,11 @@ class _FakeIBEvent:
 
 
 class _FakeIB:
-    def __init__(self, trades=None):
+    def __init__(self, trades=None, open_trades=None):
         self._trades = trades or []
+        self._open_trades = open_trades or []
         self.trades_calls = 0
+        self.open_trades_calls = 0
         self.orderStatusEvent = _FakeIBEvent()
         self.execDetailsEvent = _FakeIBEvent()
         self.newOrderEvent = _FakeIBEvent()
@@ -181,6 +183,10 @@ class _FakeIB:
     def trades(self):
         self.trades_calls += 1
         return list(self._trades)
+
+    def openTrades(self):
+        self.open_trades_calls += 1
+        return list(self._open_trades)
 
 
 def _client_with_ib(fake_ib, cached_orders=None):
@@ -201,6 +207,21 @@ def test_get_orders_reads_local_trade_cache_without_network_open_order_request()
     assert orders[0]["order_id"] == "77"
     assert orders[0]["status"] == "COMPLETE"
     assert client._orders["77"]["status"] == "COMPLETE"
+
+
+def test_get_orders_merges_local_open_trade_cache_for_pending_orders():
+    open_trade = _trade(status="PendingSubmit", filled=0, remaining=10)
+    fake_ib = _FakeIB(trades=[], open_trades=[open_trade])
+    client = _client_with_ib(fake_ib)
+
+    orders = client.get_orders()
+
+    assert fake_ib.trades_calls == 1
+    assert fake_ib.open_trades_calls == 1
+    assert len(orders) == 1
+    assert orders[0]["order_id"] == "77"
+    assert orders[0]["status"] == "PENDING"
+    assert orders[0]["pending_quantity"] == 10
 
 
 def test_get_orders_returns_cached_snapshot_when_local_trade_cache_fails():
@@ -356,6 +377,26 @@ def test_get_positions_uses_local_cache_without_req_positions_feedback_loop():
     assert rows[0]["quantity"] == 10
     assert rows[0]["last_price"] == 195.25
     assert rows[0]["unrealized_pnl"] == 29.0
+
+
+def test_get_positions_replaces_stale_cache_when_broker_reports_no_positions():
+    fake_ib = _FakeIB()
+    fake_ib.positions = lambda: []
+    fake_ib.portfolio = lambda: []
+    client = _client_with_ib(fake_ib)
+    client._positions = {
+        "AAPL": {
+            "symbol": "AAPL",
+            "tradingsymbol": "AAPL",
+            "quantity": 10,
+            "average_price": 192.35,
+        }
+    }
+
+    rows = client.get_positions()
+
+    assert rows == []
+    assert client._positions == {}
 
 
 def test_position_manager_processes_terminal_order_returned_by_place_order_immediately():

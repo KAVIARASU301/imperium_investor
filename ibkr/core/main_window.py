@@ -11,7 +11,7 @@ import re
 import time
 from collections import deque
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 
 from PySide6.QtCore import Qt, QByteArray, QTimer, Slot, Signal, QEvent, QProcess, QSize
 from PySide6.QtWidgets import QMainWindow, QSplitter, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, \
@@ -1932,14 +1932,16 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
     def _connect_ibkr_order_lifecycle_signals(self) -> None:
         """Single source of truth: trader emits, position manager reacts."""
         try:
+            # PositionManager connects its own broker lifecycle slots during
+            # construction.  Keep this method limited to MainWindow-specific UI
+            # handlers so the same IBKR event is not delivered to PositionManager
+            # twice, which caused duplicate position refreshes and duplicate log
+            # lines in IBKR mode.
             if hasattr(self.trader, "order_status_updated"):
-                self.trader.order_status_updated.connect(self.position_manager.on_ws_order_update)
                 self.trader.order_status_updated.connect(self._on_ibkr_order_status_update)
-            if hasattr(self.trader, "position_updated"):
-                self.trader.position_updated.connect(self.position_manager.on_ws_position_update)
             if hasattr(self.trader, "connection_status_changed"):
                 self.trader.connection_status_changed.connect(self._on_ibkr_connection_status_changed)
-            logger.info("IBKR order lifecycle signals connected")
+            logger.info("IBKR order lifecycle UI signals connected")
         except Exception as exc:
             logger.warning("Failed to connect IBKR order lifecycle signals: %s", exc)
 
@@ -1947,14 +1949,25 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
         """Refresh pending orders and balances as IBKR reports order lifecycle changes."""
         try:
             status_text = str((order_update or {}).get("status") or "").upper()
-            if self.pending_orders_dialog is not None and self.pending_orders_dialog.isVisible():
-                self.pending_orders_dialog.refresh_orders()
+            self._refresh_pending_orders_dialog_after_order(delays_ms=(0,))
             if status_text in {"COMPLETE", "FILLED", "CANCELLED", "REJECTED", "FAILED", "INACTIVE"}:
                 self.account_manager.refresh_margins(force=True)
                 if self.order_history_dialog and self.order_history_dialog.isVisible():
                     self.order_history_dialog.refresh_orders()
         except Exception as exc:
             logger.debug("IBKR order status UI refresh failed: %s", exc, exc_info=True)
+
+    def _refresh_pending_orders_dialog_after_order(self, delays_ms: Tuple[int, ...] = (0, 250, 1000)) -> None:
+        """Refresh the visible pending-order dialog as IBKR caches settle after an order event."""
+        dialog = getattr(self, "pending_orders_dialog", None)
+        if dialog is None or not dialog.isVisible():
+            return
+
+        for delay_ms in delays_ms:
+            if delay_ms <= 0:
+                dialog.refresh_orders()
+            else:
+                QTimer.singleShot(delay_ms, dialog.refresh_orders)
 
     def _on_ibkr_connection_status_changed(self, connected: bool) -> None:
         if connected:
@@ -3232,6 +3245,7 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
                 order_data["order_id"] = order_id
                 order_data["status"] = str(broker_order.get("status") or "ROUTED").upper()
                 self.position_manager.start_tracking_order(order_id, order_data)
+                self._refresh_pending_orders_dialog_after_order()
                 self._log_order_placement_immediate(order_data, order_id)
                 QTimer.singleShot(3000, lambda: self.account_manager.refresh_margins(force=True))
                 logger.info(f"[ENTRY] Order accepted by broker: {broker_order or order_id}")
@@ -3281,8 +3295,7 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
 
                 status.notify("submitted", symbol)
                 self.position_manager.start_tracking_order(order_id, order_data)
-                if self.pending_orders_dialog is not None and self.pending_orders_dialog.isVisible():
-                    self.pending_orders_dialog.refresh_orders()
+                self._refresh_pending_orders_dialog_after_order()
                 QTimer.singleShot(3000, lambda: self.account_manager.refresh_margins(force=True))
                 self._log_order_placement_immediate(order_data, order_id)
                 logger.info(f"[EXIT] Exit order accepted: {broker_order or order_id}")
