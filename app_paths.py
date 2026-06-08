@@ -116,6 +116,16 @@ def _safe_key(value: str, default: str) -> str:
     return key or default
 
 
+def get_project_log_dir(*parts: str) -> Path:
+    """Return the project-local directory used for application log files."""
+    log_dir = find_project_root() / "logs"
+    for part in parts:
+        safe_part = _safe_key(part, "logs")
+        log_dir = log_dir / safe_part
+    log_dir.mkdir(parents=True, exist_ok=True)
+    return log_dir
+
+
 def get_home_app_dir() -> Path:
     """Return the application root in the user's home directory."""
     app_dir = Path.home() / f".{APP_NAME}"

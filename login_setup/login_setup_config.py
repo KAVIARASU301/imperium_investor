@@ -5,8 +5,9 @@ Handles central application configuration, constants, and logging setup.
 
 import logging
 import sys
-from pathlib import Path
 from datetime import datetime
+
+from app_paths import get_project_log_dir
 
 # --- Application Constants ---
 APP_NAME = "qullamaggie"
@@ -39,9 +40,8 @@ def setup_logging():
     Logs are saved to a file and also printed to the console.
     """
     try:
-        # All logs will be stored in the .qullamaggie/logs directory
-        log_dir = Path.home() / ".qullamaggie" / "logs"
-        log_dir.mkdir(parents=True, exist_ok=True)
+        # Store logs inside the project so they are easy to inspect from this workspace.
+        log_dir = get_project_log_dir()
 
         # Create a unique, timestamped log file for each session
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 
-from app_paths import get_user_data_dir
+from app_paths import get_project_log_dir, get_user_data_dir
 
 logger = logging.getLogger(__name__)
 
@@ -91,10 +91,8 @@ class ConfigManager:
             return None
 
     def get_log_dir(self) -> Path:
-        """Get the log directory path"""
-        log_dir = self.config_dir / "logs"
-        log_dir.mkdir(exist_ok=True)
-        return log_dir
+        """Get the project-local log directory path."""
+        return get_project_log_dir("kite")
 
     def get_cache_dir(self) -> Path:
         """Get the cache directory path"""
