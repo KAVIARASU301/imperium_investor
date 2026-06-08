@@ -203,3 +203,47 @@
 2026-06-09 00:30:41,421 - INFO - chart_engine.drawings - Loaded global chart settings.
 2026-06-09 00:30:41,422 - INFO - chart_engine.drawings - Saved global chart settings.
 2026-06-09 00:30:41,473 - INFO - chart_engine.drawings - Saved state for VCYT (day) — 0 drawings
+2026-06-09 00:31:04,259 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=VCYT interval=60minute from=2026-04-19T15:01:04.259267-04:00 to=2026-06-08T15:01:04.259267-04:00 dedicated_history=True
+2026-06-09 00:31:04,260 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: VCYT conId=137537411 bar=30 mins duration=50 D end=latest
+2026-06-09 00:31:05,465 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=VCYT bars=349
+2026-06-09 00:31:05,507 - INFO - chart_engine.drawings - Loaded state for VCYT (60minute) — 0 drawings
+2026-06-09 00:31:05,507 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-09 00:31:05,508 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-09 00:31:05,513 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol VCYT
+2026-06-09 00:31:05,513 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: VCYT (349 candles)
+2026-06-09 00:31:31,678 - INFO - ibkr.core.main_window - Pending orders dialog opened
+2026-06-09 00:32:04,261 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=VCYT interval=60minute from=2026-04-19T15:02:04.261035-04:00 to=2026-06-08T15:02:04.261035-04:00 dedicated_history=True
+2026-06-09 00:32:04,265 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: VCYT conId=137537411 bar=30 mins duration=50 D end=latest
+2026-06-09 00:32:05,537 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=VCYT bars=349
+2026-06-09 00:32:05,634 - INFO - chart_engine.drawings - Loaded state for VCYT (60minute) — 0 drawings
+2026-06-09 00:32:05,635 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-09 00:32:05,637 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-09 00:32:05,645 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol VCYT
+2026-06-09 00:32:05,645 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: VCYT (349 candles)
+2026-06-09 00:32:12,705 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=SIDU interval=day from=2025-11-20T15:02:12.704690-05:00 to=2026-06-08T15:02:12.704690-04:00 dedicated_history=True
+2026-06-09 00:32:12,718 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=SIDU interval=60minute from=2026-04-19T15:02:12.718674-04:00 to=2026-06-08T15:02:12.718674-04:00 dedicated_history=True
+2026-06-09 00:32:12,886 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=SIDU interval=day from=2025-11-20T15:02:12.886187-05:00 to=2026-06-08T15:02:12.886187-04:00 dedicated_history=True
+2026-06-09 00:32:12,897 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=SIDU interval=60minute from=2026-04-19T15:02:12.897665-04:00 to=2026-06-08T15:02:12.897665-04:00 dedicated_history=True
+2026-06-09 00:32:13,009 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: SIDU conId=673368857 bar=1 day duration=200 D end=latest
+2026-06-09 00:32:13,332 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: SIDU conId=673368857 bar=30 mins duration=50 D end=latest
+2026-06-09 00:32:14,771 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=SIDU bars=136
+2026-06-09 00:32:14,845 - INFO - ibkr.core.main_window - Chart symbol changed to: SIDU
+2026-06-09 00:32:14,845 - INFO - ibkr.core.main_window - Added chart symbol SIDU to subscription
+2026-06-09 00:32:14,846 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol SIDU
+2026-06-09 00:32:14,846 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: SIDU (136 candles)
+2026-06-09 00:32:15,187 - INFO - ibkr.core.main_window - Subscription universe changed: 34 instruments (24 token-backed, +1/-1) sources={'positions': 24, 'charts': 2, 'watchlist': 1, 'header': 2}
+2026-06-09 00:32:15,570 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=SIDU bars=349
+2026-06-09 00:32:15,663 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: SIDU (349 candles)
+2026-06-09 00:32:29,916 - INFO - ibkr.core.shutdown_manager - closeEvent received — beginning fast IBKR shutdown
+2026-06-09 00:32:29,917 - INFO - ibkr.core.shutdown_manager - === Fast IBKR window-close shutdown starting ===
+2026-06-09 00:32:29,917 - INFO - ibkr.core.shutdown_manager - Shutdown: [save_window_state]…
+2026-06-09 00:32:29,919 - INFO - ibkr.core.main_window - Window state saved
+2026-06-09 00:32:29,919 - INFO - ibkr.core.shutdown_manager - Shutdown: [save_window_state] ✓
+2026-06-09 00:32:29,921 - INFO - ibkr.core.shutdown_manager - Shutdown: [save_chart_state]…
+2026-06-09 00:32:29,932 - INFO - ibkr.core.shutdown_manager - Shutdown: [save_chart_state] ✓
+2026-06-09 00:32:29,932 - INFO - ibkr.core.shutdown_manager - Shutdown: [stop_remaining_timers]…
+2026-06-09 00:32:29,945 - INFO - ibkr.core.shutdown_manager - Shutdown: [stop_remaining_timers] ✓
+2026-06-09 00:32:29,945 - INFO - ibkr.core.shutdown_manager - === Fast IBKR window-close shutdown complete ===
+2026-06-09 00:32:29,952 - INFO - __main__ - Shutting down and cleaning up resources...
+2026-06-09 00:32:29,953 - INFO - __main__ - Skipping broker disconnect during fast window-close shutdown.
+2026-06-09 00:32:29,953 - INFO - __main__ - Cleanup complete.
