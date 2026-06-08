@@ -28,6 +28,10 @@ from PySide6.QtWidgets import (
 )
 
 from app_paths import get_asset_path
+from ibkr.utils.account_balance import (
+    DEFAULT_PAPER_BALANCE,
+    extract_available_balance_from_data,
+)
 from ibkr.utils.worker import Worker
 from ibkr.widgets.search_bar import EnhancedSearchInput, SymbolIndex
 
@@ -168,23 +172,7 @@ def _extract_available_balance_from_data(
     profile: Dict[str, Any],
     margins: Dict[str, Any],
 ) -> float:
-    equity = margins.get("equity", {})
-    available = equity.get("available", {})
-    for val in [
-        available.get("live_balance"),
-        available.get("cash"),
-        equity.get("net"),
-        profile.get("current_balance"),
-        profile.get("balance"),
-        getattr(trader, "balance", None),
-        getattr(trader, "initial_balance", DEFAULT_PAPER_BALANCE),
-    ]:
-        try:
-            if val is not None:
-                return float(val)
-        except (TypeError, ValueError):
-            pass
-    return DEFAULT_PAPER_BALANCE
+    return extract_available_balance_from_data(trader, profile, margins)
 
 
 class NotificationBadge(QLabel):
