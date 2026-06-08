@@ -361,6 +361,10 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
         self.positions_title.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.positions_title.setContentsMargins(0, 2, 0, 2)
         positions_title_layout.addWidget(self.positions_title, 1)
+        self.positions_sync_status = QLabel("")
+        self.positions_sync_status.setObjectName("positionsSyncStatus")
+        self.positions_sync_status.setVisible(False)
+        positions_title_layout.addWidget(self.positions_sync_status, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.open_positions_table_button = QToolButton()
         self.open_positions_table_button.setObjectName("openPositionsTableButton")
         self.open_positions_table_button.setToolTip("Open floating positions table")
@@ -1738,6 +1742,21 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
         except Exception as e:
             logger.error(f"Error refreshing chart drawings: {e}")
 
+    @Slot(bool, str)
+    def _set_positions_sync_status(self, active: bool, message: str = "") -> None:
+        """Show/hide the compact positions syncing badge while pending orders reconcile."""
+        if not hasattr(self, "positions_sync_status"):
+            return
+        if active:
+            self.positions_sync_status.setText("SYNCING")
+            self.positions_sync_status.setToolTip(message or "Syncing positions from IBKR")
+            self.positions_sync_status.setVisible(True)
+            self.positions_title.setText("Positions • Syncing")
+        else:
+            self.positions_sync_status.setVisible(False)
+            self.positions_sync_status.setToolTip("")
+            self.positions_title.setText("Positions")
+
     @Slot(str, str)
     def _show_position_manager_notification(self, message: str, level: str):
         """Surface PositionManager lifecycle events as toast notifications."""
@@ -1845,6 +1864,8 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
         self.position_manager.positions_updated.connect(self._schedule_position_subscription_rebuild)
         self.position_manager.positions_updated.connect(self._update_floating_positions_dialog)
         self.position_manager.day_pnl_updated.connect(self._on_day_pnl_updated)
+        self.position_manager.position_sync_status_changed.connect(self.positions_table.set_sync_status)
+        self.position_manager.position_sync_status_changed.connect(self._set_positions_sync_status)
         self.position_manager.show_notification.connect(self._show_position_manager_notification)
         self._connect_ibkr_order_lifecycle_signals()
         self._connect_position_worker_signals()
@@ -3395,6 +3416,9 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
                     instrument_map=self.instrument_map,
                     parent=self,
                 )
+                self.pending_orders_dialog.pending_orders_updated.connect(
+                    self.position_manager.set_pending_order_dialog_count
+                )
             else:
                 self.pending_orders_dialog.refresh_orders()
 
@@ -4656,6 +4680,17 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
                 letter-spacing: 0.35px;
                 border: none;
                 padding: 2px 0;
+            }
+
+            #positionsSyncStatus {
+                background-color: rgba(0, 212, 255, 0.10);
+                color: #00d4ff;
+                border: 1px solid rgba(0, 212, 255, 0.24);
+                border-radius: 3px;
+                font-size: 9px;
+                font-weight: 700;
+                letter-spacing: 0.6px;
+                padding: 1px 5px;
             }
 
             QToolButton#openPositionsTableButton {

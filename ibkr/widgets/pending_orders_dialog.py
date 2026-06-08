@@ -1319,10 +1319,12 @@ class PendingOrdersDialog(QDialog):
 
     def closeEvent(self, event):
         self.auto_refresh_timer.stop()
+        self.pending_orders_updated.emit(0)
         super().closeEvent(event)
 
     def hideEvent(self, event):
         self.auto_refresh_timer.stop()
+        self.pending_orders_updated.emit(0)
         super().hideEvent(event)
 
     def showEvent(self, event):

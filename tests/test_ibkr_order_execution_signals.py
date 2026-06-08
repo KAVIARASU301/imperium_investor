@@ -627,3 +627,54 @@ def test_resolve_stock_contract_can_skip_qualification_for_order_path(monkeypatc
     assert fake_ib.qualify_calls == 0
     assert getattr(contract, "symbol", "") == "QBTS"
     assert client._contract_cache["QBTS"] is contract
+
+
+def test_position_manager_keeps_pending_order_position_sync_running_until_terminal():
+    trader = _FakeTraderForPositions()
+    trader._orders = [{
+        "order_id": "77",
+        "tradingsymbol": "AAPL",
+        "transaction_type": "BUY",
+        "quantity": 10,
+        "status": "OPEN",
+    }]
+    manager = PositionManager(trader)
+    sync_status = []
+    manager.position_sync_status_changed.connect(lambda active, message: sync_status.append((active, message)))
+
+    manager.start_tracking_order("77", trader._orders[0])
+
+    assert manager.pending_order_sync_timer is not None
+    assert manager.pending_order_sync_timer.isActive()
+    assert sync_status[-1][0] is True
+
+    manager.on_ws_order_update({
+        "order_id": "77",
+        "tradingsymbol": "AAPL",
+        "transaction_type": "BUY",
+        "quantity": 10,
+        "status": "COMPLETE",
+        "filled_quantity": 10,
+    })
+
+    assert not manager.tracking_orders
+    assert not manager.pending_order_sync_timer.isActive()
+    assert sync_status[-1][0] is False
+
+
+def test_position_manager_uses_pending_dialog_count_to_drive_position_sync():
+    trader = _FakeTraderForPositions()
+    manager = PositionManager(trader)
+
+    manager.set_pending_order_dialog_count(2)
+
+    assert manager.pending_order_sync_timer is not None
+    assert manager.pending_order_sync_timer.isActive()
+
+    manager._poll_positions_while_orders_pending()
+
+    assert trader.positions_calls == 1
+
+    manager.set_pending_order_dialog_count(0)
+
+    assert not manager.pending_order_sync_timer.isActive()

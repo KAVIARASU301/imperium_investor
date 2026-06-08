@@ -378,6 +378,10 @@ class PositionsTable(QWidget):
         self._footer_open_pnl = _metric("OPEN P&L")
         self._footer_exposure = _metric("EXPOSURE")
         lay.addStretch()
+        self._footer_sync_status = QLabel("")
+        self._footer_sync_status.setObjectName("footerSyncStatus")
+        self._footer_sync_status.setVisible(False)
+        lay.addWidget(self._footer_sync_status)
         return frame
 
     def resizeEvent(self, event):
@@ -731,6 +735,20 @@ class PositionsTable(QWidget):
 
     def set_footer_metrics_visible(self, visible: bool) -> None:
         self._footer_frame.setVisible(bool(visible))
+
+    @Slot(bool, str)
+    def set_sync_status(self, active: bool, message: str = "") -> None:
+        """Show pending-order position reconciliation status in the positions table."""
+        if active:
+            self._footer_sync_status.setText(message or "SYNCING")
+            self._footer_sync_status.setStyleSheet(
+                f"color:{_CYAN}; font-family:{_NUM}; font-size:10px; font-weight:700; "
+                "letter-spacing:0.7px; background:transparent;"
+            )
+            self._footer_sync_status.setVisible(True)
+        else:
+            self._footer_sync_status.setText(message or "")
+            self._footer_sync_status.setVisible(False)
 
     def _on_cell_clicked(self, row: int, col: int):
         if self._context_menu_active or self._suppress_selection_chart_sync:

@@ -33,6 +33,7 @@ class PositionManager(QObject):
     positions_updated = Signal(list)
     partial_fill_symbols_updated = Signal(object)
     day_pnl_updated = Signal(object)
+    position_sync_status_changed = Signal(bool, str)
     show_notification = Signal(str, str)
 
     def __init__(self, trader: Any, main_window=None, trade_logger=None):
@@ -43,6 +44,10 @@ class PositionManager(QObject):
         self.tracking_orders: Dict[str, Dict[str, Any]] = {}
         self.safety_timer: Optional[QTimer] = None
         self.live_sync_timer: Optional[QTimer] = None
+        self.pending_order_sync_timer: Optional[QTimer] = None
+        self._external_pending_order_count = 0
+        self._pending_sync_interval_ms = 1200
+        self._position_sync_active = False
         self._pending_position_refresh_reason = "broker_position_update"
         self._last_position_log_signature: Optional[tuple] = None
         self._position_refresh_timer = QTimer(self)
@@ -81,6 +86,7 @@ class PositionManager(QObject):
                 "ibkr_position_event",
                 "order_accepted_fast_poll",
                 "order_accepted_confirm_poll",
+                "pending_order_sync",
             }
             log_method = logger.debug if reason in noisy_reasons else logger.info
             log_method("Fetching positions from broker - Reason: %s", reason)
@@ -170,6 +176,7 @@ class PositionManager(QObject):
         tx_type = normalized.get("transaction_type", "")
         price_text = f" @ {price:.2f}" if price else ""
         self.show_notification.emit(f"⏳ {tx_type} {quantity} {symbol}{price_text} - Pending", "pending")
+        self._ensure_pending_order_sync_running("order_accepted")
 
         # Kick IBKR reconciliation immediately after order acceptance.  This
         # reads IBKR's current order/position API cache now, then retries shortly
@@ -476,6 +483,58 @@ class PositionManager(QObject):
 
     def stop_tracking(self) -> None:
         self.tracking_orders.clear()
+        self._update_pending_order_sync_state("tracking_stopped")
+
+    def set_pending_order_dialog_count(self, pending_count: int) -> None:
+        """Keep position reconciliation alive while the pending-orders dialog has rows.
+
+        IBKR updates can arrive in separate order and position cache bursts.  When
+        a pending order is visible, continuously reading the same synchronized
+        position cache used at startup gives the positions table a reliable
+        reconciliation path until all pending orders leave the dialog.
+        """
+        try:
+            self._external_pending_order_count = max(0, int(pending_count or 0))
+        except (TypeError, ValueError):
+            self._external_pending_order_count = 0
+        self._update_pending_order_sync_state("pending_dialog")
+
+    def _has_pending_order_sync_work(self) -> bool:
+        return bool(self.tracking_orders) or self._external_pending_order_count > 0
+
+    def _ensure_pending_order_sync_running(self, reason: str = "pending_order") -> None:
+        if self.pending_order_sync_timer is None:
+            self.pending_order_sync_timer = QTimer(self)
+            self.pending_order_sync_timer.timeout.connect(self._poll_positions_while_orders_pending)
+        if not self.pending_order_sync_timer.isActive():
+            self.pending_order_sync_timer.start(self._pending_sync_interval_ms)
+            logger.info("Started IBKR pending-order position sync (%s)", reason)
+        self._set_position_sync_status(True, "Syncing positions")
+
+    def _update_pending_order_sync_state(self, reason: str = "pending_order_state") -> None:
+        if self._has_pending_order_sync_work():
+            self._ensure_pending_order_sync_running(reason)
+            return
+        if self.pending_order_sync_timer and self.pending_order_sync_timer.isActive():
+            self.pending_order_sync_timer.stop()
+            logger.info("Stopped IBKR pending-order position sync (%s)", reason)
+        self._set_position_sync_status(False, "Positions synced")
+
+    def _set_position_sync_status(self, active: bool, message: str) -> None:
+        if self._position_sync_active == bool(active) and not active:
+            return
+        self._position_sync_active = bool(active)
+        self.position_sync_status_changed.emit(bool(active), message)
+
+    def _poll_positions_while_orders_pending(self) -> None:
+        if not self._has_pending_order_sync_work():
+            self._update_pending_order_sync_state("no_pending_orders")
+            return
+
+        for order_id in list(self.tracking_orders.keys()):
+            self._refresh_tracked_order_from_broker(order_id, "pending_order_sync")
+        self.fetch_positions_from_broker("pending_order_sync")
+        self._set_position_sync_status(True, "Syncing positions")
 
     def _schedule_position_refresh(self, reason: str = "broker_position_update", delay_ms: int = 350) -> None:
         """Debounce broker position refreshes caused by IBKR events/order fills."""
@@ -534,9 +593,11 @@ class PositionManager(QObject):
             self._handle_order_completion(order_id, order, status)
             self.tracking_orders.pop(order_id, None)
             self._schedule_position_refresh("order_terminal", delay_ms=300)
+            self._update_pending_order_sync_state("order_terminal")
         elif terminal:
             self._schedule_position_refresh("ibkr_order_update", delay_ms=0)
         elif status in {"OPEN", "PENDING"}:
+            self._ensure_pending_order_sync_running("order_open")
             filled = int(order.get("filled_quantity") or 0)
             qty = int(order.get("quantity") or 0)
             if filled > 0 and filled < qty:
