@@ -134,14 +134,17 @@ def _number_font(pixel_size: int = 10, weight: QFont.Weight = QFont.Weight.Norma
 #  COLUMN CONFIG
 # ─────────────────────────────────────────────────────────────────────────────
 
+_TEXT_ALIGN = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+_NUMBER_ALIGN = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+
 _COLS = [
-    ("Symbol",  "symbol",   120, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
-    ("Qty",     "quantity",  54, Qt.AlignmentFlag.AlignCenter),
-    ("Avg",     "avg_price", 78, Qt.AlignmentFlag.AlignCenter),
-    ("LTP",     "ltp",       78, Qt.AlignmentFlag.AlignCenter),
-    ("P&L",     "pnl",       92, Qt.AlignmentFlag.AlignCenter),
-    ("SL",      "sl",        82, Qt.AlignmentFlag.AlignCenter),
-    ("Target",  "target",    82, Qt.AlignmentFlag.AlignCenter),
+    ("Symbol",  "symbol",   120, _TEXT_ALIGN),
+    ("Qty",     "quantity",  54, _NUMBER_ALIGN),
+    ("Avg",     "avg_price", 78, _NUMBER_ALIGN),
+    ("LTP",     "ltp",       78, _NUMBER_ALIGN),
+    ("P&L",     "pnl",       92, _NUMBER_ALIGN),
+    ("SL",      "sl",        82, _NUMBER_ALIGN),
+    ("Target",  "target",    82, _NUMBER_ALIGN),
 ]
 
 _COL_IDX = {name: i for i, (name, *_) in enumerate(_COLS)}

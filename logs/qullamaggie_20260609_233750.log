@@ -197,3 +197,38 @@
 2026-06-09 23:40:06,477 - INFO - chart_engine.drawings - Saved global chart settings.
 2026-06-09 23:40:06,481 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol IONQ
 2026-06-09 23:40:06,482 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: IONQ (348 candles)
+2026-06-09 23:41:05,103 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=IONQ interval=60minute from=2026-04-20T14:11:05.103825-04:00 to=2026-06-09T14:11:05.103825-04:00 dedicated_history=True
+2026-06-09 23:41:05,104 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: IONQ conId=517593749 bar=30 mins duration=50 D end=latest
+2026-06-09 23:41:06,413 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=IONQ bars=348
+2026-06-09 23:41:06,462 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-09 23:41:06,463 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-09 23:41:06,467 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol IONQ
+2026-06-09 23:41:06,467 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: IONQ (348 candles)
+2026-06-09 23:42:05,104 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=IONQ interval=60minute from=2026-04-20T14:12:05.104223-04:00 to=2026-06-09T14:12:05.104223-04:00 dedicated_history=True
+2026-06-09 23:42:05,105 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: IONQ conId=517593749 bar=30 mins duration=50 D end=latest
+2026-06-09 23:42:06,352 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=IONQ bars=348
+2026-06-09 23:42:06,401 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-09 23:42:06,403 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-09 23:42:06,412 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol IONQ
+2026-06-09 23:42:06,412 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: IONQ (348 candles)
+2026-06-09 23:42:30,149 - INFO - ibkr.core.main_window - Floating positions dialog opened
+2026-06-09 23:43:05,104 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=IONQ interval=60minute from=2026-04-20T14:13:05.104563-04:00 to=2026-06-09T14:13:05.104563-04:00 dedicated_history=True
+2026-06-09 23:43:05,105 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: IONQ conId=517593749 bar=30 mins duration=50 D end=latest
+2026-06-09 23:43:06,542 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=IONQ bars=348
+2026-06-09 23:43:06,662 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-09 23:43:06,663 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-09 23:43:06,671 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol IONQ
+2026-06-09 23:43:06,672 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: IONQ (348 candles)
+2026-06-09 23:43:10,137 - INFO - ibkr.core.shutdown_manager - closeEvent received — beginning fast IBKR shutdown
+2026-06-09 23:43:10,139 - INFO - ibkr.core.shutdown_manager - === Fast IBKR window-close shutdown starting ===
+2026-06-09 23:43:10,140 - INFO - ibkr.core.shutdown_manager - Shutdown: [save_window_state]…
+2026-06-09 23:43:10,141 - INFO - ibkr.core.main_window - Window state saved
+2026-06-09 23:43:10,142 - INFO - ibkr.core.shutdown_manager - Shutdown: [save_window_state] ✓
+2026-06-09 23:43:10,143 - INFO - ibkr.core.shutdown_manager - Shutdown: [save_chart_state]…
+2026-06-09 23:43:10,167 - INFO - ibkr.core.shutdown_manager - Shutdown: [save_chart_state] ✓
+2026-06-09 23:43:10,168 - INFO - ibkr.core.shutdown_manager - Shutdown: [stop_remaining_timers]…
+2026-06-09 23:43:10,182 - INFO - ibkr.core.shutdown_manager - Shutdown: [stop_remaining_timers] ✓
+2026-06-09 23:43:10,182 - INFO - ibkr.core.shutdown_manager - === Fast IBKR window-close shutdown complete ===
+2026-06-09 23:43:10,200 - INFO - __main__ - Shutting down and cleaning up resources...
+2026-06-09 23:43:10,201 - INFO - __main__ - Skipping broker disconnect during fast window-close shutdown.
+2026-06-09 23:43:10,201 - INFO - __main__ - Cleanup complete.
