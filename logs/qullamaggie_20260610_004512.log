@@ -1,0 +1,150 @@
+2026-06-10 00:45:12,385 - INFO - login_setup.login_setup_config - qullamaggie v1.0.0 starting...
+2026-06-10 00:45:12,385 - INFO - login_setup.login_setup_config - Logging to file: /home/kavi/Desktop/Python_Projects/swing_trader/logs/qullamaggie_20260610_004512.log
+2026-06-10 00:45:12,385 - INFO - login_setup.login_setup_config - Fatal crash diagnostics enabled for all threads.
+2026-06-10 00:45:12,386 - INFO - __main__ - 🚀 Starting qullamaggie Application...
+2026-06-10 00:45:12,542 - INFO - __main__ - Application icon loaded from: /home/kavi/Desktop/Python_Projects/swing_trader/assets/qullamaggie_swing_trader_icon.svg
+2026-06-10 00:45:15,063 - INFO - ib_insync.client - Connecting to 127.0.0.1:4002 with clientId 1...
+2026-06-10 00:45:15,065 - INFO - ib_insync.client - Connected
+2026-06-10 00:45:15,081 - INFO - ib_insync.client - Logged on to server version 176
+2026-06-10 00:45:15,123 - INFO - ib_insync.client - API connection ready
+2026-06-10 00:45:15,563 - INFO - __main__ - Authenticated for broker: america
+2026-06-10 00:45:15,564 - INFO - __main__ - Initializing trading and data clients...
+2026-06-10 00:45:15,564 - INFO - login_setup.broker_factory - Creating america client for live trading
+2026-06-10 00:45:15,564 - INFO - login_setup.broker_factory - IBKR client created with accounts: ['DUQ624205']
+2026-06-10 00:45:15,628 - INFO - ibkr.core.trading_client - Subscribed to IBKR real-time order events
+2026-06-10 00:45:15,631 - INFO - ibkr.core.trading_client - IBKR trading client startup snapshots deferred; using local cache/event sync
+2026-06-10 00:45:15,632 - INFO - __main__ - Trading client created; creating data client...
+2026-06-10 00:45:15,632 - INFO - login_setup.broker_factory - Creating data client for america
+2026-06-10 00:45:15,632 - INFO - __main__ - Data client created; validating connection state...
+2026-06-10 00:45:15,632 - INFO - __main__ - Trading client connected: True
+2026-06-10 00:45:15,633 - INFO - __main__ - Data client connected: True
+2026-06-10 00:45:15,633 - INFO - __main__ - Clients initialized successfully.
+2026-06-10 00:45:15,633 - INFO - login_setup.broker_factory - Added america client to manager
+2026-06-10 00:45:15,633 - INFO - login_setup.broker_factory - Started connection monitoring for america
+2026-06-10 00:45:15,633 - INFO - __main__ - Creating main window for america...
+2026-06-10 00:45:15,634 - INFO - login_setup.broker_factory - Dynamically loading main window from: ibkr.core.main_window
+2026-06-10 00:45:16,886 - INFO - ibkr.core.trade_logger - Trade history database for 'live' mode at: /home/kavi/.qullamaggie/trade_history_live.db
+2026-06-10 00:45:16,887 - INFO - ibkr.core.trade_logger - TradeLogger initialized with background processing
+2026-06-10 00:45:16,888 - INFO - ibkr.core.trade_logger - DatabaseWorker processing started
+2026-06-10 00:45:16,890 - INFO - ibkr.core.position_manager - ✅ Connected to trader.order_status_updated signal - orders will sync immediately
+2026-06-10 00:45:16,890 - INFO - ibkr.core.position_manager - ✅ Connected to trader.position_updated signal - positions will sync immediately
+2026-06-10 00:45:16,891 - INFO - ibkr.core.position_manager - ✅ Connected to trader.connection_status_changed signal
+2026-06-10 00:45:16,891 - INFO - ibkr.core.trade_logger - Database initialization completed
+2026-06-10 00:45:16,940 - INFO - ibkr.widgets.scanner_table - Loaded 19 valid scan configurations
+2026-06-10 00:45:16,955 - INFO - ibkr.widgets.scanner_table - Scanner table ready for context-aware navigation
+2026-06-10 00:45:16,962 - INFO - ibkr.widgets.scanner_table - Running EOD Finviz scan: Semiconductors
+2026-06-10 00:45:16,965 - INFO - chart_engine.core.ibkr_data_fetcher - Pre-warming dedicated IBKR history connection...
+2026-06-10 00:45:16,969 - INFO - ib_insync.client - Connecting to 127.0.0.1:4002 with clientId 102...
+2026-06-10 00:45:16,970 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-10 00:45:17,165 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=DELL interval=day from=2025-05-05T15:15:17.165070-04:00 to=2026-06-09T15:15:17.165070-04:00 dedicated_history=True
+2026-06-10 00:45:17,399 - INFO - ibkr.core.data_cache - MarketAwareDataCache initialised for IBKR/US market time
+2026-06-10 00:45:17,399 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=DELL interval=60minute from=2026-04-20T15:15:17.399770-04:00 to=2026-06-09T15:15:17.399770-04:00 dedicated_history=True
+2026-06-10 00:45:17,452 - INFO - chart_engine.core.ibkr_data_fetcher - IBKR chart history connected on 127.0.0.1:4002 clientId=102
+2026-06-10 00:45:17,510 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-10 00:45:17,725 - INFO - ibkr.core.alert_management_system - Loaded 0 alerts from disk
+2026-06-10 00:45:17,726 - INFO - ibkr.core.alert_management_system - AlertSystemManager ready
+2026-06-10 00:45:17,726 - INFO - ibkr.core.main_window - Alert system initialized successfully.
+2026-06-10 00:45:17,727 - INFO - ibkr.core.alert_management_system - AlertEngine started
+2026-06-10 00:45:17,731 - INFO - ib_insync.client - Connecting to 127.0.0.1:4002 with clientId 101...
+2026-06-10 00:45:17,729 - INFO - ibkr.core.main_window - Connecting component signals...
+2026-06-10 00:45:17,738 - INFO - ibkr.core.main_window - IBKR order lifecycle UI signals connected
+2026-06-10 00:45:17,748 - INFO - ibkr.core.main_window - Keyboard shortcuts initialized
+2026-06-10 00:45:17,926 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: DELL conId=346218218 bar=30 mins duration=50 D end=latest
+2026-06-10 00:45:17,927 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: DELL conId=346218218 bar=1 day duration=2 Y end=latest
+2026-06-10 00:45:17,938 - INFO - ibkr.core.main_window - Window state restored
+2026-06-10 00:45:17,938 - INFO - ibkr.core.main_window - Applied startup chart timeframes: left=day, right=60minute
+2026-06-10 00:45:17,939 - INFO - ibkr.core.main_window - Simplified qullamaggie Window with Status Bar Initialized Successfully.
+2026-06-10 00:45:17,939 - INFO - __main__ - Main window created successfully.
+2026-06-10 00:45:18,044 - INFO - __main__ - Starting application event loop.
+2026-06-10 00:45:18,433 - INFO - ibkr.core.market_data_worker - Dedicated IBKR market-data connection established on 127.0.0.1:4002 clientId=101
+2026-06-10 00:45:18,434 - INFO - ibkr.core.market_data_worker - IBKR MarketDataWorker started
+2026-06-10 00:45:18,625 - INFO - ibkr.core.market_data_worker - Requested IBKR delayed market data type (3); delayed fallback=False; generic ticks=''
+2026-06-10 00:45:18,631 - INFO - ibkr.core.main_window - IBKR loader: Building initial instrument list...
+2026-06-10 00:45:18,664 - WARNING - ibkr.core.main_window - IBKR market data is delayed (delayed); live subscription is unavailable.
+2026-06-10 00:45:18,670 - INFO - ibkr.core.main_window - WebSocket connected. Setting up subscriptions.
+2026-06-10 00:45:18,670 - INFO - ibkr.core.position_manager - Fetching positions from broker - Reason: ibkr_connected
+2026-06-10 00:45:18,843 - INFO - ibkr.core.main_window - Added 20 widget market-data subscriptions (20 token-backed)
+2026-06-10 00:45:18,850 - INFO - ibkr.core.position_manager - Position table changed: 20 open positions | open MTM -42149.43 | realized 0.00
+2026-06-10 00:45:19,635 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=DELL bars=276
+2026-06-10 00:45:19,639 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=DELL bars=349
+2026-06-10 00:45:19,940 - INFO - ibkr.core.main_window - Successfully loaded 4342 instruments.
+2026-06-10 00:45:19,943 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: NVDA key=4815747 type=delayed
+2026-06-10 00:45:19,943 - INFO - ibkr.widgets.header_toolbar - Search index ready: 4342 instruments
+2026-06-10 00:45:19,944 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: TACT key=6858145 type=delayed
+2026-06-10 00:45:19,949 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: BAX key=8111188 type=delayed
+2026-06-10 00:45:19,950 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: UMC key=46613372 type=delayed
+2026-06-10 00:45:19,951 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: TSLA key=76792991 type=delayed
+2026-06-10 00:45:19,952 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: PTCT key=129374415 type=delayed
+2026-06-10 00:45:19,952 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: HPQ key=209411801 type=delayed
+2026-06-10 00:45:19,953 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: DELL key=346218218 type=delayed
+2026-06-10 00:45:19,954 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: MTA key=395717235 type=delayed
+2026-06-10 00:45:19,954 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: DRS key=478483396 type=delayed
+2026-06-10 00:45:19,955 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: RDW key=512000171 type=delayed
+2026-06-10 00:45:19,955 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: IONQ key=517593749 type=delayed
+2026-06-10 00:45:19,956 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: GFS key=523222624 type=delayed
+2026-06-10 00:45:19,956 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: QBTS key=578031277 type=delayed
+2026-06-10 00:45:19,956 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: LUNR key=613910262 type=delayed
+2026-06-10 00:45:19,960 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: SIDU key=673368857 type=delayed
+2026-06-10 00:45:19,960 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: DPRO key=725468685 type=delayed
+2026-06-10 00:45:19,961 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: SNDK key=760250490 type=delayed
+2026-06-10 00:45:19,962 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: RKLB key=787273575 type=delayed
+2026-06-10 00:45:19,962 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: SPRC key=860471331 type=delayed
+2026-06-10 00:45:19,982 - INFO - ibkr.core.main_window - Instruments loaded successfully.
+2026-06-10 00:45:20,002 - INFO - ibkr.core.main_window - IBKR loader: Loaded 181 symbols (qualifying in background...)
+2026-06-10 00:45:20,142 - INFO - ibkr.core.main_window - Chart panes revealed after initial symbol render: DELL
+2026-06-10 00:45:20,142 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol DELL
+2026-06-10 00:45:20,143 - INFO - chart_engine.core.chart_widget - Chart HTML loaded: DELL (349 candles)
+2026-06-10 00:45:20,307 - INFO - ibkr.core.main_window - Chart symbol changed to: DELL
+2026-06-10 00:45:20,308 - INFO - ibkr.core.main_window - Added chart symbol DELL to subscription
+2026-06-10 00:45:20,308 - INFO - chart_engine.core.chart_widget - Chart HTML loaded: DELL (276 candles)
+2026-06-10 00:45:20,318 - INFO - ibkr.core.position_manager - Fetching positions from broker - Reason: app_startup
+2026-06-10 00:45:20,336 - INFO - ibkr.core.main_window - Position system initialized successfully
+2026-06-10 00:45:20,629 - INFO - ibkr.core.main_window - Subscription universe changed: 24 instruments (20 token-backed, +24/-0) sources={'positions': 20, 'charts': 2, 'watchlist': 1, 'header': 2}
+2026-06-10 00:45:20,852 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for NVDA: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-10 00:45:21,030 - INFO - ibkr.core.position_manager - Fetching positions from broker - Reason: instruments_loaded
+2026-06-10 00:45:21,106 - INFO - ibkr.core.main_window - Chart auto-loading initiated
+2026-06-10 00:45:21,107 - INFO - ibkr.core.main_window - Chart already has active rendered symbol: DELL
+2026-06-10 00:45:21,122 - INFO - ibkr.core.network_monitor - NetworkMonitor started
+2026-06-10 00:45:21,123 - INFO - ibkr.core.main_window - Network resilience layer initialized
+2026-06-10 00:45:21,173 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for TACT: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-10 00:45:21,213 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for BAX: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-10 00:45:21,214 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for UMC: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-10 00:45:21,376 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for TSLA: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-10 00:45:21,424 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for PTCT: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-10 00:45:21,482 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for HPQ: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-10 00:45:21,484 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for DELL: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-10 00:45:21,487 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for MTA: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-10 00:45:21,488 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for DRS: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-10 00:45:21,488 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for RDW: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-10 00:45:21,488 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for IONQ: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-10 00:45:21,497 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for GFS: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-10 00:45:21,498 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for QBTS: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-10 00:45:21,498 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for LUNR: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-10 00:45:21,498 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for SIDU: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-10 00:45:21,499 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for DPRO: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-10 00:45:21,499 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for SNDK: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-10 00:45:21,500 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for RKLB: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-10 00:45:21,501 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for SPRC: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-10 00:45:21,996 - INFO - ibkr.widgets.scanner_table - EOD Scan completed: 35 symbols with complete data
+2026-06-10 00:45:22,200 - INFO - ibkr.widgets.scanner_table - EOD Scanner table updated with 35 symbols.
+2026-06-10 00:45:22,204 - INFO - ibkr.core.network_monitor - Network confirmed online at startup
+2026-06-10 00:45:24,135 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: SPY key=756733 type=delayed
+2026-06-10 00:45:24,135 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: QQQ key=320227571 type=delayed
+2026-06-10 00:45:25,328 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for SPY: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-10 00:45:25,580 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for QQQ: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-10 00:45:26,480 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=GFS interval=day from=2025-05-05T15:15:26.480751-04:00 to=2026-06-09T15:15:26.480751-04:00 dedicated_history=True
+2026-06-10 00:45:26,481 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: GFS conId=523222624 bar=1 day duration=2 Y end=latest
+2026-06-10 00:45:26,500 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=GFS interval=60minute from=2026-04-20T15:15:26.500361-04:00 to=2026-06-09T15:15:26.500361-04:00 dedicated_history=True
+2026-06-10 00:45:26,501 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: GFS conId=523222624 bar=30 mins duration=50 D end=latest
+2026-06-10 00:45:26,630 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=GFS interval=day from=2025-05-05T15:15:26.630185-04:00 to=2026-06-09T15:15:26.630185-04:00 dedicated_history=True
+2026-06-10 00:45:26,712 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=GFS interval=60minute from=2026-04-20T15:15:26.709933-04:00 to=2026-06-09T15:15:26.709933-04:00 dedicated_history=True
+2026-06-10 00:45:27,228 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: RMBS key=4031477 type=delayed
+2026-06-10 00:45:27,570 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for RMBS: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-10 00:45:28,510 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=GFS bars=276
+2026-06-10 00:45:28,632 - INFO - ibkr.core.main_window - Chart symbol changed to: GFS
+2026-06-10 00:45:28,632 - INFO - ibkr.core.main_window - Added chart symbol GFS to subscription
+2026-06-10 00:45:28,633 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol GFS
+2026-06-10 00:45:28,634 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: GFS (276 candles)
+2026-06-10 00:45:29,005 - INFO - ibkr.core.main_window - Subscription universe changed: 24 instruments (20 token-backed, +1/-1) sources={'positions': 20, 'charts': 2, 'watchlist': 1, 'header': 2}
+2026-06-10 00:45:29,052 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=GFS bars=349
+2026-06-10 00:45:29,105 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: GFS (349 candles)

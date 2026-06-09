@@ -795,3 +795,93 @@ def test_get_account_summary_creates_event_loop_for_threadpool_workers():
     assert "summary" in result_holder
     assert result_holder["summary"]["AvailableFunds"]["value"] == "12345.67"
     assert client._account_info == result_holder["summary"]
+
+
+def test_get_account_summary_requests_summary_when_cache_empty():
+    class _ReqSummaryIB(_FakeIB):
+        def __init__(self):
+            super().__init__()
+            self.req_summary_calls = []
+
+        def accountSummary(self):
+            return []
+
+        def reqAccountSummary(self, account, tags):
+            self.req_summary_calls.append((account, tags))
+            return [
+                SimpleNamespace(tag="AvailableFunds-S", value="24680.13", currency="USD")
+            ]
+
+        def accountValues(self):
+            return [
+                SimpleNamespace(tag="AvailableFunds-S", value="11111.11", currency="USD")
+            ]
+
+    ib = _ReqSummaryIB()
+    client = _client_with_ib(ib)
+    client._account_info = {}
+
+    summary = client.get_account_summary()
+
+    assert ib.req_summary_calls
+    assert summary["AvailableFunds-S"]["value"] == "24680.13"
+    assert client._account_info == summary
+
+
+def test_get_account_summary_uses_account_values_when_summary_request_empty():
+    class _AccountValuesIB(_FakeIB):
+        def accountSummary(self):
+            return []
+
+        def reqAccountSummary(self, account, tags):
+            return []
+
+        def accountValues(self):
+            return [
+                SimpleNamespace(tag="AvailableFunds-S", value="13579.24", currency="USD")
+            ]
+
+    client = _client_with_ib(_AccountValuesIB())
+    client._account_info = {}
+
+    summary = client.get_account_summary()
+
+    assert summary["AvailableFunds-S"]["value"] == "13579.24"
+    assert client._account_info == summary
+
+
+def test_get_margins_understands_segment_suffixed_summary_tags():
+    client = _client_with_ib(_FakeIB())
+    client.get_account_summary = lambda: {
+        "AvailableFunds-S": {"value": "12345.67", "currency": "USD"},
+        "BuyingPower-S": {"value": "98765.43", "currency": "USD"},
+        "NetLiquidation-S": {"value": "54321.00", "currency": "USD"},
+    }
+
+    margins = client.get_margins()
+
+    assert margins["available_balance"] == 12345.67
+    assert margins["available_funds"] == 12345.67
+    assert margins["buying_power"] == 98765.43
+    assert margins["net_liquidation"] == 54321.0
+
+
+def test_get_account_summary_uses_account_values_when_account_summary_raises():
+    class _RaisingSummaryIB(_FakeIB):
+        def accountSummary(self):
+            raise RuntimeError("cache unavailable")
+
+        def reqAccountSummary(self, account, tags):
+            return []
+
+        def accountValues(self):
+            return [
+                SimpleNamespace(tag="AvailableFunds-S", value="11223.34", currency="USD")
+            ]
+
+    client = _client_with_ib(_RaisingSummaryIB())
+    client._account_info = {}
+
+    summary = client.get_account_summary()
+
+    assert summary["AvailableFunds-S"]["value"] == "11223.34"

@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_PAPER_BALANCE = 1_000_000.0
 
-_IBKR_AVAILABLE_BALANCE_TAGS = (
+IBKR_AVAILABLE_BALANCE_TAGS = (
     "AvailableFunds",
     "FullAvailableFunds",
     "ExcessLiquidity",
@@ -41,7 +41,9 @@ _KITE_AVAILABLE_BALANCE_PATHS = (
     ("equity", "net"),
 )
 
-_IBKR_SUMMARY_TAGS = ",".join(_IBKR_AVAILABLE_BALANCE_TAGS)
+IBKR_SUMMARY_TAGS = ",".join(IBKR_AVAILABLE_BALANCE_TAGS)
+_IBKR_AVAILABLE_BALANCE_TAGS = IBKR_AVAILABLE_BALANCE_TAGS
+_IBKR_SUMMARY_TAGS = IBKR_SUMMARY_TAGS
 
 
 def _finite_float(value: Any) -> Optional[float]:
@@ -62,6 +64,17 @@ def _nested_get(data: Mapping[str, Any], path: Iterable[str]) -> Any:
             return None
         current = current.get(key)
     return current
+
+
+def ibkr_summary_tag_matches(actual_tag: Any, expected_tag: str) -> bool:
+    """Return True for exact IBKR summary tags and segment-suffixed variants.
+
+    IBKR can publish multi-segment account values such as ``AvailableFunds-S``
+    for the securities segment. Treat those as the corresponding base tag while
+    avoiding loose prefix matches like ``FullAvailableFunds``.
+    """
+    tag = str(actual_tag or "").strip()
+    return tag == expected_tag or tag.startswith(f"{expected_tag}-")
 
 
 def _ibkr_summary_value(item: Any) -> Optional[float]:
@@ -137,8 +150,10 @@ def _extract_from_ibkr_summary(summary: Any) -> Optional[float]:
     """Return IBKR available funds from dict or ib_insync AccountValue rows."""
     if isinstance(summary, Mapping):
         for tag in _IBKR_AVAILABLE_BALANCE_TAGS:
-            if tag in summary:
-                number = _ibkr_summary_value(summary.get(tag))
+            for actual_tag, entry in summary.items():
+                if not ibkr_summary_tag_matches(actual_tag, tag):
+                    continue
+                number = _ibkr_summary_value(entry)
                 if number is not None:
                     return number
         return None
@@ -154,10 +169,13 @@ def _extract_from_ibkr_summary(summary: Any) -> Optional[float]:
         if tag:
             by_tag.setdefault(tag, []).append(row)
     for tag in _IBKR_AVAILABLE_BALANCE_TAGS:
-        for row in by_tag.get(tag, []):
-            number = _ibkr_summary_value(getattr(row, "value", None))
-            if number is not None:
-                return number
+        for actual_tag, tagged_rows in by_tag.items():
+            if not ibkr_summary_tag_matches(actual_tag, tag):
+                continue
+            for row in tagged_rows:
+                number = _ibkr_summary_value(getattr(row, "value", None))
+                if number is not None:
+                    return number
     return None
 
 

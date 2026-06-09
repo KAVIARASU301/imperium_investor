@@ -58,3 +58,30 @@ def test_can_request_raw_ib_account_summary_when_local_caches_are_empty():
             return [SimpleNamespace(tag="AvailableFunds", value="45678.9", currency="USD")]
 
     assert extract_available_balance_from_data(RawIB(), {}, {}) == 45678.9
+
+
+def test_uses_segment_suffixed_ibkr_available_funds_from_profile_summary():
+    assert extract_available_balance_from_data(
+        trader=object(),
+        profile={
+            "account_summary": {
+                "NetLiquidation-S": {"value": "50000", "currency": "USD"},
+                "AvailableFunds-S": {"value": "32123.45", "currency": "USD"},
+            }
+        },
+        margins={},
+    ) == 32123.45
+
+
+def test_uses_segment_suffixed_raw_ib_account_values():
+    class RawIB:
+        def accountSummary(self):
+            return []
+
+        def accountValues(self):
+            return [
+                SimpleNamespace(tag="NetLiquidation-S", value="50000", currency="USD"),
+                SimpleNamespace(tag="AvailableFunds-S", value="36543.21", currency="USD"),
+            ]
+
+    assert extract_available_balance_from_data(RawIB(), {}, {}) == 36543.21

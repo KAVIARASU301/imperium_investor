@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from PySide6.QtCore import QObject, Signal, QTimer
 
+from ibkr.utils.account_balance import IBKR_SUMMARY_TAGS, ibkr_summary_tag_matches
 from ibkr.utils.account_display import extract_account_display_name
 from ibkr.utils.ibkr_price import first_positive_ibkr_price, safe_ibkr_price
 from ibkr.utils.market_time import market_isoformat
@@ -862,11 +863,11 @@ class IBKRTradingClient(QObject):
                 except (TypeError, ValueError):
                     value = 0.0
 
-                if tag == "AvailableFunds" and value > 0:
+                if ibkr_summary_tag_matches(tag, "AvailableFunds") and value > 0:
                     available = value
-                elif tag == "BuyingPower" and value > 0:
+                elif ibkr_summary_tag_matches(tag, "BuyingPower") and value > 0:
                     buying_power = value
-                elif tag == "NetLiquidation" and value > 0:
+                elif ibkr_summary_tag_matches(tag, "NetLiquidation") and value > 0:
                     net_liq = value
 
             # Use AvailableFunds as the primary "available to invest" figure.
@@ -1142,6 +1143,13 @@ class IBKRTradingClient(QObject):
             })
         return results
 
+    def _normalise_account_summary_rows(self, rows: Any) -> Dict[str, Dict[str, Any]]:
+        return {
+            item.tag: {"value": item.value, "currency": item.currency}
+            for item in (rows or [])
+            if getattr(item, "tag", None)
+        }
+
     def get_account_summary(self) -> Dict[str, Any]:
         try:
             if not self.ib:
@@ -1150,20 +1158,41 @@ class IBKRTradingClient(QObject):
             # ib_insync's synchronous helpers call asyncio.get_event_loop() in
             # the current thread. Account refreshes run from Qt thread-pool
             # workers (shown in logs as Dummy-*), which do not have a default
-            # loop on modern Python versions. Create one before calling
-            # accountSummary() so ib_insync does not create an un-awaited
-            # coroutine and then fail with "There is no current event loop".
+            # loop on modern Python versions. Create one before calling sync
+            # account helpers so ib_insync does not create an un-awaited coroutine
+            # and then fail with "There is no current event loop".
             if _asyncio_loop_is_running():
                 logger.debug("Using cached IBKR account summary inside active asyncio loop")
                 return dict(self._account_info)
             _ensure_thread_event_loop()
 
-            summary = self.ib.accountSummary()
-            account_info = {
-                item.tag: {"value": item.value, "currency": item.currency}
-                for item in (summary or [])
-                if getattr(item, "tag", None)
-            }
+            try:
+                account_info = self._normalise_account_summary_rows(self.ib.accountSummary())
+            except Exception as exc:
+                logger.warning("Unable to read cached IBKR accountSummary: %s", exc)
+                account_info = {}
+
+            if not account_info and hasattr(self.ib, "reqAccountSummary"):
+                for args in (("All", IBKR_SUMMARY_TAGS), ("", IBKR_SUMMARY_TAGS), ()):  # pragma: no branch
+                    try:
+                        account_info = self._normalise_account_summary_rows(
+                            self.ib.reqAccountSummary(*args)
+                        )
+                    except TypeError:
+                        continue
+                    except Exception as exc:
+                        logger.warning("Unable to request fresh IBKR account summary: %s", exc)
+                        break
+                    if account_info:
+                        break
+
+            if not account_info and hasattr(self.ib, "accountValues"):
+                try:
+                    account_info = self._normalise_account_summary_rows(self.ib.accountValues())
+                except Exception as exc:
+                    logger.warning("Unable to read IBKR account values: %s", exc)
+                    account_info = {}
+
             if account_info:
                 self._account_info = account_info
             return dict(self._account_info)

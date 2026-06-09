@@ -9,6 +9,7 @@ from ibkr.utils.worker import Worker
 from ibkr.utils.account_balance import (
     DEFAULT_PAPER_BALANCE,
     extract_available_balance_from_data,
+    ibkr_summary_tag_matches,
 )
 from ibkr.widgets.header_toolbar import _extract_account_user_id_from_data
 
@@ -123,20 +124,20 @@ class AccountManager(QObject):
             return 0.0
 
         for tag in _IBKR_BALANCE_TAGS:
-            entry = account_summary.get(tag)
-            if entry is None:
-                continue
-            # Nested: {"value": "125432.50", "currency": "USD"}
-            if isinstance(entry, dict):
-                raw = entry.get("value")
-            else:
-                raw = entry
-            try:
-                value = float(raw or 0.0)
-                if value > 0:
-                    return value
-            except (TypeError, ValueError):
-                continue
+            for actual_tag, entry in account_summary.items():
+                if not ibkr_summary_tag_matches(actual_tag, tag):
+                    continue
+                # Nested: {"value": "125432.50", "currency": "USD"}
+                if isinstance(entry, dict):
+                    raw = entry.get("value")
+                else:
+                    raw = entry
+                try:
+                    value = float(raw or 0.0)
+                    if value > 0:
+                        return value
+                except (TypeError, ValueError):
+                    continue
 
         return 0.0
 

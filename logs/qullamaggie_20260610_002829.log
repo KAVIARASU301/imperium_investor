@@ -151,3 +151,24 @@
 2026-06-10 00:29:01,846 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=DELL bars=349
 2026-06-10 00:29:02,090 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: DELL (349 candles)
 2026-06-10 00:29:38,103 - INFO - ibkr.core.data_cache - US market-open cache flush complete; intraday entries cleared
+2026-06-10 00:30:05,104 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=DELL interval=60minute from=2026-04-20T15:00:05.104544-04:00 to=2026-06-09T15:00:05.104544-04:00 dedicated_history=True
+2026-06-10 00:30:05,105 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: DELL conId=346218218 bar=30 mins duration=50 D end=latest
+2026-06-10 00:30:06,541 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=DELL bars=349
+2026-06-10 00:30:06,583 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-10 00:30:06,584 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-10 00:30:06,590 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol DELL
+2026-06-10 00:30:06,591 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: DELL (349 candles)
+2026-06-10 00:30:33,440 - WARNING - __main__ - Signal 2 received, initiating shutdown.
+2026-06-10 00:30:33,441 - INFO - __main__ - Shutting down and cleaning up resources...
+2026-06-10 00:30:33,441 - INFO - ibkr.core.shutdown_manager - closeEvent received — beginning fast IBKR shutdown
+2026-06-10 00:30:33,442 - INFO - ibkr.core.shutdown_manager - === Fast IBKR window-close shutdown starting ===
+2026-06-10 00:30:33,443 - INFO - ibkr.core.shutdown_manager - Shutdown: [save_window_state]…
+2026-06-10 00:30:33,444 - INFO - ibkr.core.main_window - Window state saved
+2026-06-10 00:30:33,445 - INFO - ibkr.core.shutdown_manager - Shutdown: [save_window_state] ✓
+2026-06-10 00:30:33,445 - INFO - ibkr.core.shutdown_manager - Shutdown: [save_chart_state]…
+2026-06-10 00:30:33,457 - INFO - ibkr.core.shutdown_manager - Shutdown: [save_chart_state] ✓
+2026-06-10 00:30:33,458 - INFO - ibkr.core.shutdown_manager - Shutdown: [stop_remaining_timers]…
+2026-06-10 00:30:33,471 - INFO - ibkr.core.shutdown_manager - Shutdown: [stop_remaining_timers] ✓
+2026-06-10 00:30:33,471 - INFO - ibkr.core.shutdown_manager - === Fast IBKR window-close shutdown complete ===
+2026-06-10 00:30:33,479 - INFO - __main__ - Skipping broker disconnect during fast window-close shutdown.
+2026-06-10 00:30:33,480 - INFO - __main__ - Cleanup complete.
