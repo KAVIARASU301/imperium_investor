@@ -14,7 +14,7 @@ Upgrades:
 import json
 import logging
 import os
-from typing import List, Dict, Optional, Set
+from typing import List, Dict, Optional, Set, Tuple
 from dataclasses import dataclass
 
 from PySide6.QtWidgets import (
@@ -207,6 +207,7 @@ class Position:
             token=int(pos_data.get("instrument_token", 0) or 0),
             ltp=float(pos_data.get("last_price", 0) or 0),
             product=pos_data.get("product") or pos_data.get("product_type") or "MIS",
+            prev_close=float(pos_data.get("prev_close", pos_data.get("previous_close", pos_data.get("close", 0))) or 0),
         )
 
 
@@ -245,7 +246,7 @@ class PositionsTable(QWidget):
         self._sort_col: int = COL_SYMBOL
         self._sort_asc: bool = True
         self._flashes: List[_FlashCell] = []
-        self._pending_ticks: Dict[int, float] = {}
+        self._pending_ticks: Dict[int, Tuple[float, float]] = {}
         self._selected_rows: Set[int] = set()
 
         self._color_theme: Dict = {
@@ -400,6 +401,12 @@ class PositionsTable(QWidget):
 
     @Slot(list)
     def update_positions(self, positions_list: List[Position]):
+        previous_positions = self.positions_data
+        for pos in positions_list:
+            if float(getattr(pos, "prev_close", 0.0) or 0.0) <= 0:
+                previous = previous_positions.get(pos.symbol)
+                if previous is not None:
+                    pos.prev_close = float(getattr(previous, "prev_close", 0.0) or 0.0)
         self.positions_data = {p.symbol: p for p in positions_list}
         self.symbol_to_row = {}
         self._token_to_symbol = {}
@@ -427,7 +434,7 @@ class PositionsTable(QWidget):
 
         pnl = (pos.ltp - pos.avg_price) * pos.quantity
         pos.pnl = pnl
-        entry_change_pct = self._entry_change_pct(pos)
+        daily_change_pct = self._daily_change_pct(pos)
         is_long = pos.quantity > 0
         qty_sign = "+" if is_long else "−"
 
@@ -435,7 +442,7 @@ class PositionsTable(QWidget):
         profit_color = table_colors.get("positive", _GREEN)
         loss_color = table_colors.get("negative", _RED)
 
-        change_color = self._open_pnl_text_color(entry_change_pct)
+        change_color = self._open_pnl_text_color(daily_change_pct)
 
         symbol_font = _symbol_font(10, QFont.Weight.Normal)
         number_font = self._number_font(False, 9)
@@ -451,7 +458,7 @@ class PositionsTable(QWidget):
             (COL_SYMBOL, symbol_text, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, _SYMBOL_TEXT, symbol_font),
             (COL_FLAG, "", Qt.AlignmentFlag.AlignCenter, _T2, symbol_font),
             (COL_QTY, f"{qty_sign}{abs(pos.quantity)}", Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, profit_color if is_long else loss_color, number_font),
-            (COL_OPEN_PNL, f"{entry_change_pct:+.2f}", Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, change_color, strong_number_font),
+            (COL_OPEN_PNL, f"{daily_change_pct:+.2f}", Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, change_color, strong_number_font),
         ]
 
         for col, text, align, color, font in cells:
@@ -474,7 +481,7 @@ class PositionsTable(QWidget):
                     item.setToolTip("")
 
         self._paint_flag_cell(row, pos.symbol)
-        self._apply_open_pnl_row_style(row, entry_change_pct)
+        self._apply_open_pnl_row_style(row, daily_change_pct)
 
 
 
@@ -505,6 +512,14 @@ class PositionsTable(QWidget):
             if row is not None and pos:
                 self._refresh_row(row, pos)
 
+
+    @staticmethod
+    def _daily_change_pct(pos: Position) -> float:
+        prev_close = float(getattr(pos, "prev_close", 0.0) or 0.0)
+        ltp = float(getattr(pos, "ltp", 0.0) or 0.0)
+        if prev_close <= 0 or ltp <= 0:
+            return 0.0
+        return ((ltp - prev_close) / prev_close) * 100.0
 
     @staticmethod
     def _entry_change_pct(pos: Position) -> float:
@@ -561,7 +576,7 @@ class PositionsTable(QWidget):
         mapping = {
             COL_SYMBOL: pos.symbol,
             COL_QTY: pos.quantity,
-            COL_OPEN_PNL: self._entry_change_pct(pos),
+            COL_OPEN_PNL: self._daily_change_pct(pos),
         }
         return mapping.get(col, 0)
 
@@ -570,25 +585,29 @@ class PositionsTable(QWidget):
     # ══════════════════════════════════════════════════════════════════════════
 
     @Slot(int, float)
-    def update_market_data(self, token: int, ltp: float):
+    def update_market_data(self, token: int, ltp: float, prev_close: float = 0.0):
         try:
             token = int(token)
             ltp = float(ltp)
+            prev_close = float(prev_close or 0.0)
         except (TypeError, ValueError):
             return
         if token <= 0 or ltp <= 0:
             return
-        self._pending_ticks[token] = ltp
+        self._pending_ticks[token] = (ltp, prev_close)
 
     def _flush_pending_ticks(self):
         if not self._pending_ticks:
             return
 
-        for token, ltp in self._pending_ticks.items():
+        for token, tick_data in self._pending_ticks.items():
+            ltp, prev_close = tick_data
             symbol = self._token_to_symbol.get(token)
             if not symbol: continue
             pos = self.positions_data.get(symbol)
             if not pos: continue
+            if prev_close > 0:
+                pos.prev_close = prev_close
 
             prev_ltp = self._prev_ltps.get(symbol, pos.ltp)
             self._prev_ltps[symbol] = ltp

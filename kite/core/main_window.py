@@ -1856,7 +1856,15 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             token = tick.get("instrument_token")
             ltp = tick.get("last_price")
             if token is not None and ltp is not None:
-                self.positions_table.update_market_data(int(token), float(ltp))
+                ohlc = tick.get("ohlc") or {}
+                prev_close = (
+                    tick.get("prev_close")
+                    or tick.get("previous_close")
+                    or tick.get("close")
+                    or ohlc.get("close")
+                    or 0.0
+                )
+                self.positions_table.update_market_data(int(token), float(ltp), float(prev_close or 0.0))
                 if self.floating_positions_dialog and self.floating_positions_dialog.isVisible():
                     self.floating_positions_dialog.update_market_data(int(token), float(ltp))
 
@@ -2033,7 +2041,15 @@ class QullamaggieWindow(CleanShutdownMixin, PaperTradingMixin, QMainWindow):
             token = tick.get('instrument_token')
             ltp = tick.get('last_price', 0)
             if token and ltp > 0:
-                self.positions_table.update_market_data(token, ltp)
+                ohlc = tick.get('ohlc') or {}
+                prev_close = (
+                    tick.get('prev_close')
+                    or tick.get('previous_close')
+                    or tick.get('close')
+                    or ohlc.get('close')
+                    or 0.0
+                )
+                self.positions_table.update_market_data(token, ltp, float(prev_close or 0.0))
 
     # Additional helper method for monitoring exchange usage
     def _log_exchange_statistics(self, ticks: List[Dict]):
