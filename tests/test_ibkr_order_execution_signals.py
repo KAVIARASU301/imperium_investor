@@ -768,3 +768,30 @@ def test_position_manager_uses_pending_dialog_count_to_drive_position_sync():
     manager.set_pending_order_dialog_count(0)
 
     assert not manager.pending_order_sync_timer.isActive()
+
+
+def test_get_account_summary_creates_event_loop_for_threadpool_workers():
+    import asyncio
+    from threading import Thread
+
+    class _AccountSummaryIB(_FakeIB):
+        def accountSummary(self):
+            asyncio.get_event_loop()
+            return [
+                SimpleNamespace(tag="AvailableFunds", value="12345.67", currency="USD")
+            ]
+
+    client = _client_with_ib(_AccountSummaryIB())
+    client._account_info = {}
+    result_holder = {}
+
+    def worker():
+        result_holder["summary"] = client.get_account_summary()
+
+    thread = Thread(target=worker)
+    thread.start()
+    thread.join(timeout=5)
+
+    assert "summary" in result_holder
+    assert result_holder["summary"]["AvailableFunds"]["value"] == "12345.67"
+    assert client._account_info == result_holder["summary"]

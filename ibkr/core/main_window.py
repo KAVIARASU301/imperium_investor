@@ -301,13 +301,18 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
         main_layout.addWidget(self.top_bar)
 
         # Header toolbar dedicated to trading actions.
-        toolbar_client = self.real_kite_client
-        self.header_toolbar = HeaderToolbar(toolbar_client, self, enable_account_polling=False)
+        # Use the Kite-compatible IBKRTradingClient wrapper for account data so
+        # the header/account manager can read normalized profile, margins, and
+        # account summary values instead of falling back to the raw ib_insync IB
+        # object's paper default.  Keep raw IB for symbol search because that API
+        # is exposed by ib_insync directly.
+        account_client = self.trader
+        self.header_toolbar = HeaderToolbar(account_client, self, enable_account_polling=False)
         if self.real_kite_client and hasattr(self.real_kite_client, "reqMatchingSymbols"):
             self._ibkr_symbol_resolver = IBKRSymbolResolver(self.real_kite_client, parent=self)
             self.header_toolbar.set_ibkr_search_provider(self._ibkr_symbol_resolver.search)
 
-        self.account_manager = AccountManager(toolbar_client, parent=self)
+        self.account_manager = AccountManager(account_client, parent=self)
         self.account_manager.margins_updated.connect(self.header_toolbar._handle_account_info_update)
         self.account_manager.margins_updated.connect(self._on_account_info_updated)
         self.account_manager.refresh_margins(force=True)

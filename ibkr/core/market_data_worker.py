@@ -119,6 +119,7 @@ class MarketDataWorker(QThread):
         self._latest_ticks: Dict[str, Dict[str, Any]] = {}
         self._last_trade_signature_by_key: Dict[str, Tuple[Any, ...]] = {}
         self._req_id_to_key: Dict[int, str] = {}
+        self._recently_cancelled_req_ids: Set[int] = set()
         self._preferred_market_data_type = _configured_market_data_type()
         self._market_data_type = self._preferred_market_data_type
         self._allow_delayed_fallback = _delayed_fallback_enabled()
@@ -555,6 +556,14 @@ class MarketDataWorker(QThread):
                 self._key_to_symbol.pop(key, None)
                 self._latest_ticks.pop(key, None)
                 self._last_trade_signature_by_key.pop(key, None)
+                cancelled_req_ids = [
+                    req_id
+                    for req_id, mapped_key in self._req_id_to_key.items()
+                    if mapped_key == key
+                ]
+                for req_id in cancelled_req_ids:
+                    self._req_id_to_key.pop(req_id, None)
+                    self._recently_cancelled_req_ids.add(req_id)
             if contract is None:
                 continue
             try:
@@ -571,6 +580,7 @@ class MarketDataWorker(QThread):
             self._key_to_symbol.clear()
             self._latest_ticks.clear()
             self._last_trade_signature_by_key.clear()
+            self._recently_cancelled_req_ids.update(self._req_id_to_key)
             self._req_id_to_key.clear()
         for key, contract in contracts:
             try:
@@ -680,6 +690,7 @@ class MarketDataWorker(QThread):
 
         with self._lock:
             subscriptions = list(self._subscribed_contracts.items())
+            self._recently_cancelled_req_ids.update(self._req_id_to_key)
             self._req_id_to_key.clear()
         for key, contract in subscriptions:
             try:
@@ -720,6 +731,7 @@ class MarketDataWorker(QThread):
 
         with self._lock:
             subscriptions = list(self._subscribed_contracts.items())
+            self._recently_cancelled_req_ids.update(self._req_id_to_key)
             self._req_id_to_key.clear()
 
         for key, contract in subscriptions:
@@ -945,6 +957,22 @@ class MarketDataWorker(QThread):
                     f"IBKR returned market-data subscription error {error_code} for {label}",
                     resubscribe=True,
                 )
+            return
+
+        if int(error_code) == 300 and "can't find eid with tickerid" in str(error_string or "").lower():
+            try:
+                req_id_int = int(req_id)
+            except Exception:
+                req_id_int = None
+            with self._lock:
+                if req_id_int is not None:
+                    self._recently_cancelled_req_ids.discard(req_id_int)
+            logger.debug(
+                "Ignored IBKR stale market-data cancellation notice for %s: %s (%s)",
+                label,
+                error_string,
+                error_code,
+            )
             return
 
         if 10000 <= int(error_code) < 11000 or int(error_code) in {200, 300, 321, 322}:

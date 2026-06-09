@@ -1144,8 +1144,29 @@ class IBKRTradingClient(QObject):
 
     def get_account_summary(self) -> Dict[str, Any]:
         try:
-            summary = self.ib.accountSummary() if self.ib else []
-            return {item.tag: {"value": item.value, "currency": item.currency} for item in summary}
+            if not self.ib:
+                return dict(self._account_info)
+
+            # ib_insync's synchronous helpers call asyncio.get_event_loop() in
+            # the current thread. Account refreshes run from Qt thread-pool
+            # workers (shown in logs as Dummy-*), which do not have a default
+            # loop on modern Python versions. Create one before calling
+            # accountSummary() so ib_insync does not create an un-awaited
+            # coroutine and then fail with "There is no current event loop".
+            if _asyncio_loop_is_running():
+                logger.debug("Using cached IBKR account summary inside active asyncio loop")
+                return dict(self._account_info)
+            _ensure_thread_event_loop()
+
+            summary = self.ib.accountSummary()
+            account_info = {
+                item.tag: {"value": item.value, "currency": item.currency}
+                for item in (summary or [])
+                if getattr(item, "tag", None)
+            }
+            if account_info:
+                self._account_info = account_info
+            return dict(self._account_info)
         except Exception as exc:
             logger.error("Error getting IBKR account summary: %s", exc)
             return dict(self._account_info)
