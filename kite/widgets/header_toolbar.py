@@ -29,6 +29,10 @@ from PySide6.QtWidgets import (
 from kiteconnect import KiteConnect
 
 from app_paths import get_asset_path
+from ibkr.utils.account_balance import (
+    DEFAULT_PAPER_BALANCE,
+    extract_available_balance_from_data as _shared_extract_available_balance_from_data,
+)
 from kite.utils.worker import Worker
 from kite.widgets.search_bar import EnhancedSearchInput, SymbolIndex
 
@@ -42,7 +46,6 @@ def _prefer_text_antialias(font: QFont) -> QFont:
     except Exception:
         pass
     return font
-DEFAULT_PAPER_BALANCE = 1_000_000.0
 
 # ── Institutional Dark Trading Terminal palette ──────────────────────────────
 # AMOLED-leaning shell: use true black for the toolbar surface and reserve
@@ -101,23 +104,14 @@ def _extract_available_balance_from_data(
     profile: Dict[str, Any],
     margins: Dict[str, Any],
 ) -> float:
-    equity = margins.get("equity", {})
-    available = equity.get("available", {})
-    for val in [
-        available.get("live_balance"),
-        available.get("cash"),
-        equity.get("net"),
-        profile.get("current_balance"),
-        profile.get("balance"),
-        getattr(trader, "balance", None),
-        getattr(trader, "initial_balance", DEFAULT_PAPER_BALANCE),
-    ]:
-        try:
-            if val is not None:
-                return float(val)
-        except (TypeError, ValueError):
-            pass
-    return DEFAULT_PAPER_BALANCE
+    """Return the same broker-normalized balance used by account managers.
+
+    Keep this legacy toolbar helper as a thin wrapper so both the standalone
+    header refresh and ``kite.core.AccountManager`` understand IBKR account
+    summary payloads such as ``AvailableFunds`` / ``NetLiquidation`` instead of
+    falling through to the paper-trading default.
+    """
+    return _shared_extract_available_balance_from_data(trader, profile, margins)
 
 
 class NotificationBadge(QLabel):

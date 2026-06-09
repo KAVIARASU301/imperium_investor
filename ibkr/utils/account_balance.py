@@ -11,12 +11,13 @@ logger = logging.getLogger(__name__)
 DEFAULT_PAPER_BALANCE = 1_000_000.0
 
 IBKR_AVAILABLE_BALANCE_TAGS = (
+    "TotalCashValue",
+    "TotalCashBalance",
+    "CashBalance",
     "AvailableFunds",
     "FullAvailableFunds",
     "ExcessLiquidity",
     "FullExcessLiquidity",
-    "CashBalance",
-    "TotalCashValue",
     "SettledCash",
     "BuyingPower",
     "NetLiquidation",
@@ -24,15 +25,19 @@ IBKR_AVAILABLE_BALANCE_TAGS = (
 
 _FLAT_AVAILABLE_BALANCE_KEYS = (
     "available_balance",
+    "total_cash_value",
+    "totalCashValue",
+    "total_cash_balance",
+    "totalCashBalance",
+    "cash",
+    "cash_balance",
+    "cashBalance",
     "available_funds",
     "availableFunds",
     "buying_power",
     "buyingPower",
     "net_liquidation",
     "netLiquidation",
-    "cash",
-    "cash_balance",
-    "cashBalance",
 )
 
 _KITE_AVAILABLE_BALANCE_PATHS = (
@@ -128,8 +133,8 @@ def _iter_live_ibkr_account_summary_sources(trader: Any) -> List[Any]:
     for attr_name, argument_sets in (
         ("get_account_summary", ((),)),
         ("accountSummary", ((),)),
+        ("reqAccountSummary", (("All", _IBKR_SUMMARY_TAGS), ("", _IBKR_SUMMARY_TAGS), ())),
         ("accountValues", ((),)),
-        ("reqAccountSummary", (("", _IBKR_SUMMARY_TAGS), ("All", _IBKR_SUMMARY_TAGS), ())),
         ("account_summary", ((),)),
     ):
         attr = getattr(trader, attr_name, None)
@@ -147,7 +152,7 @@ def _iter_live_ibkr_account_summary_sources(trader: Any) -> List[Any]:
 
 
 def _extract_from_ibkr_summary(summary: Any) -> Optional[float]:
-    """Return IBKR available funds from dict or ib_insync AccountValue rows."""
+    """Return IBKR display balance from dict or ib_insync AccountValue rows."""
     if isinstance(summary, Mapping):
         for tag in _IBKR_AVAILABLE_BALANCE_TAGS:
             for actual_tag, entry in summary.items():
@@ -188,11 +193,9 @@ def extract_available_balance_from_data(
 ) -> float:
     """Extract the best available account balance from Kite/Paper/IBKR data.
 
-    The IBKR header toolbar receives profile data whose real cash availability
-    lives in ``account_summary`` (for example ``AvailableFunds``).  If those tags
-    are ignored, the display falls through to the paper-trading default of
-    1,000,000.  Prefer explicit broker summary and margin values before demo
-    defaults.
+    The IBKR header toolbar displays the same account balance IBKR publishes as
+    ``TotalCashValue`` in account summary/API logs.  Prefer explicit broker
+    summary and margin cash values before demo defaults.
     """
     profile = profile or {}
     margins = margins or {}

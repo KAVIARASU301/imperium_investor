@@ -856,12 +856,15 @@ def test_get_margins_understands_segment_suffixed_summary_tags():
         "AvailableFunds-S": {"value": "12345.67", "currency": "USD"},
         "BuyingPower-S": {"value": "98765.43", "currency": "USD"},
         "NetLiquidation-S": {"value": "54321.00", "currency": "USD"},
+        "TotalCashValue-S": {"value": "375741.13", "currency": "USD"},
     }
 
     margins = client.get_margins()
 
-    assert margins["available_balance"] == 12345.67
+    assert margins["available_balance"] == 375741.13
     assert margins["available_funds"] == 12345.67
+    assert margins["total_cash_value"] == 375741.13
+    assert margins["cash_balance"] == 375741.13
     assert margins["buying_power"] == 98765.43
     assert margins["net_liquidation"] == 54321.0
 

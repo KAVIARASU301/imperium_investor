@@ -840,7 +840,7 @@ class IBKRTradingClient(QObject):
         return self.get_orders()
 
     def get_margins(self) -> Dict[str, Any]:
-        """Return available funds in a Kite-compatible margins shape.
+        """Return IBKR cash/account metrics in a Kite-compatible margins shape.
 
         IBKRTradingClient.get_account_summary() returns::
 
@@ -851,6 +851,7 @@ class IBKRTradingClient(QObject):
         """
         try:
             summary = self.get_account_summary()
+            total_cash = 0.0
             available = 0.0
             net_liq = 0.0
             buying_power = 0.0
@@ -863,20 +864,28 @@ class IBKRTradingClient(QObject):
                 except (TypeError, ValueError):
                     value = 0.0
 
-                if ibkr_summary_tag_matches(tag, "AvailableFunds") and value > 0:
+                if ibkr_summary_tag_matches(tag, "TotalCashValue") and value > 0:
+                    total_cash = value
+                elif ibkr_summary_tag_matches(tag, "TotalCashBalance") and value > 0:
+                    total_cash = value
+                elif ibkr_summary_tag_matches(tag, "CashBalance") and value > 0:
+                    total_cash = value
+                elif ibkr_summary_tag_matches(tag, "AvailableFunds") and value > 0:
                     available = value
                 elif ibkr_summary_tag_matches(tag, "BuyingPower") and value > 0:
                     buying_power = value
                 elif ibkr_summary_tag_matches(tag, "NetLiquidation") and value > 0:
                     net_liq = value
 
-            # Use AvailableFunds as the primary "available to invest" figure.
-            # Fall back to BuyingPower, then NetLiquidation.
-            balance = available or buying_power or net_liq
+            # The toolbar account balance should match IBKR's TotalCashValue.
+            # Fall back to adjacent cash tags, then legacy availability metrics.
+            balance = total_cash or available or buying_power or net_liq
 
             return {
-                "available_funds": balance,
+                "available_funds": available or balance,
                 "available_balance": balance,
+                "total_cash_value": total_cash,
+                "cash_balance": total_cash,
                 "net_liquidation": net_liq,
                 "buying_power": buying_power,
                 "equity": net_liq,

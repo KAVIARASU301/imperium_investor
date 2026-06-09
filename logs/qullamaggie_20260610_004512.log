@@ -148,3 +148,67 @@
 2026-06-10 00:45:29,005 - INFO - ibkr.core.main_window - Subscription universe changed: 24 instruments (20 token-backed, +1/-1) sources={'positions': 20, 'charts': 2, 'watchlist': 1, 'header': 2}
 2026-06-10 00:45:29,052 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=GFS bars=349
 2026-06-10 00:45:29,105 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: GFS (349 candles)
+2026-06-10 00:46:05,104 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=GFS interval=60minute from=2026-04-20T15:16:05.104135-04:00 to=2026-06-09T15:16:05.104135-04:00 dedicated_history=True
+2026-06-10 00:46:05,105 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: GFS conId=523222624 bar=30 mins duration=50 D end=latest
+2026-06-10 00:46:07,299 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=GFS bars=349
+2026-06-10 00:46:07,328 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-10 00:46:07,329 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-10 00:46:07,333 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol GFS
+2026-06-10 00:46:07,334 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: GFS (349 candles)
+2026-06-10 00:46:17,103 - INFO - ibkr.core.data_cache - US market-open cache flush complete; intraday entries cleared
+2026-06-10 00:47:05,104 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=GFS interval=60minute from=2026-04-20T15:17:05.104679-04:00 to=2026-06-09T15:17:05.104679-04:00 dedicated_history=True
+2026-06-10 00:47:05,105 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: GFS conId=523222624 bar=30 mins duration=50 D end=latest
+2026-06-10 00:47:06,765 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=GFS bars=349
+2026-06-10 00:47:06,801 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-10 00:47:06,801 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-10 00:47:06,807 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol GFS
+2026-06-10 00:47:06,809 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: GFS (349 candles)
+2026-06-10 00:48:05,104 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=GFS interval=60minute from=2026-04-20T15:18:05.104132-04:00 to=2026-06-09T15:18:05.104132-04:00 dedicated_history=True
+2026-06-10 00:48:05,105 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: GFS conId=523222624 bar=30 mins duration=50 D end=latest
+2026-06-10 00:48:06,767 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=GFS bars=349
+2026-06-10 00:48:06,805 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-10 00:48:06,805 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-10 00:48:06,812 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol GFS
+2026-06-10 00:48:06,813 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: GFS (349 candles)
+2026-06-10 00:49:05,104 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=GFS interval=60minute from=2026-04-20T15:19:05.104405-04:00 to=2026-06-09T15:19:05.104405-04:00 dedicated_history=True
+2026-06-10 00:49:05,105 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: GFS conId=523222624 bar=30 mins duration=50 D end=latest
+2026-06-10 00:49:06,767 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=GFS bars=349
+2026-06-10 00:49:06,802 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-10 00:49:06,803 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-10 00:49:06,807 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol GFS
+2026-06-10 00:49:06,807 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: GFS (349 candles)
+2026-06-10 00:50:05,105 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=GFS interval=60minute from=2026-04-20T15:20:05.105402-04:00 to=2026-06-09T15:20:05.105402-04:00 dedicated_history=True
+2026-06-10 00:50:05,107 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: GFS conId=523222624 bar=30 mins duration=50 D end=latest
+2026-06-10 00:50:06,544 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=GFS bars=349
+2026-06-10 00:50:06,705 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-10 00:50:06,706 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-10 00:50:06,713 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol GFS
+2026-06-10 00:50:06,714 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: GFS (349 candles)
+2026-06-10 00:51:05,105 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=GFS interval=60minute from=2026-04-20T15:21:05.105641-04:00 to=2026-06-09T15:21:05.105641-04:00 dedicated_history=True
+2026-06-10 00:51:05,106 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: GFS conId=523222624 bar=30 mins duration=50 D end=latest
+2026-06-10 00:51:06,512 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=GFS bars=349
+2026-06-10 00:51:06,564 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-10 00:51:06,565 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-10 00:51:06,570 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol GFS
+2026-06-10 00:51:06,571 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: GFS (349 candles)
+2026-06-10 00:52:04,105 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=GFS interval=60minute from=2026-04-20T15:22:04.105050-04:00 to=2026-06-09T15:22:04.105050-04:00 dedicated_history=True
+2026-06-10 00:52:04,108 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: GFS conId=523222624 bar=30 mins duration=50 D end=latest
+2026-06-10 00:52:05,767 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=GFS bars=349
+2026-06-10 00:52:05,803 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-10 00:52:05,804 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-10 00:52:05,809 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol GFS
+2026-06-10 00:52:05,809 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: GFS (349 candles)
+2026-06-10 00:52:17,888 - WARNING - __main__ - Signal 2 received, initiating shutdown.
+2026-06-10 00:52:17,889 - INFO - __main__ - Shutting down and cleaning up resources...
+2026-06-10 00:52:17,890 - INFO - ibkr.core.shutdown_manager - closeEvent received — beginning fast IBKR shutdown
+2026-06-10 00:52:17,891 - INFO - ibkr.core.shutdown_manager - === Fast IBKR window-close shutdown starting ===
+2026-06-10 00:52:17,891 - INFO - ibkr.core.shutdown_manager - Shutdown: [save_window_state]…
+2026-06-10 00:52:17,893 - INFO - ibkr.core.main_window - Window state saved
+2026-06-10 00:52:17,893 - INFO - ibkr.core.shutdown_manager - Shutdown: [save_window_state] ✓
+2026-06-10 00:52:17,893 - INFO - ibkr.core.shutdown_manager - Shutdown: [save_chart_state]…
+2026-06-10 00:52:17,904 - INFO - ibkr.core.shutdown_manager - Shutdown: [save_chart_state] ✓
+2026-06-10 00:52:17,905 - INFO - ibkr.core.shutdown_manager - Shutdown: [stop_remaining_timers]…
+2026-06-10 00:52:17,916 - INFO - ibkr.core.shutdown_manager - Shutdown: [stop_remaining_timers] ✓
+2026-06-10 00:52:17,916 - INFO - ibkr.core.shutdown_manager - === Fast IBKR window-close shutdown complete ===
+2026-06-10 00:52:17,924 - INFO - __main__ - Skipping broker disconnect during fast window-close shutdown.
+2026-06-10 00:52:17,924 - INFO - __main__ - Cleanup complete.

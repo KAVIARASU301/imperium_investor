@@ -15,12 +15,18 @@ from ibkr.widgets.header_toolbar import _extract_account_user_id_from_data
 
 logger = logging.getLogger(__name__)
 
-# IBKR accountSummary tags checked in priority order for "available to invest".
-# AvailableFunds  — funds available for new trades (after margin requirements).
-# BuyingPower     — total buying power (may be leveraged for margin accounts).
-# NetLiquidation  — net liquidation value (useful when neither above is present).
-# CashBalance     — raw cash (last-resort; ignores margin headroom).
-_IBKR_BALANCE_TAGS = ("AvailableFunds", "BuyingPower", "NetLiquidation", "CashBalance")
+# IBKR accountSummary tags checked in priority order for the header balance.
+# TotalCashValue  — account cash value shown in the IBKR API log/header balance.
+# TotalCashBalance/CashBalance are equivalent cash fallbacks from account values.
+# AvailableFunds/BuyingPower/NetLiquidation are fallbacks when cash tags are absent.
+_IBKR_BALANCE_TAGS = (
+    "TotalCashValue",
+    "TotalCashBalance",
+    "CashBalance",
+    "AvailableFunds",
+    "BuyingPower",
+    "NetLiquidation",
+)
 
 
 class AccountManager(QObject):
@@ -83,14 +89,14 @@ class AccountManager(QObject):
 
         user_id = _extract_account_user_id_from_data(self.trader, profile)
 
-        # IBKR path: extract balance from accountSummary tags in the profile.
+        # IBKR path: extract display balance from accountSummary tags in the profile.
         # IBKRTradingClient.get_profile() populates profile["account_summary"] as
         #   {tag: {"value": "<float_str>", "currency": "USD"}, ...}
         # This is the authoritative source; the generic extract_available_balance_from_data
         # fallback would return DEFAULT_PAPER_BALANCE when no Kite-style margins dict exists.
         ibkr_balance = self._extract_ibkr_balance_from_profile(profile)
         if ibkr_balance > 0:
-            logger.debug("IBKR available balance from accountSummary: %.2f", ibkr_balance)
+            logger.debug("IBKR header balance from accountSummary: %.2f", ibkr_balance)
             return {"user_id": user_id, "available_balance": ibkr_balance}
 
         # Kite / paper path — existing logic unchanged.
@@ -105,14 +111,14 @@ class AccountManager(QObject):
 
     @staticmethod
     def _extract_ibkr_balance_from_profile(profile: Dict[str, Any]) -> float:
-        """Pull available funds from an IBKR accountSummary nested in the profile dict.
+        """Pull the header balance from an IBKR accountSummary nested in the profile dict.
 
         IBKRTradingClient.get_profile() → profile["account_summary"] has the shape::
 
             {
-                "AvailableFunds":  {"value": "125432.50", "currency": "USD"},
-                "BuyingPower":     {"value": "501730.00", "currency": "USD"},
-                "NetLiquidation":  {"value": "127120.00", "currency": "USD"},
+                "TotalCashValue":  {"value": "375741.13", "currency": "USD"},
+                "AvailableFunds":  {"value": "679927.57", "currency": "USD"},
+                "NetLiquidation":  {"value": "949340.79", "currency": "USD"},
                 ...
             }
 
