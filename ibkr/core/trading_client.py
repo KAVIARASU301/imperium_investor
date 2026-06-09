@@ -838,6 +838,57 @@ class IBKRTradingClient(QObject):
     def orders(self) -> List[Dict[str, Any]]:
         return self.get_orders()
 
+    def get_margins(self) -> Dict[str, Any]:
+        """Return available funds in a Kite-compatible margins shape.
+
+        IBKRTradingClient.get_account_summary() returns::
+
+            {tag: {"value": "<str>", "currency": "USD"}, ...}
+
+        This method normalises those tags into the flat dict that
+        AccountManager / extract_available_balance_from_data expect.
+        """
+        try:
+            summary = self.get_account_summary()
+            available = 0.0
+            net_liq = 0.0
+            buying_power = 0.0
+
+            for tag, entry in (summary or {}).items():
+                try:
+                    value = float(
+                        entry.get("value", 0.0) if isinstance(entry, dict) else (entry or 0.0)
+                    )
+                except (TypeError, ValueError):
+                    value = 0.0
+
+                if tag == "AvailableFunds" and value > 0:
+                    available = value
+                elif tag == "BuyingPower" and value > 0:
+                    buying_power = value
+                elif tag == "NetLiquidation" and value > 0:
+                    net_liq = value
+
+            # Use AvailableFunds as the primary "available to invest" figure.
+            # Fall back to BuyingPower, then NetLiquidation.
+            balance = available or buying_power or net_liq
+
+            return {
+                "available_funds": balance,
+                "available_balance": balance,
+                "net_liquidation": net_liq,
+                "buying_power": buying_power,
+                "equity": net_liq,
+                "currency": "USD",
+            }
+        except Exception as exc:
+            logger.error("Error building IBKR margins dict: %s", exc)
+            return {}
+
+    def margins(self) -> Dict[str, Any]:
+        """Kite-compatible alias so AccountManager._get_margins_data() finds this method."""
+        return self.get_margins()
+
     def place_order(self, **kwargs) -> Dict[str, Any]:
         params: Dict[str, Any] = {}
         try:
