@@ -109,6 +109,10 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
         self.real_kite_client = real_kite_client
         self.api_key = api_key
         self.access_token = access_token
+        # Define this before any child manager/widget can emit connection or
+        # subscription callbacks during construction.  The actual worker is
+        # installed by _init_background_workers() once the IBKR client is ready.
+        self.market_data_worker = None
         self.config_manager = ConfigManager()
         self.app_settings = self.config_manager.load_settings()
         self.color_theme_manager = get_color_theme_manager()
@@ -153,12 +157,6 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
         self._subscription_universe_keys: frozenset[str] = frozenset()
         self._position_subscription_keys: frozenset[str] = frozenset()
         self._ibkr_symbol_resolver: Optional[IBKRSymbolResolver] = None
-        # Some child widgets emit subscription signals while the UI is still
-        # being built.  Define the worker attribute before _setup_ui() so those
-        # early IBKR-mode signals are harmless until _init_background_workers()
-        # starts the dedicated market-data connection.
-        self.market_data_worker = None
-
 
         self.setWindowTitle("Swing Trader")
 
@@ -1181,11 +1179,16 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
         logger.info("WebSocket connected. Setting up subscriptions.")
         status.set_api_indicator("CONNECTED")
 
+        worker = getattr(self, "market_data_worker", None)
+        if worker is None:
+            logger.debug("Ignoring market-data connection signal before worker is ready")
+            return
+
         if (hasattr(self, 'candlestick_chart') and
                 hasattr(self.candlestick_chart, 'current_instrument_token') and
                 self.candlestick_chart.current_instrument_token):
             try:
-                self.market_data_worker.add_instruments([self.candlestick_chart.current_instrument_token])
+                worker.add_instruments([self.candlestick_chart.current_instrument_token])
                 logger.info(f"Subscribed to chart token: {self.candlestick_chart.current_instrument_token}")
             except Exception as e:
                 logger.error(f"Failed to subscribe to chart: {e}")

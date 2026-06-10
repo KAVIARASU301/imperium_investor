@@ -747,10 +747,35 @@ class ChartLinesManager(QObject):
         self._refresh_pending = False
         self.chart_refresh_requested.emit()
 
+    def _chart_ready_for_drawing_injection(self, chart: Any) -> bool:
+        """Return True only when a chart can safely receive QWebEngine drawings."""
+        if chart is None or not getattr(chart, 'current_symbol', None):
+            return False
+
+        chart_view = getattr(chart, 'chart_view', None)
+        if chart_view is None:
+            return False
+
+        try:
+            if chart_view.page() is None:
+                return False
+        except RuntimeError:
+            # Qt can raise if the native QWebEngineView has been deleted while a
+            # queued startup refresh is still pending.  Treat that as not ready.
+            return False
+
+        from chart_engine.core.chart_widget import ChartState
+        return getattr(chart, 'current_state', None) == ChartState.LOADED
+
     def _refresh_chart(self, retry_count: int = 0) -> None:
         """
-        Push updated drawings into the live chart.
-        Retries up to 10 times (1 second total) if the chart is not ready yet.
+        Push updated drawings into the live chart after QWebEngine is ready.
+
+        Position sync can run during startup before _prewarm_webengine's
+        single-shot timer has created the native chart view.  Calling
+        set_drawings() against that half-initialized chart can crash Chromium
+        without a Python traceback, so refreshes are deferred until every
+        symbol-bearing chart has a loaded QWebEngine page.
         """
         try:
             if not hasattr(self.main_window, 'candlestick_chart'):
@@ -761,31 +786,27 @@ class ChartLinesManager(QObject):
             if secondary is not None:
                 charts.append(secondary)
 
-            # Check that all visible charts are in LOADED state before injecting
-            from chart_engine.core.chart_widget import ChartState
-            pending_ready = [
+            charts_with_symbols = [
                 chart for chart in charts
-                if chart is not None
-                and chart.isVisible()
-                and getattr(chart, 'current_symbol', None)
-                and getattr(chart, 'current_state', None) != ChartState.LOADED
+                if chart is not None and getattr(chart, 'current_symbol', None)
+            ]
+            pending_ready = [
+                chart for chart in charts_with_symbols
+                if not self._chart_ready_for_drawing_injection(chart)
             ]
             if pending_ready:
-                if retry_count < 10:
+                if retry_count < 50:
                     QTimer.singleShot(
                         100,
                         lambda: self._refresh_chart(retry_count + 1)
                     )
-                    logger.debug(f"Chart not ready, retry {retry_count + 1}/10")
+                    logger.debug(f"Chart not ready for drawings, retry {retry_count + 1}/50")
+                else:
+                    logger.debug("Skipped chart drawing refresh because chart did not become ready")
                 return
 
-            for chart in charts:
-                if chart is None:
-                    continue
+            for chart in charts_with_symbols:
                 symbol = getattr(chart, 'current_symbol', None)
-                if not symbol:
-                    continue
-
                 state = self._load_symbol_drawings(symbol)
                 drawings = state.get("drawings", {})
                 filtered_drawings = self._filter_drawings_for_mode(drawings)
@@ -793,12 +814,15 @@ class ChartLinesManager(QObject):
                 if hasattr(chart, 'set_drawings'):
                     chart.set_drawings(filtered_drawings)
                     logger.debug(f"Chart drawings refreshed for {symbol}")
-                elif hasattr(chart, 'chart_view') and chart.chart_view:
+                else:
+                    chart_view = getattr(chart, 'chart_view', None)
+                    if chart_view is None:
+                        continue
                     js_code = (
                         "if(window.chart && window.chart.updateDrawings)"
                         f"window.chart.updateDrawings({json.dumps(filtered_drawings)});"
                     )
-                    chart.chart_view.page().runJavaScript(js_code)
+                    chart_view.page().runJavaScript(js_code)
                     logger.debug(f"Chart drawings injected via JS for {symbol}")
 
         except Exception as e:
