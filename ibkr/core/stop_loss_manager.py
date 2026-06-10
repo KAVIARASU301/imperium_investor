@@ -761,14 +761,28 @@ class StopLossManager(QObject):
     # ═════════════════════════════════════════════════════════════════════
 
     def _load_active_from_db(self) -> None:
-        """Reload active SL records on startup (survives app restarts)."""
-        records = self.store.get_all_active()
+        """Reload active SL records on startup without letting DB state abort IBKR startup."""
+        try:
+            records = self.store.get_all_active()
+        except Exception as exc:
+            logger.error("Failed to restore IBKR stop-loss records from database: %s", exc, exc_info=True)
+            return
+
+        restored = 0
         with QMutexLocker(self._mutex):
             for rec in records:
+                if not rec.position_id or not rec.symbol:
+                    logger.warning("Skipping restored IBKR stop-loss row with missing identity: %r", rec)
+                    continue
                 self._active[rec.position_id] = rec
-        if records:
-            logger.info("Restored %d active SL record(s) from database", len(records))
-            self._rebuild_token_map()
+                restored += 1
+
+        if restored:
+            logger.info("Restored %d active SL record(s) from database", restored)
+            try:
+                self._rebuild_token_map()
+            except Exception as exc:
+                logger.warning("Could not rebuild restored IBKR SL token map at startup: %s", exc)
             # StopLossManager is constructed while MainWindow is still building
             # core subscription attributes. Defer restored SL subscriptions until
             # the event loop starts so a persisted SL DB cannot abort IBKR startup.
@@ -777,4 +791,7 @@ class StopLossManager(QObject):
     def _subscribe_restored_records(self) -> None:
         """Subscribe restored SL symbols after parent window initialization settles."""
         for rec in self.get_all_active():
-            self._subscribe_record_token(rec)
+            try:
+                self._subscribe_record_token(rec)
+            except Exception as exc:
+                logger.warning("Skipping restored IBKR SL subscription for %s: %s", rec.symbol, exc)

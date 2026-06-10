@@ -16,7 +16,7 @@ from ibkr.utils.market_time import market_isoformat
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_SQL = """
+TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS stop_losses (
     id                   INTEGER PRIMARY KEY AUTOINCREMENT,
     position_id          TEXT UNIQUE NOT NULL,  -- symbol:product e.g. "AAPL:STK"
@@ -43,10 +43,14 @@ CREATE TABLE IF NOT EXISTS stop_losses (
     account              TEXT DEFAULT '',
     last_ltp             REAL DEFAULT NULL
 );
+"""
 
+INDEX_SQL = """
 CREATE INDEX IF NOT EXISTS idx_sl_symbol ON stop_losses(symbol, status);
 CREATE INDEX IF NOT EXISTS idx_sl_status ON stop_losses(status);
 """
+
+SCHEMA_SQL = TABLE_SQL + INDEX_SQL
 
 
 @dataclass
@@ -178,15 +182,19 @@ class StopLossStore:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         try:
             with self._conn() as conn:
-                conn.executescript(SCHEMA_SQL)
-                self._migrate_schema(conn)
+                self._create_or_migrate_schema(conn)
                 conn.commit()
         except sqlite3.DatabaseError as exc:
             self._quarantine_bad_db(exc)
             with self._conn() as conn:
-                conn.executescript(SCHEMA_SQL)
-                self._migrate_schema(conn)
+                self._create_or_migrate_schema(conn)
                 conn.commit()
+
+    def _create_or_migrate_schema(self, conn: sqlite3.Connection) -> None:
+        """Create/migrate table columns before creating indexes that depend on them."""
+        conn.executescript(TABLE_SQL)
+        self._migrate_schema(conn)
+        conn.executescript(INDEX_SQL)
 
     def _migrate_schema(self, conn: sqlite3.Connection) -> None:
         """Add metadata columns required to restore IBKR SLs safely on startup."""
@@ -336,9 +344,9 @@ class StopLossStore:
         position_id = str(cls._row_value(row, "position_id", "") or "").strip().upper()
         if not position_id and symbol:
             position_id = f"{symbol}:{product}"
-        sl_price = float(cls._row_value(row, "sl_price", 0.0) or 0.0)
-        quantity = int(cls._row_value(row, "quantity", 0) or 0)
-        avg_price = float(cls._row_value(row, "avg_price", 0.0) or 0.0)
+        sl_price = cls._required_float(cls._row_value(row, "sl_price", 0.0))
+        quantity = cls._required_int(cls._row_value(row, "quantity", 0))
+        avg_price = cls._required_float(cls._row_value(row, "avg_price", 0.0))
         if not symbol or not position_id or sl_price <= 0 or quantity == 0 or avg_price <= 0:
             raise ValueError(
                 f"invalid required stop-loss fields: position_id={position_id!r}, "
@@ -375,19 +383,29 @@ class StopLossStore:
         )
 
     @staticmethod
-    def _optional_int(value) -> Optional[int]:
+    def _required_int(value) -> int:
         if value in (None, ""):
-            return None
+            return 0
         try:
-            return int(value)
+            return int(float(value))
         except (TypeError, ValueError):
-            return None
+            return 0
 
     @staticmethod
-    def _optional_float(value) -> Optional[float]:
+    def _required_float(value) -> float:
         if value in (None, ""):
-            return None
+            return 0.0
         try:
             return float(value)
         except (TypeError, ValueError):
-            return None
+            return 0.0
+
+    @classmethod
+    def _optional_int(cls, value) -> Optional[int]:
+        parsed = cls._required_int(value)
+        return parsed if parsed else None
+
+    @classmethod
+    def _optional_float(cls, value) -> Optional[float]:
+        parsed = cls._required_float(value)
+        return parsed if parsed else None
