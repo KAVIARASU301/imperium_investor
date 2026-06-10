@@ -24,6 +24,7 @@ Usage in QullamaggieWindow.closeEvent():
 import logging
 import os
 import threading
+import warnings
 from typing import Callable, List, Optional, Tuple
 from dataclasses import dataclass
 
@@ -208,11 +209,7 @@ class ShutdownManager:
         if loader:
             for signal_name in ("instruments_loaded", "progress_update"):
                 signal = getattr(loader, signal_name, None)
-                if signal is not None:
-                    try:
-                        signal.disconnect()
-                    except Exception:
-                        pass
+                self._disconnect_signal_safely(signal)
             stop_fn = getattr(loader, "stop", None)
             if callable(stop_fn):
                 try:
@@ -234,15 +231,38 @@ class ShutdownManager:
                 "connection_error",
             ):
                 signal = getattr(worker, signal_name, None)
-                if signal is not None:
-                    try:
-                        signal.disconnect()
-                    except Exception:
-                        pass
+                self._disconnect_signal_safely(signal)
             try:
                 worker._is_running = False
             except Exception:
                 pass
+
+
+    @staticmethod
+    def _disconnect_signal_safely(signal) -> None:
+        """Disconnect all slots from a Qt signal without shutdown-time warnings.
+
+        PySide can emit a RuntimeWarning instead of raising an exception when a
+        no-argument disconnect() is attempted on a signal that has no remaining
+        receivers.  During shutdown these signals are best-effort cleanup only,
+        so suppress that benign warning while still ignoring normal Qt
+        disconnect errors.
+        """
+        if signal is None:
+            return
+
+        try:
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore",
+                    message=r"Failed to disconnect .* from signal .*",
+                    category=RuntimeWarning,
+                )
+                signal.disconnect()
+        except (RuntimeError, TypeError):
+            pass
+        except Exception:
+            logger.debug("Failed disconnecting Qt signal during shutdown", exc_info=True)
 
     def _run_step(self, step: ShutdownStep) -> None:
         """Run a single step with timeout and error isolation."""
