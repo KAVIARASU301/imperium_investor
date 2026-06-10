@@ -104,32 +104,39 @@ class StopLossManager(QObject):
         return {}
 
     def _resolve_token(self, symbol: str) -> Optional[int]:
-        """Best-effort symbol -> instrument token lookup from main window state."""
+        """Best-effort symbol -> instrument token lookup from live state or restored SL metadata."""
         info = self._instrument_info(symbol)
         token = info.get("instrument_token") or info.get("conId") or info.get("conid")
-        if token in (None, "", 0, "0"):
-            return None
-        try:
-            return int(token)
-        except (TypeError, ValueError):
-            return None
+        parsed = self._normalize_token(token)
+        if parsed is not None:
+            return parsed
+        symbol = str(symbol or "").strip().upper()
+        with QMutexLocker(self._mutex):
+            for rec in self._active.values():
+                if str(rec.symbol).strip().upper() != symbol:
+                    continue
+                parsed = self._normalize_token(rec.instrument_token) or self._normalize_token(rec.con_id)
+                if parsed is not None:
+                    return parsed
+        return None
 
     def _subscription_item_for_symbol(self, symbol: str) -> Dict[str, Any]:
         """Build a rich IBKR market-data subscription item for a stop-loss symbol."""
         symbol = str(symbol or "").strip().upper()
         info = self._instrument_info(symbol)
+        token = self._resolve_token(symbol) or 0
         return {
             "symbol": symbol,
             "tradingsymbol": symbol,
-            "instrument_token": info.get("instrument_token") or info.get("conId") or info.get("conid") or 0,
-            "conId": info.get("conId") or info.get("instrument_token") or info.get("conid") or 0,
+            "instrument_token": token,
+            "conId": token,
             "exchange": self._exchange_for_symbol(symbol),
             "currency": self._currency_for_symbol(symbol),
         }
 
     def _exchange_for_symbol(self, symbol: str) -> str:
         """Return a safe IBKR routing exchange for stop-loss subscriptions/orders."""
-        exchange = str(self._instrument_info(symbol).get("exchange") or "SMART").strip().upper()
+        exchange = str(self._instrument_info(symbol).get("exchange") or self._stored_record_value(symbol, "exchange") or "SMART").strip().upper()
         # Route US stocks smartly; primary exchanges like NASDAQ/NYSE are metadata,
         # not the safest routing venue for stop-loss exits.
         if not exchange or exchange in {"NASDAQ", "NYSE", "ARCA", "AMEX", "BATS", "IEX"}:
@@ -138,8 +145,33 @@ class StopLossManager(QObject):
 
     def _currency_for_symbol(self, symbol: str) -> str:
         """Return IBKR currency metadata, defaulting to USD for US equities."""
-        currency = str(self._instrument_info(symbol).get("currency") or "USD").strip().upper()
+        currency = str(self._instrument_info(symbol).get("currency") or self._stored_record_value(symbol, "currency") or "USD").strip().upper()
         return currency or "USD"
+
+    def _stored_record_value(self, symbol: str, attr: str):
+        symbol = str(symbol or "").strip().upper()
+        with QMutexLocker(self._mutex):
+            for rec in self._active.values():
+                if str(rec.symbol).strip().upper() == symbol:
+                    return getattr(rec, attr, None)
+        return None
+
+    def _stop_loss_metadata(self, symbol: str, ltp: float) -> Dict[str, Any]:
+        info = self._instrument_info(symbol)
+        token = self._normalize_token(info.get("instrument_token") or info.get("conId") or info.get("conid"))
+        account = str(info.get("account") or "")
+        main_window = self.parent()
+        current_account = getattr(main_window, "current_account", None) or getattr(main_window, "account_id", None)
+        if current_account and not account:
+            account = str(current_account)
+        return {
+            "instrument_token": token,
+            "con_id": token,
+            "exchange": self._exchange_for_symbol(symbol),
+            "currency": self._currency_for_symbol(symbol),
+            "account": account,
+            "last_ltp": ltp if ltp > 0 else None,
+        }
 
     # ═════════════════════════════════════════════════════════════════════
     # PUBLIC API (called by UI / context menu)
@@ -198,6 +230,7 @@ class StopLossManager(QObject):
                 return False
 
         position_id = f"{symbol}:{product}"
+        metadata = self._stop_loss_metadata(symbol, ltp)
         rec = StopLossRecord(
             position_id      = position_id,
             symbol           = symbol,
@@ -211,12 +244,17 @@ class StopLossManager(QObject):
             trailing_sl      = trailing,
             trail_offset_pct = trail_pct,
             peak_price       = self._initial_trailing_peak(is_long, sl_price, trail_pct, ltp),
+            **metadata,
         )
+
+        if not self.store.upsert(rec):
+            self.show_notification.emit("Failed to persist stop-loss; SL was not armed", "error")
+            logger.error("Refusing to arm SL for %s because DB persistence failed", symbol)
+            return False
 
         with QMutexLocker(self._mutex):
             self._active[position_id] = rec
 
-        self.store.upsert(rec)
         self._rebuild_token_map()
         self._subscribe_record_token(rec)
         self.sl_set.emit(symbol, sl_price)
@@ -278,10 +316,23 @@ class StopLossManager(QObject):
                 )
                 return False
 
+        metadata = self._stop_loss_metadata(symbol, ltp)
+        old_sl_price = rec.sl_price
         with QMutexLocker(self._mutex):
             rec.sl_price = new_sl_price
+            if ltp > 0:
+                rec.last_ltp = ltp
+            rec.instrument_token = metadata["instrument_token"] or rec.instrument_token
+            rec.con_id = metadata["con_id"] or rec.con_id
+            rec.exchange = metadata["exchange"]
+            rec.currency = metadata["currency"]
+            rec.account = metadata["account"] or rec.account
 
-        self.store.upsert(rec)
+        if not self.store.upsert(rec):
+            with QMutexLocker(self._mutex):
+                rec.sl_price = old_sl_price
+            self.show_notification.emit("Failed to persist modified stop-loss", "error")
+            return False
         self.sl_updated.emit(symbol, new_sl_price)
         logger.info("SL modified: %s → $%.2f", symbol, new_sl_price)
         return True
@@ -367,6 +418,7 @@ class StopLossManager(QObject):
             ltp = ltp_by_position.get(rec.position_id)
             if ltp is None:
                 continue
+            rec.last_ltp = ltp
             self._evaluate_record(rec, ltp)
 
     def _evaluate_record(self, rec: StopLossRecord, ltp: float) -> None:
@@ -488,7 +540,12 @@ class StopLossManager(QObject):
                 return float(inst.get("last_price") or inst.get("ltp") or 0.0)
             except (TypeError, ValueError):
                 return 0.0
-        return 0.0
+
+        stored_ltp = self._stored_record_value(symbol, "last_ltp")
+        try:
+            return float(stored_ltp or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
 
     def _update_trailing(self, rec: StopLossRecord, ltp: float) -> None:
         """Ratchet the SL up (for longs) as price moves in favour."""
@@ -593,6 +650,8 @@ class StopLossManager(QObject):
                 variety          = "regular",
                 exchange         = self._exchange_for_symbol(rec.symbol),
                 currency         = self._currency_for_symbol(rec.symbol),
+                con_id           = rec.con_id or rec.instrument_token or 0,
+                instrument_token = rec.instrument_token or rec.con_id or 0,
                 tradingsymbol    = rec.symbol,
                 transaction_type = exit_side,
                 quantity         = exit_qty,

@@ -1,0 +1,62 @@
+2026-06-10 23:08:13,003 - INFO - login_setup.login_setup_config - qullamaggie v1.0.0 starting...
+2026-06-10 23:08:13,003 - INFO - login_setup.login_setup_config - Logging to file: /home/kavi/Desktop/Python_Projects/swing_trader/logs/qullamaggie_20260610_230813.log
+2026-06-10 23:08:13,003 - INFO - login_setup.login_setup_config - Fatal crash diagnostics enabled for all threads.
+2026-06-10 23:08:13,004 - INFO - __main__ - 🚀 Starting qullamaggie Application...
+2026-06-10 23:08:13,157 - INFO - __main__ - Application icon loaded from: /home/kavi/Desktop/Python_Projects/swing_trader/assets/qullamaggie_swing_trader_icon.svg
+2026-06-10 23:08:15,145 - INFO - ib_insync.client - Connecting to 127.0.0.1:4002 with clientId 1...
+2026-06-10 23:08:15,148 - INFO - ib_insync.client - Connected
+2026-06-10 23:08:15,163 - INFO - ib_insync.client - Logged on to server version 176
+2026-06-10 23:08:15,206 - INFO - ib_insync.client - API connection ready
+2026-06-10 23:08:15,639 - INFO - __main__ - Authenticated for broker: america
+2026-06-10 23:08:15,639 - INFO - __main__ - Initializing trading and data clients...
+2026-06-10 23:08:15,640 - INFO - login_setup.broker_factory - Creating america client for live trading
+2026-06-10 23:08:15,640 - INFO - login_setup.broker_factory - IBKR client created with accounts: ['DUQ624205']
+2026-06-10 23:08:15,649 - INFO - ibkr.core.trading_client - Subscribed to IBKR real-time order events
+2026-06-10 23:08:15,649 - INFO - ibkr.core.trading_client - IBKR trading client startup snapshots deferred; using local cache/event sync
+2026-06-10 23:08:15,649 - INFO - __main__ - Trading client created; creating data client...
+2026-06-10 23:08:15,650 - INFO - login_setup.broker_factory - Creating data client for america
+2026-06-10 23:08:15,650 - INFO - __main__ - Data client created; validating connection state...
+2026-06-10 23:08:15,650 - INFO - __main__ - Trading client connected: True
+2026-06-10 23:08:15,651 - INFO - __main__ - Data client connected: True
+2026-06-10 23:08:15,652 - INFO - __main__ - Clients initialized successfully.
+2026-06-10 23:08:15,652 - INFO - login_setup.broker_factory - Added america client to manager
+2026-06-10 23:08:15,653 - INFO - login_setup.broker_factory - Started connection monitoring for america
+2026-06-10 23:08:15,654 - INFO - __main__ - Creating main window for america...
+2026-06-10 23:08:15,654 - INFO - login_setup.broker_factory - Dynamically loading main window from: ibkr.core.main_window
+2026-06-10 23:08:16,839 - INFO - ibkr.core.trade_logger - Trade history database for 'live' mode at: /home/kavi/.qullamaggie/trade_history_live.db
+2026-06-10 23:08:16,839 - INFO - ibkr.core.trade_logger - TradeLogger initialized with background processing
+2026-06-10 23:08:16,841 - INFO - ibkr.core.trade_logger - DatabaseWorker processing started
+2026-06-10 23:08:16,843 - INFO - ibkr.core.position_manager - ✅ Connected to trader.order_status_updated signal - orders will sync immediately
+2026-06-10 23:08:16,843 - INFO - ibkr.core.position_manager - ✅ Connected to trader.position_updated signal - positions will sync immediately
+2026-06-10 23:08:16,844 - INFO - ibkr.core.position_manager - ✅ Connected to trader.connection_status_changed signal
+2026-06-10 23:08:16,845 - INFO - ibkr.core.trade_logger - Database initialization completed
+2026-06-10 23:08:16,869 - INFO - ibkr.core.stop_loss_manager - Restored 1 active SL record(s) from database
+2026-06-10 23:08:16,922 - INFO - ibkr.widgets.scanner_table - Loaded 2 valid scan configurations
+2026-06-10 23:08:16,936 - INFO - ibkr.widgets.scanner_table - Scanner table ready for context-aware navigation
+2026-06-10 23:08:16,943 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-10 23:08:17,292 - INFO - ibkr.core.data_cache - MarketAwareDataCache initialised for IBKR/US market time
+2026-06-10 23:08:17,384 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-10 23:08:17,582 - INFO - ibkr.core.alert_management_system - Loaded 0 alerts from disk
+2026-06-10 23:08:17,583 - INFO - ibkr.core.alert_management_system - AlertSystemManager ready
+2026-06-10 23:08:17,584 - INFO - ibkr.core.main_window - Alert system initialized successfully.
+2026-06-10 23:08:17,584 - INFO - ibkr.core.alert_management_system - AlertEngine started
+2026-06-10 23:08:17,584 - INFO - ibkr.core.main_window - Connecting component signals...
+2026-06-10 23:08:17,585 - INFO - ibkr.core.main_window - IBKR order lifecycle UI signals connected
+2026-06-10 23:08:17,590 - INFO - ibkr.core.main_window - Keyboard shortcuts initialized
+2026-06-10 23:08:17,718 - INFO - ibkr.core.main_window - Window state restored
+2026-06-10 23:08:17,750 - INFO - ibkr.core.main_window - Applied startup chart timeframes: left=day, right=60minute
+2026-06-10 23:08:17,750 - INFO - ibkr.core.main_window - Simplified qullamaggie Window with Status Bar Initialized Successfully.
+2026-06-10 23:08:17,750 - INFO - __main__ - Main window created successfully.
+2026-06-10 23:08:17,819 - INFO - __main__ - Starting application event loop.
+2026-06-10 23:08:18,339 - INFO - ibkr.core.main_window - Starting deferred IBKR post-show workers
+2026-06-10 23:08:18,339 - INFO - chart_engine.core.ibkr_data_fetcher - Pre-warming dedicated IBKR history connection...
+2026-06-10 23:08:18,342 - INFO - ib_insync.client - Connecting to 127.0.0.1:4002 with clientId 102...
+2026-06-10 23:08:18,352 - INFO - ib_insync.client - Connecting to 127.0.0.1:4002 with clientId 101...
+2026-06-10 23:08:18,355 - INFO - ibkr.core.main_window - Added 1 widget market-data subscriptions (0 token-backed)
+2026-06-10 23:08:19,652 - INFO - chart_engine.core.ibkr_data_fetcher - IBKR chart history connected on 127.0.0.1:4002 clientId=102
+2026-06-10 23:08:19,752 - INFO - ibkr.core.market_data_worker - Dedicated IBKR market-data connection established on 127.0.0.1:4002 clientId=101
+2026-06-10 23:08:19,753 - INFO - ibkr.core.market_data_worker - IBKR MarketDataWorker started
+2026-06-10 23:08:19,753 - INFO - ibkr.core.market_data_worker - Requested IBKR delayed market data type (3); delayed fallback=False; generic ticks=''
+2026-06-10 23:08:20,193 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: IONQ key=517593749 type=delayed
+2026-06-10 23:08:20,891 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for IONQ: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-10 23:08:33,853 - WARNING - __main__ - Signal 2 received, initiating shutdown.

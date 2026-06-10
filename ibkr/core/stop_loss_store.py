@@ -35,7 +35,13 @@ CREATE TABLE IF NOT EXISTS stop_losses (
     triggered_at         TEXT DEFAULT NULL,
     created_at           TEXT NOT NULL,
     updated_at           TEXT NOT NULL,
-    notes                TEXT DEFAULT ''
+    notes                TEXT DEFAULT '',
+    instrument_token     INTEGER DEFAULT NULL,
+    con_id               INTEGER DEFAULT NULL,
+    exchange             TEXT DEFAULT 'SMART',
+    currency             TEXT DEFAULT 'USD',
+    account              TEXT DEFAULT '',
+    last_ltp             REAL DEFAULT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_sl_symbol ON stop_losses(symbol, status);
@@ -62,6 +68,12 @@ class StopLossRecord:
     created_at:      str   = field(default_factory=lambda: market_isoformat())
     updated_at:      str   = field(default_factory=lambda: market_isoformat())
     notes:           str   = ""
+    instrument_token: Optional[int] = None
+    con_id:          Optional[int] = None
+    exchange:        str   = "SMART"
+    currency:        str   = "USD"
+    account:         str   = ""
+    last_ltp:        Optional[float] = None
 
     @property
     def is_long(self) -> bool:
@@ -104,6 +116,12 @@ class StopLossRecord:
             "created_at":      self.created_at,
             "updated_at":      self.updated_at,
             "notes":           self.notes,
+            "instrument_token": self.instrument_token,
+            "con_id":          self.con_id,
+            "exchange":        self.exchange,
+            "currency":        self.currency,
+            "account":         self.account,
+            "last_ltp":        self.last_ltp,
         }
 
 
@@ -161,12 +179,42 @@ class StopLossStore:
         try:
             with self._conn() as conn:
                 conn.executescript(SCHEMA_SQL)
+                self._migrate_schema(conn)
                 conn.commit()
         except sqlite3.DatabaseError as exc:
             self._quarantine_bad_db(exc)
             with self._conn() as conn:
                 conn.executescript(SCHEMA_SQL)
+                self._migrate_schema(conn)
                 conn.commit()
+
+    def _migrate_schema(self, conn: sqlite3.Connection) -> None:
+        """Add metadata columns required to restore IBKR SLs safely on startup."""
+        rows = conn.execute("PRAGMA table_info(stop_losses)").fetchall()
+        existing = {str(row[1]) for row in rows}
+        additions = {
+            "product": "TEXT DEFAULT 'STK'",
+            "sl_type": "TEXT DEFAULT 'MARKET'",
+            "sl_quantity": "TEXT DEFAULT 'FULL'",
+            "custom_qty": "INTEGER DEFAULT NULL",
+            "trailing_sl": "INTEGER DEFAULT 0",
+            "trail_offset_pct": "REAL DEFAULT NULL",
+            "peak_price": "REAL DEFAULT NULL",
+            "status": "TEXT DEFAULT 'ACTIVE'",
+            "triggered_at": "TEXT DEFAULT NULL",
+            "created_at": "TEXT DEFAULT ''",
+            "updated_at": "TEXT DEFAULT ''",
+            "notes": "TEXT DEFAULT ''",
+            "instrument_token": "INTEGER DEFAULT NULL",
+            "con_id": "INTEGER DEFAULT NULL",
+            "exchange": "TEXT DEFAULT 'SMART'",
+            "currency": "TEXT DEFAULT 'USD'",
+            "account": "TEXT DEFAULT ''",
+            "last_ltp": "REAL DEFAULT NULL",
+        }
+        for column, definition in additions.items():
+            if column not in existing:
+                conn.execute(f"ALTER TABLE stop_losses ADD COLUMN {column} {definition}")
 
     # ── CRUD ──────────────────────────────────────────────────────────────
 
@@ -179,8 +227,9 @@ class StopLossStore:
                       (position_id, symbol, product, sl_price, sl_type,
                        quantity, sl_quantity, custom_qty, trailing_sl,
                        trail_offset_pct, peak_price, avg_price, status,
-                       triggered_at, created_at, updated_at, notes)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                       triggered_at, created_at, updated_at, notes,
+                       instrument_token, con_id, exchange, currency, account, last_ltp)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                     ON CONFLICT(position_id) DO UPDATE SET
                       sl_price=excluded.sl_price,
                       sl_type=excluded.sl_type,
@@ -194,13 +243,21 @@ class StopLossStore:
                       status=excluded.status,
                       triggered_at=excluded.triggered_at,
                       updated_at=excluded.updated_at,
-                      notes=excluded.notes
+                      notes=excluded.notes,
+                      instrument_token=excluded.instrument_token,
+                      con_id=excluded.con_id,
+                      exchange=excluded.exchange,
+                      currency=excluded.currency,
+                      account=excluded.account,
+                      last_ltp=excluded.last_ltp
                 """, (
                     rec.position_id, rec.symbol, rec.product, rec.sl_price,
                     rec.sl_type, rec.quantity, rec.sl_quantity, rec.custom_qty,
                     int(rec.trailing_sl), rec.trail_offset_pct, rec.peak_price,
                     rec.avg_price, rec.status, rec.triggered_at,
                     rec.created_at, rec.updated_at, rec.notes,
+                    rec.instrument_token, rec.con_id, rec.exchange, rec.currency,
+                    rec.account, rec.last_ltp,
                 ))
                 conn.commit()
             return True
@@ -223,9 +280,9 @@ class StopLossStore:
     def get_all_active(self) -> List[StopLossRecord]:
         try:
             with self._conn() as conn:
-                rows = conn.execute(
-                    "SELECT * FROM stop_losses WHERE status='ACTIVE'"
-                ).fetchall()
+                columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(stop_losses)").fetchall()}
+                query = "SELECT * FROM stop_losses WHERE status='ACTIVE'" if "status" in columns else "SELECT * FROM stop_losses"
+                rows = conn.execute(query).fetchall()
         except sqlite3.DatabaseError as e:
             logger.error("StopLossStore.get_all_active failed: %s", e)
             return []
@@ -265,23 +322,72 @@ class StopLossStore:
             return False
 
     @staticmethod
-    def _row_to_record(row: sqlite3.Row) -> StopLossRecord:
+    def _row_value(row: sqlite3.Row, key: str, default=None):
+        try:
+            value = row[key]
+        except (IndexError, KeyError):
+            return default
+        return default if value is None else value
+
+    @classmethod
+    def _row_to_record(cls, row: sqlite3.Row) -> StopLossRecord:
+        symbol = str(cls._row_value(row, "symbol", "") or "").strip().upper()
+        product = str(cls._row_value(row, "product", "STK") or "STK").strip().upper()
+        position_id = str(cls._row_value(row, "position_id", "") or "").strip().upper()
+        if not position_id and symbol:
+            position_id = f"{symbol}:{product}"
+        sl_price = float(cls._row_value(row, "sl_price", 0.0) or 0.0)
+        quantity = int(cls._row_value(row, "quantity", 0) or 0)
+        avg_price = float(cls._row_value(row, "avg_price", 0.0) or 0.0)
+        if not symbol or not position_id or sl_price <= 0 or quantity == 0 or avg_price <= 0:
+            raise ValueError(
+                f"invalid required stop-loss fields: position_id={position_id!r}, "
+                f"symbol={symbol!r}, sl_price={sl_price!r}, quantity={quantity!r}, "
+                f"avg_price={avg_price!r}"
+            )
+
+        instrument_token = cls._optional_int(cls._row_value(row, "instrument_token"))
+        con_id = cls._optional_int(cls._row_value(row, "con_id")) or instrument_token
         return StopLossRecord(
-            position_id      = row["position_id"],
-            symbol           = row["symbol"],
-            product          = row["product"],
-            sl_price         = float(row["sl_price"]),
-            sl_type          = row["sl_type"],
-            quantity         = int(row["quantity"]),
-            sl_quantity      = row["sl_quantity"],
-            custom_qty       = row["custom_qty"],
-            trailing_sl      = bool(row["trailing_sl"]),
-            trail_offset_pct = row["trail_offset_pct"],
-            peak_price       = row["peak_price"],
-            avg_price        = float(row["avg_price"]),
-            status           = row["status"],
-            triggered_at     = row["triggered_at"],
-            created_at       = row["created_at"],
-            updated_at       = row["updated_at"],
-            notes            = row["notes"] or "",
+            position_id      = position_id,
+            symbol           = symbol,
+            product          = product,
+            sl_price         = sl_price,
+            sl_type          = str(cls._row_value(row, "sl_type", "MARKET") or "MARKET").strip().upper(),
+            quantity         = quantity,
+            sl_quantity      = str(cls._row_value(row, "sl_quantity", "FULL") or "FULL").strip().upper(),
+            custom_qty       = cls._optional_int(cls._row_value(row, "custom_qty")),
+            trailing_sl      = bool(cls._row_value(row, "trailing_sl", 0)),
+            trail_offset_pct = cls._optional_float(cls._row_value(row, "trail_offset_pct")),
+            peak_price       = cls._optional_float(cls._row_value(row, "peak_price")),
+            avg_price        = avg_price,
+            status           = str(cls._row_value(row, "status", "ACTIVE") or "ACTIVE").strip().upper(),
+            triggered_at     = cls._row_value(row, "triggered_at"),
+            created_at       = str(cls._row_value(row, "created_at", market_isoformat()) or market_isoformat()),
+            updated_at       = str(cls._row_value(row, "updated_at", market_isoformat()) or market_isoformat()),
+            notes            = cls._row_value(row, "notes", "") or "",
+            instrument_token = instrument_token,
+            con_id           = con_id,
+            exchange         = str(cls._row_value(row, "exchange", "SMART") or "SMART").strip().upper(),
+            currency         = str(cls._row_value(row, "currency", "USD") or "USD").strip().upper(),
+            account          = str(cls._row_value(row, "account", "") or ""),
+            last_ltp         = cls._optional_float(cls._row_value(row, "last_ltp")),
         )
+
+    @staticmethod
+    def _optional_int(value) -> Optional[int]:
+        if value in (None, ""):
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _optional_float(value) -> Optional[float]:
+        if value in (None, ""):
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
