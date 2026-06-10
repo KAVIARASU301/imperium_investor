@@ -1079,6 +1079,7 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
             self.market_data_worker = MarketDataWorker(self.real_kite_client)
             self.market_data_worker.data_received.connect(self._enqueue_market_data)
             self.market_data_worker.connection_established.connect(self._on_websocket_connect)
+            self.market_data_worker.connection_closed.connect(self._on_websocket_disconnect)
             self.market_data_worker.market_data_type_changed.connect(self._on_market_data_type_changed)
             self._connect_position_worker_signals()
             self.market_data_worker.start()
@@ -1099,6 +1100,7 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
             self.market_data_worker = MarketDataWorker(self.real_kite_client)
             self.market_data_worker.data_received.connect(self._enqueue_market_data)
             self.market_data_worker.connection_established.connect(self._on_websocket_connect)
+            self.market_data_worker.connection_closed.connect(self._on_websocket_disconnect)
             self.market_data_worker.market_data_type_changed.connect(self._on_market_data_type_changed)
             self._connect_position_worker_signals()
             self.market_data_worker.start()
@@ -1210,6 +1212,9 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
             logger.debug("Ignoring market-data connection signal before worker is ready")
             return
 
+        if getattr(self, "sl_manager", None) is not None:
+            self.sl_manager.mark_workers_ready()
+
         if (hasattr(self, 'candlestick_chart') and
                 hasattr(self.candlestick_chart, 'current_instrument_token') and
                 self.candlestick_chart.current_instrument_token):
@@ -1219,6 +1224,12 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
             except Exception as e:
                 logger.error(f"Failed to subscribe to chart: {e}")
         self._schedule_subscription_rebuild()
+
+    @Slot()
+    def _on_websocket_disconnect(self):
+        """Market-data disconnect handler."""
+        if getattr(self, "sl_manager", None) is not None:
+            self.sl_manager.mark_workers_not_ready()
 
     @Slot(str, bool)
     def _on_market_data_type_changed(self, data_type: str, live: bool):

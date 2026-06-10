@@ -65,12 +65,28 @@ class StopLossManager(QObject):
         self._trailing_persist_timer.start(2000)        # write every 2s, not every tick
         self._token_to_positions: Dict[int, set] = {}    # instrument_token -> {position_id}
         self._open_gap_checked_date = None                # US market date once opening gap scan succeeds
+        self._workers_ready = False                       # set after market-data worker connects
         self._open_gap_timer = QTimer(self)
         self._open_gap_timer.timeout.connect(self._check_opening_gap)
-        self._open_gap_timer.start(1000)                  # critical US market-open gap scan
 
         # Load persisted active SLs on startup
         self._load_active_from_db()
+
+
+    def mark_workers_ready(self) -> None:
+        """Allow startup gap checks only after live market-data workers are connected."""
+        if self._workers_ready and self._open_gap_timer.isActive():
+            return
+        self._workers_ready = True
+        if not self._open_gap_timer.isActive():
+            self._open_gap_timer.start(1000)              # critical US market-open gap scan
+            logger.info("Stop-loss opening-gap check enabled after market-data worker connection")
+
+    def mark_workers_not_ready(self) -> None:
+        """Block synchronous broker LTP fallbacks while market-data workers are disconnected."""
+        self._workers_ready = False
+        if self._open_gap_timer.isActive():
+            self._open_gap_timer.stop()
 
 
     def _rebuild_token_map(self) -> None:
@@ -466,6 +482,9 @@ class StopLossManager(QObject):
 
     def _check_opening_gap(self) -> None:
         """Actively verify stops at/after the US regular-market open to catch gap ups/downs."""
+        if not self._workers_ready:
+            logger.debug("Skipping opening-gap check until market-data workers are ready")
+            return
         if not self._active:
             return
 
@@ -520,13 +539,15 @@ class StopLossManager(QObject):
                 logger.warning("Opening-gap worker LTP fetch failed for %s: %s", symbol, e)
 
         trader_get_ltp = getattr(self.trader, "get_ltp", None)
-        if callable(trader_get_ltp):
+        if self._workers_ready and callable(trader_get_ltp):
             try:
                 ltp = float(trader_get_ltp(symbol) or 0.0)
                 if ltp > 0:
                     return ltp
             except Exception as e:
                 logger.warning("Opening-gap broker LTP fetch failed for %s: %s", symbol, e)
+        elif callable(trader_get_ltp):
+            logger.debug("Skipping broker LTP fetch for %s until workers are ready", symbol)
 
         getter = getattr(main_window, "_get_fresh_ltp", None)
         if callable(getter):
