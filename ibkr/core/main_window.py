@@ -1064,7 +1064,13 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
             self.market_data_worker = None
             QTimer.singleShot(3000, self._retry_start_market_data_worker)
 
+    def _is_shutdown_active(self) -> bool:
+        """Return True once shutdown has started so late worker signals are ignored."""
+        return bool(getattr(self, "_shutdown_in_progress", False))
+
     def _retry_start_market_data_worker(self):
+        if self._is_shutdown_active():
+            return
         if self.real_kite_client and self.real_kite_client.isConnected():
             self.market_data_worker = MarketDataWorker(self.real_kite_client)
             self.market_data_worker.data_received.connect(self._enqueue_market_data)
@@ -1091,6 +1097,8 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
 
 
     def _initialize_ibkr_instruments(self):
+        if self._is_shutdown_active():
+            return
         from ibkr.utils.ibkr_instrument_loader import IBKRInstrumentLoader
         from ibkr.utils.ibkr_symbol_resolver import IBKRSymbolResolver
 
@@ -1167,6 +1175,9 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
     @Slot()
     def _on_websocket_connect(self):
         """WebSocket connection handler"""
+        if self._is_shutdown_active():
+            logger.debug("Ignoring market-data connection signal during shutdown")
+            return
         logger.info("WebSocket connected. Setting up subscriptions.")
         status.set_api_indicator("CONNECTED")
 
@@ -2123,6 +2134,9 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
 
     def _on_instruments_loaded(self, payload: Dict[str, Any]):
         """Handle pre-processed instrument payload emitted by InstrumentLoader."""
+        if self._is_shutdown_active():
+            logger.debug("Ignoring instrument payload during shutdown")
+            return
         instruments = payload.get("instruments", [])
         self.instrument_list = instruments
         self.instrument_map = payload.get("instrument_map", {})
@@ -2826,6 +2840,8 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
     @Slot(list)
     def _subscribe_to_tokens(self, tokens: List[Any]):
         """Subscribe widgets to IBKR market data by token, symbol, or rich item."""
+        if self._is_shutdown_active():
+            return
         if not tokens:
             return
 

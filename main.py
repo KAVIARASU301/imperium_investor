@@ -334,8 +334,15 @@ class Application:
 
     def _signal_handler(self, signum, frame):
         logger.warning(f"Signal {signum} received, initiating shutdown.")
-        self._cleanup()
-        QApplication.quit()
+
+        def _shutdown_from_qt_thread():
+            self._cleanup()
+            QApplication.quit()
+
+        # Avoid doing Qt work directly inside Python's POSIX signal handler.
+        # Queue cleanup onto the Qt event loop so closeEvent and worker signals run
+        # from the normal GUI thread context.
+        QTimer.singleShot(0, _shutdown_from_qt_thread)
 
     def _cleanup(self):
         """Graceful cleanup of application resources."""

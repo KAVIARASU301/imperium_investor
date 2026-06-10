@@ -165,6 +165,11 @@ class ShutdownManager:
 
         fast_steps = (
             ShutdownStep(
+                name="quiesce_background_activity",
+                fn=self._quiesce_background_activity,
+                timeout_ms=500,
+            ),
+            ShutdownStep(
                 name="save_window_state",
                 fn=lambda: self.window.save_window_state()
                 if hasattr(self.window, "save_window_state") else None,
@@ -186,6 +191,58 @@ class ShutdownManager:
             self._run_step(step)
 
         logger.info("=== Fast IBKR window-close shutdown complete ===")
+
+
+    def _quiesce_background_activity(self) -> None:
+        """Stop new background callbacks before processing shutdown events.
+
+        The fast close path intentionally avoids blocking on IBKR thread joins, but
+        queued Qt signals can otherwise restart subscription rebuilds or repaint the
+        search index while the window is already closing.  Disconnect the noisy
+        worker signals and request cooperative stops without waiting.
+        """
+        w = self.window
+        setattr(w, "_shutdown_in_progress", True)
+
+        loader = getattr(w, "ibkr_instrument_loader", None)
+        if loader:
+            for signal_name in ("instruments_loaded", "progress_update"):
+                signal = getattr(loader, signal_name, None)
+                if signal is not None:
+                    try:
+                        signal.disconnect()
+                    except Exception:
+                        pass
+            stop_fn = getattr(loader, "stop", None)
+            if callable(stop_fn):
+                try:
+                    stop_fn()
+                except Exception:
+                    logger.debug("Failed requesting IBKR loader stop", exc_info=True)
+            try:
+                loader.requestInterruption()
+            except Exception:
+                pass
+
+        worker = getattr(w, "market_data_worker", None)
+        if worker:
+            for signal_name in (
+                "data_received",
+                "connection_established",
+                "connection_closed",
+                "market_data_type_changed",
+                "connection_error",
+            ):
+                signal = getattr(worker, signal_name, None)
+                if signal is not None:
+                    try:
+                        signal.disconnect()
+                    except Exception:
+                        pass
+            try:
+                worker._is_running = False
+            except Exception:
+                pass
 
     def _run_step(self, step: ShutdownStep) -> None:
         """Run a single step with timeout and error isolation."""
