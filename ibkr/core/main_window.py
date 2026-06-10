@@ -125,6 +125,12 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
         self.chart_drawings_dir = str(
             get_user_data_path("ibkr", self.trading_mode, "chart_drawings")
         )
+        self.instrument_list: List[Dict] = []
+        self.instrument_map: Dict[str, Dict] = {}
+        self._subscribed_tokens = set()
+        self._subscription_universe_keys: frozenset[str] = frozenset()
+        self._position_subscription_keys: frozenset[str] = frozenset()
+        self._ibkr_symbol_resolver: Optional[IBKRSymbolResolver] = None
 
         # SIMPLIFIED MANAGERS - NO NOTIFICATION SYSTEM
         self.position_manager = PositionManager(self.trader, main_window=self, trade_logger=self.trade_logger)
@@ -150,13 +156,6 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
         )
 
         self.chart_lines_manager = ChartLinesManager(self)
-
-        self.instrument_list: List[Dict] = []
-        self.instrument_map: Dict[str, Dict] = {}
-        self._subscribed_tokens = set()
-        self._subscription_universe_keys: frozenset[str] = frozenset()
-        self._position_subscription_keys: frozenset[str] = frozenset()
-        self._ibkr_symbol_resolver: Optional[IBKRSymbolResolver] = None
 
         self.setWindowTitle("Swing Trader")
 

@@ -136,3 +136,146 @@
 2026-06-10 22:36:17,861 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for SPRC: Requested market data is not subscribed. Displaying delayed market data. (10167)
 2026-06-10 22:36:20,049 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: ARM key=653400472 type=delayed
 2026-06-10 22:36:20,590 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for ARM: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-10 22:37:05,105 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=ARM interval=60minute from=2026-04-21T13:07:05.105238-04:00 to=2026-06-10T13:07:05.105238-04:00 dedicated_history=True
+2026-06-10 22:37:05,106 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: ARM conId=653400472 bar=30 mins duration=50 D end=latest
+2026-06-10 22:37:06,419 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=ARM bars=347
+2026-06-10 22:37:06,492 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-10 22:37:06,494 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-10 22:37:06,500 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol ARM
+2026-06-10 22:37:06,500 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: ARM (347 candles)
+2026-06-10 22:37:11,103 - INFO - ibkr.core.data_cache - US market-open cache flush complete; intraday entries cleared
+2026-06-10 22:38:04,105 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=ARM interval=60minute from=2026-04-21T13:08:04.104526-04:00 to=2026-06-10T13:08:04.104526-04:00 dedicated_history=True
+2026-06-10 22:38:04,107 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: ARM conId=653400472 bar=30 mins duration=50 D end=latest
+2026-06-10 22:38:05,443 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=ARM bars=347
+2026-06-10 22:38:05,501 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-10 22:38:05,502 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-10 22:38:05,507 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol ARM
+2026-06-10 22:38:05,508 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: ARM (347 candles)
+2026-06-10 22:38:42,515 - INFO - ibkr.widgets.scanner_table - Running EOD Finviz scan: Computer Hardware
+2026-06-10 22:38:43,927 - INFO - ibkr.widgets.scanner_table - EOD Scan completed: 17 symbols with complete data
+2026-06-10 22:38:44,000 - INFO - ibkr.widgets.scanner_table - EOD Scanner table updated with 17 symbols.
+2026-06-10 22:38:52,590 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=ALOT interval=day from=2026-03-02T13:08:52.590427-05:00 to=2026-06-10T13:08:52.590427-04:00 dedicated_history=True
+2026-06-10 22:38:52,592 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: ALOT conId=266058 bar=1 day duration=100 D end=latest
+2026-06-10 22:38:52,608 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=ALOT interval=60minute from=2026-04-21T13:08:52.608173-04:00 to=2026-06-10T13:08:52.608173-04:00 dedicated_history=True
+2026-06-10 22:38:52,611 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: ALOT conId=266058 bar=30 mins duration=50 D end=latest
+2026-06-10 22:38:53,859 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=ALOT bars=71
+2026-06-10 22:38:53,904 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-10 22:38:53,905 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-10 22:38:53,908 - INFO - ibkr.core.main_window - Chart symbol changed to: ALOT
+2026-06-10 22:38:53,909 - INFO - ibkr.core.main_window - Added chart symbol ALOT to subscription
+2026-06-10 22:38:53,910 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol ALOT
+2026-06-10 22:38:53,910 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: ALOT (71 candles)
+2026-06-10 22:38:54,210 - INFO - ibkr.core.main_window - Subscription universe changed: 23 instruments (20 token-backed, +1/-1) sources={'positions': 20, 'charts': 2, 'header': 2}
+2026-06-10 22:38:54,259 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: ALOT key=266058 type=delayed
+2026-06-10 22:38:54,615 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=ALOT bars=345
+2026-06-10 22:38:54,674 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: ALOT (345 candles)
+2026-06-10 22:38:54,705 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for ALOT: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-10 22:38:55,359 - INFO - ibkr.core.market_data_worker - Unsubscribed IBKR market data: ARM
+2026-06-10 22:38:55,460 - ERROR - ib_insync.wrapper - Error 300, reqId 100: Can't find EId with tickerId:100
+2026-06-10 22:38:55,752 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=BRAI interval=day from=2026-03-02T13:08:55.752682-05:00 to=2026-06-10T13:08:55.752682-04:00 dedicated_history=True
+2026-06-10 22:38:55,753 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: BRAI conId=854079328 bar=1 day duration=100 D end=latest
+2026-06-10 22:38:55,764 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=BRAI interval=60minute from=2026-04-21T13:08:55.764743-04:00 to=2026-06-10T13:08:55.764743-04:00 dedicated_history=True
+2026-06-10 22:38:55,767 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: BRAI conId=854079328 bar=30 mins duration=50 D end=latest
+2026-06-10 22:38:57,871 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=BRAI bars=71
+2026-06-10 22:38:57,930 - INFO - ibkr.core.main_window - Chart symbol changed to: BRAI
+2026-06-10 22:38:57,930 - INFO - ibkr.core.main_window - Added chart symbol BRAI to subscription
+2026-06-10 22:38:57,931 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol BRAI
+2026-06-10 22:38:57,931 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: BRAI (71 candles)
+2026-06-10 22:38:58,294 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: BRAI key=854079328 type=delayed
+2026-06-10 22:38:58,300 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=BRAI bars=343
+2026-06-10 22:38:58,377 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: BRAI (343 candles)
+2026-06-10 22:38:58,815 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for BRAI: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-10 22:38:59,373 - INFO - ibkr.core.market_data_worker - Unsubscribed IBKR market data: ALOT
+2026-06-10 22:38:59,470 - ERROR - ib_insync.wrapper - Error 300, reqId 128: Can't find EId with tickerId:128
+2026-06-10 22:39:05,023 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=CRSR interval=day from=2026-03-02T13:09:05.023501-05:00 to=2026-06-10T13:09:05.023501-04:00 dedicated_history=True
+2026-06-10 22:39:05,025 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: CRSR conId=446872191 bar=1 day duration=100 D end=latest
+2026-06-10 22:39:05,039 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=CRSR interval=60minute from=2026-04-21T13:09:05.039667-04:00 to=2026-06-10T13:09:05.039667-04:00 dedicated_history=True
+2026-06-10 22:39:05,041 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: CRSR conId=446872191 bar=30 mins duration=50 D end=latest
+2026-06-10 22:39:06,232 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=CRSR bars=71
+2026-06-10 22:39:06,293 - INFO - ibkr.core.main_window - Chart symbol changed to: CRSR
+2026-06-10 22:39:06,293 - INFO - ibkr.core.main_window - Added chart symbol CRSR to subscription
+2026-06-10 22:39:06,294 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol CRSR
+2026-06-10 22:39:06,294 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: CRSR (71 candles)
+2026-06-10 22:39:06,633 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: CRSR key=446872191 type=delayed
+2026-06-10 22:39:06,919 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=CRSR bars=347
+2026-06-10 22:39:06,986 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: CRSR (347 candles)
+2026-06-10 22:39:07,207 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for CRSR: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-10 22:39:07,727 - INFO - ibkr.core.market_data_worker - Unsubscribed IBKR market data: BRAI
+2026-06-10 22:39:07,828 - ERROR - ib_insync.wrapper - Error 300, reqId 156: Can't find EId with tickerId:156
+2026-06-10 22:39:08,477 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=DDD interval=day from=2026-03-02T13:09:08.477085-05:00 to=2026-06-10T13:09:08.477085-04:00 dedicated_history=True
+2026-06-10 22:39:08,478 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: DDD conId=6542334 bar=1 day duration=100 D end=latest
+2026-06-10 22:39:08,491 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=DDD interval=60minute from=2026-04-21T13:09:08.491845-04:00 to=2026-06-10T13:09:08.491845-04:00 dedicated_history=True
+2026-06-10 22:39:08,495 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: DDD conId=6542334 bar=30 mins duration=50 D end=latest
+2026-06-10 22:39:10,215 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=DDD bars=71
+2026-06-10 22:39:10,290 - INFO - ibkr.core.main_window - Chart symbol changed to: DDD
+2026-06-10 22:39:10,290 - INFO - ibkr.core.main_window - Added chart symbol DDD to subscription
+2026-06-10 22:39:10,291 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol DDD
+2026-06-10 22:39:10,291 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: DDD (71 candles)
+2026-06-10 22:39:10,588 - INFO - ibkr.core.market_data_worker - Subscribed IBKR market data: DDD key=6542334 type=delayed
+2026-06-10 22:39:11,119 - WARNING - ibkr.core.market_data_worker - IBKR market data notice for DDD: Requested market data is not subscribed. Displaying delayed market data. (10167)
+2026-06-10 22:39:11,242 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=DDD bars=347
+2026-06-10 22:39:11,291 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: DDD (347 candles)
+2026-06-10 22:39:11,608 - INFO - ibkr.core.market_data_worker - Unsubscribed IBKR market data: CRSR
+2026-06-10 22:39:11,708 - ERROR - ib_insync.wrapper - Error 300, reqId 184: Can't find EId with tickerId:184
+2026-06-10 22:39:14,693 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=DELL interval=day from=2026-03-02T13:09:14.693057-05:00 to=2026-06-10T13:09:14.693057-04:00 dedicated_history=True
+2026-06-10 22:39:14,694 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: DELL conId=346218218 bar=1 day duration=100 D end=latest
+2026-06-10 22:39:14,708 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=DELL interval=60minute from=2026-04-21T13:09:14.708058-04:00 to=2026-06-10T13:09:14.708058-04:00 dedicated_history=True
+2026-06-10 22:39:14,708 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: DELL conId=346218218 bar=30 mins duration=50 D end=latest
+2026-06-10 22:39:15,321 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=DELL bars=71
+2026-06-10 22:39:15,374 - INFO - chart_engine.drawings - Loaded state for DELL (day) — 1 drawings
+2026-06-10 22:39:15,378 - INFO - ibkr.core.main_window - Chart symbol changed to: DELL
+2026-06-10 22:39:15,379 - INFO - ibkr.core.main_window - Added chart symbol DELL to subscription
+2026-06-10 22:39:15,380 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol DELL
+2026-06-10 22:39:15,380 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: DELL (71 candles)
+2026-06-10 22:39:15,732 - INFO - ibkr.core.market_data_worker - Unsubscribed IBKR market data: DDD
+2026-06-10 22:39:15,928 - ERROR - ib_insync.wrapper - Error 300, reqId 212: Can't find EId with tickerId:212
+2026-06-10 22:39:16,389 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=DELL bars=347
+2026-06-10 22:39:16,456 - INFO - chart_engine.drawings - Loaded state for DELL (60minute) — 1 drawings
+2026-06-10 22:39:16,467 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: DELL (347 candles)
+2026-06-10 22:40:05,105 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=DELL interval=60minute from=2026-04-21T13:10:05.104913-04:00 to=2026-06-10T13:10:05.104913-04:00 dedicated_history=True
+2026-06-10 22:40:05,107 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: DELL conId=346218218 bar=30 mins duration=50 D end=latest
+2026-06-10 22:40:06,504 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=DELL bars=347
+2026-06-10 22:40:06,535 - INFO - chart_engine.drawings - Loaded state for DELL (60minute) — 1 drawings
+2026-06-10 22:40:06,536 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-10 22:40:06,537 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-10 22:40:06,541 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol DELL
+2026-06-10 22:40:06,541 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: DELL (347 candles)
+2026-06-10 22:40:22,209 - INFO - ibkr.core.main_window - Floating positions dialog opened
+2026-06-10 22:40:31,657 - INFO - ibkr.core.main_window - Added 1 widget market-data subscriptions (0 token-backed)
+2026-06-10 22:40:31,661 - INFO - ibkr.core.chart_lines_manager - Updated stop-loss line for BAX @ 20.40
+2026-06-10 22:40:31,663 - INFO - ibkr.core.stop_loss_manager - SL set: BAX @ $20.40 (FULL, 4.88% from avg $19.45)
+2026-06-10 22:40:36,349 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=BAX interval=day from=2026-03-02T13:10:36.349469-05:00 to=2026-06-10T13:10:36.349469-04:00 dedicated_history=True
+2026-06-10 22:40:36,366 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=BAX interval=60minute from=2026-04-21T13:10:36.365958-04:00 to=2026-06-10T13:10:36.365958-04:00 dedicated_history=True
+2026-06-10 22:40:36,466 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=BAX interval=day from=2026-03-02T13:10:36.466098-05:00 to=2026-06-10T13:10:36.466098-04:00 dedicated_history=True
+2026-06-10 22:40:36,476 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=BAX interval=60minute from=2026-04-21T13:10:36.476192-04:00 to=2026-06-10T13:10:36.476192-04:00 dedicated_history=True
+2026-06-10 22:40:36,648 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: BAX conId=8111188 bar=1 day duration=100 D end=latest
+2026-06-10 22:40:36,993 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: BAX conId=8111188 bar=30 mins duration=50 D end=latest
+2026-06-10 22:40:37,594 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=BAX bars=71
+2026-06-10 22:40:37,661 - INFO - chart_engine.drawings - Loaded state for BAX (day) — 2 drawings
+2026-06-10 22:40:37,662 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-10 22:40:37,664 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-10 22:40:37,667 - INFO - ibkr.core.main_window - Chart symbol changed to: BAX
+2026-06-10 22:40:37,667 - INFO - ibkr.core.main_window - Added chart symbol BAX to subscription
+2026-06-10 22:40:37,669 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol BAX
+2026-06-10 22:40:37,669 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: BAX (71 candles)
+2026-06-10 22:40:37,988 - INFO - ibkr.core.main_window - Subscription universe changed: 23 instruments (20 token-backed, +1/-1) sources={'positions': 20, 'charts': 2, 'header': 2}
+2026-06-10 22:40:38,495 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=BAX bars=347
+2026-06-10 22:40:38,561 - INFO - chart_engine.drawings - Loaded state for BAX (60minute) — 2 drawings
+2026-06-10 22:40:38,569 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: BAX (347 candles)
+2026-06-10 22:40:40,876 - INFO - ibkr.core.shutdown_manager - closeEvent received — beginning fast IBKR shutdown
+2026-06-10 22:40:40,878 - INFO - ibkr.core.shutdown_manager - === Fast IBKR window-close shutdown starting ===
+2026-06-10 22:40:40,878 - INFO - ibkr.core.shutdown_manager - Shutdown: [quiesce_background_activity]…
+2026-06-10 22:40:40,879 - INFO - ibkr.core.shutdown_manager - Shutdown: [quiesce_background_activity] ✓
+2026-06-10 22:40:40,880 - INFO - ibkr.core.shutdown_manager - Shutdown: [save_window_state]…
+2026-06-10 22:40:40,884 - INFO - ibkr.core.main_window - Window state saved
+2026-06-10 22:40:40,885 - INFO - ibkr.core.shutdown_manager - Shutdown: [save_window_state] ✓
+2026-06-10 22:40:40,885 - INFO - ibkr.core.shutdown_manager - Shutdown: [save_chart_state]…
+2026-06-10 22:40:40,887 - INFO - ib_insync.client - Disconnecting
+2026-06-10 22:40:40,891 - INFO - ibkr.core.market_data_worker - IBKR MarketDataWorker stopped
+2026-06-10 22:40:40,901 - INFO - ibkr.core.shutdown_manager - Shutdown: [save_chart_state] ✓
+2026-06-10 22:40:40,902 - INFO - ibkr.core.shutdown_manager - Shutdown: [stop_remaining_timers]…
+2026-06-10 22:40:40,918 - INFO - ibkr.core.shutdown_manager - Shutdown: [stop_remaining_timers] ✓
+2026-06-10 22:40:40,918 - INFO - ibkr.core.shutdown_manager - === Fast IBKR window-close shutdown complete ===
+2026-06-10 22:40:40,924 - INFO - __main__ - Shutting down and cleaning up resources...
+2026-06-10 22:40:40,924 - INFO - __main__ - Skipping broker disconnect during fast window-close shutdown.
+2026-06-10 22:40:40,924 - INFO - __main__ - Cleanup complete.

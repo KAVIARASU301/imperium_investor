@@ -1,16 +1,17 @@
 # ibkr/core/stop_loss_store.py
 """
-SQLite-backed persistence for stop-loss records.
+SQLite-backed persistence for IBKR stop-loss records.
 One record per open position. Survives app restarts.
 """
 
-import json
 import logging
-import os
+import shutil
 import sqlite3
 from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Dict, List, Optional
+from pathlib import Path
+from typing import List, Optional
+
+from app_paths import get_home_app_dir, get_user_data_path
 from ibkr.utils.market_time import market_isoformat
 
 logger = logging.getLogger(__name__)
@@ -107,23 +108,65 @@ class StopLossRecord:
 
 
 class StopLossStore:
-    """Thread-safe SQLite store for stop-loss records."""
+    """SQLite store for IBKR stop-loss records."""
 
-    def __init__(self):
-        db_dir = os.path.join(os.path.expanduser("~"), ".qullamaggie")
-        os.makedirs(db_dir, exist_ok=True)
-        self._path = os.path.join(db_dir, "ibkr_stop_losses.db")
+    DB_FILENAME = "stop_losses.db"
+    LEGACY_DB_FILENAME = "ibkr_stop_losses.db"
+
+    def __init__(self, trading_mode: str = "live"):
+        self._path = get_user_data_path("ibkr", trading_mode, self.DB_FILENAME)
+        self._migrate_legacy_db()
         self._init_db()
 
+    @property
+    def path(self) -> Path:
+        return self._path
+
+    def _legacy_path(self) -> Path:
+        return get_home_app_dir() / self.LEGACY_DB_FILENAME
+
+    def _migrate_legacy_db(self) -> None:
+        """Move old top-level ~/.qullamaggie IBKR SL DB into broker-scoped storage.
+
+        Keeping broker data under storage/user_data/ibkr/<mode> prevents the
+        legacy root database from being treated as process-global app state and
+        matches the rest of the IBKR user-data layout.
+        """
+        legacy_path = self._legacy_path()
+        if not legacy_path.exists() or self._path.exists():
+            return
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(legacy_path, self._path)
+            logger.info("Migrated IBKR stop-loss DB from %s to %s", legacy_path, self._path)
+        except OSError as exc:
+            logger.warning("Could not migrate legacy IBKR stop-loss DB %s: %s", legacy_path, exc)
+
     def _conn(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self._path, timeout=5.0, check_same_thread=False)
+        conn = sqlite3.connect(str(self._path), timeout=5.0, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         return conn
 
+    def _quarantine_bad_db(self, reason: Exception) -> None:
+        bad_path = self._path.with_suffix(f".bad-{market_isoformat().replace(':', '').replace('-', '')}.db")
+        try:
+            if self._path.exists():
+                self._path.replace(bad_path)
+                logger.error("Quarantined unreadable IBKR stop-loss DB at %s: %s", bad_path, reason)
+        except OSError as exc:
+            logger.error("Could not quarantine unreadable IBKR stop-loss DB %s: %s", self._path, exc)
+
     def _init_db(self):
-        with self._conn() as conn:
-            conn.executescript(SCHEMA_SQL)
-            conn.commit()
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with self._conn() as conn:
+                conn.executescript(SCHEMA_SQL)
+                conn.commit()
+        except sqlite3.DatabaseError as exc:
+            self._quarantine_bad_db(exc)
+            with self._conn() as conn:
+                conn.executescript(SCHEMA_SQL)
+                conn.commit()
 
     # ── CRUD ──────────────────────────────────────────────────────────────
 
@@ -147,6 +190,7 @@ class StopLossStore:
                       trailing_sl=excluded.trailing_sl,
                       trail_offset_pct=excluded.trail_offset_pct,
                       peak_price=excluded.peak_price,
+                      avg_price=excluded.avg_price,
                       status=excluded.status,
                       triggered_at=excluded.triggered_at,
                       updated_at=excluded.updated_at,
@@ -182,10 +226,16 @@ class StopLossStore:
                 rows = conn.execute(
                     "SELECT * FROM stop_losses WHERE status='ACTIVE'"
                 ).fetchall()
-            return [self._row_to_record(r) for r in rows]
-        except Exception as e:
+        except sqlite3.DatabaseError as e:
             logger.error("StopLossStore.get_all_active failed: %s", e)
             return []
+        records: List[StopLossRecord] = []
+        for row in rows:
+            try:
+                records.append(self._row_to_record(row))
+            except Exception as exc:
+                logger.warning("Skipping invalid IBKR stop-loss row: %s", exc)
+        return records
 
     def cancel(self, position_id: str) -> bool:
         try:

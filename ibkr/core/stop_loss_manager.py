@@ -405,8 +405,12 @@ class StopLossManager(QObject):
         """Keep SL symbols subscribed so opening-gap ticks reach this manager."""
         main_window = self.parent()
         subscribe = getattr(main_window, "_subscribe_to_tokens", None)
-        if callable(subscribe):
+        if not callable(subscribe):
+            return
+        try:
             subscribe([self._subscription_item_for_symbol(rec.symbol)])
+        except Exception as exc:
+            logger.warning("Deferred/failed SL market-data subscription for %s: %s", rec.symbol, exc)
 
     def _check_opening_gap(self) -> None:
         """Actively verify stops at/after the US regular-market open to catch gap ups/downs."""
@@ -706,5 +710,12 @@ class StopLossManager(QObject):
         if records:
             logger.info("Restored %d active SL record(s) from database", len(records))
             self._rebuild_token_map()
-            for rec in records:
-                self._subscribe_record_token(rec)
+            # StopLossManager is constructed while MainWindow is still building
+            # core subscription attributes. Defer restored SL subscriptions until
+            # the event loop starts so a persisted SL DB cannot abort IBKR startup.
+            QTimer.singleShot(0, self._subscribe_restored_records)
+
+    def _subscribe_restored_records(self) -> None:
+        """Subscribe restored SL symbols after parent window initialization settles."""
+        for rec in self.get_all_active():
+            self._subscribe_record_token(rec)
