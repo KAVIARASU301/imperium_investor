@@ -192,6 +192,7 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
         self._subscription_rebuild_timer.timeout.connect(self._rebuild_subscription_universe)
         self._pending_fresh_restart = False
         self._charts_revealed = False
+        self._post_show_workers_started = False
         self._status_day_realized_total = 0.0
         self._reconnect_overlay = ReconnectingOverlay(self)
 
@@ -199,7 +200,6 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
         self._setup_frameless_window()
         self._setup_ui()
         self._init_alert_system()
-        self._init_background_workers()
         self._connect_signals()
         self.color_theme_manager.theme_changed.connect(self._on_color_theme_changed)
         self._connect_chart_signals()
@@ -214,8 +214,11 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
 
         logger.info("Simplified qullamaggie Window with Status Bar Initialized Successfully.")
 
-        # Start position manager after a delay
-        QTimer.singleShot(2000, self._initialize_position_system)
+        # Start broker/network workers only after the window has been shown and
+        # Qt's event loop is running.  IBKR opens multiple auxiliary API sockets
+        # (history, market data, instrument lookup); doing that during widget
+        # construction can crash before the main window paints on some systems.
+        # Position sync is likewise delayed until the post-show startup phase.
 
     def show_initial_window_state(self):
         """Show window once using restored/default startup mode to reduce startup flicker."""
@@ -231,6 +234,28 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
             self.show()
             self.max_btn.setText("□")
             self._is_maximized = False
+
+        QTimer.singleShot(0, self._start_post_show_workers)
+
+    def _start_post_show_workers(self):
+        """Start IBKR network workers after the main window is visible."""
+        if self._post_show_workers_started or self._is_shutdown_active():
+            return
+        self._post_show_workers_started = True
+        logger.info("Starting deferred IBKR post-show workers")
+
+        fetcher = getattr(self, "chart_data_fetcher", None)
+        prewarm = getattr(fetcher, "prewarm_connection", None)
+        if callable(prewarm):
+            try:
+                prewarm()
+            except Exception as exc:
+                logger.warning("Deferred IBKR history prewarm failed: %s", exc)
+
+        self._init_background_workers()
+        if hasattr(self.finviz_scanner, "start_initial_scan"):
+            QTimer.singleShot(250, self.finviz_scanner.start_initial_scan)
+        QTimer.singleShot(2000, self._initialize_position_system)
 
     def _set_chart_panes_visible(self, visible: bool):
         """Toggle chart pane visibility while preserving dual/single chart layout intent."""
@@ -332,18 +357,20 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
         self._is_adjusting_splitter = False
 
         # Create components
-        self.finviz_scanner = FinvizScannerTable()
+        self.finviz_scanner = FinvizScannerTable(auto_run_scan=False)
         chart_data_fetcher = self._create_chart_data_fetcher()
         self.chart_data_fetcher = chart_data_fetcher
         self.candlestick_chart = ChartWindow(
             chart_data_fetcher,
             storage_dir=self.chart_drawings_dir,
+            restore_last_view=False,
         )
         self.candlestick_chart_secondary = ChartWindow(
             chart_data_fetcher,
             storage_dir=self.chart_drawings_dir,
             persistence_key="secondary",
             default_interval="60minute",
+            restore_last_view=False,
         )
         shared_chart_cache = MarketAwareDataCache(parent=self)
         self.candlestick_chart.data_cache = shared_chart_cache
@@ -2249,13 +2276,27 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
 
             symbol_to_load = ""
 
-            # 1) Prefer current watchlist symbol when available.
+            # 1) Prefer the persisted primary chart symbol, but restore it only
+            # after the visible window and IBKR worker startup are complete.
+            try:
+                last_view = self.candlestick_chart.drawing_storage.load_last_viewed_symbol(
+                    self.candlestick_chart.persistence_key
+                )
+                symbol_to_load = str(last_view.get("symbol") or "").strip().upper()
+                if symbol_to_load:
+                    interval = last_view.get("interval") or getattr(self.candlestick_chart, "current_interval", "day")
+                    self.candlestick_chart.current_interval = interval
+                    self.candlestick_chart.toolbar.set_timeframe(interval)
+            except Exception as exc:
+                logger.warning("Unable to restore last IBKR chart symbol: %s", exc)
+
+            # 2) Prefer current watchlist symbol when available.
             if hasattr(self, "watchlist_widget") and self.watchlist_widget:
                 get_symbol = getattr(self.watchlist_widget, "get_current_symbol", None)
                 if callable(get_symbol):
                     symbol_to_load = (get_symbol() or "").strip().upper()
 
-            # 2) Fall back to first scanner row (keeps startup aligned with scanner output).
+            # 3) Fall back to first scanner row (keeps startup aligned with scanner output).
             if not symbol_to_load and hasattr(self, "finviz_scanner") and self.finviz_scanner:
                 table = getattr(self.finviz_scanner, "table", None)
                 if table and table.rowCount() > 0:
@@ -2263,7 +2304,7 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
                     if cell:
                         symbol_to_load = (cell.text() or "").strip().upper()
 
-            # 3) Last fallback: first instrument in map.
+            # 4) Last fallback: first instrument in map.
             if not symbol_to_load and self.instrument_map:
                 symbol_to_load = next(iter(self.instrument_map.keys()), "").strip().upper()
 
@@ -3825,7 +3866,7 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
         """Create the correct chart data fetcher for the active broker client."""
         client = self.real_kite_client
         if hasattr(client, "reqHistoricalData"):
-            return IBKRDataFetcher(client)
+            return IBKRDataFetcher(client, auto_prewarm=False)
         return KiteDataFetcher(client)
 
     def _setup_watchlist_shortcuts(self):

@@ -117,6 +117,7 @@ class CandlestickChart(QWidget):
         persistence_key: str = "",
         default_interval: str = "day",
         parent=None,
+        restore_last_view: bool = True,
     ):
         super().__init__(parent)
         self.instrument_loader = instrument_loader
@@ -212,9 +213,22 @@ class CandlestickChart(QWidget):
         self._apply_styles()
 
         # ── Restore last symbol ──
+        if restore_last_view:
+            self.restore_last_viewed_symbol()
+
+    def restore_last_viewed_symbol(self) -> bool:
+        """Restore the persisted chart symbol/timeframe on demand.
+
+        Startup-sensitive hosts can construct the widget without immediately
+        firing historical-data requests, then call this after the main window and
+        broker workers are ready.
+        """
         last = self.drawing_storage.load_last_viewed_symbol(self.persistence_key)
-        if last.get("symbol"):
-            self.load_symbol(last["symbol"], None, 0, last.get("interval", "day"))
+        symbol = str(last.get("symbol") or "").strip()
+        if not symbol:
+            return False
+        self.load_symbol(symbol, None, 0, last.get("interval", "day"))
+        return True
 
     def _is_intraday_interval(self, interval: Optional[str] = None) -> bool:
         return str(interval or self.current_interval or "").strip().lower() in INTRADAY_INTERVALS

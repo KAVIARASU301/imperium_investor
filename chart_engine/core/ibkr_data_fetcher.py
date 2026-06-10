@@ -120,6 +120,7 @@ class IBKRDataFetcher(BrokerDataFetcher):
             dedicated_history_connection: bool = True,
             history_client_id_base: int = 9000,
             connect_timeout: float = 8.0,
+            auto_prewarm: bool = True,
     ):
         self._ib = ib_client
         self._what_to_show = what_to_show
@@ -131,9 +132,12 @@ class IBKRDataFetcher(BrokerDataFetcher):
         self._contract_cache_lock = threading.Lock()
         self._last_history_endpoint: Optional[Tuple[str, int]] = None
 
-        # Keep HMDS warm from startup so first/next symbol transitions do not
-        # pay the dedicated history-socket cold-start cost.
-        self.prewarm_connection()
+        # Keep HMDS warm when requested so first/next symbol transitions do not
+        # pay the dedicated history-socket cold-start cost.  IBKR UI startup
+        # defers this until after the main window is shown to avoid spinning up
+        # extra TWS sockets during widget construction.
+        if auto_prewarm:
+            self.prewarm_connection()
 
     def preload_contracts(self, symbols: list[str]) -> Optional[concurrent.futures.Future]:
         """Warm the IBKR contract cache for the supplied symbols without blocking callers."""

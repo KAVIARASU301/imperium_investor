@@ -1378,8 +1378,9 @@ class FinvizScannerTable(QWidget):
     scan_running_changed = Signal(bool)  # emitted when scanner fetch starts/stops
     visible_rows_changed = Signal()   # emitted when scroll changes visible rows
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, auto_run_scan: bool = True):
         super().__init__(parent)
+        self._auto_run_scan = bool(auto_run_scan)
         self.scans = self._load_scans()
         self.scan_thread: ScanWorker = None
         self._symbol_data: Dict[str, Dict] = {}
@@ -1415,7 +1416,14 @@ class FinvizScannerTable(QWidget):
                 self.scan_dropdown.blockSignals(True)
                 self._set_dropdown_to_scan_index(last_selected)
                 self.scan_dropdown.blockSignals(False)
-            self._run_current_scan()
+            if self._auto_run_scan:
+                self._run_current_scan()
+
+    def start_initial_scan(self) -> bool:
+        """Run the configured startup scan after host UI startup is complete."""
+        if not self.scans or self.is_scan_running():
+            return False
+        return self._run_current_scan()
 
     def _setup_ui(self):
         """Initializes the UI layout and components."""
