@@ -158,3 +158,70 @@
 2026-06-10 22:26:05,467 - INFO - chart_engine.drawings - Saved global chart settings.
 2026-06-10 22:26:05,472 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol ARM
 2026-06-10 22:26:05,473 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: ARM (347 candles)
+2026-06-10 22:27:05,106 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=ARM interval=60minute from=2026-04-21T12:57:05.104416-04:00 to=2026-06-10T12:57:05.104416-04:00 dedicated_history=True
+2026-06-10 22:27:05,107 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: ARM conId=653400472 bar=30 mins duration=50 D end=latest
+2026-06-10 22:27:06,435 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=ARM bars=347
+2026-06-10 22:27:06,470 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-10 22:27:06,471 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-10 22:27:06,477 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol ARM
+2026-06-10 22:27:06,477 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: ARM (347 candles)
+2026-06-10 22:28:05,104 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=ARM interval=60minute from=2026-04-21T12:58:05.104649-04:00 to=2026-06-10T12:58:05.104649-04:00 dedicated_history=True
+2026-06-10 22:28:05,107 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: ARM conId=653400472 bar=30 mins duration=50 D end=latest
+2026-06-10 22:28:06,463 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=ARM bars=347
+2026-06-10 22:28:06,507 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-10 22:28:06,508 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-10 22:28:06,515 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol ARM
+2026-06-10 22:28:06,515 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: ARM (347 candles)
+2026-06-10 22:29:04,104 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=ARM interval=60minute from=2026-04-21T12:59:04.104185-04:00 to=2026-06-10T12:59:04.104185-04:00 dedicated_history=True
+2026-06-10 22:29:04,105 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: ARM conId=653400472 bar=30 mins duration=50 D end=latest
+2026-06-10 22:29:05,430 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=ARM bars=347
+2026-06-10 22:29:05,462 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-10 22:29:05,463 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-10 22:29:05,467 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol ARM
+2026-06-10 22:29:05,467 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: ARM (347 candles)
+2026-06-10 22:30:05,105 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=ARM interval=60minute from=2026-04-21T13:00:05.104971-04:00 to=2026-06-10T13:00:05.104971-04:00 dedicated_history=True
+2026-06-10 22:30:05,107 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: ARM conId=653400472 bar=30 mins duration=50 D end=latest
+2026-06-10 22:30:06,679 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=ARM bars=347
+2026-06-10 22:30:06,726 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-10 22:30:06,727 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-10 22:30:06,732 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol ARM
+2026-06-10 22:30:06,733 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: ARM (347 candles)
+2026-06-10 22:31:05,105 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=ARM interval=60minute from=2026-04-21T13:01:05.105036-04:00 to=2026-06-10T13:01:05.105036-04:00 dedicated_history=True
+2026-06-10 22:31:05,109 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: ARM conId=653400472 bar=30 mins duration=50 D end=latest
+2026-06-10 22:31:06,451 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=ARM bars=347
+2026-06-10 22:31:06,502 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-10 22:31:06,502 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-10 22:31:06,508 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol ARM
+2026-06-10 22:31:06,508 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: ARM (347 candles)
+2026-06-10 22:32:04,104 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=ARM interval=60minute from=2026-04-21T13:02:04.104285-04:00 to=2026-06-10T13:02:04.104285-04:00 dedicated_history=True
+2026-06-10 22:32:04,105 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: ARM conId=653400472 bar=30 mins duration=50 D end=latest
+2026-06-10 22:32:05,454 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=ARM bars=347
+2026-06-10 22:32:05,502 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-10 22:32:05,503 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-10 22:32:05,509 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol ARM
+2026-06-10 22:32:05,509 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: ARM (347 candles)
+2026-06-10 22:33:04,105 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=ARM interval=60minute from=2026-04-21T13:03:04.104860-04:00 to=2026-06-10T13:03:04.104860-04:00 dedicated_history=True
+2026-06-10 22:33:04,105 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: ARM conId=653400472 bar=30 mins duration=50 D end=latest
+2026-06-10 22:33:05,471 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=ARM bars=347
+2026-06-10 22:33:05,520 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-10 22:33:05,521 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-10 22:33:05,527 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol ARM
+2026-06-10 22:33:05,528 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: ARM (347 candles)
+2026-06-10 22:33:39,553 - WARNING - __main__ - Signal 2 received, initiating shutdown.
+2026-06-10 22:33:39,555 - INFO - __main__ - Shutting down and cleaning up resources...
+2026-06-10 22:33:39,555 - INFO - ibkr.core.shutdown_manager - closeEvent received — beginning fast IBKR shutdown
+2026-06-10 22:33:39,556 - INFO - ibkr.core.shutdown_manager - === Fast IBKR window-close shutdown starting ===
+2026-06-10 22:33:39,556 - INFO - ibkr.core.shutdown_manager - Shutdown: [quiesce_background_activity]…
+2026-06-10 22:33:39,557 - INFO - ibkr.core.shutdown_manager - Shutdown: [quiesce_background_activity] ✓
+2026-06-10 22:33:39,558 - INFO - ibkr.core.shutdown_manager - Shutdown: [save_window_state]…
+2026-06-10 22:33:39,559 - INFO - ibkr.core.main_window - Window state saved
+2026-06-10 22:33:39,559 - INFO - ibkr.core.shutdown_manager - Shutdown: [save_window_state] ✓
+2026-06-10 22:33:39,559 - INFO - ibkr.core.shutdown_manager - Shutdown: [save_chart_state]…
+2026-06-10 22:33:39,563 - INFO - ib_insync.client - Disconnecting
+2026-06-10 22:33:39,563 - INFO - ibkr.core.market_data_worker - IBKR MarketDataWorker stopped
+2026-06-10 22:33:39,593 - INFO - ibkr.core.shutdown_manager - Shutdown: [save_chart_state] ✓
+2026-06-10 22:33:39,593 - INFO - ibkr.core.shutdown_manager - Shutdown: [stop_remaining_timers]…
+2026-06-10 22:33:39,608 - INFO - ibkr.core.shutdown_manager - Shutdown: [stop_remaining_timers] ✓
+2026-06-10 22:33:39,609 - INFO - ibkr.core.shutdown_manager - === Fast IBKR window-close shutdown complete ===
+2026-06-10 22:33:39,616 - INFO - __main__ - Skipping broker disconnect during fast window-close shutdown.
+2026-06-10 22:33:39,617 - INFO - __main__ - Cleanup complete.

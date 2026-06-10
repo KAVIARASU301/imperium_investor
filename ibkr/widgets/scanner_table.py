@@ -792,19 +792,21 @@ class ModernAddScanDialog(QDialog):
 class ModernManageScansDialog(QDialog):
     """Enhanced dialog for managing existing scans."""
 
-    def __init__(self, scans: List[Dict[str, str]], parent=None):
+    def __init__(self, scans: List[Dict[str, str]], parent=None, startup_scan_index: Optional[int] = None):
         super().__init__(parent)
         self.scans = scans.copy()
+        self.startup_scan_index = startup_scan_index
         self.last_selected_tag = self._load_last_selected_tag()
         self.setWindowTitle("Manage Finviz Scans")
         self.setModal(True)
-        self.setFixedSize(760, 500)
+        self.setFixedSize(760, 536)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self._drag_pos = None
         self._setup_ui()
         self._apply_styles()
         self._populate_scans()
+        self._populate_startup_scan_dropdown()
 
     def _setup_ui(self):
         # Main container
@@ -879,12 +881,35 @@ class ModernManageScansDialog(QDialog):
 
         container_layout.addWidget(self.scans_table)
 
+        startup_layout = QHBoxLayout()
+        startup_layout.setSpacing(8)
+
+        startup_label = QLabel("STARTUP SCAN")
+        startup_label.setObjectName("infoLabel")
+        startup_label.setToolTip("Optional scan to run automatically when IBKR mode starts")
+
+        self.startup_scan_dropdown = QComboBox()
+        self.startup_scan_dropdown.setObjectName("startupScanDropdown")
+        self.startup_scan_dropdown.setFixedHeight(24)
+        self.startup_scan_dropdown.setMinimumWidth(260)
+        self.startup_scan_dropdown.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.startup_scan_dropdown.currentIndexChanged.connect(self._on_startup_scan_changed)
+
+        startup_hint = QLabel("Choose a lightweight default, or disable startup scanning.")
+        startup_hint.setObjectName("infoLabel")
+
+        startup_layout.addWidget(startup_label)
+        startup_layout.addWidget(self.startup_scan_dropdown)
+        startup_layout.addWidget(startup_hint)
+        startup_layout.addStretch()
+        container_layout.addLayout(startup_layout)
+
         # Bottom buttons
         button_layout = QHBoxLayout()
         button_layout.setSpacing(6)
 
-        info_label = QLabel(f"SCANS: {len(self.scans)}")
-        info_label.setObjectName("infoLabel")
+        self.info_label = QLabel(f"SCANS: {len(self.scans)}")
+        self.info_label.setObjectName("infoLabel")
 
         cancel_btn = QPushButton("CANCEL")
         cancel_btn.setObjectName("secondaryMinimalButton")
@@ -894,7 +919,7 @@ class ModernManageScansDialog(QDialog):
         self.save_btn.setObjectName("primaryMinimalButton")
         self.save_btn.clicked.connect(self.accept)
 
-        button_layout.addWidget(info_label)
+        button_layout.addWidget(self.info_label)
         button_layout.addStretch()
         button_layout.addWidget(cancel_btn)
         button_layout.addWidget(self.save_btn)
@@ -962,6 +987,36 @@ class ModernManageScansDialog(QDialog):
         for row in range(len(self.scans)):
             self.scans_table.setRowHeight(row, _DIALOG_ROW_H)
 
+    def _populate_startup_scan_dropdown(self):
+        """Refresh the startup scan selector without launching scans."""
+        if not hasattr(self, "startup_scan_dropdown"):
+            return
+        current = self.get_startup_scan_index()
+        if current is None:
+            current = self.startup_scan_index
+
+        self.startup_scan_dropdown.blockSignals(True)
+        self.startup_scan_dropdown.clear()
+        self.startup_scan_dropdown.addItem("No startup scan", None)
+        for index, scan in enumerate(self.scans):
+            name = scan.get("name", f"Scan {index + 1}")
+            tag = scan.get("tag", "Others")
+            self.startup_scan_dropdown.addItem(f"{name}  ·  {tag}", index)
+
+        selected_dropdown_index = 0
+        if current is not None and 0 <= current < len(self.scans):
+            for dropdown_index in range(self.startup_scan_dropdown.count()):
+                if self.startup_scan_dropdown.itemData(dropdown_index) == current:
+                    selected_dropdown_index = dropdown_index
+                    break
+        self.startup_scan_dropdown.setCurrentIndex(selected_dropdown_index)
+        self.startup_scan_index = self.get_startup_scan_index()
+        self.startup_scan_dropdown.blockSignals(False)
+
+    def _on_startup_scan_changed(self):
+        """Remember the current startup scan choice inside the dialog only."""
+        self.startup_scan_index = self.get_startup_scan_index()
+
     def _available_scan_tags(self) -> List[str]:
         """Return default plus existing user-created scan groups for the tag picker."""
         tags: List[str] = []
@@ -1026,10 +1081,8 @@ class ModernManageScansDialog(QDialog):
             self._save_last_selected_tag(scan_data.get("tag", "Others"))
             self.scans.append(scan_data)
             self._populate_scans()
-            # Update info label
-            info_label = self.findChild(QLabel, "infoLabel")
-            if info_label:
-                info_label.setText(f"SCANS: {len(self.scans)}")
+            self._populate_startup_scan_dropdown()
+            self._update_scan_count_label()
 
     def _edit_scan(self, row: int):
         """Edit an existing scan at the given row."""
@@ -1048,6 +1101,7 @@ class ModernManageScansDialog(QDialog):
             self._save_last_selected_tag(scan_data.get("tag", "Others"))
             self.scans[row] = scan_data
             self._populate_scans()
+            self._populate_startup_scan_dropdown()
 
     def _delete_scan(self, row: int):
         """Delete a scan at the given row."""
@@ -1063,15 +1117,35 @@ class ModernManageScansDialog(QDialog):
 
             if reply.exec() == QMessageBox.StandardButton.Yes:
                 del self.scans[row]
+                if self.startup_scan_index == row:
+                    self.startup_scan_index = None
+                elif self.startup_scan_index is not None and self.startup_scan_index > row:
+                    self.startup_scan_index -= 1
                 self._populate_scans()
-                # Update info label
-                info_label = self.findChild(QLabel, "infoLabel")
-                if info_label:
-                    info_label.setText(f"SCANS: {len(self.scans)}")
+                self._populate_startup_scan_dropdown()
+                self._update_scan_count_label()
+
+    def _update_scan_count_label(self) -> None:
+        """Keep the dialog scan count aligned after add/delete actions."""
+        if hasattr(self, "info_label"):
+            self.info_label.setText(f"SCANS: {len(self.scans)}")
 
     def get_scans(self) -> List[Dict[str, str]]:
         """Return the modified scans list."""
         return self.scans
+
+    def get_startup_scan_index(self) -> Optional[int]:
+        """Return the selected startup scan index, or None when disabled."""
+        if not hasattr(self, "startup_scan_dropdown"):
+            return self.startup_scan_index
+        data = self.startup_scan_dropdown.currentData()
+        try:
+            index = int(data)
+        except (TypeError, ValueError):
+            return None
+        if 0 <= index < len(self.scans):
+            return index
+        return None
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -1417,12 +1491,25 @@ class FinvizScannerTable(QWidget):
                 self._set_dropdown_to_scan_index(last_selected)
                 self.scan_dropdown.blockSignals(False)
             if self._auto_run_scan:
-                self._run_current_scan()
+                self.start_initial_scan()
 
     def start_initial_scan(self) -> bool:
-        """Run the configured startup scan after host UI startup is complete."""
+        """Run only the configured startup scan after host UI startup is complete."""
         if not self.scans or self.is_scan_running():
             return False
+
+        startup_scan_index = self._load_startup_scan()
+        if startup_scan_index is None:
+            logger.info("IBKR scanner startup scan disabled; waiting for manual RUN")
+            return False
+        if startup_scan_index < 0 or startup_scan_index >= len(self.scans):
+            logger.warning("Configured startup scan index %s is invalid", startup_scan_index)
+            return False
+
+        self.scan_dropdown.blockSignals(True)
+        self._set_dropdown_to_scan_index(startup_scan_index)
+        self.scan_dropdown.blockSignals(False)
+        self._save_last_selected_scan(startup_scan_index)
         return self._run_current_scan()
 
     def _setup_ui(self):
@@ -2268,7 +2355,6 @@ class FinvizScannerTable(QWidget):
             return
 
         self._save_last_selected_scan(selected_scan_index)
-        self._run_current_scan()
 
     def _get_selected_scan_index(self) -> Optional[int]:
         """Map dropdown selection to actual self.scans index, skipping section headers."""
@@ -2309,6 +2395,28 @@ class FinvizScannerTable(QWidget):
             logger.warning(f"Failed to load scanner settings: {e}")
         return 0
 
+    def _save_startup_scan(self, index: Optional[int]):
+        """Persist the optional scan that is allowed to run on IBKR startup."""
+        try:
+            settings = self._load_scanner_settings()
+            settings["startup_scan"] = int(index) if index is not None else None
+            with open(SETTINGS_FILE, 'w') as f:
+                json.dump(settings, f, indent=2)
+        except Exception as e:
+            logger.warning(f"Failed to save scanner startup settings: {e}")
+
+    def _load_startup_scan(self) -> Optional[int]:
+        """Load the optional startup scan index, or None when startup scanning is disabled."""
+        try:
+            settings = self._load_scanner_settings()
+            value = settings.get("startup_scan")
+            if value is None or value == "":
+                return None
+            return int(value)
+        except Exception as e:
+            logger.warning(f"Failed to load scanner startup settings: {e}")
+        return None
+
     def _load_scanner_settings(self) -> Dict[str, Any]:
         """Load scanner settings dictionary from disk safely."""
         settings_dir = os.path.dirname(SETTINGS_FILE)
@@ -2322,10 +2430,11 @@ class FinvizScannerTable(QWidget):
 
     def _manage_scans(self):
         """Open the manage scans dialog."""
-        dialog = ModernManageScansDialog(self.scans, self)
+        dialog = ModernManageScansDialog(self.scans, self, startup_scan_index=self._load_startup_scan())
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.scans = dialog.get_scans()
             self._save_scans()
+            self._save_startup_scan(dialog.get_startup_scan_index())
 
             self.scan_dropdown.blockSignals(True)
             selected_scan_index = self._get_selected_scan_index()
@@ -2350,7 +2459,7 @@ class FinvizScannerTable(QWidget):
                 # Just clear the table and show a message to manually select/run
                 self.table.setRowCount(0)
                 self.table.insertRow(0)
-                item = QTableWidgetItem("Scans saved. Select a scan to run.")
+                item = QTableWidgetItem("Scans saved. Press RUN or open Scans List to launch a scan.")
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
                 self.table.setItem(0, 0, item)
                 for col in range(1, 4):
