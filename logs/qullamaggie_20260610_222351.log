@@ -151,3 +151,10 @@
 2026-06-10 22:25:06,551 - INFO - chart_engine.drawings - Saved global chart settings.
 2026-06-10 22:25:06,555 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol ARM
 2026-06-10 22:25:06,555 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: ARM (347 candles)
+2026-06-10 22:26:04,105 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data source=IBKR symbol=ARM interval=60minute from=2026-04-21T12:56:04.104917-04:00 to=2026-06-10T12:56:04.104917-04:00 dedicated_history=True
+2026-06-10 22:26:04,106 - INFO - chart_engine.core.ibkr_data_fetcher - Requesting IBKR historical data: ARM conId=653400472 bar=30 mins duration=50 D end=latest
+2026-06-10 22:26:05,433 - INFO - chart_engine.core.ibkr_data_fetcher - Chart data fetch complete source=IBKR symbol=ARM bars=347
+2026-06-10 22:26:05,466 - INFO - chart_engine.drawings - Loaded global chart settings.
+2026-06-10 22:26:05,467 - INFO - chart_engine.drawings - Saved global chart settings.
+2026-06-10 22:26:05,472 - INFO - ibkr.core.main_window - Ensured subscription for chart symbol ARM
+2026-06-10 22:26:05,473 - INFO - chart_engine.core.chart_widget - Chart seamlessly updated: ARM (347 candles)
