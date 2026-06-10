@@ -104,12 +104,6 @@ class PositionManager(QObject):
             self.positions_updated.emit(positions)
             self.partial_fill_symbols_updated.emit(set())
             self.day_pnl_updated.emit(day_pnl)
-            manager = getattr(self.main_window, "chart_lines_manager", None)
-            if manager and hasattr(manager, "sync_position_lines"):
-                try:
-                    manager.sync_position_lines(positions)
-                except Exception as exc:
-                    logger.error("Failed to sync IBKR chart position lines: %s", exc, exc_info=True)
             position_signature = tuple(
                 sorted(
                     (pos.symbol, int(pos.quantity), round(float(pos.avg_price), 4), int(pos.token or 0))

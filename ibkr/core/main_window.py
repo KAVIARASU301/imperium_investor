@@ -153,6 +153,11 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
         self._subscription_universe_keys: frozenset[str] = frozenset()
         self._position_subscription_keys: frozenset[str] = frozenset()
         self._ibkr_symbol_resolver: Optional[IBKRSymbolResolver] = None
+        # Some child widgets emit subscription signals while the UI is still
+        # being built.  Define the worker attribute before _setup_ui() so those
+        # early IBKR-mode signals are harmless until _init_background_workers()
+        # starts the dedicated market-data connection.
+        self.market_data_worker = None
 
 
         self.setWindowTitle("Swing Trader")
@@ -1053,6 +1058,7 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
             self.market_data_worker.market_data_type_changed.connect(self._on_market_data_type_changed)
             self._connect_position_worker_signals()
             self.market_data_worker.start()
+            self._schedule_subscription_rebuild()
         else:
             logger.warning("IB client not connected — market data worker not started")
             self.market_data_worker = None
@@ -1066,6 +1072,7 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
             self.market_data_worker.market_data_type_changed.connect(self._on_market_data_type_changed)
             self._connect_position_worker_signals()
             self.market_data_worker.start()
+            self._schedule_subscription_rebuild()
         else:
             logger.error("IB still not connected after retry")
 
@@ -1520,9 +1527,10 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
                 items = self.header_toolbar.configure_ticker_ws_subscriptions(getattr(self, "instrument_map", {}) or {})
             else:
                 items = self.header_toolbar.configure_ticker_ws_tokens(getattr(self, "instrument_map", {}) or {})
-            if items and self.market_data_worker:
-                self.market_data_worker.add_instruments(items)
-                self.market_data_worker.request_snapshots(items)
+            worker = getattr(self, "market_data_worker", None)
+            if items and worker:
+                worker.add_instruments(items)
+                worker.request_snapshots(items)
         except Exception as exc:
             logger.error(f"Failed to configure header ticker subscriptions: {exc}")
 
@@ -1872,6 +1880,7 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
             self.positions_table.mark_partial_symbols
         )
         self.position_manager.positions_updated.connect(self._schedule_position_subscription_rebuild)
+        self.position_manager.positions_updated.connect(self._sync_chart_position_lines)
         self.position_manager.positions_updated.connect(self._update_floating_positions_dialog)
         self.position_manager.day_pnl_updated.connect(self._on_day_pnl_updated)
         self.position_manager.position_sync_status_changed.connect(self.positions_table.set_sync_status)
@@ -2776,7 +2785,8 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
         # rows can be raw symbols before conId qualification, so pass rich
         # instrument dicts/strings for the watchlist and bare tokens for the
         # other consumers.
-        if self.market_data_worker:
+        worker = getattr(self, "market_data_worker", None)
+        if worker:
             universe_keys = frozenset(self._subscription_item_key(item) for item in all_instruments)
             if universe_keys == getattr(self, "_subscription_universe_keys", frozenset()):
                 logger.debug(
@@ -2789,8 +2799,8 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
             added_keys = universe_keys - previous_keys
             removed_keys = previous_keys - universe_keys
             token_keys = {str(token) for token in all_tokens}
-            self.market_data_worker.set_instruments(all_instruments)
-            self.market_data_worker.request_snapshots(all_instruments)
+            worker.set_instruments(all_instruments)
+            worker.request_snapshots(all_instruments)
             self._subscribed_tokens = set(all_tokens)
             self._subscription_universe_keys = universe_keys
             logger.info(
@@ -2841,9 +2851,10 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
             return
 
         try:
-            if self.market_data_worker and hasattr(self.market_data_worker, 'add_instruments'):
-                self.market_data_worker.add_instruments(instruments)
-                self.market_data_worker.request_snapshots(instruments)
+            worker = getattr(self, "market_data_worker", None)
+            if worker and hasattr(worker, 'add_instruments'):
+                worker.add_instruments(instruments)
+                worker.request_snapshots(instruments)
                 self._subscribed_tokens.update(
                     token for token in (self._token_from_subscription_item(item) for item in instruments) if token
                 )
@@ -3587,6 +3598,23 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
             self.floating_watchlist_dialog.set_watchlists(meta)
         except Exception as e:
             logger.error(f"Failed to sync floating watchlist dialog: {e}")
+
+
+    @Slot(list)
+    def _sync_chart_position_lines(self, positions: Optional[List[Any]] = None) -> None:
+        """Keep broker position lines in sync from the Qt/UI thread.
+
+        IBKR position refreshes can originate from ib_insync/background threads.
+        Routing the chart-line sync through MainWindow's Qt signal connection keeps
+        drawing refreshes and chart widget access on the GUI thread.
+        """
+        manager = getattr(self, "chart_lines_manager", None)
+        if not manager or not hasattr(manager, "sync_position_lines"):
+            return
+        try:
+            manager.sync_position_lines(list(positions or []))
+        except Exception as exc:
+            logger.error("Failed to sync IBKR chart position lines: %s", exc, exc_info=True)
 
     def _update_floating_positions_dialog(self, positions):
         """Sync latest positions into floating positions dialog if initialized."""
