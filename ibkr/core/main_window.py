@@ -1238,22 +1238,28 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
                         self.candlestick_chart_secondary.alert_line_deleted.connect(
                             self._on_alert_line_deleted_from_chart
                         )
-            if hasattr(self.candlestick_chart, 'stop_loss_price_updated'):
-                self.candlestick_chart.stop_loss_price_updated.connect(
-                    self._on_stop_loss_line_moved_from_chart
-                )
-            if hasattr(self.candlestick_chart, 'stop_loss_line_deleted'):
-                self.candlestick_chart.stop_loss_line_deleted.connect(
-                    self._on_stop_loss_line_deleted_from_chart
-                )
-            if hasattr(self.candlestick_chart, 'target_price_updated'):
-                self.candlestick_chart.target_price_updated.connect(
-                    self._on_target_line_moved_from_chart
-                )
-            if hasattr(self.candlestick_chart, 'target_line_deleted'):
-                self.candlestick_chart.target_line_deleted.connect(
-                    self._on_target_line_deleted_from_chart
-                )
+            for chart in (
+                self.candlestick_chart,
+                getattr(self, 'candlestick_chart_secondary', None),
+            ):
+                if chart is None:
+                    continue
+                if hasattr(chart, 'stop_loss_price_updated'):
+                    chart.stop_loss_price_updated.connect(
+                        self._on_stop_loss_line_moved_from_chart
+                    )
+                if hasattr(chart, 'stop_loss_line_deleted'):
+                    chart.stop_loss_line_deleted.connect(
+                        self._on_stop_loss_line_deleted_from_chart
+                    )
+                if hasattr(chart, 'target_price_updated'):
+                    chart.target_price_updated.connect(
+                        self._on_target_line_moved_from_chart
+                    )
+                if hasattr(chart, 'target_line_deleted'):
+                    chart.target_line_deleted.connect(
+                        self._on_target_line_deleted_from_chart
+                    )
 
     def _restore_alert_lines(self) -> None:
         """Redraw all active alert lines after chart is confirmed ready."""

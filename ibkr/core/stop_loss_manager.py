@@ -232,14 +232,32 @@ class StopLossManager(QObject):
         )
         return True
 
+    def _resolve_position_id_for_symbol_product(self, symbol: str, product: str) -> Optional[str]:
+        """Resolve an SL record key, falling back to the sole active record for a symbol.
+
+        IBKR position payloads may identify the same stock as STK, IBKR, or a
+        broker/account product string across refreshes. Chart-line drags and the
+        floating positions table should still address the same active SL.
+        """
+        symbol = str(symbol or "").strip().upper()
+        product = str(product or "STK").strip().upper()
+        exact = f"{symbol}:{product}"
+        if exact in self._active:
+            return exact
+        matches = [
+            pid for pid, rec in self._active.items()
+            if str(getattr(rec, "symbol", "")).strip().upper() == symbol
+        ]
+        return matches[0] if len(matches) == 1 else None
+
     def modify_stop_loss(self, symbol: str, new_sl_price: float,
                          product: str = "STK") -> bool:
         """Move an existing SL to a new price level."""
         symbol = str(symbol or "").strip().upper()
         product = str(product or "STK").strip().upper()
-        position_id = f"{symbol}:{product}"
         with QMutexLocker(self._mutex):
-            rec = self._active.get(position_id)
+            position_id = self._resolve_position_id_for_symbol_product(symbol, product)
+            rec = self._active.get(position_id) if position_id else None
         if not rec:
             return False
 
@@ -272,9 +290,9 @@ class StopLossManager(QObject):
         """Remove an active SL record without firing an order."""
         symbol = str(symbol or "").strip().upper()
         product = str(product or "STK").strip().upper()
-        position_id = f"{symbol}:{product}"
         with QMutexLocker(self._mutex):
-            removed = self._active.pop(position_id, None)
+            position_id = self._resolve_position_id_for_symbol_product(symbol, product)
+            removed = self._active.pop(position_id, None) if position_id else None
 
         if removed:
             self.store.cancel(position_id)
@@ -286,9 +304,9 @@ class StopLossManager(QObject):
     def get_sl_for(self, symbol: str, product: str = "STK") -> Optional[StopLossRecord]:
         symbol = str(symbol or "").strip().upper()
         product = str(product or "STK").strip().upper()
-        position_id = f"{symbol}:{product}"
         with QMutexLocker(self._mutex):
-            return self._active.get(position_id)
+            position_id = self._resolve_position_id_for_symbol_product(symbol, product)
+            return self._active.get(position_id) if position_id else None
 
     def get_all_active(self) -> List[StopLossRecord]:
         with QMutexLocker(self._mutex):

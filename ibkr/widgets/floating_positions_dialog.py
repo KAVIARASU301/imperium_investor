@@ -171,7 +171,7 @@ class _PosRow:
     token:     int
     ltp:       float = 0.0
     pnl:       float = 0.0
-    product:   str   = "MIS"
+    product:   str   = "STK"
 
     @property
     def chg_pct(self) -> float:
@@ -568,7 +568,7 @@ class FloatingPositionsDialog(QDialog):
                 token     = int(getattr(pos, "token", 0) or 0),
                 ltp       = float(getattr(pos, "ltp", 0) or 0),
                 pnl       = float(getattr(pos, "pnl", 0) or 0),
-                product   = str(getattr(pos, "product", "MIS") or "MIS"),
+                product   = str(getattr(pos, "product", "STK") or "STK"),
             )
             row.refresh_pnl()
             new_data[sym] = row

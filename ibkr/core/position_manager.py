@@ -26,7 +26,7 @@ class Position:
     pnl: float = 0.0
     day_unrealized: float = 0.0
     day_realized: float = 0.0
-    product: str = "IBKR"
+    product: str = "STK"
 
 
 class PositionManager(QObject):
@@ -104,6 +104,12 @@ class PositionManager(QObject):
             self.positions_updated.emit(positions)
             self.partial_fill_symbols_updated.emit(set())
             self.day_pnl_updated.emit(day_pnl)
+            manager = getattr(self.main_window, "chart_lines_manager", None)
+            if manager and hasattr(manager, "sync_position_lines"):
+                try:
+                    manager.sync_position_lines(positions)
+                except Exception as exc:
+                    logger.error("Failed to sync IBKR chart position lines: %s", exc, exc_info=True)
             position_signature = tuple(
                 sorted(
                     (pos.symbol, int(pos.quantity), round(float(pos.avg_price), 4), int(pos.token or 0))
@@ -379,7 +385,7 @@ class PositionManager(QObject):
             if worker and hasattr(worker, "get_last_price"):
                 ltp = float(worker.get_last_price(token or symbol) or 0.0)
 
-        product = str(self._field(pos_data, "product", "product_type", "secType", default="IBKR") or "IBKR")
+        product = str(self._field(pos_data, "product", "product_type", "secType", default="STK") or "STK")
         pnl_default = (ltp - avg_price) * quantity if ltp and avg_price and quantity else 0.0
 
         open_unrealized = self._first_float(

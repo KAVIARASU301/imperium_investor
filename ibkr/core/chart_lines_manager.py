@@ -523,6 +523,49 @@ class ChartLinesManager(QObject):
             logger.error(f"Error removing target line: {e}")
             return False
 
+    def set_position_line(self, symbol: str, quantity: int, avg_price: float) -> bool:
+        """Set the chart entry line to the exact broker position snapshot.
+
+        Unlike add_position_line(), this method is idempotent and is intended for
+        position-table reconciliation. Repeated REST/IBKR position refreshes must
+        not compound quantity or move the line away from the broker average.
+        """
+        try:
+            symbol = str(symbol or "").strip().upper()
+            quantity = int(quantity or 0)
+            avg_price = float(avg_price or 0.0)
+            if not symbol or quantity == 0 or avg_price <= 0:
+                return self.remove_position_line(symbol) if symbol else False
+
+            order_type = "BUY" if quantity > 0 else "SELL"
+            color = "#00FF00" if order_type == "BUY" else "#FF0000"
+            new_line = self._create_horizontal_ray_line(
+                price=avg_price, color=color, start_time=0, text="",
+                metadata={
+                    "lineCategory": "position",
+                    "quantity": abs(quantity),
+                    "orderType": order_type,
+                    "avgPrice": avg_price,
+                    "tradingMode": self._get_trading_mode(),
+                },
+            )
+
+            def _apply(d):
+                self._remove_existing_position_lines(d)
+                d["horizontal_rays"].append(new_line)
+
+            success = self._save_to_all_intervals(symbol, _apply)
+            if success:
+                self._refresh_chart()
+                logger.info(
+                    "Set position line for %s: %s %s @ %.2f",
+                    symbol, order_type, abs(quantity), avg_price,
+                )
+            return success
+        except Exception as e:
+            logger.error(f"Error setting position line: {e}")
+            return False
+
     def sync_position_lines(self, positions: List[Any]) -> None:
         """
         Ensure chart position lines exactly match the latest positions table.
@@ -533,25 +576,23 @@ class ChartLinesManager(QObject):
             active_symbols = set()
 
             for pos in positions or []:
-                symbol = getattr(pos, "symbol", "")
+                symbol = str(getattr(pos, "symbol", "") or "").strip().upper()
                 quantity = int(getattr(pos, "quantity", 0) or 0)
                 avg_price = float(getattr(pos, "avg_price", 0) or 0)
                 if not symbol or quantity == 0 or avg_price <= 0:
                     continue
 
                 active_symbols.add(symbol)
-                order_type = "BUY" if quantity > 0 else "SELL"
-                self.add_position_line(
+                self.set_position_line(
                     symbol=symbol,
-                    order_type=order_type,
-                    quantity=abs(quantity),
+                    quantity=quantity,
                     avg_price=avg_price,
                 )
 
             for fname in os.listdir(self.drawings_dir):
                 if not fname.endswith("_state.json"):
                     continue
-                symbol = fname.replace("_state.json", "").replace("_", "/")
+                symbol = fname.replace("_state.json", "").replace("_", "/").upper()
                 if symbol in active_symbols:
                     continue
 
