@@ -58,6 +58,8 @@ class ChartLinesManager(QObject):
         mode = self._get_trading_mode()
         self.drawings_dir = str(get_user_data_path("ibkr", mode, "chart_drawings"))
         os.makedirs(self.drawings_dir, exist_ok=True)
+        self._suspend_refresh = False
+        self._refresh_pending = False
         _recent_draws.clear()
         _lines_drawn_this_session.clear()
 
@@ -238,7 +240,7 @@ class ChartLinesManager(QObject):
             if success:
                 _mark_drawn(line_key)
                 _lines_drawn_this_session.add(line_key)
-                self._refresh_chart()
+                self._request_chart_refresh()
                 logger.info(f"Alert line drawn: {symbol} @ {price:.2f} (all intervals)")
             return success
 
@@ -295,7 +297,7 @@ class ChartLinesManager(QObject):
                 line_key = self._session_line_key(symbol, price)
                 _recent_draws.pop(line_key, None)
                 _lines_drawn_this_session.discard(line_key)
-                self._refresh_chart()
+                self._request_chart_refresh()
                 logger.info(f"Removed alert line for {symbol} at {price:.2f}")
             return success
         except Exception as e:
@@ -368,7 +370,7 @@ class ChartLinesManager(QObject):
 
             success = self._save_to_all_intervals(symbol, _apply, current_state=current_state)
             if success:
-                self._refresh_chart()
+                self._request_chart_refresh()
                 logger.info(
                     f"Updated position line for {symbol}: "
                     f"{normalized_order_type} {total_quantity} @ {final_avg_price:.2f}"
@@ -387,7 +389,7 @@ class ChartLinesManager(QObject):
 
             success = self._save_to_all_intervals(symbol, _apply)
             if success:
-                self._refresh_chart()
+                self._request_chart_refresh()
                 logger.info(f"Removed position line for {symbol}")
             return success
         except Exception as e:
@@ -430,7 +432,7 @@ class ChartLinesManager(QObject):
 
             success = self._save_to_all_intervals(symbol, _apply)
             if success:
-                self._refresh_chart()
+                self._request_chart_refresh()
                 logger.info("Updated stop-loss line for %s @ %.2f", symbol, sl_price)
             return success
         except Exception as e:
@@ -459,7 +461,7 @@ class ChartLinesManager(QObject):
 
             success = self._save_to_all_intervals(symbol, _apply)
             if success:
-                self._refresh_chart()
+                self._request_chart_refresh()
                 logger.info("Removed stop-loss line for %s", symbol)
             return success
         except Exception as e:
@@ -497,7 +499,7 @@ class ChartLinesManager(QObject):
 
             success = self._save_to_all_intervals(symbol, _apply)
             if success:
-                self._refresh_chart()
+                self._request_chart_refresh()
             return success
         except Exception as e:
             logger.error(f"Error adding target line: {e}")
@@ -517,7 +519,7 @@ class ChartLinesManager(QObject):
                 ]
             success = self._save_to_all_intervals(symbol, _apply)
             if success:
-                self._refresh_chart()
+                self._request_chart_refresh()
             return success
         except Exception as e:
             logger.error(f"Error removing target line: {e}")
@@ -539,6 +541,16 @@ class ChartLinesManager(QObject):
 
             order_type = "BUY" if quantity > 0 else "SELL"
             color = "#00FF00" if order_type == "BUY" else "#FF0000"
+            current_state = self._load_symbol_drawings(symbol)
+            existing_position = self._get_existing_position_info(current_state.get("drawings", {}))
+            if (
+                existing_position
+                and existing_position.get("order_type") == order_type
+                and int(existing_position.get("quantity", 0)) == abs(quantity)
+                and abs(float(existing_position.get("avg_price", 0.0)) - avg_price) < 0.01
+            ):
+                return True
+
             new_line = self._create_horizontal_ray_line(
                 price=avg_price, color=color, start_time=0, text="",
                 metadata={
@@ -556,7 +568,7 @@ class ChartLinesManager(QObject):
 
             success = self._save_to_all_intervals(symbol, _apply)
             if success:
-                self._refresh_chart()
+                self._request_chart_refresh()
                 logger.info(
                     "Set position line for %s: %s %s @ %.2f",
                     symbol, order_type, abs(quantity), avg_price,
@@ -572,6 +584,8 @@ class ChartLinesManager(QObject):
         Adds/updates lines for active positions and removes stale lines for symbols
         no longer present.
         """
+        was_suspended = self._suspend_refresh
+        self._suspend_refresh = True
         try:
             active_symbols = set()
 
@@ -602,6 +616,10 @@ class ChartLinesManager(QObject):
 
         except Exception as e:
             logger.error(f"Error syncing position lines with positions table: {e}")
+        finally:
+            self._suspend_refresh = was_suspended
+            if not self._suspend_refresh:
+                self._flush_deferred_refresh()
 
     def _get_existing_position_info(self, drawings: Dict) -> Optional[Dict]:
         try:
@@ -703,6 +721,20 @@ class ChartLinesManager(QObject):
     # CHART REFRESH  (waits for chart LOADED state before injecting)
     # ─────────────────────────────────────────────────────────────────────────
 
+    def _request_chart_refresh(self) -> None:
+        """Refresh the visible chart, or coalesce refreshes during bulk syncs."""
+        if self._suspend_refresh:
+            self._refresh_pending = True
+            return
+        self._refresh_chart()
+
+    def _flush_deferred_refresh(self) -> None:
+        """Run one chart refresh after a batch of drawing-file updates."""
+        if not self._refresh_pending:
+            return
+        self._refresh_pending = False
+        QTimer.singleShot(0, self._refresh_chart)
+
     def _refresh_chart(self, retry_count: int = 0) -> None:
         """
         Push updated drawings into the live chart.
@@ -766,7 +798,7 @@ class ChartLinesManager(QObject):
 
     def load_symbol_with_fresh_drawings(self, symbol: str) -> None:
         """Called by main_window when chart switches symbol."""
-        self._refresh_chart()
+        self._request_chart_refresh()
 
     def sync_lines_with_chart_symbol(self, symbol: str) -> None:
         """Sync alert and position lines when chart symbol changes."""
