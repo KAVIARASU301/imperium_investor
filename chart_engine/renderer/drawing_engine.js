@@ -1041,9 +1041,18 @@ class DrawingEngine {
                 const maxTime = Number.isFinite(this.cs.maxTime)
                     ? this.cs.maxTime
                     : this.cs.data?.[this.cs.data.length - 1]?.time;
-                if (Number.isFinite(minTime) && Number.isFinite(maxTime) &&
-                    (out.startTime < minTime || out.startTime > maxTime)) {
-                    return null;
+                const lineCategory = this._lineCategory(out);
+                const isHorizontalRay = out.type === 'horizontal_ray';
+                const isBrokerManagedRay = isHorizontalRay &&
+                    ['alert', 'position', 'stop_loss', 'target'].includes(lineCategory);
+
+                // Broker-managed chart lines are intentionally anchored in the
+                // past so the ray spans the whole visible chart.  Do not drop
+                // them just because the anchor is before the loaded history;
+                // timeToX() already clamps older anchors to the left edge.
+                if (Number.isFinite(minTime) && Number.isFinite(maxTime)) {
+                    if (out.startTime > maxTime) return null;
+                    if (out.startTime < minTime && !isHorizontalRay && !isBrokerManagedRay) return null;
                 }
                 if (out.endTime != null) out.endTime = Number(out.endTime);
                 if (out.endPrice != null) out.endPrice = Number(out.endPrice);

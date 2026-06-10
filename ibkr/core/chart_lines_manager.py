@@ -60,6 +60,11 @@ class ChartLinesManager(QObject):
         os.makedirs(self.drawings_dir, exist_ok=True)
         self._suspend_refresh = False
         self._refresh_pending = False
+        # Funnel all chart-widget refreshes through a Qt signal.  IBKR order,
+        # stop-loss, and position callbacks can originate from ib_insync worker
+        # threads; touching QWidget/QWebEngine objects directly from those
+        # threads can hard-crash the app without a Python traceback.
+        self.chart_refresh_requested.connect(self._refresh_chart)
         _recent_draws.clear()
         _lines_drawn_this_session.clear()
 
@@ -722,18 +727,25 @@ class ChartLinesManager(QObject):
     # ─────────────────────────────────────────────────────────────────────────
 
     def _request_chart_refresh(self) -> None:
-        """Refresh the visible chart, or coalesce refreshes during bulk syncs."""
+        """Refresh the visible chart, or coalesce refreshes during bulk syncs.
+
+        The signal indirection is intentional: callers may be running on an
+        ib_insync/background thread, while ``_refresh_chart`` reads visible
+        chart widgets and injects drawings into QWebEngine.  Emitting the
+        QObject signal lets Qt queue the slot back onto this manager's GUI
+        thread, preventing startup-time native crashes.
+        """
         if self._suspend_refresh:
             self._refresh_pending = True
             return
-        self._refresh_chart()
+        self.chart_refresh_requested.emit()
 
     def _flush_deferred_refresh(self) -> None:
         """Run one chart refresh after a batch of drawing-file updates."""
         if not self._refresh_pending:
             return
         self._refresh_pending = False
-        QTimer.singleShot(0, self._refresh_chart)
+        self.chart_refresh_requested.emit()
 
     def _refresh_chart(self, retry_count: int = 0) -> None:
         """
