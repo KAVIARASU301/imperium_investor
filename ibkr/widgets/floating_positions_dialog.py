@@ -172,6 +172,11 @@ class _PosRow:
     ltp:       float = 0.0
     pnl:       float = 0.0
     product:   str   = "STK"
+    stop_loss_price: float = 0.0
+    stop_loss_position_id: str = ""
+    stop_loss_type: str = ""
+    stop_loss_quantity: str = ""
+    trailing_stop_loss: bool = False
 
     @property
     def chg_pct(self) -> float:
@@ -569,6 +574,11 @@ class FloatingPositionsDialog(QDialog):
                 ltp       = float(getattr(pos, "ltp", 0) or 0),
                 pnl       = float(getattr(pos, "pnl", 0) or 0),
                 product   = str(getattr(pos, "product", "STK") or "STK"),
+                stop_loss_price=float(getattr(pos, "stop_loss_price", 0.0) or 0.0),
+                stop_loss_position_id=str(getattr(pos, "stop_loss_position_id", "") or ""),
+                stop_loss_type=str(getattr(pos, "stop_loss_type", "") or ""),
+                stop_loss_quantity=str(getattr(pos, "stop_loss_quantity", "") or ""),
+                trailing_stop_loss=bool(getattr(pos, "trailing_stop_loss", False)),
             )
             row.refresh_pnl()
             new_data[sym] = row
@@ -672,23 +682,19 @@ class FloatingPositionsDialog(QDialog):
     # ═══════════════════════════════════════════════════════════════════════
 
     def _get_sl_display(self, pos: _PosRow) -> tuple[str, str]:
-        """Returns (text, color) for the SL column."""
-        sl_mgr = self._get_sl_manager()
-        if not sl_mgr:
-            return "—", "#2a3a50"
-
-        rec = sl_mgr.get_sl_for(pos.symbol, pos.product)
-        if not rec:
+        """Returns (text, color) for the SL column from the persisted position row."""
+        sl_price = float(getattr(pos, "stop_loss_price", 0.0) or 0.0)
+        if sl_price <= 0:
             return "—", "#2a3a50"
 
         if pos.ltp > 0:
-            dist_pct = abs(pos.ltp - rec.sl_price) / pos.ltp * 100
+            dist_pct = abs(pos.ltp - sl_price) / pos.ltp * 100
             color = "#f59e0b" if dist_pct < 1.0 else "#5a7090"
         else:
             color = "#5a7090"
 
-        trail_mark = "⟳ " if rec.trailing_sl else ""
-        return f"{trail_mark}{rec.sl_price:.2f}", color
+        trail_mark = "⟳ " if getattr(pos, "trailing_stop_loss", False) else ""
+        return f"{trail_mark}{sl_price:.2f}", color
 
     def _write_row(self, row: int, pos: _PosRow):
         if row >= self.table.rowCount():

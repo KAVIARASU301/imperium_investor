@@ -199,6 +199,11 @@ class Position:
     product: str = "STK"
     prev_close: float = 0.0
     is_partial_building: bool = False
+    stop_loss_price: float = 0.0
+    stop_loss_position_id: str = ""
+    stop_loss_type: str = ""
+    stop_loss_quantity: str = ""
+    trailing_stop_loss: bool = False
 
     @classmethod
     def from_broker_position(cls, pos_data: Dict) -> "Position":
@@ -213,6 +218,11 @@ class Position:
             day_realized=float(pos_data.get("realised", pos_data.get("realized", pos_data.get("realized_pnl", pos_data.get("realizedPNL", pos_data.get("realizedPnL", 0))))) or 0),
             product=pos_data.get("product") or pos_data.get("product_type") or pos_data.get("secType") or "STK",
             prev_close=float(pos_data.get("prev_close", pos_data.get("previous_close", pos_data.get("close", 0))) or 0),
+            stop_loss_price=float(pos_data.get("stop_loss_price", pos_data.get("sl_price", 0)) or 0),
+            stop_loss_position_id=str(pos_data.get("stop_loss_position_id", "") or ""),
+            stop_loss_type=str(pos_data.get("stop_loss_type", "") or ""),
+            stop_loss_quantity=str(pos_data.get("stop_loss_quantity", "") or ""),
+            trailing_stop_loss=bool(pos_data.get("trailing_stop_loss", False)),
         )
 
 

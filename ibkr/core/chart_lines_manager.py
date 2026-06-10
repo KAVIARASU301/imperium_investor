@@ -608,6 +608,13 @@ class ChartLinesManager(QObject):
                     avg_price=avg_price,
                 )
 
+                stop_loss_price = float(getattr(pos, "stop_loss_price", 0.0) or 0.0)
+                stop_loss_position_id = str(getattr(pos, "stop_loss_position_id", "") or "")
+                if stop_loss_price > 0:
+                    self.add_stop_loss_line(symbol, stop_loss_price, stop_loss_position_id)
+                else:
+                    self.remove_stop_loss_line(symbol)
+
             for fname in os.listdir(self.drawings_dir):
                 if not fname.endswith("_state.json"):
                     continue

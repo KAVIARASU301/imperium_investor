@@ -1401,7 +1401,6 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
             return
 
         if self.sl_manager.modify_stop_loss(symbol, new_price, rec.product):
-            self.chart_lines_manager.add_stop_loss_line(symbol, float(new_price), rec.position_id)
             self._refresh_floating_positions_sl_values(symbol)
             show_info(f"Stop-loss updated: {symbol} @ ${new_price:.2f}")
             return
@@ -1432,23 +1431,27 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
             return
 
         if self.sl_manager.cancel_stop_loss(symbol, rec.product):
-            self.chart_lines_manager.remove_stop_loss_line(symbol, rec.position_id)
             self._refresh_floating_positions_sl_values(symbol)
             show_info(f"Stop-loss removed: {symbol}")
 
     def _refresh_floating_positions_sl_values(self, symbol: str = "") -> None:
-        """Refresh the floating positions SL column after SL-only changes."""
+        """Persist SL values onto position rows, then let position-driven sync refresh UI/chart state."""
+        positions = list(getattr(self.positions_table, 'positions_data', {}).values())
+        sl_manager = getattr(self, "sl_manager", None)
+        if sl_manager is not None and hasattr(sl_manager, "apply_stop_loss_values_to_positions"):
+            sl_manager.apply_stop_loss_values_to_positions(positions)
+
         dialog = getattr(self, "floating_positions_dialog", None)
-        if dialog is not None and hasattr(dialog, "refresh_stop_loss_values"):
+        if dialog is not None:
             try:
-                dialog.refresh_stop_loss_values(symbol)
-                return
+                if hasattr(dialog, "update_positions"):
+                    dialog.update_positions(positions)
+                elif hasattr(dialog, "refresh_stop_loss_values"):
+                    dialog.refresh_stop_loss_values(symbol)
             except Exception as exc:
                 logger.error(f"Failed to refresh floating positions SL cells: {exc}")
 
-        self._update_floating_positions_dialog(
-            getattr(self.positions_table, 'positions_data', {}).values()
-        )
+        self._sync_chart_position_lines(positions)
 
     @Slot(str)
     def _on_target_line_moved_from_chart(self, payload: str) -> None:
@@ -3672,57 +3675,45 @@ class QullamaggieWindow(CleanShutdownMixin, QMainWindow):
 
     @Slot(list)
     def _sync_chart_position_lines(self, positions: Optional[List[Any]] = None) -> None:
-        """Keep broker position lines in sync from the Qt/UI thread.
-
-        IBKR position refreshes can originate from ib_insync/background threads.
-        Routing the chart-line sync through MainWindow's Qt signal connection keeps
-        drawing refreshes and chart widget access on the GUI thread.
-        """
+        """Keep broker position and stop-loss lines in sync from persisted position rows."""
         manager = getattr(self, "chart_lines_manager", None)
         if not manager or not hasattr(manager, "sync_position_lines"):
             return
         try:
-            manager.sync_position_lines(list(positions or []))
+            position_rows = list(positions or [])
+            sl_manager = getattr(self, "sl_manager", None)
+            if sl_manager is not None and hasattr(sl_manager, "apply_stop_loss_values_to_positions"):
+                sl_manager.apply_stop_loss_values_to_positions(position_rows)
+            manager.sync_position_lines(position_rows)
         except Exception as exc:
             logger.error("Failed to sync IBKR chart position lines: %s", exc, exc_info=True)
 
     def _update_floating_positions_dialog(self, positions):
-        """Sync latest positions into floating positions dialog if initialized."""
+        """Sync latest persisted position rows into floating positions dialog if initialized."""
         if self.floating_positions_dialog is None:
             return
         try:
-            self.floating_positions_dialog.update_positions(list(positions))
+            position_rows = list(positions)
+            sl_manager = getattr(self, "sl_manager", None)
+            if sl_manager is not None and hasattr(sl_manager, "apply_stop_loss_values_to_positions"):
+                sl_manager.apply_stop_loss_values_to_positions(position_rows)
+            self.floating_positions_dialog.update_positions(position_rows)
         except Exception as e:
             logger.error(f"Failed to update floating positions dialog: {e}")
 
     def _on_stop_loss_set(self, symbol: str, sl_price: float) -> None:
-        """Draw/update stop-loss line immediately after SL set/modify/trailing updates."""
+        """Persist SL values onto position rows after set/modify/trailing updates."""
         try:
-            rec = self._find_stop_loss_record_for_chart_line(symbol.upper(), float(sl_price))
-            if rec:
-                self.chart_lines_manager.add_stop_loss_line(symbol, float(sl_price), rec.position_id)
-            else:
-                # Fallback: preserve existing behavior when record resolution is ambiguous.
-                self.chart_lines_manager.add_stop_loss_line(symbol, float(sl_price))
             self._refresh_floating_positions_sl_values(symbol)
         except Exception as e:
-            logger.error(f"Failed to draw stop-loss line for {symbol}: {e}")
+            logger.error(f"Failed to refresh stop-loss state for {symbol}: {e}")
 
     def _on_stop_loss_cancelled(self, symbol: str, *_args) -> None:
-        """Remove stop-loss line when SL is cancelled/triggered."""
+        """Clear persisted SL values from position rows after SL cancellation/trigger."""
         try:
-            self.chart_lines_manager.remove_stop_loss_line(symbol)
-            # If another SL remains active for the same symbol (e.g., different product),
-            # redraw it so one cancellation doesn't wipe unrelated SL lifecycle visuals.
-            remaining = [
-                rec for rec in self.sl_manager.get_all_active()
-                if str(rec.symbol).upper() == str(symbol).upper()
-            ]
-            for rec in remaining:
-                self.chart_lines_manager.add_stop_loss_line(symbol, float(rec.sl_price), rec.position_id)
             self._refresh_floating_positions_sl_values(symbol)
         except Exception as e:
-            logger.error(f"Failed to remove stop-loss line for {symbol}: {e}")
+            logger.error(f"Failed to refresh stop-loss state for {symbol}: {e}")
 
     def _refresh_order_history(self):
         """Handle order history refresh request"""

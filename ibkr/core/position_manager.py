@@ -27,6 +27,11 @@ class Position:
     day_unrealized: float = 0.0
     day_realized: float = 0.0
     product: str = "STK"
+    stop_loss_price: float = 0.0
+    stop_loss_position_id: str = ""
+    stop_loss_type: str = ""
+    stop_loss_quantity: str = ""
+    trailing_stop_loss: bool = False
 
 
 class PositionManager(QObject):

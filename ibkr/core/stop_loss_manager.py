@@ -752,6 +752,26 @@ class StopLossManager(QObject):
     # ═════════════════════════════════════════════════════════════════════
 
     @Slot(list)
+    def apply_stop_loss_values_to_positions(self, positions) -> None:
+        """Attach active stop-loss values to live position rows for downstream UI/chart sync."""
+        for pos in positions or []:
+            sym = str(getattr(pos, "symbol", "") or "").strip().upper()
+            prod = str(getattr(pos, "product", "STK") or "STK").strip().upper()
+            rec = self.get_sl_for(sym, prod) if sym else None
+            if rec:
+                setattr(pos, "stop_loss_price", float(rec.sl_price))
+                setattr(pos, "stop_loss_position_id", str(rec.position_id or ""))
+                setattr(pos, "stop_loss_type", str(rec.sl_type or "MARKET"))
+                setattr(pos, "stop_loss_quantity", str(rec.sl_quantity or "FULL"))
+                setattr(pos, "trailing_stop_loss", bool(rec.trailing_sl))
+            else:
+                setattr(pos, "stop_loss_price", 0.0)
+                setattr(pos, "stop_loss_position_id", "")
+                setattr(pos, "stop_loss_type", "")
+                setattr(pos, "stop_loss_quantity", "")
+                setattr(pos, "trailing_stop_loss", False)
+
+    @Slot(list)
     def sync_with_positions(self, positions) -> None:
         """
         Called by position_manager.positions_updated.
@@ -776,6 +796,8 @@ class StopLossManager(QObject):
             product = parts[1] if len(parts) > 1 else "STK"
             logger.info("Ghost SL removed (position closed externally): %s", symbol)
             self.cancel_stop_loss(symbol, product)
+
+        self.apply_stop_loss_values_to_positions(positions)
 
     # ═════════════════════════════════════════════════════════════════════
     # STARTUP RECOVERY
